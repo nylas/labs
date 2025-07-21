@@ -1,0 +1,317 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Blue Light Theme */
+    --background: 0 0% 100%;
+    --foreground: 220 13% 13%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 13%;
+    --border: 220 13% 91%;
+    --input: 0 0% 100%;
+    --primary: 217 91% 53%;        /* rgb(37, 99, 235) */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 13% 13%;
+    --accent: 220 14% 96%;
+    --accent-foreground: 220 13% 13%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 217 91% 53%;           /* rgb(37, 99, 235) */
+    --radius: 8px;
+    
+    /* Blue Brand Colors */
+    --nylas-primary: 217 91% 53%;   /* rgb(37, 99, 235) */
+    --nylas-secondary: 217 91% 60%; /* Lighter variant */
+    --nylas-tertiary: 217 91% 70%;  /* Even lighter variant */
+    --nylas-accent: 217 91% 85%;    /* Very light blue accent */
+  }
+
+  .dark {
+    /* Dark Gray Theme with Blue Accents */
+    --background: 220 13% 9%;       /* Dark gray background */
+    --foreground: 220 9% 95%;       /* Light gray text */
+    --muted: 220 13% 12%;           /* Slightly lighter dark gray */
+    --muted-foreground: 220 9% 65%; /* Medium gray text */
+    --popover: 220 13% 11%;         /* Dark gray popover */
+    --popover-foreground: 220 9% 95%;
+    --card: 220 13% 10%;            /* Dark gray cards */
+    --card-foreground: 220 9% 95%;
+    --border: 220 13% 20%;          /* Subtle border */
+    --input: 220 13% 12%;           /* Dark gray inputs */
+    --primary: 217 91% 53%;         /* rgb(37, 99, 235) - same in dark mode */
+    --primary-foreground: 0 0% 100%; /* White text on primary */
+    --secondary: 220 13% 15%;       /* Darker secondary */
+    --secondary-foreground: 220 9% 95%;
+    --accent: 220 13% 15%;          /* Darker accent */
+    --accent-foreground: 220 9% 95%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 217 91% 53%;            /* rgb(37, 99, 235) */
+    
+    /* Enhanced Blue for Dark Mode */
+    --nylas-primary: 217 91% 53%;   /* rgb(37, 99, 235) - same as light mode */
+    --nylas-secondary: 217 91% 60%; /* Lighter variant */
+    --nylas-tertiary: 217 91% 70%;  /* Even lighter variant */
+    --nylas-accent: 217 91% 85%;    /* Light blue accent */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-foreground;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+
+  h1 {
+    font-size: 2.25rem;
+    font-weight: 700;
+  }
+
+  h2 {
+    font-size: 1.875rem;
+  }
+
+  h3 {
+    font-size: 1.5rem;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-nylas {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.8));
+  }
+  
+  .text-gradient-nylas {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.8));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  
+  .shadow-nylas {
+    box-shadow: 0 10px 15px -3px hsl(var(--primary) / 0.15), 0 4px 6px -4px hsl(var(--primary) / 0.15);
+  }
+  
+  .border-nylas {
+    border-color: hsl(var(--primary));
+  }
+  
+  .ring-nylas {
+    --tw-ring-color: hsl(var(--primary));
+  }
+  
+  /* Accessibility utility classes */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  
+  .not-sr-only {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+  
+  /* Skip to main content link for keyboard navigation */
+  .skip-link {
+    position: absolute;
+    top: -40px;
+    left: 6px;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    padding: 8px;
+    text-decoration: none;
+    border-radius: 4px;
+    z-index: 1000;
+    transition: top 0.2s;
+  }
+  
+  .skip-link:focus {
+    top: 6px;
+  }
+}
+
+/* Enhanced Focus Styles for Accessibility */
+*:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Ensure focus is visible for keyboard navigation */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Improve focus visibility for buttons */
+button:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--primary));
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --border: 220 13% 50%;
+    --muted: 220 14% 85%;
+    --muted-foreground: 220 9% 25%;
+  }
+  
+  .dark {
+    --border: 220 13% 50%;
+    --muted: 220 13% 25%;
+    --muted-foreground: 220 9% 75%;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .animate-spin {
+    animation: none;
+  }
+}
+
+/* Form Elements */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  background: hsl(var(--input));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  transition: all 200ms ease-in-out;
+  
+  &:focus {
+    outline: none;
+    border-color: hsl(var(--nylas-primary));
+    box-shadow: 0 0 0 3px hsl(var(--nylas-primary) / 0.1);
+  }
+  
+  &::placeholder {
+    color: hsl(var(--muted-foreground));
+  }
+}
+
+/* Code blocks */
+code {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: "SF Mono", Monaco, Inconsolata, "Roboto Mono", Consolas, "Courier New", monospace;
+}
+
+pre {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  padding: 1rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-family: "SF Mono", Monaco, Inconsolata, "Roboto Mono", Consolas, "Courier New", monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Better links */
+a {
+  color: hsl(var(--nylas-tertiary));
+  text-decoration: none;
+  transition: color 150ms ease-in-out;
+}
+
+a:hover {
+  color: hsl(var(--nylas-accent));
+}
+
+/* Selection */
+::selection {
+  background: hsl(var(--nylas-primary));
+  color: hsl(var(--primary-foreground));
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted) / 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.8);
+}
+
+/* Loading spinner */
+.loading-spinner {
+  border-color: hsl(var(--muted-foreground));
+  border-top-color: hsl(var(--nylas-primary));
+}

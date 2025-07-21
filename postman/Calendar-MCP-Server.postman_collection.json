@@ -1,0 +1,705 @@
+{
+	"info": {
+		"_postman_id": "abcd1234-5678-9012-3456-789012345678",
+		"name": "Calendar MCP Server v0.4",
+		"description": "MCP Collection for Calendar Server with Enhanced Natural Language Date Parsing! 🗣️\n\nNEW FEATURES:\n✅ Natural Language Dates: Say 'tomorrow afternoon' or 'next week' instead of ISO formats\n✅ Three Flexible Patterns: Timeframe, Duration-based, and Precise control\n✅ Smart Boundary Inference: Automatic time boundaries for expressions like 'morning' or 'week'\n✅ Zero LLM Hallucinations: Server-side date parsing eliminates calculation errors\n✅ Automatic Timezone Detection: Uses your calendar's timezone settings\n\n⚠️ IMPORTANT - VALID vs INVALID Patterns:\n✅ VALID: \"tomorrow at 2pm\", \"next Monday\", \"January 15th\", \"in 2 weeks\", \"Friday at 9 AM\"\n❌ INVALID: \"work hours\", \"business hours\", \"lunch time\" (use specific times instead)\n\nIncludes OAuth authentication via Bot API - Get your JWT token from /auth/connect flow.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{user_jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "🔐 Authentication Setup",
+			"item": [
+				{
+					"name": "Get JWT Token (Manual OAuth)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{bot_api_base_url}}/api/auth/connect/redirect",
+							"host": [
+								"{{bot_api_base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"connect",
+								"redirect"
+							]
+						},
+						"description": "MANUAL STEP: Visit this URL in your browser to complete OAuth flow and get your JWT token. After completing OAuth, copy the api_key from the response and set it as the user_jwt_token environment variable."
+					},
+					"response": []
+				},
+				{
+					"name": "Bot API Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{bot_api_base_url}}/api/health",
+							"host": [
+								"{{bot_api_base_url}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						},
+						"description": "Verify Bot API is running and accessible"
+					},
+					"response": []
+				}
+			],
+			"description": "OAuth authentication setup and Bot API health checks"
+		},
+		{
+			"name": "🏥 Health & Status",
+			"item": [
+				{
+					"name": "MCP Server Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{mcp_base_url}}/api/health",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						},
+						"description": "Simple health check endpoint to verify MCP server is running and can connect to Bot API"
+					},
+					"response": []
+				}
+			],
+			"description": "Basic health and status endpoints"
+		},
+		{
+			"name": "🗣️ Natural Language Examples",
+			"item": [
+				{
+					"name": "My Availability - Timeframe Pattern",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"timeframe\": \"tomorrow afternoon\",\n      \"durationMin\": 60\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "🌟 NEW: Natural language timeframe parsing with duration control!\n\nUses 'tomorrow afternoon' which automatically infers:\n- Start: Tomorrow 1:00pm\n- End: Tomorrow 6:00pm\n- Duration: 60 minutes (finds 1-hour meeting slots)\n\nNo more ISO date calculations needed! Timezone is auto-detected from your calendar."
+					},
+					"response": []
+				},
+				{
+					"name": "Schedule Meeting - Start and End Times",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"schedule_meeting\",\n    \"arguments\": {\n      \"emails\": [\"hazik.a@nylas.com\"],\n      \"start\": \"next Monday at 2pm\",\n      \"end\": \"next Monday at 3pm\",\n      \"title\": \"Project sync with explicit start and end times\",\n      \"description\": \"Weekly team sync to discuss project progress and blockers\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "⏰ UPDATED: Start and end time scheduling!\n\nUses natural language for both times:\n- Start: 'next Monday at 2pm'\n- End: 'next Monday at 3pm'\n\nBoth start and end times are now required for explicit scheduling control."
+					},
+					"response": []
+				},
+				{
+					"name": "Find Mutual Slots - Next Week",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"mutual_slots\",\n    \"arguments\": {\n      \"emails\": [\"hazik.a@nylas.com\", \"aaron.demello@nylas.com\"],\n      \"timeframe\": \"next week\",\n      \"durationMin\": 30\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "🎯 NEW: Smart timeframe inference!\n\n'next week' automatically means:\n- Start: Next Monday 9:00am\n- End: Next Friday 5:00pm\n\nFinds 30-minute mutual slots using natural language timeframes. No more manual date calculations!"
+					},
+					"response": []
+				},
+				{
+					"name": "Interview Planning - This Friday",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"consecutive_slots\",\n    \"arguments\": {\n      \"sessions\": [\n        {\n          \"label\": \"HR Interview\",\n          \"emails\": [\"hr@nylas.com\"],\n          \"durationMin\": 30\n        },\n        {\n          \"label\": \"Technical Interview\",\n          \"emails\": [\"tech@nylas.com\"],\n          \"durationMin\": 60\n        },\n        {\n          \"label\": \"Manager Chat\",\n          \"emails\": [\"manager@nylas.com\"],\n          \"durationMin\": 45\n        }\n      ],\n      \"timeframe\": \"this Friday\",\n      \"gapMaxMin\": 15\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "📅 NEW: Natural language interview planning!\n\n'this Friday' automatically searches:\n- Start: This Friday 9:00am\n- End: This Friday 5:00pm\n\nFinds back-to-back slots for 3 interview sessions with max 15-minute gaps. Perfect for interview loops!"
+					},
+					"response": []
+				},
+				{
+					"name": "Schedule Meeting - Today at 5:15pm",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"schedule_meeting\",\n    \"arguments\": {\n      \"emails\": [\"hazik.a@nylas.com\"],\n      \"start\": \"today at 5:15 pm\",\n      \"end\": \"today at 5:20 pm\",\n      \"title\": \"Quick test for today at 5:15pm\",\n      \"description\": \"Test event for short meeting duration\",\n      \"timezone\": \"America/Toronto\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "Test scheduling a meeting for today at 5:15pm to 5:20pm in America/Toronto. Should result in a 5-minute event today, not a 24-hour+ event."
+					},
+					"response": []
+				}
+			],
+			"description": "🌟 NEW: Natural language date parsing examples showcasing the three flexible patterns"
+		},
+		{
+			"name": "📅 Standard MCP Actions",
+			"item": [
+				{
+					"name": "My Availability - ISO Format",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"start\": \"2025-06-07T09:00\",\n      \"end\": \"2025-06-07T17:00\",\n      \"timezone\": \"America/New_York\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "Check my own calendar availability using traditional ISO format. Still fully supported for precise control! The timezone parameter is optional and will auto-detect from your calendar settings if not provided."
+					},
+					"response": []
+				},
+				{
+					"name": "Contact Availability",
+					"event": [
+						{
+							"listen": "pre-request",
+							"script": {
+								"exec": [
+									"pm.environment.set('request_id', pm.variables.replaceIn('{{$guid}}'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-ID",
+								"value": "{{request_id}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"contact_availability\",\n    \"arguments\": {\n      \"email\": \"hazik.a@nylas.com\",\n      \"timeframe\": \"tomorrow\",\n      \"bufferMinutes\": 15\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "Check a specific contact's calendar availability using natural language. 'tomorrow' automatically infers a full day timeframe (9am-5pm) with a 15-minute buffer around meetings."
+					},
+					"response": []
+				}
+			],
+			"description": "All 7 MCP calendar actions with user JWT authentication"
+		},
+		{
+			"name": "🧪 Error Testing & Natural Language Validation",
+			"item": [
+				{
+					"name": "Unauthorized Request (No Token)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"timeframe\": \"tomorrow afternoon\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "Test unauthorized access - should return 401 error"
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid JWT Token",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "invalid_jwt_token_here",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"timeframe\": \"next week\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "Test invalid JWT token - should return 401 error"
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid Natural Language - Ambiguous Date",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"timeframe\": \"sometime next\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "🚨 NEW: Test ambiguous natural language parsing! Should return date_parse_error with helpful suggestions like 'next week', 'next Monday', 'tomorrow morning'."
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid Missing End Time",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"schedule_meeting\",\n    \"arguments\": {\n      \"emails\": [\"test@example.com\"],\n      \"start\": \"tomorrow at 2pm\",\n      \"summary\": \"Test Meeting\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "⏰ UPDATED: Test validation error when end time is missing! Should return error requiring both 'start' and 'end' times."
+					},
+					"response": []
+				},
+				{
+					"name": "LLM Null Handling - End Field",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"start\": \"2025-06-12T09:00:00\",\n      \"end\": null,\n      \"timezone\": \"America/Toronto\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "🤖 NEW: LLM null handling! Previously caused validation error when LLMs sent 'null' values. Now gracefully handles null by inferring end time from start. Shows improved LLM compatibility."
+					},
+					"response": []
+				},
+				{
+					"name": "Missing Required Pattern",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{user_jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"method\": \"call_tool\",\n  \"params\": {\n    \"name\": \"my_availability\",\n    \"arguments\": {\n      \"timezone\": \"America/New_York\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{mcp_base_url}}/mcp",
+							"host": [
+								"{{mcp_base_url}}"
+							],
+							"path": [
+								"mcp"
+							]
+						},
+						"description": "🎯 NEW: Test missing required pattern! Should return validation error: 'Must provide either timeframe OR both start and end'."
+					},
+					"response": []
+				}
+			],
+			"description": "Test error scenarios, authentication failures, and new natural language validation patterns"
+		}
+	],
+	"variable": [
+		{
+			"key": "mcp_base_url",
+			"value": "http://localhost:3002",
+			"type": "string"
+		},
+		{
+			"key": "bot_api_base_url", 
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "user_jwt_token",
+			"value": "your_jwt_token_from_oauth_here",
+			"type": "string"
+		}
+	]
+} 
