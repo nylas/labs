@@ -14,8 +14,7 @@ export async function GET() {
 
   try {
     const clerkIntegration = new ClerkIntegration();
-    const apiKey = await clerkIntegration.getNylasAccessToken(userId);
-    const nylas = new Nylas({ apiKey });
+    const nylas = await clerkIntegration.getUserNylasClient(userId);
     // Use Nylas SDK to get calendars
     const calendars = await nylas.calendars.list({ identifier: "me" });
     return NextResponse.json({ calendars });

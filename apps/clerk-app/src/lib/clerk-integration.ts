@@ -1,4 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
+import Nylas from "nylas";
 
 /**
  * Base error class for ClerkIntegration
@@ -51,6 +52,11 @@ export class ClerkIntegration {
 
   constructor(provider: `custom_${string}` = "custom_nylas") {
     this.provider = provider;
+  }
+
+  async getUserNylasClient(userId: string) {
+    const at = await this.getNylasAccessToken(userId);
+    return new Nylas({ apiKey: at });
   }
 
   /**
