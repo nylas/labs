@@ -1,55 +1,57 @@
-import { auth, clerkClient } from '@clerk/nextjs/server'
-import { NextResponse } from 'next/server'
+import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import {
+  ClerkIntegration,
+  ClerkIntegrationError,
+} from "@/lib/clerk-integration";
 
 export async function GET() {
-  const { userId } = await auth()
+  const { userId } = await auth();
 
   if (!userId) {
-    return NextResponse.json({ message: 'User not found' })
+    return NextResponse.json({ message: "User not found" }, { status: 401 });
   }
 
   try {
-  // Get the OAuth access token for the user
-  const provider = 'custom_nylas'
+    const clerkIntegration = new ClerkIntegration();
 
-  const client = await clerkClient()
+    // Clean, simple method call
+    const accessToken = await clerkIntegration.getUserOauthAccessToken(userId);
 
-  const clerkResponse = await client.users.getUserOauthAccessToken(userId, provider)
+    // Use the token with Nylas API
+    const nylasUrl = "https://api.us.nylas.com/v3/grants/me/calendars";
 
-  console.debug(clerkResponse)
+    const nylasResponse = await fetch(nylasUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
-  if (!clerkResponse.data) {
-    return NextResponse.json({ message: 'Access token not found' }, { status: 401 })
-  }
+    if (!nylasResponse.ok) {
+      throw new Error(`Nylas API error: ${nylasResponse.status}`);
+    }
 
-  // enssure we have some data
-  if (!clerkResponse.data || clerkResponse.data.length === 0) {
-    return NextResponse.json({ message: 'Access token not found' }, { status: 401 })
-  }
+    const nylasData = await nylasResponse.json();
 
-  const accessToken = clerkResponse.data[0].token || ''
-
-  if (!accessToken) {
-    return NextResponse.json({ message: 'Access token not found' }, { status: 401 })
-  }
-
-  // Fetch the user data from the Notion API
-  // This endpoint fetches a list of users
-  // https://developers.notion.com/reference/get-users
-  const nylasUrl = 'https://api.us.nylas.com/v3/grants/me/calendars'
-
-  const nylasResponse = await fetch(nylasUrl, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  })
-
-  // Handle the response from the Notion API
-  const nylasData = await nylasResponse.json()
-
-    return NextResponse.json({ nylasData })
+    return NextResponse.json({ nylasData });
   } catch (error) {
-    console.error(error)
-    return NextResponse.json({ message: 'Error fetching Nylas data' }, { status: 500 })
+    console.error("API Error:", error);
+
+    // Handle our custom errors
+    if (error instanceof ClerkIntegrationError) {
+      return NextResponse.json(
+        {
+          message: error.message,
+          code: error.name,
+        },
+        { status: error.status },
+      );
+    }
+
+    // Handle other errors
+    return NextResponse.json(
+      { message: "Internal server error" },
+      { status: 500 },
+    );
   }
 }
