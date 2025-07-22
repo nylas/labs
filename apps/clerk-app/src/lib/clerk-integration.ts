@@ -47,33 +47,33 @@ export class ClerkApiError extends ClerkIntegrationError {
  * ClerkIntegration class to handle OAuth token retrieval
  */
 export class ClerkIntegration {
-  private provider: string;
+  private provider: `custom_${string}`;
 
-  constructor(provider: string = "oauth_custom_nylas") {
+  constructor(provider: `custom_${string}` = "custom_nylas") {
     this.provider = provider;
   }
 
   /**
    * Get OAuth access token for a user and provider
    */
-  async getUserOauthAccessToken(userId: string): Promise<string> {
+  async getNylasAccessToken(userId: string): Promise<string> {
     try {
       const client = await clerkClient();
 
-      const response = await client.users.getUserOauthAccessToken(
+      const { data } = await client.users.getUserOauthAccessToken(
         userId,
-        this.provider as any, // Type assertion for custom providers
+        this.provider,
       );
 
-      if (!response.data) {
+      if (!data) {
         throw new ProviderNotConnectedError(this.provider);
       }
 
-      if (!response.data || response.data.length === 0) {
+      if (!data || data.length === 0) {
         throw new ProviderNotConnectedError(this.provider);
       }
 
-      const accessToken = response.data[0]?.token;
+      const accessToken = data[0]?.token;
 
       if (!accessToken) {
         throw new TokenNotFoundError();
@@ -85,17 +85,9 @@ export class ClerkIntegration {
       if (error instanceof ClerkIntegrationError) {
         throw error;
       }
-
       // Handle other errors
       console.error("Clerk API Error:", error);
       throw new ClerkApiError("Failed to retrieve OAuth access token");
     }
-  }
-
-  /**
-   * Convenience method for Nylas OAuth tokens
-   */
-  async getNylasAccessToken(userId: string): Promise<string> {
-    return this.getUserOauthAccessToken(userId);
   }
 }

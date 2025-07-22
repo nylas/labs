@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import Nylas from "nylas";
 import {
   ClerkIntegration,
   ClerkIntegrationError,
@@ -7,37 +8,20 @@ import {
 
 export async function GET() {
   const { userId } = await auth();
-
   if (!userId) {
     return NextResponse.json({ message: "User not found" }, { status: 401 });
   }
 
   try {
     const clerkIntegration = new ClerkIntegration();
-
-    // Clean, simple method call
-    const accessToken = await clerkIntegration.getUserOauthAccessToken(userId);
-
-    // Use the token with Nylas API
-    const nylasUrl = "https://api.us.nylas.com/v3/grants/me/calendars";
-
-    const nylasResponse = await fetch(nylasUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!nylasResponse.ok) {
-      throw new Error(`Nylas API error: ${nylasResponse.status}`);
-    }
-
-    const nylasData = await nylasResponse.json();
-
-    return NextResponse.json({ nylasData });
+    const apiKey = await clerkIntegration.getNylasAccessToken(userId);
+    const nylas = new Nylas({ apiKey });
+    // Use Nylas SDK to get calendars
+    const calendars = await nylas.calendars.list({ identifier: "me" });
+    return NextResponse.json({ calendars });
   } catch (error) {
     console.error("API Error:", error);
-
-    // Handle our custom errors
+    // NICE error handling for the integration
     if (error instanceof ClerkIntegrationError) {
       return NextResponse.json(
         {
@@ -47,7 +31,6 @@ export async function GET() {
         { status: error.status },
       );
     }
-
     // Handle other errors
     return NextResponse.json(
       { message: "Internal server error" },
