@@ -4,7 +4,6 @@ import Cookies from "cookies";
 
 // Clerk JWKS URL - with fallback to Backend API
 const CLERK_FRONTEND_API = process.env.CLERK_FRONTEND_API;
-console.log(`Using CLERK_FRONTEND_API: ${CLERK_FRONTEND_API}`);
 const CLERK_JWKS_URL = `${CLERK_FRONTEND_API}/.well-known/jwks.json`;
 
 console.log(`Using JWKS URL: ${CLERK_JWKS_URL}`);
