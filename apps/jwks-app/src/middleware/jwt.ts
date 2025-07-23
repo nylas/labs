@@ -4,14 +4,10 @@ import Cookies from "cookies";
 
 // Clerk JWKS URL - with fallback to Backend API
 const CLERK_FRONTEND_API = process.env.CLERK_FRONTEND_API;
-const CLERK_JWKS_URL = CLERK_FRONTEND_API
-  ? `${CLERK_FRONTEND_API}/.well-known/jwks.json`
-  : "https://api.clerk.com/v1/jwks";
+console.log(`Using CLERK_FRONTEND_API: ${CLERK_FRONTEND_API}`);
+const CLERK_JWKS_URL = `${CLERK_FRONTEND_API}/.well-known/jwks.json`;
 
 console.log(`Using JWKS URL: ${CLERK_JWKS_URL}`);
-
-// Permitted origins for azp claim validation
-const PERMITTED_ORIGINS = ["http://localhost:3000", "https://example.com"];
 
 // Create JWKS instance
 const JWKS = createRemoteJWKSet(new URL(CLERK_JWKS_URL));
@@ -59,7 +55,6 @@ export const validateJWT = async (
 
     // Verify the JWT using Clerk's JWKS
     const { payload } = await jwtVerify(token, JWKS, {
-      issuer: CLERK_FRONTEND_API || undefined,
       algorithms: ["RS256"],
     });
 

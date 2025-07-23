@@ -1,4 +1,7 @@
-import "dotenv/config";
+import { config } from "dotenv";
+// Load environment variables from .env.local and .env files
+config({ path: ".env.local" });
+config({ path: ".env" });
 import express, { Request, Response } from "express";
 import { validateJWT } from "./middleware/jwt";
 
