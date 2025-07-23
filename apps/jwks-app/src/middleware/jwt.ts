@@ -57,20 +57,6 @@ export const validateJWT = async (
       algorithms: ["RS256"],
     });
 
-    // Validate token's expiration (exp) and not before (nbf) claims
-    const currentTime = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < currentTime) {
-      throw new Error("Token is expired");
-    }
-    if (payload.nbf && payload.nbf > currentTime) {
-      throw new Error("Token is not yet valid");
-    }
-
-    // // Validate the token's authorized party (azp) claim
-    // if (payload.azp && !PERMITTED_ORIGINS.includes(payload.azp as string)) {
-    //   throw new Error(`Invalid 'azp' claim: ${payload.azp}`);
-    // }
-
     // Attach user data to request object
     req.user = {
       id: payload.sub as string,
