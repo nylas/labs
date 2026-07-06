@@ -1,25 +1,24 @@
 {
-  "name": "mcp-monorepo",
-  "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
-  "scripts": {
-    "lint": "npm run lint --workspaces",
-    "test": "npm run test --workspaces",
-    "build": "npm run build --workspaces",
-    "dev": "npm run dev --workspace=@nylas/mcp-bot-api",
-    "dev:deps": "docker-compose up -d",
-    "dev:deps:ui": "docker-compose --profile ui up -d",
-    "dev:deps:down": "docker-compose down",
-    "dev:logs": "docker-compose logs -f",
-    "dev:full": "npm run dev:deps && npm run dev"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.1.1",
-    "@types/node": "^24.0.1",
-    "eslint": "^8.56.0",
-    "prettier": "^3.2.4",
-    "typescript": "^5.4.0"
-  }
+	"name": "nylas-labs",
+	"private": true,
+	"packageManager": "pnpm@10.12.1",
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"scripts": {
+		"build": "turbo build",
+		"dev": "turbo dev",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"test": "turbo test",
+		"typecheck": "turbo typecheck",
+		"changeset": "changeset",
+		"release": "turbo build && changeset publish"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.1.0",
+		"@changesets/cli": "^2.29.0",
+		"turbo": "^2.5.0",
+		"typescript": "^5.8.0"
+	}
 }

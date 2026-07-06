@@ -1,0 +1,18 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// Placeholder config used at build time and local dev. `ownmail` (the CLI)
+	// patches name, kv id, and vars when materializing a user deploy.
+	"name": "ownmail-template",
+	"compatibility_date": "2026-06-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": "@tanstack/react-start/server-entry",
+	"kv_namespaces": [{ "binding": "SESSIONS", "id": "00000000000000000000000000000000" }],
+	"vars": {
+		"NYLAS_CLIENT_ID": "dev-client-id",
+		"NYLAS_REGION": "us",
+		"APP_NAME": "ownmail-dev",
+		"INBOX_EMAIL": "",
+		"TEMPLATE_VERSION": "0.1.0"
+	},
+	"observability": { "enabled": true }
+}
