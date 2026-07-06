@@ -8,6 +8,16 @@
 
 ## Create your inbox + app
 
+From this repository:
+
+```bash
+pnpm install
+pnpm --filter ownmail build
+node labs/ownmail/packages/cli/dist/index.js
+```
+
+If the CLI is installed from npm, run:
+
 ```bash
 npx ownmail
 ```
@@ -29,16 +39,19 @@ Log in with your inbox email + password. That's it.
 
 | Command | What it does |
 |---|---|
-| `npx ownmail` | Create — or resume — a project (safe to re-run any time) |
-| `npx ownmail status` | Show your projects |
-| `npx ownmail update` | Redeploy with the latest app version (settings survive) |
-| `npx ownmail doctor` | Health-check everything and fix what it can |
-| `npx ownmail grants` | List the inboxes on your Nylas app |
-| `npx ownmail eject [dir]` | Get the full source code and own it from there |
-| `npx ownmail inbox add` | Add another address on your domain (up to 5 on sandbox) |
-| `npx ownmail rotate-key` | Rotate the API key your app uses, zero downtime |
-| `npx ownmail app-domain mail.you.com` | Serve the app on your own domain (zone on your Cloudflare) |
-| `npx ownmail destroy` | Delete the deployed app (mail and inbox are kept) |
+| `ownmail` | Create — or resume — a project (safe to re-run any time) |
+| `ownmail status` | Show your projects |
+| `ownmail update` | Redeploy with the latest app version (settings survive) |
+| `ownmail doctor` | Health-check everything and fix what it can |
+| `ownmail grants` | List the inboxes on your Nylas app |
+| `ownmail eject [dir]` | Get the full source code and own it from there |
+| `ownmail inbox add` | Add another address on your domain (up to 5 on sandbox) |
+| `ownmail rotate-key` | Rotate the API key your app uses, zero downtime |
+| `ownmail app-domain mail.you.com` | Serve the app on your own domain (zone on your Cloudflare) |
+| `ownmail destroy` | Delete the deployed app (mail and inbox are kept) |
+
+When running from source, replace `ownmail` with
+`node labs/ownmail/packages/cli/dist/index.js`.
 
 ## Mail apps (IMAP/SMTP)
 

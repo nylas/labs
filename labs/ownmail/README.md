@@ -4,66 +4,99 @@
 
 **Your inbox. Your domain. No per-seat fees.**
 
-> 🧪 **Experiment** — try it, break it, [tell us what you
-> think](https://github.com/nylas/labs/discussions). Community traction decides
-> whether OwnMail graduates into a fully supported Nylas product.
+> Experiment — try it, share feedback, and expect APIs or workflows to change
+> while the project develops.
+
+OwnMail deploys a mailbox and calendar app to your Cloudflare account, powered by
+[Nylas Agent Accounts](https://developer.nylas.com/docs/v3/agent-accounts/).
+
+From this repository:
+
+```bash
+pnpm install
+pnpm --filter ownmail build
+node labs/ownmail/packages/cli/dist/index.js
+```
+
+After the CLI is published to npm, you can run the same setup flow with:
 
 ```bash
 npx ownmail
 ```
 
-One command takes you from nothing to a live, self-hosted mailbox + calendar app on
-your own Cloudflare account, powered by [Nylas Agent Accounts](https://developer.nylas.com/docs/v3/agent-accounts/):
+The setup wizard walks you through sign-in, inbox creation, domain setup, and
+deployment. You can re-run the CLI at any time; setup steps are resumable.
 
-1. Sign in (or sign up) to Nylas via browser SSO — no copy-pasting tokens
-2. A free sandbox app + API key are provisioned automatically
-3. Pick a free `you.nylas.email` subdomain, or bring your own domain
-4. Choose your address (`contact@…`) and get a strong inbox password
-5. The app deploys to your Cloudflare account (free tier works)
-6. Log into your new inbox via Nylas Hosted Auth
+## What You Need
 
-Re-run `npx ownmail` any time — every step is resumable and idempotent.
+- Node.js 20+
+- A Nylas account
+- A Cloudflare account
+- A domain you control, or a free `nylas.email` subdomain created during setup
+
+## What Gets Created
+
+1. A Nylas application and API key for your mailbox app
+2. A mailbox address, such as `contact@your-domain.com`
+3. A generated inbox password, shown once during setup
+4. A Cloudflare Workers deployment for the web app
+5. The required callback and app configuration for sign-in
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `ownmail` | Create or resume an OwnMail deployment |
+| `ownmail status` | Show your OwnMail projects |
+| `ownmail update` | Redeploy the latest app version |
+| `ownmail doctor` | Check configuration and repair common issues |
+| `ownmail grants` | List inboxes connected to your Nylas app |
+| `ownmail eject [dir]` | Copy the app source into a directory you control |
+| `ownmail inbox add` | Add another address on your domain |
+| `ownmail rotate-key` | Rotate the API key used by the app |
+| `ownmail app-domain mail.example.com` | Serve the app on your own domain |
+| `ownmail destroy` | Remove the deployed app without deleting mail data |
+
+When running from source, replace `ownmail` with
+`node labs/ownmail/packages/cli/dist/index.js`.
 
 ## Packages
 
-| Package | What |
+| Package | What it contains |
 |---|---|
-| `packages/cli` (`ownmail` on npm) | The step-machine CLI: provisioning, Cloudflare deploy, update/eject |
-| `packages/template` (`@ownmail/template`) | The deployed app: TanStack Start SSR on Cloudflare Workers, Tailwind v4 |
+| `packages/cli` (`ownmail`) | The command-line setup and deployment workflow |
+| `packages/template` (`@ownmail/template`) | The mailbox and calendar app deployed by the CLI |
 
-## Architecture notes
+## Security And Data Handling
 
-- **Auth to Nylas dashboard**: SSO device-authorization flow against
-  `dashboard-account` with DPoP-bound (Ed25519) tokens.
-- **Apps/keys/grants** go through the dashboard api-gateway GraphQL;
-  **domains** go through dashboard-account REST (`/orgs/inbox/domains/*`).
-- **End-user login**: Nylas Hosted Auth with `provider=nylas` + PKCE
-  (no client secret in the deployed worker).
-- **Security invariant**: the deployed app resolves `grant_id` from its
-  server-side KV session only — never from client input. Email HTML renders in
-  sandboxed iframes.
-- **Secrets** (`NYLAS_API_KEY`, `SESSION_SECRET`) exist only as Cloudflare
-  Worker secrets; the CLI holds them transiently during a run, then scrubs.
+- OwnMail uses browser-based sign-in for Nylas and Cloudflare setup.
+- App secrets, including the Nylas API key and session secret, are stored as
+  Cloudflare Worker secrets.
+- The deployed app resolves the active inbox from the server-side session,
+  not from client-provided identifiers.
+- Email HTML is rendered in sandboxed frames.
+- Do not commit generated secrets, inbox passwords, `.env` files, or exported
+  deployment credentials.
 
-## Status (feature-complete, pre-publish)
+## Deploying To Vercel
 
-Complete: resumable create → deploy step machine; branded + custom domains
-(availability check, DNS table, verify polling); update / eject / doctor /
-grants / login / destroy / status / inbox add / rotate-key / app-domain
-commands; Gmail-style mail (thread list/view, compose with contact
-autocomplete, reply, drafts with autosave, search, attachments,
-archive/trash/star/unread, quota banners); calendar month/week/day with event
-create/edit/delete and RSVP; webhook-backed near-realtime (10s version
-polling); **Cloudflare Workers + Vercel build targets** (KV or stateless
-signed-cookie sessions); CI per-lab pipelines; developer.nylas.com cookbook
-page (branch `ad-TW-5790-ownmail-cookbook`). Tracked under JIRA **TW-5790**.
+The app template also includes a Vercel build target. From an ejected project:
 
-Awaiting humans: npm publish (no npm credentials on this machine — verified
-401), live end-to-end run (needs UAS branch `ps/agent-account-hosted-auth`
-deployed + real SSO/Cloudflare accounts), repo push (no git remote configured
-yet).
+```bash
+pnpm build:vercel
+vercel deploy --prebuilt
+```
 
-## Platform dependency
+Set the environment variables from `template.json` in your Vercel project. Add
+your deployed Vercel callback URL to your Nylas application before using sign-in.
 
-End-user login requires the UAS `provider=nylas` hosted-auth screen
-(branch `ps/agent-account-hosted-auth`) to be merged and deployed.
+## Local Development
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+pnpm lint
+```
+
+Node.js 20+ and pnpm 10+ are required.
