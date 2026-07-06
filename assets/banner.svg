@@ -1,0 +1,64 @@
+<svg width="1280" height="400" viewBox="0 0 1280 400" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Labs — Tomorrow’s products, shipped in public.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b0b12"/>
+      <stop offset="1" stop-color="#101024"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.82" cy="0.15" r="0.9">
+      <stop offset="0" stop-color="#4f46e5" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#2563eb" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#0b0b12" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.5" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#e879f9"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="400" fill="url(#bg)"/>
+  <rect width="1280" height="400" fill="url(#glow)"/>
+
+  <!-- grid -->
+  <g stroke="#ffffff" stroke-opacity="0.045">
+    <line x1="80" y1="0" x2="80" y2="400"/>
+    <line x1="160" y1="0" x2="160" y2="400"/>
+    <line x1="240" y1="0" x2="240" y2="400"/>
+    <line x1="320" y1="0" x2="320" y2="400"/>
+    <line x1="400" y1="0" x2="400" y2="400"/>
+    <line x1="480" y1="0" x2="480" y2="400"/>
+    <line x1="560" y1="0" x2="560" y2="400"/>
+    <line x1="640" y1="0" x2="640" y2="400"/>
+    <line x1="720" y1="0" x2="720" y2="400"/>
+    <line x1="800" y1="0" x2="800" y2="400"/>
+    <line x1="880" y1="0" x2="880" y2="400"/>
+    <line x1="960" y1="0" x2="960" y2="400"/>
+    <line x1="1040" y1="0" x2="1040" y2="400"/>
+    <line x1="1120" y1="0" x2="1120" y2="400"/>
+    <line x1="1200" y1="0" x2="1200" y2="400"/>
+    <line x1="0" y1="80" x2="1280" y2="80"/>
+    <line x1="0" y1="160" x2="1280" y2="160"/>
+    <line x1="0" y1="240" x2="1280" y2="240"/>
+    <line x1="0" y1="320" x2="1280" y2="320"/>
+  </g>
+
+  <!-- flask mark -->
+  <g transform="translate(96,96)">
+    <path d="M24 0h32v10h-6v28l30 62a14 14 0 0 1-12.6 20H12.6A14 14 0 0 1 0 100l30-62V10h-6V0z"
+      fill="none" stroke="url(#beam)" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M18 76h44l12 26a6 6 0 0 1-5.4 8H11.4a6 6 0 0 1-5.4-8l12-26z" fill="url(#beam)" fill-opacity="0.85"/>
+    <circle cx="34" cy="58" r="5" fill="#22d3ee"/>
+    <circle cx="48" cy="44" r="3.5" fill="#818cf8"/>
+  </g>
+
+  <text x="220" y="128" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+    font-size="26" font-weight="600" letter-spacing="10" fill="#8b8ba7">NYLAS</text>
+  <text x="216" y="216" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+    font-size="84" font-weight="800" letter-spacing="-2" fill="#f4f4f8">Labs</text>
+  <text x="220" y="272" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+    font-size="30" font-weight="500" fill="#a5a5c0">Tomorrow’s products, shipped in public.</text>
+
+  <rect x="220" y="308" width="560" height="4" rx="2" fill="url(#beam)"/>
+  <text x="220" y="356" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+    font-size="22" fill="#6e6e8f">github.com/nylas/labs</text>
+</svg>

@@ -13,7 +13,9 @@
 		"test": "turbo test",
 		"typecheck": "turbo typecheck",
 		"changeset": "changeset",
-		"release": "turbo build && changeset publish"
+		"release": "turbo build && changeset publish",
+		"create-lab": "node scripts/create-lab.mjs",
+		"banner": "node scripts/create-banner.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.1.0",

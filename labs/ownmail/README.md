@@ -1,6 +1,12 @@
+<img src="./assets/banner.svg" alt="OwnMail — your inbox, your domain, no per-seat fees" width="100%" />
+
 # OwnMail
 
 **Your inbox. Your domain. No per-seat fees.**
+
+> 🧪 **Experiment** — try it, break it, [tell us what you
+> think](https://github.com/nylas/labs/discussions). Community traction decides
+> whether OwnMail graduates into a fully supported Nylas product.
 
 ```bash
 npx ownmail

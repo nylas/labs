@@ -1,0 +1,31 @@
+name: 🧪 Lab proposal
+description: Pitch the product you wish Nylas shipped
+labels: ["lab-proposal"]
+body:
+  - type: input
+    id: pitch
+    attributes:
+      label: The one-liner
+      description: Sell it in a sentence, like "Your inbox. Your domain. No per-seat fees."
+      placeholder: "npx <your-idea> — …"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Who is stuck today, and on what?
+      description: The person, the pain, and what they do about it now.
+    validations:
+      required: true
+  - type: textarea
+    id: magic
+    attributes:
+      label: The magic moment
+      description: What happens in the first 60 seconds that makes someone tell a friend?
+    validations:
+      required: true
+  - type: textarea
+    id: nylas-fit
+    attributes:
+      label: Why Nylas?
+      description: Which platform pieces power it (email, calendar, contacts, Agent Accounts, …)?

@@ -6,20 +6,7 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": [
-			"**",
-			"!**/dist",
-			"!**/node_modules",
-			"!**/.turbo",
-			"!**/.wrangler",
-			"!**/routeTree.gen.ts",
-			"!apps/**",
-			"!packages/**",
-			"!postman/**",
-			"!tsconfig.json",
-			"!package-lock.json",
-			"!docker-compose.yml"
-		]
+		"includes": ["**", "!**/dist", "!**/node_modules", "!**/.turbo", "!**/.wrangler", "!**/routeTree.gen.ts"]
 	},
 	"formatter": {
 		"enabled": true,
