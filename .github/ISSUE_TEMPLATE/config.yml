@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Discussions — feedback, questions, show & tell
+    url: https://github.com/nylas/labs/discussions
+    about: The fastest way to shape what graduates into a supported product.
+  - name: 📚 Nylas developer docs
+    url: https://developer.nylas.com
+    about: Platform documentation (APIs, Agent Accounts, hosted auth).

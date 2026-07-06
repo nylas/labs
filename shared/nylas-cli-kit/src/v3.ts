@@ -1,0 +1,599 @@
+/**
+ * Edge-safe typed client for the Nylas v3 API (api.{us,eu}.nylas.com).
+ *
+ * Uses only fetch/WebCrypto globals — runs in Node >= 20, Cloudflare Workers,
+ * and browsers. Covers what OwnMail needs:
+ * - provisioning: connectors, agent-account grants (provider "nylas"),
+ *   application redirect URIs
+ * - mailbox data: messages, threads, folders, drafts, send, attachments
+ * - calendar data: calendars, events, RSVP
+ * - hosted auth: authorize URL builder + code/token exchange (PKCE)
+ */
+
+export const V3_URLS = {
+	us: 'https://api.us.nylas.com',
+	eu: 'https://api.eu.nylas.com',
+} as const
+
+export type V3Region = keyof typeof V3_URLS
+
+/** JSON-serializable value — keeps API payload types transport-safe. */
+export type Json = string | number | boolean | null | Json[] | { [key: string]: Json | undefined }
+
+// ---- Resource types ----------------------------------------------------------
+
+export type Grant = {
+	id: string
+	provider: string
+	email?: string
+	name?: string
+	grant_status?: string
+	created_at?: number
+	settings?: { [key: string]: Json | undefined }
+}
+
+export type Connector = {
+	provider: string
+	settings?: { [key: string]: Json | undefined }
+	scope?: string[]
+}
+
+export type RedirectUri = {
+	id?: string
+	url: string
+	platform?: string
+	settings?: { [key: string]: Json | undefined }
+}
+
+export type EmailParticipant = { email: string; name?: string }
+
+export type MessageAttachment = {
+	id: string
+	filename?: string
+	content_type?: string
+	size?: number
+	is_inline?: boolean
+	content_id?: string
+}
+
+export type Message = {
+	id: string
+	grant_id: string
+	thread_id?: string
+	subject?: string
+	snippet?: string
+	body?: string
+	from?: EmailParticipant[]
+	to?: EmailParticipant[]
+	cc?: EmailParticipant[]
+	bcc?: EmailParticipant[]
+	reply_to?: EmailParticipant[]
+	date?: number
+	unread?: boolean
+	starred?: boolean
+	folders?: string[]
+	attachments?: MessageAttachment[]
+}
+
+export type Thread = {
+	id: string
+	grant_id: string
+	subject?: string
+	snippet?: string
+	participants?: EmailParticipant[]
+	message_ids?: string[]
+	latest_draft_or_message?: Message
+	earliest_message_date?: number
+	latest_message_received_date?: number
+	latest_message_sent_date?: number
+	has_attachments?: boolean
+	unread?: boolean
+	starred?: boolean
+	folders?: string[]
+}
+
+export type Folder = {
+	id: string
+	grant_id?: string
+	name: string
+	parent_id?: string
+	system_folder?: boolean
+	attributes?: string[]
+	total_count?: number
+	unread_count?: number
+}
+
+export type Draft = Message & { reply_to_message_id?: string }
+
+export type SendMessageRequest = {
+	to: EmailParticipant[]
+	cc?: EmailParticipant[]
+	bcc?: EmailParticipant[]
+	reply_to?: EmailParticipant[]
+	subject?: string
+	body?: string
+	reply_to_message_id?: string
+	tracking_options?: { [key: string]: Json | undefined }
+	attachments?: {
+		filename: string
+		content_type: string
+		content: string
+		is_inline?: boolean
+		content_id?: string
+	}[]
+}
+
+export type Calendar = {
+	id: string
+	grant_id?: string
+	name: string
+	timezone?: string
+	is_primary?: boolean
+	read_only?: boolean
+	hex_color?: string
+}
+
+export type Contact = {
+	id: string
+	grant_id?: string
+	given_name?: string
+	surname?: string
+	company_name?: string
+	emails?: { email: string; type?: string }[]
+	picture_url?: string
+}
+
+export type EventParticipant = {
+	email: string
+	name?: string
+	status?: 'yes' | 'no' | 'maybe' | 'noreply'
+}
+
+export type EventWhen =
+	| {
+			object?: 'timespan'
+			start_time: number
+			end_time: number
+			start_timezone?: string
+			end_timezone?: string
+	  }
+	| { object?: 'date'; date: string }
+	| { object?: 'datespan'; start_date: string; end_date: string }
+
+export type Event = {
+	id: string
+	grant_id?: string
+	calendar_id: string
+	title?: string
+	description?: string
+	location?: string
+	when: EventWhen
+	participants?: EventParticipant[]
+	organizer?: { email: string; name?: string }
+	status?: string
+	busy?: boolean
+	read_only?: boolean
+	conferencing?: { [key: string]: Json | undefined }
+	recurrence?: string[]
+}
+
+export type Webhook = {
+	id: string
+	trigger_types: string[]
+	callback_url: string
+	status?: string
+	/** Returned once on create — used to verify X-Nylas-Signature. */
+	webhook_secret?: string
+}
+
+export type ListResponse<T> = { request_id: string; data: T[]; next_cursor?: string }
+export type ItemResponse<T> = { request_id: string; data: T }
+
+export type ListQuery = {
+	limit?: number
+	page_token?: string
+	[key: string]: string | number | boolean | undefined
+}
+
+export class NylasApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+		readonly requestId?: string,
+		readonly type?: string,
+		readonly body?: unknown,
+	) {
+		super(message)
+		this.name = 'NylasApiError'
+	}
+}
+
+// ---- Hosted auth helpers (used by the deployed app) ---------------------------
+
+export function buildAuthorizeUrl(input: {
+	region: V3Region
+	clientId: string
+	redirectUri: string
+	provider?: string
+	state?: string
+	loginHint?: string
+	codeChallenge?: string
+	accessType?: 'online' | 'offline'
+}): string {
+	const url = new URL(`${V3_URLS[input.region]}/v3/connect/auth`)
+	url.searchParams.set('client_id', input.clientId)
+	url.searchParams.set('redirect_uri', input.redirectUri)
+	url.searchParams.set('response_type', 'code')
+	if (input.provider) url.searchParams.set('provider', input.provider)
+	if (input.state) url.searchParams.set('state', input.state)
+	if (input.loginHint) url.searchParams.set('login_hint', input.loginHint)
+	if (input.accessType) url.searchParams.set('access_type', input.accessType)
+	if (input.codeChallenge) {
+		url.searchParams.set('code_challenge', input.codeChallenge)
+		url.searchParams.set('code_challenge_method', 'S256')
+	}
+	return url.toString()
+}
+
+export type TokenResponse = {
+	access_token?: string
+	refresh_token?: string
+	grant_id: string
+	email?: string
+	expires_in?: number
+	id_token?: string
+	provider?: string
+	token_type?: string
+	scope?: string
+}
+
+export async function exchangeCodeForToken(
+	input: {
+		region: V3Region
+		clientId: string
+		redirectUri: string
+		code: string
+		clientSecret?: string
+		codeVerifier?: string
+	},
+	fetchImpl: typeof fetch = fetch,
+): Promise<TokenResponse> {
+	const body: Record<string, string> = {
+		client_id: input.clientId,
+		redirect_uri: input.redirectUri,
+		code: input.code,
+		grant_type: 'authorization_code',
+	}
+	if (input.clientSecret) body.client_secret = input.clientSecret
+	if (input.codeVerifier) body.code_verifier = input.codeVerifier
+
+	const res = await fetchImpl(`${V3_URLS[input.region]}/v3/connect/token`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	})
+	const parsed = (await res.json()) as TokenResponse & { error?: string; error_description?: string }
+	if (!res.ok) {
+		throw new NylasApiError(
+			parsed.error_description ?? parsed.error ?? `token exchange failed with ${res.status}`,
+			res.status,
+			undefined,
+			parsed.error,
+			parsed,
+		)
+	}
+	return parsed
+}
+
+/** PKCE pair: verifier to keep server-side, S256 challenge for the authorize URL. */
+export async function generatePkcePair(): Promise<{ verifier: string; challenge: string }> {
+	const random = crypto.getRandomValues(new Uint8Array(32))
+	const verifier = base64url(random)
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+	return { verifier, challenge: base64url(digest) }
+}
+
+function base64url(data: ArrayBuffer | Uint8Array): string {
+	const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+	let bin = ''
+	for (const b of bytes) bin += String.fromCharCode(b)
+	return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+}
+
+// ---- API-key client ------------------------------------------------------------
+
+export class NylasV3Client {
+	private readonly baseUrl: string
+
+	constructor(
+		private readonly apiKey: string,
+		region: V3Region = 'us',
+		private readonly fetchImpl: typeof fetch = fetch,
+	) {
+		this.baseUrl = V3_URLS[region]
+	}
+
+	// -- Provisioning ---------------------------------------------------------
+
+	/** Creates an Agent Account mailbox grant (provider "nylas"). */
+	async createAgentAccount(input: {
+		email: string
+		appPassword?: string
+		name?: string
+		workspaceId?: string
+	}): Promise<Grant> {
+		const body: Record<string, unknown> = {
+			provider: 'nylas',
+			settings: {
+				email: input.email,
+				...(input.appPassword ? { app_password: input.appPassword } : {}),
+			},
+		}
+		if (input.name) body.name = input.name
+		if (input.workspaceId) body.workspace_id = input.workspaceId
+		const res = await this.request<ItemResponse<Grant>>('POST', '/v3/connect/custom', body)
+		return res.data
+	}
+
+	async listGrants(query?: ListQuery): Promise<ListResponse<Grant>> {
+		return this.request('GET', `/v3/grants${toQuery(query)}`)
+	}
+
+	async deleteGrant(grantId: string): Promise<void> {
+		await this.request('DELETE', `/v3/grants/${encodeURIComponent(grantId)}`)
+	}
+
+	async listConnectors(): Promise<ListResponse<Connector>> {
+		return this.request('GET', '/v3/connectors')
+	}
+
+	async createConnector(input: {
+		provider: string
+		settings?: { [key: string]: Json | undefined }
+	}): Promise<ItemResponse<Connector>> {
+		return this.request('POST', '/v3/connectors', input)
+	}
+
+	/** Ensures a connector for `provider` exists on the application (idempotent). */
+	async ensureConnector(provider: string): Promise<Connector> {
+		const existing = await this.listConnectors()
+		const found = existing.data.find((c) => c.provider === provider)
+		if (found) return found
+		try {
+			const created = await this.createConnector({ provider })
+			return created.data
+		} catch (err) {
+			// Lost a create race — "already exists" means someone ensured it for us.
+			if (err instanceof NylasApiError && /already exists/i.test(err.message)) {
+				const retry = await this.listConnectors()
+				const winner = retry.data.find((c) => c.provider === provider)
+				if (winner) return winner
+			}
+			throw err
+		}
+	}
+
+	// Webhooks
+	async listWebhooks(): Promise<ListResponse<Webhook>> {
+		return this.request('GET', '/v3/webhooks')
+	}
+
+	async createWebhook(input: {
+		trigger_types: string[]
+		callback_url: string
+		description?: string
+	}): Promise<ItemResponse<Webhook>> {
+		return this.request('POST', '/v3/webhooks', input)
+	}
+
+	/** Creates the webhook if no active one exists for this URL; returns it either way. */
+	async ensureWebhook(callbackUrl: string, triggerTypes: string[]): Promise<Webhook> {
+		const existing = await this.listWebhooks()
+		const found = existing.data.find((w) => w.callback_url === callbackUrl && w.status !== 'failed')
+		if (found) return found
+		const created = await this.createWebhook({
+			trigger_types: triggerTypes,
+			callback_url: callbackUrl,
+			description: 'ownmail realtime',
+		})
+		return created.data
+	}
+
+	async listRedirectUris(): Promise<ListResponse<RedirectUri>> {
+		return this.request('GET', '/v3/applications/redirect-uris')
+	}
+
+	async createRedirectUri(input: { url: string; platform?: string }): Promise<ItemResponse<RedirectUri>> {
+		return this.request('POST', '/v3/applications/redirect-uris', {
+			url: input.url,
+			platform: input.platform ?? 'web',
+		})
+	}
+
+	/** Registers each URL if not already present (idempotent). */
+	async ensureRedirectUris(urls: string[]): Promise<void> {
+		const existing = await this.listRedirectUris()
+		const have = new Set(existing.data.map((r) => r.url))
+		for (const url of urls) {
+			if (!have.has(url)) await this.createRedirectUri({ url })
+		}
+	}
+
+	// -- Grant-scoped mailbox data ---------------------------------------------
+
+	forGrant(grantId: string): GrantScopedClient {
+		return new GrantScopedClient(this, grantId)
+	}
+
+	async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+		const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+			method,
+			headers: {
+				Authorization: `Bearer ${this.apiKey}`,
+				Accept: 'application/json',
+				...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+			},
+			body: body === undefined ? null : JSON.stringify(body),
+		})
+		const text = await res.text()
+		let parsed: unknown = null
+		try {
+			parsed = text ? JSON.parse(text) : null
+		} catch {
+			parsed = text
+		}
+		if (!res.ok) {
+			const errBody = parsed as {
+				request_id?: string
+				error?: { type?: string; message?: string }
+			} | null
+			throw new NylasApiError(
+				errBody?.error?.message ?? `Nylas API ${method} ${path} failed with ${res.status}`,
+				res.status,
+				errBody?.request_id,
+				errBody?.error?.type,
+				parsed,
+			)
+		}
+		return parsed as T
+	}
+}
+
+function toQuery(query?: ListQuery): string {
+	if (!query) return ''
+	const params = new URLSearchParams()
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined) params.set(key, String(value))
+	}
+	return params.size ? `?${params}` : ''
+}
+
+export class GrantScopedClient {
+	constructor(
+		private readonly client: NylasV3Client,
+		private readonly grantId: string,
+	) {}
+
+	private path(suffix: string): string {
+		return `/v3/grants/${encodeURIComponent(this.grantId)}${suffix}`
+	}
+
+	// Messages / threads / folders
+	listMessages(query?: ListQuery): Promise<ListResponse<Message>> {
+		return this.client.request('GET', this.path(`/messages${toQuery(query)}`))
+	}
+	getMessage(messageId: string): Promise<ItemResponse<Message>> {
+		return this.client.request('GET', this.path(`/messages/${encodeURIComponent(messageId)}`))
+	}
+	updateMessage(
+		messageId: string,
+		body: { unread?: boolean; starred?: boolean; folders?: string[] },
+	): Promise<ItemResponse<Message>> {
+		return this.client.request('PUT', this.path(`/messages/${encodeURIComponent(messageId)}`), body)
+	}
+	deleteMessage(messageId: string): Promise<void> {
+		return this.client.request('DELETE', this.path(`/messages/${encodeURIComponent(messageId)}`))
+	}
+	send(body: SendMessageRequest): Promise<ItemResponse<Message>> {
+		return this.client.request('POST', this.path('/messages/send'), body)
+	}
+
+	listThreads(query?: ListQuery): Promise<ListResponse<Thread>> {
+		return this.client.request('GET', this.path(`/threads${toQuery(query)}`))
+	}
+	getThread(threadId: string): Promise<ItemResponse<Thread>> {
+		return this.client.request('GET', this.path(`/threads/${encodeURIComponent(threadId)}`))
+	}
+	updateThread(
+		threadId: string,
+		body: { unread?: boolean; starred?: boolean; folders?: string[] },
+	): Promise<ItemResponse<Thread>> {
+		return this.client.request('PUT', this.path(`/threads/${encodeURIComponent(threadId)}`), body)
+	}
+
+	listFolders(query?: ListQuery): Promise<ListResponse<Folder>> {
+		return this.client.request('GET', this.path(`/folders${toQuery(query)}`))
+	}
+	createFolder(body: { name: string; parent_id?: string }): Promise<ItemResponse<Folder>> {
+		return this.client.request('POST', this.path('/folders'), body)
+	}
+
+	// Drafts
+	listDrafts(query?: ListQuery): Promise<ListResponse<Draft>> {
+		return this.client.request('GET', this.path(`/drafts${toQuery(query)}`))
+	}
+	createDraft(body: SendMessageRequest): Promise<ItemResponse<Draft>> {
+		return this.client.request('POST', this.path('/drafts'), body)
+	}
+	updateDraft(draftId: string, body: SendMessageRequest): Promise<ItemResponse<Draft>> {
+		return this.client.request('PUT', this.path(`/drafts/${encodeURIComponent(draftId)}`), body)
+	}
+	deleteDraft(draftId: string): Promise<void> {
+		return this.client.request('DELETE', this.path(`/drafts/${encodeURIComponent(draftId)}`))
+	}
+	sendDraft(draftId: string): Promise<ItemResponse<Message>> {
+		return this.client.request('POST', this.path(`/drafts/${encodeURIComponent(draftId)}`))
+	}
+
+	// Attachments
+	attachmentDownloadUrl(attachmentId: string, messageId: string): string {
+		return this.path(
+			`/attachments/${encodeURIComponent(attachmentId)}/download?message_id=${encodeURIComponent(messageId)}`,
+		)
+	}
+	downloadAttachment(attachmentId: string, messageId: string): Promise<Response> {
+		return this.client.request('GET', this.attachmentDownloadUrl(attachmentId, messageId))
+	}
+
+	// Calendars / events
+	// Contacts
+	listContacts(query?: ListQuery): Promise<ListResponse<Contact>> {
+		return this.client.request('GET', this.path(`/contacts${toQuery(query)}`))
+	}
+
+	listCalendars(query?: ListQuery): Promise<ListResponse<Calendar>> {
+		return this.client.request('GET', this.path(`/calendars${toQuery(query)}`))
+	}
+	listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>> {
+		return this.client.request('GET', this.path(`/events${toQuery(query)}`))
+	}
+	getEvent(eventId: string, calendarId: string): Promise<ItemResponse<Event>> {
+		return this.client.request(
+			'GET',
+			this.path(`/events/${encodeURIComponent(eventId)}?calendar_id=${encodeURIComponent(calendarId)}`),
+		)
+	}
+	createEvent(body: Partial<Event>, calendarId: string): Promise<ItemResponse<Event>> {
+		return this.client.request(
+			'POST',
+			this.path(`/events?calendar_id=${encodeURIComponent(calendarId)}`),
+			body,
+		)
+	}
+	updateEvent(eventId: string, body: Partial<Event>, calendarId: string): Promise<ItemResponse<Event>> {
+		return this.client.request(
+			'PUT',
+			this.path(`/events/${encodeURIComponent(eventId)}?calendar_id=${encodeURIComponent(calendarId)}`),
+			body,
+		)
+	}
+	deleteEvent(eventId: string, calendarId: string): Promise<void> {
+		return this.client.request(
+			'DELETE',
+			this.path(`/events/${encodeURIComponent(eventId)}?calendar_id=${encodeURIComponent(calendarId)}`),
+		)
+	}
+	sendRsvp(
+		eventId: string,
+		calendarId: string,
+		status: 'yes' | 'no' | 'maybe',
+	): Promise<ItemResponse<unknown>> {
+		return this.client.request(
+			'POST',
+			this.path(
+				`/events/${encodeURIComponent(eventId)}/send-rsvp?calendar_id=${encodeURIComponent(calendarId)}`,
+			),
+			{ status },
+		)
+	}
+}

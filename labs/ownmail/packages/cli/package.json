@@ -1,0 +1,36 @@
+{
+	"name": "ownmail",
+	"version": "0.1.0",
+	"description": "Your inbox. Your domain. No per-seat fees. Deploy a full mailbox + calendar app in one command. Powered by Nylas.",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"ownmail": "./dist/index.js"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@clack/prompts": "^0.10.0",
+		"@nylas-labs/cli-kit": "workspace:*",
+		"@ownmail/template": "workspace:*",
+		"citty": "^0.1.6",
+		"env-paths": "^3.0.0",
+		"open": "^10.1.0",
+		"wrangler": "^4.20.0",
+		"zod": "^3.25.0"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"typescript": "^5.8.0",
+		"vitest": "^3.1.0"
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	}
+}

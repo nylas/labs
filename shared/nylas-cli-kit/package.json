@@ -1,0 +1,29 @@
+{
+	"name": "@nylas-labs/cli-kit",
+	"version": "0.1.0",
+	"description": "Nylas dashboard device-flow auth (DPoP), domains REST, gateway GraphQL, and an edge-safe v3 API client",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./v3": {
+			"types": "./dist/v3.d.ts",
+			"default": "./dist/v3.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"typescript": "^5.8.0",
+		"vitest": "^3.1.0"
+	}
+}

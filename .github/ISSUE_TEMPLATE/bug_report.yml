@@ -1,0 +1,28 @@
+name: 🐛 Bug report
+description: Something in a lab is broken
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: lab
+    attributes:
+      label: Which lab?
+      options:
+        - ownmail
+        - repo tooling (create-lab, banners, CI)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, what did you get? Paste command output — but never passwords, API keys, or tokens.
+      placeholder: "npx ownmail → step 'domain' failed with…"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "macOS 15 / Node 22.4 / npx ownmail 0.1.0"
+    validations:
+      required: true

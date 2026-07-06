@@ -1,0 +1,42 @@
+import { describe, expect, it } from 'vitest'
+import { generateAppPassword, validateAppPassword } from './password.js'
+
+/**
+ * These rules mirror UAS ValidateAppPassword (uas/infra/helpers/token.go).
+ * If they drift, created inboxes reject IMAP/SMTP and hosted-auth logins.
+ */
+describe('generateAppPassword', () => {
+	it('always satisfies the UAS app-password policy', () => {
+		for (let i = 0; i < 200; i++) {
+			const pw = generateAppPassword()
+			expect(validateAppPassword(pw)).toBeUndefined()
+			expect(pw).toHaveLength(24)
+		}
+	})
+
+	it('generates distinct passwords', () => {
+		const seen = new Set(Array.from({ length: 50 }, () => generateAppPassword()))
+		expect(seen.size).toBe(50)
+	})
+})
+
+describe('validateAppPassword', () => {
+	it('rejects passwords outside 18–40 chars', () => {
+		expect(validateAppPassword('Short1short1')).toMatch(/18–40/)
+		expect(validateAppPassword(`A1${'a'.repeat(40)}`)).toMatch(/18–40/)
+	})
+
+	it('requires upper, lower, and digit', () => {
+		expect(validateAppPassword('alllowercase12345678')).toMatch(/uppercase/)
+		expect(validateAppPassword('ALLUPPERCASE12345678')).toMatch(/lowercase/)
+		expect(validateAppPassword('NoDigitsHereAtAllOk')).toMatch(/digit/)
+	})
+
+	it('rejects non-printable-ASCII', () => {
+		expect(validateAppPassword('Пароль1234567890Ab')).toMatch(/ASCII/)
+	})
+
+	it('accepts a valid password', () => {
+		expect(validateAppPassword('CorrectHorse42Battery')).toBeUndefined()
+	})
+})
