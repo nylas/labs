@@ -497,8 +497,9 @@ function toQuery(query?: ListQuery): string {
 }
 
 export function resolveV3BaseUrl(region: V3Region, baseUrl?: string): string {
-	const resolved = baseUrl?.trim() || V3_URLS[region]
-	return resolved.replace(/\/+$/, '')
+	let resolved = baseUrl?.trim() || V3_URLS[region]
+	while (resolved.endsWith('/')) resolved = resolved.slice(0, -1)
+	return resolved
 }
 
 async function fetchWithTimeout(

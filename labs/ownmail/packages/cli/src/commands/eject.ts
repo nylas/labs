@@ -17,7 +17,9 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 	const project = await pickExistingProject(opts.name)
 	if (project.ejected) throw new Error(`"${project.slug}" is already ejected.`)
 	if (!project.applicationId?.trim()) {
-		throw new Error('Nylas application client ID is missing. Re-run `npx ownmail` to finish app setup before ejecting.')
+		throw new Error(
+			'Nylas application client ID is missing. Re-run `npx ownmail` to finish app setup before ejecting.',
+		)
 	}
 
 	const target = resolve(opts.dir ?? `./${project.slug}`)
