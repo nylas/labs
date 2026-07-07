@@ -1,9 +1,10 @@
 import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import envPaths from 'env-paths'
+import { ownmailStateName } from '../nylas-env.js'
 import { type AuthState, AuthStateSchema, type ProjectState, ProjectStateSchema } from './schema.js'
 
-const paths = envPaths('ownmail', { suffix: '' })
+const paths = envPaths(ownmailStateName(), { suffix: '' })
 
 export function configDir(): string {
 	return paths.config

@@ -11,8 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as LogoutRouteImport } from './routes/logout'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as HealthzRouteImport } from './routes/healthz'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MailIndexRouteImport } from './routes/mail.index'
 import { Route as MailSearchRouteImport } from './routes/mail.search'
@@ -35,14 +35,14 @@ const LogoutRoute = LogoutRouteImport.update({
   path: '/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const HealthzRoute = HealthzRouteImport.update({
   id: '/healthz',
   path: '/healthz',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -71,9 +71,9 @@ const CalendarViewRoute = CalendarViewRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
-  id: '/auth/callback',
-  path: '/auth/callback',
-  getParentRoute: () => rootRouteImport,
+  id: '/callback',
+  path: '/callback',
+  getParentRoute: () => AuthRoute,
 } as any)
 const AttachmentsAttachmentIdRoute = AttachmentsAttachmentIdRouteImport.update({
   id: '/attachments/$attachmentId',
@@ -103,8 +103,8 @@ const MailFFolderIdTThreadIdRoute = MailFFolderIdTThreadIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRouteWithChildren
   '/healthz': typeof HealthzRoute
-  '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
   '/api/version': typeof ApiVersionRoute
@@ -120,8 +120,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRouteWithChildren
   '/healthz': typeof HealthzRoute
-  '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
@@ -137,8 +137,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth': typeof AuthRouteWithChildren
   '/healthz': typeof HealthzRoute
-  '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
   '/api/version': typeof ApiVersionRoute
@@ -156,8 +156,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/healthz'
-    | '/login'
     | '/logout'
     | '/mail'
     | '/api/version'
@@ -173,8 +173,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
     | '/healthz'
-    | '/login'
     | '/logout'
     | '/api/version'
     | '/attachments/$attachmentId'
@@ -189,8 +189,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/auth'
     | '/healthz'
-    | '/login'
     | '/logout'
     | '/mail'
     | '/api/version'
@@ -207,13 +207,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthRoute: typeof AuthRouteWithChildren
   HealthzRoute: typeof HealthzRoute
-  LoginRoute: typeof LoginRoute
   LogoutRoute: typeof LogoutRoute
   MailRoute: typeof MailRouteWithChildren
   ApiVersionRoute: typeof ApiVersionRoute
   AttachmentsAttachmentIdRoute: typeof AttachmentsAttachmentIdRoute
-  AuthCallbackRoute: typeof AuthCallbackRoute
   CalendarViewRoute: typeof CalendarViewRoute
   ApiWebhooksNylasRoute: typeof ApiWebhooksNylasRoute
 }
@@ -234,18 +233,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/healthz': {
       id: '/healthz'
       path: '/healthz'
       fullPath: '/healthz'
       preLoaderRoute: typeof HealthzRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -285,10 +284,10 @@ declare module '@tanstack/react-router' {
     }
     '/auth/callback': {
       id: '/auth/callback'
-      path: '/auth/callback'
+      path: '/callback'
       fullPath: '/auth/callback'
       preLoaderRoute: typeof AuthCallbackRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AuthRoute
     }
     '/attachments/$attachmentId': {
       id: '/attachments/$attachmentId'
@@ -328,6 +327,16 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthRouteChildren {
+  AuthCallbackRoute: typeof AuthCallbackRoute
+}
+
+const AuthRouteChildren: AuthRouteChildren = {
+  AuthCallbackRoute: AuthCallbackRoute,
+}
+
+const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
+
 interface MailFFolderIdRouteChildren {
   MailFFolderIdTThreadIdRoute: typeof MailFFolderIdTThreadIdRoute
 }
@@ -358,13 +367,12 @@ const MailRouteWithChildren = MailRoute._addFileChildren(MailRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthRoute: AuthRouteWithChildren,
   HealthzRoute: HealthzRoute,
-  LoginRoute: LoginRoute,
   LogoutRoute: LogoutRoute,
   MailRoute: MailRouteWithChildren,
   ApiVersionRoute: ApiVersionRoute,
   AttachmentsAttachmentIdRoute: AttachmentsAttachmentIdRoute,
-  AuthCallbackRoute: AuthCallbackRoute,
   CalendarViewRoute: CalendarViewRoute,
   ApiWebhooksNylasRoute: ApiWebhooksNylasRoute,
 }

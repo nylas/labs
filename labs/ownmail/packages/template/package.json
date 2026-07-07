@@ -8,8 +8,10 @@
 		"dist",
 		"src",
 		"public",
+		"scripts",
 		"template.json",
 		"vite.config.ts",
+		"vite.config.vercel.ts",
 		"tsconfig.json",
 		"wrangler.jsonc"
 	],

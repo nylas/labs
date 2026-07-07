@@ -1,9 +1,11 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
 import { loadManifest, materialize } from '../deploy/materialize.js'
-import { deploy, wranglerLoggedIn, wranglerLogin } from '../deploy/wrangler.js'
+import { deploy } from '../deploy/wrangler.js'
+import { apiBaseUrl, deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
+import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { CancelledError } from '../steps/provision.js'
 import { pickExistingProject } from './shared.js'
 
@@ -34,9 +36,10 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 		domain = typed
 	}
 
-	if (!(await wranglerLoggedIn())) await wranglerLogin()
+	await ensureCloudflareAuth()
 
 	const manifest = loadManifest()
+	const runtimeApiBaseUrl = deployedApiBaseUrl(project.region)
 	const spinner = p.spinner()
 	spinner.start(`Attaching ${domain} and redeploying…`)
 	project.appDomain = domain
@@ -48,6 +51,7 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 		vars: {
 			NYLAS_CLIENT_ID: project.applicationId,
 			NYLAS_REGION: project.region,
+			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 			APP_NAME: project.slug,
 			INBOX_EMAIL: project.inboxEmail ?? '',
 			TEMPLATE_VERSION: manifest.templateVersion,
@@ -65,9 +69,12 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 			const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 				name: `ownmail app-domain ${Date.now()}`,
 			})
-			await new NylasV3Client(key.apiKey, project.region).ensureRedirectUris([
-				`https://${domain}/auth/callback`,
-			])
+			await new NylasV3Client(
+				key.apiKey,
+				project.region,
+				fetch,
+				apiBaseUrl(project.region),
+			).ensureRedirectUris([`https://${domain}/auth/callback`])
 			p.log.step('Login redirect registered for the new domain.')
 		} catch {
 			p.log.warn('Could not register the login redirect — run `npx ownmail doctor` after logging in.')

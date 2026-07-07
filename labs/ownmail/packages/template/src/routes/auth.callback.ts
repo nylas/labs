@@ -24,7 +24,9 @@ export const Route = createFileRoute('/auth/callback')({
 				try {
 					const token = await exchangeCodeForToken({
 						region: env.NYLAS_REGION,
+						baseUrl: env.NYLAS_API_BASE_URL,
 						clientId: env.NYLAS_CLIENT_ID,
+						clientSecret: env.NYLAS_API_KEY,
 						redirectUri: `${url.origin}/auth/callback`,
 						code,
 						codeVerifier: pkce.verifier,
@@ -48,7 +50,7 @@ function loginFailedResponse(reason: string): Response {
 <div style="text-align:center">
 <h1 style="font-size:1.25rem">Couldn’t sign you in</h1>
 <p style="color:#666">${escapeHtml(reason)}</p>
-<a href="/login" style="color:#2563eb">Try again</a>
+<a href="/auth" style="color:#2563eb">Try again</a>
 </div></body>`
 	return new Response(html, { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }

@@ -1,6 +1,7 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
 import { wranglerLoggedIn } from '../deploy/wrangler.js'
+import { apiBaseUrl } from '../nylas-env.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
 
@@ -36,7 +37,7 @@ export async function runDoctor(opts: { name?: string }): Promise<void> {
 			const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 				name: `ownmail doctor ${Date.now()}`,
 			})
-			v3 = new NylasV3Client(key.apiKey, project.region)
+			v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
 		} catch {
 			// reported below
 		}

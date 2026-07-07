@@ -10,6 +10,7 @@ declare namespace Cloudflare {
 		NYLAS_WEBHOOK_SECRET?: string
 		NYLAS_CLIENT_ID: string
 		NYLAS_REGION: 'us' | 'eu'
+		NYLAS_API_BASE_URL?: string
 		APP_NAME: string
 		INBOX_EMAIL: string
 		TEMPLATE_VERSION: string

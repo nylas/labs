@@ -28,6 +28,7 @@ export const StepIdSchema = z.enum([
 	'api-key',
 	'domain',
 	'grant',
+	'hosting',
 	'cf-auth',
 	'cf-resources',
 	'redirect-uris',
@@ -44,6 +45,7 @@ export const ProjectStateSchema = z.object({
 
 	region: z.enum(['us', 'eu']).default('us'),
 	orgPublicId: z.string().optional(),
+	hostingProvider: z.enum(['cloudflare', 'manual']).optional(),
 
 	applicationId: z.string().optional(),
 	apiKeyId: z.string().optional(),
@@ -58,6 +60,8 @@ export const ProjectStateSchema = z.object({
 
 	workerName: z.string().optional(),
 	workersDevUrl: z.string().optional(),
+	manualDeployDir: z.string().optional(),
+	manualAppUrl: z.string().url().optional(),
 	kvNamespaceId: z.string().optional(),
 	/** Custom domain serving the app itself (Cloudflare custom_domain route). */
 	appDomain: z.string().optional(),

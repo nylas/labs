@@ -7,7 +7,7 @@ let client: NylasV3Client | null = null
 export async function nylas(): Promise<NylasV3Client> {
 	if (!client) {
 		const { env } = await platform()
-		client = new NylasV3Client(env.NYLAS_API_KEY, env.NYLAS_REGION)
+		client = new NylasV3Client(env.NYLAS_API_KEY, env.NYLAS_REGION, fetch, env.NYLAS_API_BASE_URL)
 	}
 	return client
 }

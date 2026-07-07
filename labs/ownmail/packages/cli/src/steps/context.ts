@@ -5,6 +5,7 @@ import {
 	GatewayClient,
 	NylasV3Client,
 } from '@nylas-labs/cli-kit'
+import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import type { AuthState, ProjectState } from '../state/schema.js'
 import { loadAuth, saveAuth } from '../state/store.js'
 
@@ -31,12 +32,17 @@ export async function createContext(project: ProjectState): Promise<StepContext>
 		project,
 		auth,
 		dpop,
-		dashboard: dpop ? new DashboardAccountClient(dpop) : null,
-		gateway: dpop ? new GatewayClient(dpop) : null,
+		dashboard: dpop ? new DashboardAccountClient(dpop, dashboardAccountUrl()) : null,
+		gateway: dpop ? new GatewayClient(dpop, gatewayUrls()) : null,
 		v3: null,
 	}
 	if (project.pendingSecrets.apiKey) {
-		ctx.v3 = new NylasV3Client(project.pendingSecrets.apiKey, project.region)
+		ctx.v3 = new NylasV3Client(
+			project.pendingSecrets.apiKey,
+			project.region,
+			fetch,
+			apiBaseUrl(project.region),
+		)
 	}
 	return ctx
 }

@@ -2,17 +2,21 @@ import * as p from '@clack/prompts'
 import {
 	DashboardAccountClient,
 	DpopKey,
+	type GatewayApplication,
 	GatewayClient,
 	NylasV3Client,
+	type Region,
 	type SsoLoginType,
 } from '@nylas-labs/cli-kit'
 import open from 'open'
+import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import { markStep, saveProject } from '../state/store.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth, tokens } from './context.js'
 
 const APP_BRANDING_PREFIX = 'ownmail:'
 const SANDBOX_GRANT_CAP = 5
+const APPLICATION_REGIONS: Region[] = ['us', 'eu']
 
 /** 01 — Dashboard SSO device flow (login or register). */
 export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
@@ -58,10 +62,10 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	if (p.isCancel(loginType)) throw new CancelledError()
 
 	const dpop = ctx.dpop ?? (await DpopKey.generate())
-	const dashboard = new DashboardAccountClient(dpop)
+	const dashboard = new DashboardAccountClient(dpop, dashboardAccountUrl())
 	ctx.dpop = dpop
 	ctx.dashboard = dashboard
-	ctx.gateway = new GatewayClient(dpop)
+	ctx.gateway = new GatewayClient(dpop, gatewayUrls())
 
 	const spinner = p.spinner()
 	const result = await dashboard.ssoAuthorize(
@@ -69,12 +73,19 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 		async (started) => {
 			const url = started.verificationUriComplete ?? started.verificationUri
 			p.note(
-				`Your browser will open to finish signing in.\nIf it doesn’t, visit:\n\n  ${url}\n\nCode: ${started.userCode}`,
+				`Visit this URL to finish signing in:\n\n  ${url}\n\nCode: ${started.userCode}`,
 				'Confirm in browser',
 			)
-			await open(url).catch(() => {
-				// Headless — the printed URL is the fallback.
+			const shouldOpen = await p.confirm({
+				message: 'Open this URL in your browser?',
+				initialValue: true,
 			})
+			if (p.isCancel(shouldOpen)) throw new CancelledError()
+			if (shouldOpen) {
+				await open(url).catch(() => {
+					p.log.warn('Could not open your browser automatically. Use the URL above.')
+				})
+			}
 			spinner.start('Waiting for you to finish in the browser…')
 		},
 	)
@@ -117,7 +128,6 @@ export async function stepOrg(ctx: StepContext): Promise<void> {
 			const switched = await dashboard.switchOrg(tokens(ctx), picked)
 			setAuth(ctx, {
 				...ctx.auth!,
-				userToken: switched.userToken,
 				orgToken: switched.orgToken,
 				orgPublicId: picked,
 				updatedAt: Date.now(),
@@ -146,10 +156,11 @@ export async function stepApp(ctx: StepContext): Promise<void> {
 	const orgPublicId = ctx.project.orgPublicId!
 	const brandName = `${APP_BRANDING_PREFIX}${ctx.project.slug}`
 
-	const apps = await gateway.listApplications(tokens(ctx), ctx.project.region, orgPublicId)
-	const existing = apps.find((a) => a.branding?.name === brandName)
+	const existing = await findReusableSandboxApplication(ctx, gateway, orgPublicId, brandName)
 	if (existing) {
 		ctx.project.applicationId = existing.applicationId
+		ctx.project.region = existing.region
+		p.log.info(`Using existing ${existing.region.toUpperCase()} sandbox app: ${appDisplayName(existing)}`)
 	} else {
 		const created = await gateway.createApplication(tokens(ctx), ctx.project.region, orgPublicId, {
 			region: ctx.project.region,
@@ -163,27 +174,89 @@ export async function stepApp(ctx: StepContext): Promise<void> {
 	markStep(ctx.project, 'app')
 }
 
+type ReusableApplication = GatewayApplication & { region: Region }
+
+async function findReusableSandboxApplication(
+	ctx: StepContext,
+	gateway: GatewayClient,
+	orgPublicId: string,
+	brandName: string,
+): Promise<ReusableApplication | null> {
+	const apps: ReusableApplication[] = []
+	for (const region of prioritizedRegions(ctx.project.region)) {
+		const listed = await gateway.listApplications(tokens(ctx), region, orgPublicId)
+		for (const app of listed) {
+			if (!isSandboxApplication(app)) continue
+			apps.push({ ...app, region: parseRegion(app.region) ?? region })
+		}
+	}
+
+	return apps.find((app) => app.branding?.name === brandName) ?? apps[0] ?? null
+}
+
+function prioritizedRegions(region: Region): Region[] {
+	return [region, ...APPLICATION_REGIONS.filter((candidate) => candidate !== region)]
+}
+
+function isSandboxApplication(app: GatewayApplication): boolean {
+	return app.environment?.toLowerCase() === 'sandbox'
+}
+
+function parseRegion(region: string): Region | null {
+	return region === 'us' || region === 'eu' ? region : null
+}
+
+function appDisplayName(app: GatewayApplication): string {
+	return app.branding?.name?.trim() || app.applicationId
+}
+
 /** 04 — Mint an API key (re-mint on resume is safe; old keys stay valid until revoked). */
 export async function stepApiKey(ctx: StepContext): Promise<void> {
 	if (ctx.project.pendingSecrets.apiKey) {
-		ctx.v3 = new NylasV3Client(ctx.project.pendingSecrets.apiKey, ctx.project.region)
+		ctx.v3 = new NylasV3Client(
+			ctx.project.pendingSecrets.apiKey,
+			ctx.project.region,
+			fetch,
+			apiBaseUrl(ctx.project.region),
+		)
 		markStep(ctx.project, 'api-key')
 		return
 	}
 	const gateway = requireGateway(ctx)
-	const created = await gateway.createApiKey(tokens(ctx), ctx.project.region, ctx.project.applicationId!, {
-		name: `ownmail ${ctx.project.slug}`,
-	})
+	const spinner = p.spinner()
+	spinner.start('Creating a Nylas API key…')
+	let created: Awaited<ReturnType<typeof gateway.createApiKey>>
+	try {
+		created = await gateway.createApiKey(tokens(ctx), ctx.project.region, ctx.project.applicationId!, {
+			name: `ownmail ${ctx.project.slug} ${apiKeyNameSuffix()}`,
+		})
+	} catch (err) {
+		spinner.stop('Could not create a Nylas API key.')
+		throw err
+	}
+	spinner.stop('Nylas API key created.')
 	ctx.project.apiKeyId = created.id
 	ctx.project.pendingSecrets.apiKey = created.apiKey
-	ctx.v3 = new NylasV3Client(created.apiKey, ctx.project.region)
+	ctx.v3 = new NylasV3Client(created.apiKey, ctx.project.region, fetch, apiBaseUrl(ctx.project.region))
 	saveProject(ctx.project)
 	markStep(ctx.project, 'api-key')
 }
 
+function apiKeyNameSuffix(): string {
+	return new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
+}
+
 /** 03b/05a — Ensure the application has a `nylas` connector (hosted auth requires it). */
 export async function stepConnector(ctx: StepContext): Promise<void> {
-	await requireV3(ctx).ensureConnector('nylas')
+	const spinner = p.spinner()
+	spinner.start('Checking hosted-auth connector…')
+	try {
+		await requireV3(ctx).ensureConnector('nylas')
+	} catch (err) {
+		spinner.stop('Could not configure the hosted-auth connector.')
+		throw err
+	}
+	spinner.stop('Hosted-auth connector ready.')
 	markStep(ctx.project, 'connector')
 }
 
@@ -346,6 +419,9 @@ function isFullyVerified(d: { verifiedOwnership: boolean; verifiedMx: boolean })
 /** 06 — Create the Agent Account mailbox grant with an app password. */
 export async function stepGrant(ctx: StepContext): Promise<void> {
 	if (ctx.project.grantId) {
+		if (ctx.project.inboxEmail && ctx.project.pendingSecrets.appPassword) {
+			showInboxPassword(ctx.project.inboxEmail, ctx.project.pendingSecrets.appPassword)
+		}
 		markStep(ctx.project, 'grant')
 		return
 	}
@@ -415,11 +491,15 @@ export async function stepGrant(ctx: StepContext): Promise<void> {
 	ctx.project.pendingSecrets.appPassword = appPassword
 	saveProject(ctx.project)
 
+	showInboxPassword(email, appPassword)
+	markStep(ctx.project, 'grant')
+}
+
+function showInboxPassword(email: string, appPassword: string): void {
 	p.note(
-		`Email:    ${email}\nPassword: ${appPassword}\n\nThis password is shown ONCE and cannot be recovered — save it now.\nYou’ll use it to log into your mailbox app (and IMAP/SMTP clients).`,
+		`Email:    ${email}\nPassword: ${appPassword}\n\nThis password is shown while setup is pending and cannot be recovered after deploy — save it now.\nYou’ll use it to log into your mailbox app (and IMAP/SMTP clients).`,
 		'Your new inbox',
 	)
-	markStep(ctx.project, 'grant')
 }
 
 export class CancelledError extends Error {

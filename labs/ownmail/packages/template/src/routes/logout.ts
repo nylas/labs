@@ -8,7 +8,7 @@ export const Route = createFileRoute('/logout')({
 				await destroySession(request)
 				return new Response(null, {
 					status: 302,
-					headers: { Location: '/login', 'Set-Cookie': clearSessionCookie() },
+					headers: { Location: '/', 'Set-Cookie': clearSessionCookie() },
 				})
 			},
 		},

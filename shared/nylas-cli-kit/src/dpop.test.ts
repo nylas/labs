@@ -29,7 +29,7 @@ describe('DpopKey', () => {
 		expect(claims.ath).toBeUndefined()
 	})
 
-	it('strips query and fragment from htu and binds the access token via ath', async () => {
+	it('keeps query, strips fragment from htu, and binds the access token via ath', async () => {
 		const key = await DpopKey.generate()
 		const proof = await key.proof(
 			'GET',
@@ -37,7 +37,7 @@ describe('DpopKey', () => {
 			'user-token-123',
 		)
 		const claims = decodeSegment(proof.split('.')[1] as string)
-		expect(claims.htu).toBe('https://dashboard-account.eu.nylas.com/orgs/inbox/domains')
+		expect(claims.htu).toBe('https://dashboard-account.eu.nylas.com/orgs/inbox/domains?limit=10')
 		// ath = base64url(sha256("user-token-123")), no padding
 		expect(claims.ath).toMatch(/^[A-Za-z0-9_-]{43}$/)
 	})

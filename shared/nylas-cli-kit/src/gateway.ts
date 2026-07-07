@@ -15,6 +15,7 @@ export const GATEWAY_URLS = {
 	us: 'https://dashboard-api-gateway.us.nylas.com/graphql',
 	eu: 'https://dashboard-api-gateway.eu.nylas.com/graphql',
 } as const
+const DEFAULT_HTTP_TIMEOUT_MS = 30_000
 
 export type Region = keyof typeof GATEWAY_URLS
 
@@ -42,11 +43,16 @@ export type GatewayCreatedApiKey = GatewayApiKey & { apiKey: string }
 export class GatewayError extends Error {
 	constructor(
 		message: string,
-		readonly errors: { message?: string }[] = [],
+		readonly errors: GraphqlError[] = [],
 	) {
 		super(message)
 		this.name = 'GatewayError'
 	}
+}
+
+type GraphqlError = {
+	message?: string
+	extensions?: { message?: string; code?: string; supportId?: string }
 }
 
 export class GatewayClient {
@@ -143,23 +149,31 @@ export class GatewayClient {
 		body: { operationName: string; query: string; variables: Record<string, unknown> },
 	): Promise<T> {
 		const url = this.urls[region]
-		const res = await this.fetchImpl(url, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${tokens.userToken}`,
-				...(tokens.orgToken ? { 'X-Nylas-Org': tokens.orgToken } : {}),
-				DPoP: await this.dpop.proof('POST', url, tokens.userToken),
+		const res = await fetchWithTimeout(
+			this.fetchImpl,
+			url,
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${tokens.userToken}`,
+					...(tokens.orgToken ? { 'X-Nylas-Org': tokens.orgToken } : {}),
+					DPoP: await this.dpop.proof('POST', url, tokens.userToken),
+				},
+				body: JSON.stringify(body),
 			},
-			body: JSON.stringify(body),
-		})
+			`gateway ${body.operationName}`,
+		)
 		if (!res.ok) {
-			throw new GatewayError(`gateway ${body.operationName} failed with ${res.status}`)
+			const text = await res.text()
+			throw new GatewayError(
+				`gateway ${body.operationName} failed with ${res.status}${text ? `: ${formatErrorBody(text)}` : ''}`,
+			)
 		}
-		const result = (await res.json()) as { data?: T; errors?: { message?: string }[] }
+		const result = (await res.json()) as { data?: T; errors?: GraphqlError[] }
 		if (result.errors?.length) {
 			throw new GatewayError(
-				`gateway ${body.operationName} errors: ${result.errors.map((e) => e.message).join('; ')}`,
+				`gateway ${body.operationName} errors: ${result.errors.map(formatGraphqlError).join('; ')}`,
 				result.errors,
 			)
 		}
@@ -167,5 +181,44 @@ export class GatewayClient {
 			throw new GatewayError(`gateway ${body.operationName} returned no data`)
 		}
 		return result.data
+	}
+}
+
+function formatGraphqlError(error: GraphqlError): string {
+	const message = error.extensions?.message ?? error.message ?? error.extensions?.code ?? 'unknown error'
+	return error.extensions?.supportId ? `${message} (supportId: ${error.extensions.supportId})` : message
+}
+
+function formatErrorBody(text: string): string {
+	try {
+		const parsed = JSON.parse(text) as {
+			errors?: GraphqlError[]
+			error?: { message?: string }
+			message?: string
+		}
+		if (parsed.errors?.length) return parsed.errors.map(formatGraphqlError).join('; ')
+		return parsed.error?.message ?? parsed.message ?? text.slice(0, 500)
+	} catch {
+		return text.slice(0, 500)
+	}
+}
+
+async function fetchWithTimeout(
+	fetchImpl: typeof fetch,
+	input: string,
+	init: RequestInit,
+	label: string,
+): Promise<Response> {
+	const controller = new AbortController()
+	const timeout = setTimeout(() => controller.abort(), DEFAULT_HTTP_TIMEOUT_MS)
+	try {
+		return await fetchImpl(input, { ...init, signal: controller.signal })
+	} catch (err) {
+		if (err instanceof Error && err.name === 'AbortError') {
+			throw new Error(`${label} timed out after ${DEFAULT_HTTP_TIMEOUT_MS / 1000}s`)
+		}
+		throw err
+	} finally {
+		clearTimeout(timeout)
 	}
 }

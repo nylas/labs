@@ -1,10 +1,13 @@
 import * as p from '@clack/prompts'
+import { defaultProjectRegion, ownmailNylasEnvironment } from '../nylas-env.js'
+import type { ProjectState } from '../state/schema.js'
 import { listProjects, loadProject, newProject, saveProject } from '../state/store.js'
 import { createContext, type StepContext } from '../steps/context.js'
 import {
 	stepCfAuth,
 	stepCfResources,
 	stepDeploy,
+	stepHostingProvider,
 	stepRedirectUris,
 	stepVerify,
 	stepWebhook,
@@ -35,6 +38,7 @@ const STEPS: Step[] = [
 	{ id: 'connector', run: stepConnector },
 	{ id: 'domain', run: stepDomain },
 	{ id: 'grant', run: stepGrant },
+	{ id: 'hosting', run: stepHostingProvider },
 	{ id: 'cf-auth', run: stepCfAuth },
 	{ id: 'cf-resources', run: stepCfResources },
 	{ id: 'deploy', run: stepDeploy },
@@ -70,11 +74,15 @@ export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): 
 }
 
 async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }) {
+	const requestedRegion = opts.region ? defaultProjectRegion(opts.region) : undefined
+	const newProjectRegion = requestedRegion ?? defaultProjectRegion('us')
 	if (opts.name) {
-		return loadProject(opts.name) ?? newProject(opts.name, opts.region ?? 'us')
+		const loaded = loadProject(opts.name)
+		if (loaded) return normalizeProjectRegion(loaded, requestedRegion)
+		return newProject(opts.name, newProjectRegion)
 	}
 	const existing = listProjects().filter((proj) => !proj.ejected)
-	if (existing.length === 1) return existing[0]!
+	if (existing.length === 1 && existing[0]) return normalizeProjectRegion(existing[0], requestedRegion)
 	if (existing.length > 1) {
 		const picked = await p.select({
 			message: 'Which project?',
@@ -87,7 +95,11 @@ async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }) {
 			],
 		})
 		if (p.isCancel(picked)) throw new CancelledError()
-		if (picked !== '__new__') return loadProject(picked)!
+		if (picked !== '__new__') {
+			const project = loadProject(picked)
+			if (!project) throw new Error(`No project named "${picked}".`)
+			return normalizeProjectRegion(project, requestedRegion)
+		}
 	}
 
 	const name = await p.text({
@@ -99,7 +111,32 @@ async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }) {
 				: 'Lowercase letters, digits, hyphens (3–40 chars)',
 	})
 	if (p.isCancel(name)) throw new CancelledError()
-	const project = newProject(name, opts.region ?? 'us')
+	const project = newProject(name, newProjectRegion)
 	saveProject(project)
 	return project
+}
+
+function normalizeProjectRegion(
+	project: ProjectState,
+	requestedRegion?: ProjectState['region'],
+): ProjectState {
+	const region = requestedRegion ?? stagingDefaultRegionRepair(project) ?? project.region
+	if (project.region === region) return project
+	if (project.applicationId || project.domainId || project.grantId) {
+		throw new Error(
+			`"${project.slug}" was started in ${project.region}, but this run is targeting ${region}. Re-run with --region ${project.region} or start a new project name.`,
+		)
+	}
+	project.region = region
+	saveProject(project)
+	p.log.info(`Using ${region.toUpperCase()} for ${ownmailNylasEnvironment()} dashboard resources.`)
+	return project
+}
+
+function stagingDefaultRegionRepair(project: ProjectState): ProjectState['region'] | undefined {
+	if (ownmailNylasEnvironment() !== 'staging') return undefined
+	if (project.region !== 'eu') return undefined
+	if (project.applicationId || project.domainId || project.grantId) return undefined
+	const onlyAuthAndOrg = project.completedSteps.every((step) => step === 'dashboard-auth' || step === 'org')
+	return onlyAuthAndOrg ? 'us' : undefined
 }

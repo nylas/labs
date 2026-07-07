@@ -50,8 +50,14 @@ export async function wranglerLoggedIn(): Promise<boolean> {
 	return res.code === 0 && !/not authenticated|please run.*login/i.test(res.stdout + res.stderr)
 }
 
-export async function wranglerLogin(): Promise<void> {
-	const res = await runWrangler(['login'], { interactive: true })
+export function cloudflareApiTokenConfigured(): boolean {
+	return Boolean(process.env.CLOUDFLARE_API_TOKEN?.trim())
+}
+
+export async function wranglerLogin(opts: { openBrowser?: boolean } = {}): Promise<void> {
+	const res = await runWrangler(['login', `--browser=${opts.openBrowser ? 'true' : 'false'}`], {
+		interactive: true,
+	})
 	if (res.code !== 0) throw new Error('Cloudflare login failed — re-run ownmail to try again.')
 }
 
