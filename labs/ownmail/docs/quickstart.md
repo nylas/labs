@@ -79,6 +79,27 @@ Vercel deployments refresh on navigation/focus instead. Register
 `https://<your-app>.vercel.app/auth/callback` as a callback URI on your Nylas
 application (`npx ownmail doctor` can do this once the URL exists).
 
+## Local UI development
+
+To work on the OwnMail UI without deploying or configuring real accounts:
+
+```bash
+pnpm --filter @ownmail/template dev:ui
+```
+
+This starts the app locally with in-memory mock mail and calendar data.
+
+For a local real-integration pass, export `SESSION_SECRET`, `NYLAS_API_KEY`,
+`NYLAS_CLIENT_ID`, `NYLAS_REGION`, `APP_NAME`, `INBOX_EMAIL`, and
+`TEMPLATE_VERSION`, then run:
+
+```bash
+pnpm --filter @ownmail/template dev:local
+```
+
+Add `http://localhost:5173/auth/callback` to the Nylas application's callback
+URIs first.
+
 ## Free plan limits
 
 200 sends/day per inbox, 3 GB storage per organization, 50 MB per message,

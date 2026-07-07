@@ -1,6 +1,6 @@
 import { resolveV3BaseUrl } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
-import { platform } from '../server/platform.js'
+import { platform, usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
 
 export const Route = createFileRoute('/attachments/$attachmentId')({
@@ -12,6 +12,16 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 			 */
 			GET: async ({ request, params }) => {
 				const { env } = await platform()
+				if (await usingDevMocks()) {
+					const attachment = params.attachmentId.replace(/[^\w=-]/g, '')
+					return new Response(`Local mock attachment: ${attachment}\n`, {
+						headers: {
+							'Content-Type': 'text/plain; charset=utf-8',
+							'Content-Disposition': `attachment; filename="${attachment || 'attachment'}.txt"`,
+							'Cache-Control': 'no-store',
+						},
+					})
+				}
 				const session = await getSession(request)
 				if (!session) return new Response('Unauthorized', { status: 401 })
 

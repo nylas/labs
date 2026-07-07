@@ -100,3 +100,31 @@ pnpm lint
 ```
 
 Node.js 20+ and pnpm 10+ are required.
+
+### Develop The App UI Locally
+
+For fast UI work without Nylas credentials, Cloudflare, or a deploy:
+
+```bash
+pnpm --filter @ownmail/template dev:ui
+```
+
+Open the printed localhost URL and go to `/mail`. This runs the TanStack Start
+app with local in-memory mail, draft, contact, and calendar data.
+
+To test the real hosted-auth and Nylas API flow locally, export the template
+environment variables and run the Node SSR target:
+
+```bash
+export SESSION_SECRET="..."
+export NYLAS_API_KEY="..."
+export NYLAS_CLIENT_ID="..."
+export NYLAS_REGION="us"
+export APP_NAME="ownmail-local"
+export INBOX_EMAIL="you@example.com"
+export TEMPLATE_VERSION="0.1.0"
+pnpm --filter @ownmail/template dev:local
+```
+
+Register `http://localhost:5173/auth/callback` as a callback URI on the Nylas
+application before using `dev:local`.

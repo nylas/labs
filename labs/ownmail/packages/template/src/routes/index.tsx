@@ -1,11 +1,19 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { platform } from '../server/platform.js'
+import { devMailboxEmail } from '../server/dev-mocks.js'
+import { platform, usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
 
 const homeState = createServerFn({ method: 'GET' }).handler(async () => {
 	const { env } = await platform()
+	if (await usingDevMocks()) {
+		return {
+			loggedIn: true,
+			email: devMailboxEmail(env.INBOX_EMAIL),
+			appName: env.APP_NAME,
+		}
+	}
 	const session = await getSession(getRequest())
 	return {
 		loggedIn: session !== null,
