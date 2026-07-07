@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
+import { apiBaseUrl } from '../nylas-env.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { CancelledError } from '../steps/provision.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
@@ -24,7 +25,7 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail inbox-add ${Date.now()}`,
 	})
-	const v3 = new NylasV3Client(key.apiKey, project.region)
+	const v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
 
 	const existing = await v3.listGrants({ limit: 200 })
 	const agents = existing.data.filter((g) => g.provider === 'nylas')

@@ -1,3 +1,7 @@
 packages:
   - shared/*
   - labs/*/packages/*
+
+onlyBuiltDependencies:
+  - sharp
+  - workerd

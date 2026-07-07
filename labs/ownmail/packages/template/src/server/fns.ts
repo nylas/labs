@@ -13,7 +13,7 @@ import { mailboxFromRequest } from './nylas.js'
 async function requireMailbox() {
 	const request = getRequest()
 	const resolved = await mailboxFromRequest(request)
-	if (!resolved) throw redirect({ to: '/login' })
+	if (!resolved) throw redirect({ to: '/auth' })
 	return resolved
 }
 

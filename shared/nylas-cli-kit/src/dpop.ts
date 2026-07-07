@@ -23,10 +23,9 @@ function base64url(data: ArrayBuffer | Uint8Array): string {
 	return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 }
 
-/** Strips query and fragment per the DPoP spec's htu claim. */
+/** Strips fragments; dashboard-account validates `htu` with query params intact. */
 function normalizeHtu(rawUrl: string): string {
 	const u = new URL(rawUrl)
-	u.search = ''
 	u.hash = ''
 	return u.toString()
 }

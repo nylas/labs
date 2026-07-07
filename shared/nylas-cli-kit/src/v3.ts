@@ -14,6 +14,7 @@ export const V3_URLS = {
 	us: 'https://api.us.nylas.com',
 	eu: 'https://api.eu.nylas.com',
 } as const
+const DEFAULT_HTTP_TIMEOUT_MS = 30_000
 
 export type V3Region = keyof typeof V3_URLS
 
@@ -212,6 +213,7 @@ export class NylasApiError extends Error {
 
 export function buildAuthorizeUrl(input: {
 	region: V3Region
+	baseUrl?: string
 	clientId: string
 	redirectUri: string
 	provider?: string
@@ -220,7 +222,10 @@ export function buildAuthorizeUrl(input: {
 	codeChallenge?: string
 	accessType?: 'online' | 'offline'
 }): string {
-	const url = new URL(`${V3_URLS[input.region]}/v3/connect/auth`)
+	if (!input.clientId.trim()) {
+		throw new Error('clientId is required to build a Nylas Hosted Auth URL.')
+	}
+	const url = new URL(`${resolveV3BaseUrl(input.region, input.baseUrl)}/v3/connect/auth`)
 	url.searchParams.set('client_id', input.clientId)
 	url.searchParams.set('redirect_uri', input.redirectUri)
 	url.searchParams.set('response_type', 'code')
@@ -250,28 +255,41 @@ export type TokenResponse = {
 export async function exchangeCodeForToken(
 	input: {
 		region: V3Region
+		baseUrl?: string
 		clientId: string
 		redirectUri: string
 		code: string
-		clientSecret?: string
+		clientSecret: string
 		codeVerifier?: string
 	},
 	fetchImpl: typeof fetch = fetch,
 ): Promise<TokenResponse> {
+	if (!input.clientId.trim()) {
+		throw new Error('clientId is required to exchange a Nylas Hosted Auth code.')
+	}
+	if (!input.clientSecret.trim()) {
+		throw new Error('clientSecret is required to exchange a Nylas Hosted Auth code.')
+	}
 	const body: Record<string, string> = {
-		client_id: input.clientId,
+		client_id: input.clientId.trim(),
+		client_secret: input.clientSecret.trim(),
 		redirect_uri: input.redirectUri,
 		code: input.code,
 		grant_type: 'authorization_code',
 	}
-	if (input.clientSecret) body.client_secret = input.clientSecret
 	if (input.codeVerifier) body.code_verifier = input.codeVerifier
 
-	const res = await fetchImpl(`${V3_URLS[input.region]}/v3/connect/token`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(body),
-	})
+	const tokenUrl = `${resolveV3BaseUrl(input.region, input.baseUrl)}/v3/connect/token`
+	const res = await fetchWithTimeout(
+		fetchImpl,
+		tokenUrl,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		},
+		'token exchange',
+	)
 	const parsed = (await res.json()) as TokenResponse & { error?: string; error_description?: string }
 	if (!res.ok) {
 		throw new NylasApiError(
@@ -309,8 +327,9 @@ export class NylasV3Client {
 		private readonly apiKey: string,
 		region: V3Region = 'us',
 		private readonly fetchImpl: typeof fetch = fetch,
+		baseUrl?: string,
 	) {
-		this.baseUrl = V3_URLS[region]
+		this.baseUrl = resolveV3BaseUrl(region, baseUrl)
 	}
 
 	// -- Provisioning ---------------------------------------------------------
@@ -357,7 +376,7 @@ export class NylasV3Client {
 	/** Ensures a connector for `provider` exists on the application (idempotent). */
 	async ensureConnector(provider: string): Promise<Connector> {
 		const existing = await this.listConnectors()
-		const found = existing.data.find((c) => c.provider === provider)
+		const found = listData(existing).find((c) => c.provider === provider)
 		if (found) return found
 		try {
 			const created = await this.createConnector({ provider })
@@ -366,7 +385,7 @@ export class NylasV3Client {
 			// Lost a create race — "already exists" means someone ensured it for us.
 			if (err instanceof NylasApiError && /already exists/i.test(err.message)) {
 				const retry = await this.listConnectors()
-				const winner = retry.data.find((c) => c.provider === provider)
+				const winner = listData(retry).find((c) => c.provider === provider)
 				if (winner) return winner
 			}
 			throw err
@@ -389,7 +408,7 @@ export class NylasV3Client {
 	/** Creates the webhook if no active one exists for this URL; returns it either way. */
 	async ensureWebhook(callbackUrl: string, triggerTypes: string[]): Promise<Webhook> {
 		const existing = await this.listWebhooks()
-		const found = existing.data.find((w) => w.callback_url === callbackUrl && w.status !== 'failed')
+		const found = listData(existing).find((w) => w.callback_url === callbackUrl && w.status !== 'failed')
 		if (found) return found
 		const created = await this.createWebhook({
 			trigger_types: triggerTypes,
@@ -413,7 +432,7 @@ export class NylasV3Client {
 	/** Registers each URL if not already present (idempotent). */
 	async ensureRedirectUris(urls: string[]): Promise<void> {
 		const existing = await this.listRedirectUris()
-		const have = new Set(existing.data.map((r) => r.url))
+		const have = new Set(listData(existing).map((r) => r.url))
 		for (const url of urls) {
 			if (!have.has(url)) await this.createRedirectUri({ url })
 		}
@@ -426,15 +445,20 @@ export class NylasV3Client {
 	}
 
 	async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-		const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-			method,
-			headers: {
-				Authorization: `Bearer ${this.apiKey}`,
-				Accept: 'application/json',
-				...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+		const res = await fetchWithTimeout(
+			this.fetchImpl,
+			`${this.baseUrl}${path}`,
+			{
+				method,
+				headers: {
+					Authorization: `Bearer ${this.apiKey}`,
+					Accept: 'application/json',
+					...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+				},
+				body: body === undefined ? null : JSON.stringify(body),
 			},
-			body: body === undefined ? null : JSON.stringify(body),
-		})
+			`Nylas API ${method} ${path}`,
+		)
 		const text = await res.text()
 		let parsed: unknown = null
 		try {
@@ -459,6 +483,10 @@ export class NylasV3Client {
 	}
 }
 
+function listData<T>(response: { data?: T[] | null }): T[] {
+	return Array.isArray(response.data) ? response.data : []
+}
+
 function toQuery(query?: ListQuery): string {
 	if (!query) return ''
 	const params = new URLSearchParams()
@@ -466,6 +494,32 @@ function toQuery(query?: ListQuery): string {
 		if (value !== undefined) params.set(key, String(value))
 	}
 	return params.size ? `?${params}` : ''
+}
+
+export function resolveV3BaseUrl(region: V3Region, baseUrl?: string): string {
+	let resolved = baseUrl?.trim() || V3_URLS[region]
+	while (resolved.endsWith('/')) resolved = resolved.slice(0, -1)
+	return resolved
+}
+
+async function fetchWithTimeout(
+	fetchImpl: typeof fetch,
+	input: string,
+	init: RequestInit,
+	label: string,
+): Promise<Response> {
+	const controller = new AbortController()
+	const timeout = setTimeout(() => controller.abort(), DEFAULT_HTTP_TIMEOUT_MS)
+	try {
+		return await fetchImpl(input, { ...init, signal: controller.signal })
+	} catch (err) {
+		if (err instanceof Error && err.name === 'AbortError') {
+			throw new Error(`${label} timed out after ${DEFAULT_HTTP_TIMEOUT_MS / 1000}s`)
+		}
+		throw err
+	} finally {
+		clearTimeout(timeout)
+	}
 }
 
 export class GrantScopedClient {

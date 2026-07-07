@@ -9,6 +9,7 @@ export {
 	type DomainAvailability,
 	type DomainVerificationResult,
 	type InboxDomain,
+	type OrgSwitchResponse,
 	type SessionResponse,
 	type SsoLoginType,
 	type SsoMode,

@@ -50,6 +50,13 @@ export type AuthResponse = {
 	organizations: DashboardOrganization[]
 }
 
+export type OrgSwitchResponse = {
+	orgToken: string
+	orgSessionId: string
+	org: DashboardOrganization
+	previousOrgSessionRevoked: boolean
+}
+
 export type SsoPollResponse =
 	| { status: 'authorization_pending' | 'access_denied' | 'expired_token'; retryAfter?: number }
 	| ({ status: 'complete' } & AuthResponse)
@@ -98,6 +105,8 @@ export type DomainVerificationResult = {
 }
 
 type Envelope<T> = { request_id: string; success: boolean; data: T }
+type JsonRecord = Record<string, unknown>
+const DEFAULT_HTTP_TIMEOUT_MS = 30_000
 
 export class DashboardAccountError extends Error {
 	constructor(
@@ -128,13 +137,15 @@ export class DashboardAccountClient {
 		if (input.mode === 'register') {
 			body.privacyPolicyAccepted = input.privacyPolicyAccepted ?? true
 		}
-		return this.request('POST', '/auth/cli/sso/start', { body })
+		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/sso/start', { body })
+		return parseSsoStartResponse(data, '/auth/cli/sso/start')
 	}
 
 	async ssoPoll(input: { flowId: string; orgPublicId?: string }): Promise<SsoPollResponse> {
 		const body: Record<string, unknown> = { flowId: input.flowId }
 		if (input.orgPublicId) body.orgPublicId = input.orgPublicId
-		return this.request('POST', '/auth/cli/sso/poll', { body })
+		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/sso/poll', { body })
+		return parseSsoPollResponse(data, '/auth/cli/sso/poll')
 	}
 
 	/**
@@ -167,19 +178,25 @@ export class DashboardAccountClient {
 	// ---- Sessions --------------------------------------------------------------
 
 	async refresh(tokens: DashboardTokens): Promise<{ userToken: string; orgToken?: string }> {
-		return this.request('POST', '/auth/cli/refresh', { tokens })
+		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/refresh', { tokens })
+		return parseRefreshResponse(data, '/auth/cli/refresh')
 	}
 
 	async logout(tokens: DashboardTokens): Promise<void> {
-		await this.request('POST', '/auth/cli/logout', { tokens })
+		await this.requestEnveloped<unknown>('POST', '/auth/cli/logout', { tokens })
 	}
 
 	async currentSession(tokens: DashboardTokens): Promise<SessionResponse> {
-		return this.request('GET', '/sessions/current', { tokens })
+		const data = await this.requestEnveloped<unknown>('GET', '/sessions/current', { tokens })
+		return parseSessionResponse(data, '/sessions/current')
 	}
 
-	async switchOrg(tokens: DashboardTokens, orgPublicId: string): Promise<AuthResponse> {
-		return this.request('POST', '/sessions/switch-org', { tokens, body: { orgPublicId } })
+	async switchOrg(tokens: DashboardTokens, orgPublicId: string): Promise<OrgSwitchResponse> {
+		const data = await this.requestEnveloped<unknown>('POST', '/sessions/switch-org', {
+			tokens,
+			body: { orgPublicId },
+		})
+		return parseOrgSwitchResponse(data, '/sessions/switch-org')
 	}
 
 	// ---- Inbox domains (org-level, aggregated in dashboard-account) -----------
@@ -268,12 +285,17 @@ export class DashboardAccountClient {
 			if (opts.tokens.orgToken) headers['X-Nylas-Org'] = opts.tokens.orgToken
 		}
 
-		const res = await this.fetchImpl(url, {
-			method,
-			headers,
-			body: opts.body === undefined ? null : JSON.stringify(opts.body),
-			redirect: 'error',
-		})
+		const res = await fetchWithTimeout(
+			this.fetchImpl,
+			url,
+			{
+				method,
+				headers,
+				body: opts.body === undefined ? null : JSON.stringify(opts.body),
+				redirect: 'error',
+			},
+			`dashboard-account ${method} ${path}`,
+		)
 
 		const text = await res.text()
 		let parsed: unknown = null
@@ -298,7 +320,226 @@ export class DashboardAccountClient {
 		path: string,
 		opts: { tokens?: DashboardTokens; body?: unknown },
 	): Promise<T> {
-		const envelope = await this.request<Envelope<T>>(method, path, opts)
+		const envelope = unwrapEnvelope<T>(await this.request<unknown>(method, path, opts), path)
 		return envelope.data
+	}
+}
+
+function unwrapEnvelope<T>(value: unknown, path: string): Envelope<T> {
+	if (isRecord(value) && value.success === true && 'data' in value) {
+		return value as Envelope<T>
+	}
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
+}
+
+function parseSsoStartResponse(value: unknown, path: string): SsoStartResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+
+	const flowId = readString(value, 'flowId', path)
+	const verificationUri = readUrl(value, 'verificationUri', path)
+	const verificationUriComplete = readOptionalUrl(value, 'verificationUriComplete', path)
+	const userCode = readString(value, 'userCode', path)
+	const expiresIn = readPositiveNumber(value, 'expiresIn', path)
+	const interval = readPositiveNumber(value, 'interval', path)
+
+	return {
+		flowId,
+		verificationUri,
+		...(verificationUriComplete ? { verificationUriComplete } : {}),
+		userCode,
+		expiresIn,
+		interval,
+	}
+}
+
+function parseSsoPollResponse(value: unknown, path: string): SsoPollResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+
+	const status = readString(value, 'status', path)
+	if (status === 'authorization_pending') {
+		const retryAfter = readOptionalPositiveNumber(value, 'retryAfter', path)
+		return retryAfter ? { status, retryAfter } : { status }
+	}
+	if (status === 'access_denied' || status === 'expired_token') return { status }
+	if (status === 'mfa_required') {
+		return {
+			status,
+			user: parseDashboardUser(value.user, path),
+			organizations: parseOrganizations(value.organizations, path),
+		}
+	}
+	if (status === 'complete') {
+		return { status, ...parseAuthResponse(value, path) }
+	}
+
+	throw new Error(`dashboard-account ${path} returned an unknown SSO status`)
+}
+
+function parseAuthResponse(value: unknown, path: string): AuthResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	return {
+		userToken: readString(value, 'userToken', path),
+		orgToken: readString(value, 'orgToken', path),
+		user: parseDashboardUser(value.user, path),
+		organizations: parseOrganizations(value.organizations ?? value.relations, path),
+	}
+}
+
+function parseRefreshResponse(value: unknown, path: string): { userToken: string; orgToken?: string } {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	const orgToken = readOptionalString(value, 'orgToken')
+	return {
+		userToken: readString(value, 'userToken', path),
+		...(orgToken ? { orgToken } : {}),
+	}
+}
+
+function parseOrgSwitchResponse(value: unknown, path: string): OrgSwitchResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	return {
+		orgToken: readString(value, 'orgToken', path),
+		orgSessionId: readString(value, 'orgSessionId', path),
+		org: parseOrganization(value.org, path),
+		previousOrgSessionRevoked: readBoolean(value, 'previousOrgSessionRevoked', path),
+	}
+}
+
+function parseSessionResponse(value: unknown, path: string): SessionResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	const organizations = parseOrganizations(value.organizations ?? value.relations ?? [], path)
+	const currentOrg = typeof value.currentOrg === 'string' ? value.currentOrg : undefined
+	const directOrganization = value.organization ? parseOrganization(value.organization, path) : undefined
+	const organization =
+		directOrganization ??
+		organizations.find((org) => org.publicId === currentOrg) ??
+		findCurrentRelationOrganization(value.relations, currentOrg, path)
+
+	return {
+		user: parseDashboardUser(value.user, path),
+		...(organization ? { organization } : {}),
+		...(organizations.length > 0 ? { organizations } : {}),
+	}
+}
+
+function parseDashboardUser(value: unknown, path: string): DashboardUser {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	const user: DashboardUser = { publicId: readString(value, 'publicId', path) }
+	if (typeof value.emailAddress === 'string') user.emailAddress = value.emailAddress
+	if (typeof value.firstName === 'string') user.firstName = value.firstName
+	if (typeof value.lastName === 'string') user.lastName = value.lastName
+	return user
+}
+
+function parseOrganizations(value: unknown, path: string): DashboardOrganization[] {
+	if (!Array.isArray(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	return value.map((org) => parseOrganization(org, path))
+}
+
+function findCurrentRelationOrganization(
+	value: unknown,
+	currentOrg: string | undefined,
+	path: string,
+): DashboardOrganization | undefined {
+	if (!currentOrg || !Array.isArray(value)) return undefined
+	const relation = value.find((item) => {
+		if (!isRecord(item)) return false
+		return item.orgId === currentOrg || item.orgPublicId === currentOrg
+	})
+	return relation ? parseOrganization(relation, path) : undefined
+}
+
+function parseOrganization(value: unknown, path: string): DashboardOrganization {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	const publicId =
+		typeof value.publicId === 'string' && value.publicId.length > 0
+			? value.publicId
+			: typeof value.orgPublicId === 'string' && value.orgPublicId.length > 0
+				? value.orgPublicId
+				: undefined
+	if (!publicId) throw new Error(`dashboard-account ${path} returned a malformed response`)
+
+	const parsed: DashboardOrganization = { publicId }
+	const name = readOptionalString(value, 'name') ?? readOptionalString(value, 'orgName')
+	const region = readOptionalString(value, 'region') ?? readOptionalString(value, 'orgRegion')
+	const role = readOptionalString(value, 'role')
+	if (name) parsed.name = name
+	if (region) parsed.region = region
+	if (role) parsed.role = role
+	return parsed
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readString(record: JsonRecord, field: string, path: string): string {
+	const value = record[field]
+	if (typeof value === 'string' && value.length > 0) return value
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
+}
+
+function readOptionalString(record: JsonRecord, field: string): string | undefined {
+	const value = record[field]
+	return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function readBoolean(record: JsonRecord, field: string, path: string): boolean {
+	const value = record[field]
+	if (typeof value === 'boolean') return value
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
+}
+
+function readPositiveNumber(record: JsonRecord, field: string, path: string): number {
+	const value = record[field]
+	if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
+}
+
+function readOptionalPositiveNumber(record: JsonRecord, field: string, path: string): number | undefined {
+	if (!(field in record)) return undefined
+	return readPositiveNumber(record, field, path)
+}
+
+function readUrl(record: JsonRecord, field: string, path: string): string {
+	const value = readString(record, field, path)
+	if (isHttpUrl(value)) return value
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
+}
+
+function readOptionalUrl(record: JsonRecord, field: string, path: string): string | undefined {
+	if (!(field in record)) return undefined
+	const value = record[field]
+	if (typeof value !== 'string') throw new Error(`dashboard-account ${path} returned a malformed response`)
+	if (value.length === 0) return undefined
+	if (isHttpUrl(value)) return value
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
+}
+
+function isHttpUrl(value: string): boolean {
+	try {
+		const url = new URL(value)
+		return url.protocol === 'https:' || url.protocol === 'http:'
+	} catch {
+		return false
+	}
+}
+
+async function fetchWithTimeout(
+	fetchImpl: typeof fetch,
+	input: string,
+	init: RequestInit,
+	label: string,
+): Promise<Response> {
+	const controller = new AbortController()
+	const timeout = setTimeout(() => controller.abort(), DEFAULT_HTTP_TIMEOUT_MS)
+	try {
+		return await fetchImpl(input, { ...init, signal: controller.signal })
+	} catch (err) {
+		if (err instanceof Error && err.name === 'AbortError') {
+			throw new Error(`${label} timed out after ${DEFAULT_HTTP_TIMEOUT_MS / 1000}s`)
+		}
+		throw err
+	} finally {
+		clearTimeout(timeout)
 	}
 }

@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:
 import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { loadManifest, templateRoot } from '../deploy/materialize.js'
+import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
@@ -15,6 +16,11 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 	p.intro('ownmail eject')
 	const project = await pickExistingProject(opts.name)
 	if (project.ejected) throw new Error(`"${project.slug}" is already ejected.`)
+	if (!project.applicationId?.trim()) {
+		throw new Error(
+			'Nylas application client ID is missing. Re-run `npx ownmail` to finish app setup before ejecting.',
+		)
+	}
 
 	const target = resolve(opts.dir ?? `./${project.slug}`)
 	if (existsSync(target) && readdirSync(target).length > 0) {
@@ -49,6 +55,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 	}
 
 	const manifest = loadManifest()
+	const runtimeApiBaseUrl = deployedApiBaseUrl(project.region)
 	const root = templateRoot()
 	mkdirSync(target, { recursive: true })
 	for (const entry of ['src', 'public', 'vite.config.ts', 'tsconfig.json', 'template.json']) {
@@ -105,8 +112,9 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				main: '@tanstack/react-start/server-entry',
 				kv_namespaces: [{ binding: 'SESSIONS', id: project.kvNamespaceId ?? '' }],
 				vars: {
-					NYLAS_CLIENT_ID: project.applicationId ?? '',
+					NYLAS_CLIENT_ID: project.applicationId.trim(),
 					NYLAS_REGION: project.region,
+					...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 					APP_NAME: project.slug,
 					INBOX_EMAIL: project.inboxEmail ?? '',
 					TEMPLATE_VERSION: manifest.templateVersion,

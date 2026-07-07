@@ -1,6 +1,7 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
 import { runWrangler } from '../deploy/wrangler.js'
+import { apiBaseUrl } from '../nylas-env.js'
 import { clearAuth, newProject, saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
@@ -27,7 +28,7 @@ export async function runGrants(opts: { name?: string }): Promise<void> {
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail grants ${Date.now()}`,
 	})
-	const v3 = new NylasV3Client(key.apiKey, project.region)
+	const v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
 	const grants = await v3.listGrants({ limit: 200 })
 	const agents = grants.data.filter((g) => g.provider === 'nylas')
 	if (agents.length === 0) {

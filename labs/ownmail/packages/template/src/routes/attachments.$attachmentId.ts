@@ -1,4 +1,4 @@
-import { V3_URLS } from '@nylas-labs/cli-kit/v3'
+import { resolveV3BaseUrl } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { platform } from '../server/platform.js'
 import { getSession } from '../server/session.js'
@@ -22,7 +22,7 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 				}
 
 				const upstream = await fetch(
-					`${V3_URLS[env.NYLAS_REGION]}/v3/grants/${encodeURIComponent(session.grantId)}/attachments/${encodeURIComponent(
+					`${resolveV3BaseUrl(env.NYLAS_REGION, env.NYLAS_API_BASE_URL)}/v3/grants/${encodeURIComponent(session.grantId)}/attachments/${encodeURIComponent(
 						params.attachmentId,
 					)}/download?message_id=${encodeURIComponent(messageId)}`,
 					{ headers: { Authorization: `Bearer ${env.NYLAS_API_KEY}` } },
