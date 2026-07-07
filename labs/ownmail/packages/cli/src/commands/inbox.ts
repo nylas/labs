@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts'
-import { NylasV3Client } from '@nylas-labs/cli-kit'
+import { type Grant, NylasV3Client } from '@nylas-labs/cli-kit'
 import { apiBaseUrl } from '../nylas-env.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { CancelledError } from '../steps/provision.js'
@@ -50,19 +50,7 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 	const email = `${localPart}@${project.domainAddress}`
 	if (agents.some((g) => g.email === email)) throw new Error(`${email} already exists.`)
 
-	const generate = await p.confirm({ message: 'Generate a strong password?', initialValue: true })
-	if (p.isCancel(generate)) throw new CancelledError()
-	let appPassword: string
-	if (generate) {
-		appPassword = generateAppPassword()
-	} else {
-		const typed = await p.password({
-			message: 'Inbox password (18–40 chars, upper+lower+digit)',
-			validate: (v) => validateAppPassword(v ?? ''),
-		})
-		if (p.isCancel(typed)) throw new CancelledError()
-		appPassword = typed
-	}
+	const appPassword = await promptForAppPassword('Generate a strong password?', localPart)
 
 	const spinner = p.spinner()
 	spinner.start(`Creating ${email}…`)
@@ -74,4 +62,111 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 		'New inbox',
 	)
 	p.outro('Done.')
+}
+
+/** Rotates an Agent Account password without recreating the mailbox or deleting mail. */
+export async function runInboxResetPassword(opts: { name?: string; email?: string }): Promise<void> {
+	p.intro('ownmail inbox reset-password')
+	const project = await pickExistingProject(opts.name)
+	if (!project.applicationId) {
+		throw new Error('This project has no Nylas application yet — run `npx ownmail` first.')
+	}
+	const ctx = await createContext(project)
+	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail login` first.')
+
+	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
+		name: `ownmail password-reset ${Date.now()}`,
+	})
+	const v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
+	const grants = await v3.listGrants({ limit: 200 })
+	const agents = grants.data.filter((g) => g.provider === 'nylas')
+	const grant = await pickGrantForPasswordReset(agents, project.grantId, opts.email)
+	const email = grant.email ?? opts.email ?? project.inboxEmail ?? grant.id
+	const grantEmail = grant.email ?? opts.email
+	const hasPassword = grant.settings?.has_app_password
+
+	if (!grantEmail) {
+		throw new Error(`Grant ${grant.id} has no email address. Pick the inbox by email and retry.`)
+	}
+
+	if (hasPassword === true) {
+		p.log.warn(`This will replace the password for ${email}. The old password will stop working.`)
+	} else if (hasPassword === false) {
+		p.log.info(`${email} does not have an app password yet. This will set one.`)
+	} else {
+		p.log.warn(
+			`This will set a new password for ${email}. If one exists, the old password will stop working.`,
+		)
+	}
+	const confirmed = await p.confirm({
+		message: hasPassword === false ? 'Set this inbox password?' : 'Reset this inbox password?',
+		initialValue: true,
+	})
+	if (p.isCancel(confirmed)) throw new CancelledError()
+	if (!confirmed) {
+		p.cancel('Password reset cancelled.')
+		return
+	}
+
+	const appPassword = await promptForAppPassword('Generate a new strong password?', grantEmail)
+	const spinner = p.spinner()
+	spinner.start(`Resetting password for ${email}…`)
+	await v3.updateGrant(grant.id, { settings: { email: grantEmail, app_password: appPassword } })
+	spinner.stop(`Password reset for ${email}.`)
+
+	p.note(
+		`Email:    ${email}\nPassword: ${appPassword}\n\nShown ONCE — save it now. Use it to log into your mailbox app and IMAP/SMTP clients.`,
+		'New password',
+	)
+	p.outro('Done.')
+}
+
+async function promptForAppPassword(message: string, mailboxName: string): Promise<string> {
+	const generate = await p.confirm({ message, initialValue: true })
+	if (p.isCancel(generate)) throw new CancelledError()
+	if (generate) return generateAppPassword(mailboxName)
+	const typed = await p.password({
+		message: 'Inbox password (18-40 chars, upper+lower+digit+symbol, no spaces)',
+		validate: (v) => validateAppPassword(v ?? '', mailboxName),
+	})
+	if (p.isCancel(typed)) throw new CancelledError()
+	return typed
+}
+
+async function pickGrantForPasswordReset(
+	agents: Grant[],
+	projectGrantId: string | undefined,
+	email: string | undefined,
+): Promise<Grant> {
+	if (agents.length === 0) {
+		throw new Error('This app has no Nylas inboxes yet.')
+	}
+	if (email) {
+		const found = agents.find((g) => g.email?.toLowerCase() === email.toLowerCase())
+		if (!found) throw new Error(`No inbox named ${email} exists on this app.`)
+		return found
+	}
+	const primary = projectGrantId ? agents.find((g) => g.id === projectGrantId) : undefined
+	if (primary) return primary
+	const onlyGrant = agents[0]
+	if (agents.length === 1 && onlyGrant) return onlyGrant
+	const picked = await p.select({
+		message: 'Which inbox password should be reset?',
+		options: agents.map((g) => ({
+			value: g.id,
+			label: g.email ?? g.id,
+			hint: grantHint(g),
+		})),
+	})
+	if (p.isCancel(picked)) throw new CancelledError()
+	const grant = agents.find((g) => g.id === picked)
+	if (!grant) throw new Error('Selected inbox no longer exists.')
+	return grant
+}
+
+function grantHint(grant: Grant): string {
+	const status = grant.grant_status ?? 'valid'
+	if (grant.settings?.has_app_password === true) return `${status}, password set`
+	if (grant.settings?.has_app_password === false) return `${status}, no password`
+	return status
 }

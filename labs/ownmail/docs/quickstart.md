@@ -46,6 +46,7 @@ Log in with your inbox email + password. That's it.
 | `ownmail grants` | List the inboxes on your Nylas app |
 | `ownmail eject [dir]` | Get the full source code and own it from there |
 | `ownmail inbox add` | Add another address on your domain (up to 5 on sandbox) |
+| `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key your app uses, zero downtime |
 | `ownmail app-domain mail.you.com` | Serve the app on your own domain (zone on your Cloudflare) |
 | `ownmail destroy` | Delete the deployed app (mail and inbox are kept) |

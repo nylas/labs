@@ -68,6 +68,29 @@ describe('NylasV3Client', () => {
 		expect(requestUrl).toBe('https://api-staging.us.nylas.com/v3/grants')
 	})
 
+	it('updates an agent account app password on the grant settings', async () => {
+		let requestUrl = ''
+		let requestMethod = ''
+		let requestBody: unknown = null
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requestUrl = String(input)
+			requestMethod = init?.method ?? ''
+			requestBody = JSON.parse(String(init?.body))
+			return Response.json({ data: { id: 'grant-123', provider: 'nylas' } })
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await client.updateGrant('grant-123', {
+			settings: { email: 'contact@example.com', app_password: 'New-password-123456' },
+		})
+
+		expect(requestUrl).toBe('https://api.us.nylas.com/v3/grants/grant-123')
+		expect(requestMethod).toBe('PATCH')
+		expect(requestBody).toEqual({
+			settings: { email: 'contact@example.com', app_password: 'New-password-123456' },
+		})
+	})
+
 	it('creates a webhook when the list response has null data', async () => {
 		const requests: string[] = []
 		const fetchImpl: typeof fetch = async (input, init) => {

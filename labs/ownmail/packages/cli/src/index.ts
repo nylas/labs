@@ -4,7 +4,7 @@ import { runAppDomain } from './commands/app-domain.js'
 import { runCreate } from './commands/create.js'
 import { runDoctor } from './commands/doctor.js'
 import { runEject } from './commands/eject.js'
-import { runInboxAdd } from './commands/inbox.js'
+import { runInboxAdd, runInboxResetPassword } from './commands/inbox.js'
 import { runDestroy, runGrants, runLogin } from './commands/misc.js'
 import { runRotateKey } from './commands/rotate.js'
 import { runTopLevel } from './commands/shared.js'
@@ -80,6 +80,20 @@ const main = defineCommand({
 					meta: { name: 'add', description: 'Add another inbox on your domain' },
 					args: { name: nameArg },
 					run: ({ args }) => runTopLevel(() => runInboxAdd(args.name ? { name: args.name } : {})),
+				}),
+				'reset-password': defineCommand({
+					meta: { name: 'reset-password', description: 'Reset an inbox password' },
+					args: {
+						name: nameArg,
+						email: { type: 'positional', description: 'Inbox email', required: false },
+					},
+					run: ({ args }) =>
+						runTopLevel(() =>
+							runInboxResetPassword({
+								...(typeof args.name === 'string' ? { name: args.name } : {}),
+								...(typeof args.email === 'string' ? { email: args.email } : {}),
+							}),
+						),
 				}),
 			},
 		}),
