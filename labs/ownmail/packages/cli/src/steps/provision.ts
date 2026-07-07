@@ -471,11 +471,11 @@ export async function stepGrant(ctx: StepContext): Promise<void> {
 
 	let appPassword: string
 	if (wantsOwnPassword) {
-		appPassword = generateAppPassword()
+		appPassword = generateAppPassword(localPart)
 	} else {
 		const typed = await p.password({
-			message: 'Inbox password (18–40 chars, at least one uppercase, lowercase, and digit)',
-			validate: (v) => validateAppPassword(v ?? ''),
+			message: 'Inbox password (18–40 chars, uppercase, lowercase, digit, symbol, no spaces)',
+			validate: (v) => validateAppPassword(v ?? '', localPart),
 		})
 		if (p.isCancel(typed)) throw new CancelledError()
 		appPassword = typed

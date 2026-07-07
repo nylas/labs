@@ -53,6 +53,7 @@ deployment. You can re-run the CLI at any time; setup steps are resumable.
 | `ownmail grants` | List inboxes connected to your Nylas app |
 | `ownmail eject [dir]` | Copy the app source into a directory you control |
 | `ownmail inbox add` | Add another address on your domain |
+| `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key used by the app |
 | `ownmail app-domain mail.example.com` | Serve the app on your own domain |
 | `ownmail destroy` | Remove the deployed app without deleting mail data |

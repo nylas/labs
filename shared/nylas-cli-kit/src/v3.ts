@@ -30,7 +30,13 @@ export type Grant = {
 	name?: string
 	grant_status?: string
 	created_at?: number
-	settings?: { [key: string]: Json | undefined }
+	settings?: GrantSettings
+}
+
+export type GrantSettings = {
+	has_app_password?: boolean
+	app_password?: string
+	[key: string]: Json | undefined
 }
 
 export type Connector = {
@@ -356,6 +362,16 @@ export class NylasV3Client {
 
 	async listGrants(query?: ListQuery): Promise<ListResponse<Grant>> {
 		return this.request('GET', `/v3/grants${toQuery(query)}`)
+	}
+
+	async updateGrant(
+		grantId: string,
+		input: { settings?: { [key: string]: Json | undefined }; workspaceId?: string },
+	): Promise<ItemResponse<Grant>> {
+		const body: Record<string, unknown> = {}
+		if (input.settings) body.settings = input.settings
+		if (input.workspaceId) body.workspace_id = input.workspaceId
+		return this.request('PATCH', `/v3/grants/${encodeURIComponent(grantId)}`, body)
 	}
 
 	async deleteGrant(grantId: string): Promise<void> {
