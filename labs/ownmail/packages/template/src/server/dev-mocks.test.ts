@@ -101,6 +101,9 @@ describe('dev mock reference identity', () => {
 		)
 
 		expect(roadmap?.folders).toEqual(['archive', 'work'])
+		expect(mockThreads({ folderId: 'inbox' }).threads.map((thread) => thread.id)).not.toContain(
+			'thread-roadmap',
+		)
 	})
 
 	it('models Nylas thread search by native text or participant email', () => {
