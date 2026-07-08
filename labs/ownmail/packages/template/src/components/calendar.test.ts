@@ -1,6 +1,7 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
 import {
+	CALENDAR_ENTRY_EVENT_RANGE_VIEW,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	filterEventsByCalendars,
@@ -43,6 +44,10 @@ describe('calendar view helpers', () => {
 
 	it('defaults calendar entry navigation to the reference week view', () => {
 		expect(DEFAULT_CALENDAR_VIEW).toBe('week')
+	})
+
+	it('loads enough event range for local calendar entry view changes', () => {
+		expect(CALENDAR_ENTRY_EVENT_RANGE_VIEW).toBe('month')
 	})
 
 	it('builds the reference six-week month range', () => {

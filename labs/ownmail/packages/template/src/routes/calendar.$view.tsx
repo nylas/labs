@@ -59,15 +59,27 @@ function CalendarViewRoutePage() {
 	return <CalendarRouteScreen view={view} data={data} />
 }
 
-export function CalendarRouteScreen({ view, data }: { view: CalView; data: CalendarRouteData }) {
+export function CalendarRouteScreen({
+	view,
+	data,
+	navigationMode = 'route',
+}: {
+	view: CalView
+	data: CalendarRouteData
+	navigationMode?: 'route' | 'local'
+}) {
 	const { events, calendar, calendars, info, anchorIso } = data
 	const navigate = useNavigate()
 	const router = useRouter()
-	const anchor = useMemo(() => new Date(`${anchorIso}T00:00:00`), [anchorIso])
+	const [localView, setLocalView] = useState(view)
+	const [localAnchorIso, setLocalAnchorIso] = useState(anchorIso)
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const today = useMemo(() => new Date(), [])
+	const currentView = navigationMode === 'local' ? localView : view
+	const currentAnchorIso = navigationMode === 'local' ? localAnchorIso : anchorIso
+	const anchor = useMemo(() => new Date(`${currentAnchorIso}T00:00:00`), [currentAnchorIso])
 	const visibleEvents = useMemo(
 		() => filterEventsByCalendars(events, hiddenCalendarIds),
 		[events, hiddenCalendarIds],
@@ -96,10 +108,20 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 
 	const go = useCallback(
 		(nextView: CalView, nextAnchor: Date) => {
+			if (navigationMode === 'local') {
+				setLocalView(nextView)
+				setLocalAnchorIso(ymd(nextAnchor))
+				return
+			}
 			navigate({ to: '/calendar/$view', params: { view: nextView }, search: { date: ymd(nextAnchor) } })
 		},
-		[navigate],
+		[navigate, navigationMode],
 	)
+
+	useEffect(() => {
+		setLocalView(view)
+		setLocalAnchorIso(anchorIso)
+	}, [anchorIso, view])
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
@@ -131,9 +153,9 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	}, [anchor, go])
 
 	const title =
-		view === 'month'
+		currentView === 'month'
 			? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-			: view === 'week'
+			: currentView === 'week'
 				? formatWeekTitle(anchor)
 				: anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -155,7 +177,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					<button
 						type="button"
 						className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
-						onClick={() => go(view, new Date())}
+						onClick={() => go(currentView, new Date())}
 					>
 						Today
 					</button>
@@ -163,7 +185,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						<button
 							type="button"
 							className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
-							onClick={() => go(view, shiftAnchor(view, anchor, -1))}
+							onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
 							aria-label="Previous"
 						>
 							<ChevronLeft className="h-5 w-5" />
@@ -171,7 +193,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						<button
 							type="button"
 							className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
-							onClick={() => go(view, shiftAnchor(view, anchor, 1))}
+							onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
 							aria-label="Next"
 						>
 							<ChevronRight className="h-5 w-5" />
@@ -186,7 +208,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								onClick={() => go(v, anchor)}
 								className={cn(
 									'rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors',
-									v === view
+									v === currentView
 										? 'bg-primary text-primary-foreground'
 										: 'text-muted-foreground hover:text-foreground',
 								)}
@@ -199,7 +221,10 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 
 				<div className="flex min-h-0 flex-1">
 					<aside className="hidden w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-sidebar px-4 py-4 lg:flex">
-						<MiniCalendar refDate={anchor} onPick={(date) => go(view === 'month' ? 'day' : view, date)} />
+						<MiniCalendar
+							refDate={anchor}
+							onPick={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
+						/>
 						<div>
 							<p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
 								My calendars
@@ -268,7 +293,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						</div>
 					</aside>
 					<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-						{view === 'month' ? (
+						{currentView === 'month' ? (
 							<MonthGrid
 								anchor={anchor}
 								events={visibleEvents}
@@ -278,8 +303,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							/>
 						) : (
 							<TimeGrid
-								days={view === 'week' ? 7 : 1}
-								start={view === 'week' ? startOfWeek(anchor) : anchor}
+								days={currentView === 'week' ? 7 : 1}
+								start={currentView === 'week' ? startOfWeek(anchor) : anchor}
 								events={visibleEvents}
 								calendarById={calendarById}
 								onPickEvent={setEditing}
