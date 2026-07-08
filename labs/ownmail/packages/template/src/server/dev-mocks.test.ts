@@ -28,11 +28,21 @@ describe('dev mock reference identity', () => {
 			(thread) => thread.id === 'thread-roadmap',
 		)
 		const travel = mockThreads({ folderId: 'inbox' }).threads.find((thread) => thread.id === 'thread-travel')
+		const tokens = mockThreads({ folderId: 'inbox' }).threads.find((thread) => thread.id === 'thread-tokens')
+		const dentist = mockThreads({ folderId: 'inbox' }).threads.find(
+			(thread) => thread.id === 'thread-dentist',
+		)
 		const draft = mockDrafts()[0]
 
 		expect(roadmap?.subject).toBe('Q3 product roadmap — final review before Monday')
 		expect(roadmap?.snippet).toBe('Thanks Grace — this is great.')
-		expect(travel?.snippet).toContain('8:40 AM — SFO to LIS')
+		expect(travel?.snippet).toBe('Your trip is booked!')
+		expect(tokens?.snippet).toBe(
+			'The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.',
+		)
+		expect(dentist?.snippet).toBe(
+			'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.',
+		)
 		expect(draft?.body).toBe('Here are a few ideas for the offsite —')
 	})
 
@@ -67,6 +77,10 @@ describe('dev mock reference identity', () => {
 			mockThreads({ folderId: 'starred' }).threads.map((thread) => thread.id),
 		)
 		expect(starred.every((thread) => thread.starred)).toBe(true)
+	})
+
+	it('searches stored message bodies beyond the visible list snippet', () => {
+		expect(mockThreads({ q: '8:40 AM' }).threads.map((thread) => thread.id)).toContain('thread-travel')
 	})
 
 	it('preserves reference calendar event copy', () => {

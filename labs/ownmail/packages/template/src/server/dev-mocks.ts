@@ -264,7 +264,7 @@ const messages = new Map<string, StoredMessage>(
 			id: 'msg-travel-1',
 			thread_id: 'thread-travel',
 			subject: 'Your itinerary for Lisbon is confirmed',
-			snippet: 'Your trip is booked! Departure: Fri, 8:40 AM — SFO to LIS.',
+			snippet: 'Your trip is booked!',
 			body: "<p>Your trip is booked!</p><p>Departure: Fri, 8:40 AM — SFO to LIS, connecting in Lisbon.</p><p>Hotel: Praça Boutique, check-in from 3:00 PM. Confirmation #VYG-40192.</p><p>We'll send a reminder 24 hours before departure with your gate information.</p>",
 			from: [{ name: 'Voyage', email: 'trips@voyage.com' }],
 			to: [ACCOUNT],
@@ -314,7 +314,8 @@ const messages = new Map<string, StoredMessage>(
 			id: 'msg-tokens-1',
 			thread_id: 'thread-tokens',
 			subject: 'Design system: new component tokens shipped',
-			snippet: 'The v3 token set is live in the shared library.',
+			snippet:
+				'The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.',
 			body: '<p>The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.</p><p>Nothing you need to do today — existing components will pick up the changes automatically on the next release.</p>',
 			from: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com' }],
 			to: [ACCOUNT],
@@ -328,7 +329,8 @@ const messages = new Map<string, StoredMessage>(
 			id: 'msg-dentist-1',
 			thread_id: 'thread-dentist',
 			subject: 'Reminder: dentist appointment Thursday 2:00 PM',
-			snippet: 'This is a friendly reminder about your upcoming cleaning with Dr. Reyes.',
+			snippet:
+				'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.',
 			body: '<p>This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.</p><p>Reply to reschedule, or arrive 10 minutes early to update your paperwork.</p>',
 			from: [{ name: 'Bright Smile Dental', email: 'hello@brightsmile.com' }],
 			to: [ACCOUNT],
@@ -342,7 +344,7 @@ const messages = new Map<string, StoredMessage>(
 			id: 'msg-statement-1',
 			thread_id: 'thread-statement',
 			subject: 'Your monthly statement is ready',
-			snippet: 'Your statement for June is now available.',
+			snippet: 'Your statement for June is now available. Sign in to view your transactions and balances.',
 			body: "<p>Your statement for June is now available. Sign in to view your transactions and balances.</p><p>As always, we'll never ask for your password by email.</p>",
 			from: [{ name: 'Meridian Bank', email: 'noreply@meridian.com' }],
 			to: [ACCOUNT],
@@ -424,7 +426,7 @@ const threads = new Map<string, StoredThread>(
 		{
 			id: 'thread-travel',
 			subject: 'Your itinerary for Lisbon is confirmed',
-			snippet: 'Your trip is booked! Departure: Fri, 8:40 AM — SFO to LIS.',
+			snippet: 'Your trip is booked!',
 			participants: [{ name: 'Voyage', email: 'trips@voyage.com' }],
 			message_ids: ['msg-travel-1'],
 			latest_message_received_date: daysAgo(0, 7, 5),
@@ -463,7 +465,8 @@ const threads = new Map<string, StoredThread>(
 		{
 			id: 'thread-tokens',
 			subject: 'Design system: new component tokens shipped',
-			snippet: 'The v3 token set is live in the shared library.',
+			snippet:
+				'The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.',
 			participants: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com' }],
 			message_ids: ['msg-tokens-1'],
 			latest_message_received_date: daysAgo(2, 14, 0),
@@ -476,7 +479,8 @@ const threads = new Map<string, StoredThread>(
 		{
 			id: 'thread-dentist',
 			subject: 'Reminder: dentist appointment Thursday 2:00 PM',
-			snippet: 'This is a friendly reminder about your upcoming cleaning with Dr. Reyes.',
+			snippet:
+				'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.',
 			participants: [{ name: 'Bright Smile Dental', email: 'hello@brightsmile.com' }],
 			message_ids: ['msg-dentist-1'],
 			latest_message_received_date: daysAgo(2, 10, 30),
@@ -489,7 +493,7 @@ const threads = new Map<string, StoredThread>(
 		{
 			id: 'thread-statement',
 			subject: 'Your monthly statement is ready',
-			snippet: 'Your statement for June is now available.',
+			snippet: 'Your statement for June is now available. Sign in to view your transactions and balances.',
 			participants: [{ name: 'Meridian Bank', email: 'noreply@meridian.com' }],
 			message_ids: ['msg-statement-1'],
 			latest_message_received_date: daysAgo(3, 6, 0),
@@ -725,6 +729,17 @@ export function mockThreads(input: { folderId?: string; q?: string; starred?: bo
 			thread.subject,
 			thread.snippet,
 			...(thread.participants ?? []).flatMap((participant) => [participant.name, participant.email]),
+			...thread.message_ids.flatMap((messageId) => {
+				const message = messages.get(messageId)
+				if (!message) return []
+				return [
+					message.subject,
+					message.snippet,
+					stripHtml(message.body ?? ''),
+					...(message.from ?? []).flatMap((participant) => [participant.name, participant.email]),
+					...(message.to ?? []).flatMap((participant) => [participant.name, participant.email]),
+				]
+			}),
 		]
 			.filter(Boolean)
 			.join(' ')
