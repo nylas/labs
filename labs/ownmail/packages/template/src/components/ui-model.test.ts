@@ -31,6 +31,7 @@ import {
 	shouldUseBrowserBackForComposeClose,
 	sidebarFolderCount,
 	threadLabels,
+	threadMaskFromMailLocation,
 	threadRouteFolderId,
 	threadSender,
 	threadTimestamp,
@@ -285,6 +286,12 @@ describe('ui-model mail helpers', () => {
 		expect(composeMaskFromMailLocation('/')).toEqual({ to: '/' })
 		expect(composeMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
 		expect(composeMaskFromMailLocation('/mail/search')).toBeUndefined()
+	})
+
+	it('masks root inbox thread selection to match the reference reading pane URL', () => {
+		expect(threadMaskFromMailLocation('/')).toEqual({ to: '/' })
+		expect(threadMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
+		expect(threadMaskFromMailLocation('/mail/search')).toBeUndefined()
 	})
 })
 

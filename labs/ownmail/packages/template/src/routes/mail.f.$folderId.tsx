@@ -9,6 +9,7 @@ import {
 	labelBadgeClass,
 	mailFolderTitle,
 	threadLabels,
+	threadMaskFromMailLocation,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
@@ -63,7 +64,12 @@ export function MailFolderRouteScreen({
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
-	const hasThread = pathname.includes('/t/')
+	const hasThread = useRouterState({
+		select: (state) =>
+			state.location.pathname.includes('/t/') ||
+			state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
+	})
+	const threadMask = threadMaskFromMailLocation(pathname)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -111,6 +117,7 @@ export function MailFolderRouteScreen({
 								thread={thread}
 								folderId={folderId}
 								baseFolderId={baseFolderId}
+								mask={threadMask}
 								onChanged={() => router.invalidate()}
 							/>
 						))
@@ -171,11 +178,13 @@ function ThreadRow({
 	thread,
 	folderId,
 	baseFolderId,
+	mask,
 	onChanged,
 }: {
 	thread: Thread
 	folderId: string
 	baseFolderId?: string
+	mask?: { to: '/' }
 	onChanged: () => void
 }) {
 	const when = formatListDate(threadTimestamp(thread))
@@ -194,6 +203,7 @@ function ThreadRow({
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId, threadId: thread.id }}
 			search={baseFolderId ? { baseFolderId } : {}}
+			{...(mask ? { mask } : {})}
 			className={cn(
 				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
 				thread.unread && 'bg-card',
