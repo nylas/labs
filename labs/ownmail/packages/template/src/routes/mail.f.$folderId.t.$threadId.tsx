@@ -29,7 +29,7 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 })
 
 function ThreadView() {
-	const { thread, messages } = Route.useLoaderData()
+	const { thread, messages, markedRead } = Route.useLoaderData()
 	const { folderId, threadId } = Route.useParams()
 	const router = useRouter()
 	const navigate = useNavigate()
@@ -84,6 +84,10 @@ function ThreadView() {
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [act, folderId, navigate, thread.starred])
+
+	useEffect(() => {
+		if (markedRead) router.invalidate()
+	}, [markedRead, router])
 
 	return (
 		<div className="flex min-w-0 flex-1 flex-col bg-background">

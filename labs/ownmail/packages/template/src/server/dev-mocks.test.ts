@@ -79,8 +79,14 @@ describe('dev mock reference identity', () => {
 		expect(starred.every((thread) => thread.starred)).toBe(true)
 	})
 
-	it('searches stored message bodies beyond the visible list snippet', () => {
-		expect(mockThreads({ q: '8:40 AM' }).threads.map((thread) => thread.id)).toContain('thread-travel')
+	it('models Agent Account thread search by subject or participant email', () => {
+		expect(mockThreads({ subject: 'roadmap' }).threads.map((thread) => thread.id)).toContain('thread-roadmap')
+		expect(mockThreads({ anyEmail: 'grace@vercel.com' }).threads.map((thread) => thread.id)).toContain(
+			'thread-roadmap',
+		)
+		expect(mockThreads({ subject: '8:40 AM' }).threads.map((thread) => thread.id)).not.toContain(
+			'thread-travel',
+		)
 	})
 
 	it('preserves reference calendar event copy', () => {

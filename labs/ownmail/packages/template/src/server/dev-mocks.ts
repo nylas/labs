@@ -55,9 +55,10 @@ class DevMailbox {
 
 	async listThreads(query?: ListQuery): Promise<ListResponse<Thread>> {
 		const folderId = typeof query?.in === 'string' ? query.in : undefined
-		const q = typeof query?.search_query_native === 'string' ? query.search_query_native : undefined
+		const subject = typeof query?.subject === 'string' ? query.subject : undefined
+		const anyEmail = typeof query?.any_email === 'string' ? query.any_email : undefined
 		const starred = typeof query?.starred === 'boolean' ? query.starred : undefined
-		return listResponse(mockThreads({ folderId, q, starred }).threads)
+		return listResponse(mockThreads({ folderId, subject, anyEmail, starred }).threads)
 	}
 
 	async getThread(threadId: string): Promise<ItemResponse<Thread>> {
@@ -717,34 +718,39 @@ export function mockFolders(): Folder[] {
 	}))
 }
 
-export function mockThreads(input: { folderId?: string; q?: string; starred?: boolean }): {
+export function mockThreads(input: {
+	folderId?: string
+	q?: string
+	subject?: string
+	anyEmail?: string
+	starred?: boolean
+}): {
 	threads: Thread[]
 } {
-	const query = input.q?.trim().toLowerCase()
+	const subject = (input.subject ?? input.q)?.trim().toLowerCase()
+	const anyEmail = input.anyEmail?.trim().toLowerCase()
 	const base = input.folderId ? visibleThreads(input.folderId) : visibleThreads()
 	const selected = base.filter((thread) => {
 		if (input.starred !== undefined && thread.starred !== input.starred) return false
-		if (!query) return true
-		const text = [
-			thread.subject,
-			thread.snippet,
+		if (subject && !thread.subject?.toLowerCase().includes(subject)) return false
+		if (!anyEmail) return true
+		const emails = [
 			...(thread.participants ?? []).flatMap((participant) => [participant.name, participant.email]),
 			...thread.message_ids.flatMap((messageId) => {
 				const message = messages.get(messageId)
 				if (!message) return []
 				return [
-					message.subject,
-					message.snippet,
-					stripHtml(message.body ?? ''),
 					...(message.from ?? []).flatMap((participant) => [participant.name, participant.email]),
 					...(message.to ?? []).flatMap((participant) => [participant.name, participant.email]),
+					...(message.cc ?? []).flatMap((participant) => [participant.name, participant.email]),
+					...(message.bcc ?? []).flatMap((participant) => [participant.name, participant.email]),
 				]
 			}),
 		]
 			.filter(Boolean)
 			.join(' ')
 			.toLowerCase()
-		return text.includes(query)
+		return emails.includes(anyEmail)
 	})
 	return { threads: selected.map(toThread) }
 }
@@ -752,11 +758,6 @@ export function mockThreads(input: { folderId?: string; q?: string; starred?: bo
 export function mockThreadMessages(threadId: string): { thread: Thread; messages: Message[] } {
 	const thread = threads.get(threadId)
 	if (!thread) throw new Error('Not found - it may have been deleted.')
-	thread.unread = false
-	for (const messageId of thread.message_ids) {
-		const message = messages.get(messageId)
-		if (message) message.unread = false
-	}
 	return {
 		thread: toThread(thread),
 		messages: thread.message_ids
@@ -824,7 +825,13 @@ export function mockUpdateThreadState(input: {
 }): { ok: true } {
 	const thread = threads.get(input.threadId)
 	if (!thread) throw new Error('Not found - it may have been deleted.')
-	if (input.unread !== undefined) thread.unread = input.unread
+	if (input.unread !== undefined) {
+		thread.unread = input.unread
+		for (const messageId of thread.message_ids) {
+			const message = messages.get(messageId)
+			if (message) message.unread = input.unread
+		}
+	}
 	if (input.starred !== undefined) thread.starred = input.starred
 	if (input.folder) thread.folders = [input.folder]
 	return { ok: true }

@@ -9,6 +9,7 @@ import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { mailboxFromRequest } from './nylas.js'
+import { threadSearchParams } from './search.js'
 
 async function requireMailbox() {
 	const request = getRequest()
@@ -57,11 +58,12 @@ export const getThreads = createServerFn({ method: 'GET' })
 	})
 	.handler(async ({ data }): Promise<{ threads: Thread[]; nextCursor?: string }> => {
 		const { mailbox } = await requireMailbox()
+		const search = threadSearchParams(data.q)
 		const res = await mailbox.listThreads({
 			limit: 30,
 			...(data.folderId ? { in: data.folderId } : {}),
 			...(data.pageToken ? { page_token: data.pageToken } : {}),
-			...(data.q ? { search_query_native: data.q } : {}),
+			...search,
 			...(data.starred !== undefined ? { starred: data.starred } : {}),
 		})
 		return { threads: res.data, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
@@ -69,15 +71,15 @@ export const getThreads = createServerFn({ method: 'GET' })
 
 export const getThreadMessages = createServerFn({ method: 'GET' })
 	.validator((input: { threadId: string }) => input)
-	.handler(async ({ data }): Promise<{ thread: Thread; messages: Message[] }> => {
+	.handler(async ({ data }): Promise<{ thread: Thread; messages: Message[]; markedRead?: boolean }> => {
 		const { mailbox } = await requireMailbox()
 		const thread = await mailbox.getThread(data.threadId)
 		const messageIds = thread.data.message_ids ?? []
 		const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
 		messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
 		if (thread.data.unread) {
-			// Fire-and-forget read marking; a failure only affects the badge.
-			mailbox.updateThread(data.threadId, { unread: false }).catch(() => {})
+			await mailbox.updateThread(data.threadId, { unread: false })
+			return { thread: { ...thread.data, unread: false }, messages, markedRead: true }
 		}
 		return { thread: thread.data, messages }
 	})
