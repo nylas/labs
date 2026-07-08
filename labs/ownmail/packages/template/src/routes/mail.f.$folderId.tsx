@@ -1,6 +1,6 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useRouter } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getThreads, listDrafts } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
@@ -18,6 +18,14 @@ function FolderView() {
 	const { threads, drafts } = Route.useLoaderData()
 	const { folderId } = Route.useParams()
 	const router = useRouter()
+	const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+	const visibleThreads = useMemo(() => {
+		if (filter === 'unread') return threads.filter((thread) => thread.unread)
+		if (filter === 'starred') return threads.filter((thread) => thread.starred)
+		return threads
+	}, [filter, threads])
+	const unreadCount = threads.filter((thread) => thread.unread).length
+	const starredCount = threads.filter((thread) => thread.starred).length
 
 	// Light-touch realtime: refresh the list every 30s while the tab is visible.
 	useEffect(() => {
@@ -28,44 +36,108 @@ function FolderView() {
 	}, [router])
 
 	return (
-		<div className="flex h-full">
-			<section className="w-96 shrink-0 overflow-y-auto border-r border-neutral-200">
+		<>
+			<section className="folder-panel">
+				<header className="folder-header">
+					<div className="flex items-end justify-between gap-3">
+						<div>
+							<h1 className="folder-title">{folderId}</h1>
+							<p className="muted-line">
+								{folderId === 'drafts'
+									? `${drafts.length} draft${drafts.length === 1 ? '' : 's'}`
+									: `${threads.length} thread${threads.length === 1 ? '' : 's'} · ${unreadCount} unread`}
+							</p>
+						</div>
+						<button type="button" className="icon-btn" onClick={() => router.invalidate()} title="Refresh">
+							↻
+						</button>
+					</div>
+					{folderId !== 'drafts' ? (
+						<fieldset className="mt-3 segmented">
+							<legend className="sr-only">Thread filters</legend>
+							<FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
+								All
+							</FilterButton>
+							<FilterButton active={filter === 'unread'} onClick={() => setFilter('unread')}>
+								Unread {unreadCount ? `(${unreadCount})` : ''}
+							</FilterButton>
+							<FilterButton active={filter === 'starred'} onClick={() => setFilter('starred')}>
+								Starred {starredCount ? `(${starredCount})` : ''}
+							</FilterButton>
+						</fieldset>
+					) : null}
+				</header>
 				{folderId === 'drafts' ? (
 					drafts.length === 0 ? (
-						<p className="p-6 text-sm text-neutral-500">No drafts.</p>
+						<EmptyState title="No drafts" body="Saved drafts will wait here until you send or delete them." />
 					) : (
-						<ul>
+						<ul className="message-list">
 							{drafts.map((draft) => (
 								<DraftRow key={draft.id} draft={draft} />
 							))}
 						</ul>
 					)
-				) : threads.length === 0 ? (
-					<p className="p-6 text-sm text-neutral-500">Nothing here yet.</p>
+				) : visibleThreads.length === 0 ? (
+					<EmptyState
+						title={filter === 'all' ? 'Nothing here yet' : `No ${filter} mail`}
+						body="Change filters, search, or compose a new message."
+					/>
 				) : (
-					<ul>
-						{threads.map((thread) => (
+					<ul className="message-list">
+						{visibleThreads.map((thread) => (
 							<ThreadRow key={thread.id} thread={thread} folderId={folderId} />
 						))}
 					</ul>
 				)}
 			</section>
-			<section className="min-w-0 flex-1 overflow-y-auto">
+			<section className="detail-panel">
 				<Outlet />
 			</section>
+		</>
+	)
+}
+
+function FilterButton({
+	active,
+	onClick,
+	children,
+}: {
+	active: boolean
+	onClick: () => void
+	children: React.ReactNode
+}) {
+	return (
+		<button type="button" className="tab-btn" data-active={active} onClick={onClick}>
+			{children}
+		</button>
+	)
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+	return (
+		<div className="grid min-h-80 place-items-center p-6 text-center">
+			<div>
+				<h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+				<p className="mt-1 max-w-xs text-sm text-neutral-500">{body}</p>
+			</div>
 		</div>
 	)
 }
 
 function DraftRow({ draft }: { draft: Draft }) {
 	return (
-		<li className="border-b border-neutral-100">
-			<Link to="/mail/compose" search={{ draft: draft.id }} className="block px-4 py-3 hover:bg-neutral-50">
-				<div className="truncate text-sm text-neutral-700">
+		<li>
+			<Link to="/mail/compose" search={{ draft: draft.id }} className="message-row">
+				<div className="message-row-top">
+					<span className="sender">Draft</span>
+					<span className="badge">Saved</span>
+				</div>
+				<div className="message-subject">
 					To: {draft.to?.map((p) => p.email).join(', ') || '(no recipient)'}
 				</div>
-				<div className="truncate text-sm font-medium">{draft.subject || '(no subject)'}</div>
-				<div className="truncate text-xs text-neutral-400">{draft.snippet}</div>
+				<div className="message-snippet">
+					{draft.subject || '(no subject)'} · {draft.snippet}
+				</div>
 			</Link>
 		</li>
 	)
@@ -75,25 +147,22 @@ function ThreadRow({ thread, folderId }: { thread: Thread; folderId: string }) {
 	const from = thread.participants?.[0]
 	const when = thread.latest_message_received_date ?? thread.latest_message_sent_date
 	return (
-		<li className="border-b border-neutral-100">
+		<li>
 			<Link
 				to="/mail/f/$folderId/t/$threadId"
 				params={{ folderId, threadId: thread.id }}
-				className="block px-4 py-3 hover:bg-neutral-50"
-				activeProps={{ className: 'bg-blue-50 hover:bg-blue-50' }}
+				className={`message-row ${thread.unread ? 'message-row-unread' : ''}`}
+				activeProps={{ className: 'message-row-active' }}
 			>
-				<div className="flex items-baseline justify-between gap-2">
-					<span
-						className={`truncate text-sm ${thread.unread ? 'font-semibold text-neutral-900' : 'text-neutral-700'}`}
-					>
+				<div className="message-row-top">
+					<span className="sender">
+						{thread.starred ? <span title="Starred">★ </span> : null}
 						{from?.name || from?.email || '(unknown sender)'}
 					</span>
-					{when ? <time className="shrink-0 text-xs text-neutral-400">{formatDate(when)}</time> : null}
+					{when ? <time className="shrink-0 text-xs text-neutral-500">{formatDate(when)}</time> : null}
 				</div>
-				<div className={`truncate text-sm ${thread.unread ? 'font-medium' : 'text-neutral-600'}`}>
-					{thread.subject || '(no subject)'}
-				</div>
-				<div className="truncate text-xs text-neutral-400">{thread.snippet}</div>
+				<div className="message-subject">{thread.subject || '(no subject)'}</div>
+				<div className="message-snippet">{thread.snippet}</div>
 			</Link>
 		</li>
 	)

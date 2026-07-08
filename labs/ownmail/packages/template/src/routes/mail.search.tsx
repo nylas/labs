@@ -12,24 +12,27 @@ function SearchResults() {
 	const { threads } = Route.useLoaderData()
 	const { q } = Route.useSearch()
 	return (
-		<div className="h-full overflow-y-auto">
-			<p className="border-b border-neutral-100 px-4 py-2 text-sm text-neutral-500">
-				{threads.length} result{threads.length === 1 ? '' : 's'} for “{q}”
-			</p>
-			<ul>
+		<section className="folder-panel mail-main-full">
+			<header className="folder-header">
+				<h1 className="folder-title">Search</h1>
+				<p className="muted-line">
+					{threads.length} result{threads.length === 1 ? '' : 's'} for “{q}”
+				</p>
+			</header>
+			<ul className="message-list">
 				{threads.map((thread) => (
-					<li key={thread.id} className="border-b border-neutral-100">
+					<li key={thread.id}>
 						<Link
 							to="/mail/f/$folderId/t/$threadId"
 							params={{ folderId: thread.folders?.[0] ?? 'inbox', threadId: thread.id }}
-							className="block px-4 py-3 hover:bg-neutral-50"
+							className="message-row"
 						>
-							<div className="truncate text-sm font-medium">{thread.subject || '(no subject)'}</div>
-							<div className="truncate text-xs text-neutral-500">{thread.snippet}</div>
+							<div className="message-subject">{thread.subject || '(no subject)'}</div>
+							<div className="message-snippet">{thread.snippet}</div>
 						</Link>
 					</li>
 				))}
 			</ul>
-		</div>
+		</section>
 	)
 }

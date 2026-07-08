@@ -1,6 +1,6 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
 	addDays,
 	type CalView,
@@ -42,13 +42,53 @@ function CalendarPage() {
 	const { events, calendar, anchorIso } = Route.useLoaderData()
 	const navigate = useNavigate()
 	const router = useRouter()
-	const anchor = new Date(`${anchorIso}T00:00:00`)
+	const anchor = useMemo(() => new Date(`${anchorIso}T00:00:00`), [anchorIso])
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const agenda = useMemo(
+		() =>
+			events
+				.filter((event) => !eventTimes(event).allDay)
+				.sort((a, b) => eventTimes(a).start.getTime() - eventTimes(b).start.getTime())
+				.slice(0, 5),
+		[events],
+	)
 
-	function go(nextView: CalView, nextAnchor: Date) {
-		navigate({ to: '/calendar/$view', params: { view: nextView }, search: { date: ymd(nextAnchor) } })
-	}
+	const go = useCallback(
+		(nextView: CalView, nextAnchor: Date) => {
+			navigate({ to: '/calendar/$view', params: { view: nextView }, search: { date: ymd(nextAnchor) } })
+		},
+		[navigate],
+	)
+
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+			if (target?.closest('[role="dialog"]')) return
+			if (event.key.toLowerCase() === 'm') {
+				event.preventDefault()
+				go('month', anchor)
+			}
+			if (event.key.toLowerCase() === 'w') {
+				event.preventDefault()
+				go('week', anchor)
+			}
+			if (event.key.toLowerCase() === 'd') {
+				event.preventDefault()
+				go('day', anchor)
+			}
+			if (event.key.toLowerCase() === 'n') {
+				event.preventDefault()
+				setNewStart(null)
+				setEditing('new')
+			}
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [anchor, go])
 
 	const title =
 		view === 'month'
@@ -58,41 +98,45 @@ function CalendarPage() {
 				: anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
 	return (
-		<div className="flex h-screen flex-col">
-			<header className="flex items-center gap-3 border-b border-neutral-200 px-4 py-2">
-				<Link to="/mail" className="text-sm text-neutral-500 hover:text-neutral-800">
-					← Mail
+		<div className="calendar-shell">
+			<header className="calendar-header">
+				<Link to="/mail" className="btn btn-quiet">
+					Mail
 				</Link>
-				<h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-				<div className="ml-auto flex items-center gap-1">
+				<div className="min-w-0">
+					<h1 className="calendar-title">{title}</h1>
+					<p className="muted-line">
+						{events.length} event{events.length === 1 ? '' : 's'} · {calendar.name}
+					</p>
+				</div>
+				<div className="ml-auto flex flex-wrap items-center gap-2">
 					<button
 						type="button"
-						className="rounded px-2 py-1 text-sm hover:bg-neutral-100"
+						className="icon-btn"
 						onClick={() => go(view, shiftAnchor(view, anchor, -1))}
+						aria-label="Previous"
 					>
 						‹
 					</button>
-					<button
-						type="button"
-						className="rounded px-2 py-1 text-sm hover:bg-neutral-100"
-						onClick={() => go(view, new Date())}
-					>
+					<button type="button" className="btn btn-quiet" onClick={() => go(view, new Date())}>
 						Today
 					</button>
 					<button
 						type="button"
-						className="rounded px-2 py-1 text-sm hover:bg-neutral-100"
+						className="icon-btn"
 						onClick={() => go(view, shiftAnchor(view, anchor, 1))}
+						aria-label="Next"
 					>
 						›
 					</button>
-					<div className="mx-2 flex overflow-hidden rounded-md border border-neutral-200 text-sm">
+					<div className="segmented">
 						{(['month', 'week', 'day'] as const).map((v) => (
 							<button
 								key={v}
 								type="button"
 								onClick={() => go(v, anchor)}
-								className={`px-3 py-1 capitalize ${v === view ? 'bg-blue-600 text-white' : 'hover:bg-neutral-100'}`}
+								className="tab-btn capitalize"
+								data-active={v === view}
 							>
 								{v}
 							</button>
@@ -104,37 +148,66 @@ function CalendarPage() {
 							setNewStart(null)
 							setEditing('new')
 						}}
-						className="rounded-full bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+						className="btn btn-primary"
 					>
 						New event
 					</button>
 				</div>
 			</header>
 
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				{view === 'month' ? (
-					<MonthGrid
-						anchor={anchor}
-						events={events}
-						onPickDay={(d) => go('day', d)}
-						onPickEvent={setEditing}
-						onCreateAt={(d) => {
-							setNewStart(d)
-							setEditing('new')
-						}}
-					/>
-				) : (
-					<TimeGrid
-						days={view === 'week' ? 7 : 1}
-						start={view === 'week' ? startOfWeek(anchor) : anchor}
-						events={events}
-						onPickEvent={setEditing}
-						onCreateAt={(d) => {
-							setNewStart(d)
-							setEditing('new')
-						}}
-					/>
-				)}
+			<div className="calendar-board">
+				<div className="grid min-h-full gap-4 p-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+					<div className="overflow-auto rounded-2xl border border-neutral-200 bg-white">
+						{view === 'month' ? (
+							<MonthGrid
+								anchor={anchor}
+								events={events}
+								onPickDay={(d) => go('day', d)}
+								onPickEvent={setEditing}
+								onCreateAt={(d) => {
+									setNewStart(d)
+									setEditing('new')
+								}}
+							/>
+						) : (
+							<TimeGrid
+								days={view === 'week' ? 7 : 1}
+								start={view === 'week' ? startOfWeek(anchor) : anchor}
+								events={events}
+								onPickEvent={setEditing}
+								onCreateAt={(d) => {
+									setNewStart(d)
+									setEditing('new')
+								}}
+							/>
+						)}
+					</div>
+					<aside className="hidden rounded-2xl border border-neutral-200 bg-white p-4 lg:block">
+						<h2 className="text-sm font-semibold">Next up</h2>
+						<div className="mt-3 grid gap-2">
+							{agenda.length ? (
+								agenda.map((event) => {
+									const times = eventTimes(event)
+									return (
+										<button
+											key={event.id}
+											type="button"
+											className="command-row"
+											onClick={() => setEditing(event)}
+										>
+											<span>
+												<strong>{event.title || '(untitled)'}</strong>
+												<span className="block muted-line">{fmtTime(times.start)}</span>
+											</span>
+										</button>
+									)
+								})
+							) : (
+								<p className="muted-line">No timed events in this range.</p>
+							)}
+						</div>
+					</aside>
+				</div>
 			</div>
 
 			{editing ? (
@@ -171,12 +244,9 @@ function MonthGrid({
 	const todayIso = ymd(new Date())
 
 	return (
-		<div className="grid h-full grid-cols-7" style={{ gridAutoRows: 'minmax(6rem, 1fr)' }}>
+		<div className="month-grid">
 			{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
-				<div
-					key={label}
-					className="border-b border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-500"
-				>
+				<div key={label} className="month-head">
 					{label}
 				</div>
 			))}
@@ -184,28 +254,31 @@ function MonthGrid({
 				const inMonth = day.getMonth() === anchor.getMonth()
 				const dayEvents = eventsOnDay(events, day)
 				return (
-					// biome-ignore lint/a11y/noStaticElementInteractions: double-click-to-create is an enhancement; the buttons inside remain accessible
-					<div
-						key={day.toISOString()}
-						onDoubleClick={() => onCreateAt(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9))}
-						className={`border-b border-r border-neutral-100 p-1 ${inMonth ? '' : 'bg-neutral-50 text-neutral-400'}`}
-					>
-						<button
-							type="button"
-							onClick={() => onPickDay(day)}
-							className={`mb-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-								ymd(day) === todayIso ? 'bg-blue-600 font-semibold text-white' : 'hover:bg-neutral-100'
-							}`}
-						>
-							{day.getDate()}
-						</button>
+					<div key={day.toISOString()} className={`month-cell ${inMonth ? '' : 'month-cell-muted'}`}>
+						<div className="month-cell-head">
+							<button
+								type="button"
+								onClick={() => onPickDay(day)}
+								className={`day-button ${ymd(day) === todayIso ? 'day-button-today' : ''}`}
+							>
+								{day.getDate()}
+							</button>
+							<button
+								type="button"
+								onClick={() => onCreateAt(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9))}
+								className="day-add-button"
+								aria-label={`Create event on ${day.toLocaleDateString()}`}
+							>
+								+
+							</button>
+						</div>
 						<div className="space-y-0.5">
 							{dayEvents.slice(0, 3).map((event) => (
 								<button
 									key={event.id}
 									type="button"
 									onClick={() => onPickEvent(event)}
-									className="block w-full truncate rounded bg-blue-50 px-1 py-0.5 text-left text-xs text-blue-900 hover:bg-blue-100"
+									className="calendar-event"
 								>
 									{eventTimes(event).allDay ? '' : `${fmtTime(eventTimes(event).start)} `}
 									{event.title || '(untitled)'}
@@ -215,7 +288,7 @@ function MonthGrid({
 								<button
 									type="button"
 									onClick={() => onPickDay(day)}
-									className="text-xs text-neutral-500 hover:underline"
+									className="mt-1 text-xs text-neutral-500 hover:underline"
 								>
 									+{dayEvents.length - 3} more
 								</button>
@@ -247,8 +320,8 @@ function TimeGrid({
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
 
 	return (
-		<div className="flex">
-			<div className="w-14 shrink-0 border-r border-neutral-100 text-right text-xs text-neutral-400">
+		<div className="time-grid">
+			<div className="time-rail">
 				<div className="h-8" />
 				{HOURS.map((h) => (
 					<div key={`h${h}`} style={{ height: HOUR_PX }} className="pr-1">
@@ -260,15 +333,15 @@ function TimeGrid({
 				const dayEvents = eventsOnDay(events, day).filter((e) => !eventTimes(e).allDay)
 				const allDay = eventsOnDay(events, day).filter((e) => eventTimes(e).allDay)
 				return (
-					<div key={day.toISOString()} className="relative min-w-0 flex-1 border-r border-neutral-100">
-						<div className="sticky top-0 z-10 h-8 border-b border-neutral-200 bg-white px-2 py-1 text-xs font-medium">
+					<div key={day.toISOString()} className="time-column">
+						<div className="time-column-head">
 							{day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
 							{allDay.map((event) => (
 								<button
 									key={event.id}
 									type="button"
 									onClick={() => onPickEvent(event)}
-									className="ml-1 rounded bg-emerald-50 px-1 text-xs text-emerald-900"
+									className="calendar-event mt-1"
 								>
 									{event.title}
 								</button>
@@ -280,11 +353,9 @@ function TimeGrid({
 									key={`slot${h}`}
 									type="button"
 									aria-label={`Create event at ${h}:00`}
-									onDoubleClick={() =>
-										onCreateAt(new Date(day.getFullYear(), day.getMonth(), day.getDate(), h))
-									}
+									onClick={() => onCreateAt(new Date(day.getFullYear(), day.getMonth(), day.getDate(), h))}
 									style={{ top: h * HOUR_PX, height: HOUR_PX }}
-									className="absolute right-0 left-0 border-b border-neutral-50"
+									className="time-slot"
 								/>
 							))}
 							{dayEvents.map((event) => {
@@ -301,7 +372,7 @@ function TimeGrid({
 											top: (topMin / 60) * HOUR_PX,
 											height: Math.max(20, ((endMin - topMin) / 60) * HOUR_PX),
 										}}
-										className="absolute right-1 left-1 overflow-hidden rounded border border-blue-200 bg-blue-50 px-1 text-left text-xs text-blue-900 hover:bg-blue-100"
+										className="calendar-event time-event"
 									>
 										<div className="font-medium">{event.title || '(untitled)'}</div>
 										<div>{fmtTime(s)}</div>

@@ -57,40 +57,41 @@ function Compose() {
 	}
 
 	return (
-		<div className="mx-auto max-w-2xl overflow-y-auto px-6 py-6">
-			<div className="mb-4 flex items-baseline justify-between">
-				<h1 className="text-xl font-semibold tracking-tight">New message</h1>
-				{savedAt ? <span className="text-xs text-neutral-400">Draft saved</span> : null}
+		<div className="compose-surface mail-main-full">
+			<div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
+				<div>
+					<h1 className="thread-title m-0">New message</h1>
+					<p className="muted-line">Autosaves while you write.</p>
+				</div>
+				{savedAt ? <span className="badge">Draft saved</span> : null}
 			</div>
-			<div className="space-y-3">
+			<div className="compose-card space-y-3">
 				<RecipientInput value={to} onChange={setTo} />
 				<input
 					value={subject}
 					onChange={(e) => setSubject(e.target.value)}
 					placeholder="Subject"
-					className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+					className="app-input"
+					aria-label="Subject"
 				/>
 				<textarea
 					value={body}
 					onChange={(e) => setBody(e.target.value)}
 					rows={12}
 					placeholder="Write your message…"
-					className="w-full resize-y rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+					className="app-textarea"
+					aria-label="Message body"
 				/>
 				{error ? <ErrorBanner message={error} /> : null}
 				<div className="flex justify-end gap-2">
-					<button
-						type="button"
-						onClick={() => history.back()}
-						className="rounded-full px-5 py-1.5 text-sm text-neutral-600 hover:bg-neutral-100"
-					>
+					<button type="button" onClick={() => history.back()} className="btn btn-quiet">
 						Close
 					</button>
 					<button
 						type="button"
 						disabled={busy || to.trim() === ''}
 						onClick={submit}
-						className="rounded-full bg-blue-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+						className="btn btn-primary"
 					>
 						{busy ? 'Sending…' : 'Send'}
 					</button>

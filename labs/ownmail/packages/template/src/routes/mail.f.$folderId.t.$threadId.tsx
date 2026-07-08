@@ -1,6 +1,6 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { useState } from 'react'
+import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
+import { useCallback, useEffect, useState } from 'react'
 import { getThreadMessages, sendMessage, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -14,47 +14,86 @@ function ThreadView() {
 	const router = useRouter()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
+	const lastMessage = messages.at(-1)
 
-	async function act(input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) {
-		setError(null)
-		try {
-			await updateThreadState({ data: { threadId, ...input } })
-			if (leave) {
+	const act = useCallback(
+		async (input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) => {
+			setError(null)
+			try {
+				await updateThreadState({ data: { threadId, ...input } })
+				if (leave) {
+					navigate({ to: '/mail/f/$folderId', params: { folderId } })
+				}
+				router.invalidate()
+			} catch (err) {
+				setError(err instanceof Error ? err.message : 'Action failed')
+			}
+		},
+		[folderId, navigate, router, threadId],
+	)
+
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+			if (event.key.toLowerCase() === 'e') {
+				event.preventDefault()
+				act({ folder: 'archive' }, true)
+			}
+			if (event.key === '#') {
+				event.preventDefault()
+				act({ folder: 'trash' }, true)
+			}
+			if (event.key.toLowerCase() === 's') {
+				event.preventDefault()
+				act({ starred: !thread.starred })
+			}
+			if (event.key.toLowerCase() === 'u') {
+				event.preventDefault()
+				act({ unread: true }, true)
+			}
+			if (event.key === 'Escape') {
+				event.preventDefault()
 				navigate({ to: '/mail/f/$folderId', params: { folderId } })
 			}
-			router.invalidate()
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Action failed')
 		}
-	}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [act, folderId, navigate, thread.starred])
 
 	return (
-		<article className="mx-auto max-w-3xl px-6 py-4">
-			<div className="mb-3 flex items-center gap-1 border-b border-neutral-100 pb-2">
-				<ActionButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
-					🗄
+		<article className="thread-article">
+			<div className="thread-toolbar">
+				<Link to="/mail/f/$folderId" params={{ folderId }} className="btn btn-quiet">
+					Back
+				</Link>
+				<ActionButton label="Archive" shortcut="E" onClick={() => act({ folder: 'archive' }, true)}>
+					Archive
 				</ActionButton>
-				<ActionButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
-					🗑
+				<ActionButton label="Delete" shortcut="#" danger onClick={() => act({ folder: 'trash' }, true)}>
+					Delete
 				</ActionButton>
 				<ActionButton
 					label={thread.starred ? 'Unstar' : 'Star'}
+					shortcut="S"
 					onClick={() => act({ starred: !thread.starred })}
 				>
-					{thread.starred ? '★' : '☆'}
+					{thread.starred ? 'Unstar' : 'Star'}
 				</ActionButton>
-				<ActionButton label="Mark unread" onClick={() => act({ unread: true }, true)}>
-					✉️
+				<ActionButton label="Mark unread" shortcut="U" onClick={() => act({ unread: true }, true)}>
+					Mark unread
 				</ActionButton>
-				{error ? <span className="ml-2 text-xs text-red-600">{error}</span> : null}
 			</div>
-			<h1 className="mb-4 text-xl font-semibold tracking-tight">{thread.subject || '(no subject)'}</h1>
-			<div className="space-y-4">
+			{error ? <ErrorBanner message={error} /> : null}
+			<h1 className="thread-title">{thread.subject || '(no subject)'}</h1>
+			<div>
 				{messages.map((message) => (
 					<MessageCard key={message.id} message={message} />
 				))}
 			</div>
-			{messages.length > 0 ? <ReplyBox lastMessage={messages[messages.length - 1]!} /> : null}
+			{lastMessage ? <ReplyBox lastMessage={lastMessage} /> : null}
 		</article>
 	)
 }
@@ -63,10 +102,14 @@ function ActionButton({
 	label,
 	onClick,
 	children,
+	shortcut,
+	danger,
 }: {
 	label: string
 	onClick: () => void
 	children: React.ReactNode
+	shortcut?: string
+	danger?: boolean
 }) {
 	return (
 		<button
@@ -74,9 +117,10 @@ function ActionButton({
 			title={label}
 			aria-label={label}
 			onClick={onClick}
-			className="rounded px-2 py-1 text-sm hover:bg-neutral-100"
+			className={`btn ${danger ? 'btn-danger' : 'btn-quiet'}`}
 		>
-			{children}
+			<span>{children}</span>
+			{shortcut ? <span className="kbd">{shortcut}</span> : null}
 		</button>
 	)
 }
@@ -85,10 +129,10 @@ function MessageCard({ message }: { message: Message }) {
 	const from = message.from?.[0]
 	const attachments = (message.attachments ?? []).filter((a) => !a.is_inline)
 	return (
-		<div className="rounded-lg border border-neutral-200 bg-white shadow-sm">
-			<header className="flex items-baseline justify-between border-b border-neutral-100 px-4 py-2">
+		<div className="message-card">
+			<header className="message-card-header">
 				<div className="min-w-0">
-					<span className="text-sm font-medium">{from?.name || from?.email}</span>
+					<span className="sender">{from?.name || from?.email}</span>
 					{from?.name ? <span className="ml-2 text-xs text-neutral-500">{from.email}</span> : null}
 				</div>
 				{message.date ? (
@@ -97,19 +141,19 @@ function MessageCard({ message }: { message: Message }) {
 					</time>
 				) : null}
 			</header>
-			<div className="px-4 py-3">
+			<div className="p-4">
 				<MessageBody message={message} />
 			</div>
 			{attachments.length > 0 ? (
-				<footer className="flex flex-wrap gap-2 border-t border-neutral-100 px-4 py-2">
+				<footer className="flex flex-wrap gap-2 border-t border-neutral-100 px-4 py-3">
 					{attachments.map((a) => (
 						<a
 							key={a.id}
 							href={`/attachments/${encodeURIComponent(a.id)}?message_id=${encodeURIComponent(message.id)}`}
-							className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-3 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
+							className="btn btn-quiet min-h-9 px-3 text-xs"
 							download={a.filename}
 						>
-							📎 {a.filename ?? 'attachment'}
+							{a.filename ?? 'attachment'}
 							{a.size ? <span className="text-neutral-400">({formatSize(a.size)})</span> : null}
 						</a>
 					))}
@@ -129,14 +173,7 @@ function MessageBody({ message }: { message: Message }) {
 	// Email bodies are untrusted HTML. Render inside a sandboxed iframe so
 	// scripts/styles can't touch the app; srcDoc keeps it same-process but inert.
 	if (message.body) {
-		return (
-			<iframe
-				title="message"
-				sandbox=""
-				srcDoc={message.body}
-				className="h-96 w-full rounded border-0 bg-white"
-			/>
-		)
+		return <iframe title="message" sandbox="" srcDoc={message.body} className="mail-frame" />
 	}
 	return <p className="whitespace-pre-wrap text-sm text-neutral-800">{message.snippet}</p>
 }
@@ -172,14 +209,14 @@ function ReplyBox({ lastMessage }: { lastMessage: Message }) {
 	}
 
 	return (
-		<div className="mt-6 rounded-lg border border-neutral-200 p-4">
+		<div className="reply-box">
 			<p className="mb-2 text-xs text-neutral-500">Reply to {replyTo}</p>
 			<textarea
 				value={body}
 				onChange={(e) => setBody(e.target.value)}
 				rows={4}
 				placeholder="Write your reply…"
-				className="w-full resize-y rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+				className="app-textarea"
 			/>
 			{error ? <ErrorBanner message={error} /> : null}
 			<div className="mt-2 flex justify-end">
@@ -187,7 +224,7 @@ function ReplyBox({ lastMessage }: { lastMessage: Message }) {
 					type="button"
 					disabled={busy || body.trim() === ''}
 					onClick={submit}
-					className="rounded-full bg-blue-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+					className="btn btn-primary"
 				>
 					{busy ? 'Sending…' : 'Send'}
 				</button>
@@ -199,9 +236,7 @@ function ReplyBox({ lastMessage }: { lastMessage: Message }) {
 export function ErrorBanner({ message }: { message: string }) {
 	const isQuota = message.startsWith('QUOTA:')
 	return (
-		<p
-			className={`mt-1 rounded px-2 py-1 text-xs ${isQuota ? 'bg-amber-50 text-amber-800' : 'text-red-600'}`}
-		>
+		<p className={`error-banner ${isQuota ? 'error-banner-quota' : ''}`}>
 			{isQuota ? message.slice(6).trim() : message}
 		</p>
 	)

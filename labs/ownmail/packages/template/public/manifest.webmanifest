@@ -1,0 +1,25 @@
+{
+	"name": "OwnMail",
+	"short_name": "OwnMail",
+	"description": "Mailbox and calendar for your OwnMail inbox.",
+	"id": "/mail",
+	"start_url": "/mail",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#f7f8fb",
+	"theme_color": "#f7f8fb",
+	"icons": [
+		{
+			"src": "/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any maskable"
+		}
+	]
+}
