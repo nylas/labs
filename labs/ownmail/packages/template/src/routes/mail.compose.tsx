@@ -1,5 +1,5 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import {
 	Archive,
 	Forward,
@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
 	cn,
 	collapsedMessagePreview,
+	composeBackdropThreadSearch,
 	formatListDate,
 	initials,
 	labelBadgeClass,
@@ -84,6 +85,7 @@ export const Route = createFileRoute('/mail/compose')({
 
 function Compose() {
 	const { draft, folders, threads, selected, folderId, reply } = Route.useLoaderData()
+	const search = Route.useSearch()
 	const navigate = useNavigate()
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
@@ -99,6 +101,15 @@ function Compose() {
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const folderTitle = mailFolderTitle(folderId, folders)
+	const composeThreadSearch = (threadId: string) =>
+		composeBackdropThreadSearch({
+			folderId,
+			threadId,
+			...(draftId ? { draftId } : {}),
+			...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
+			...(search.to ? { to: search.to } : {}),
+			...(search.subject ? { subject: search.subject } : {}),
+		})
 
 	function close() {
 		if (history.length > 1) history.back()
@@ -164,6 +175,7 @@ function Compose() {
 									key={thread.id}
 									thread={thread}
 									folderId={folderId}
+									search={composeThreadSearch(thread.id)}
 									active={selected.thread.id === thread.id}
 								/>
 							))}
@@ -186,7 +198,12 @@ function Compose() {
 						</div>
 						<div className="min-h-0 flex-1 overflow-y-auto">
 							{sortedThreads.map((thread) => (
-								<ComposeThreadRow key={thread.id} thread={thread} folderId={folderId} />
+								<ComposeThreadRow
+									key={thread.id}
+									thread={thread}
+									folderId={folderId}
+									search={composeThreadSearch(thread.id)}
+								/>
 							))}
 						</div>
 					</section>
@@ -305,18 +322,22 @@ function Compose() {
 function ComposeThreadRow({
 	thread,
 	folderId,
+	search,
 	active,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	folderId: string
+	search: ReturnType<typeof composeBackdropThreadSearch>
 	active?: boolean
 }) {
 	const when = formatListDate(threadTimestamp(thread))
 	const labels = threadLabels(thread)
 	return (
-		<div
+		<Link
+			to="/mail/compose"
+			search={search}
 			className={cn(
-				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/60',
+				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:bg-accent',
 				active ? 'bg-accent hover:bg-accent' : 'bg-card',
 			)}
 		>
@@ -361,7 +382,7 @@ function ComposeThreadRow({
 					</span>
 				))}
 			</div>
-		</div>
+		</Link>
 	)
 }
 

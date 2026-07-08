@@ -253,6 +253,31 @@ export function composeSearchFromMailLocation(
 	}
 }
 
+export function composeBackdropThreadSearch(input: {
+	folderId: string
+	threadId: string
+	draftId?: string
+	replyToMessageId?: string
+	to?: string
+	subject?: string
+}): {
+	folderId: string
+	threadId: string
+	draft?: string
+	replyToMessageId?: string
+	to?: string
+	subject?: string
+} {
+	return {
+		folderId: input.folderId,
+		threadId: input.threadId,
+		...(input.draftId ? { draft: input.draftId } : {}),
+		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+		...(input.to ? { to: input.to } : {}),
+		...(input.subject ? { subject: input.subject } : {}),
+	}
+}
+
 const TONE_RGB: Record<EventTone, [number, number, number]> = {
 	blue: [37, 99, 235],
 	teal: [20, 184, 166],
