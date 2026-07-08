@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { initialThemeIsDark, THEME_STORAGE_KEY, themeClassName } from './AppRail.js'
+import {
+	initialThemeIsDark,
+	ROOT_BACKGROUND_CLASS,
+	rootThemeClassNames,
+	THEME_STORAGE_KEY,
+	themeClassName,
+} from './AppRail.js'
 import { AUTH_PATH, LOGIN_PATH, MAIL_HOME_PATH } from './route-paths.js'
 
 describe('AppRail theme defaults', () => {
@@ -31,5 +37,11 @@ describe('AppRail theme defaults', () => {
 	it('uses reference light and dark document class names', () => {
 		expect(themeClassName(false)).toBe('light')
 		expect(themeClassName(true)).toBe('dark')
+	})
+
+	it('keeps the reference root background class with the theme class', () => {
+		expect(ROOT_BACKGROUND_CLASS).toBe('bg-background')
+		expect(rootThemeClassNames(false)).toEqual(['bg-background', 'light'])
+		expect(rootThemeClassNames(true)).toEqual(['bg-background', 'dark'])
 	})
 })

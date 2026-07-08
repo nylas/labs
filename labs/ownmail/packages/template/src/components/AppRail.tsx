@@ -5,6 +5,7 @@ import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
 import { initials } from './ui-model.js'
 
 export const THEME_STORAGE_KEY = 'theme'
+export const ROOT_BACKGROUND_CLASS = 'bg-background'
 
 export function AppRail({
 	email,
@@ -124,9 +125,13 @@ export function themeClassName(isDark: boolean): 'dark' | 'light' {
 	return isDark ? 'dark' : 'light'
 }
 
+export function rootThemeClassNames(isDark: boolean): string[] {
+	return [ROOT_BACKGROUND_CLASS, themeClassName(isDark)]
+}
+
 function applyThemeClass(isDark: boolean): void {
 	const next = themeClassName(isDark)
 	const previous = isDark ? 'light' : 'dark'
-	document.documentElement.classList.add(next)
+	document.documentElement.classList.add(ROOT_BACKGROUND_CLASS, next)
 	document.documentElement.classList.remove(previous)
 }
