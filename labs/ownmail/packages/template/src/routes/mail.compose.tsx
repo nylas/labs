@@ -147,6 +147,11 @@ function Compose() {
 					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
 						<div className="flex items-center justify-between border-b border-border px-4 py-3">
 							<h1 className="text-base font-semibold capitalize">Inbox</h1>
+							{unreadCount > 0 ? (
+								<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+									{unreadCount} unread
+								</span>
+							) : null}
 						</div>
 						<div className="min-h-0 flex-1 overflow-y-auto">
 							{sortedThreads.map((thread) => (
