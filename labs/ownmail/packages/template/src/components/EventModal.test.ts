@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { eventInitialHours, NEW_EVENT_HOURS } from './EventModal.js'
+import { eventCalendarChoiceClass, eventInitialHours, NEW_EVENT_HOURS } from './EventModal.js'
 
 describe('EventModal helpers', () => {
 	it('matches the reference default time for newly created events', () => {
@@ -11,5 +11,12 @@ describe('EventModal helpers', () => {
 			startHour: 14,
 			endHour: 15,
 		})
+	})
+
+	it('keeps the reference event-colored outline on the selected calendar choice', () => {
+		const className = eventCalendarChoiceClass(true, 'teal')
+
+		expect(className).toContain('border-[var(--event-teal)]')
+		expect(className).not.toContain('border-transparent')
 	})
 })

@@ -296,12 +296,7 @@ export function EventModal({
 									key={calendar.id}
 									type="button"
 									onClick={() => setSelectedCalendarId(calendar.id)}
-									className={cn(
-										'flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors',
-										active
-											? cn('border-transparent', eventBlockClass(tone))
-											: 'border-border text-muted-foreground hover:bg-muted',
-									)}
+									className={eventCalendarChoiceClass(active, tone)}
 								>
 									<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
 									{calendar.name || 'Calendar'}
@@ -344,6 +339,13 @@ function eventBlockClass(tone: EventTone): string {
 	if (tone === 'rose')
 		return 'bg-[var(--event-rose)]/10 text-[var(--event-rose)] border-l-[3px] border-[var(--event-rose)]'
 	return 'bg-[var(--event-blue)]/10 text-[var(--event-blue)] border-l-[3px] border-[var(--event-blue)]'
+}
+
+export function eventCalendarChoiceClass(active: boolean, tone: EventTone): string {
+	return cn(
+		'flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors',
+		active ? eventBlockClass(tone) : 'border-border text-muted-foreground hover:bg-muted',
+	)
 }
 
 function decimalHour(date: Date): number {
