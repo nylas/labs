@@ -448,11 +448,21 @@ function MonthGrid({
 						<div
 							key={day.toISOString()}
 							className={cn(
-								'group flex min-h-0 cursor-pointer flex-col gap-1 border-r border-b border-border p-1.5 transition-colors hover:bg-muted/40',
+								'group relative flex min-h-0 cursor-pointer flex-col gap-1 border-r border-b border-border p-1.5 transition-colors hover:bg-muted/40',
 								!inMonth && 'bg-muted/30',
 							)}
 						>
-							<div className="flex items-center justify-center">
+							<button
+								type="button"
+								aria-label={`Open ${day.toLocaleDateString(undefined, {
+									weekday: 'long',
+									month: 'long',
+									day: 'numeric',
+								})}`}
+								onClick={() => onPickDay(day)}
+								className="absolute inset-0 z-0 cursor-pointer"
+							/>
+							<div className="pointer-events-none relative z-10 flex items-center justify-center">
 								<button
 									type="button"
 									onClick={(event) => {
@@ -460,7 +470,7 @@ function MonthGrid({
 										onPickDay(day)
 									}}
 									className={cn(
-										'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
+										'pointer-events-auto flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
 										iso === todayIso && 'bg-primary text-primary-foreground',
 										iso !== todayIso && !inMonth && 'text-muted-foreground/60',
 										iso !== todayIso && inMonth && 'text-foreground',
@@ -469,7 +479,7 @@ function MonthGrid({
 									{day.getDate()}
 								</button>
 							</div>
-							<div className="flex min-h-0 flex-col gap-1 overflow-hidden">
+							<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
 								{dayEvents.slice(0, 3).map((event, index) => {
 									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 									const allDay = eventTimes(event).allDay
@@ -482,7 +492,7 @@ function MonthGrid({
 												onPickEvent(event)
 											}}
 											className={cn(
-												'flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
+												'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
 												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
 											)}
 										>
@@ -512,7 +522,7 @@ function MonthGrid({
 											event.stopPropagation()
 											onPickDay(day)
 										}}
-										className="px-1.5 text-left text-xs font-medium text-muted-foreground"
+										className="pointer-events-auto px-1.5 text-left text-xs font-medium text-muted-foreground"
 									>
 										+{dayEvents.length - 3} more
 									</button>
