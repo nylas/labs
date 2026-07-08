@@ -36,8 +36,8 @@ function friendly(err: unknown): Error {
 export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async () => {
 	const { platform } = await import('./platform.js')
 	const { env } = await platform()
-	const { email } = await requireMailbox()
-	return { email, appName: env.APP_NAME }
+	const { email, displayName } = await requireMailbox()
+	return { email, ...(displayName ? { displayName } : {}), appName: env.APP_NAME }
 })
 
 export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Promise<Folder[]> => {

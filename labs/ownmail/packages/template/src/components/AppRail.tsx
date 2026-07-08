@@ -1,19 +1,17 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { initials } from './ui-model.js'
 
-function initials(email: string): string {
-	const local = email.split('@')[0] ?? email
-	return local
-		.split(/[._-]+/)
-		.map((part) => part[0])
-		.filter(Boolean)
-		.slice(0, 2)
-		.join('')
-		.toUpperCase()
-}
-
-export function AppRail({ email, active }: { email: string; active: 'mail' | 'calendar' }) {
+export function AppRail({
+	email,
+	displayName,
+	active,
+}: {
+	email: string
+	displayName?: string
+	active: 'mail' | 'calendar'
+}) {
 	const [isDark, setIsDark] = useState(false)
 	const [mounted, setMounted] = useState(false)
 
@@ -106,9 +104,9 @@ export function AppRail({ email, active }: { email: string; active: 'mail' | 'ca
 				</a>
 				<div
 					className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground"
-					title={email}
+					title={displayName ? `${displayName} · ${email}` : email}
 				>
-					{initials(email)}
+					{initials(displayName ?? email)}
 				</div>
 			</div>
 		</nav>

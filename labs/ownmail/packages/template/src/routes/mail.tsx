@@ -96,7 +96,7 @@ function MailLayout() {
 
 	return (
 		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-			<AppRail email={info.email} active="mail" />
+			<AppRail email={info.email} displayName={info.displayName} active="mail" />
 			<div className="flex min-h-0 flex-1 overflow-hidden">
 				<div className="hidden md:flex">
 					<MailSidebar folders={folders} />

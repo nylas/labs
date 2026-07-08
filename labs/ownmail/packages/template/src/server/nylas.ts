@@ -1,5 +1,5 @@
 import { type GrantScopedClient, NylasV3Client } from '@nylas-labs/cli-kit/v3'
-import { createDevMailbox, devMailboxEmail } from './dev-mocks.js'
+import { createDevMailbox, devMailboxEmail, devMailboxName } from './dev-mocks.js'
 import { platform, usingDevMocks } from './platform.js'
 import { getSession } from './session.js'
 
@@ -14,12 +14,19 @@ export async function nylas(): Promise<NylasV3Client> {
 }
 
 /** Resolves the caller's mailbox from the session cookie — the only path to a grant id. */
-export async function mailboxFromRequest(
-	request: Request,
-): Promise<{ mailbox: GrantScopedClient | ReturnType<typeof createDevMailbox>; email: string } | null> {
+export async function mailboxFromRequest(request: Request): Promise<{
+	mailbox: GrantScopedClient | ReturnType<typeof createDevMailbox>
+	email: string
+	displayName?: string
+} | null> {
 	const { env } = await platform()
 	if (await usingDevMocks()) {
-		return { mailbox: createDevMailbox(), email: devMailboxEmail(env.INBOX_EMAIL) }
+		const displayName = devMailboxName(env.INBOX_EMAIL)
+		return {
+			mailbox: createDevMailbox(),
+			email: devMailboxEmail(env.INBOX_EMAIL),
+			...(displayName ? { displayName } : {}),
+		}
 	}
 	const session = await getSession(request)
 	if (!session) return null

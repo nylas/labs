@@ -13,7 +13,9 @@ import type {
 } from '@nylas-labs/cli-kit/v3'
 
 const GRANT_ID = 'dev-grant'
-const MAILBOX_EMAIL = 'demo@ownmail.local'
+const MAILBOX_NAME = 'Ada Lovelace'
+const MAILBOX_EMAIL = 'ada@ownmail.com'
+const ACCOUNT = { name: MAILBOX_NAME, email: MAILBOX_EMAIL }
 
 type StoredThread = Thread & { folders: string[]; message_ids: string[] }
 type StoredMessage = Message & { thread_id: string }
@@ -35,6 +37,11 @@ const folderNames = new Map<string, { name: string; system: boolean }>([
 
 export function devMailboxEmail(email?: string): string {
 	return email?.trim() || MAILBOX_EMAIL
+}
+
+export function devMailboxName(email?: string): string | undefined {
+	const normalized = email?.trim().toLowerCase()
+	return !normalized || normalized === MAILBOX_EMAIL ? MAILBOX_NAME : undefined
 }
 
 export function createDevMailbox() {
@@ -224,7 +231,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'Hi Ada, I went through the latest roadmap deck and it is looking sharp.',
 			body: '<p>Hi Ada,</p><p>I went through the latest roadmap deck and it is looking sharp. Before we lock it on Monday, can you take one more pass at the sequencing for the calendar sync work?</p><p>I have attached the updated deck with my comments in the margins.</p><p>Best,<br>Grace</p>',
 			from: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(0, 8, 12),
 			unread: true,
 			starred: true,
@@ -245,7 +252,7 @@ const messages = new Map<string, StoredMessage>(
 			subject: 'Q3 product roadmap - final review before Monday',
 			snippet: 'Thanks Grace - this is great.',
 			body: '<p>Thanks Grace - this is great.</p><p>I think we hold shared-inbox for the next release. It needs the new permissions model to land first, and I would rather not couple the two timelines.</p><p>Ada</p>',
-			from: [{ email: MAILBOX_EMAIL }],
+			from: [ACCOUNT],
 			to: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
 			date: daysAgo(0, 9, 30),
 			unread: false,
@@ -259,7 +266,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'Your trip is booked! Departure: Fri, 8:40 AM - SFO to LIS.',
 			body: '<p>Your trip is booked!</p><p>Departure: Fri, 8:40 AM - SFO to LIS, connecting in Lisbon.</p><p>Hotel: Praca Boutique, check-in from 3:00 PM. Confirmation #VYG-40192.</p>',
 			from: [{ name: 'Voyage', email: 'trips@voyage.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(0, 7, 5),
 			unread: true,
 			starred: false,
@@ -273,7 +280,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'You received a payment of $4,200.00 from Northwind Studio.',
 			body: '<p>You received a payment of $4,200.00 from Northwind Studio.</p><p>Invoice #2041 is now marked as paid. Funds will settle to your account within 2 business days.</p>',
 			from: [{ name: 'Stripe', email: 'receipts@stripe.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(1, 16, 20),
 			unread: false,
 			starred: false,
@@ -295,7 +302,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning.',
 			body: '<p>Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.</p><p>Want to join? We would start around 8 to beat the crowds. I can drive.</p>',
 			from: [{ name: 'Alan Turing', email: 'alan@hey.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(1, 11, 45),
 			unread: false,
 			starred: true,
@@ -309,7 +316,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'The v3 token set is live in the shared library.',
 			body: '<p>The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.</p><p>Nothing you need to do today - existing components will pick up the changes automatically on the next release.</p>',
 			from: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(2, 14, 0),
 			unread: false,
 			starred: false,
@@ -323,7 +330,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'This is a friendly reminder about your upcoming cleaning with Dr. Reyes.',
 			body: '<p>This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.</p><p>Reply to reschedule, or arrive 10 minutes early to update your paperwork.</p>',
 			from: [{ name: 'Bright Smile Dental', email: 'hello@brightsmile.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(2, 10, 30),
 			unread: false,
 			starred: false,
@@ -337,7 +344,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'Your statement for June is now available.',
 			body: '<p>Your statement for June is now available. Sign in to view your transactions and balances.</p><p>As always, we will never ask for your password by email.</p>',
 			from: [{ name: 'Meridian Bank', email: 'noreply@meridian.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(3, 6, 0),
 			unread: false,
 			starred: false,
@@ -351,7 +358,7 @@ const messages = new Map<string, StoredMessage>(
 			snippet: 'Welcome aboard! ownmail brings your mail and your calendar into one calm, fast workspace.',
 			body: '<p>Welcome aboard! ownmail brings your mail and your calendar into one calm, fast workspace.</p><p>Press C to compose, or jump to your calendar from the rail on the left. Everything you need is a keystroke away.</p><p>Happy sending,<br>The ownmail team</p>',
 			from: [{ name: 'The ownmail team', email: 'team@ownmail.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
+			to: [ACCOUNT],
 			date: daysAgo(4, 9, 0),
 			unread: false,
 			starred: false,
@@ -364,7 +371,7 @@ const messages = new Map<string, StoredMessage>(
 			subject: 'Re: Contract draft',
 			snippet: 'Attached is the countersigned draft.',
 			body: '<p>Attached is the countersigned draft. Let me know if anything else is needed on my end.</p><p>Ada</p>',
-			from: [{ email: MAILBOX_EMAIL }],
+			from: [ACCOUNT],
 			to: [{ name: 'Legal', email: 'legal@northwind.com' }],
 			date: daysAgo(1, 17, 10),
 			unread: false,
@@ -386,7 +393,7 @@ const messages = new Map<string, StoredMessage>(
 			subject: "Notes from today's sync",
 			snippet: 'Quick recap of what we agreed on today, with owners and dates.',
 			body: '<p>Quick recap of what we agreed on today, with owners and dates. Shout if I missed anything.</p>',
-			from: [{ email: MAILBOX_EMAIL }],
+			from: [ACCOUNT],
 			to: [{ name: 'Team', email: 'team@vercel.com' }],
 			date: daysAgo(2, 18, 0),
 			unread: false,
@@ -691,7 +698,7 @@ function addEvent(
 }
 
 export function mockMailboxInfo(appName: string, email?: string) {
-	return { email: email || MAILBOX_EMAIL, appName }
+	return { email: devMailboxEmail(email), displayName: devMailboxName(email), appName }
 }
 
 export function mockFolders(): Folder[] {
@@ -758,7 +765,7 @@ export function mockSendMessage(input: {
 		subject: input.subject,
 		snippet: stripHtml(input.body).slice(0, 140),
 		body: input.body,
-		from: [{ email: MAILBOX_EMAIL }],
+		from: [ACCOUNT],
 		to: recipients,
 		date: sentAt,
 		unread: false,

@@ -110,7 +110,7 @@ function CalendarPage() {
 
 	return (
 		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-			<AppRail email={info.email} active="calendar" />
+			<AppRail email={info.email} displayName={info.displayName} active="calendar" />
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header className="flex flex-wrap items-center gap-3 border-b border-border bg-background px-4 py-2.5">
 					<button
