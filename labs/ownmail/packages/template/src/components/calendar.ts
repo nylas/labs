@@ -87,7 +87,11 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 			const { start, end } = eventTimes(e)
 			return start.getTime() < dayEnd && end.getTime() > dayStart
 		})
-		.sort((a, b) => eventTimes(a).start.getTime() - eventTimes(b).start.getTime())
+		.sort((a, b) => {
+			const aTimes = eventTimes(a)
+			const bTimes = eventTimes(b)
+			return Number(bTimes.allDay) - Number(aTimes.allDay) || aTimes.start.getTime() - bTimes.start.getTime()
+		})
 }
 
 export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: ReadonlySet<string>): Event[] {

@@ -4,6 +4,7 @@ import {
 	CALENDAR_ENTRY_EVENT_RANGE_VIEW,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
+	eventsOnDay,
 	filterEventsByCalendars,
 	timedEventsOnDay,
 	viewRange,
@@ -78,6 +79,20 @@ describe('calendar view helpers', () => {
 
 		expect(timedEventsOnDay(events, new Date('2026-07-08T12:00:00')).map((event) => event.id)).toEqual([
 			'today',
+		])
+	})
+
+	it('orders all-day events before timed events like the reference month grid', () => {
+		const events = [
+			timedEvent('midnight-release', 'work', '2026-07-08T00:00:00', '2026-07-08T01:00:00'),
+			allDayEvent('ooo', 'primary', '2026-07-08'),
+			timedEvent('standup', 'work', '2026-07-08T09:00:00', '2026-07-08T09:30:00'),
+		]
+
+		expect(eventsOnDay(events, new Date('2026-07-08T12:00:00')).map((event) => event.id)).toEqual([
+			'ooo',
+			'midnight-release',
+			'standup',
 		])
 	})
 
