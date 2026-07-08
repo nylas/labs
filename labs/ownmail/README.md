@@ -112,6 +112,18 @@ pnpm --filter @ownmail/template dev:ui
 Open the printed localhost URL and go to `/mail`. This runs the TanStack Start
 app with local in-memory mail, draft, contact, and calendar data.
 
+The local UI mock is intentionally limited to the same grant-scoped Nylas v3
+resources the app uses in production:
+
+- Mail: threads, messages, drafts, folders, send, and attachment downloads.
+- Calendar: calendars, events, create/update/delete event, and RSVP.
+- Contacts: contact lookup for compose autocomplete.
+
+Those capabilities map to the public
+[Nylas API reference](https://developer.nylas.com/docs/reference/api/). Features
+outside that surface should be proven against `dev:local` before they are added
+to the UI.
+
 To test the real hosted-auth and Nylas API flow locally, export the template
 environment variables and run the Node SSR target:
 
