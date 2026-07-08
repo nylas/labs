@@ -410,6 +410,7 @@ function Compose() {
 									placeholder="recipient@email.com"
 									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 									type="email"
+									multiple
 									inputMode="email"
 									autoComplete="email"
 									autoCapitalize="none"

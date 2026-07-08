@@ -59,6 +59,7 @@ export function RecipientInput({
 				placeholder={placeholder ?? 'To (comma-separated)'}
 				className="app-input"
 				type="email"
+				multiple
 				inputMode="email"
 				autoComplete="email"
 				autoCapitalize="none"

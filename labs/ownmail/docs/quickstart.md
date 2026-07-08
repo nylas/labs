@@ -91,8 +91,10 @@ This starts the app locally with in-memory mock mail and calendar data.
 
 The mock mailbox mirrors only the Nylas v3 resources OwnMail actually calls:
 mail threads/messages/drafts/folders/send/attachments, calendar
-calendars/events/RSVP, and contact lookup for compose autocomplete. For anything
-outside that surface, use a real local integration pass before wiring the UI.
+calendars/events/RSVP, contact lookup for compose autocomplete, and the
+Cloudflare webhook refresh model. For anything outside that wired surface, such
+as free/busy, availability, scheduling, notetaker, templates, or workflows, use
+a real local integration pass before wiring the UI.
 
 For a local real-integration pass, export `SESSION_SECRET`, `NYLAS_API_KEY`,
 `NYLAS_CLIENT_ID`, `NYLAS_REGION`, `APP_NAME`, `INBOX_EMAIL`, and

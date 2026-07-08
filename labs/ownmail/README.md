@@ -118,11 +118,14 @@ resources the app uses in production:
 - Mail: threads, messages, drafts, folders, send, and attachment downloads.
 - Calendar: calendars, events, create/update/delete event, and RSVP.
 - Contacts: contact lookup for compose autocomplete.
+- Realtime refresh: Nylas webhooks in Cloudflare deployments; local UI mocks and
+  Vercel deployments fall back to navigation/focus refresh.
 
 Those capabilities map to the public
 [Nylas API reference](https://developer.nylas.com/docs/reference/api/). Features
-outside that surface should be proven against `dev:local` before they are added
-to the UI.
+outside that wired surface, such as free/busy, availability, scheduling,
+notetaker, templates, or workflows, should be proven against `dev:local` before
+they are added to the UI.
 
 To test the real hosted-auth and Nylas API flow locally, export the template
 environment variables and run the Node SSR target:
