@@ -53,7 +53,7 @@ export function Sheet({
 				aria-label={title}
 				tabIndex={-1}
 				className={cn(
-					'absolute top-0 flex h-full w-[min(18rem,calc(100vw-3rem))] flex-col border-border bg-sidebar shadow-2xl outline-none',
+					'absolute top-0 flex h-full w-[min(18rem,calc(100vw-3rem))] flex-col border-border bg-background shadow-2xl outline-none',
 					side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
 				)}
 			>

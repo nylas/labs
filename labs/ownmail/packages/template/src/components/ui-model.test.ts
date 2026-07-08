@@ -13,6 +13,7 @@ import {
 	composeSearchFromMailLocation,
 	draftRecipientList,
 	draftRecipientName,
+	eventChipClass,
 	eventColorClass,
 	eventHour,
 	eventTone,
@@ -248,10 +249,10 @@ describe('ui-model mail helpers', () => {
 
 		expect(threadLabels(thread).map((label) => label.name)).toEqual(['Work', 'Travel'])
 		expect(labelBadgeClass('blue')).toBe(
-			'bg-[var(--event-blue)]/10 text-[var(--event-blue)] border-l-[3px] border-[var(--event-blue)]',
+			'label-badge border border-[var(--event-blue)]/20 bg-[var(--event-blue)]/8 text-[var(--event-blue)]',
 		)
 		expect(labelBadgeClass('amber')).toBe(
-			'bg-[var(--event-amber)]/12 text-[var(--event-amber)] border-l-[3px] border-[var(--event-amber)]',
+			'label-badge border border-[var(--event-amber)]/20 bg-[var(--event-amber)]/10 text-[var(--event-amber)]',
 		)
 	})
 
@@ -264,6 +265,9 @@ describe('ui-model mail helpers', () => {
 		expect(eventColorClass('blue', 'bg')).toBe('bg-[var(--event-blue)]')
 		expect(eventColorClass('teal', 'text')).toBe('text-[var(--event-teal)]')
 		expect(eventColorClass('rose', 'border')).toBe('border-[var(--event-rose)]')
+		expect(eventChipClass('teal')).toBe(
+			'event-chip bg-[var(--event-teal)]/10 text-[var(--event-teal)] border border-[var(--event-teal)]/20',
+		)
 	})
 
 	it('keeps reference label dot colors stable by label id', () => {

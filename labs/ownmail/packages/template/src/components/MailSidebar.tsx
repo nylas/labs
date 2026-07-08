@@ -41,19 +41,21 @@ export function MailSidebar({
 	const labels = folders.filter(isCustomFolder)
 
 	return (
-		<aside className={cn('flex w-full flex-col gap-4 px-3 py-4', className)}>
-			<Link
-				to="/mail/compose"
-				search={composeSearch}
-				{...(composeMask ? { mask: composeMask } : {})}
-				onClick={onNavigate}
-				className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:brightness-105 active:scale-[0.98]"
-			>
-				<Pencil className="h-4 w-4" strokeWidth={2.5} />
-				Compose
-			</Link>
+		<aside className={cn('flex w-full flex-col', className)}>
+			<div className="border-b border-border p-3">
+				<Link
+					to="/mail/compose"
+					search={composeSearch}
+					{...(composeMask ? { mask: composeMask } : {})}
+					onClick={onNavigate}
+					className="flex h-9 w-full items-center justify-center gap-2 border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-muted"
+				>
+					<Pencil className="h-3.5 w-3.5" strokeWidth={2} />
+					Compose
+				</Link>
+			</div>
 
-			<nav className="flex flex-col gap-0.5" aria-label="Mail folders">
+			<nav className="flex flex-col py-1" aria-label="Mail folders">
 				{MAIL_FOLDERS.map((folder) => {
 					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
 					const count = sidebarFolderCount(folders, folder.id)
@@ -66,17 +68,15 @@ export function MailSidebar({
 							{...(folderMask ? { mask: folderMask } : {})}
 							onClick={onNavigate}
 							className={cn(
-								'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-								active
-									? 'bg-accent font-semibold text-accent-foreground'
-									: 'text-foreground/80 hover:bg-muted',
+								'relative flex h-9 items-center gap-3 px-4 text-sm transition-colors',
+								active ? 'nav-item-active' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
 							)}
 						>
 							<Icon className="h-4 w-4 shrink-0" />
 							<span className="flex-1 text-left">{folder.label}</span>
 							{count > 0 ? (
 								<span
-									className={cn('text-xs tabular-nums', active ? 'font-semibold' : 'text-muted-foreground')}
+									className={cn('text-xs tabular-nums', active ? 'text-foreground' : 'text-muted-foreground')}
 								>
 									{count}
 								</span>
@@ -87,11 +87,11 @@ export function MailSidebar({
 			</nav>
 
 			{labels.length > 0 ? (
-				<div>
-					<p className="px-3 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+				<div className="border-t border-border pt-2">
+					<p className="px-4 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
 						Labels
 					</p>
-					<div className="flex flex-col gap-0.5">
+					<div className="flex flex-col">
 						{labels.map((label, index) => {
 							const active = currentFolderId === label.id
 							const nextFolderId = labelToggleFolderId(currentFolderId, label.id, baseFolderId)
@@ -105,13 +105,11 @@ export function MailSidebar({
 									{...(folderMask ? { mask: folderMask } : {})}
 									onClick={onNavigate}
 									className={cn(
-										'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-										active
-											? 'bg-accent font-semibold text-accent-foreground'
-											: 'text-foreground/80 hover:bg-muted',
+										'relative flex h-9 items-center gap-3 px-4 text-sm transition-colors',
+										active ? 'nav-item-active' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
 									)}
 								>
-									<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(label.id, index))} />
+									<span className={cn('h-2 w-2 shrink-0 rounded-full', labelDotClass(label.id, index))} />
 									<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
 								</Link>
 							)

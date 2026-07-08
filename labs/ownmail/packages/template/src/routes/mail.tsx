@@ -2,18 +2,24 @@ import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil, Search, X } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppRail } from '../components/AppRail.js'
+import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import { MailSidebar } from '../components/MailSidebar.js'
 import { Sheet } from '../components/Sheet.js'
 import {
 	activeMailSidebarFolderId,
+	APP_RAIL_WIDTH_CLASS,
 	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
 	folderMaskFromMailLocation,
 	liveSearchTarget,
 	mailSearchInputValue,
 	searchMaskFromMailLocation,
+	CHROME_ROW_CLASS,
+	CHROME_ROW_SHELL_CLASS,
+	cn,
+	MAIL_HEADER_GRID_CLASS,
+	MAIL_SIDEBAR_WIDTH_CLASS,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
@@ -189,77 +195,102 @@ export function MailRouteScreen({
 		onNavigate: () => setSidebarOpen(false),
 	}
 
+	const railNavProps = {
+		email: info.email,
+		displayName: info.displayName,
+		active: 'mail' as const,
+		onOpenCommandPalette: openPalette,
+	}
+
 	return (
-		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-			<AppRail
-				email={info.email}
-				displayName={info.displayName}
-				active="mail"
-				onOpenCommandPalette={openPalette}
-			/>
+		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+			<div className={CHROME_ROW_SHELL_CLASS}>
+				<AppRailLogo />
+				<header
+					className={cn(
+						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
+						CHROME_ROW_CLASS,
+					)}
+				>
+					<button
+						type="button"
+						onClick={() => setSidebarOpen(true)}
+						className={cn(
+							'flex shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:hidden',
+							APP_RAIL_WIDTH_CLASS,
+						)}
+						aria-label="Open folders"
+					>
+						<Menu className="h-4 w-4" />
+					</button>
+					<div className={cn('min-w-0 flex-1', MAIL_HEADER_GRID_CLASS)}>
+						<div className="hidden border-r border-border md:block" aria-hidden="true" />
+						<div className="flex min-w-0 items-stretch">
+							<form
+								className="relative flex min-w-0 flex-1 items-center border-r border-border px-3"
+								onSubmit={(event) => {
+									event.preventDefault()
+									if (searchDebounce.current) clearTimeout(searchDebounce.current)
+									navigateSearch(query)
+								}}
+							>
+								<Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
+								<input
+									id="mail-search"
+									type="search"
+									value={query}
+									onChange={(event) => updateSearch(event.target.value)}
+									placeholder="Search mail"
+									className="mail-search-field h-full w-full border-0 bg-transparent py-2 pr-16 pl-7 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+									aria-label="Search mail"
+									enterKeyHint="search"
+									autoCapitalize="none"
+								/>
+								<div className="pointer-events-none absolute right-3 flex items-center gap-1">
+									{query ? (
+										<button
+											type="button"
+											onClick={() => updateSearch('')}
+											aria-label="Clear search"
+											className="pointer-events-auto flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+										>
+											<X className="h-4 w-4" />
+										</button>
+									) : (
+										<kbd className="kbd hidden sm:inline-flex">/</kbd>
+									)}
+								</div>
+							</form>
+							<button
+								type="button"
+								onClick={openPalette}
+								className="hidden shrink-0 items-center gap-2 border-r border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:flex"
+								aria-label="Open command palette"
+							>
+								<span className="hidden lg:inline">Commands</span>
+								<kbd className="kbd">⌘K</kbd>
+							</button>
+							<div className="hidden shrink-0 items-center px-3 text-xs text-muted-foreground xl:flex">
+								<kbd className="kbd">C</kbd>
+								<span className="ml-1.5">compose</span>
+							</div>
+						</div>
+					</div>
+				</header>
+			</div>
+
 			<div className="flex min-h-0 flex-1 overflow-hidden">
-				<div className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:block">
+				<AppRailNav {...railNavProps} />
+				<div
+					className={cn(
+						'hidden shrink-0 overflow-hidden border-r border-border bg-background md:block',
+						MAIL_SIDEBAR_WIDTH_CLASS,
+					)}
+				>
 					<MailSidebar {...sidebarProps} />
 				</div>
-				<div className="flex min-w-0 flex-1 flex-col">
-					<header className="flex items-center gap-2 border-b border-border bg-background/80 px-3 py-2.5 backdrop-blur-sm sm:gap-3 sm:px-4">
-						<button
-							type="button"
-							onClick={() => setSidebarOpen(true)}
-							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
-							aria-label="Open folders"
-						>
-							<Menu className="h-5 w-5" />
-						</button>
-						<form
-							className="relative min-w-0 flex-1 md:max-w-md"
-							onSubmit={(event) => {
-								event.preventDefault()
-								if (searchDebounce.current) clearTimeout(searchDebounce.current)
-								navigateSearch(query)
-							}}
-						>
-							<Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-							<input
-								id="mail-search"
-								type="search"
-								value={query}
-								onChange={(event) => updateSearch(event.target.value)}
-								placeholder="Search mail"
-								className="mail-search-field h-9 w-full rounded-lg border border-border bg-card pr-20 pl-9 text-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20"
-								aria-label="Search mail"
-								enterKeyHint="search"
-								autoCapitalize="none"
-							/>
-							<div className="pointer-events-none absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
-								{query ? (
-									<button
-										type="button"
-										onClick={() => updateSearch('')}
-										aria-label="Clear search"
-										className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-									>
-										<X className="h-4 w-4" />
-									</button>
-								) : (
-									<kbd className="kbd hidden sm:inline-flex">/</kbd>
-								)}
-							</div>
-						</form>
-						<button
-							type="button"
-							onClick={openPalette}
-							className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted sm:flex"
-							aria-label="Open command palette"
-						>
-							<span className="hidden lg:inline">Commands</span>
-							<kbd className="kbd">⌘K</kbd>
-						</button>
-						<span className="ml-auto hidden text-xs text-muted-foreground xl:inline">
-							<kbd className="kbd">C</kbd> compose
-						</span>
-					</header>
-					<div className="flex min-h-0 flex-1">{children ?? <Outlet />}</div>
+				<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+					<div className="flex min-h-0 flex-1 overflow-hidden">{children ?? <Outlet />}</div>
 				</div>
 			</div>
 

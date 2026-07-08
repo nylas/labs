@@ -164,13 +164,13 @@ function SearchThreadRow({
 			to="/mail/search"
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
 			{...(mask ? { mask } : {})}
+			data-active={active ? 'true' : undefined}
+			data-unread={thread.unread ? 'true' : undefined}
 			className={cn(
-				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
-				active && 'bg-accent hover:bg-accent',
-				thread.unread && !active && 'bg-card',
+				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-muted',
+				thread.unread && !active && 'bg-card/80',
 			)}
 		>
-			{thread.unread ? <span className="absolute top-0 left-0 h-full w-0.5 bg-primary" aria-hidden /> : null}
 			<div className="flex items-center gap-2">
 				<button
 					type="button"
@@ -207,10 +207,7 @@ function SearchThreadRow({
 				{labels.map((label) => (
 					<span
 						key={label.id}
-						className={cn(
-							'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
-							labelBadgeClass(label.tone),
-						)}
+						className={cn('shrink-0', labelBadgeClass(label.tone))}
 					>
 						{label.name}
 					</span>
@@ -311,10 +308,7 @@ function SearchThreadDetail({
 						{labels.map((label) => (
 							<span
 								key={label.id}
-								className={cn(
-									'rounded-md border px-2 py-0.5 text-xs font-medium',
-									labelBadgeClass(label.tone),
-								)}
+								className={cn('text-xs', labelBadgeClass(label.tone))}
 							>
 								{label.name}
 							</span>
