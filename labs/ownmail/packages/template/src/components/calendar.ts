@@ -88,6 +88,15 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 		.sort((a, b) => eventTimes(a).start.getTime() - eventTimes(b).start.getTime())
 }
 
+export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: ReadonlySet<string>): Event[] {
+	if (hiddenCalendarIds.size === 0) return events
+	return events.filter((event) => !event.calendar_id || !hiddenCalendarIds.has(event.calendar_id))
+}
+
+export function timedEventsOnDay(events: Event[], day: Date): Event[] {
+	return eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
+}
+
 export function fmtTime(d: Date): string {
 	return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }

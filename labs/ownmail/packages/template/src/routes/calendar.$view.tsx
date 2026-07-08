@@ -1,6 +1,6 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import {
@@ -8,10 +8,12 @@ import {
 	type CalView,
 	eventsOnDay,
 	eventTimes,
+	filterEventsByCalendars,
 	fmtTime,
 	isCalView,
 	shiftAnchor,
 	startOfWeek,
+	timedEventsOnDay,
 	viewRange,
 	ymd,
 } from '../components/calendar.js'
@@ -52,18 +54,32 @@ function CalendarPage() {
 	const anchor = useMemo(() => new Date(`${anchorIso}T00:00:00`), [anchorIso])
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
+	const today = useMemo(() => new Date(), [])
+	const visibleEvents = useMemo(
+		() => filterEventsByCalendars(events, hiddenCalendarIds),
+		[events, hiddenCalendarIds],
+	)
 	const calendarNameById = useMemo(
 		() => new Map(calendars.map((cal) => [cal.id, cal.name || 'Calendar'])),
 		[calendars],
 	)
 	const agenda = useMemo(
 		() =>
-			events
-				.filter((event) => !eventTimes(event).allDay)
+			timedEventsOnDay(visibleEvents, today)
 				.sort((a, b) => eventTimes(a).start.getTime() - eventTimes(b).start.getTime())
 				.slice(0, 5),
-		[events],
+		[today, visibleEvents],
 	)
+
+	const toggleCalendar = useCallback((calendarId: string) => {
+		setHiddenCalendarIds((current) => {
+			const next = new Set(current)
+			if (next.has(calendarId)) next.delete(calendarId)
+			else next.add(calendarId)
+			return next
+		})
+	}, [])
 
 	const go = useCallback(
 		(nextView: CalView, nextAnchor: Date) => {
@@ -176,23 +192,31 @@ function CalendarPage() {
 								My calendars
 							</p>
 							<div className="flex flex-col gap-0.5">
-								{calendars.map((cal, index) => (
-									<button
-										key={cal.id}
-										type="button"
-										className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
-									>
-										<span
-											className={cn(
-												'flex h-4 w-4 items-center justify-center rounded-sm border-2 border-transparent',
-												eventBarClass(eventTone({ title: cal.name, calendar_id: cal.id } as Event, index)),
-											)}
+								{calendars.map((cal, index) => {
+									const hidden = hiddenCalendarIds.has(cal.id)
+									const tone = eventTone({ title: cal.name, calendar_id: cal.id } as Event, index)
+									return (
+										<button
+											key={cal.id}
+											type="button"
+											aria-pressed={!hidden}
+											onClick={() => toggleCalendar(cal.id)}
+											className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
 										>
-											<span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
-										</span>
-										<span className="truncate text-foreground">{cal.name || 'Calendar'}</span>
-									</button>
-								))}
+											<span
+												className={cn(
+													'flex h-4 w-4 items-center justify-center rounded border-2 transition-colors',
+													hidden ? 'border-border' : cn(eventBarClass(tone), 'border-transparent'),
+												)}
+											>
+												{hidden ? null : <Check className="h-3 w-3 text-primary-foreground" />}
+											</span>
+											<span className={cn('truncate', hidden ? 'text-muted-foreground' : 'text-foreground')}>
+												{cal.name || 'Calendar'}
+											</span>
+										</button>
+									)
+								})}
 							</div>
 						</div>
 						<div className="rounded-sm border border-border bg-card p-3">
@@ -230,11 +254,11 @@ function CalendarPage() {
 							</div>
 						</div>
 					</aside>
-					<div className="flex min-w-0 flex-1 bg-card">
+					<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
 						{view === 'month' ? (
 							<MonthGrid
 								anchor={anchor}
-								events={events}
+								events={visibleEvents}
 								onPickDay={(d) => go('day', d)}
 								onPickEvent={setEditing}
 								onCreateAt={(d) => {
@@ -246,7 +270,7 @@ function CalendarPage() {
 							<TimeGrid
 								days={view === 'week' ? 7 : 1}
 								start={view === 'week' ? startOfWeek(anchor) : anchor}
-								events={events}
+								events={visibleEvents}
 								onPickEvent={setEditing}
 								onCreateAt={(d) => {
 									setNewStart(d)
