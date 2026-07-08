@@ -432,6 +432,30 @@ describe('ui-model calendar helpers', () => {
 		).toBe('blue')
 	})
 
+	it('keeps reference event-specific tones ahead of calendar colors', () => {
+		expect(
+			eventTone({ title: 'Flight to Lisbon', calendar_id: 'primary' } as Event, 0, {
+				id: 'primary',
+				name: 'Personal',
+				hex_color: '#14b8a6',
+			} as Calendar),
+		).toBe('rose')
+		expect(
+			eventTone({ title: 'Pay rent', calendar_id: 'primary' } as Event, 0, {
+				id: 'primary',
+				name: 'Personal',
+				hex_color: '#14b8a6',
+			} as Calendar),
+		).toBe('amber')
+		expect(
+			eventTone({ title: 'Dipsea trail hike', calendar_id: 'social' } as Event, 0, {
+				id: 'social',
+				name: 'Social',
+				hex_color: '#f43f5e',
+			} as Calendar),
+		).toBe('teal')
+	})
+
 	it('converts Nylas event times to decimal hours', () => {
 		const event = {
 			when: {
