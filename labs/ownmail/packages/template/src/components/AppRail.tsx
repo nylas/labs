@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { DEFAULT_CALENDAR_VIEW } from './calendar.js'
 import { initials } from './ui-model.js'
 
 export function AppRail({
@@ -58,7 +59,7 @@ export function AppRail({
 			</Link>
 			<Link
 				to="/calendar/$view"
-				params={{ view: 'week' }}
+				params={{ view: DEFAULT_CALENDAR_VIEW }}
 				aria-label="Calendar"
 				aria-current={active === 'calendar' ? 'page' : undefined}
 				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${

@@ -1,6 +1,13 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
-import { dateWithHour, filterEventsByCalendars, timedEventsOnDay, viewRange, ymd } from './calendar.js'
+import {
+	DEFAULT_CALENDAR_VIEW,
+	dateWithHour,
+	filterEventsByCalendars,
+	timedEventsOnDay,
+	viewRange,
+	ymd,
+} from './calendar.js'
 
 function timedEvent(id: string, calendarId: string, start: string, end: string): Event {
 	return {
@@ -29,6 +36,10 @@ function allDayEvent(id: string, calendarId: string, date: string): Event {
 }
 
 describe('calendar view helpers', () => {
+	it('defaults calendar entry navigation to the reference week view', () => {
+		expect(DEFAULT_CALENDAR_VIEW).toBe('week')
+	})
+
 	it('builds the reference six-week month range', () => {
 		const { start, end } = viewRange('month', new Date('2026-07-08T12:00:00'))
 

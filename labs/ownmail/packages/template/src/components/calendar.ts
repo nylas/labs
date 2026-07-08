@@ -1,6 +1,7 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 
 export type CalView = 'month' | 'week' | 'day'
+export const DEFAULT_CALENDAR_VIEW: CalView = 'week'
 
 const MONTHS = [
 	'January',
