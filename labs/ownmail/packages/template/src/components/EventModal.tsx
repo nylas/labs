@@ -7,6 +7,8 @@ import { calendarTone, cn, type EventTone, eventColorClass, eventTone } from './
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
+export const EVENT_DIALOG_PANEL_CLASS =
+	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
 
 function eventBarClass(tone: EventTone): string {
 	return eventColorClass(tone, 'bg')
@@ -117,12 +119,7 @@ export function EventModal({
 					if (clickEvent.target === clickEvent.currentTarget) onClose(false)
 				}}
 			>
-				<div
-					role="dialog"
-					aria-modal="true"
-					aria-label="Event details"
-					className="relative w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl"
-				>
+				<div role="dialog" aria-modal="true" aria-label="Event details" className={EVENT_DIALOG_PANEL_CLASS}>
 					<div className={cn('h-1.5 w-full', eventBarClass(tone))} />
 					<div className="flex items-start justify-between gap-3 px-5 pt-4">
 						<div className="flex min-w-0 items-start gap-3">
@@ -225,7 +222,7 @@ export function EventModal({
 				role="dialog"
 				aria-modal="true"
 				aria-label={event ? 'Event details' : 'New event'}
-				className="relative w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl"
+				className={EVENT_DIALOG_PANEL_CLASS}
 			>
 				<div className={cn('h-1.5 w-full', eventBarClass(selectedCalendarTone))} />
 				<div className="flex items-center justify-between px-5 pt-4">

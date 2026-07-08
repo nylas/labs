@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { eventCalendarChoiceClass, eventInitialHours, NEW_EVENT_HOURS } from './EventModal.js'
+import {
+	EVENT_DIALOG_PANEL_CLASS,
+	eventCalendarChoiceClass,
+	eventInitialHours,
+	NEW_EVENT_HOURS,
+} from './EventModal.js'
 
 describe('EventModal helpers', () => {
 	it('matches the reference default time for newly created events', () => {
@@ -18,5 +23,12 @@ describe('EventModal helpers', () => {
 
 		expect(className).toContain('border-[var(--event-teal)]')
 		expect(className).not.toContain('border-transparent')
+	})
+
+	it('matches the reference dialog panel shell', () => {
+		expect(EVENT_DIALOG_PANEL_CLASS).toBe(
+			'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl',
+		)
+		expect(EVENT_DIALOG_PANEL_CLASS).not.toContain('relative')
 	})
 })
