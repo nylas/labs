@@ -56,6 +56,7 @@ function FolderView() {
 			<section
 				className={cn(
 					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none',
+					hasThread ? 'hidden' : 'flex',
 				)}
 			>
 				<div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -88,7 +89,7 @@ function FolderView() {
 					)}
 				</div>
 			</section>
-			<section className="min-w-0 flex-1">
+			<section className={cn('min-w-0 flex-1', !hasThread && 'hidden md:block')}>
 				{hasThread ? (
 					<Outlet />
 				) : (
