@@ -13,7 +13,7 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 			GET: async ({ request, params }) => {
 				const { env } = await platform()
 				if (await usingDevMocks()) {
-					const attachment = params.attachmentId.replace(/[^\w=-]/g, '')
+					const attachment = attachmentDownloadFilename(params.attachmentId)
 					return new Response(`Local mock attachment: ${attachment}\n`, {
 						headers: {
 							'Content-Type': 'text/plain; charset=utf-8',
@@ -27,7 +27,10 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 
 				const url = new URL(request.url)
 				const messageId = url.searchParams.get('message_id')
-				if (!messageId || !/^[\w=-]+$/.test(messageId) || !/^[\w=-]+$/.test(params.attachmentId)) {
+				if (
+					!validNylasAttachmentDownloadId(messageId) ||
+					!validNylasAttachmentDownloadId(params.attachmentId)
+				) {
 					return new Response('Bad request', { status: 400 })
 				}
 
@@ -50,3 +53,29 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 		},
 	},
 })
+
+export function validNylasAttachmentDownloadId(value: string | null | undefined): value is string {
+	if (!value || value.length > 1000) return false
+	for (const char of value) {
+		if (char.charCodeAt(0) < 32) return false
+	}
+	return true
+}
+
+export function attachmentDownloadFilename(attachmentId: string): string {
+	const safe = [...attachmentId]
+		.map((char) => {
+			const code = char.charCodeAt(0)
+			return code < 32 || char === '"' || char === '/' || char === '\\' ? '_' : char
+		})
+		.join('')
+		.trim()
+	return hasMeaningfulFilenameChar(safe) ? safe : 'attachment'
+}
+
+function hasMeaningfulFilenameChar(value: string): boolean {
+	for (const char of value) {
+		if (/[A-Za-z0-9]/.test(char)) return true
+	}
+	return false
+}
