@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { messageBodyParagraphs } from '../components/ui-model.js'
 import {
 	devMailboxEmail,
@@ -11,12 +11,7 @@ import {
 	mockThreadMessages,
 	mockThreads,
 	mockUpdateThreadState,
-	resetDevMocks,
 } from './dev-mocks.js'
-
-beforeEach(() => {
-	resetDevMocks()
-})
 
 describe('dev mock reference identity', () => {
 	it('uses the reference account by default', () => {
@@ -152,19 +147,6 @@ describe('dev mock reference identity', () => {
 		expect(mockThreads({ folderId: 'inbox' }).threads.map((thread) => thread.id)).not.toContain(
 			'thread-roadmap',
 		)
-	})
-
-	it('resets mutated mailbox state for fresh reference-style page loads', () => {
-		mockUpdateThreadState({ threadId: 'thread-roadmap', unread: false, starred: false, folder: 'archive' })
-		expect(mockThreads({ folderId: 'inbox' }).threads.filter((thread) => thread.unread)).toHaveLength(1)
-		expect(mockThreads({ starred: true }).threads.map((thread) => thread.id)).not.toContain('thread-roadmap')
-
-		resetDevMocks()
-
-		const inboxThreads = mockThreads({ folderId: 'inbox' }).threads
-		expect(inboxThreads.filter((thread) => thread.unread)).toHaveLength(2)
-		expect(inboxThreads.map((thread) => thread.id)).toContain('thread-roadmap')
-		expect(mockThreads({ starred: true }).threads.map((thread) => thread.id)).toContain('thread-roadmap')
 	})
 
 	it('models Nylas thread search by native text or participant email', () => {

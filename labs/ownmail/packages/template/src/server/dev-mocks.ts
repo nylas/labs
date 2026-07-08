@@ -574,10 +574,6 @@ const drafts = new Map<string, StoredDraft>([
 	],
 ])
 
-const initialMessages = cloneMap(messages)
-const initialThreads = cloneMap(threads)
-const initialDrafts = cloneMap(drafts)
-
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const calendars: Calendar[] = [
@@ -618,20 +614,6 @@ const calendars: Calendar[] = [
 const calendar = calendars[0] as Calendar
 
 const events = new Map<string, Event>()
-
-function cloneMap<T>(source: Map<string, T>): Map<string, T> {
-	return new Map([...source].map(([key, value]) => [key, structuredClone(value)]))
-}
-
-export function resetDevMocks(): void {
-	messages.clear()
-	for (const [id, message] of initialMessages) messages.set(id, structuredClone(message))
-	threads.clear()
-	for (const [id, thread] of initialThreads) threads.set(id, structuredClone(thread))
-	drafts.clear()
-	for (const [id, draft] of initialDrafts) drafts.set(id, structuredClone(draft))
-	events.clear()
-}
 
 function seedEvents() {
 	if (events.size > 0) return
