@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { initialThemeIsDark } from './AppRail.js'
-import { MAIL_HOME_PATH } from './route-paths.js'
+import { LOGIN_PATH, MAIL_HOME_PATH } from './route-paths.js'
 
 describe('AppRail theme defaults', () => {
 	it('links mail navigation to the reference root inbox route', () => {
 		expect(MAIL_HOME_PATH).toBe('/')
+	})
+
+	it('sends sign-out to the reference login route', () => {
+		expect(LOGIN_PATH).toBe('/login')
 	})
 
 	it('defaults to the reference light theme without a saved preference', () => {
