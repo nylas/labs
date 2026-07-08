@@ -34,23 +34,33 @@ export const Route = createFileRoute('/calendar/$view')({
 	validateSearch: (search): { date?: string } =>
 		typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? { date: search.date } : {},
 	loaderDeps: ({ search }) => ({ date: search.date }),
-	loader: async ({ params, deps }) => {
-		const anchor = deps.date ? new Date(`${deps.date}T00:00:00`) : new Date()
-		const { start, end } = viewRange(params.view, anchor)
-		const [info, res] = await Promise.all([
-			getMailboxInfo(),
-			getEvents({
-				data: { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) },
-			}),
-		])
-		return { ...res, info, anchorIso: ymd(anchor) }
-	},
-	component: CalendarPage,
+	loader: async ({ params, deps }) => loadCalendarRouteData(params.view, deps.date),
+	component: CalendarViewRoutePage,
 })
 
-function CalendarPage() {
+export async function loadCalendarRouteData(view: CalView, date?: string) {
+	const anchor = date ? new Date(`${date}T00:00:00`) : new Date()
+	const { start, end } = viewRange(view, anchor)
+	const [info, res] = await Promise.all([
+		getMailboxInfo(),
+		getEvents({
+			data: { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) },
+		}),
+	])
+	return { ...res, info, anchorIso: ymd(anchor) }
+}
+
+type CalendarRouteData = Awaited<ReturnType<typeof loadCalendarRouteData>>
+
+function CalendarViewRoutePage() {
 	const { view } = Route.useParams()
-	const { events, calendar, calendars, info, anchorIso } = Route.useLoaderData()
+	const data = Route.useLoaderData()
+
+	return <CalendarRouteScreen view={view} data={data} />
+}
+
+export function CalendarRouteScreen({ view, data }: { view: CalView; data: CalendarRouteData }) {
+	const { events, calendar, calendars, info, anchorIso } = data
 	const navigate = useNavigate()
 	const router = useRouter()
 	const anchor = useMemo(() => new Date(`${anchorIso}T00:00:00`), [anchorIso])

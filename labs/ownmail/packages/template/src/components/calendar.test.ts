@@ -1,6 +1,7 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
 import {
+	CALENDAR_HOME_PATH,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	filterEventsByCalendars,
@@ -36,6 +37,10 @@ function allDayEvent(id: string, calendarId: string, date: string): Event {
 }
 
 describe('calendar view helpers', () => {
+	it('links calendar navigation to the reference calendar entry route', () => {
+		expect(CALENDAR_HOME_PATH).toBe('/calendar')
+	})
+
 	it('defaults calendar entry navigation to the reference week view', () => {
 		expect(DEFAULT_CALENDAR_VIEW).toBe('week')
 	})
