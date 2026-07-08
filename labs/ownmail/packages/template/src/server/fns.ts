@@ -15,6 +15,7 @@ import { mailboxFromRequest } from './nylas.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
+import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
 import { normalizeThreadStateInput } from './thread-state.js'
 
 async function requireMailbox() {
@@ -99,14 +100,7 @@ export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Pr
 })
 
 export const getThreads = createServerFn({ method: 'GET' })
-	.validator((input: { folderId?: string; pageToken?: string; q?: string; starred?: boolean }) => {
-		if (input.folderId !== undefined && input.folderId.length > 200) throw new Error('Invalid folder')
-		if (input.pageToken !== undefined && input.pageToken.length > 500) throw new Error('Invalid page token')
-		if (input.q !== undefined && input.q.length > 500) throw new Error('Search query too long')
-		if (input.starred !== undefined && typeof input.starred !== 'boolean')
-			throw new Error('Invalid starred filter')
-		return input
-	})
+	.validator((input: ThreadListInput) => normalizeThreadListInput(input))
 	.handler(async ({ data }): Promise<{ threads: Thread[]; nextCursor?: string }> => {
 		const { mailbox } = await requireMailbox()
 		const search = threadSearchParams(data.q)
