@@ -18,6 +18,7 @@ import {
 	folderCount,
 	folderMaskFromMailLocation,
 	formatListDate,
+	forwardDraftSearch,
 	initials,
 	labelBaseFolderId,
 	labelDotClass,
@@ -28,6 +29,7 @@ import {
 	mailSearchInputValue,
 	messageBodyParagraphs,
 	messagePreview,
+	replyAllDraftSearch,
 	replyDraftSearch,
 	searchListSearch,
 	searchMaskFromMailLocation,
@@ -170,6 +172,44 @@ describe('ui-model mail helpers', () => {
 				from: [{ email: 'grace@example.com' }],
 			} as Message),
 		).toMatchObject({ to: 'team@example.com', subject: 'Re: Q3 roadmap' })
+	})
+
+	it('builds reply-all defaults without addressing the mailbox owner', () => {
+		expect(
+			replyAllDraftSearch(
+				{
+					id: 'msg-1',
+					subject: 'Q3 roadmap',
+					from: [{ email: 'grace@example.com' }],
+					to: [{ email: 'ada@ownmail.com' }, { email: 'katherine@example.com' }],
+					cc: [{ email: 'Grace@example.com' }, { email: 'alan@example.com' }],
+				} as Message,
+				'ada@ownmail.com',
+			),
+		).toEqual({
+			to: 'grace@example.com, katherine@example.com, alan@example.com',
+			subject: 'Re: Q3 roadmap',
+			replyToMessageId: 'msg-1',
+		})
+	})
+
+	it('builds forward defaults with quoted visible message content', () => {
+		const forward = forwardDraftSearch({
+			id: 'msg-1',
+			subject: 'Q3 roadmap',
+			date: Date.parse('2026-07-08T10:00:00Z') / 1000,
+			from: [{ name: 'Grace Hopper', email: 'grace@example.com' }],
+			to: [{ name: 'Ada Lovelace', email: 'ada@ownmail.com' }],
+			body: '<p>First paragraph.</p><p>Second paragraph.</p>',
+		} as Message)
+
+		expect(forward.to).toBe('')
+		expect(forward.subject).toBe('Fwd: Q3 roadmap')
+		expect(forward.body).toContain('---------- Forwarded message ---------')
+		expect(forward.body).toContain('From: Grace Hopper')
+		expect(forward.body).toContain('To: Ada Lovelace')
+		expect(forward.body).toContain('First paragraph.')
+		expect(forward.body).toContain('Second paragraph.')
 	})
 
 	it('maps Nylas folder labels to reference row badges', () => {

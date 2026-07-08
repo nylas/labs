@@ -172,6 +172,75 @@ export function replyDraftSearch(message: Message): {
 	return { to, subject, replyToMessageId: message.id }
 }
 
+export function replyAllDraftSearch(
+	message: Message,
+	mailboxEmail: string,
+): {
+	to: string
+	subject: string
+	replyToMessageId: string
+} {
+	const own = mailboxEmail.trim().toLowerCase()
+	const recipients = uniqueEmails([
+		...(message.reply_to ?? []),
+		...(message.from ?? []),
+		...(message.to ?? []),
+		...(message.cc ?? []),
+	]).filter((email) => email.toLowerCase() !== own)
+	const subject = message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject ?? ''}`
+	return { to: recipients.join(', '), subject, replyToMessageId: message.id }
+}
+
+export function forwardDraftSearch(message: Message): {
+	to: string
+	subject: string
+	body: string
+} {
+	const subject = message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject ?? ''}`
+	const from = message.from
+		?.map((person) => person.name || person.email)
+		.filter(Boolean)
+		.join(', ')
+	const to = message.to
+		?.map((person) => person.name || person.email)
+		.filter(Boolean)
+		.join(', ')
+	const date = message.date ? new Date(message.date * 1000).toLocaleString() : ''
+	const body = messageBodyParagraphs(message).join('\n\n')
+	return {
+		to: '',
+		subject,
+		body: [
+			'',
+			'',
+			'---------- Forwarded message ---------',
+			from ? `From: ${from}` : '',
+			date ? `Date: ${date}` : '',
+			message.subject ? `Subject: ${message.subject}` : '',
+			to ? `To: ${to}` : '',
+			'',
+			body,
+		]
+			.filter((line, index) => index < 2 || line)
+			.join('\n')
+			.slice(0, 4000),
+	}
+}
+
+function uniqueEmails(participants: NonNullable<Message['to']>): string[] {
+	const seen = new Set<string>()
+	const emails: string[] = []
+	for (const participant of participants) {
+		const email = participant.email?.trim()
+		if (!email) continue
+		const key = email.toLowerCase()
+		if (seen.has(key)) continue
+		seen.add(key)
+		emails.push(email)
+	}
+	return emails
+}
+
 export function threadLabels(thread: Thread): typeof LABELS {
 	const folderIds = new Set(thread.folders ?? [])
 	return LABELS.filter((label) => folderIds.has(label.id))
@@ -294,6 +363,7 @@ export function composeBackdropThreadSearch(input: {
 	replyToMessageId?: string
 	to?: string
 	subject?: string
+	body?: string
 }): {
 	folderId: string
 	threadId: string
@@ -301,6 +371,7 @@ export function composeBackdropThreadSearch(input: {
 	replyToMessageId?: string
 	to?: string
 	subject?: string
+	body?: string
 } {
 	return {
 		folderId: input.folderId,
@@ -309,6 +380,7 @@ export function composeBackdropThreadSearch(input: {
 		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
 		...(input.to ? { to: input.to } : {}),
 		...(input.subject ? { subject: input.subject } : {}),
+		...(input.body ? { body: input.body } : {}),
 	}
 }
 
@@ -330,12 +402,14 @@ export function composeBackdropListSearch(input: {
 	replyToMessageId?: string
 	to?: string
 	subject?: string
+	body?: string
 }): {
 	folderId: string
 	draft?: string
 	replyToMessageId?: string
 	to?: string
 	subject?: string
+	body?: string
 } {
 	return {
 		folderId: input.folderId,
@@ -343,6 +417,7 @@ export function composeBackdropListSearch(input: {
 		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
 		...(input.to ? { to: input.to } : {}),
 		...(input.subject ? { subject: input.subject } : {}),
+		...(input.body ? { body: input.body } : {}),
 	}
 }
 

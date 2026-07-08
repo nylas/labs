@@ -118,26 +118,40 @@ export const getThreads = createServerFn({ method: 'GET' })
 
 export const getThreadMessages = createServerFn({ method: 'GET' })
 	.validator((input: { threadId: string }) => input)
-	.handler(async ({ data }): Promise<{ thread: Thread; messages: Message[]; markedRead?: boolean }> => {
-		const { mailbox, email, displayName } = await requireMailbox()
-		try {
-			const thread = await mailbox.getThread(data.threadId)
-			const messageIds = thread.data.message_ids ?? []
-			const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
-			messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
-			if (thread.data.unread) {
-				await mailbox.updateThread(data.threadId, { unread: false })
-				return { thread: { ...thread.data, unread: false }, messages, markedRead: true }
+	.handler(
+		async ({
+			data,
+		}): Promise<{
+			thread: Thread
+			messages: Message[]
+			mailboxEmail: string
+			markedRead?: boolean
+		}> => {
+			const { mailbox, email, displayName } = await requireMailbox()
+			try {
+				const thread = await mailbox.getThread(data.threadId)
+				const messageIds = thread.data.message_ids ?? []
+				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
+				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
+				if (thread.data.unread) {
+					await mailbox.updateThread(data.threadId, { unread: false })
+					return {
+						thread: { ...thread.data, unread: false },
+						messages,
+						mailboxEmail: email,
+						markedRead: true,
+					}
+				}
+				return { thread: thread.data, messages, mailboxEmail: email }
+			} catch (err) {
+				if (!isNotFound(err)) throw err
+				const drafts = await mailbox.listDrafts({ limit: 50 })
+				const draft = drafts.data.find((item) => item.id === data.threadId)
+				if (!draft) throw friendly(err)
+				return { ...draftThreadMessages(draft, email, displayName), mailboxEmail: email }
 			}
-			return { thread: thread.data, messages }
-		} catch (err) {
-			if (!isNotFound(err)) throw err
-			const drafts = await mailbox.listDrafts({ limit: 50 })
-			const draft = drafts.data.find((item) => item.id === data.threadId)
-			if (!draft) throw friendly(err)
-			return draftThreadMessages(draft, email, displayName)
-		}
-	})
+		},
+	)
 
 export const sendMessage = createServerFn({ method: 'POST' })
 	.validator((input: { to: string; subject: string; body: string; replyToMessageId?: string }) => {

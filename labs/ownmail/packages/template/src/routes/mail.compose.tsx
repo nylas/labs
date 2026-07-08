@@ -21,10 +21,12 @@ import {
 	composeBackdropReplySearch,
 	composeBackdropThreadSearch,
 	formatListDate,
+	forwardDraftSearch,
 	initials,
 	labelBadgeClass,
 	mailFolderTitle,
 	messageBodyParagraphs,
+	replyAllDraftSearch,
 	shouldUseBrowserBackForComposeClose,
 	threadLabels,
 	threadSender,
@@ -51,6 +53,7 @@ export const Route = createFileRoute('/mail/compose')({
 		threadId?: string
 		to?: string
 		subject?: string
+		body?: string
 		replyToMessageId?: string
 	} => ({
 		...(typeof search.draft === 'string' ? { draft: search.draft } : {}),
@@ -58,6 +61,7 @@ export const Route = createFileRoute('/mail/compose')({
 		...(typeof search.threadId === 'string' ? { threadId: search.threadId } : {}),
 		...(typeof search.to === 'string' ? { to: search.to } : {}),
 		...(typeof search.subject === 'string' ? { subject: search.subject } : {}),
+		...(typeof search.body === 'string' && search.body.length <= 4000 ? { body: search.body } : {}),
 		...(typeof search.replyToMessageId === 'string' ? { replyToMessageId: search.replyToMessageId } : {}),
 	}),
 	loaderDeps: ({ search }) => ({
@@ -66,6 +70,7 @@ export const Route = createFileRoute('/mail/compose')({
 		threadId: search.threadId,
 		to: search.to,
 		subject: search.subject,
+		body: search.body,
 		replyToMessageId: search.replyToMessageId,
 	}),
 	loader: async ({ deps }) => {
@@ -87,9 +92,12 @@ export const Route = createFileRoute('/mail/compose')({
 				? {
 						to: deps.to ?? '',
 						subject: deps.subject ?? '',
+						body: deps.body ?? '',
 						replyToMessageId: deps.replyToMessageId,
 					}
-				: null,
+				: deps.to || deps.subject || deps.body
+					? { to: deps.to ?? '', subject: deps.subject ?? '', body: deps.body ?? '' }
+					: null,
 		}
 	},
 	component: Compose,
@@ -103,7 +111,7 @@ function Compose() {
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
-	const [body, setBody] = useState(draft?.body ?? '')
+	const [body, setBody] = useState(draft?.body ?? reply?.body ?? '')
 	const [busy, setBusy] = useState(false)
 	const [minimized, setMinimized] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -122,6 +130,7 @@ function Compose() {
 			...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
 			...(search.to ? { to: search.to } : {}),
 			...(search.subject ? { subject: search.subject } : {}),
+			...(search.body ? { body: search.body } : {}),
 		})
 	const composeListSearch = useCallback(
 		() =>
@@ -131,8 +140,9 @@ function Compose() {
 				...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
 				...(search.to ? { to: search.to } : {}),
 				...(search.subject ? { subject: search.subject } : {}),
+				...(search.body ? { body: search.body } : {}),
 			}),
-		[draftId, folderId, search.replyToMessageId, search.subject, search.to],
+		[draftId, folderId, search.body, search.replyToMessageId, search.subject, search.to],
 	)
 
 	async function actOnBackdropThread(
@@ -166,6 +176,40 @@ function Compose() {
 			to: '/mail/compose',
 			search: replySearch,
 		})
+	}
+
+	function replyAllFromBackdrop(thread: Thread, messages: Message[], mailboxEmail: string) {
+		const message = messages.at(-1)
+		if (!message) return
+		const replySearch = composeBackdropThreadSearch({
+			folderId,
+			threadId: thread.id,
+			...replyAllDraftSearch(message, mailboxEmail),
+		})
+		setDraftId(undefined)
+		setTo(replySearch.to ?? '')
+		setSubject(replySearch.subject ?? '')
+		setBody('')
+		setError(null)
+		dirty.current = true
+		navigate({ to: '/mail/compose', search: replySearch })
+	}
+
+	function forwardFromBackdrop(thread: Thread, messages: Message[]) {
+		const message = messages.at(-1)
+		if (!message) return
+		const forwardSearch = composeBackdropThreadSearch({
+			folderId,
+			threadId: thread.id,
+			...forwardDraftSearch(message),
+		})
+		setDraftId(undefined)
+		setTo(forwardSearch.to ?? '')
+		setSubject(forwardSearch.subject ?? '')
+		setBody(forwardSearch.body ?? '')
+		setError(null)
+		dirty.current = true
+		navigate({ to: '/mail/compose', search: forwardSearch })
 	}
 
 	useEffect(() => {
@@ -280,6 +324,10 @@ function Compose() {
 								actOnBackdropThread(selected.thread.id, { starred: !selected.thread.starred })
 							}
 							onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
+							onReplyAll={() =>
+								replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)
+							}
+							onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
 						/>
 					</section>
 				</>
@@ -504,6 +552,8 @@ function ComposeThreadBackdrop({
 	onDelete,
 	onToggleStar,
 	onReply,
+	onReplyAll,
+	onForward,
 }: {
 	thread: Thread
 	messages: Message[]
@@ -511,6 +561,8 @@ function ComposeThreadBackdrop({
 	onDelete: () => void
 	onToggleStar: () => void
 	onReply: () => void
+	onReplyAll: () => void
+	onForward: () => void
 }) {
 	const labels = threadLabels(thread)
 	const firstAttachment = messages
@@ -576,8 +628,8 @@ function ComposeThreadBackdrop({
 
 					<div className="mt-4 flex flex-wrap gap-2">
 						<BackdropAction icon={<Reply className="h-4 w-4" />} label="Reply" onClick={onReply} />
-						<BackdropAction icon={<ReplyAll className="h-4 w-4" />} label="Reply all" />
-						<BackdropAction icon={<Forward className="h-4 w-4" />} label="Forward" />
+						<BackdropAction icon={<ReplyAll className="h-4 w-4" />} label="Reply all" onClick={onReplyAll} />
+						<BackdropAction icon={<Forward className="h-4 w-4" />} label="Forward" onClick={onForward} />
 					</div>
 				</div>
 			</div>
