@@ -15,6 +15,7 @@ import {
 	eventHour,
 	eventTone,
 	folderCount,
+	folderMaskFromMailLocation,
 	formatListDate,
 	initials,
 	labelBaseFolderId,
@@ -298,6 +299,12 @@ describe('ui-model mail helpers', () => {
 		expect(searchMaskFromMailLocation('/')).toEqual({ to: '/' })
 		expect(searchMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
 		expect(searchMaskFromMailLocation('/mail/search')).toBeUndefined()
+	})
+
+	it('masks root inbox folder and label navigation to match the reference filtered URL', () => {
+		expect(folderMaskFromMailLocation('/')).toEqual({ to: '/' })
+		expect(folderMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
+		expect(folderMaskFromMailLocation('/mail/search')).toBeUndefined()
 	})
 })
 

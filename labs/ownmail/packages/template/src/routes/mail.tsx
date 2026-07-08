@@ -20,6 +20,7 @@ import {
 	cn,
 	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
+	folderMaskFromMailLocation,
 	labelBaseFolderId,
 	labelDotClass,
 	labelToggleFolderId,
@@ -119,6 +120,7 @@ export function MailRouteScreen({
 		[activeSearchFolderId, pathname, selectedSearchThreadId],
 	)
 	const composeMask = useMemo(() => composeMaskFromMailLocation(publicPathname), [publicPathname])
+	const folderMask = useMemo(() => folderMaskFromMailLocation(publicPathname), [publicPathname])
 	const searchMask = useMemo(() => searchMaskFromMailLocation(publicPathname), [publicPathname])
 	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
 	const [query, setQuery] = useState('')
@@ -192,6 +194,7 @@ export function MailRouteScreen({
 						folders={folders}
 						composeMask={composeMask}
 						composeSearch={composeSearch}
+						folderMask={folderMask}
 						currentFolderId={currentFolderId}
 						baseFolderId={labelBaseFolder}
 					/>
@@ -258,12 +261,14 @@ function MailSidebar({
 	folders,
 	composeMask,
 	composeSearch,
+	folderMask,
 	currentFolderId,
 	baseFolderId,
 }: {
 	folders: Folder[]
 	composeMask?: { to: '/' }
 	composeSearch: { folderId?: string; threadId?: string }
+	folderMask?: { to: '/' }
 	currentFolderId?: string
 	baseFolderId?: string
 }) {
@@ -290,6 +295,7 @@ function MailSidebar({
 							key={folder.id}
 							to="/mail/f/$folderId"
 							params={{ folderId: folder.id }}
+							{...(folderMask ? { mask: folderMask } : {})}
 							className={cn(
 								'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
 								active
@@ -327,6 +333,7 @@ function MailSidebar({
 									to="/mail/f/$folderId"
 									params={{ folderId: nextFolderId }}
 									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
+									{...(folderMask ? { mask: folderMask } : {})}
 									className={cn(
 										'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
 										active

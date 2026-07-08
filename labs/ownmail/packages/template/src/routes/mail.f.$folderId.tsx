@@ -63,13 +63,15 @@ export function MailFolderRouteScreen({
 }: MailFolderRouteData & { folderId: string; baseFolderId?: string }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
-	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	const publicPathname = useRouterState({
+		select: (state) => state.location.maskedLocation?.pathname ?? state.location.pathname,
+	})
 	const hasThread = useRouterState({
 		select: (state) =>
 			state.location.pathname.includes('/t/') ||
 			state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
 	})
-	const threadMask = threadMaskFromMailLocation(pathname)
+	const threadMask = threadMaskFromMailLocation(publicPathname)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
