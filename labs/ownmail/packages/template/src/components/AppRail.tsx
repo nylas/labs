@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH } from './calendar.js'
-import { initials } from './ui-model.js'
+import { initials, MAIL_HOME_PATH } from './ui-model.js'
 
 export function AppRail({
 	email,
@@ -37,7 +37,7 @@ export function AppRail({
 			className="flex h-full w-16 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3"
 		>
 			<Link
-				to="/mail"
+				to={MAIL_HOME_PATH}
 				className="mb-2 flex h-10 w-10 items-center justify-center rounded-sm bg-primary text-primary-foreground"
 				aria-label="ownmail home"
 			>
@@ -45,7 +45,7 @@ export function AppRail({
 			</Link>
 
 			<Link
-				to="/mail"
+				to={MAIL_HOME_PATH}
 				aria-label="Mail"
 				aria-current={active === 'mail' ? 'page' : undefined}
 				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
