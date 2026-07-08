@@ -252,7 +252,7 @@ export function EventModal({
 						value={title}
 						onChange={(e) => setTitle(e.target.value)}
 						placeholder="Add title"
-						className="w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary"
+						className="event-dialog-field w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary"
 					/>
 					<div className="flex items-center gap-3 text-sm">
 						<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -263,7 +263,7 @@ export function EventModal({
 						<select
 							value={startHour}
 							onChange={(e) => setStartHour(Number(e.target.value))}
-							className="rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
+							className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
 						>
 							{TIME_OPTIONS.map((hour) => (
 								<option key={hour} value={hour}>
@@ -275,7 +275,7 @@ export function EventModal({
 						<select
 							value={endHour}
 							onChange={(e) => setEndHour(Number(e.target.value))}
-							className="rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
+							className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
 						>
 							{TIME_OPTIONS.map((hour) => (
 								<option key={hour} value={hour}>
@@ -290,7 +290,7 @@ export function EventModal({
 							value={location}
 							onChange={(e) => setLocation(e.target.value)}
 							placeholder="Add location"
-							className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+							className="event-dialog-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 						/>
 					</label>
 					<div className="flex flex-wrap items-center gap-2">
