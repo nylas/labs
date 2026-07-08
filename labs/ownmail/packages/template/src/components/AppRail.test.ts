@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialThemeIsDark } from './AppRail.js'
-import { MAIL_HOME_PATH } from './ui-model.js'
+import { MAIL_HOME_PATH } from './route-paths.js'
 
 describe('AppRail theme defaults', () => {
 	it('links mail navigation to the reference root inbox route', () => {

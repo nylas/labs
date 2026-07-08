@@ -4,9 +4,6 @@ import { eventTimes, startOfDay } from './calendar.js'
 export type MailFolderId = 'inbox' | 'starred' | 'sent' | 'drafts' | 'archive' | 'trash'
 export type EventTone = 'blue' | 'teal' | 'amber' | 'rose'
 
-export const MAIL_HOME_PATH = '/'
-export const DEFAULT_MAIL_FOLDER_ID: MailFolderId = 'inbox'
-
 export const MAIL_FOLDERS: Array<{ id: MailFolderId; label: string }> = [
 	{ id: 'inbox', label: 'Inbox' },
 	{ id: 'starred', label: 'Starred' },

@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { LoginScreen } from '../components/LoginScreen.js'
-import { DEFAULT_MAIL_FOLDER_ID } from '../components/ui-model.js'
+import { DEFAULT_MAIL_FOLDER_ID, MAIL_HOME_PATH } from '../components/route-paths.js'
 import { getMailboxInfo } from '../server/fns.js'
 import { usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
@@ -11,10 +11,10 @@ import { MailRouteScreen } from './mail.js'
 
 const homeState = createServerFn({ method: 'GET' }).handler(async () => {
 	if (await usingDevMocks()) {
-		return { authenticated: true, signInHref: '/mail' }
+		return { authenticated: true, signInHref: MAIL_HOME_PATH }
 	}
 	const session = await getSession(getRequest())
-	return { authenticated: Boolean(session), signInHref: session ? '/mail' : '/auth' }
+	return { authenticated: Boolean(session), signInHref: session ? MAIL_HOME_PATH : '/auth' }
 })
 
 export const Route = createFileRoute('/')({

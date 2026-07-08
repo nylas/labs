@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { DEFAULT_MAIL_FOLDER_ID } from '../components/ui-model.js'
+import { DEFAULT_MAIL_FOLDER_ID } from '../components/route-paths.js'
 
 export const Route = createFileRoute('/mail/')({
 	beforeLoad: () => {

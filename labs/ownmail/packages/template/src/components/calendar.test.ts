@@ -1,7 +1,6 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
 import {
-	CALENDAR_HOME_PATH,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	filterEventsByCalendars,
@@ -9,6 +8,7 @@ import {
 	viewRange,
 	ymd,
 } from './calendar.js'
+import { CALENDAR_HOME_PATH } from './route-paths.js'
 
 function timedEvent(id: string, calendarId: string, start: string, end: string): Event {
 	return {

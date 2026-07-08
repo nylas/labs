@@ -1,8 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { CALENDAR_HOME_PATH } from './calendar.js'
-import { initials, MAIL_HOME_PATH } from './ui-model.js'
+import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import { initials } from './ui-model.js'
 
 export function AppRail({
 	email,
