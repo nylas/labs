@@ -108,7 +108,7 @@ export function MailFolderRouteScreen({
 						drafts.length === 0 ? (
 							<EmptyState />
 						) : (
-							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} />)
+							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} mask={threadMask} />)
 						)
 					) : sortedThreads.length === 0 ? (
 						<EmptyState />
@@ -154,13 +154,14 @@ function EmptyState() {
 	)
 }
 
-function DraftRow({ draft }: { draft: Draft }) {
+function DraftRow({ draft, mask }: { draft: Draft; mask?: { to: '/' } }) {
 	const recipient = draftRecipientName(draft)
 	const when = formatListDate(draft.date)
 	return (
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId: 'drafts', threadId: draft.id }}
+			{...(mask ? { mask } : {})}
 			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
 		>
 			<div className="flex items-center gap-2">
