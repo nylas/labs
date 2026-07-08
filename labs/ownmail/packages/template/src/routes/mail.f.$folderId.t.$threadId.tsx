@@ -202,10 +202,7 @@ function ThreadView() {
 							{thread.subject || '(no subject)'}
 						</h1>
 						{labels.map((label) => (
-							<span
-								key={label.id}
-								className={cn('text-xs', labelBadgeClass(label.tone))}
-							>
+							<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
 								{label.name}
 							</span>
 						))}

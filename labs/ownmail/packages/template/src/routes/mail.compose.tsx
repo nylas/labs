@@ -629,10 +629,7 @@ function ComposeThreadRow({
 			<div className="flex items-center gap-2">
 				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{thread.snippet}</p>
 				{labels.map((label) => (
-					<span
-						key={label.id}
-						className={cn('shrink-0', labelBadgeClass(label.tone))}
-					>
+					<span key={label.id} className={cn('shrink-0', labelBadgeClass(label.tone))}>
 						{label.name}
 					</span>
 				))}
@@ -688,10 +685,7 @@ function ComposeThreadBackdrop({
 					<div className="flex flex-wrap items-center gap-2">
 						<h2 className="text-xl font-semibold text-balance">{thread.subject || '(no subject)'}</h2>
 						{labels.map((label) => (
-							<span
-								key={label.id}
-								className={cn('text-xs', labelBadgeClass(label.tone))}
-							>
+							<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
 								{label.name}
 							</span>
 						))}

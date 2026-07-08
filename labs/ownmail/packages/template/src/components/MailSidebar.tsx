@@ -106,7 +106,9 @@ export function MailSidebar({
 									onClick={onNavigate}
 									className={cn(
 										'relative flex h-9 items-center gap-3 px-4 text-sm transition-colors',
-										active ? 'nav-item-active' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+										active
+											? 'nav-item-active'
+											: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
 									)}
 								>
 									<span className={cn('h-2 w-2 shrink-0 rounded-full', labelDotClass(label.id, index))} />
