@@ -30,10 +30,12 @@ import {
 	searchMaskFromMailLocation,
 	sidebarFolderCount,
 } from '../components/ui-model.js'
+import { resetDevMocksForServerRender } from '../server/dev-mock-reset.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail')({
 	loader: async () => {
+		if (typeof document === 'undefined') await resetDevMocksForServerRender()
 		const [info, folders] = await Promise.all([getMailboxInfo(), getFolders()])
 		return { info, folders }
 	},
