@@ -47,7 +47,7 @@ class DevMailbox {
 	}
 
 	async listThreads(query?: ListQuery): Promise<ListResponse<Thread>> {
-		const folderId = typeof query?.in === 'string' ? query.in : 'inbox'
+		const folderId = typeof query?.in === 'string' ? query.in : undefined
 		const q = typeof query?.search_query_native === 'string' ? query.search_query_native : undefined
 		return listResponse(mockThreads({ folderId, q }).threads)
 	}
@@ -705,9 +705,10 @@ export function mockFolders(): Folder[] {
 	}))
 }
 
-export function mockThreads(input: { folderId: string; q?: string }): { threads: Thread[] } {
+export function mockThreads(input: { folderId?: string; q?: string }): { threads: Thread[] } {
 	const query = input.q?.trim().toLowerCase()
-	const selected = visibleThreads(input.folderId).filter((thread) => {
+	const base = input.folderId ? visibleThreads(input.folderId) : visibleThreads()
+	const selected = base.filter((thread) => {
 		if (!query) return true
 		const text = [
 			thread.subject,
@@ -930,9 +931,12 @@ export function mockRsvpEvent(input: { eventId: string; status: 'yes' | 'no' | '
 	return { ok: true }
 }
 
-function visibleThreads(folderId: string): StoredThread[] {
+function visibleThreads(folderId?: string): StoredThread[] {
 	return [...threads.values()]
-		.filter((thread) => (folderId === 'starred' ? thread.starred : thread.folders.includes(folderId)))
+		.filter((thread) => {
+			if (!folderId) return true
+			return folderId === 'starred' ? thread.starred : thread.folders.includes(folderId)
+		})
 		.sort(
 			(a, b) =>
 				(b.latest_message_received_date ?? b.latest_message_sent_date ?? 0) -

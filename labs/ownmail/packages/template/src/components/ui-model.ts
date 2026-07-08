@@ -35,6 +35,19 @@ export function sidebarFolderCount(folders: Folder[], folderId: string): number 
 	return folder.unread_count ?? 0
 }
 
+export function mailFolderTitle(folderId: string, folders: Folder[] = []): string {
+	return (
+		MAIL_FOLDERS.find((folder) => folder.id === folderId)?.label ??
+		LABELS.find((label) => label.id === folderId)?.name ??
+		folders.find((folder) => folder.id === folderId)?.name ??
+		folderId
+			.split(/[-_\s]+/)
+			.filter(Boolean)
+			.map((part) => part[0]?.toUpperCase() + part.slice(1))
+			.join(' ')
+	)
+}
+
 export function totalUnread(folders: Folder[]): number {
 	return folders.reduce((sum, folder) => sum + (folder.unread_count ?? 0), 0)
 }

@@ -47,12 +47,17 @@ export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Pr
 })
 
 export const getThreads = createServerFn({ method: 'GET' })
-	.validator((input: { folderId: string; pageToken?: string; q?: string }) => input)
+	.validator((input: { folderId?: string; pageToken?: string; q?: string }) => {
+		if (input.folderId !== undefined && input.folderId.length > 200) throw new Error('Invalid folder')
+		if (input.pageToken !== undefined && input.pageToken.length > 500) throw new Error('Invalid page token')
+		if (input.q !== undefined && input.q.length > 500) throw new Error('Search query too long')
+		return input
+	})
 	.handler(async ({ data }): Promise<{ threads: Thread[]; nextCursor?: string }> => {
 		const { mailbox } = await requireMailbox()
 		const res = await mailbox.listThreads({
 			limit: 30,
-			in: data.folderId,
+			...(data.folderId ? { in: data.folderId } : {}),
 			...(data.pageToken ? { page_token: data.pageToken } : {}),
 			...(data.q ? { search_query_native: data.q } : {}),
 		})

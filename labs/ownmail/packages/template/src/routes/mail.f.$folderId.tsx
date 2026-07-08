@@ -7,30 +7,33 @@ import {
 	draftRecipientList,
 	formatListDate,
 	labelBadgeClass,
+	mailFolderTitle,
 	threadLabels,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
-import { getThreads, listDrafts, updateThreadState } from '../server/fns.js'
+import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
 	loader: async ({ params }) => {
+		const folders = await getFolders()
 		if (params.folderId === 'drafts') {
-			return { threads: [] as Thread[], drafts: await listDrafts() }
+			return { threads: [] as Thread[], drafts: await listDrafts(), folders }
 		}
 		if (params.folderId === 'starred') {
 			const res = await getThreads({ data: { folderId: 'inbox' } })
-			return { threads: res.threads.filter((thread) => thread.starred), drafts: [] as Draft[] }
+			return { threads: res.threads.filter((thread) => thread.starred), drafts: [] as Draft[], folders }
 		}
 		const res = await getThreads({ data: { folderId: params.folderId } })
-		return { ...res, drafts: [] as Draft[] }
+		return { ...res, drafts: [] as Draft[], folders }
 	},
 	component: FolderView,
 })
 
 function FolderView() {
-	const { threads, drafts } = Route.useLoaderData()
+	const { threads, drafts, folders } = Route.useLoaderData()
 	const { folderId } = Route.useParams()
+	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const hasThread = pathname.includes('/t/')
@@ -56,7 +59,7 @@ function FolderView() {
 				)}
 			>
 				<div className="flex items-center justify-between border-b border-border px-4 py-3">
-					<h1 className="text-base font-semibold capitalize">{folderId}</h1>
+					<h1 className="text-base font-semibold">{folderTitle}</h1>
 					{unreadCount > 0 ? (
 						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
 							{unreadCount} unread
