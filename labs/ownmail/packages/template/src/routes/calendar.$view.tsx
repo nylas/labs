@@ -46,12 +46,16 @@ export const Route = createFileRoute('/calendar/$view')({
 
 function CalendarPage() {
 	const { view } = Route.useParams()
-	const { events, calendar, info, anchorIso } = Route.useLoaderData()
+	const { events, calendar, calendars, info, anchorIso } = Route.useLoaderData()
 	const navigate = useNavigate()
 	const router = useRouter()
 	const anchor = useMemo(() => new Date(`${anchorIso}T00:00:00`), [anchorIso])
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const calendarNameById = useMemo(
+		() => new Map(calendars.map((cal) => [cal.id, cal.name || 'Calendar'])),
+		[calendars],
+	)
 	const agenda = useMemo(
 		() =>
 			events
@@ -101,7 +105,7 @@ function CalendarPage() {
 		view === 'month'
 			? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 			: view === 'week'
-				? `Week of ${startOfWeek(anchor).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+				? formatWeekTitle(anchor)
 				: anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
 	return (
@@ -146,7 +150,7 @@ function CalendarPage() {
 					</div>
 					<h1 className="text-lg font-semibold text-balance">{title}</h1>
 					<div className="ml-auto flex items-center rounded-lg border border-border bg-card p-0.5">
-						{(['month', 'week', 'day'] as const).map((v) => (
+						{(['day', 'week', 'month'] as const).map((v) => (
 							<button
 								key={v}
 								type="button"
@@ -172,13 +176,23 @@ function CalendarPage() {
 								My calendars
 							</p>
 							<div className="flex flex-col gap-0.5">
-								<button
-									type="button"
-									className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
-								>
-									<span className="flex h-4 w-4 items-center justify-center rounded border-2 border-transparent bg-event-blue" />
-									<span className="text-foreground">{calendar.name}</span>
-								</button>
+								{calendars.map((cal, index) => (
+									<button
+										key={cal.id}
+										type="button"
+										className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
+									>
+										<span
+											className={cn(
+												'flex h-4 w-4 items-center justify-center rounded-sm border-2 border-transparent',
+												eventBarClass(eventTone({ title: cal.name, calendar_id: cal.id } as Event, index)),
+											)}
+										>
+											<span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
+										</span>
+										<span className="truncate text-foreground">{cal.name || 'Calendar'}</span>
+									</button>
+								))}
 							</div>
 						</div>
 						<div className="rounded-sm border border-border bg-card p-3">
@@ -194,16 +208,21 @@ function CalendarPage() {
 											key={event.id}
 											type="button"
 											onClick={() => setEditing(event)}
-											className="rounded-sm border border-border bg-card p-2 text-left transition-colors hover:bg-muted"
+											className="flex items-start gap-2 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-muted"
 										>
 											<span
-												className={cn('mb-1 block h-1 rounded-full', eventBarClass(eventTone(event, index)))}
+												className={cn(
+													'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+													eventDotClass(eventTone(event, index)),
+												)}
 											/>
-											<span className="block truncate text-sm font-medium">
-												{event.title || '(untitled)'}
-											</span>
-											<span className="text-xs text-muted-foreground">
-												{fmtTime(eventTimes(event).start)}
+											<span className="min-w-0">
+												<span className="block truncate text-sm font-medium">
+													{event.title || '(untitled)'}
+												</span>
+												<span className="text-xs text-muted-foreground">
+													{fmtTime(eventTimes(event).start)}
+												</span>
 											</span>
 										</button>
 									))
@@ -243,7 +262,12 @@ function CalendarPage() {
 				<EventModal
 					event={editing === 'new' ? null : editing}
 					defaultStart={newStart ?? anchor}
-					calendarName={calendar.name}
+					calendarId={calendar.id}
+					calendarName={
+						editing !== 'new' && editing.calendar_id
+							? (calendarNameById.get(editing.calendar_id) ?? calendar.name)
+							: calendar.name
+					}
 					onClose={(changed) => {
 						setEditing(null)
 						if (changed) router.invalidate()
@@ -273,6 +297,20 @@ function eventDotClass(tone: EventTone): string {
 	if (tone === 'amber') return 'bg-event-amber'
 	if (tone === 'rose') return 'bg-event-rose'
 	return 'bg-event-blue'
+}
+
+function formatWeekTitle(anchor: Date): string {
+	const start = startOfWeek(anchor)
+	const end = addDays(start, 6)
+	const sameMonth = start.getMonth() === end.getMonth()
+	const sameYear = start.getFullYear() === end.getFullYear()
+	if (sameMonth && sameYear) {
+		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${end.getDate()}, ${end.getFullYear()}`
+	}
+	if (sameYear) {
+		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+	}
+	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
 function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date) => void }) {
@@ -491,6 +529,10 @@ function TimeGrid({
 	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
 	const todayIso = ymd(new Date())
+	const allDayByDay = columns.map((day) =>
+		eventsOnDay(events, day).filter((event) => eventTimes(event).allDay),
+	)
+	const hasAllDay = allDayByDay.some((dayEvents) => dayEvents.length > 0)
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -514,6 +556,35 @@ function TimeGrid({
 					))}
 				</div>
 			</div>
+			{hasAllDay ? (
+				<div className="flex border-b border-border pr-3">
+					<div className="flex w-14 shrink-0 items-start justify-end px-2 py-2 text-[11px] text-muted-foreground">
+						All day
+					</div>
+					<div className={cn('grid flex-1', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
+						{columns.map((day, dayIndex) => (
+							<div key={day.toISOString()} className="min-h-9 border-l border-border p-1 first:border-l-0">
+								{allDayByDay[dayIndex]?.slice(0, 2).map((event, index) => {
+									const tone = eventTone(event, index)
+									return (
+										<button
+											key={event.id}
+											type="button"
+											onClick={() => onPickEvent(event)}
+											className={cn(
+												'mb-1 flex w-full items-center truncate rounded-sm px-1.5 py-0.5 text-left text-xs font-medium text-primary-foreground',
+												eventBarClass(tone),
+											)}
+										>
+											<span className="truncate">{event.title || '(untitled)'}</span>
+										</button>
+									)
+								})}
+							</div>
+						))}
+					</div>
+				</div>
+			) : null}
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="flex pr-3">
 					<div className="w-14 shrink-0">

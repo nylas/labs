@@ -20,13 +20,16 @@ type StoredThread = Thread & { folders: string[]; message_ids: string[] }
 type StoredMessage = Message & { thread_id: string }
 type StoredDraft = Draft & { id: string }
 
-const folderNames = new Map([
-	['inbox', 'Inbox'],
-	['sent', 'Sent'],
-	['drafts', 'Drafts'],
-	['archive', 'Archive'],
-	['junk', 'Junk'],
-	['trash', 'Trash'],
+const folderNames = new Map<string, { name: string; system: boolean }>([
+	['inbox', { name: 'Inbox', system: true }],
+	['sent', { name: 'Sent', system: true }],
+	['drafts', { name: 'Drafts', system: true }],
+	['archive', { name: 'Archive', system: true }],
+	['junk', { name: 'Junk', system: true }],
+	['trash', { name: 'Trash', system: true }],
+	['work', { name: 'Work', system: false }],
+	['finance', { name: 'Finance', system: false }],
+	['travel', { name: 'Travel', system: false }],
 ])
 
 export function devMailboxEmail(email?: string): string {
@@ -134,7 +137,7 @@ class DevMailbox {
 	}
 
 	async listCalendars(): Promise<ListResponse<Calendar>> {
-		return listResponse([calendar])
+		return listResponse(calendars)
 	}
 
 	async listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>> {
@@ -142,7 +145,7 @@ class DevMailbox {
 			mockEvents({
 				start: Number(query.start ?? 0),
 				end: Number(query.end ?? Number.MAX_SAFE_INTEGER),
-			}).events,
+			}).events.filter((event) => event.calendar_id === query.calendar_id),
 		)
 	}
 
@@ -156,6 +159,7 @@ class DevMailbox {
 			startTime: when.start_time,
 			endTime: when.end_time,
 			participants: body.participants?.map((participant) => participant.email),
+			calendarId,
 		})
 		const event = events.get(created.eventId)
 		if (!event) throw new Error('Failed to create event')
@@ -216,7 +220,7 @@ const messages = new Map<string, StoredMessage>(
 			date: now - 60 * 25,
 			unread: true,
 			starred: true,
-			folders: ['inbox'],
+			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
 		},
 		{
@@ -229,7 +233,7 @@ const messages = new Map<string, StoredMessage>(
 			to: [{ email: MAILBOX_EMAIL }],
 			date: now - 60 * 60 * 4,
 			unread: false,
-			folders: ['inbox'],
+			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
 			attachments: [
 				{
@@ -250,7 +254,7 @@ const messages = new Map<string, StoredMessage>(
 			to: [{ name: 'Alex Rivera', email: 'alex@example.com' }],
 			date: now - 60 * 60 * 27,
 			unread: false,
-			folders: ['sent'],
+			folders: ['sent', 'finance'],
 			grant_id: GRANT_ID,
 		},
 	].map((message) => [message.id, message]),
@@ -268,7 +272,7 @@ const threads = new Map<string, StoredThread>(
 			has_attachments: false,
 			unread: true,
 			starred: true,
-			folders: ['inbox'],
+			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
 		},
 		{
@@ -281,7 +285,7 @@ const threads = new Map<string, StoredThread>(
 			has_attachments: true,
 			unread: false,
 			starred: false,
-			folders: ['inbox'],
+			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
 		},
 		{
@@ -294,7 +298,7 @@ const threads = new Map<string, StoredThread>(
 			has_attachments: false,
 			unread: false,
 			starred: false,
-			folders: ['sent'],
+			folders: ['sent', 'finance'],
 			grant_id: GRANT_ID,
 		},
 	].map((thread) => [thread.id, thread]),
@@ -316,14 +320,44 @@ const drafts = new Map<string, StoredDraft>([
 	],
 ])
 
-const calendar: Calendar = {
-	id: 'primary',
-	grant_id: GRANT_ID,
-	name: 'OwnMail Local',
-	timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-	is_primary: true,
-	hex_color: '#2563eb',
-}
+const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+const calendars: Calendar[] = [
+	{
+		id: 'primary',
+		grant_id: GRANT_ID,
+		name: 'Personal',
+		timezone: localTimezone,
+		is_primary: true,
+		hex_color: '#2563eb',
+	},
+	{
+		id: 'work',
+		grant_id: GRANT_ID,
+		name: 'Work',
+		timezone: localTimezone,
+		is_primary: false,
+		hex_color: '#14b8a6',
+	},
+	{
+		id: 'focus',
+		grant_id: GRANT_ID,
+		name: 'Focus',
+		timezone: localTimezone,
+		is_primary: false,
+		hex_color: '#f59e0b',
+	},
+	{
+		id: 'social',
+		grant_id: GRANT_ID,
+		name: 'Social',
+		timezone: localTimezone,
+		is_primary: false,
+		hex_color: '#f43f5e',
+	},
+]
+
+const calendar = calendars[0] as Calendar
 
 const events = new Map<string, Event>()
 
@@ -331,16 +365,19 @@ function seedEvents() {
 	if (events.size > 0) return
 	const today = new Date()
 	const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-	addEvent('event-standup', 'Product standup', startOfDay, 9, 30, 30)
+	addEvent('event-standup', 'Product standup', startOfDay, 9, 30, 30, { calendar_id: 'work' })
 	addEvent('event-design', 'UI review', startOfDay, 11, 0, 60, {
+		calendar_id: 'work',
 		location: 'Zoom',
 		participants: [{ name: 'Mina Park', email: 'mina@example.com', status: 'yes' }],
 	})
-	addEvent('event-focus', 'Inbox polish block', startOfDay, 14, 0, 120)
-	addEvent('event-tomorrow', 'Integration smoke test', addDays(startOfDay, 1), 10, 0, 45)
+	addEvent('event-focus', 'Inbox polish block', startOfDay, 14, 0, 120, { calendar_id: 'focus' })
+	addEvent('event-tomorrow', 'Integration smoke test', addDays(startOfDay, 1), 10, 0, 45, {
+		calendar_id: 'work',
+	})
 	events.set('event-all-day', {
 		id: 'event-all-day',
-		calendar_id: calendar.id,
+		calendar_id: 'primary',
 		grant_id: GRANT_ID,
 		title: 'Local QA day',
 		when: { object: 'date', date: ymd(startOfDay) },
@@ -361,7 +398,7 @@ function addEvent(
 	const end = new Date(start.getTime() + durationMinutes * 60_000)
 	events.set(id, {
 		id,
-		calendar_id: calendar.id,
+		calendar_id: extra.calendar_id ?? calendar.id,
 		grant_id: GRANT_ID,
 		title,
 		when: {
@@ -379,11 +416,11 @@ export function mockMailboxInfo(appName: string, email?: string) {
 }
 
 export function mockFolders(): Folder[] {
-	return [...folderNames].map(([id, name]) => ({
+	return [...folderNames].map(([id, folder]) => ({
 		id,
-		name,
+		name: folder.name,
 		grant_id: GRANT_ID,
-		system_folder: true,
+		system_folder: folder.system,
 		total_count: id === 'drafts' ? drafts.size : visibleThreads(id).length,
 		unread_count: id === 'drafts' ? 0 : visibleThreads(id).filter((thread) => thread.unread).length,
 	}))
@@ -561,12 +598,13 @@ export function mockCreateEvent(input: {
 	startTime: number
 	endTime: number
 	participants?: string[]
+	calendarId?: string
 }): { eventId: string } {
 	seedEvents()
 	const id = `event-${Date.now()}`
 	events.set(id, {
 		id,
-		calendar_id: calendar.id,
+		calendar_id: input.calendarId ?? calendar.id,
 		grant_id: GRANT_ID,
 		title: input.title,
 		...(input.description ? { description: input.description } : {}),

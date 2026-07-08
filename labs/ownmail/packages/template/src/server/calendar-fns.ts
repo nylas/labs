@@ -16,13 +16,26 @@ async function requireMailbox() {
 
 async function primaryCalendar(): Promise<{
 	calendar: Calendar
+	calendars: Calendar[]
 	mailbox: Awaited<ReturnType<typeof requireMailbox>>['mailbox']
 }> {
 	const { mailbox } = await requireMailbox()
 	const calendars = await mailbox.listCalendars({ limit: 20 })
 	const calendar = calendars.data.find((c) => c.is_primary) ?? calendars.data[0]
 	if (!calendar) throw new Error('No calendar found on this account.')
-	return { calendar, mailbox }
+	return { calendar, calendars: calendars.data, mailbox }
+}
+
+async function authorizedCalendar(calendarId?: string): Promise<{
+	calendar: Calendar
+	calendars: Calendar[]
+	mailbox: Awaited<ReturnType<typeof requireMailbox>>['mailbox']
+}> {
+	const resolved = await primaryCalendar()
+	if (!calendarId) return resolved
+	const calendar = resolved.calendars.find((c) => c.id === calendarId)
+	if (!calendar) throw new Error('Calendar not found.')
+	return { ...resolved, calendar }
 }
 
 export const getEvents = createServerFn({ method: 'GET' })
@@ -31,16 +44,21 @@ export const getEvents = createServerFn({ method: 'GET' })
 		if (input.end - input.start > 60 * 60 * 24 * 62) throw new Error('Range too large')
 		return input
 	})
-	.handler(async ({ data }): Promise<{ calendar: Calendar; events: Event[] }> => {
-		const { calendar, mailbox } = await primaryCalendar()
-		const res = await mailbox.listEvents({
-			calendar_id: calendar.id,
-			start: data.start,
-			end: data.end,
-			limit: 200,
-			expand_recurring: true,
-		})
-		return { calendar, events: res.data }
+	.handler(async ({ data }): Promise<{ calendar: Calendar; calendars: Calendar[]; events: Event[] }> => {
+		const { calendar, calendars, mailbox } = await primaryCalendar()
+		const eventPages = await Promise.all(
+			calendars.map((cal) =>
+				mailbox.listEvents({
+					calendar_id: cal.id,
+					start: data.start,
+					end: data.end,
+					limit: 200,
+					expand_recurring: true,
+				}),
+			),
+		)
+		const events = eventPages.flatMap((page) => page.data)
+		return { calendar, calendars, events }
 	})
 
 export const createEvent = createServerFn({ method: 'POST' })
@@ -52,9 +70,11 @@ export const createEvent = createServerFn({ method: 'POST' })
 			startTime: number
 			endTime: number
 			participants?: string[]
+			calendarId?: string
 		}) => {
 			if (!input.title.trim()) throw new Error('Title is required')
 			if (input.endTime <= input.startTime) throw new Error('End must be after start')
+			if (input.calendarId !== undefined && input.calendarId.length > 200) throw new Error('Invalid calendar')
 			for (const email of input.participants ?? []) {
 				if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid participant: ${email}`)
 			}
@@ -62,7 +82,7 @@ export const createEvent = createServerFn({ method: 'POST' })
 		},
 	)
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await primaryCalendar()
+		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
 		const created = await mailbox.createEvent(
 			{
 				title: data.title,
@@ -80,6 +100,7 @@ export const updateEvent = createServerFn({ method: 'POST' })
 	.validator(
 		(input: {
 			eventId: string
+			calendarId?: string
 			title?: string
 			description?: string
 			location?: string
@@ -88,7 +109,7 @@ export const updateEvent = createServerFn({ method: 'POST' })
 		}) => input,
 	)
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await primaryCalendar()
+		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
 		await mailbox.updateEvent(
 			data.eventId,
 			{
@@ -105,20 +126,20 @@ export const updateEvent = createServerFn({ method: 'POST' })
 	})
 
 export const deleteEvent = createServerFn({ method: 'POST' })
-	.validator((input: { eventId: string }) => input)
+	.validator((input: { eventId: string; calendarId?: string }) => input)
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await primaryCalendar()
+		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
 		await mailbox.deleteEvent(data.eventId, calendar.id)
 		return { ok: true }
 	})
 
 export const rsvpEvent = createServerFn({ method: 'POST' })
-	.validator((input: { eventId: string; status: 'yes' | 'no' | 'maybe' }) => {
+	.validator((input: { eventId: string; calendarId?: string; status: 'yes' | 'no' | 'maybe' }) => {
 		if (!['yes', 'no', 'maybe'].includes(input.status)) throw new Error('Invalid RSVP')
 		return input
 	})
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await primaryCalendar()
+		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
 		await mailbox.sendRsvp(data.eventId, calendar.id, data.status)
 		return { ok: true }
 	})

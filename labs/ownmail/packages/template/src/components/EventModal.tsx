@@ -28,11 +28,13 @@ function eventDotClass(tone: EventTone): string {
 export function EventModal({
 	event,
 	defaultStart,
+	calendarId,
 	calendarName,
 	onClose,
 }: {
 	event: Event | null
 	defaultStart: Date
+	calendarId: string
 	calendarName: string
 	onClose: (changed: boolean) => void
 }) {
@@ -62,10 +64,21 @@ export function EventModal({
 			const startTime = Math.floor(new Date(start).getTime() / 1000)
 			const endTime = Math.floor(new Date(end).getTime() / 1000)
 			if (event) {
-				await updateEvent({ data: { eventId: event.id, title, description, location, startTime, endTime } })
+				await updateEvent({
+					data: {
+						eventId: event.id,
+						calendarId: event.calendar_id ?? calendarId,
+						title,
+						description,
+						location,
+						startTime,
+						endTime,
+					},
+				})
 			} else {
 				await createEvent({
 					data: {
+						calendarId,
 						title,
 						...(description ? { description } : {}),
 						...(location ? { location } : {}),
@@ -93,7 +106,7 @@ export function EventModal({
 		if (!event) return
 		setBusy(true)
 		try {
-			await deleteEvent({ data: { eventId: event.id } })
+			await deleteEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId } })
 			onClose(true)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to delete')
@@ -105,7 +118,7 @@ export function EventModal({
 		if (!event) return
 		setBusy(true)
 		try {
-			await rsvpEvent({ data: { eventId: event.id, status } })
+			await rsvpEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId, status } })
 			onClose(true)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'RSVP failed')

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
-import { cn, folderCount, LABELS, MAIL_FOLDERS, totalUnread } from '../components/ui-model.js'
+import { cn, folderCount, MAIL_FOLDERS, totalUnread } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail')({
@@ -168,6 +168,7 @@ function MailLayout() {
 }
 
 function MailSidebar({ folders }: { folders: Folder[] }) {
+	const labels = folders.filter(isCustomFolder)
 	return (
 		<aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-border bg-sidebar px-3 py-4">
 			<Link
@@ -201,25 +202,30 @@ function MailSidebar({ folders }: { folders: Folder[] }) {
 				})}
 			</nav>
 
-			<div className="mt-1">
-				<p className="px-3 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-					Labels
-				</p>
-				<div className="flex flex-col gap-0.5">
-					{LABELS.map((label) => (
-						<Link
-							key={label.id}
-							to="/mail/search"
-							search={{ q: label.name }}
-							className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
-							activeProps={{ className: 'bg-accent font-semibold text-accent-foreground' }}
-						>
-							<span className={`h-2.5 w-2.5 rounded-full bg-event-${label.tone}`} />
-							<span className="flex-1 text-left">{label.name}</span>
-						</Link>
-					))}
+			{labels.length > 0 ? (
+				<div className="mt-1">
+					<p className="px-3 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+						Labels
+					</p>
+					<div className="flex flex-col gap-0.5">
+						{labels.map((label, index) => (
+							<Link
+								key={label.id}
+								to="/mail/f/$folderId"
+								params={{ folderId: label.id }}
+								className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
+								activeProps={{ className: 'bg-accent font-semibold text-accent-foreground' }}
+							>
+								<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(index))} />
+								<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
+								{label.unread_count ? (
+									<span className="text-xs tabular-nums text-muted-foreground">{label.unread_count}</span>
+								) : null}
+							</Link>
+						))}
+					</div>
 				</div>
-			</div>
+			) : null}
 
 			<div className="mt-auto rounded-sm border border-border bg-card p-3">
 				<p className="text-xs font-semibold text-foreground">Storage</p>
@@ -247,8 +253,9 @@ function CommandPalette({
 	const inputRef = useRef<HTMLInputElement>(null)
 	const panelRef = useRef<HTMLDivElement>(null)
 	const previousFocusRef = useRef<HTMLElement | null>(null)
-	const commands = useMemo(
-		() => [
+	const commands = useMemo(() => {
+		const labels = folders.filter(isCustomFolder)
+		return [
 			{ id: 'compose', label: 'Compose message', detail: 'Start a new email', shortcut: 'C' },
 			{ id: 'calendar', label: 'Open calendar', detail: 'Month, week, and day views' },
 			...MAIL_FOLDERS.map((folder) => ({
@@ -256,9 +263,13 @@ function CommandPalette({
 				label: `Open ${folder.label}`,
 				detail: `${folderCount(folders, folder.id)} unread`,
 			})),
-		],
-		[folders],
-	)
+			...labels.map((folder) => ({
+				id: folder.id,
+				label: `Open ${folder.name || folder.id}`,
+				detail: `${folder.unread_count ?? 0} unread`,
+			})),
+		]
+	}, [folders])
 	const filtered = useMemo(
 		() =>
 			commands.filter((command) =>
@@ -355,4 +366,16 @@ function CommandPalette({
 			</div>
 		</div>
 	)
+}
+
+function isCustomFolder(folder: Folder): boolean {
+	return !folder.system_folder && !MAIL_FOLDERS.some((standard) => standard.id === folder.id)
+}
+
+function labelDotClass(index: number): string {
+	const tone = index % 4
+	if (tone === 1) return 'bg-event-teal'
+	if (tone === 2) return 'bg-event-amber'
+	if (tone === 3) return 'bg-event-rose'
+	return 'bg-event-blue'
 }
