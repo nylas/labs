@@ -4,6 +4,7 @@ import { fmtAgendaTime, fmtCompactTime, fmtTime, formatFullDate } from './calend
 import {
 	calendarTone,
 	collapsedMessagePreview,
+	composeBackdropListSearch,
 	composeBackdropThreadSearch,
 	composeSearchFromMailLocation,
 	draftRecipientList,
@@ -226,6 +227,21 @@ describe('ui-model mail helpers', () => {
 		).toEqual({
 			folderId: 'inbox',
 			threadId: 'thread-travel',
+			draft: 'draft-1',
+			replyToMessageId: 'msg-1',
+			to: 'grace@example.com',
+			subject: 'Re: Q3 roadmap',
+		})
+		expect(
+			composeBackdropListSearch({
+				folderId: 'inbox',
+				draftId: 'draft-1',
+				replyToMessageId: 'msg-1',
+				to: 'grace@example.com',
+				subject: 'Re: Q3 roadmap',
+			}),
+		).toEqual({
+			folderId: 'inbox',
 			draft: 'draft-1',
 			replyToMessageId: 'msg-1',
 			to: 'grace@example.com',

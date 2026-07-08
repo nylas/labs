@@ -1,5 +1,5 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import {
 	Archive,
 	Forward,
@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
 	cn,
 	collapsedMessagePreview,
+	composeBackdropListSearch,
 	composeBackdropThreadSearch,
 	formatListDate,
 	initials,
@@ -27,7 +28,15 @@ import {
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
-import { getDraft, getFolders, getThreadMessages, getThreads, saveDraft, sendMessage } from '../server/fns.js'
+import {
+	getDraft,
+	getFolders,
+	getThreadMessages,
+	getThreads,
+	saveDraft,
+	sendMessage,
+	updateThreadState,
+} from '../server/fns.js'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 export const Route = createFileRoute('/mail/compose')({
@@ -87,6 +96,7 @@ function Compose() {
 	const { draft, folders, threads, selected, folderId, reply } = Route.useLoaderData()
 	const search = Route.useSearch()
 	const navigate = useNavigate()
+	const router = useRouter()
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
@@ -110,6 +120,26 @@ function Compose() {
 			...(search.to ? { to: search.to } : {}),
 			...(search.subject ? { subject: search.subject } : {}),
 		})
+	const composeListSearch = () =>
+		composeBackdropListSearch({
+			folderId,
+			...(draftId ? { draftId } : {}),
+			...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
+			...(search.to ? { to: search.to } : {}),
+			...(search.subject ? { subject: search.subject } : {}),
+		})
+
+	async function actOnBackdropThread(
+		threadId: string,
+		input: { unread?: boolean; starred?: boolean; folder?: string },
+		leave = false,
+	) {
+		await updateThreadState({ data: { threadId, ...input } })
+		if (leave) {
+			await navigate({ to: '/mail/compose', search: composeListSearch() })
+		}
+		await router.invalidate()
+	}
 
 	function close() {
 		if (history.length > 1) history.back()
@@ -182,7 +212,15 @@ function Compose() {
 						</div>
 					</section>
 					<section className="hidden min-w-0 flex-1 bg-background md:flex">
-						<ComposeThreadBackdrop thread={selected.thread} messages={selected.messages} />
+						<ComposeThreadBackdrop
+							thread={selected.thread}
+							messages={selected.messages}
+							onArchive={() => actOnBackdropThread(selected.thread.id, { folder: 'archive' }, true)}
+							onDelete={() => actOnBackdropThread(selected.thread.id, { folder: 'trash' }, true)}
+							onToggleStar={() =>
+								actOnBackdropThread(selected.thread.id, { starred: !selected.thread.starred })
+							}
+						/>
 					</section>
 				</>
 			) : (
@@ -386,7 +424,19 @@ function ComposeThreadRow({
 	)
 }
 
-function ComposeThreadBackdrop({ thread, messages }: { thread: Thread; messages: Message[] }) {
+function ComposeThreadBackdrop({
+	thread,
+	messages,
+	onArchive,
+	onDelete,
+	onToggleStar,
+}: {
+	thread: Thread
+	messages: Message[]
+	onArchive: () => void
+	onDelete: () => void
+	onToggleStar: () => void
+}) {
 	const labels = threadLabels(thread)
 	const firstAttachment = messages
 		.flatMap((message) => message.attachments ?? [])
@@ -394,13 +444,13 @@ function ComposeThreadBackdrop({ thread, messages }: { thread: Thread; messages:
 	return (
 		<div className="flex min-w-0 flex-1 flex-col">
 			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
-				<BackdropIcon label="Archive">
+				<BackdropIcon label="Archive" onClick={onArchive}>
 					<Archive className="h-4 w-4" />
 				</BackdropIcon>
-				<BackdropIcon label="Delete">
+				<BackdropIcon label="Delete" onClick={onDelete}>
 					<Trash2 className="h-4 w-4" />
 				</BackdropIcon>
-				<BackdropIcon label={thread.starred ? 'Unstar' : 'Star'}>
+				<BackdropIcon label={thread.starred ? 'Unstar' : 'Star'} onClick={onToggleStar}>
 					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
 				</BackdropIcon>
 				<div className="ml-auto">
@@ -456,13 +506,22 @@ function ComposeThreadBackdrop({ thread, messages }: { thread: Thread; messages:
 	)
 }
 
-function BackdropIcon({ label, children }: { label: string; children: React.ReactNode }) {
+function BackdropIcon({
+	label,
+	onClick,
+	children,
+}: {
+	label: string
+	onClick?: () => void
+	children: React.ReactNode
+}) {
 	return (
 		<button
 			type="button"
+			onClick={onClick}
 			aria-label={label}
 			title={label}
-			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground"
+			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 		>
 			{children}
 		</button>
