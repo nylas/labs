@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
 import { APP_DESCRIPTION, APP_TITLE, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '../components/app-meta.js'
+import { INITIAL_ROOT_CLASS_NAME } from '../components/theme.js'
 import appCss from '../styles.css?url'
 
 export const Route = createRootRoute({
@@ -26,7 +27,7 @@ export const Route = createRootRoute({
 
 function RootComponent() {
 	return (
-		<html lang="en">
+		<html lang="en" className={INITIAL_ROOT_CLASS_NAME}>
 			<head>
 				<HeadContent />
 				<meta name="theme-color" media="(prefers-color-scheme: light)" content={LIGHT_THEME_COLOR} />

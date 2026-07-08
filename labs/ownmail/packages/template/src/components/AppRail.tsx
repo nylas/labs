@@ -2,10 +2,8 @@ import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import { initialThemeIsDark, ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from './theme.js'
 import { initials } from './ui-model.js'
-
-export const THEME_STORAGE_KEY = 'theme'
-export const ROOT_BACKGROUND_CLASS = 'bg-background'
 
 export function AppRail({
 	email,
@@ -115,18 +113,6 @@ export function AppRail({
 			</div>
 		</nav>
 	)
-}
-
-export function initialThemeIsDark(savedTheme: string | null): boolean {
-	return savedTheme === 'dark'
-}
-
-export function themeClassName(isDark: boolean): 'dark' | 'light' {
-	return isDark ? 'dark' : 'light'
-}
-
-export function rootThemeClassNames(isDark: boolean): string[] {
-	return [ROOT_BACKGROUND_CLASS, themeClassName(isDark)]
 }
 
 function applyThemeClass(isDark: boolean): void {

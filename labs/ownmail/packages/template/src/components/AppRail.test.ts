@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { AUTH_PATH, LOGIN_PATH, MAIL_HOME_PATH } from './route-paths.js'
 import {
+	INITIAL_ROOT_CLASS_NAME,
 	initialThemeIsDark,
 	ROOT_BACKGROUND_CLASS,
 	rootThemeClassNames,
 	THEME_STORAGE_KEY,
 	themeClassName,
-} from './AppRail.js'
-import { AUTH_PATH, LOGIN_PATH, MAIL_HOME_PATH } from './route-paths.js'
+} from './theme.js'
 
 describe('AppRail theme defaults', () => {
 	it('links mail navigation to the reference root inbox route', () => {
@@ -43,5 +44,6 @@ describe('AppRail theme defaults', () => {
 		expect(ROOT_BACKGROUND_CLASS).toBe('bg-background')
 		expect(rootThemeClassNames(false)).toEqual(['bg-background', 'light'])
 		expect(rootThemeClassNames(true)).toEqual(['bg-background', 'dark'])
+		expect(INITIAL_ROOT_CLASS_NAME).toBe('bg-background light')
 	})
 })
