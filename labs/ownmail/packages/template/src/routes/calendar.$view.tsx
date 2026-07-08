@@ -1,8 +1,10 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, PanelLeft, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
+import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
+import { Sheet } from '../components/Sheet.js'
 import {
 	addDays,
 	type CalView,
@@ -77,7 +79,12 @@ export function CalendarRouteScreen({
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
+	const [sidebarOpen, setSidebarOpen] = useState(false)
+	const [paletteOpen, setPaletteOpen] = useState(false)
 	const today = useMemo(() => new Date(), [])
+	const openPalette = useCallback(() => setPaletteOpen(true), [])
+	const closePalette = useCallback(() => setPaletteOpen(false), [])
+	useCommandPaletteShortcut(openPalette)
 	const currentView = navigationMode === 'local' ? localView : view
 	const currentAnchorIso = navigationMode === 'local' ? localAnchorIso : anchorIso
 	const anchor = useMemo(() => new Date(`${currentAnchorIso}T00:00:00`), [currentAnchorIso])
@@ -162,16 +169,29 @@ export function CalendarRouteScreen({
 
 	return (
 		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-			<AppRail email={info.email} displayName={info.displayName} active="calendar" />
+			<AppRail
+				email={info.email}
+				displayName={info.displayName}
+				active="calendar"
+				onOpenCommandPalette={openPalette}
+			/>
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex flex-wrap items-center gap-3 border-b border-border bg-background px-4 py-2.5">
+				<header className="flex flex-wrap items-center gap-2 border-b border-border bg-background/80 px-3 py-2.5 backdrop-blur-sm sm:gap-3 sm:px-4">
+					<button
+						type="button"
+						onClick={() => setSidebarOpen(true)}
+						className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+						aria-label="Open calendar sidebar"
+					>
+						<PanelLeft className="h-5 w-5" />
+					</button>
 					<button
 						type="button"
 						onClick={() => {
 							setNewStart(anchor)
 							setEditing('new')
 						}}
-						className="flex items-center gap-2 rounded-sm bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
+						className="flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
 					>
 						<Plus className="h-4 w-4" strokeWidth={2.5} /> Create
 					</button>
@@ -200,7 +220,7 @@ export function CalendarRouteScreen({
 							<ChevronRight className="h-5 w-5" />
 						</button>
 					</div>
-					<h1 className="text-lg font-semibold text-balance">{title}</h1>
+					<h1 className="font-display text-lg font-semibold text-balance">{title}</h1>
 					<div className="ml-auto flex items-center rounded-lg border border-border bg-card p-0.5">
 						{(['day', 'week', 'month'] as const).map((v) => (
 							<button
@@ -222,76 +242,16 @@ export function CalendarRouteScreen({
 
 				<div className="flex min-h-0 flex-1">
 					<aside className="hidden w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-sidebar px-4 py-4 lg:flex">
-						<MiniCalendar
-							refDate={anchor}
-							onPick={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
+						<CalendarSidebarPanel
+							anchor={anchor}
+							calendars={calendars}
+							calendarById={calendarById}
+							hiddenCalendarIds={hiddenCalendarIds}
+							agenda={agenda}
+							onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
+							onToggleCalendar={toggleCalendar}
+							onPickEvent={setEditing}
 						/>
-						<div>
-							<p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-								My calendars
-							</p>
-							<div className="flex flex-col gap-0.5">
-								{calendars.map((cal, index) => {
-									const hidden = hiddenCalendarIds.has(cal.id)
-									const tone = calendarTone(cal, index)
-									return (
-										<button
-											key={cal.id}
-											type="button"
-											aria-pressed={!hidden}
-											onClick={() => toggleCalendar(cal.id)}
-											className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
-										>
-											<span
-												className={cn(
-													'flex h-4 w-4 items-center justify-center rounded border-2 transition-colors',
-													hidden ? 'border-border' : cn(eventBarClass(tone), 'border-transparent'),
-												)}
-											>
-												{hidden ? null : <Check className="h-3 w-3 text-primary-foreground" />}
-											</span>
-											<span className={cn('truncate', hidden ? 'text-muted-foreground' : 'text-foreground')}>
-												{cal.name || 'Calendar'}
-											</span>
-										</button>
-									)
-								})}
-							</div>
-						</div>
-						<div className="rounded-sm border border-border bg-card p-3">
-							<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-								Up next today
-							</p>
-							<div className="mt-2 flex flex-col gap-2">
-								{agenda.length === 0 ? (
-									<p className="text-sm text-muted-foreground">Nothing left today.</p>
-								) : (
-									agenda.slice(0, 4).map((event, index) => (
-										<button
-											key={event.id}
-											type="button"
-											onClick={() => setEditing(event)}
-											className="flex items-start gap-2 text-left"
-										>
-											<span
-												className={cn(
-													'mt-1 h-2 w-2 shrink-0 rounded-full',
-													eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
-												)}
-											/>
-											<span className="min-w-0">
-												<span className="block truncate text-sm font-medium">
-													{event.title || '(untitled)'}
-												</span>
-												<span className="text-xs text-muted-foreground">
-													{fmtAgendaTime(eventTimes(event).start)}
-												</span>
-											</span>
-										</button>
-									))
-								)}
-							</div>
-						</div>
 					</aside>
 					<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
 						{currentView === 'month' ? (
@@ -336,6 +296,113 @@ export function CalendarRouteScreen({
 					}}
 				/>
 			) : null}
+
+			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Calendar">
+				<CalendarSidebarPanel
+					anchor={anchor}
+					calendars={calendars}
+					calendarById={calendarById}
+					hiddenCalendarIds={hiddenCalendarIds}
+					agenda={agenda}
+					onPickDate={(date) => {
+						go(currentView === 'month' ? 'day' : currentView, date)
+						setSidebarOpen(false)
+					}}
+					onToggleCalendar={toggleCalendar}
+					onPickEvent={(event) => {
+						setEditing(event)
+						setSidebarOpen(false)
+					}}
+				/>
+			</Sheet>
+
+			<CommandPalette open={paletteOpen} onClose={closePalette} />
+		</div>
+	)
+}
+
+function CalendarSidebarPanel({
+	anchor,
+	calendars,
+	calendarById,
+	hiddenCalendarIds,
+	agenda,
+	onPickDate,
+	onToggleCalendar,
+	onPickEvent,
+}: {
+	anchor: Date
+	calendars: Calendar[]
+	calendarById: Map<string, Calendar>
+	hiddenCalendarIds: Set<string>
+	agenda: Event[]
+	onPickDate: (date: Date) => void
+	onToggleCalendar: (calendarId: string) => void
+	onPickEvent: (event: Event) => void
+}) {
+	return (
+		<div className="flex flex-col gap-5 px-1 py-2">
+			<MiniCalendar refDate={anchor} onPick={onPickDate} />
+			<div>
+				<p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">My calendars</p>
+				<div className="flex flex-col gap-0.5">
+					{calendars.map((cal, index) => {
+						const hidden = hiddenCalendarIds.has(cal.id)
+						const tone = calendarTone(cal, index)
+						return (
+							<button
+								key={cal.id}
+								type="button"
+								aria-pressed={!hidden}
+								onClick={() => onToggleCalendar(cal.id)}
+								className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
+							>
+								<span
+									className={cn(
+										'flex h-4 w-4 items-center justify-center rounded border-2 transition-colors',
+										hidden ? 'border-border' : cn(eventBarClass(tone), 'border-transparent'),
+									)}
+								>
+									{hidden ? null : <Check className="h-3 w-3 text-primary-foreground" />}
+								</span>
+								<span className={cn('truncate', hidden ? 'text-muted-foreground' : 'text-foreground')}>
+									{cal.name || 'Calendar'}
+								</span>
+							</button>
+						)
+					})}
+				</div>
+			</div>
+			<div className="rounded-lg border border-border bg-card p-3">
+				<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Up next today</p>
+				<div className="mt-2 flex flex-col gap-2">
+					{agenda.length === 0 ? (
+						<p className="text-sm text-muted-foreground">Nothing left today.</p>
+					) : (
+						agenda.slice(0, 4).map((event, index) => (
+							<button
+								key={event.id}
+								type="button"
+								onClick={() => onPickEvent(event)}
+								className="flex items-start gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted"
+							>
+								<span
+									className={cn(
+										'mt-1 h-2 w-2 shrink-0 rounded-full',
+										eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+									)}
+								/>
+								<span className="min-w-0">
+									<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
+									<span className="text-xs text-muted-foreground">
+										{fmtAgendaTime(eventTimes(event).start)}
+									</span>
+								</span>
+							</button>
+						))
+					)}
+				</div>
+			</div>
 		</div>
 	)
 }

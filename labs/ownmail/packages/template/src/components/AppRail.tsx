@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Search, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
 import {
@@ -9,16 +9,18 @@ import {
 	themeClassName,
 	themeToggleLabel,
 } from './theme.js'
-import { initials } from './ui-model.js'
+import { cn, initials } from './ui-model.js'
 
 export function AppRail({
 	email,
 	displayName,
 	active,
+	onOpenCommandPalette,
 }: {
 	email: string
 	displayName?: string
 	active: 'mail' | 'calendar'
+	onOpenCommandPalette?: () => void
 }) {
 	const [isDark, setIsDark] = useState(false)
 	const [mounted, setMounted] = useState(false)
@@ -41,11 +43,11 @@ export function AppRail({
 	return (
 		<nav
 			aria-label="Primary"
-			className="flex h-full w-16 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3"
+			className="flex h-full w-[4.25rem] shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3"
 		>
 			<Link
 				to={MAIL_HOME_PATH}
-				className="mb-2 flex h-10 w-10 items-center justify-center rounded-sm bg-primary text-primary-foreground"
+				className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-[1.02] active:scale-[0.98]"
 				aria-label="ownmail home"
 			>
 				<span className="font-display text-lg font-extrabold leading-none">o</span>
@@ -55,11 +57,12 @@ export function AppRail({
 				to={MAIL_HOME_PATH}
 				aria-label="Mail"
 				aria-current={active === 'mail' ? 'page' : undefined}
-				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
+				className={cn(
+					'group relative flex h-11 w-11 flex-col items-center justify-center rounded-lg transition-colors',
 					active === 'mail'
-						? 'bg-sidebar-primary text-sidebar-primary-foreground'
-						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
-				}`}
+						? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
+						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+				)}
 			>
 				<Mail className="h-5 w-5" strokeWidth={active === 'mail' ? 2.4 : 2} />
 				<span className="mt-0.5 text-[10px] font-medium tracking-tight">Mail</span>
@@ -68,11 +71,12 @@ export function AppRail({
 				to={CALENDAR_HOME_PATH}
 				aria-label="Calendar"
 				aria-current={active === 'calendar' ? 'page' : undefined}
-				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
+				className={cn(
+					'group relative flex h-11 w-11 flex-col items-center justify-center rounded-lg transition-colors',
 					active === 'calendar'
-						? 'bg-sidebar-primary text-sidebar-primary-foreground'
-						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
-				}`}
+						? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
+						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+				)}
 			>
 				<Calendar className="h-5 w-5" strokeWidth={active === 'calendar' ? 2.4 : 2} />
 				<span className="mt-0.5 text-[10px] font-medium tracking-tight">Calendar</span>
@@ -82,36 +86,31 @@ export function AppRail({
 				<button
 					type="button"
 					onClick={toggleTheme}
-					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					className="flex h-11 w-11 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
 					aria-label={themeToggleLabel(mounted, isDark)}
 				>
 					{mounted && isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
 				</button>
 				<button
 					type="button"
-					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-					aria-label="Search"
+					onClick={onOpenCommandPalette}
+					className="flex h-11 w-11 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Open command palette"
+					title="⌘K"
 				>
 					<Search className="h-5 w-5" />
-				</button>
-				<button
-					type="button"
-					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-					aria-label="Settings"
-				>
-					<Settings className="h-5 w-5" />
 				</button>
 				<form action="/logout" method="get" className="contents">
 					<button
 						type="submit"
-						className="group relative flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+						className="group relative flex h-11 w-11 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
 						aria-label="Sign out"
 					>
 						<LogOut className="h-5 w-5" />
 					</button>
 				</form>
 				<div
-					className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground"
+					className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground ring-2 ring-sidebar-border"
 					title={displayName ? `${displayName} · ${email}` : email}
 				>
 					{initials(displayName ?? email)}

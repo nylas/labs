@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { searchContacts } from '../server/fns.js'
+import { cn } from './ui-model.js'
 
 /** "To" field with contact autocomplete (best-effort, debounced). */
 export function RecipientInput({
 	value,
 	onChange,
 	placeholder,
+	className,
 }: {
 	value: string
 	onChange: (next: string) => void
 	placeholder?: string
+	className?: string
 }) {
 	const [suggestions, setSuggestions] = useState<{ email: string; name?: string }[]>([])
 	const [open, setOpen] = useState(false)
@@ -57,7 +60,7 @@ export function RecipientInput({
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={() => setTimeout(() => setOpen(false), 150)}
 				placeholder={placeholder ?? 'To (comma-separated)'}
-				className="app-input"
+				className={cn('app-input', className)}
 				type="email"
 				multiple
 				inputMode="email"
@@ -66,7 +69,7 @@ export function RecipientInput({
 				enterKeyHint="next"
 			/>
 			{open ? (
-				<ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg">
+				<ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
 					{suggestions.map((s) => (
 						<li key={s.email}>
 							<button
@@ -80,7 +83,7 @@ export function RecipientInput({
 								{s.name ? (
 									<>
 										<span className="font-medium">{s.name}</span>{' '}
-										<span className="text-neutral-500">&lt;{s.email}&gt;</span>
+										<span className="text-muted-foreground">&lt;{s.email}&gt;</span>
 									</>
 								) : (
 									s.email

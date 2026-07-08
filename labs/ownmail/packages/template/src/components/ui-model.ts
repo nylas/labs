@@ -134,6 +134,20 @@ export function messageBodyParagraphs(message: Message): string[] {
 		.filter(Boolean)
 }
 
+export function messageHasHtml(message: Message): boolean {
+	const body = message.body?.trim()
+	if (!body) return false
+	return /<[a-z][\s\S]*>/i.test(body)
+}
+
+/** Strip scripts and event handlers before sandboxed iframe rendering. */
+export function sanitizeEmailHtml(html: string): string {
+	return html
+		.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+		.replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+		.replace(/javascript:/gi, '')
+}
+
 function plainTextFromHtml(html: string, preserveParagraphs = false): string {
 	const paragraphBreak = preserveParagraphs ? '\n\n' : ' '
 	const text = decodeHtmlEntities(htmlTextContent(html, paragraphBreak)).replace(/\u00a0/g, ' ')

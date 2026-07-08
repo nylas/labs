@@ -30,11 +30,13 @@ import {
 	mailFolderTitle,
 	mailSearchInputValue,
 	messageBodyParagraphs,
+	messageHasHtml,
 	messagePreview,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
+	sanitizeEmailHtml,
 	searchListSearch,
 	searchMaskFromMailLocation,
 	shouldUseBrowserBackForComposeClose,
@@ -138,6 +140,15 @@ describe('ui-model mail helpers', () => {
 		} as Message
 
 		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
+	})
+
+	it('detects html bodies for rich rendering', () => {
+		expect(messageHasHtml({ body: '<p>Hello</p>' } as Message)).toBe(true)
+		expect(messageHasHtml({ body: 'plain text' } as Message)).toBe(false)
+	})
+
+	it('strips scripts from html before sandbox rendering', () => {
+		expect(sanitizeEmailHtml('<p>Hi</p><script>alert(1)</script>')).toBe('<p>Hi</p>')
 	})
 
 	it('does not leak script contents from spaced script end tags', () => {

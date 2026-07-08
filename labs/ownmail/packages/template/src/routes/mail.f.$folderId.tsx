@@ -1,11 +1,10 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useRouter, useRouterState } from '@tanstack/react-router'
-import { Paperclip, Reply, Star } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { Loader2, Paperclip, Reply, Star } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import {
 	cn,
 	draftRecipientName,
-	formatListDate,
 	labelBadgeClass,
 	mailFolderTitle,
 	STAR_FILLED_CLASS,
@@ -15,6 +14,7 @@ import {
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
+import { ClientListDate } from '../components/ClientTime.js'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
@@ -28,7 +28,7 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 export async function loadMailFolderData(folderId: string) {
 	const folders = await getFolders()
 	if (folderId === 'drafts') {
-		return { threads: [] as Thread[], drafts: await listDrafts(), folders }
+		return { threads: [] as Thread[], drafts: await listDrafts(), folders, nextCursor: undefined as string | undefined }
 	}
 	if (folderId === 'starred') {
 		const res = await getThreads({ data: { starred: true } })
@@ -41,15 +41,13 @@ export async function loadMailFolderData(folderId: string) {
 type MailFolderRouteData = Awaited<ReturnType<typeof loadMailFolderData>>
 
 function FolderView() {
-	const { threads, drafts, folders } = Route.useLoaderData()
+	const loaderData = Route.useLoaderData()
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
 
 	return (
 		<MailFolderRouteScreen
-			threads={threads}
-			drafts={drafts}
-			folders={folders}
+			{...loaderData}
 			folderId={folderId}
 			baseFolderId={baseFolderId}
 		/>
@@ -57,14 +55,18 @@ function FolderView() {
 }
 
 export function MailFolderRouteScreen({
-	threads,
+	threads: initialThreads,
 	drafts,
 	folders,
 	folderId,
 	baseFolderId,
+	nextCursor: initialCursor,
 }: MailFolderRouteData & { folderId: string; baseFolderId?: string }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
+	const [extraThreads, setExtraThreads] = useState<Thread[]>([])
+	const [nextCursor, setNextCursor] = useState(initialCursor)
+	const [loadingMore, setLoadingMore] = useState(false)
 	const publicPathname = useRouterState({
 		select: (state) => state.location.maskedLocation?.pathname ?? state.location.pathname,
 	})
@@ -74,11 +76,17 @@ export function MailFolderRouteScreen({
 			state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
 	})
 	const threadMask = threadMaskFromMailLocation(publicPathname)
+	const threads = useMemo(() => [...initialThreads, ...extraThreads], [extraThreads, initialThreads])
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
+
+	useEffect(() => {
+		setExtraThreads([])
+		setNextCursor(initialCursor)
+	}, [folderId, initialCursor, initialThreads])
 
 	// Light-touch realtime: refresh the list every 30s while the tab is visible.
 	useEffect(() => {
@@ -88,19 +96,36 @@ export function MailFolderRouteScreen({
 		return () => clearInterval(timer)
 	}, [router])
 
+	async function loadMore() {
+		if (!nextCursor || loadingMore || folderId === 'drafts') return
+		setLoadingMore(true)
+		try {
+			const res = await getThreads({
+				data: {
+					...(folderId === 'starred' ? { starred: true } : { folderId }),
+					pageToken: nextCursor,
+				},
+			})
+			setExtraThreads((current) => [...current, ...res.threads])
+			setNextCursor(res.nextCursor)
+		} finally {
+			setLoadingMore(false)
+		}
+	}
+
 	return (
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none',
 					hasThread ? 'hidden' : 'flex',
 				)}
 			>
 				<div className="flex items-center justify-between border-b border-border px-4 py-3">
-					<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
+					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					{unreadCount > 0 ? (
-						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
-							{unreadCount} unread
+						<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+							{unreadCount}
 						</span>
 					) : null}
 				</div>
@@ -115,16 +140,36 @@ export function MailFolderRouteScreen({
 					) : sortedThreads.length === 0 ? (
 						<EmptyState />
 					) : (
-						sortedThreads.map((thread) => (
-							<ThreadRow
-								key={thread.id}
-								thread={thread}
-								folderId={folderId}
-								baseFolderId={baseFolderId}
-								mask={threadMask}
-								onChanged={() => router.invalidate()}
-							/>
-						))
+						<>
+							{sortedThreads.map((thread) => (
+								<ThreadRow
+									key={thread.id}
+									thread={thread}
+									folderId={folderId}
+									baseFolderId={baseFolderId}
+									mask={threadMask}
+									onChanged={() => router.invalidate()}
+								/>
+							))}
+							{nextCursor ? (
+								<div className="border-t border-border p-3">
+									<button
+										type="button"
+										onClick={loadMore}
+										disabled={loadingMore}
+										className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
+									>
+										{loadingMore ? (
+											<>
+												<Loader2 className="h-4 w-4 animate-spin" /> Loading…
+											</>
+										) : (
+											'Load more'
+										)}
+									</button>
+								</div>
+							) : null}
+						</>
 					)}
 				</div>
 			</section>
@@ -132,13 +177,15 @@ export function MailFolderRouteScreen({
 				{hasThread ? (
 					<Outlet />
 				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
-						<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 							<Reply className="h-6 w-6" />
 						</div>
 						<div>
-							<p className="text-sm font-medium text-foreground">Select a conversation</p>
-							<p className="text-sm text-muted-foreground">Choose a message from the list to read it here.</p>
+							<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Pick a message from the list, or press <kbd className="kbd">C</kbd> to compose.
+							</p>
 						</div>
 					</div>
 				)}
@@ -149,16 +196,15 @@ export function MailFolderRouteScreen({
 
 function EmptyState() {
 	return (
-		<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-			<p className="text-sm font-medium text-foreground">Nothing here</p>
-			<p className="text-sm text-muted-foreground">This view is empty.</p>
+		<div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+			<p className="font-display text-sm font-semibold text-foreground">All caught up</p>
+			<p className="text-sm text-muted-foreground">No messages in this folder.</p>
 		</div>
 	)
 }
 
 function DraftRow({ draft, mask }: { draft: Draft; mask?: { to: '/' } }) {
 	const recipient = draftRecipientName(draft)
-	const when = formatListDate(draft.date)
 	return (
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
@@ -171,7 +217,12 @@ function DraftRow({ draft, mask }: { draft: Draft; mask?: { to: '/' } }) {
 					<Star className="h-4 w-4" />
 				</span>
 				<span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{recipient}</span>
-				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
+				{draft.date ? (
+					<ClientListDate
+						epochSeconds={draft.date}
+						className="shrink-0 text-xs tabular-nums text-muted-foreground"
+					/>
+				) : null}
 			</div>
 			<p className="truncate text-sm text-foreground/80">{draft.subject || '(no subject)'}</p>
 			<p className="min-w-0 truncate text-xs text-muted-foreground">{draft.snippet}</p>
@@ -192,7 +243,6 @@ function ThreadRow({
 	mask?: { to: '/' }
 	onChanged: () => void
 }) {
-	const when = formatListDate(threadTimestamp(thread))
 	const sender = threadSender(thread, folderId)
 	const labels = threadLabels(thread)
 
@@ -210,12 +260,12 @@ function ThreadRow({
 			search={baseFolderId ? { baseFolderId } : {}}
 			{...(mask ? { mask } : {})}
 			className={cn(
-				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
-				thread.unread && 'bg-card',
+				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent',
+				thread.unread && 'bg-card/80',
 			)}
-			activeProps={{ className: 'bg-accent hover:bg-accent' }}
+			activeProps={{ 'data-active': 'true', className: 'bg-accent hover:bg-accent' }}
+			data-unread={thread.unread ? 'true' : undefined}
 		>
-			{thread.unread ? <span className="absolute top-0 left-0 h-full w-0.5 bg-primary" aria-hidden /> : null}
 			<div className="flex items-center gap-2">
 				<button
 					type="button"
@@ -237,7 +287,10 @@ function ThreadRow({
 					) : null}
 				</span>
 				{thread.has_attachments ? <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
+				<ClientListDate
+					epochSeconds={threadTimestamp(thread)}
+					className="shrink-0 text-xs tabular-nums text-muted-foreground"
+				/>
 			</div>
 
 			<p

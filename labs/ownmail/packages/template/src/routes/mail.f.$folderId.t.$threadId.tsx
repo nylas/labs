@@ -3,15 +3,16 @@ import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import {
 	Archive,
 	ArrowLeft,
+	ChevronDown,
 	Forward,
-	MoreHorizontal,
+	MailOpen,
 	Paperclip,
 	Reply,
 	ReplyAll,
 	Star,
 	Trash2,
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
 	cn,
 	collapsedMessagePreview,
@@ -19,12 +20,13 @@ import {
 	forwardDraftSearch,
 	initials,
 	labelBadgeClass,
-	messageBodyParagraphs,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
 	threadLabels,
 } from '../components/ui-model.js'
+import { MessageBody } from '../components/MessageBody.js'
+import { ClientMessageTime } from '../components/ClientTime.js'
 import { getThreadMessages, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -46,9 +48,13 @@ function ThreadView() {
 	const [error, setError] = useState<string | null>(null)
 	const lastMessage = messages.at(-1)
 	const labels = threadLabels(thread)
-	const firstAttachment = messages
-		.flatMap((message) => message.attachments ?? [])
-		.find((attachment) => !attachment.is_inline)
+	const threadAttachments = useMemo(
+		() =>
+			messages.flatMap((message) =>
+				(message.attachments ?? []).filter((attachment) => !attachment.is_inline),
+			),
+		[messages],
+	)
 
 	const act = useCallback(
 		async (input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) => {
@@ -113,7 +119,7 @@ function ThreadView() {
 
 	return (
 		<div className="flex min-w-0 flex-1 flex-col bg-background">
-			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
+			<div className="flex items-center gap-1 border-b border-border px-3 py-2">
 				<button
 					type="button"
 					onClick={() =>
@@ -130,29 +136,71 @@ function ThreadView() {
 					<ArrowLeft className="h-5 w-5" />
 				</button>
 				<IconButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
-					<Archive className="h-4.5 w-4.5" />
+					<Archive className="h-4 w-4" />
 				</IconButton>
 				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
-					<Trash2 className="h-4.5 w-4.5" />
+					<Trash2 className="h-4 w-4" />
 				</IconButton>
 				<IconButton
 					label={thread.starred ? 'Unstar' : 'Star'}
 					onClick={() => act({ starred: !thread.starred })}
 				>
-					<Star className={cn('h-4.5 w-4.5', thread.starred && STAR_FILLED_CLASS)} />
+					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
 				</IconButton>
-				<div className="ml-auto">
-					<IconButton label="More">
-						<MoreHorizontal className="h-4.5 w-4.5" />
-					</IconButton>
-				</div>
+				<IconButton label="Mark unread" onClick={() => act({ unread: true }, true)}>
+					<MailOpen className="h-4 w-4" />
+				</IconButton>
+
+				{lastMessage ? (
+					<div className="ml-auto hidden items-center gap-1 sm:flex">
+						<ActionButton
+							label="Reply"
+							onClick={() =>
+								navigate({
+									to: '/mail/compose',
+									search: { folderId, threadId, ...replyDraftSearch(lastMessage) },
+								})
+							}
+						>
+							<Reply className="h-4 w-4" />
+						</ActionButton>
+						<ActionButton
+							label="Reply all"
+							onClick={() =>
+								navigate({
+									to: '/mail/compose',
+									search: {
+										folderId,
+										threadId,
+										...replyAllDraftSearch(lastMessage, mailboxEmail),
+									},
+								})
+							}
+						>
+							<ReplyAll className="h-4 w-4" />
+						</ActionButton>
+						<ActionButton
+							label="Forward"
+							onClick={() =>
+								navigate({
+									to: '/mail/compose',
+									search: { folderId, threadId, ...forwardDraftSearch(lastMessage) },
+								})
+							}
+						>
+							<Forward className="h-4 w-4" />
+						</ActionButton>
+					</div>
+				) : null}
 			</div>
 			{error ? <ErrorBanner message={error} /> : null}
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
-					<div className="flex flex-wrap items-center gap-2">
-						<h2 className="text-xl font-semibold text-balance">{thread.subject || '(no subject)'}</h2>
+				<header className="border-b border-border px-5 py-5 lg:px-8">
+					<div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+						<h1 className="font-display text-xl font-semibold text-balance lg:text-2xl">
+							{thread.subject || '(no subject)'}
+						</h1>
 						{labels.map((label) => (
 							<span
 								key={label.id}
@@ -166,82 +214,65 @@ function ThreadView() {
 						))}
 					</div>
 
-					{thread.has_attachments ? (
-						<div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
-							<Paperclip className="h-4 w-4 text-muted-foreground" />
-							<span className="font-medium text-foreground">
-								{firstAttachment?.filename ?? 'attachment.pdf'}
-							</span>
-							<span className="text-muted-foreground">
-								· {firstAttachment?.size ? formatSize(firstAttachment.size) : '248 KB'}
-							</span>
+					{threadAttachments.length > 0 ? (
+						<div className="mt-4 flex flex-wrap gap-2">
+							{threadAttachments.map((attachment) => {
+								const parent = messages.find((message) =>
+									message.attachments?.some((item) => item.id === attachment.id),
+								)
+								if (!parent) return null
+								return (
+									<a
+										key={attachment.id}
+										href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(parent.id)}`}
+										className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+										download={attachment.filename}
+									>
+										<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+										<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
+										{attachment.size ? (
+											<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
+										) : null}
+									</a>
+								)
+							})}
 						</div>
 					) : null}
+				</header>
 
-					<div className="mt-4 space-y-3">
-						{messages.map((message, index) => (
-							<MessageBlock key={message.id} message={message} defaultOpen={index === messages.length - 1} />
-						))}
-					</div>
-
-					<div className="mt-4 flex flex-wrap gap-2">
-						{lastMessage ? (
-							<button
-								type="button"
-								onClick={() =>
-									navigate({
-										to: '/mail/compose',
-										search: {
-											folderId,
-											threadId,
-											...replyDraftSearch(lastMessage),
-										},
-									})
-								}
-								className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-							>
-								<Reply className="h-4 w-4" /> Reply
-							</button>
-						) : null}
-						<button
-							type="button"
-							onClick={() =>
-								lastMessage
-									? navigate({
-											to: '/mail/compose',
-											search: {
-												folderId,
-												threadId,
-												...replyAllDraftSearch(lastMessage, mailboxEmail),
-											},
-										})
-									: undefined
-							}
-							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-						>
-							<ReplyAll className="h-4 w-4" /> Reply all
-						</button>
-						<button
-							type="button"
-							onClick={() =>
-								lastMessage
-									? navigate({
-											to: '/mail/compose',
-											search: {
-												folderId,
-												threadId,
-												...forwardDraftSearch(lastMessage),
-											},
-										})
-									: undefined
-							}
-							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-						>
-							<Forward className="h-4 w-4" /> Forward
-						</button>
-					</div>
+				<div className="px-5 py-2 lg:px-8">
+					{messages.map((message, index) => (
+						<MessageBlock
+							key={message.id}
+							message={message}
+							defaultOpen={index === messages.length - 1}
+							isLast={index === messages.length - 1}
+						/>
+					))}
 				</div>
 			</div>
+
+			{lastMessage ? (
+				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
+					<button
+						type="button"
+						onClick={() =>
+							navigate({
+								to: '/mail/compose',
+								search: {
+									folderId,
+									threadId,
+									...replyDraftSearch(lastMessage),
+								},
+							})
+						}
+						className="flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground"
+					>
+						<Reply className="h-4 w-4 shrink-0" />
+						<span>Write a reply…</span>
+					</button>
+				</div>
+			) : null}
 		</div>
 	)
 }
@@ -268,52 +299,84 @@ function IconButton({
 	)
 }
 
-function MessageBlock({ message, defaultOpen }: { message: Message; defaultOpen: boolean }) {
+function ActionButton({
+	label,
+	onClick,
+	children,
+}: {
+	label: string
+	onClick?: () => void
+	children: React.ReactNode
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+		>
+			{children}
+			<span className="hidden md:inline">{label}</span>
+		</button>
+	)
+}
+
+function MessageBlock({
+	message,
+	defaultOpen,
+	isLast,
+}: {
+	message: Message
+	defaultOpen: boolean
+	isLast: boolean
+}) {
 	const [open, setOpen] = useState(defaultOpen)
 	const from = message.from?.[0]
 	const fromLabel = from?.name || from?.email || '(unknown sender)'
+	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
+
 	return (
-		<div className="rounded-sm border border-border bg-card">
+		<article className={cn('py-5', !isLast && 'border-b border-border')}>
 			<button
 				type="button"
 				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-start gap-3 px-4 py-3 text-left"
+				className="flex w-full items-start gap-3 text-left"
+				aria-expanded={open}
 			>
-				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
 					{initials(fromLabel)}
 				</div>
 				<div className="min-w-0 flex-1">
-					<div className="flex items-baseline justify-between gap-2">
-						<span className="truncate text-sm font-semibold text-foreground">{fromLabel}</span>
+					<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+						<span className="text-sm font-semibold text-foreground">{fromLabel}</span>
+						{open ? (
+							<span className="text-xs text-muted-foreground">to {recipients}</span>
+						) : null}
 						{message.date ? (
-							<span className="shrink-0 text-xs text-muted-foreground">
-								{new Date(message.date * 1000).toLocaleString(undefined, {
-									weekday: 'short',
-									month: 'short',
-									day: 'numeric',
-									hour: 'numeric',
-									minute: '2-digit',
-								})}
-							</span>
+							<ClientMessageTime
+								epochSeconds={message.date}
+								className="ml-auto shrink-0 text-xs text-muted-foreground"
+							/>
 						) : null}
 					</div>
-					{open ? (
-						<p className="truncate text-xs text-muted-foreground">
-							to {message.to?.map((person) => person.name || person.email).join(', ') || 'me'}
-						</p>
-					) : (
-						<p className="truncate text-xs text-muted-foreground">{collapsedMessagePreview(message)}</p>
-					)}
+					{!open ? (
+						<p className="mt-0.5 truncate text-sm text-muted-foreground">{collapsedMessagePreview(message)}</p>
+					) : null}
 				</div>
+				<ChevronDown
+					className={cn(
+						'mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+						open && 'rotate-180',
+					)}
+				/>
 			</button>
 
 			{open ? (
-				<div className="px-4 pb-4 pl-16">
+				<div className="mt-4">
 					<MessageBody message={message} />
 					<MessageAttachments message={message} />
 				</div>
 			) : null}
-		</div>
+		</article>
 	)
 }
 
@@ -326,29 +389,15 @@ function MessageAttachments({ message }: { message: Message }) {
 				<a
 					key={attachment.id}
 					href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(message.id)}`}
-					className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-muted"
+					className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
 					download={attachment.filename}
 				>
-					<Paperclip className="h-4 w-4 text-muted-foreground" />
+					<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
 					<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
 					{attachment.size ? (
 						<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
 					) : null}
 				</a>
-			))}
-		</div>
-	)
-}
-
-function MessageBody({ message }: { message: Message }) {
-	const paragraphs = messageBodyParagraphs(message)
-	if (paragraphs.length === 0) return null
-	return (
-		<div className="space-y-3 text-sm leading-relaxed text-foreground/90">
-			{paragraphs.map((paragraph) => (
-				<p key={`${message.id}-${paragraph}`} className="whitespace-pre-line text-pretty">
-					{paragraph}
-				</p>
 			))}
 		</div>
 	)
