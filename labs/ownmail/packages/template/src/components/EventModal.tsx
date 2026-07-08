@@ -320,39 +320,22 @@ export function EventModal({
 					) : null}
 				</div>
 
-				<div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
-					<div className="flex gap-1">
-						{canRsvp
-							? (['yes', 'maybe', 'no'] as const).map((status) => (
-									<button
-										key={status}
-										type="button"
-										disabled={busy}
-										onClick={() => rsvp(status)}
-										className="rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted"
-									>
-										{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
-									</button>
-								))
-							: null}
-					</div>
-					<div className="flex gap-2">
-						<button
-							type="button"
-							onClick={() => onClose(false)}
-							className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
-						>
-							Cancel
-						</button>
-						<button
-							type="button"
-							disabled={busy}
-							onClick={save}
-							className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
-						>
-							{busy ? 'Saving...' : 'Save event'}
-						</button>
-					</div>
+				<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+					<button
+						type="button"
+						onClick={() => onClose(false)}
+						className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						disabled={busy}
+						onClick={save}
+						className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+					>
+						{busy ? 'Saving...' : 'Save event'}
+					</button>
 				</div>
 			</div>
 		</div>
