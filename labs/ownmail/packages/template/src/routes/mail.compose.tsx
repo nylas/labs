@@ -234,7 +234,7 @@ function Compose() {
 									value={to}
 									onChange={(event) => setTo(event.target.value)}
 									placeholder="recipient@email.com"
-									className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 									type="email"
 									inputMode="email"
 									autoComplete="email"
@@ -247,7 +247,7 @@ function Compose() {
 									value={subject}
 									onChange={(event) => setSubject(event.target.value)}
 									placeholder="Subject"
-									className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 								/>
 							</label>
 						</div>
@@ -256,7 +256,7 @@ function Compose() {
 							value={body}
 							onChange={(event) => setBody(event.target.value)}
 							placeholder="Write your message..."
-							className="min-h-0 flex-1 resize-none bg-transparent px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+							className="compose-field min-h-0 flex-1 resize-none bg-transparent px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
 						/>
 
 						{error ? <ErrorBanner message={error} /> : null}

@@ -316,7 +316,8 @@ h5 {
 	border-color: var(--color-ink-2);
 }
 
-.event-dialog-field:focus-visible {
+.event-dialog-field:focus-visible,
+.compose-field:focus-visible {
 	outline: none;
 }
 
