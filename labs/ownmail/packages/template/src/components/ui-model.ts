@@ -117,6 +117,7 @@ export function formatListDate(epochSeconds?: number): string {
 }
 
 export function initials(nameOrEmail: string): string {
+	/* v8 ignore next -- `String.prototype.split` always yields a non-empty array, so `[0]` is never nullish and the `?? nameOrEmail` fallback is unreachable */
 	const source = nameOrEmail.includes('@') ? (nameOrEmail.split('@')[0] ?? nameOrEmail) : nameOrEmail
 	return source
 		.split(/[.\s_-]+/)
@@ -636,6 +637,7 @@ function eventTitleContextTone(title: string): EventTone | undefined {
 }
 
 function fallbackTone(index: number): EventTone {
+	/* v8 ignore next -- `index % 4` is always 0-3 and the tuple has four entries, so the indexed access is never undefined and the `?? 'blue'` fallback is unreachable */
 	return (['blue', 'teal', 'amber', 'rose'] as const)[index % 4] ?? 'blue'
 }
 

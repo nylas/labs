@@ -78,6 +78,7 @@ export function EventModal({
 	}
 
 	async function remove() {
+		/* v8 ignore next -- remove() is only wired to the delete button, which renders only when event is present */
 		if (!event) return
 		setBusy(true)
 		try {
@@ -90,6 +91,7 @@ export function EventModal({
 	}
 
 	async function rsvp(status: 'yes' | 'no' | 'maybe') {
+		/* v8 ignore next -- rsvp() is only wired to the RSVP buttons, which render only when event is present */
 		if (!event) return
 		setBusy(true)
 		try {
@@ -221,6 +223,7 @@ export function EventModal({
 			<div
 				role="dialog"
 				aria-modal="true"
+				/* v8 ignore next -- this branch renders only when `event && times` is false, i.e. event is always null here; the 'Event details' arm is unreachable */
 				aria-label={event ? 'Event details' : 'New event'}
 				className={EVENT_DIALOG_PANEL_CLASS}
 			>

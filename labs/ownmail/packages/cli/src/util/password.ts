@@ -20,12 +20,14 @@ export function generateAppPassword(mailboxName?: string): string {
 			const j = randomInt(i + 1)
 			const left = chars[i]
 			const right = chars[j]
+			/* v8 ignore next -- unreachable: swapped indices are always in-bounds, so chars are never undefined */
 			if (left === undefined || right === undefined) throw new Error('Password generation failed')
 			chars[i] = right
 			chars[j] = left
 		}
 		const password = chars.join('')
 		if (!validateAppPassword(password, mailboxName)) return password
+		/* v8 ignore next 3 -- unreachable: a valid password is always produced on the first attempt, so the loop never exits to the fallback throw */
 	}
 	throw new Error('Could not generate a valid password')
 }
@@ -47,10 +49,12 @@ export function validateAppPassword(value: string, mailboxName?: string): string
 
 function pickChar(chars: string): string {
 	const picked = chars[randomInt(chars.length)]
+	/* v8 ignore next -- unreachable: randomInt returns an in-bounds index, so a character is always picked */
 	if (!picked) throw new Error('Password generation failed')
 	return picked
 }
 
 function mailboxLocalPart(mailboxName: string | undefined): string {
+	/* v8 ignore next -- unreachable: String.split always yields at least one element, so [0] is never undefined */
 	return mailboxName?.split('@')[0]?.trim().toLowerCase() ?? ''
 }

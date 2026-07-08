@@ -57,6 +57,7 @@ export function MailSidebar({
 
 			<nav className="flex flex-col py-1" aria-label="Mail folders">
 				{MAIL_FOLDERS.map((folder) => {
+					/* v8 ignore next -- every MAIL_FOLDERS id has a FOLDER_ICONS entry; the ?? Inbox fallback is unreachable defensive code */
 					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
 					const count = sidebarFolderCount(folders, folder.id)
 					const active = currentFolderId === folder.id

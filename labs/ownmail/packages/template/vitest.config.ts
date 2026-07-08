@@ -33,6 +33,11 @@ export default defineConfig({
 				'src/routeTree.gen.ts',
 				// Ambient type declarations — no runtime code.
 				'src/env.d.ts',
+				// Build-target shim: aliased in for `cloudflare:workers` in the local Node SSR
+				// target purely to throw at import time. Its only other line (an unreachable
+				// `export const env = {}` after the throw) can never execute, so 100% is
+				// unattainable and there is nothing meaningful to unit-test.
+				'src/server/cloudflare-workers.local.ts',
 			],
 			thresholds: {
 				lines: 100,

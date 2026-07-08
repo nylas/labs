@@ -1,0 +1,135 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProjectState } from '../state/schema.js'
+import { runRotateKey } from './rotate.js'
+
+vi.mock('@clack/prompts', () => ({
+	intro: vi.fn(),
+	outro: vi.fn(),
+	spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() })),
+	log: { step: vi.fn(), warn: vi.fn() },
+}))
+vi.mock('@nylas-labs/cli-kit', () => ({
+	GatewayError: class GatewayError extends Error {
+		constructor(message: string) {
+			super(message)
+			this.name = 'GatewayError'
+		}
+	},
+}))
+vi.mock('../deploy/wrangler.js', () => ({ putSecret: vi.fn() }))
+vi.mock('../state/store.js', () => ({ saveProject: vi.fn() }))
+vi.mock('../steps/context.js', () => ({
+	createContext: vi.fn(),
+	requireGateway: vi.fn(),
+	tokens: vi.fn(() => ({ userToken: 't' })),
+}))
+vi.mock('./shared.js', () => ({ pickExistingProject: vi.fn() }))
+
+import * as p from '@clack/prompts'
+import { GatewayError } from '@nylas-labs/cli-kit'
+import { putSecret } from '../deploy/wrangler.js'
+import { saveProject } from '../state/store.js'
+import { createContext, requireGateway } from '../steps/context.js'
+import { pickExistingProject } from './shared.js'
+
+function project(overrides: Partial<ProjectState> = {}): ProjectState {
+	return {
+		slug: 'acme',
+		createdAt: 0,
+		updatedAt: 0,
+		region: 'us',
+		ejected: false,
+		completedSteps: [],
+		pendingSecrets: {},
+		...overrides,
+	} as ProjectState
+}
+
+function gateway(overrides: Record<string, unknown> = {}) {
+	return {
+		createApiKey: vi.fn().mockResolvedValue({ id: 'new-key', apiKey: 'nyk_new' }),
+		revokeApiKey: vi.fn().mockResolvedValue(undefined),
+		...overrides,
+	}
+}
+
+beforeEach(() => {
+	vi.clearAllMocks()
+})
+
+describe('runRotateKey', () => {
+	it('throws when the project has not deployed (no worker)', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ applicationId: 'app-1' }))
+		await expect(runRotateKey({})).rejects.toThrow(/hasn.t deployed yet/)
+	})
+
+	it('throws when the application id is missing', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1' }))
+		await expect(runRotateKey({})).rejects.toThrow(/hasn.t deployed yet/)
+	})
+
+	it('throws when not logged in', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1', applicationId: 'app-1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: null } as never)
+		await expect(runRotateKey({})).rejects.toThrow(/Not logged in/)
+	})
+
+	it('mints, swaps, persists, and revokes the old key', async () => {
+		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'old-key' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		await runRotateKey({})
+		// New key put on the worker before the old one is revoked (no gap).
+		expect(putSecret).toHaveBeenCalledWith('w1', 'NYLAS_API_KEY', 'nyk_new')
+		expect(proj.apiKeyId).toBe('new-key')
+		expect(saveProject).toHaveBeenCalledWith(proj)
+		expect(gw.revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app-1', 'old-key')
+		expect(p.log.step).toHaveBeenCalledWith('Old key revoked.')
+	})
+
+	it('skips revocation when there was no previous key', async () => {
+		const proj = project({ workerName: 'w1', applicationId: 'app-1' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		await runRotateKey({})
+		expect(gw.revokeApiKey).not.toHaveBeenCalled()
+	})
+
+	it('skips revocation when the new key id equals the old one', async () => {
+		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'new-key' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		await runRotateKey({})
+		expect(gw.revokeApiKey).not.toHaveBeenCalled()
+	})
+
+	it('warns with the gateway detail when revocation fails (GatewayError)', async () => {
+		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'old-key' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway({
+			revokeApiKey: vi.fn().mockRejectedValue(new GatewayError('403 forbidden')),
+		})
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		await runRotateKey({})
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('403 forbidden'))
+	})
+
+	it('stringifies non-gateway errors on revocation failure', async () => {
+		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'old-key' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway({
+			revokeApiKey: vi.fn().mockRejectedValue(new Error('network down')),
+		})
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		await runRotateKey({})
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('network down'))
+	})
+})

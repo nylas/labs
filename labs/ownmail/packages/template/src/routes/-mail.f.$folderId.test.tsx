@@ -1,0 +1,393 @@
+// @vitest-environment jsdom
+import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The route hooks and Link/Outlet are stubbed so we can exercise the loader and the
+// screen component in isolation without a live router.
+type RouterState = {
+	location: { pathname: string; maskedLocation?: { pathname: string } }
+	matches: Array<{ routeId: string }>
+}
+
+let routerState: RouterState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
+const invalidate = vi.fn()
+
+vi.mock('@tanstack/react-router', () => ({
+	createFileRoute: () => (opts: any) => ({ options: opts }),
+	useRouter: () => ({ invalidate }),
+	useRouterState: (opts: any) => opts.select(routerState),
+	Outlet: () => <div data-testid="thread-outlet" />,
+	Link: ({ children, to, params, search, mask, activeProps, ...rest }: any) => {
+		const href =
+			typeof to === 'string' && params?.folderId
+				? to.replace('$folderId', params.folderId).replace('$threadId', params.threadId ?? '')
+				: (to ?? '#')
+		return (
+			<a href={href} data-mask={mask ? 'yes' : 'no'} data-search={JSON.stringify(search ?? {})} {...rest}>
+				{children}
+			</a>
+		)
+	},
+}))
+
+vi.mock('@tanstack/react-start', () => ({
+	createServerFn: () => ({ handler: (fn: any) => fn, validator: () => ({ handler: (fn: any) => fn }) }),
+}))
+
+vi.mock('@tanstack/react-start/server', () => ({
+	getRequest: vi.fn(() => new Request('http://ownmail.local/mail')),
+}))
+
+const getFolders = vi.fn()
+const getThreads = vi.fn()
+const listDrafts = vi.fn()
+const updateThreadState = vi.fn()
+vi.mock('../server/fns.js', () => ({
+	getFolders: () => getFolders(),
+	getThreads: (input: any) => getThreads(input),
+	listDrafts: () => listDrafts(),
+	updateThreadState: (input: any) => updateThreadState(input),
+}))
+
+// ClientListDate depends on a mount effect + locale formatting; stub it to a stable
+// marker so list assertions stay deterministic.
+vi.mock('../components/ClientTime.js', () => ({
+	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => (
+		<time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
+	),
+}))
+
+import { loadMailFolderData, MailFolderRouteScreen, Route } from './mail.f.$folderId.js'
+
+const thread = (over: Partial<Thread> & { id: string }): Thread =>
+	({
+		grant_id: 'g',
+		subject: 'Subject',
+		snippet: 'snippet',
+		participants: [{ name: 'Ada', email: 'ada@example.com' }],
+		folders: ['inbox'],
+		...over,
+	}) as unknown as Thread
+
+afterEach(() => {
+	cleanup()
+	vi.clearAllMocks()
+	routerState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
+})
+
+describe('loadMailFolderData', () => {
+	it('returns saved drafts (and no threads) for the drafts folder without hitting the thread list', async () => {
+		getFolders.mockResolvedValue([{ id: 'inbox' }])
+		listDrafts.mockResolvedValue([{ id: 'd1' }])
+
+		const data = await loadMailFolderData('drafts')
+
+		expect(data.drafts).toEqual([{ id: 'd1' }])
+		expect(data.threads).toEqual([])
+		expect(data.nextCursor).toBeUndefined()
+		expect(getThreads).not.toHaveBeenCalled()
+	})
+
+	it('requests starred threads for the starred pseudo-folder', async () => {
+		getFolders.mockResolvedValue([])
+		getThreads.mockResolvedValue({ threads: [thread({ id: 't1' })], nextCursor: 'c' })
+
+		const data = await loadMailFolderData('starred')
+
+		expect(getThreads).toHaveBeenCalledWith({ data: { starred: true } })
+		expect(data.drafts).toEqual([])
+		expect(data.nextCursor).toBe('c')
+	})
+
+	it('requests threads scoped to a concrete folder id', async () => {
+		getFolders.mockResolvedValue([])
+		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
+
+		await loadMailFolderData('work')
+
+		expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'work' } })
+	})
+
+	it('is driven by the route loader using the folderId route param', async () => {
+		getFolders.mockResolvedValue([])
+		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
+
+		await Route.options.loader({ params: { folderId: 'sent' } })
+
+		expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'sent' } })
+	})
+})
+
+describe('validateSearch', () => {
+	it('keeps a string baseFolderId and drops anything else so the label context stays trustworthy', () => {
+		expect(Route.options.validateSearch({ baseFolderId: 'inbox' })).toEqual({ baseFolderId: 'inbox' })
+		expect(Route.options.validateSearch({ baseFolderId: 123 })).toEqual({})
+		expect(Route.options.validateSearch({})).toEqual({})
+	})
+})
+
+describe('FolderView (route component)', () => {
+	it('wires loader data, folder param, and baseFolderId search into the screen', () => {
+		Route.useLoaderData = vi.fn(() => ({ threads: [], drafts: [], folders: [], nextCursor: undefined }))
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox' }))
+		Route.useSearch = vi.fn(() => ({ baseFolderId: 'archive' }))
+
+		const Component = Route.options.component
+		render(<Component />)
+
+		expect(Route.useParams).toHaveBeenCalled()
+		expect(Route.useSearch).toHaveBeenCalled()
+		// Empty inbox renders the "all caught up" empty state.
+		expect(screen.getByText('All caught up')).toBeInTheDocument()
+	})
+})
+
+describe('MailFolderRouteScreen — thread list', () => {
+	it('shows the empty state when a real folder has no threads', () => {
+		render(
+			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
+		)
+		expect(screen.getByText('All caught up')).toBeInTheDocument()
+		expect(screen.getByText('Select a conversation')).toBeInTheDocument()
+	})
+
+	it('sorts threads newest-first and surfaces an unread count badge', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[
+					thread({ id: 'older', subject: 'Older', latest_message_received_date: 100 }),
+					thread({ id: 'newer', subject: 'Newer', latest_message_received_date: 200, unread: true }),
+				]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		const links = screen.getAllByRole('link')
+		// Newest thread renders before the older one.
+		expect(links[0]).toHaveTextContent('Newer')
+		expect(links[1]).toHaveTextContent('Older')
+		// One unread thread -> badge of "1".
+		expect(screen.getByText('1')).toBeInTheDocument()
+	})
+
+	it('renders attachment, multi-message, label, and unknown-sender affordances', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[
+					thread({
+						id: 't1',
+						subject: '',
+						participants: [],
+						has_attachments: true,
+						message_ids: ['m1', 'm2', 'm3'],
+						folders: ['inbox', 'work'],
+					}),
+				]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByText('(no subject)')).toBeInTheDocument()
+		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
+		// message_ids length > 1 shows the count.
+		expect(screen.getByText('(3)')).toBeInTheDocument()
+		// Thread carries the "work" label from LABELS.
+		expect(screen.getByText('Work')).toBeInTheDocument()
+	})
+
+	it('toggles a thread star and asks the router to refresh so the UI reflects the change', async () => {
+		updateThreadState.mockResolvedValue({ ok: true })
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1', starred: false })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Star' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
+		)
+		expect(invalidate).toHaveBeenCalled()
+		// A starred thread advertises the un-star action.
+		cleanup()
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't2', starred: true })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByRole('button', { name: 'Unstar' })).toBeInTheDocument()
+	})
+})
+
+describe('MailFolderRouteScreen — drafts', () => {
+	it('shows the empty state when there are no drafts', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={[]}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByText('All caught up')).toBeInTheDocument()
+	})
+
+	it('renders draft rows with recipient, subject fallback, and only a date when present', () => {
+		const drafts = [
+			{
+				id: 'd1',
+				to: [{ name: 'Grace', email: 'grace@example.com' }],
+				subject: '',
+				snippet: 'hi',
+				date: 123,
+			},
+			{ id: 'd2', to: [], subject: 'Planning', snippet: 'x' },
+		] as unknown as Draft[]
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={drafts}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByText('Grace')).toBeInTheDocument()
+		expect(screen.getByText('(no subject)')).toBeInTheDocument()
+		expect(screen.getByText('(no recipient)')).toBeInTheDocument()
+		// Only the dated draft renders a <time> marker.
+		expect(screen.getAllByText('date')).toHaveLength(1)
+	})
+
+	it('masks draft links to the mail home path when the public location is the root', () => {
+		routerState = { location: { pathname: '/mail/f/drafts', maskedLocation: { pathname: '/' } }, matches: [] }
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={[{ id: 'd1', to: [{ email: 'a@b.com' }], subject: 'Hi', snippet: 'x' }] as unknown as Draft[]}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByRole('link')).toHaveAttribute('data-mask', 'yes')
+	})
+})
+
+describe('MailFolderRouteScreen — pagination', () => {
+	it('loads the next page of a starred folder and appends the results', async () => {
+		getThreads.mockResolvedValue({
+			threads: [thread({ id: 'page2', subject: 'Appended thread' })],
+			nextCursor: undefined,
+		})
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'page1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="starred"
+				nextCursor="cursor-1"
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: /Load more/ }))
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenCalledWith({ data: { starred: true, pageToken: 'cursor-1' } }),
+		)
+		// Appended thread appears; the Load more button disappears once the cursor is exhausted.
+		expect(screen.getByText('Appended thread')).toBeInTheDocument()
+		await waitFor(() => expect(screen.queryByRole('button', { name: /Load more/ })).toBeNull())
+	})
+
+	it('paginates a concrete folder by folderId rather than the starred flag', async () => {
+		getThreads.mockResolvedValue({ threads: [], nextCursor: 'cursor-2' })
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'page1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="work"
+				nextCursor="cursor-1"
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: /Load more/ }))
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'work', pageToken: 'cursor-1' } }),
+		)
+	})
+})
+
+describe('MailFolderRouteScreen — thread pane + realtime', () => {
+	it('renders the thread outlet and hides the empty placeholder when a thread is open', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t1' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId' }],
+		}
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByTestId('thread-outlet')).toBeInTheDocument()
+		expect(screen.queryByText('Select a conversation')).toBeNull()
+	})
+
+	it('passes the public (masked) path down and marks label links with a mask', () => {
+		routerState = { location: { pathname: '/mail/f/work', maskedLocation: { pathname: '/' } }, matches: [] }
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="work"
+				baseFolderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		// The mask (pathname '/') makes the thread link carry mask metadata + baseFolderId search.
+		const link = screen.getAllByRole('link')[0]
+		expect(link).toHaveAttribute('data-mask', 'yes')
+		expect(link).toHaveAttribute('data-search', JSON.stringify({ baseFolderId: 'inbox' }))
+	})
+
+	it('invalidates the route on the visibility timer only while the tab is visible', () => {
+		vi.useFakeTimers()
+		try {
+			const visibility = vi.spyOn(document, 'visibilityState', 'get')
+			visibility.mockReturnValue('hidden')
+			render(
+				<MailFolderRouteScreen
+					threads={[]}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>,
+			)
+			vi.advanceTimersByTime(30_000)
+			expect(invalidate).not.toHaveBeenCalled()
+
+			visibility.mockReturnValue('visible')
+			vi.advanceTimersByTime(30_000)
+			expect(invalidate).toHaveBeenCalledTimes(1)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})

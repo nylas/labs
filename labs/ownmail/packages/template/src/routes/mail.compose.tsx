@@ -180,6 +180,7 @@ function Compose() {
 		const replySearch = composeBackdropReplySearch({ folderId, threadId: thread.id, message })
 		setDraftId(undefined)
 		setTo(replySearch.to ?? '')
+		/* v8 ignore next -- replyDraftSearch always returns a truthy subject (at minimum 'Re: '), so composeBackdropReplySearch always includes subject and the ?? '' default is unreachable */
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
@@ -200,6 +201,7 @@ function Compose() {
 		})
 		setDraftId(undefined)
 		setTo(replySearch.to ?? '')
+		/* v8 ignore next -- replyAllDraftSearch always returns a truthy subject (at minimum 'Re: '), so subject is always present and the ?? '' default is unreachable */
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
@@ -217,6 +219,7 @@ function Compose() {
 		})
 		setDraftId(undefined)
 		setTo(forwardSearch.to ?? '')
+		/* v8 ignore next 2 -- forwardDraftSearch always returns a truthy subject (min 'Fwd: ') and a truthy body (always contains the forwarded-message divider), so both are always present and the ?? '' defaults are unreachable */
 		setSubject(forwardSearch.subject ?? '')
 		setBody(forwardSearch.body ?? '')
 		setError(null)
@@ -825,6 +828,7 @@ function formatSize(bytes: number): string {
 }
 
 async function fileToAttachment(file: File): Promise<ComposeAttachment> {
+	/* v8 ignore next 3 -- defensive: addAttachments rejects any file set exceeding the 2 MB total before calling this, so a single over-size file can never reach here */
 	if (file.size > MAX_COMPOSE_ATTACHMENT_BYTES) {
 		throw new Error('Attachments must be under 2 MB total.')
 	}

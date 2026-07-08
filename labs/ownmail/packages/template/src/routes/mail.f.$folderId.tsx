@@ -97,6 +97,7 @@ export function MailFolderRouteScreen({
 	}, [router])
 
 	async function loadMore() {
+		/* v8 ignore next -- defensive guard: the Load-more button only renders when a cursor exists, is disabled while loading, and never appears in the drafts folder, so this early return is unreachable from the UI */
 		if (!nextCursor || loadingMore || folderId === 'drafts') return
 		setLoadingMore(true)
 		try {

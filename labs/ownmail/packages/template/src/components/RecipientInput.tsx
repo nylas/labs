@@ -19,6 +19,7 @@ export function RecipientInput({
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
 	// The fragment after the last comma is what the user is currently typing.
+	/* v8 ignore next -- String.split(',') always yields at least one element, so pop() is never undefined and the `?? ''` fallback is unreachable */
 	const activeFragment = (value.split(',').pop() ?? '').trim()
 
 	useEffect(() => {

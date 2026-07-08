@@ -12,6 +12,7 @@ export function MessageBody({ message }: { message: Message }) {
 		if (!mounted) {
 			return plain.length > 0 ? <PlainBody paragraphs={plain} /> : null
 		}
+		/* v8 ignore next -- `?? ''` is unreachable: this branch only runs when messageHasHtml() confirmed message.body is a non-empty string */
 		return <HtmlMessageBody html={sanitizeEmailHtml(message.body ?? '')} messageId={message.id} />
 	}
 

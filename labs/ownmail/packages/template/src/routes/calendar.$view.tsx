@@ -802,7 +802,7 @@ function TimeGrid({
 												month: 'long',
 												day: 'numeric',
 											})}`}
-											className="h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
+											className="block h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
 										/>
 									))}
 									{isToday && nowOffset !== null ? (

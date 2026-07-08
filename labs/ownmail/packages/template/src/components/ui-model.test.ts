@@ -278,6 +278,14 @@ describe('ui-model mail helpers', () => {
 		expect(labelDotClass('custom', 2)).toBe('bg-[var(--event-amber)]')
 	})
 
+	it('cycles unknown label ids through the four fallback dot tones by index', () => {
+		// Ids that match no known label fall back to a deterministic 4-tone rotation.
+		expect(labelDotClass('unknown', 0)).toBe('bg-[var(--event-blue)]')
+		expect(labelDotClass('unknown', 1)).toBe('bg-[var(--event-teal)]')
+		expect(labelDotClass('unknown', 2)).toBe('bg-[var(--event-amber)]')
+		expect(labelDotClass('unknown', 3)).toBe('bg-[var(--event-rose)]')
+	})
+
 	it('toggles an active label back to the reference default inbox view', () => {
 		expect(labelToggleFolderId('work', 'work')).toBe('inbox')
 		expect(labelToggleFolderId('work', 'work', 'sent')).toBe('sent')
@@ -429,6 +437,10 @@ describe('ui-model calendar helpers', () => {
 		expect(fmtAgendaTime(new Date('2026-07-08T15:30:00'))).toBe('15:30')
 		expect(fmtCompactTime(date)).toBe('10:30 AM')
 		expect(fmtCompactTime(new Date('2026-07-08T11:00:00'))).toBe('11 AM')
+		// Noon crosses into PM and 12 % 12 === 0 must display as 12, not 0.
+		expect(fmtCompactTime(new Date('2026-07-08T12:00:00'))).toBe('12 PM')
+		// Afternoon time keeps the minutes and the PM period.
+		expect(fmtCompactTime(new Date('2026-07-08T15:45:00'))).toBe('3:45 PM')
 	})
 
 	it('assigns stable event tones from event context', () => {
@@ -443,6 +455,8 @@ describe('ui-model calendar helpers', () => {
 
 	it('maps real Nylas calendar colors onto the reference event palette', () => {
 		expect(toneFromHex('#2563eb')).toBe('blue')
+		// Three-digit shorthand hex (#14b -> 1144bb) must expand before mapping to a tone.
+		expect(toneFromHex('#1a6')).toBe(toneFromHex('#11aa66'))
 		expect(toneFromHex('#14b8a6')).toBe('teal')
 		expect(toneFromHex('#f59e0b')).toBe('amber')
 		expect(toneFromHex('#f43f5e')).toBe('rose')
@@ -493,5 +507,167 @@ describe('ui-model calendar helpers', () => {
 		expect(hours.startHour % 1).toBe(0.5)
 		expect(hours.endHour - hours.startHour).toBe(1.5)
 		expect(hours.allDay).toBe(false)
+	})
+})
+
+describe('ui-model sidebar and sender fallbacks', () => {
+	it('treats a missing total_count on a count-by-total folder as zero', () => {
+		// starred/drafts show a total (not unread) count; an API folder omitting it must read as 0.
+		expect(sidebarFolderCount([{ id: 'starred' }] as Folder[], 'starred')).toBe(0)
+		expect(sidebarFolderCount([{ id: 'drafts' }] as Folder[], 'drafts')).toBe(0)
+	})
+
+	it('treats a folder with no unread_count as contributing zero to the sidebar total', () => {
+		expect(totalUnread([{ id: 'inbox' }, { id: 'work', unread_count: 4 }] as Folder[])).toBe(4)
+	})
+
+	it('labels senderless sent/drafts rows as "Sent" and inbox rows as unknown', () => {
+		// A sent/drafts row with no addressable recipient still needs a stable label.
+		expect(threadSender({} as Thread, 'sent')).toBe('Sent')
+		expect(threadSender({} as Thread, 'drafts')).toBe('Sent')
+		// A sent row with no outgoing recipient falls back to the thread participant.
+		expect(threadSender({ participants: [{ name: 'Ada Lovelace' }] } as Thread, 'sent')).toBe('Ada Lovelace')
+		// A drafts row names the outgoing recipient when present.
+		expect(
+			threadSender({ latest_draft_or_message: { to: [{ name: 'Grace Hopper' }] } } as Thread, 'drafts'),
+		).toBe('Grace Hopper')
+		// An inbox row with no participants reads as an unknown sender.
+		expect(threadSender({} as Thread, 'inbox')).toBe('(unknown sender)')
+	})
+})
+
+describe('ui-model plain-text projection edge cases', () => {
+	it('returns the provider snippet verbatim when present, before parsing any body', () => {
+		expect(messagePreview({ snippet: 'Quick note', body: '<p>ignored</p>' } as Message)).toBe('Quick note')
+	})
+
+	it('falls back to the snippet and then to nothing when a message has no body', () => {
+		// No body + snippet → snippet paragraph; no body + no snippet → empty (?? '' guard).
+		expect(messageBodyParagraphs({ snippet: 'Only snippet' } as Message)).toEqual(['Only snippet'])
+		expect(messageBodyParagraphs({} as Message)).toEqual([])
+	})
+
+	it('passes an unrecognized named entity through untouched', () => {
+		// Unknown entities (not #-numeric, not a known name) must not be dropped or mangled.
+		expect(messagePreview({ body: '<p>Look: &foo; here</p>' } as Message)).toBe('Look: &foo; here')
+	})
+
+	it('stops parsing safely at an unterminated tag', () => {
+		// A trailing "<" with no ">" is emitted as literal text rather than swallowing the rest.
+		expect(messagePreview({ body: '<p>hi</p><broken' } as Message)).toBe('hi <broken')
+	})
+
+	it('drops raw-text element contents even when the closing tag is missing or malformed', () => {
+		// No further "<" after <script>: everything to end of string is dropped.
+		expect(messagePreview({ body: '<p>a</p><script>alert(1)' } as Message)).toBe('a')
+		// A "<" with no ">" inside the raw-text run: still dropped to end of string.
+		expect(messagePreview({ body: '<p>a</p><script>data<oops' } as Message)).toBe('a')
+		// Inner tags (open and mismatched-close) are skipped until the real </script>.
+		expect(messagePreview({ body: '<p>a</p><script>x<span>y</span>z</script><p>b</p>' } as Message)).toBe(
+			'a b',
+		)
+		// Raw-text run that ends on an unclosed inner tag: scan exhausts the string, dropping the rest.
+		expect(messagePreview({ body: '<p>a</p><script>x<span>' } as Message)).toBe('a')
+	})
+
+	it('tolerates whitespace inside opening and closing tags', () => {
+		// The hand-rolled tag scanner skips ASCII whitespace before/after names and slashes.
+		expect(messagePreview({ body: '<p>a</p>< p >b</ p >c< /p >d' } as Message)).toBe('a b c d')
+	})
+
+	it('only breaks paragraphs on real heading levels h1–h6', () => {
+		// <h2> is a block heading (paragraph break); <h0> and <h7> are out of range and are not.
+		expect(messageBodyParagraphs({ body: '<h2>Real</h2><h0>Zero</h0><h7>Seven</h7>' } as Message)).toEqual([
+			'Real',
+			'Zero Seven',
+		])
+	})
+
+	it('does not treat non-heading two-letter or longer closing tags as block breaks', () => {
+		// </ul> is length-2 but not an "h" heading; </span> is longer than two chars — neither breaks.
+		expect(messageBodyParagraphs({ body: '<ul>a</ul>b' } as Message)).toEqual(['a b'])
+		expect(messageBodyParagraphs({ body: '<span>a</span>b' } as Message)).toEqual(['a b'])
+	})
+
+	it('decodes nbsp, quot, apostrophe and numeric code points, dropping out-of-range ones', () => {
+		// &nbsp; → space; &quot; exercises the entity chain past &gt;.
+		expect(messagePreview({ body: '<p>a&nbsp;b</p>' } as Message)).toBe('a b')
+		expect(messagePreview({ body: '<p>&quot;q&quot;</p>' } as Message)).toBe('"q"')
+		// Both &apos; and &#39; must decode to a single quote.
+		expect(messagePreview({ body: '<p>it&apos;s &#39;go&#39;</p>' } as Message)).toBe("it's 'go'")
+		// A valid numeric entity decodes; an out-of-range code point is dropped, not rendered.
+		expect(messagePreview({ body: '<p>&#65;&#x110000;&#66;</p>' } as Message)).toBe('AB')
+	})
+})
+
+describe('ui-model compose default fallbacks', () => {
+	it('builds a reply with empty recipient and bare subject when the source has neither', () => {
+		// A message with no reply_to/from addresses and no subject still yields a valid reply seed.
+		expect(replyDraftSearch({ id: 'm1' } as Message)).toEqual({
+			to: '',
+			subject: 'Re: ',
+			replyToMessageId: 'm1',
+		})
+	})
+
+	it('reply-all skips blank recipient emails and tolerates a missing from list', () => {
+		expect(
+			replyAllDraftSearch({ id: 'm1', to: [{ email: '' }, { email: 'x@y.com' }] } as Message, 'me@z.com'),
+		).toEqual({ to: 'x@y.com', subject: 'Re: ', replyToMessageId: 'm1' })
+	})
+
+	it('reply-all keeps an existing "Re:" subject instead of double-prefixing it', () => {
+		expect(
+			replyAllDraftSearch(
+				{ id: 'm2', subject: 'Re: Kept', from: [{ email: 'a@b.com' }] } as Message,
+				'me@z.com',
+			),
+		).toEqual({ to: 'a@b.com', subject: 'Re: Kept', replyToMessageId: 'm2' })
+	})
+
+	it('forwards a bare message with a bare subject and no From line', () => {
+		const forward = forwardDraftSearch({ id: 'm1' } as Message)
+		expect(forward.to).toBe('')
+		expect(forward.subject).toBe('Fwd: ')
+		// With no sender, the quoted header omits the "From:" line entirely.
+		expect(forward.body).not.toContain('From:')
+	})
+
+	it('forwarding keeps an existing "Fwd:" subject instead of double-prefixing it', () => {
+		expect(forwardDraftSearch({ id: 'm3', subject: 'Fwd: Kept' } as Message).subject).toBe('Fwd: Kept')
+	})
+
+	it('treats a thread with no folders as carrying no labels', () => {
+		expect(threadLabels({} as Thread)).toEqual([])
+	})
+
+	it('defaults live search folder navigation to the inbox when no folder is scoped', () => {
+		expect(liveSearchTarget('', '/mail/search')).toEqual({ kind: 'folder', folderId: 'inbox' })
+	})
+})
+
+describe('ui-model tone resolution fallbacks', () => {
+	it('resolves calendar tones by name when no color maps, then by index', () => {
+		// Name/id keyword tones when there is no hex color.
+		expect(calendarTone({ id: 'team-work', name: 'Work' } as Calendar)).toBe('blue')
+		expect(calendarTone({ id: 'focus-cal', name: 'Focus' } as Calendar)).toBe('amber')
+		expect(calendarTone({ id: 'primary', name: 'My Cal' } as Calendar)).toBe('teal')
+		// No color and no keyword → deterministic index rotation.
+		expect(calendarTone({ id: 'zzz', name: 'Zzz' } as Calendar, 2)).toBe('amber')
+		// A calendar with neither name nor id still resolves via the index fallback.
+		expect(calendarTone({} as Calendar, 0)).toBe('blue')
+	})
+
+	it('falls back through title, calendar name and context tones for untitled events', () => {
+		// Untitled event with an unmatched calendar id lands on the index fallback.
+		expect(eventTone({ calendar_id: 'random' } as Event, 1)).toBe('teal')
+		// Contextual title tones apply when nothing more specific matches.
+		expect(eventTone({ title: 'Beach travel day' } as Event)).toBe('rose')
+		expect(eventTone({ title: 'Roadmap sync', calendar_id: 'xyz' } as Event)).toBe('blue')
+	})
+
+	it('returns no tone for an unparseable or missing hex color', () => {
+		expect(toneFromHex('not-a-hex')).toBeUndefined()
+		expect(toneFromHex(undefined)).toBeUndefined()
 	})
 })

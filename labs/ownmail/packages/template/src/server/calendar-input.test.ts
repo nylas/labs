@@ -82,6 +82,34 @@ describe('calendar input validation', () => {
 		).toThrow('Invalid calendar')
 	})
 
+	it('omits the calendar id from the create body when the caller does not target one', () => {
+		expect(
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+			}),
+		).toEqual({
+			title: 'Planning',
+			startTime: 1_800_000_000,
+			endTime: 1_800_003_600,
+		})
+	})
+
+	it('normalizes update event input with only bounded text fields', () => {
+		expect(
+			normalizeUpdateEventInput({
+				eventId: 'event#abc',
+				description: 'Longer notes',
+				location: 'HQ',
+			}),
+		).toEqual({
+			eventId: 'event#abc',
+			description: 'Longer notes',
+			location: 'HQ',
+		})
+	})
+
 	it('normalizes update event input with paired time fields', () => {
 		expect(
 			normalizeUpdateEventInput({
@@ -96,6 +124,38 @@ describe('calendar input validation', () => {
 			startTime: 0,
 			endTime: 1,
 		})
+	})
+
+	it('rejects create inputs that exceed field bounds or carry malformed participants', () => {
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'a'.repeat(501),
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+			}),
+		).toThrow('Invalid title')
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				participants: 'grace@vercel.com' as unknown as string[],
+			}),
+		).toThrow('Invalid participants')
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				participants: [42 as unknown as string],
+			}),
+		).toThrow('Invalid participant')
+	})
+
+	it('rejects an update whose title is only whitespace', () => {
+		expect(() => normalizeUpdateEventInput({ eventId: 'event#abc', title: '   ' })).toThrow(
+			'Title is required',
+		)
 	})
 
 	it('rejects unsafe or ambiguous update event inputs', () => {
