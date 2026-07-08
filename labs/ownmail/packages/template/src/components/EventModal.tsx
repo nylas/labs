@@ -1,6 +1,6 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { AlignLeft, CalendarDays, Clock, MapPin, Trash2, Users, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent } from '../server/calendar-fns.js'
 import { eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
 import { cn, type EventTone, eventTone } from './ui-model.js'
@@ -50,6 +50,7 @@ export function EventModal({
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const titleInputRef = useRef<HTMLInputElement>(null)
 
 	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
 	const tone = event ? eventTone(event) : 'blue'
@@ -105,6 +106,10 @@ export function EventModal({
 			setBusy(false)
 		}
 	}
+
+	useEffect(() => {
+		if (!event) titleInputRef.current?.focus({ preventScroll: true })
+	}, [event])
 
 	if (event && times) {
 		const when = times.allDay ? 'All day' : `${fmtCompactTime(times.start)} – ${fmtCompactTime(times.end)}`
@@ -245,6 +250,7 @@ export function EventModal({
 
 				<div className="space-y-4 px-5 py-4">
 					<input
+						ref={titleInputRef}
 						value={title}
 						onChange={(e) => setTitle(e.target.value)}
 						placeholder="Add title"
