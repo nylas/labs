@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { ArrowRight, Calendar, Mail, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Calendar, Loader2, Mail, ShieldCheck } from 'lucide-react'
+import { useState } from 'react'
 import { usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
 
@@ -20,6 +21,16 @@ export const Route = createFileRoute('/')({
 
 function Home() {
 	const { signInHref } = Route.useLoaderData()
+	const [connecting, setConnecting] = useState(false)
+
+	function handleSignIn() {
+		if (connecting) return
+		setConnecting(true)
+		window.setTimeout(() => {
+			window.location.assign(signInHref)
+		}, 900)
+	}
+
 	return (
 		<main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[oklch(0.13_0.006_165)] px-4 py-10 text-white">
 			<div className="relative z-10 w-full max-w-md">
@@ -45,13 +56,24 @@ function Home() {
 						/>
 					</div>
 
-					<a
-						href={signInHref}
-						className="group flex w-full items-center justify-center gap-2 rounded-full bg-[oklch(0.72_0.13_158)] px-6 py-3.5 text-sm font-semibold text-[oklch(0.15_0.01_165)] transition-all hover:brightness-105 active:scale-[0.99]"
+					<button
+						type="button"
+						onClick={handleSignIn}
+						disabled={connecting}
+						className="group flex w-full items-center justify-center gap-2 rounded-full bg-[oklch(0.72_0.13_158)] px-6 py-3.5 text-sm font-semibold text-[oklch(0.15_0.01_165)] transition-all hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70"
 					>
-						Sign in to continue
-						<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-					</a>
+						{connecting ? (
+							<>
+								<Loader2 className="h-4 w-4 animate-spin" />
+								Connecting to your provider…
+							</>
+						) : (
+							<>
+								Sign in to continue
+								<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+							</>
+						)}
+					</button>
 
 					<p className="mt-4 text-center text-xs leading-relaxed text-white/40">
 						You&apos;ll be redirected to your identity provider to authenticate securely.
