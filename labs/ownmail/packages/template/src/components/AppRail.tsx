@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Settings } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 function initials(email: string): string {
 	const local = email.split('@')[0] ?? email
@@ -13,6 +14,25 @@ function initials(email: string): string {
 }
 
 export function AppRail({ email, active }: { email: string; active: 'mail' | 'calendar' }) {
+	const [isDark, setIsDark] = useState(false)
+	const [mounted, setMounted] = useState(false)
+
+	useEffect(() => {
+		const saved = localStorage.getItem('ownmail_theme')
+		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+		const nextDark = saved ? saved === 'dark' : prefersDark
+		document.documentElement.classList.toggle('dark', nextDark)
+		setIsDark(nextDark)
+		setMounted(true)
+	}, [])
+
+	function toggleTheme() {
+		const nextDark = !isDark
+		document.documentElement.classList.toggle('dark', nextDark)
+		localStorage.setItem('ownmail_theme', nextDark ? 'dark' : 'light')
+		setIsDark(nextDark)
+	}
+
 	return (
 		<nav
 			aria-label="Primary"
@@ -57,10 +77,11 @@ export function AppRail({ email, active }: { email: string; active: 'mail' | 'ca
 			<div className="mt-auto flex flex-col items-center gap-1">
 				<button
 					type="button"
+					onClick={toggleTheme}
 					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-					aria-label="Toggle theme"
+					aria-label={mounted && isDark ? 'Switch to light mode' : 'Switch to dark mode'}
 				>
-					<Moon className="h-5 w-5" />
+					{mounted && isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
 				</button>
 				<button
 					type="button"
