@@ -224,10 +224,12 @@ export const getDraft = createServerFn({ method: 'GET' })
 	.validator((input: { draftId: string }) => input)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
-		const res = await mailbox.listDrafts({ limit: 50 })
-		const draft = res.data.find((d) => d.id === data.draftId)
-		if (!draft) throw friendly(new NylasApiError('draft not found', 404))
-		return draft
+		try {
+			const res = await mailbox.getDraft(data.draftId)
+			return res.data
+		} catch (err) {
+			throw friendly(err)
+		}
 	})
 
 export const sendDraft = createServerFn({ method: 'POST' })

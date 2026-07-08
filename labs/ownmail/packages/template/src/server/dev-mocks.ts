@@ -103,6 +103,10 @@ class DevMailbox {
 		return listResponse(mockDrafts())
 	}
 
+	async getDraft(draftId: string): Promise<ItemResponse<Draft>> {
+		return itemResponse(mockDraft(draftId))
+	}
+
 	async createDraft(body: SendMessageRequest): Promise<ItemResponse<Draft>> {
 		const saved = mockSaveDraft({
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
