@@ -270,7 +270,7 @@ export function CalendarRouteScreen({
 											key={event.id}
 											type="button"
 											onClick={() => setEditing(event)}
-											className="flex items-start gap-2 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-muted"
+											className="flex items-start gap-2 text-left"
 										>
 											<span
 												className={cn(
