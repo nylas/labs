@@ -115,7 +115,8 @@ app with local in-memory mail, draft, contact, and calendar data.
 The local UI mock is intentionally limited to the same grant-scoped Nylas v3
 resources the app uses in production:
 
-- Mail: threads, messages, drafts, folders, send, and attachment downloads.
+- Mail: threads, messages, drafts, folders, send with small JSON attachments,
+  and attachment downloads.
 - Calendar: calendars, events, create/update/delete event, and RSVP.
 - Contacts: contact lookup for compose autocomplete.
 - Realtime refresh: Nylas webhooks in Cloudflare deployments; local UI mocks and

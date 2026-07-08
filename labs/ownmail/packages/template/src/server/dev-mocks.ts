@@ -20,7 +20,7 @@ const ACCOUNT = { name: MAILBOX_NAME, email: MAILBOX_EMAIL }
 
 type StoredThread = Thread & { folders: string[]; message_ids: string[] }
 type StoredMessage = Message & { thread_id: string }
-type StoredDraft = Draft & { id: string }
+type StoredDraft = Draft & { id: string; outbound_attachments?: SendMessageRequest['attachments'] }
 
 const folderNames = new Map<string, { name: string; system: boolean }>([
 	['inbox', { name: 'Inbox', system: true }],
@@ -95,6 +95,7 @@ class DevMailbox {
 			subject: body.subject ?? '',
 			body: body.body ?? '',
 			...(body.reply_to_message_id ? { replyToMessageId: body.reply_to_message_id } : {}),
+			...(body.attachments ? { attachments: body.attachments } : {}),
 		})
 		return itemResponse(sent)
 	}
@@ -112,6 +113,7 @@ class DevMailbox {
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
+			...(body.attachments ? { attachments: body.attachments } : {}),
 		})
 		return itemResponse(mockDraft(saved.draftId))
 	}
@@ -122,6 +124,7 @@ class DevMailbox {
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
+			...(body.attachments ? { attachments: body.attachments } : {}),
 		})
 		return itemResponse(mockDraft(saved.draftId))
 	}
@@ -811,6 +814,7 @@ export function mockSendMessage(input: {
 	subject: string
 	body: string
 	replyToMessageId?: string
+	attachments?: SendMessageRequest['attachments']
 }): Message {
 	const sentAt = Math.floor(Date.now() / 1000)
 	const id = `msg-${sentAt}-${messages.size + 1}`
@@ -829,6 +833,7 @@ export function mockSendMessage(input: {
 		date: sentAt,
 		unread: false,
 		folders: ['sent'],
+		...(input.attachments?.length ? { attachments: mockAttachmentMetadata(input.attachments) } : {}),
 		...(input.replyToMessageId ? { reply_to: recipients } : {}),
 	}
 	messages.set(id, message)
@@ -838,6 +843,7 @@ export function mockSendMessage(input: {
 		existing.message_ids.push(id)
 		existing.snippet = message.snippet
 		existing.latest_message_sent_date = sentAt
+		existing.has_attachments = existing.has_attachments || Boolean(input.attachments?.length)
 		existing.folders = unique([...existing.folders, 'sent'])
 	} else {
 		threads.set(threadId, {
@@ -848,6 +854,7 @@ export function mockSendMessage(input: {
 			participants: recipients,
 			message_ids: [id],
 			latest_message_sent_date: sentAt,
+			has_attachments: Boolean(input.attachments?.length),
 			unread: false,
 			starred: false,
 			folders: ['sent'],
@@ -876,7 +883,13 @@ export function mockUpdateThreadState(input: {
 	return { ok: true }
 }
 
-export function mockSaveDraft(input: { draftId?: string; to: string; subject: string; body: string }): {
+export function mockSaveDraft(input: {
+	draftId?: string
+	to: string
+	subject: string
+	body: string
+	attachments?: SendMessageRequest['attachments']
+}): {
 	draftId: string
 } {
 	const id = input.draftId || `draft-${Date.now()}`
@@ -887,6 +900,9 @@ export function mockSaveDraft(input: { draftId?: string; to: string; subject: st
 		snippet: input.body.slice(0, 140),
 		body: input.body,
 		to: splitEmails(input.to).map((email) => ({ email })),
+		...(input.attachments?.length
+			? { attachments: mockAttachmentMetadata(input.attachments), outbound_attachments: input.attachments }
+			: {}),
 		date: Math.floor(Date.now() / 1000),
 		folders: ['drafts'],
 	})
@@ -906,6 +922,7 @@ export function mockSendDraft(draftId: string): { ok: true } {
 		toList: (draft.to ?? []).map((participant) => participant.email),
 		subject: draft.subject ?? '',
 		body: draft.body ?? '',
+		attachments: draft.outbound_attachments,
 	})
 	drafts.delete(draftId)
 	return { ok: true }
@@ -918,6 +935,22 @@ export function mockDeleteDraft(draftId: string): { ok: true } {
 
 export function mockDrafts(): Draft[] {
 	return [...drafts.values()].sort((a, b) => (b.date ?? 0) - (a.date ?? 0))
+}
+
+function mockAttachmentMetadata(attachments: SendMessageRequest['attachments']): Message['attachments'] {
+	return attachments?.map((attachment, index) => ({
+		id: `att-outbound-${index}-${attachment.filename}`,
+		filename: attachment.filename,
+		content_type: attachment.content_type,
+		size: base64DecodedBytes(attachment.content),
+		is_inline: attachment.is_inline,
+		content_id: attachment.content_id,
+	}))
+}
+
+function base64DecodedBytes(value: string): number {
+	const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
+	return Math.floor((value.length * 3) / 4) - padding
 }
 
 export function mockContacts(query: string): { email: string; name?: string }[] {

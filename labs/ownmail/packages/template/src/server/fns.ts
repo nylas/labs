@@ -11,6 +11,7 @@ import { getRequest } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '../components/route-paths.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
+import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
 import { threadSearchParams } from './search.js'
 
 async function requireMailbox() {
@@ -154,21 +155,29 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 	)
 
 export const sendMessage = createServerFn({ method: 'POST' })
-	.validator((input: { to: string; subject: string; body: string; replyToMessageId?: string }) => {
-		const to = input.to
-			.split(',')
-			.map((e) => e.trim())
-			.filter(Boolean)
-		if (to.length === 0) throw new Error('At least one recipient is required')
-		for (const email of to) {
-			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid recipient: ${email}`)
-		}
-		if (input.body.length > 500_000) throw new Error('Message body too large')
-		if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
-			throw new Error('Invalid reply reference')
-		}
-		return { ...input, toList: to }
-	})
+	.validator(
+		(input: {
+			to: string
+			subject: string
+			body: string
+			replyToMessageId?: string
+			attachments?: OutboundAttachment[]
+		}) => {
+			const to = input.to
+				.split(',')
+				.map((e) => e.trim())
+				.filter(Boolean)
+			if (to.length === 0) throw new Error('At least one recipient is required')
+			for (const email of to) {
+				if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid recipient: ${email}`)
+			}
+			if (input.body.length > 500_000) throw new Error('Message body too large')
+			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+				throw new Error('Invalid reply reference')
+			}
+			return { ...input, toList: to, attachments: normalizeOutboundAttachments(input.attachments) }
+		},
+	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
@@ -176,6 +185,7 @@ export const sendMessage = createServerFn({ method: 'POST' })
 				to: data.toList.map((email) => ({ email })),
 				subject: data.subject,
 				body: data.body,
+				...(data.attachments ? { attachments: data.attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
 		} catch (err) {
@@ -216,7 +226,18 @@ export const updateThreadState = createServerFn({ method: 'POST' })
 // ---- Drafts ---------------------------------------------------------------------
 
 export const saveDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId?: string; to: string; subject: string; body: string }) => input)
+	.validator(
+		(input: {
+			draftId?: string
+			to: string
+			subject: string
+			body: string
+			attachments?: OutboundAttachment[]
+		}) => ({
+			...input,
+			attachments: normalizeOutboundAttachments(input.attachments),
+		}),
+	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		const to = data.to
@@ -225,7 +246,12 @@ export const saveDraft = createServerFn({ method: 'POST' })
 			.filter(Boolean)
 			.map((email) => ({ email }))
 		try {
-			const payload = { to, subject: data.subject, body: data.body }
+			const payload = {
+				to,
+				subject: data.subject,
+				body: data.body,
+				...(data.attachments ? { attachments: data.attachments } : {}),
+			}
 			const saved = data.draftId
 				? await mailbox.updateDraft(data.draftId, payload)
 				: await mailbox.createDraft(payload)

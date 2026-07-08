@@ -42,7 +42,13 @@ import {
 	sendMessage,
 	updateThreadState,
 } from '../server/fns.js'
+import type { OutboundAttachment } from '../server/outbound-attachments.js'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
+
+const MAX_COMPOSE_ATTACHMENTS = 10
+const MAX_COMPOSE_ATTACHMENT_BYTES = 2 * 1024 * 1024
+
+type ComposeAttachment = OutboundAttachment & { clientId: string }
 
 export const Route = createFileRoute('/mail/compose')({
 	validateSearch: (
@@ -116,6 +122,8 @@ function Compose() {
 	const [minimized, setMinimized] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const dirty = useRef(false)
+	const attachmentInputRef = useRef<HTMLInputElement>(null)
+	const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -245,9 +253,17 @@ function Compose() {
 	useEffect(() => {
 		dirty.current = true
 		const timer = setTimeout(async () => {
-			if (!dirty.current || (!to && !subject && !body)) return
+			if (!dirty.current || (!to && !subject && !body && attachments.length === 0)) return
 			try {
-				const saved = await saveDraft({ data: { ...(draftId ? { draftId } : {}), to, subject, body } })
+				const saved = await saveDraft({
+					data: {
+						...(draftId ? { draftId } : {}),
+						to,
+						subject,
+						body,
+						...(attachments.length ? { attachments } : {}),
+					},
+				})
 				setDraftId(saved.draftId)
 				dirty.current = false
 			} catch {
@@ -255,7 +271,35 @@ function Compose() {
 			}
 		}, 3000)
 		return () => clearTimeout(timer)
-	}, [to, subject, body, draftId])
+	}, [to, subject, body, draftId, attachments])
+
+	async function addAttachments(files: FileList | null) {
+		if (!files?.length) return
+		const selected = [...files]
+		if (attachments.length + selected.length > MAX_COMPOSE_ATTACHMENTS) {
+			setError(`Attach up to ${MAX_COMPOSE_ATTACHMENTS} files.`)
+			return
+		}
+		const totalBytes = attachments.reduce((sum, attachment) => sum + attachmentBytes(attachment), 0)
+		const nextBytes = selected.reduce((sum, file) => sum + file.size, totalBytes)
+		if (nextBytes > MAX_COMPOSE_ATTACHMENT_BYTES) {
+			setError('Attachments must be under 2 MB total.')
+			return
+		}
+		try {
+			const nextAttachments = await Promise.all(selected.map(fileToAttachment))
+			setAttachments((current) => [...current, ...nextAttachments])
+			dirty.current = true
+			setError(null)
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to attach file')
+		}
+	}
+
+	function removeAttachment(index: number) {
+		setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))
+		dirty.current = true
+	}
 
 	async function submit() {
 		setBusy(true)
@@ -266,6 +310,7 @@ function Compose() {
 					to,
 					subject,
 					body: body.replaceAll('\n', '<br>'),
+					...(attachments.length ? { attachments } : {}),
 					...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
 				},
 			})
@@ -434,6 +479,30 @@ function Compose() {
 							className="compose-field min-h-0 flex-1 resize-none bg-transparent px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
 						/>
 
+						{attachments.length ? (
+							<div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
+								{attachments.map((attachment, index) => (
+									<span
+										key={attachment.clientId}
+										className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+									>
+										<Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<span className="min-w-0 truncate">{attachment.filename}</span>
+										<span className="shrink-0 text-muted-foreground">
+											{formatSize(attachmentBytes(attachment))}
+										</span>
+										<button
+											type="button"
+											onClick={() => removeAttachment(index)}
+											aria-label={`Remove ${attachment.filename}`}
+											className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+										>
+											<X className="h-3.5 w-3.5" />
+										</button>
+									</span>
+								))}
+							</div>
+						) : null}
 						{error ? <ErrorBanner message={error} /> : null}
 						<div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
 							<button
@@ -447,10 +516,22 @@ function Compose() {
 							<button
 								type="button"
 								aria-label="Attach file"
+								disabled={busy}
+								onClick={() => attachmentInputRef.current?.click()}
 								className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 							>
 								<Paperclip className="h-4 w-4" />
 							</button>
+							<input
+								ref={attachmentInputRef}
+								type="file"
+								multiple
+								className="sr-only"
+								onChange={(event) => {
+									void addAttachments(event.target.files)
+									event.target.value = ''
+								}}
+							/>
 							<button
 								type="button"
 								disabled={busy}
@@ -736,4 +817,46 @@ function formatSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`
 	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function fileToAttachment(file: File): Promise<ComposeAttachment> {
+	if (file.size > MAX_COMPOSE_ATTACHMENT_BYTES) {
+		throw new Error('Attachments must be under 2 MB total.')
+	}
+	return {
+		clientId: newAttachmentClientId(),
+		filename: safeAttachmentFilename(file.name),
+		content_type: file.type || 'application/octet-stream',
+		content: await fileToBase64(file),
+	}
+}
+
+function safeAttachmentFilename(filename: string): string {
+	const safe = [...filename.trim()]
+		.map((char) => {
+			const code = char.charCodeAt(0)
+			return code < 32 || char === '/' || char === '\\' ? '_' : char
+		})
+		.join('')
+	return safe || 'attachment'
+}
+
+async function fileToBase64(file: File): Promise<string> {
+	const bytes = new Uint8Array(await file.arrayBuffer())
+	let binary = ''
+	for (let index = 0; index < bytes.length; index += 0x8000) {
+		binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+	}
+	return btoa(binary)
+}
+
+function attachmentBytes(attachment: OutboundAttachment): number {
+	const padding = attachment.content.endsWith('==') ? 2 : attachment.content.endsWith('=') ? 1 : 0
+	return Math.floor((attachment.content.length * 3) / 4) - padding
+}
+
+function newAttachmentClientId(): string {
+	return typeof crypto.randomUUID === 'function'
+		? crypto.randomUUID()
+		: `attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }

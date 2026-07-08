@@ -5,6 +5,9 @@ import {
 	devMailboxName,
 	mockDrafts,
 	mockEvents,
+	mockSaveDraft,
+	mockSendDraft,
+	mockSendMessage,
 	mockThreadMessages,
 	mockThreads,
 	mockUpdateThreadState,
@@ -83,6 +86,43 @@ describe('dev mock reference identity', () => {
 
 		expect(attachment?.filename).toBe('attachment.pdf')
 		expect(attachment?.size).toBe(248 * 1024)
+	})
+
+	it('preserves outbound attachment metadata in sent messages and drafts', () => {
+		const attachment = {
+			filename: 'notes.txt',
+			content_type: 'text/plain',
+			content: btoa('hello'),
+		}
+		const sent = mockSendMessage({
+			toList: ['grace@vercel.com'],
+			subject: 'Notes',
+			body: 'Attached.',
+			attachments: [attachment],
+		})
+
+		expect(sent.attachments?.[0]).toMatchObject({
+			filename: 'notes.txt',
+			content_type: 'text/plain',
+			size: 5,
+		})
+		expect(sent.attachments?.[0]).not.toHaveProperty('content')
+
+		const saved = mockSaveDraft({
+			to: 'grace@vercel.com',
+			subject: 'Draft notes',
+			body: 'Attached.',
+			attachments: [attachment],
+		})
+		expect(mockDrafts().find((draft) => draft.id === saved.draftId)?.attachments?.[0]?.filename).toBe(
+			'notes.txt',
+		)
+
+		mockSendDraft(saved.draftId)
+		const sentDraft = mockThreads({ folderId: 'sent' }).threads.find(
+			(thread) => thread.subject === 'Draft notes',
+		)
+		expect(sentDraft?.has_attachments).toBe(true)
 	})
 
 	it('models starred as an account-wide thread query', () => {
