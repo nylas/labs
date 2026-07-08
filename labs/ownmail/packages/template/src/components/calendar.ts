@@ -98,7 +98,7 @@ export function timedEventsOnDay(events: Event[], day: Date): Event[] {
 }
 
 export function fmtTime(d: Date): string {
-	return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+	return fmtCompactTime(d)
 }
 
 export function fmtCompactTime(d: Date): string {

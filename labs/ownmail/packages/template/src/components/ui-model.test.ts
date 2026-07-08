@@ -1,6 +1,6 @@
 import type { Calendar, Event, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it, vi } from 'vitest'
-import { fmtCompactTime, formatFullDate } from './calendar.js'
+import { fmtCompactTime, fmtTime, formatFullDate } from './calendar.js'
 import {
 	calendarTone,
 	collapsedMessagePreview,
@@ -186,6 +186,7 @@ describe('ui-model calendar helpers', () => {
 
 		expect(formatFullDate(date)).toBe('Wednesday, July 8')
 		expect(formatFullDate(date, true)).toBe('Wednesday, July 8, 2026')
+		expect(fmtTime(new Date('2026-07-08T08:00:00'))).toBe('8 AM')
 		expect(fmtCompactTime(date)).toBe('10:30 AM')
 		expect(fmtCompactTime(new Date('2026-07-08T11:00:00'))).toBe('11 AM')
 	})
