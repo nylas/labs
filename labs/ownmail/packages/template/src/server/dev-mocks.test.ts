@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { devMailboxEmail, devMailboxName, mockThreadMessages } from './dev-mocks.js'
+import { devMailboxEmail, devMailboxName, mockDrafts, mockThreadMessages, mockThreads } from './dev-mocks.js'
 
 describe('dev mock reference identity', () => {
 	it('uses the reference account by default', () => {
@@ -13,5 +13,18 @@ describe('dev mock reference identity', () => {
 		const sent = messages.find((message) => message.from?.[0]?.email === 'ada@ownmail.com')
 
 		expect(sent?.from?.[0]?.name).toBe('Ada Lovelace')
+	})
+
+	it('preserves reference punctuation in visible mock content', () => {
+		const roadmap = mockThreads({ folderId: 'inbox' }).threads.find(
+			(thread) => thread.id === 'thread-roadmap',
+		)
+		const travel = mockThreads({ folderId: 'inbox' }).threads.find((thread) => thread.id === 'thread-travel')
+		const draft = mockDrafts()[0]
+
+		expect(roadmap?.subject).toBe('Q3 product roadmap — final review before Monday')
+		expect(roadmap?.snippet).toBe('Thanks Grace — this is great.')
+		expect(travel?.snippet).toContain('8:40 AM — SFO to LIS')
+		expect(draft?.body).toBe('Here are a few ideas for the offsite —')
 	})
 })
