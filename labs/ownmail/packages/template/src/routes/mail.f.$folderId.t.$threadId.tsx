@@ -1,5 +1,5 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import {
 	Archive,
 	ArrowLeft,
@@ -177,17 +177,22 @@ function ThreadView() {
 
 					<div className="mt-4 flex flex-wrap gap-2">
 						{lastMessage ? (
-							<Link
-								to="/mail/compose"
-								search={{
-									folderId,
-									threadId,
-									...replyDraftSearch(lastMessage),
-								}}
+							<button
+								type="button"
+								onClick={() =>
+									navigate({
+										to: '/mail/compose',
+										search: {
+											folderId,
+											threadId,
+											...replyDraftSearch(lastMessage),
+										},
+									})
+								}
 								className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
 							>
 								<Reply className="h-4 w-4" /> Reply
-							</Link>
+							</button>
 						) : null}
 						<button
 							type="button"

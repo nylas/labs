@@ -94,13 +94,15 @@ export function AppRail({
 				>
 					<Settings className="h-5 w-5" />
 				</button>
-				<a
-					href="/logout"
-					className="group relative flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-					aria-label="Sign out"
-				>
-					<LogOut className="h-5 w-5" />
-				</a>
+				<form action="/logout" method="get" className="contents">
+					<button
+						type="submit"
+						className="group relative flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+						aria-label="Sign out"
+					>
+						<LogOut className="h-5 w-5" />
+					</button>
+				</form>
 				<div
 					className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground"
 					title={displayName ? `${displayName} · ${email}` : email}
