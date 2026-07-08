@@ -50,13 +50,13 @@ function ThreadView() {
 			try {
 				await updateThreadState({ data: { threadId, ...input } })
 				if (leave) {
-					navigate({
+					await navigate({
 						to: '/mail/f/$folderId',
 						params: { folderId },
 						search: baseFolderId ? { baseFolderId } : {},
 					})
 				}
-				router.invalidate()
+				await router.invalidate()
 			} catch (err) {
 				setError(err instanceof Error ? err.message : 'Action failed')
 			}
