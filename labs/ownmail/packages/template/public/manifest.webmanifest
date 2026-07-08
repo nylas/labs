@@ -1,13 +1,13 @@
 {
-	"name": "OwnMail",
-	"short_name": "OwnMail",
-	"description": "Mailbox and calendar for your OwnMail inbox.",
-	"id": "/mail",
-	"start_url": "/mail",
+	"name": "ownmail",
+	"short_name": "ownmail",
+	"description": "ownmail is a calm, powerful mail and calendar client. Your inbox and your schedule, in one focused workspace.",
+	"id": "/",
+	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",
-	"background_color": "#f7f8fb",
-	"theme_color": "#f7f8fb",
+	"background_color": "#ffffff",
+	"theme_color": "#ffffff",
 	"icons": [
 		{
 			"src": "/icon-192.png",

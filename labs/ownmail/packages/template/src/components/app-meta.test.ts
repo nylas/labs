@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { APP_DESCRIPTION, APP_TITLE, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from './app-meta.js'
 
@@ -9,5 +11,26 @@ describe('app metadata', () => {
 		)
 		expect(LIGHT_THEME_COLOR).toBe('#ffffff')
 		expect(DARK_THEME_COLOR).toBe('#0d1210')
+	})
+
+	it('keeps the install manifest aligned to the reference root app identity', () => {
+		const manifestPath = fileURLToPath(new URL('../../public/manifest.webmanifest', import.meta.url))
+		const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+			name: string
+			short_name: string
+			description: string
+			id: string
+			start_url: string
+			theme_color: string
+			background_color: string
+		}
+
+		expect(manifest.name).toBe('ownmail')
+		expect(manifest.short_name).toBe('ownmail')
+		expect(manifest.description).toBe(APP_DESCRIPTION)
+		expect(manifest.id).toBe('/')
+		expect(manifest.start_url).toBe('/')
+		expect(manifest.theme_color).toBe(LIGHT_THEME_COLOR)
+		expect(manifest.background_color).toBe(LIGHT_THEME_COLOR)
 	})
 })
