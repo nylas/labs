@@ -18,25 +18,48 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
 		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
 	}),
-	loader: async ({ params }) => {
-		const folders = await getFolders()
-		if (params.folderId === 'drafts') {
-			return { threads: [] as Thread[], drafts: await listDrafts(), folders }
-		}
-		if (params.folderId === 'starred') {
-			const res = await getThreads({ data: { starred: true } })
-			return { ...res, drafts: [] as Draft[], folders }
-		}
-		const res = await getThreads({ data: { folderId: params.folderId } })
-		return { ...res, drafts: [] as Draft[], folders }
-	},
+	loader: async ({ params }) => loadMailFolderData(params.folderId),
 	component: FolderView,
 })
+
+export async function loadMailFolderData(folderId: string) {
+	const folders = await getFolders()
+	if (folderId === 'drafts') {
+		return { threads: [] as Thread[], drafts: await listDrafts(), folders }
+	}
+	if (folderId === 'starred') {
+		const res = await getThreads({ data: { starred: true } })
+		return { ...res, drafts: [] as Draft[], folders }
+	}
+	const res = await getThreads({ data: { folderId } })
+	return { ...res, drafts: [] as Draft[], folders }
+}
+
+type MailFolderRouteData = Awaited<ReturnType<typeof loadMailFolderData>>
 
 function FolderView() {
 	const { threads, drafts, folders } = Route.useLoaderData()
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
+
+	return (
+		<MailFolderRouteScreen
+			threads={threads}
+			drafts={drafts}
+			folders={folders}
+			folderId={folderId}
+			baseFolderId={baseFolderId}
+		/>
+	)
+}
+
+export function MailFolderRouteScreen({
+	threads,
+	drafts,
+	folders,
+	folderId,
+	baseFolderId,
+}: MailFolderRouteData & { folderId: string; baseFolderId?: string }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })

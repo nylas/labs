@@ -8,6 +8,7 @@ import {
 	composeBackdropListSearch,
 	composeBackdropThreadSearch,
 	composeSearchFromMailLocation,
+	DEFAULT_MAIL_FOLDER_ID,
 	draftRecipientList,
 	draftRecipientName,
 	eventHour,
@@ -37,6 +38,10 @@ import {
 } from './ui-model.js'
 
 describe('ui-model mail helpers', () => {
+	it('uses inbox as the reference default mail folder', () => {
+		expect(DEFAULT_MAIL_FOLDER_ID).toBe('inbox')
+	})
+
 	it('summarizes folder unread counts for the reference sidebar', () => {
 		const folders = [
 			{ id: 'inbox', unread_count: 3 },

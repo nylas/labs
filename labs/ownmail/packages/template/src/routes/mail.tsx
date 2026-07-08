@@ -13,7 +13,7 @@ import {
 	Trash2,
 	X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import {
 	activeMailSidebarFolderId,
@@ -36,6 +36,12 @@ export const Route = createFileRoute('/mail')({
 	},
 	component: MailLayout,
 })
+
+type MailInfo = {
+	email: string
+	displayName?: string
+	appName: string
+}
 
 const FOLDER_ICONS: Record<string, LucideIcon> = {
 	inbox: Inbox,
@@ -72,14 +78,29 @@ function useVersionPolling() {
 
 function MailLayout() {
 	const { info, folders } = Route.useLoaderData()
+
+	return <MailRouteScreen info={info} folders={folders} />
+}
+
+export function MailRouteScreen({
+	info,
+	folders,
+	defaultFolderId,
+	children,
+}: {
+	info: MailInfo
+	folders: Folder[]
+	defaultFolderId?: string
+	children?: ReactNode
+}) {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
 	const routeSearchQuery = typeof searchParams.q === 'string' ? searchParams.q : undefined
 	const currentFolderId = useMemo(
-		() => activeMailSidebarFolderId(pathname, searchScopeFolderId),
-		[pathname, searchScopeFolderId],
+		() => activeMailSidebarFolderId(pathname, searchScopeFolderId) ?? defaultFolderId,
+		[defaultFolderId, pathname, searchScopeFolderId],
 	)
 	const selectedSearchThreadId = typeof searchParams.threadId === 'string' ? searchParams.threadId : undefined
 	const labelBaseFolder =
@@ -197,9 +218,7 @@ function MailLayout() {
 							compose
 						</span>
 					</header>
-					<div className="flex min-h-0 flex-1">
-						<Outlet />
-					</div>
+					<div className="flex min-h-0 flex-1">{children ?? <Outlet />}</div>
 				</div>
 			</div>
 		</div>
