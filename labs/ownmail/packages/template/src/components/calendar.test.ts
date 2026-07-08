@@ -38,6 +38,17 @@ function allDayEvent(id: string, calendarId: string, date: string): Event {
 	}
 }
 
+function allDaySpanEvent(id: string, calendarId: string, startDate: string, endDate: string): Event {
+	return {
+		id,
+		calendar_id: calendarId,
+		grant_id: 'grant-dev',
+		title: id,
+		when: { object: 'datespan', start_date: startDate, end_date: endDate },
+		busy: false,
+	}
+}
+
 describe('calendar view helpers', () => {
 	it('links calendar navigation to the reference calendar entry route', () => {
 		expect(CALENDAR_HOME_PATH).toBe('/calendar')
@@ -94,6 +105,18 @@ describe('calendar view helpers', () => {
 			'midnight-release',
 			'standup',
 		])
+	})
+
+	it('treats Nylas all-day end_date as the exclusive end of the visible span', () => {
+		const events = [allDaySpanEvent('conference', 'work', '2026-07-08', '2026-07-10')]
+
+		expect(eventsOnDay(events, new Date('2026-07-08T12:00:00')).map((event) => event.id)).toEqual([
+			'conference',
+		])
+		expect(eventsOnDay(events, new Date('2026-07-09T12:00:00')).map((event) => event.id)).toEqual([
+			'conference',
+		])
+		expect(eventsOnDay(events, new Date('2026-07-10T12:00:00')).map((event) => event.id)).toEqual([])
 	})
 
 	it('builds a create-event slot date without changing the selected day', () => {

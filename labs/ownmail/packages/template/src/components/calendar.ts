@@ -74,7 +74,7 @@ export function eventTimes(event: Event): { start: Date; end: Date; allDay: bool
 	}
 	return {
 		start: new Date(`${when.start_date}T00:00:00`),
-		end: addDays(new Date(`${when.end_date}T00:00:00`), 1),
+		end: new Date(`${when.end_date}T00:00:00`),
 		allDay: true,
 	}
 }
