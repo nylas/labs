@@ -18,6 +18,10 @@ describe('thread list validation', () => {
 		})
 	})
 
+	it('omits an absent page token from the normalized query', () => {
+		expect(normalizeThreadListInput({ folderId: 'inbox' })).toEqual({ folderId: 'inbox' })
+	})
+
 	it('rejects invalid provider ids before calling Nylas', () => {
 		expect(() => normalizeThreadListInput({ folderId: '' })).toThrow('Invalid folder')
 		expect(() => normalizeThreadListInput({ folderId: 'bad\nfolder' })).toThrow('Invalid folder')

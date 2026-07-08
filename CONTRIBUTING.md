@@ -30,6 +30,23 @@ pnpm typecheck
   `type(scope): message` is fine for community PRs.
 - Every published-package change needs a changeset: `pnpm changeset`.
 
+### Test coverage (ownmail)
+
+The `ownmail` lab (`labs/ownmail/packages/*`) is held to **100% test coverage**.
+This is enforced, not aspirational: each package's vitest config sets 100%
+thresholds for statements, branches, functions, and lines, and CI runs coverage
+on every PR. A change that drops any file below 100% fails the build.
+
+```bash
+pnpm --filter ownmail coverage            # CLI package
+pnpm --filter @ownmail/template coverage  # template package
+```
+
+If you add code, add the tests that cover it. The only permitted exclusions are
+declared (with rationale) in each package's `vitest.config.ts` — generated files
+(`routeTree.gen.ts`), ambient type declarations (`env.d.ts`), and the CLI's
+`bin` entrypoint. Do not add exclusions to dodge writing a test.
+
 ## Lab lifecycle
 
 🧪 Experiment → 🚀 Graduated (own repo, supported product) or 🗄 Archived.

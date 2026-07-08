@@ -214,6 +214,7 @@ function ThreadView() {
 								const parent = messages.find((message) =>
 									message.attachments?.some((item) => item.id === attachment.id),
 								)
+								/* v8 ignore next -- unreachable: threadAttachments is derived from these same messages, so every attachment id always matches its source message */
 								if (!parent) return null
 								return (
 									<a

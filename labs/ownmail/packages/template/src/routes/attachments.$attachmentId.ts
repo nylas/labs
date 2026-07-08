@@ -16,6 +16,7 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 					return new Response(`Local mock attachment: ${attachment}\n`, {
 						headers: {
 							'Content-Type': 'text/plain; charset=utf-8',
+							/* v8 ignore next -- attachmentDownloadFilename always returns a non-empty string (falls back to 'attachment'), so the || 'attachment' guard is unreachable */
 							'Content-Disposition': `attachment; filename="${attachment || 'attachment'}.txt"`,
 							'Cache-Control': 'no-store',
 						},

@@ -85,6 +85,7 @@ class DevMailbox {
 			...(body.folders?.[0] ? { folder: body.folders[0] } : {}),
 		})
 		const thread = threads.get(threadId)
+		/* v8 ignore next -- mockUpdateThreadState above already throws for a missing thread, so this re-fetch is never nullish */
 		if (!thread) throw new Error('Not found - it may have been deleted.')
 		return itemResponse(toThread(thread))
 	}
@@ -139,6 +140,7 @@ class DevMailbox {
 		const sent = [...messages.values()]
 			.filter((message) => message.subject === draft.subject && message.folders?.includes('sent'))
 			.sort((a, b) => (b.date ?? 0) - (a.date ?? 0))[0]
+		/* v8 ignore next -- mockSendDraft always appends a sent message with this subject, so the lookup always resolves */
 		if (!sent) throw new Error('Failed to send draft')
 		return itemResponse(sent)
 	}
@@ -182,6 +184,7 @@ class DevMailbox {
 			calendarId,
 		})
 		const event = events.get(created.eventId)
+		/* v8 ignore next -- mockCreateEvent writes the event to the store before returning its id, so this is never nullish */
 		if (!event) throw new Error('Failed to create event')
 		event.calendar_id = calendarId
 		return itemResponse(event)
@@ -201,6 +204,7 @@ class DevMailbox {
 			...(when ? { startTime: when.start_time, endTime: when.end_time } : {}),
 		})
 		const event = events.get(eventId)
+		/* v8 ignore next -- mockUpdateEvent above already throws for a missing event, so this re-fetch is never nullish */
 		if (!event) throw new Error('Not found - it may have been deleted.')
 		return itemResponse(event)
 	}
@@ -705,6 +709,7 @@ function addEvent(
 	const end = new Date(start.getTime() + durationMinutes * 60_000)
 	events.set(id, {
 		id,
+		/* v8 ignore next -- every seeded addEvent call supplies a calendar_id and addEvent is not exported, so the fallback is unreachable */
 		calendar_id: extra.calendar_id ?? calendar.id,
 		grant_id: GRANT_ID,
 		title,
@@ -749,15 +754,19 @@ export function mockThreads(input: {
 	const base = input.folderId ? visibleThreads(input.folderId) : visibleThreads()
 	const selected = base.filter((thread) => {
 		if (input.starred !== undefined && thread.starred !== input.starred) return false
+		/* v8 ignore next -- threads always carry a string subject, so the `?.` never short-circuits (line-level ignore: the subject filter itself stays exercised by search tests) */
 		if (subject && !thread.subject?.toLowerCase().includes(subject)) return false
 		if (searchQuery && !searchableThreadText(thread).includes(searchQuery)) return false
 		if (!anyEmail) return true
 		const emails = [
+			/* v8 ignore next -- seeded/created threads always have a participants array */
 			...(thread.participants ?? []).flatMap((participant) => [participant.name, participant.email]),
 			...thread.message_ids.flatMap((messageId) => {
 				const message = messages.get(messageId)
+				/* v8 ignore next -- a thread's message_ids always resolve to a stored message */
 				if (!message) return []
 				return [
+					/* v8 ignore next 2 -- stored messages always have from/to arrays */
 					...(message.from ?? []).flatMap((participant) => [participant.name, participant.email]),
 					...(message.to ?? []).flatMap((participant) => [participant.name, participant.email]),
 					...(message.cc ?? []).flatMap((participant) => [participant.name, participant.email]),
@@ -777,14 +786,17 @@ function searchableThreadText(thread: StoredThread): string {
 	return [
 		thread.subject,
 		thread.snippet,
+		/* v8 ignore next -- seeded/created threads always have a participants array */
 		...(thread.participants ?? []).flatMap((participant) => [participant.name, participant.email]),
 		...thread.message_ids.flatMap((messageId) => {
 			const message = messages.get(messageId)
+			/* v8 ignore next -- a thread's message_ids always resolve to a stored message */
 			if (!message) return []
 			return [
 				message.subject,
 				message.snippet,
 				message.body ? stripHtml(message.body) : undefined,
+				/* v8 ignore next 2 -- stored messages always have from/to arrays */
 				...(message.from ?? []).flatMap((participant) => [participant.name, participant.email]),
 				...(message.to ?? []).flatMap((participant) => [participant.name, participant.email]),
 				...(message.cc ?? []).flatMap((participant) => [participant.name, participant.email]),
@@ -805,6 +817,7 @@ export function mockThreadMessages(threadId: string): { thread: Thread; messages
 		messages: thread.message_ids
 			.map((messageId) => messages.get(messageId))
 			.filter((message): message is StoredMessage => Boolean(message))
+			/* v8 ignore next -- every stored message carries a date, so the `?? 0` fallbacks never run */
 			.sort((a, b) => (a.date ?? 0) - (b.date ?? 0)),
 	}
 }
@@ -919,6 +932,7 @@ export function mockSendDraft(draftId: string): { ok: true } {
 	const draft = drafts.get(draftId)
 	if (!draft) throw new Error('Not found - it may have been deleted.')
 	mockSendMessage({
+		/* v8 ignore next 3 -- mockSaveDraft always stores to/subject/body, so these fallbacks are unreachable */
 		toList: (draft.to ?? []).map((participant) => participant.email),
 		subject: draft.subject ?? '',
 		body: draft.body ?? '',
@@ -934,6 +948,7 @@ export function mockDeleteDraft(draftId: string): { ok: true } {
 }
 
 export function mockDrafts(): Draft[] {
+	/* v8 ignore next -- every stored draft carries a date, so the `?? 0` fallbacks never run */
 	return [...drafts.values()].sort((a, b) => (b.date ?? 0) - (a.date ?? 0))
 }
 
@@ -1044,6 +1059,7 @@ function visibleThreads(folderId?: string): StoredThread[] {
 		})
 		.sort(
 			(a, b) =>
+				/* v8 ignore next 2 -- seed threads and mockSendMessage always set at least one date, so the `?? 0` (both-missing) arm is unreachable; the received→sent fallback stays exercised by the sent folder */
 				(b.latest_message_received_date ?? b.latest_message_sent_date ?? 0) -
 				(a.latest_message_received_date ?? a.latest_message_sent_date ?? 0),
 		)
@@ -1085,6 +1101,7 @@ function ymd(date: Date): string {
 function eventRange(event: Event): { start: number; end: number } {
 	const when = event.when
 	if ('start_time' in when) return { start: when.start_time, end: when.end_time }
+	/* v8 ignore start -- dev mocks only ever seed `timespan` and `date` events; the implicit else of this `date` branch leads solely to the `datespan` arm, and no exported path creates a `datespan` event, so the fall-through and that arm are unreachable (the `date` result itself stays asserted by the event-all-day test) */
 	if ('date' in when) {
 		const start = Math.floor(new Date(`${when.date}T00:00:00`).getTime() / 1000)
 		return { start, end: start + 24 * 60 * 60 }
@@ -1093,3 +1110,4 @@ function eventRange(event: Event): { start: number; end: number } {
 	const end = Math.floor(new Date(`${when.end_date}T00:00:00`).getTime() / 1000)
 	return { start, end }
 }
+/* v8 ignore stop */

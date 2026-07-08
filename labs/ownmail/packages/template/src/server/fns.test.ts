@@ -1,0 +1,541 @@
+import { NylasApiError } from '@nylas-labs/cli-kit/v3'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * fns.ts holds every server function. We mock TanStack's createServerFn with a
+ * pass-through that captures the inline validator and handler so both can be
+ * invoked directly, and mock the request/mailbox layer so we exercise the
+ * business logic (grant resolution, error mapping, draft synthesis) in isolation.
+ */
+
+// createServerFn().validator(v).handler(h)  and  createServerFn().handler(h).
+// Capture validator + handler on the returned object so tests can call each.
+vi.mock('@tanstack/react-start', () => ({
+	createServerFn: () => ({
+		validator: (validator: unknown) => ({
+			handler: (handler: unknown) => ({ validator, handler }),
+		}),
+		handler: (handler: unknown) => ({ handler }),
+	}),
+}))
+
+const getRequestMock = vi.fn()
+vi.mock('@tanstack/react-start/server', () => ({ getRequest: () => getRequestMock() }))
+
+// redirect() must be identifiable when thrown from an unauthenticated call.
+class RedirectSignal extends Error {
+	constructor(readonly to: unknown) {
+		super('redirect')
+	}
+}
+vi.mock('@tanstack/react-router', () => ({
+	redirect: (opts: { to: string }) => new RedirectSignal(opts.to),
+}))
+
+const mailboxFromRequestMock = vi.fn()
+vi.mock('./nylas.js', () => ({ mailboxFromRequest: (r: Request) => mailboxFromRequestMock(r) }))
+
+const platformMock = vi.fn()
+vi.mock('./platform.js', () => ({ platform: () => platformMock() }))
+
+import { LOGIN_PATH } from '../components/route-paths.js'
+import * as fns from './fns.js'
+
+/** A mailbox with every method stubbed; tests override per-case. */
+function makeMailbox() {
+	return {
+		listFolders: vi.fn(),
+		listThreads: vi.fn(),
+		getThread: vi.fn(),
+		getMessage: vi.fn(),
+		updateThread: vi.fn(),
+		listDrafts: vi.fn(),
+		send: vi.fn(),
+		deleteDraft: vi.fn(),
+		updateDraft: vi.fn(),
+		createDraft: vi.fn(),
+		getDraft: vi.fn(),
+		sendDraft: vi.fn(),
+		listContacts: vi.fn(),
+	}
+}
+
+let mailbox: ReturnType<typeof makeMailbox>
+
+function resolveMailbox(extra: Record<string, unknown> = {}) {
+	mailboxFromRequestMock.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', ...extra })
+}
+
+beforeEach(() => {
+	mailbox = makeMailbox()
+	getRequestMock.mockReset().mockReturnValue(new Request('http://ownmail.local/'))
+	mailboxFromRequestMock.mockReset()
+	platformMock.mockReset().mockResolvedValue({ env: { APP_NAME: 'ownmail' } })
+})
+
+describe('requireMailbox (auth gate)', () => {
+	it('redirects unauthenticated callers to the login page', async () => {
+		mailboxFromRequestMock.mockResolvedValue(null)
+		await expect(fns.getFolders.handler({})).rejects.toMatchObject({ to: LOGIN_PATH })
+	})
+})
+
+describe('getMailboxInfo', () => {
+	it('returns the email, app name, and display name when present', async () => {
+		resolveMailbox({ displayName: 'Ada Lovelace' })
+		expect(await fns.getMailboxInfo.handler({})).toEqual({
+			email: 'ada@ownmail.com',
+			displayName: 'Ada Lovelace',
+			appName: 'ownmail',
+		})
+	})
+
+	it('omits displayName when the mailbox has none', async () => {
+		resolveMailbox()
+		const info = await fns.getMailboxInfo.handler({})
+		expect(info).toEqual({ email: 'ada@ownmail.com', appName: 'ownmail' })
+	})
+})
+
+describe('getFolders', () => {
+	it('returns the mailbox folder list', async () => {
+		resolveMailbox()
+		mailbox.listFolders.mockResolvedValue({ data: [{ id: 'inbox' }] })
+		expect(await fns.getFolders.handler({})).toEqual([{ id: 'inbox' }])
+	})
+})
+
+describe('getThreads', () => {
+	it('validates and passes through folder/search/paging/starred filters', () => {
+		const data = fns.getThreads.validator({
+			folderId: 'work',
+			pageToken: 'tok',
+			q: 'hello',
+			starred: true,
+		})
+		expect(data).toMatchObject({ folderId: 'work', pageToken: 'tok', q: 'hello', starred: true })
+	})
+
+	it('applies all optional query params and surfaces the next cursor', async () => {
+		resolveMailbox()
+		mailbox.listThreads.mockResolvedValue({ data: [{ id: 't1' }], next_cursor: 'next' })
+		const res = await fns.getThreads.handler({
+			data: { folderId: 'work', pageToken: 'tok', q: 'a@b.com', starred: true },
+		})
+		expect(mailbox.listThreads).toHaveBeenCalledWith(
+			expect.objectContaining({
+				limit: 30,
+				in: 'work',
+				page_token: 'tok',
+				starred: true,
+				any_email: 'a@b.com',
+			}),
+		)
+		expect(res).toEqual({ threads: [{ id: 't1' }], nextCursor: 'next' })
+	})
+
+	it('omits optional params and the cursor when unset', async () => {
+		resolveMailbox()
+		mailbox.listThreads.mockResolvedValue({ data: [] })
+		const res = await fns.getThreads.handler({ data: {} })
+		expect(mailbox.listThreads).toHaveBeenCalledWith({ limit: 30 })
+		expect(res).toEqual({ threads: [] })
+	})
+})
+
+describe('getThreadMessages', () => {
+	it('validates the thread id', () => {
+		expect(fns.getThreadMessages.validator({ threadId: 'thread-1' })).toEqual({ threadId: 'thread-1' })
+	})
+
+	it('marks an unread thread read and returns sorted messages', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['m2', 'm1'], unread: true } })
+		mailbox.getMessage.mockImplementation((id: string) =>
+			Promise.resolve({ data: { id, date: id === 'm1' ? 1 : 2 } }),
+		)
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.updateThread).toHaveBeenCalledWith('t1', { unread: false })
+		expect(res.markedRead).toBe(true)
+		expect(res.thread.unread).toBe(false)
+		expect(res.messages.map((m) => m.id)).toEqual(['m1', 'm2']) // sorted by date
+	})
+
+	it('returns a read thread untouched (no message_ids -> empty list)', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { unread: false } })
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+		expect(mailbox.updateThread).not.toHaveBeenCalled()
+		expect(res).toEqual({ thread: { unread: false }, messages: [], mailboxEmail: 'ada@ownmail.com' })
+	})
+
+	it('sorts messages with missing dates as 0', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['a', 'b'], unread: false } })
+		mailbox.getMessage.mockImplementation((id: string) => Promise.resolve({ data: { id } }))
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+		expect(res.messages).toHaveLength(2)
+	})
+
+	it('falls back to a synthesized draft thread when the thread 404s but a draft matches', async () => {
+		resolveMailbox({ displayName: 'Ada' })
+		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.listDrafts.mockResolvedValue({
+			data: [
+				{
+					id: 't1',
+					grant_id: 'g',
+					subject: 'Hi',
+					body: '<p>hello <b>world</b></p>',
+					to: [{ email: 'x@y.com' }],
+					attachments: [{ is_inline: false }],
+				},
+			],
+		})
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+		expect(res.thread.subject).toBe('Hi')
+		expect(res.thread.snippet).toBe('hello world') // stripHtml fallback
+		expect(res.thread.has_attachments).toBe(true)
+		expect(res.messages[0].from).toEqual([{ email: 'ada@ownmail.com', name: 'Ada' }])
+		expect(res.mailboxEmail).toBe('ada@ownmail.com')
+	})
+
+	it('synthesizes a draft thread using draft-provided fields when present', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.listDrafts.mockResolvedValue({
+			data: [
+				{
+					id: 'd1',
+					grant_id: 'g',
+					thread_id: 'th',
+					subject: 'S',
+					snippet: 'preset snippet',
+					from: [{ email: 'sender@x.com' }],
+					folders: ['custom'],
+					starred: true,
+					date: 123,
+					attachments: [{ is_inline: true }],
+				},
+			],
+		})
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 'd1' } })
+		expect(res.thread.snippet).toBe('preset snippet')
+		expect(res.thread.folders).toEqual(['custom'])
+		expect(res.thread.starred).toBe(true)
+		expect(res.thread.has_attachments).toBe(false) // only inline attachment
+		expect(res.messages[0].from).toEqual([{ email: 'sender@x.com' }])
+		expect(res.messages[0].thread_id).toBe('th')
+	})
+
+	it('synthesizes a draft thread with defaults when the draft and mailbox lack optional fields', async () => {
+		resolveMailbox() // no displayName
+		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.listDrafts.mockResolvedValue({ data: [{ id: 't1', grant_id: 'g' }] })
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+
+		// from falls back to the mailbox email with no name; snippet derives from an empty body.
+		expect(res.messages[0].from).toEqual([{ email: 'ada@ownmail.com' }])
+		expect(res.thread.snippet).toBe('')
+		expect(res.thread.folders).toEqual(['drafts'])
+		expect(res.thread.has_attachments).toBe(false)
+	})
+
+	it('maps a 404 with no matching draft to a friendly not-found error', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.listDrafts.mockResolvedValue({ data: [] })
+		await expect(fns.getThreadMessages.handler({ data: { threadId: 't1' } })).rejects.toThrow(/Not found/)
+	})
+
+	it('rethrows non-not-found errors from getThread', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockRejectedValue(new NylasApiError('server', 500))
+		await expect(fns.getThreadMessages.handler({ data: { threadId: 't1' } })).rejects.toThrow('server')
+	})
+})
+
+describe('sendMessage', () => {
+	it('rejects an over-large body', () => {
+		expect(() =>
+			fns.sendMessage.validator({ to: 'a@b.com', subject: 's', body: 'x'.repeat(500_001) }),
+		).toThrow('too large')
+	})
+
+	it('rejects an over-long reply reference', () => {
+		expect(() =>
+			fns.sendMessage.validator({
+				to: 'a@b.com',
+				subject: 's',
+				body: 'b',
+				replyToMessageId: 'x'.repeat(501),
+			}),
+		).toThrow('Invalid reply reference')
+	})
+
+	it('normalizes recipients and attachments', () => {
+		const data = fns.sendMessage.validator({
+			to: 'a@b.com, c@d.com',
+			subject: 's',
+			body: 'b',
+			replyToMessageId: 'r1',
+		})
+		expect(data.toList).toEqual(['a@b.com', 'c@d.com'])
+	})
+
+	it('sends with attachments and a reply reference', async () => {
+		resolveMailbox()
+		await fns.sendMessage.handler({
+			data: {
+				subject: 's',
+				body: 'b',
+				toList: ['a@b.com'],
+				attachments: [{ filename: 'f', content_type: 'text/plain', content: 'AAAA' }],
+				replyToMessageId: 'r1',
+			},
+		})
+		expect(mailbox.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: [{ email: 'a@b.com' }],
+				reply_to_message_id: 'r1',
+				attachments: [{ filename: 'f', content_type: 'text/plain', content: 'AAAA' }],
+			}),
+		)
+	})
+
+	it('sends without optional fields', async () => {
+		resolveMailbox()
+		const res = await fns.sendMessage.handler({ data: { subject: 's', body: 'b', toList: ['a@b.com'] } })
+		expect(res).toEqual({ ok: true })
+		expect(mailbox.send.mock.calls[0][0]).not.toHaveProperty('reply_to_message_id')
+	})
+
+	it('maps a quota error to a recognizable QUOTA message', async () => {
+		resolveMailbox()
+		mailbox.send.mockRejectedValue(new NylasApiError('rate', 429))
+		await expect(
+			fns.sendMessage.handler({ data: { subject: 's', body: 'b', toList: ['a@b.com'] } }),
+		).rejects.toThrow(/QUOTA/)
+	})
+})
+
+describe('updateThreadState', () => {
+	it('validates state input', () => {
+		expect(fns.updateThreadState.validator({ threadId: 't1', unread: true })).toMatchObject({
+			threadId: 't1',
+		})
+	})
+
+	it('moves a thread between folders, computing the new folder set', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { folders: ['inbox'] } })
+		await fns.updateThreadState.handler({
+			data: { threadId: 't1', folder: 'archive', unread: false, starred: true },
+		})
+		expect(mailbox.updateThread).toHaveBeenCalledWith('t1', {
+			unread: false,
+			starred: true,
+			folders: ['archive'],
+		})
+	})
+
+	it('updates flags without a folder move', async () => {
+		resolveMailbox()
+		await fns.updateThreadState.handler({ data: { threadId: 't1', starred: false } })
+		expect(mailbox.getThread).not.toHaveBeenCalled()
+		expect(mailbox.updateThread).toHaveBeenCalledWith('t1', { starred: false })
+	})
+
+	it('deletes a draft when archiving a not-found thread', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.deleteDraft.mockResolvedValue(undefined)
+		const res = await fns.updateThreadState.handler({ data: { threadId: 't1', folder: 'trash' } })
+		expect(mailbox.deleteDraft).toHaveBeenCalledWith('t1')
+		expect(res).toEqual({ ok: true })
+	})
+
+	it('falls through to a friendly error when the draft delete also fails', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.deleteDraft.mockRejectedValue(new Error('nope'))
+		await expect(
+			fns.updateThreadState.handler({ data: { threadId: 't1', folder: 'archive' } }),
+		).rejects.toThrow(/Not found/)
+	})
+
+	it('maps other errors to a friendly message', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { folders: [] } })
+		mailbox.updateThread.mockRejectedValue(new NylasApiError('boom', 500))
+		await expect(fns.updateThreadState.handler({ data: { threadId: 't1', folder: 'work' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+	})
+})
+
+describe('saveDraft', () => {
+	it('validates and normalizes with a draft id', () => {
+		const data = fns.saveDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b' })
+		expect(data.draftId).toBe('d1')
+		expect(data.toList).toEqual(['a@b.com'])
+	})
+
+	it('normalizes a new draft (no draft id) without minting one', () => {
+		const data = fns.saveDraft.validator({ to: 'a@b.com', subject: 's', body: 'b' })
+		expect(data).not.toHaveProperty('draftId')
+		expect(data.toList).toEqual(['a@b.com'])
+	})
+
+	it('updates an existing draft', async () => {
+		resolveMailbox()
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd1' } })
+		const res = await fns.saveDraft.handler({
+			data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: 'b' },
+		})
+		expect(mailbox.updateDraft).toHaveBeenCalled()
+		expect(res).toEqual({ draftId: 'd1' })
+	})
+
+	it('creates a new draft with attachments when there is no draft id', async () => {
+		resolveMailbox()
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'new' } })
+		const res = await fns.saveDraft.handler({
+			data: {
+				toList: ['a@b.com'],
+				subject: 's',
+				body: 'b',
+				attachments: [{ filename: 'f', content_type: 'text/plain', content: 'AAAA' }],
+			},
+		})
+		expect(mailbox.createDraft).toHaveBeenCalled()
+		expect(res).toEqual({ draftId: 'new' })
+	})
+
+	it('maps failures to a friendly error', async () => {
+		resolveMailbox()
+		mailbox.createDraft.mockRejectedValue(new Error('x'))
+		await expect(fns.saveDraft.handler({ data: { toList: [], subject: 's', body: 'b' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+	})
+})
+
+describe('getDraft', () => {
+	it('validates the draft id', () => {
+		expect(fns.getDraft.validator({ draftId: 'd1' })).toEqual({ draftId: 'd1' })
+	})
+
+	it('returns draft data', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
+		expect(await fns.getDraft.handler({ data: { draftId: 'd1' } })).toEqual({ id: 'd1' })
+	})
+
+	it('maps failures to a friendly error', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockRejectedValue(new NylasApiError('gone', 404))
+		await expect(fns.getDraft.handler({ data: { draftId: 'd1' } })).rejects.toThrow(/Not found/)
+	})
+})
+
+describe('sendDraft', () => {
+	it('validates the draft id', () => {
+		expect(fns.sendDraft.validator({ draftId: 'd1' })).toEqual({ draftId: 'd1' })
+	})
+
+	it('sends a draft', async () => {
+		resolveMailbox()
+		expect(await fns.sendDraft.handler({ data: { draftId: 'd1' } })).toEqual({ ok: true })
+	})
+
+	it('maps failures to a friendly error', async () => {
+		resolveMailbox()
+		mailbox.sendDraft.mockRejectedValue(new Error('x'))
+		await expect(fns.sendDraft.handler({ data: { draftId: 'd1' } })).rejects.toThrow(/Something went wrong/)
+	})
+})
+
+describe('deleteDraft', () => {
+	it('validates the draft id', () => {
+		expect(fns.deleteDraft.validator({ draftId: 'd1' })).toEqual({ draftId: 'd1' })
+	})
+
+	it('deletes a draft', async () => {
+		resolveMailbox()
+		expect(await fns.deleteDraft.handler({ data: { draftId: 'd1' } })).toEqual({ ok: true })
+	})
+
+	it('maps failures to a friendly error', async () => {
+		resolveMailbox()
+		mailbox.deleteDraft.mockRejectedValue(new Error('x'))
+		await expect(fns.deleteDraft.handler({ data: { draftId: 'd1' } })).rejects.toThrow(/Something went wrong/)
+	})
+})
+
+describe('listDrafts', () => {
+	it('lists drafts', async () => {
+		resolveMailbox()
+		mailbox.listDrafts.mockResolvedValue({ data: [{ id: 'd1' }] })
+		expect(await fns.listDrafts.handler({})).toEqual([{ id: 'd1' }])
+	})
+})
+
+describe('searchContacts', () => {
+	it('rejects an over-long query', () => {
+		expect(() => fns.searchContacts.validator({ q: 'x'.repeat(101) })).toThrow('too long')
+	})
+
+	it('passes short-enough queries through validation', () => {
+		expect(fns.searchContacts.validator({ q: 'ada' })).toEqual({ q: 'ada' })
+	})
+
+	it('short-circuits queries under two characters without hitting the API', async () => {
+		resolveMailbox()
+		expect(await fns.searchContacts.handler({ data: { q: ' a ' } })).toEqual([])
+		expect(mailbox.listContacts).not.toHaveBeenCalled()
+	})
+
+	it('maps contacts to email + name, capped at eight results', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockResolvedValue({
+			data: [
+				{ given_name: 'Ada', surname: 'Lovelace', emails: [{ email: 'ada@x.com' }] },
+				{ surname: 'Solo', emails: [{ email: 'solo@x.com' }] },
+				{ given_name: 'Emailless' }, // contact with no emails array -> yields nothing
+				{ emails: [{ email: 'noname@x.com' }] },
+			],
+		})
+		const res = await fns.searchContacts.handler({ data: { q: 'ada' } })
+		expect(res).toEqual([
+			{ email: 'ada@x.com', name: 'Ada Lovelace' },
+			{ email: 'solo@x.com', name: 'Solo' },
+			{ email: 'noname@x.com' },
+		])
+	})
+
+	it('returns [] on API failure (autocomplete is best-effort)', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockRejectedValue(new Error('down'))
+		expect(await fns.searchContacts.handler({ data: { q: 'ada' } })).toEqual([])
+	})
+})
+
+describe('error mapping edge cases', () => {
+	it('maps a NylasApiError whose message mentions a quota to QUOTA even without a 429', async () => {
+		resolveMailbox()
+		mailbox.send.mockRejectedValue(new NylasApiError('quota exceeded for today', 400))
+		await expect(
+			fns.sendMessage.handler({ data: { subject: 's', body: 'b', toList: ['a@b.com'] } }),
+		).rejects.toThrow(/QUOTA/)
+	})
+
+	it('treats a plain Error whose message says "deleted" as not-found for archive cleanup', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockRejectedValue(new Error('thread was deleted'))
+		mailbox.deleteDraft.mockResolvedValue(undefined)
+		const res = await fns.updateThreadState.handler({ data: { threadId: 't1', folder: 'archive' } })
+		expect(res).toEqual({ ok: true })
+	})
+})

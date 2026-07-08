@@ -10,4 +10,8 @@ describe('mail folder moves', () => {
 		])
 		expect(threadFoldersAfterMove(['archive', 'work'], 'trash')).toEqual(['trash', 'work'])
 	})
+
+	it('treats an absent folder list as empty when moving', () => {
+		expect(threadFoldersAfterMove(undefined, 'inbox')).toEqual(['inbox'])
+	})
 })

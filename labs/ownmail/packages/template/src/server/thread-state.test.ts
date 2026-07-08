@@ -18,6 +18,13 @@ describe('thread state validation', () => {
 		})
 	})
 
+	it('normalizes a state change that does not move folders', () => {
+		expect(normalizeThreadStateInput({ threadId: 'thread#abc', unread: true })).toEqual({
+			threadId: 'thread#abc',
+			unread: true,
+		})
+	})
+
 	it('rejects malformed booleans before calling Nylas', () => {
 		expect(() =>
 			normalizeThreadStateInput({ threadId: 'thread#abc', unread: 'false' as unknown as boolean }),
