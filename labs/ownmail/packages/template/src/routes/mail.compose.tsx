@@ -542,7 +542,11 @@ function ComposeThreadBackdrop({
 
 					<div className="mt-4 space-y-3">
 						{messages.map((message, index) => (
-							<BackdropMessage key={message.id} message={message} open={index === messages.length - 1} />
+							<BackdropMessage
+								key={message.id}
+								message={message}
+								defaultOpen={index === messages.length - 1}
+							/>
 						))}
 					</div>
 
@@ -579,12 +583,17 @@ function BackdropIcon({
 	)
 }
 
-function BackdropMessage({ message, open }: { message: Message; open: boolean }) {
+function BackdropMessage({ message, defaultOpen }: { message: Message; defaultOpen: boolean }) {
+	const [open, setOpen] = useState(defaultOpen)
 	const from = message.from?.[0]
 	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	return (
 		<div className="rounded-sm border border-border bg-card">
-			<div className="flex w-full items-start gap-3 px-4 py-3 text-left">
+			<button
+				type="button"
+				onClick={() => setOpen((value) => !value)}
+				className="flex w-full items-start gap-3 px-4 py-3 text-left"
+			>
 				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
 					{initials(fromLabel)}
 				</div>
@@ -609,7 +618,7 @@ function BackdropMessage({ message, open }: { message: Message; open: boolean })
 							: collapsedMessagePreview(message)}
 					</p>
 				</div>
-			</div>
+			</button>
 			{open ? (
 				<div className="px-4 pb-4 pl-16">
 					<div className="space-y-3 text-sm leading-relaxed text-foreground/90">
