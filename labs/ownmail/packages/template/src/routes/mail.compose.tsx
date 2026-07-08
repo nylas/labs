@@ -526,7 +526,9 @@ function Compose() {
 								ref={attachmentInputRef}
 								type="file"
 								multiple
-								className="sr-only"
+								hidden
+								aria-hidden="true"
+								tabIndex={-1}
 								onChange={(event) => {
 									void addAttachments(event.target.files)
 									event.target.value = ''
