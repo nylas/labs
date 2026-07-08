@@ -6,6 +6,7 @@ import { eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
 import { calendarTone, cn, type EventTone, eventTone } from './ui-model.js'
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
+export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 
 function eventBarClass(tone: EventTone): string {
 	if (tone === 'teal') return 'bg-event-teal'
@@ -39,14 +40,12 @@ export function EventModal({
 }) {
 	const times = event ? eventTimes(event) : null
 	const initialStart = times?.start ?? new Date(defaultStart.getTime())
-	const defaultStartHour = decimalHour(initialStart)
-	const normalizedStartHour =
-		defaultStartHour >= 7 && defaultStartHour <= 22 ? nearestHalfHour(defaultStartHour) : 9
+	const initialHours = event ? eventInitialHours(initialStart) : NEW_EVENT_HOURS
 
 	const [title, setTitle] = useState(event?.title ?? '')
 	const [location, setLocation] = useState(event?.location ?? '')
-	const [startHour, setStartHour] = useState(normalizedStartHour)
-	const [endHour, setEndHour] = useState(Math.min(22, normalizedStartHour + 1))
+	const [startHour, setStartHour] = useState(initialHours.startHour)
+	const [endHour, setEndHour] = useState(initialHours.endHour)
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -369,6 +368,12 @@ function eventBlockClass(tone: EventTone): string {
 
 function decimalHour(date: Date): number {
 	return date.getHours() + date.getMinutes() / 60
+}
+
+export function eventInitialHours(start: Date): { startHour: number; endHour: number } {
+	const startHour = decimalHour(start)
+	const normalizedStartHour = startHour >= 7 && startHour <= 22 ? nearestHalfHour(startHour) : 9
+	return { startHour: normalizedStartHour, endHour: Math.min(22, normalizedStartHour + 1) }
 }
 
 function nearestHalfHour(hour: number): number {
