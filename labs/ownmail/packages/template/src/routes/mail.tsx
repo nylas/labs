@@ -13,7 +13,7 @@ import {
 	Trash2,
 	X,
 } from 'lucide-react'
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import { cn, labelDotClass, MAIL_FOLDERS, sidebarFolderCount } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
@@ -65,7 +65,6 @@ function MailLayout() {
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
 	const [query, setQuery] = useState('')
-	const [commandOpen, setCommandOpen] = useState(false)
 	useVersionPolling()
 
 	useEffect(() => {
@@ -73,11 +72,6 @@ function MailLayout() {
 			const target = event.target as HTMLElement | null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-				event.preventDefault()
-				setCommandOpen(true)
-				return
-			}
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			if (event.key === '/') {
 				event.preventDefault()
@@ -86,10 +80,6 @@ function MailLayout() {
 			if (event.key.toLowerCase() === 'c') {
 				event.preventDefault()
 				navigate({ to: '/mail/compose', search: composeSearch })
-			}
-			if (event.key.toLowerCase() === 'g') {
-				event.preventDefault()
-				setCommandOpen(true)
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
@@ -138,7 +128,6 @@ function MailLayout() {
 						<button
 							type="button"
 							className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:bg-muted"
-							onClick={() => setCommandOpen(true)}
 						>
 							<SlidersHorizontal className="h-4 w-4" />
 							<span className="hidden sm:inline">Filters</span>
@@ -153,18 +142,6 @@ function MailLayout() {
 					</div>
 				</div>
 			</div>
-			{commandOpen ? (
-				<CommandPalette
-					folders={folders}
-					onClose={() => setCommandOpen(false)}
-					onNavigate={(to) => {
-						setCommandOpen(false)
-						if (to === 'compose') navigate({ to: '/mail/compose', search: composeSearch })
-						else if (to === 'calendar') navigate({ to: '/calendar/$view', params: { view: 'week' } })
-						else navigate({ to: '/mail/f/$folderId', params: { folderId: to } })
-					}}
-				/>
-			) : null}
 		</div>
 	)
 }
@@ -247,134 +224,6 @@ function composeSearchFromPath(pathname: string): { folderId?: string; threadId?
 	const match = pathname.match(/^\/mail\/f\/([^/]+)\/t\/([^/]+)/)
 	if (!match?.[1] || !match[2]) return {}
 	return { folderId: decodeURIComponent(match[1]), threadId: decodeURIComponent(match[2]) }
-}
-
-function CommandPalette({
-	folders,
-	onClose,
-	onNavigate,
-}: {
-	folders: Folder[]
-	onClose: () => void
-	onNavigate: (target: string) => void
-}) {
-	const [query, setQuery] = useState('')
-	const inputRef = useRef<HTMLInputElement>(null)
-	const panelRef = useRef<HTMLDivElement>(null)
-	const previousFocusRef = useRef<HTMLElement | null>(null)
-	const commands = useMemo(() => {
-		const labels = folders.filter(isCustomFolder)
-		return [
-			{ id: 'compose', label: 'Compose message', detail: 'Start a new email', shortcut: 'C' },
-			{ id: 'calendar', label: 'Open calendar', detail: 'Month, week, and day views' },
-			...MAIL_FOLDERS.map((folder) => ({
-				id: folder.id,
-				label: `Open ${folder.label}`,
-				detail: `${sidebarFolderCount(folders, folder.id)} items`,
-			})),
-			...labels.map((folder) => ({
-				id: folder.id,
-				label: `Open ${folder.name || folder.id}`,
-				detail: `${folder.unread_count ?? 0} unread`,
-			})),
-		]
-	}, [folders])
-	const filtered = useMemo(
-		() =>
-			commands.filter((command) =>
-				`${command.label} ${command.detail}`.toLowerCase().includes(query.toLowerCase()),
-			),
-		[commands, query],
-	)
-
-	useEffect(() => {
-		previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-		inputRef.current?.focus()
-		return () => {
-			previousFocusRef.current?.focus()
-		}
-	}, [])
-
-	function onPanelKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-		if (event.key === 'Escape') {
-			event.preventDefault()
-			onClose()
-			return
-		}
-		if (event.key === 'Enter' && filtered[0]) {
-			event.preventDefault()
-			onNavigate(filtered[0].id)
-			return
-		}
-		if (event.key !== 'Tab') return
-		const focusable = Array.from(
-			panelRef.current?.querySelectorAll<HTMLElement>(
-				'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-			) ?? [],
-		)
-		if (focusable.length === 0) return
-		const first = focusable[0]
-		const last = focusable[focusable.length - 1]
-		if (!first || !last) return
-		if (event.shiftKey && document.activeElement === first) {
-			event.preventDefault()
-			last.focus()
-		} else if (!event.shiftKey && document.activeElement === last) {
-			event.preventDefault()
-			first.focus()
-		}
-	}
-
-	return (
-		<div className="fixed inset-0 z-50 flex items-start justify-center bg-foreground/30 p-4 pt-20 backdrop-blur-[2px]">
-			<button
-				type="button"
-				className="absolute inset-0"
-				aria-label="Close command palette"
-				onClick={onClose}
-			/>
-			<div
-				ref={panelRef}
-				className="relative w-full max-w-xl overflow-hidden rounded-sm border border-border bg-card shadow-2xl"
-				role="dialog"
-				aria-modal="true"
-				aria-label="Command palette"
-				onKeyDown={onPanelKeyDown}
-			>
-				<input
-					ref={inputRef}
-					className="h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
-					value={query}
-					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Go to folder, compose, open calendar"
-					aria-label="Command palette"
-				/>
-				<div className="max-h-80 overflow-y-auto p-1.5">
-					{filtered.map((command, index) => (
-						<button
-							key={command.id}
-							type="button"
-							className={cn(
-								'flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
-								index === 0 && 'bg-accent',
-							)}
-							onClick={() => onNavigate(command.id)}
-						>
-							<span>
-								<strong className="font-semibold">{command.label}</strong>
-								<span className="block text-xs text-muted-foreground">{command.detail}</span>
-							</span>
-							{command.shortcut ? (
-								<span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-									{command.shortcut}
-								</span>
-							) : null}
-						</button>
-					))}
-				</div>
-			</div>
-		</div>
-	)
 }
 
 function isCustomFolder(folder: Folder): boolean {
