@@ -5,24 +5,22 @@ import { LoginScreen } from '../components/LoginScreen.js'
 import { usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
 
-const homeState = createServerFn({ method: 'GET' }).handler(async () => {
-	if (await usingDevMocks()) {
-		return { authenticated: true, signInHref: '/mail' }
-	}
+const loginState = createServerFn({ method: 'GET' }).handler(async () => {
+	if (await usingDevMocks()) return { authenticated: false, signInHref: '/mail' }
 	const session = await getSession(getRequest())
-	return { authenticated: Boolean(session), signInHref: session ? '/mail' : '/auth' }
+	return { authenticated: Boolean(session), signInHref: '/auth' }
 })
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute('/login')({
 	loader: async () => {
-		const state = await homeState()
+		const state = await loginState()
 		if (state.authenticated) throw redirect({ to: '/mail' })
 		return state
 	},
-	component: Home,
+	component: Login,
 })
 
-function Home() {
+function Login() {
 	const { signInHref } = Route.useLoaderData()
 	return <LoginScreen signInHref={signInHref} />
 }

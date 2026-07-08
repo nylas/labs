@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as LogoutRouteImport } from './routes/logout'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as HealthzRouteImport } from './routes/healthz'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -33,6 +34,11 @@ const MailRoute = MailRouteImport.update({
 const LogoutRoute = LogoutRouteImport.update({
   id: '/logout',
   path: '/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HealthzRoute = HealthzRouteImport.update({
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRouteWithChildren
   '/healthz': typeof HealthzRoute
+  '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
   '/api/version': typeof ApiVersionRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRouteWithChildren
   '/healthz': typeof HealthzRoute
+  '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRouteWithChildren
   '/healthz': typeof HealthzRoute
+  '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
   '/api/version': typeof ApiVersionRoute
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/healthz'
+    | '/login'
     | '/logout'
     | '/mail'
     | '/api/version'
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/healthz'
+    | '/login'
     | '/logout'
     | '/api/version'
     | '/attachments/$attachmentId'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/healthz'
+    | '/login'
     | '/logout'
     | '/mail'
     | '/api/version'
@@ -209,6 +221,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRouteWithChildren
   HealthzRoute: typeof HealthzRoute
+  LoginRoute: typeof LoginRoute
   LogoutRoute: typeof LogoutRoute
   MailRoute: typeof MailRouteWithChildren
   ApiVersionRoute: typeof ApiVersionRoute
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       path: '/logout'
       fullPath: '/logout'
       preLoaderRoute: typeof LogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/healthz': {
@@ -369,6 +389,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRouteWithChildren,
   HealthzRoute: HealthzRoute,
+  LoginRoute: LoginRoute,
   LogoutRoute: LogoutRoute,
   MailRoute: MailRouteWithChildren,
   ApiVersionRoute: ApiVersionRoute,
