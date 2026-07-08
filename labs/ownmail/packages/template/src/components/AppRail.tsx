@@ -17,8 +17,7 @@ export function AppRail({
 
 	useEffect(() => {
 		const saved = localStorage.getItem('ownmail_theme')
-		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-		const nextDark = saved ? saved === 'dark' : prefersDark
+		const nextDark = initialThemeIsDark(saved)
 		document.documentElement.classList.toggle('dark', nextDark)
 		setIsDark(nextDark)
 		setMounted(true)
@@ -111,4 +110,8 @@ export function AppRail({
 			</div>
 		</nav>
 	)
+}
+
+export function initialThemeIsDark(savedTheme: string | null): boolean {
+	return savedTheme === 'dark'
 }
