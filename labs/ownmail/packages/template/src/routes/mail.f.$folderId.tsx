@@ -89,7 +89,7 @@ function FolderView() {
 					)}
 				</div>
 			</section>
-			<section className={cn('min-w-0 flex-1', !hasThread && 'hidden md:block')}>
+			<section className={cn('min-w-0 flex-1 flex-col bg-background', hasThread ? 'flex' : 'hidden md:flex')}>
 				{hasThread ? (
 					<Outlet />
 				) : (
