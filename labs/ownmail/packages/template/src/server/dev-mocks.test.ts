@@ -35,6 +35,16 @@ describe('dev mock reference identity', () => {
 		expect(draft?.body).toBe('Here are a few ideas for the offsite —')
 	})
 
+	it('preserves reference attachment metadata', () => {
+		const { messages } = mockThreadMessages('thread-roadmap')
+		const attachment = messages
+			.flatMap((message) => message.attachments ?? [])
+			.find((candidate) => !candidate.is_inline)
+
+		expect(attachment?.filename).toBe('attachment.pdf')
+		expect(attachment?.size).toBe(248 * 1024)
+	})
+
 	it('preserves reference calendar event copy', () => {
 		const now = Math.floor(Date.now() / 1000)
 		const { events } = mockEvents({ start: now - 86_400, end: now + 86_400 })

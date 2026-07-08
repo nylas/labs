@@ -240,9 +240,9 @@ const messages = new Map<string, StoredMessage>(
 			attachments: [
 				{
 					id: 'att-roadmap-deck',
-					filename: 'roadmap-review.pdf',
+					filename: 'attachment.pdf',
 					content_type: 'application/pdf',
-					size: 2_400_000,
+					size: 248 * 1024,
 				},
 			],
 		},
