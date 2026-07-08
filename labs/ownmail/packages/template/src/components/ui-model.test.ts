@@ -13,6 +13,7 @@ import {
 	composeSearchFromMailLocation,
 	draftRecipientList,
 	draftRecipientName,
+	eventColorClass,
 	eventHour,
 	eventTone,
 	folderCount,
@@ -238,12 +239,18 @@ describe('ui-model mail helpers', () => {
 		expect(STAR_FILLED_CLASS).toBe('fill-[var(--event-amber)] text-[var(--event-amber)]')
 	})
 
+	it('uses reference CSS-variable event color utilities', () => {
+		expect(eventColorClass('blue', 'bg')).toBe('bg-[var(--event-blue)]')
+		expect(eventColorClass('teal', 'text')).toBe('text-[var(--event-teal)]')
+		expect(eventColorClass('rose', 'border')).toBe('border-[var(--event-rose)]')
+	})
+
 	it('keeps reference label dot colors stable by label id', () => {
-		expect(labelDotClass('work', 3)).toBe('bg-event-blue')
-		expect(labelDotClass('personal', 0)).toBe('bg-event-teal')
-		expect(labelDotClass('finance', 1)).toBe('bg-event-amber')
-		expect(labelDotClass('travel', 2)).toBe('bg-event-rose')
-		expect(labelDotClass('custom', 2)).toBe('bg-event-amber')
+		expect(labelDotClass('work', 3)).toBe('bg-[var(--event-blue)]')
+		expect(labelDotClass('personal', 0)).toBe('bg-[var(--event-teal)]')
+		expect(labelDotClass('finance', 1)).toBe('bg-[var(--event-amber)]')
+		expect(labelDotClass('travel', 2)).toBe('bg-[var(--event-rose)]')
+		expect(labelDotClass('custom', 2)).toBe('bg-[var(--event-amber)]')
 	})
 
 	it('toggles an active label back to the reference default inbox view', () => {

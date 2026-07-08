@@ -6,6 +6,11 @@ export type EventTone = 'blue' | 'teal' | 'amber' | 'rose'
 export const STAR_HOVER_CLASS = 'hover:text-[var(--event-amber)]'
 export const STAR_FILLED_CLASS = 'fill-[var(--event-amber)] text-[var(--event-amber)]'
 
+export function eventColorClass(tone: EventTone, kind: 'bg' | 'text' | 'border'): string {
+	const prefix = kind === 'bg' ? 'bg' : kind === 'text' ? 'text' : 'border'
+	return `${prefix}-[var(--event-${tone})]`
+}
+
 export const MAIL_FOLDERS: Array<{ id: MailFolderId; label: string }> = [
 	{ id: 'inbox', label: 'Inbox' },
 	{ id: 'starred', label: 'Starred' },
@@ -267,15 +272,12 @@ export function labelBadgeClass(tone: EventTone): string {
 
 export function labelDotClass(labelId: string, fallbackIndex = 0): string {
 	const tone = LABELS.find((label) => label.id === labelId)?.tone
-	if (tone === 'teal') return 'bg-event-teal'
-	if (tone === 'amber') return 'bg-event-amber'
-	if (tone === 'rose') return 'bg-event-rose'
-	if (tone === 'blue') return 'bg-event-blue'
+	if (tone) return eventColorClass(tone, 'bg')
 	const fallbackTone = fallbackIndex % 4
-	if (fallbackTone === 1) return 'bg-event-teal'
-	if (fallbackTone === 2) return 'bg-event-amber'
-	if (fallbackTone === 3) return 'bg-event-rose'
-	return 'bg-event-blue'
+	if (fallbackTone === 1) return eventColorClass('teal', 'bg')
+	if (fallbackTone === 2) return eventColorClass('amber', 'bg')
+	if (fallbackTone === 3) return eventColorClass('rose', 'bg')
+	return eventColorClass('blue', 'bg')
 }
 
 export function isMailLabel(folderId: string | undefined): boolean {

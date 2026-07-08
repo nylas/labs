@@ -20,7 +20,7 @@ import {
 	ymd,
 } from '../components/calendar.js'
 import { EventModal } from '../components/EventModal.js'
-import { calendarTone, cn, type EventTone, eventTone } from '../components/ui-model.js'
+import { calendarTone, cn, type EventTone, eventColorClass, eventTone } from '../components/ui-model.js'
 import { getEvents } from '../server/calendar-fns.js'
 import { getMailboxInfo } from '../server/fns.js'
 
@@ -274,7 +274,7 @@ export function CalendarRouteScreen({
 										>
 											<span
 												className={cn(
-													'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+													'mt-1 h-2 w-2 shrink-0 rounded-full',
 													eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
 												)}
 											/>
@@ -340,10 +340,7 @@ export function CalendarRouteScreen({
 }
 
 function eventBarClass(tone: EventTone): string {
-	if (tone === 'teal') return 'bg-event-teal'
-	if (tone === 'amber') return 'bg-event-amber'
-	if (tone === 'rose') return 'bg-event-rose'
-	return 'bg-event-blue'
+	return eventColorClass(tone, 'bg')
 }
 
 function eventBlockClass(tone: EventTone): string {
@@ -357,10 +354,7 @@ function eventBlockClass(tone: EventTone): string {
 }
 
 function eventDotClass(tone: EventTone): string {
-	if (tone === 'teal') return 'bg-event-teal'
-	if (tone === 'amber') return 'bg-event-amber'
-	if (tone === 'rose') return 'bg-event-rose'
-	return 'bg-event-blue'
+	return eventColorClass(tone, 'bg')
 }
 
 function formatWeekTitle(anchor: Date): string {

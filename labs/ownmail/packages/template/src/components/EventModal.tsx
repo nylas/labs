@@ -3,23 +3,17 @@ import { AlignLeft, CalendarDays, Clock, MapPin, Trash2, Users, X } from 'lucide
 import { useEffect, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent } from '../server/calendar-fns.js'
 import { dateWithHour, eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
-import { calendarTone, cn, type EventTone, eventTone } from './ui-model.js'
+import { calendarTone, cn, type EventTone, eventColorClass, eventTone } from './ui-model.js'
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 
 function eventBarClass(tone: EventTone): string {
-	if (tone === 'teal') return 'bg-event-teal'
-	if (tone === 'amber') return 'bg-event-amber'
-	if (tone === 'rose') return 'bg-event-rose'
-	return 'bg-event-blue'
+	return eventColorClass(tone, 'bg')
 }
 
 function eventDotClass(tone: EventTone): string {
-	if (tone === 'teal') return 'bg-event-teal'
-	if (tone === 'amber') return 'bg-event-amber'
-	if (tone === 'rose') return 'bg-event-rose'
-	return 'bg-event-blue'
+	return eventColorClass(tone, 'bg')
 }
 
 /** Create/edit/RSVP dialog for a single event on the primary calendar. */
