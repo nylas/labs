@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { ArrowRight, Calendar, Loader2, Mail, ShieldCheck } from 'lucide-react'
@@ -8,14 +8,18 @@ import { getSession } from '../server/session.js'
 
 const homeState = createServerFn({ method: 'GET' }).handler(async () => {
 	if (await usingDevMocks()) {
-		return { signInHref: '/mail' }
+		return { authenticated: true, signInHref: '/mail' }
 	}
 	const session = await getSession(getRequest())
-	return { signInHref: session ? '/mail' : '/auth' }
+	return { authenticated: Boolean(session), signInHref: session ? '/mail' : '/auth' }
 })
 
 export const Route = createFileRoute('/')({
-	loader: () => homeState(),
+	loader: async () => {
+		const state = await homeState()
+		if (state.authenticated) throw redirect({ to: '/mail' })
+		return state
+	},
 	component: Home,
 })
 
