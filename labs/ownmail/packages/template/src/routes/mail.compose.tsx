@@ -102,24 +102,28 @@ function Compose() {
 
 	return (
 		<>
-			<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
-				<div className="flex items-center justify-between border-b border-border px-4 py-3">
-					<h1 className="text-base font-semibold capitalize">Inbox</h1>
-				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto">
-					{threads.map((thread) => (
-						<ComposeThreadRow
-							key={thread.id}
-							thread={thread}
-							folderId="inbox"
-							active={selected?.thread.id === thread.id}
-						/>
-					))}
-				</div>
-			</section>
-			<section className="hidden min-w-0 flex-1 bg-background md:flex">
-				{selected ? <ComposeThreadBackdrop thread={selected.thread} messages={selected.messages} /> : null}
-			</section>
+			{selected ? (
+				<>
+					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
+						<div className="flex items-center justify-between border-b border-border px-4 py-3">
+							<h1 className="text-base font-semibold capitalize">Inbox</h1>
+						</div>
+						<div className="min-h-0 flex-1 overflow-y-auto">
+							{threads.map((thread) => (
+								<ComposeThreadRow
+									key={thread.id}
+									thread={thread}
+									folderId="inbox"
+									active={selected.thread.id === thread.id}
+								/>
+							))}
+						</div>
+					</section>
+					<section className="hidden min-w-0 flex-1 bg-background md:flex">
+						<ComposeThreadBackdrop thread={selected.thread} messages={selected.messages} />
+					</section>
+				</>
+			) : null}
 			<div
 				className={cn(
 					'fixed right-4 bottom-0 z-50 flex w-[min(30rem,calc(100vw-1rem))] flex-col rounded-t-xl border border-border bg-card shadow-2xl',
