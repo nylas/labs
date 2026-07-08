@@ -134,6 +134,12 @@ export function messageBodyParagraphs(message: Message): string[] {
 		.filter(Boolean)
 }
 
+export function messageHasHtml(message: Message): boolean {
+	const body = message.body?.trim()
+	if (!body) return false
+	return /<[a-z][\s\S]*>/i.test(body)
+}
+
 function plainTextFromHtml(html: string, preserveParagraphs = false): string {
 	const paragraphBreak = preserveParagraphs ? '\n\n' : ' '
 	const text = decodeHtmlEntities(htmlTextContent(html, paragraphBreak)).replace(/\u00a0/g, ' ')

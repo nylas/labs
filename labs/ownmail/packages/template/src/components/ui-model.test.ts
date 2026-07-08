@@ -30,6 +30,7 @@ import {
 	mailFolderTitle,
 	mailSearchInputValue,
 	messageBodyParagraphs,
+	messageHasHtml,
 	messagePreview,
 	replyAllDraftSearch,
 	replyDraftSearch,
@@ -138,6 +139,11 @@ describe('ui-model mail helpers', () => {
 		} as Message
 
 		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
+	})
+
+	it('detects html bodies for rich rendering', () => {
+		expect(messageHasHtml({ body: '<p>Hello</p>' } as Message)).toBe(true)
+		expect(messageHasHtml({ body: 'plain text' } as Message)).toBe(false)
 	})
 
 	it('does not leak script contents from spaced script end tags', () => {

@@ -14,6 +14,7 @@ import {
 	X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RecipientInput } from '../components/RecipientInput.js'
 import {
 	cn,
 	collapsedMessagePreview,
@@ -122,6 +123,7 @@ function Compose() {
 	const [body, setBody] = useState(draft?.body ?? reply?.body ?? '')
 	const [busy, setBusy] = useState(false)
 	const [minimized, setMinimized] = useState(false)
+	const [saved, setSaved] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const dirty = useRef(false)
 	const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -268,12 +270,19 @@ function Compose() {
 				})
 				setDraftId(saved.draftId)
 				dirty.current = false
+				setSaved(true)
 			} catch {
 				// autosave is best-effort
 			}
 		}, 3000)
 		return () => clearTimeout(timer)
 	}, [to, subject, body, draftId, attachments])
+
+	useEffect(() => {
+		if (!saved) return
+		const timer = setTimeout(() => setSaved(false), 2500)
+		return () => clearTimeout(timer)
+	}, [saved])
 
 	async function addAttachments(files: FileList | null) {
 		if (!files?.length) return
@@ -425,7 +434,10 @@ function Compose() {
 				aria-label="Compose message"
 			>
 				<div className="flex items-center justify-between rounded-t-xl bg-foreground px-3 py-2.5 text-background">
-					<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
+					<div className="flex min-w-0 items-center gap-2">
+						<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
+						{saved ? <span className="text-xs text-background/70">Saved</span> : null}
+					</div>
 					<div className="flex items-center gap-1">
 						<button
 							type="button"
@@ -449,23 +461,22 @@ function Compose() {
 				{!minimized ? (
 					<>
 						<div className="flex flex-col">
-							<label className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
-								<span className="w-14 text-muted-foreground">To</span>
-								<input
+							<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
+								<span className="w-14 shrink-0 text-muted-foreground">To</span>
+								<RecipientInput
 									value={to}
-									onChange={(event) => setTo(event.target.value)}
+									onChange={setTo}
 									placeholder="recipient@email.com"
-									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-									type="email"
-									multiple
-									inputMode="email"
-									autoComplete="email"
-									autoCapitalize="none"
+									className="compose-field min-h-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
 								/>
-							</label>
-							<label className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
+							</div>
+							<label
+								htmlFor="compose-subject"
+								className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm"
+							>
 								<span className="w-14 text-muted-foreground">Subject</span>
 								<input
+									id="compose-subject"
 									value={subject}
 									onChange={(event) => setSubject(event.target.value)}
 									placeholder="Subject"

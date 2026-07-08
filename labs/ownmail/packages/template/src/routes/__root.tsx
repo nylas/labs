@@ -27,13 +27,19 @@ export const Route = createRootRoute({
 
 function RootComponent() {
 	return (
-		<html lang="en" className={INITIAL_ROOT_CLASS_NAME}>
+		<html lang="en" className={INITIAL_ROOT_CLASS_NAME} suppressHydrationWarning>
 			<head>
 				<HeadContent />
 				<meta name="theme-color" media="(prefers-color-scheme: light)" content={LIGHT_THEME_COLOR} />
 				<meta name="theme-color" media="(prefers-color-scheme: dark)" content={DARK_THEME_COLOR} />
+				<script
+					// biome-ignore lint/security/noDangerouslySetInnerHtml: inline theme bootstrap avoids flash
+					dangerouslySetInnerHTML={{
+						__html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'){document.documentElement.classList.remove('light');document.documentElement.classList.add('dark')}}catch(e){}})()`,
+					}}
+				/>
 			</head>
-			<body>
+			<body suppressHydrationWarning>
 				<Outlet />
 				<Scripts />
 			</body>

@@ -1,34 +1,19 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
-import {
-	Archive,
-	FileText,
-	Inbox,
-	type LucideIcon,
-	Pencil,
-	Search,
-	Send,
-	SlidersHorizontal,
-	Star,
-	Trash2,
-	X,
-} from 'lucide-react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Menu, Pencil, Search, X } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
+import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
+import { MailSidebar } from '../components/MailSidebar.js'
+import { Sheet } from '../components/Sheet.js'
 import {
 	activeMailSidebarFolderId,
-	cn,
 	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
 	folderMaskFromMailLocation,
-	labelBaseFolderId,
-	labelDotClass,
-	labelToggleFolderId,
 	liveSearchTarget,
-	MAIL_FOLDERS,
 	mailSearchInputValue,
 	searchMaskFromMailLocation,
-	sidebarFolderCount,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
@@ -37,6 +22,7 @@ export const Route = createFileRoute('/mail')({
 		const [info, folders] = await Promise.all([getMailboxInfo(), getFolders()])
 		return { info, folders }
 	},
+	staleTime: 30_000,
 	component: MailLayout,
 })
 
@@ -46,19 +32,6 @@ type MailInfo = {
 	appName: string
 }
 
-const FOLDER_ICONS: Record<string, LucideIcon> = {
-	inbox: Inbox,
-	starred: Star,
-	sent: Send,
-	drafts: FileText,
-	archive: Archive,
-	trash: Trash2,
-}
-
-/**
- * Near-realtime updates: poll the cheap /api/version signal every 10s and
- * refetch loaders only when the webhook receiver has bumped it.
- */
 function useVersionPolling() {
 	const router = useRouter()
 	const last = useRef<number | null>(null)
@@ -81,7 +54,6 @@ function useVersionPolling() {
 
 function MailLayout() {
 	const { info, folders } = Route.useLoaderData()
-
 	return <MailRouteScreen info={info} folders={folders} />
 }
 
@@ -124,14 +96,24 @@ export function MailRouteScreen({
 	const searchMask = useMemo(() => searchMaskFromMailLocation(publicPathname), [publicPathname])
 	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
 	const [query, setQuery] = useState('')
+	const [sidebarOpen, setSidebarOpen] = useState(false)
+	const [paletteOpen, setPaletteOpen] = useState(false)
+	const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 	useVersionPolling()
+
+	const openPalette = useCallback(() => setPaletteOpen(true), [])
+	const closePalette = useCallback(() => setPaletteOpen(false), [])
+	const focusSearch = useCallback(() => {
+		closePalette()
+		document.getElementById('mail-search')?.focus()
+	}, [closePalette])
+	useCommandPaletteShortcut(openPalette)
 
 	useEffect(() => {
 		setQuery(mailSearchInputValue(searchAwarePathname, routeSearchQuery))
 	}, [routeSearchQuery, searchAwarePathname])
 
-	function updateSearch(nextQuery: string) {
-		setQuery(nextQuery)
+	function navigateSearch(nextQuery: string) {
 		const target = liveSearchTarget(
 			nextQuery,
 			searchAwarePathname,
@@ -162,6 +144,18 @@ export function MailRouteScreen({
 		}
 	}
 
+	function updateSearch(nextQuery: string) {
+		setQuery(nextQuery)
+		if (searchDebounce.current) clearTimeout(searchDebounce.current)
+		searchDebounce.current = setTimeout(() => navigateSearch(nextQuery), 280)
+	}
+
+	useEffect(() => {
+		return () => {
+			if (searchDebounce.current) clearTimeout(searchDebounce.current)
+		}
+	}, [])
+
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			const target = event.target as HTMLElement | null
@@ -185,34 +179,44 @@ export function MailRouteScreen({
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [composeMask, composeSearch, navigate])
 
+	const sidebarProps = {
+		folders,
+		composeMask,
+		composeSearch,
+		folderMask,
+		currentFolderId,
+		baseFolderId: labelBaseFolder,
+		onNavigate: () => setSidebarOpen(false),
+	}
+
 	return (
 		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-			<AppRail email={info.email} displayName={info.displayName} active="mail" />
+			<AppRail
+				email={info.email}
+				displayName={info.displayName}
+				active="mail"
+				onOpenCommandPalette={openPalette}
+			/>
 			<div className="flex min-h-0 flex-1 overflow-hidden">
-				<div className="hidden md:flex">
-					<MailSidebar
-						folders={folders}
-						composeMask={composeMask}
-						composeSearch={composeSearch}
-						folderMask={folderMask}
-						currentFolderId={currentFolderId}
-						baseFolderId={labelBaseFolder}
-					/>
+				<div className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:block">
+					<MailSidebar {...sidebarProps} />
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col">
-					<header className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
+					<header className="flex items-center gap-2 border-b border-border bg-background/80 px-3 py-2.5 backdrop-blur-sm sm:gap-3 sm:px-4">
+						<button
+							type="button"
+							onClick={() => setSidebarOpen(true)}
+							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+							aria-label="Open folders"
+						>
+							<Menu className="h-5 w-5" />
+						</button>
 						<form
-							className="relative flex-1 md:max-w-md"
+							className="relative min-w-0 flex-1 md:max-w-md"
 							onSubmit={(event) => {
 								event.preventDefault()
-								const target = liveSearchTarget(query, searchAwarePathname, activeSearchFolderId)
-								if (target.kind === 'search') {
-									navigate({
-										to: '/mail/search',
-										search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
-										...(searchMask ? { mask: searchMask } : {}),
-									})
-								}
+								if (searchDebounce.current) clearTimeout(searchDebounce.current)
+								navigateSearch(query)
 							}}
 						>
 							<Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -222,145 +226,58 @@ export function MailRouteScreen({
 								value={query}
 								onChange={(event) => updateSearch(event.target.value)}
 								placeholder="Search mail"
-								className="mail-search-field h-9 w-full rounded-lg border border-border bg-card pr-9 pl-9 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+								className="mail-search-field h-9 w-full rounded-lg border border-border bg-card pr-20 pl-9 text-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20"
 								aria-label="Search mail"
 								enterKeyHint="search"
 								autoCapitalize="none"
 							/>
-							{query ? (
-								<button
-									type="button"
-									onClick={() => updateSearch('')}
-									aria-label="Clear search"
-									className="absolute top-1/2 right-2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-								>
-									<X className="h-4 w-4" />
-								</button>
-							) : null}
+							<div className="pointer-events-none absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+								{query ? (
+									<button
+										type="button"
+										onClick={() => updateSearch('')}
+										aria-label="Clear search"
+										className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+									>
+										<X className="h-4 w-4" />
+									</button>
+								) : (
+									<kbd className="kbd hidden sm:inline-flex">/</kbd>
+								)}
+							</div>
 						</form>
 						<button
 							type="button"
-							className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:bg-muted"
+							onClick={openPalette}
+							className="hidden h-9 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted sm:flex"
+							aria-label="Open command palette"
 						>
-							<SlidersHorizontal className="h-4 w-4" />
-							<span className="hidden sm:inline">Filters</span>
+							<span className="hidden lg:inline">Commands</span>
+							<kbd className="kbd">⌘K</kbd>
 						</button>
-						<span className="ml-auto hidden text-xs text-muted-foreground lg:inline">
-							Press <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono">C</kbd> to
-							compose
+						<span className="ml-auto hidden text-xs text-muted-foreground xl:inline">
+							<kbd className="kbd">C</kbd> compose
 						</span>
 					</header>
 					<div className="flex min-h-0 flex-1">{children ?? <Outlet />}</div>
 				</div>
 			</div>
-		</div>
-	)
-}
 
-function MailSidebar({
-	folders,
-	composeMask,
-	composeSearch,
-	folderMask,
-	currentFolderId,
-	baseFolderId,
-}: {
-	folders: Folder[]
-	composeMask?: { to: '/' }
-	composeSearch: { folderId?: string; threadId?: string }
-	folderMask?: { to: '/' }
-	currentFolderId?: string
-	baseFolderId?: string
-}) {
-	const labels = folders.filter(isCustomFolder)
-	return (
-		<aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-border bg-sidebar px-3 py-4">
+			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Mail">
+				<MailSidebar {...sidebarProps} />
+			</Sheet>
+
+			<CommandPalette open={paletteOpen} onClose={closePalette} onFocusSearch={focusSearch} />
+
 			<Link
 				to="/mail/compose"
 				search={composeSearch}
 				{...(composeMask ? { mask: composeMask } : {})}
-				className="flex items-center justify-center gap-2 rounded-sm bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
+				className="fab md:hidden"
+				aria-label="Compose message"
 			>
-				<Pencil className="h-4 w-4" strokeWidth={2.5} />
-				Compose
+				<Pencil className="h-5 w-5" strokeWidth={2.5} />
 			</Link>
-
-			<nav className="flex flex-col gap-0.5" aria-label="Mail folders">
-				{MAIL_FOLDERS.map((folder) => {
-					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
-					const count = sidebarFolderCount(folders, folder.id)
-					const active = currentFolderId === folder.id
-					return (
-						<Link
-							key={folder.id}
-							to="/mail/f/$folderId"
-							params={{ folderId: folder.id }}
-							{...(folderMask ? { mask: folderMask } : {})}
-							className={cn(
-								'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
-								active
-									? 'bg-accent font-semibold text-accent-foreground'
-									: 'text-foreground/80 hover:bg-muted',
-							)}
-						>
-							<Icon className="h-4 w-4 shrink-0" />
-							<span className="flex-1 text-left">{folder.label}</span>
-							{count > 0 ? (
-								<span
-									className={cn('text-xs tabular-nums', active ? 'font-semibold' : 'text-muted-foreground')}
-								>
-									{count}
-								</span>
-							) : null}
-						</Link>
-					)
-				})}
-			</nav>
-
-			{labels.length > 0 ? (
-				<div className="mt-1">
-					<p className="px-3 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-						Labels
-					</p>
-					<div className="flex flex-col gap-0.5">
-						{labels.map((label, index) => {
-							const active = currentFolderId === label.id
-							const nextFolderId = labelToggleFolderId(currentFolderId, label.id, baseFolderId)
-							const nextBaseFolderId = active ? undefined : labelBaseFolderId(currentFolderId, baseFolderId)
-							return (
-								<Link
-									key={label.id}
-									to="/mail/f/$folderId"
-									params={{ folderId: nextFolderId }}
-									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
-									{...(folderMask ? { mask: folderMask } : {})}
-									className={cn(
-										'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
-										active
-											? 'bg-accent font-semibold text-accent-foreground'
-											: 'text-foreground/80 hover:bg-muted',
-									)}
-								>
-									<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(label.id, index))} />
-									<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
-								</Link>
-							)
-						})}
-					</div>
-				</div>
-			) : null}
-
-			<div className="mt-auto rounded-sm border border-border bg-card p-3">
-				<p className="text-xs font-semibold text-foreground">Storage</p>
-				<div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-					<div className="h-full w-[38%] rounded-full bg-primary" />
-				</div>
-				<p className="mt-1.5 text-xs text-muted-foreground">5.7 GB of 15 GB used</p>
-			</div>
-		</aside>
+		</div>
 	)
-}
-
-function isCustomFolder(folder: Folder): boolean {
-	return !folder.system_folder && !MAIL_FOLDERS.some((standard) => standard.id === folder.id)
 }
