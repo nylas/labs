@@ -29,6 +29,7 @@ import {
 	threadTimestamp,
 } from '../components/ui-model.js'
 import {
+	deleteDraft,
 	getDraft,
 	getFolders,
 	getThreadMessages,
@@ -210,6 +211,18 @@ function Compose() {
 		}
 	}
 
+	async function discard() {
+		setBusy(true)
+		setError(null)
+		try {
+			if (draftId) await deleteDraft({ data: { draftId } })
+			close()
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to discard draft')
+			setBusy(false)
+		}
+	}
+
 	return (
 		<>
 			{selected ? (
@@ -369,9 +382,10 @@ function Compose() {
 							</button>
 							<button
 								type="button"
-								onClick={close}
+								disabled={busy}
+								onClick={discard}
 								aria-label="Discard draft"
-								className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+								className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-destructive disabled:opacity-50"
 							>
 								<Trash2 className="h-4 w-4" />
 							</button>
