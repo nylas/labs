@@ -2,14 +2,14 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { LoginScreen } from '../components/LoginScreen.js'
-import { MAIL_HOME_PATH } from '../components/route-paths.js'
+import { AUTH_PATH, MAIL_HOME_PATH } from '../components/route-paths.js'
 import { usingDevMocks } from '../server/platform.js'
 import { getSession, hasReferenceDevSessionCookie } from '../server/session.js'
 
 const loginState = createServerFn({ method: 'GET' }).handler(async () => {
 	const request = getRequest()
 	if (await usingDevMocks()) {
-		return { authenticated: hasReferenceDevSessionCookie(request), signInHref: MAIL_HOME_PATH }
+		return { authenticated: hasReferenceDevSessionCookie(request), signInHref: AUTH_PATH }
 	}
 	const session = await getSession(request)
 	return { authenticated: Boolean(session), signInHref: '/auth' }
