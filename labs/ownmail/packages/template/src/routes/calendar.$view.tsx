@@ -272,10 +272,6 @@ function CalendarPage() {
 								events={visibleEvents}
 								calendarById={calendarById}
 								onPickEvent={setEditing}
-								onCreateAt={(d) => {
-									setNewStart(d)
-									setEditing('new')
-								}}
 							/>
 						)}
 					</div>
@@ -543,14 +539,12 @@ function TimeGrid({
 	events,
 	calendarById,
 	onPickEvent,
-	onCreateAt,
 }: {
 	days: number
 	start: Date
 	events: Event[]
 	calendarById: Map<string, Calendar>
 	onPickEvent: (e: Event) => void
-	onCreateAt: (d: Date) => void
 }) {
 	const HOUR_PX = 52
 	const START_HOUR = 7
@@ -649,15 +643,7 @@ function TimeGrid({
 							return (
 								<div key={day.toISOString()} className="relative border-l border-border first:border-l-0">
 									{HOURS.map((hour) => (
-										<button
-											key={hour}
-											type="button"
-											aria-label={`Create event at ${hour}:00`}
-											onClick={() =>
-												onCreateAt(new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour))
-											}
-											className="h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
-										/>
+										<div key={hour} className="h-[52px] w-full border-b border-border/60" />
 									))}
 									{isToday && nowOffset !== null ? (
 										<div
