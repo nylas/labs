@@ -91,6 +91,10 @@ export function clearSessionCookie(): string {
 	return setCookie(COOKIE_NAME, '', 0)
 }
 
+export function hasReferenceDevSessionCookie(request: Request): boolean {
+	return cookieValue(request, COOKIE_NAME) === 'authenticated'
+}
+
 export async function getSession(request: Request): Promise<Session | null> {
 	const value = cookieValue(request, COOKIE_NAME)
 	if (!value) return null

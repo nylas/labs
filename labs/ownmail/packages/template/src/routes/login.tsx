@@ -4,11 +4,14 @@ import { getRequest } from '@tanstack/react-start/server'
 import { LoginScreen } from '../components/LoginScreen.js'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { usingDevMocks } from '../server/platform.js'
-import { getSession } from '../server/session.js'
+import { getSession, hasReferenceDevSessionCookie } from '../server/session.js'
 
 const loginState = createServerFn({ method: 'GET' }).handler(async () => {
-	if (await usingDevMocks()) return { authenticated: false, signInHref: MAIL_HOME_PATH }
-	const session = await getSession(getRequest())
+	const request = getRequest()
+	if (await usingDevMocks()) {
+		return { authenticated: hasReferenceDevSessionCookie(request), signInHref: MAIL_HOME_PATH }
+	}
+	const session = await getSession(request)
 	return { authenticated: Boolean(session), signInHref: '/auth' }
 })
 
