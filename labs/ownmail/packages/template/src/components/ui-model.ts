@@ -41,13 +41,11 @@ export const APP_RAIL_LABEL_SLOT_CLASS =
 	'flex h-4 w-full shrink-0 items-center justify-center text-[10px] leading-none font-medium'
 export const MAIL_SIDEBAR_WIDTH_CLASS = 'w-56'
 
-export const MAIL_HEADER_GRID_CLASS =
-	'grid grid-cols-[minmax(0,1fr)] md:grid-cols-[14rem_minmax(0,1fr)]'
+export const MAIL_HEADER_GRID_CLASS = 'grid grid-cols-[minmax(0,1fr)] md:grid-cols-[14rem_minmax(0,1fr)]'
 
 export const CALENDAR_SIDEBAR_WIDTH_CLASS = 'w-64'
 
-export const CALENDAR_HEADER_GRID_CLASS =
-	'grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)]'
+export const CALENDAR_HEADER_GRID_CLASS = 'grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)]'
 
 export function folderCount(folders: Folder[], folderId: string): number {
 	return folders.find((folder) => folder.id === folderId)?.unread_count ?? 0
@@ -376,8 +374,7 @@ export function threadLabels(thread: Thread): typeof LABELS {
 }
 
 export function eventChipClass(tone: EventTone): string {
-	const bgOpacity = tone === 'amber' ? '12' : '10'
-	return `event-chip bg-[var(--event-${tone})]/${bgOpacity} text-[var(--event-${tone})] border border-[var(--event-${tone})]/20`
+	return `event-chip text-[var(--event-${tone})] border border-[var(--event-${tone})]/20`
 }
 
 export function labelBadgeClass(tone: EventTone): string {

@@ -1,11 +1,14 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
 import {
+	addDays,
+	allDayEventSegments,
 	CALENDAR_ENTRY_EVENT_RANGE_VIEW,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	eventsOnDay,
 	filterEventsByCalendars,
+	startOfWeek,
 	timedEventLayout,
 	timedEventsOnDay,
 	viewRange,
@@ -118,6 +121,30 @@ describe('calendar view helpers', () => {
 			'conference',
 		])
 		expect(eventsOnDay(events, new Date('2026-07-10T12:00:00')).map((event) => event.id)).toEqual([])
+	})
+
+	it('renders one all-day segment across each visible spanned day', () => {
+		const weekStart = startOfWeek(new Date('2026-07-08T12:00:00'))
+		const columns = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+		const segments = allDayEventSegments(
+			[
+				allDaySpanEvent('conference', 'work', '2026-07-08', '2026-07-11'),
+				allDayEvent('rent', 'primary', '2026-07-10'),
+			],
+			columns,
+		)
+
+		expect(
+			segments.map((segment) => ({
+				id: segment.event.id,
+				startColumn: segment.startColumn,
+				span: segment.span,
+				row: segment.row,
+			})),
+		).toEqual([
+			{ id: 'conference', startColumn: 4, span: 3, row: 0 },
+			{ id: 'rent', startColumn: 6, span: 1, row: 1 },
+		])
 	})
 
 	it('builds a create-event slot date without changing the selected day', () => {

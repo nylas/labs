@@ -7,19 +7,19 @@ import { CommandPalette, useCommandPaletteShortcut } from '../components/Command
 import { MailSidebar } from '../components/MailSidebar.js'
 import { Sheet } from '../components/Sheet.js'
 import {
-	activeMailSidebarFolderId,
 	APP_RAIL_WIDTH_CLASS,
+	activeMailSidebarFolderId,
+	CHROME_ROW_CLASS,
+	CHROME_ROW_SHELL_CLASS,
+	cn,
 	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
 	folderMaskFromMailLocation,
 	liveSearchTarget,
-	mailSearchInputValue,
-	searchMaskFromMailLocation,
-	CHROME_ROW_CLASS,
-	CHROME_ROW_SHELL_CLASS,
-	cn,
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
+	mailSearchInputValue,
+	searchMaskFromMailLocation,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
@@ -205,7 +205,7 @@ export function MailRouteScreen({
 	return (
 		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
-				<AppRailLogo />
+				<AppRailLogo appName={info.appName} />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',

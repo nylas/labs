@@ -266,7 +266,7 @@ describe('ui-model mail helpers', () => {
 		expect(eventColorClass('teal', 'text')).toBe('text-[var(--event-teal)]')
 		expect(eventColorClass('rose', 'border')).toBe('border-[var(--event-rose)]')
 		expect(eventChipClass('teal')).toBe(
-			'event-chip bg-[var(--event-teal)]/10 text-[var(--event-teal)] border border-[var(--event-teal)]/20',
+			'event-chip text-[var(--event-teal)] border border-[var(--event-teal)]/20',
 		)
 	})
 

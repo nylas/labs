@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Sun } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
 import {
 	initialThemeIsDark,
@@ -9,14 +9,7 @@ import {
 	themeClassName,
 	themeToggleLabel,
 } from './theme.js'
-import {
-	APP_RAIL_ICON_SLOT_CLASS,
-	APP_RAIL_LABEL_SLOT_CLASS,
-	APP_RAIL_WIDTH_CLASS,
-	CHROME_ROW_CLASS,
-	cn,
-	initials,
-} from './ui-model.js'
+import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS, cn, initials } from './ui-model.js'
 
 type AppRailNavProps = {
 	email: string
@@ -25,21 +18,35 @@ type AppRailNavProps = {
 	onOpenCommandPalette?: () => void
 }
 
-export function AppRailLogo({ className }: { className?: string }) {
+function formatOrgLabel(appName: string): string {
+	return appName
+		.split(/[-_\s]+/)
+		.filter(Boolean)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(' ')
+}
+
+export function AppRailLogo({ appName, className }: { appName: string; className?: string }) {
+	const orgLabel = formatOrgLabel(appName)
+	const orgInitials = initials(appName)
+
 	return (
 		<Link
 			to={MAIL_HOME_PATH}
 			className={cn(
-				'flex shrink-0 items-center justify-center border-r border-b border-border bg-background transition-colors hover:bg-muted/60',
+				'group flex shrink-0 items-center justify-center border-r border-border bg-background transition-colors hover:bg-muted/30',
 				APP_RAIL_WIDTH_CLASS,
 				CHROME_ROW_CLASS,
 				className,
 			)}
-			aria-label="ownmail home"
+			aria-label={`${orgLabel} home`}
+			title={orgLabel}
 		>
-			<span className="app-rail-logo-mark" aria-hidden="true">
-				o
-			</span>
+			<div className="app-rail-org-mark" aria-hidden="true">
+				<span className="app-rail-org-mark-inner">
+					<span className="app-rail-org-initials">{orgInitials}</span>
+				</span>
+			</div>
 		</Link>
 	)
 }
@@ -63,45 +70,47 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 		setIsDark(nextDark)
 	}
 
+	const accountLabel = displayName ? `${displayName} · ${email}` : email
+
 	return (
 		<nav
 			aria-label="Primary"
-			className={cn('flex h-full shrink-0 flex-col border-r border-border bg-background', APP_RAIL_WIDTH_CLASS)}
+			className={cn(
+				'app-rail flex h-full shrink-0 flex-col border-r border-border bg-background',
+				APP_RAIL_WIDTH_CLASS,
+			)}
 		>
-			<RailLink to={MAIL_HOME_PATH} label="Mail" isActive={active === 'mail'} ariaLabel="Mail">
-				<Mail className="h-4 w-4" strokeWidth={active === 'mail' ? 2.25 : 1.75} />
-			</RailLink>
-			<RailLink
-				to={CALENDAR_HOME_PATH}
-				label="Calendar"
-				isActive={active === 'calendar'}
-				ariaLabel="Calendar"
-			>
-				<Calendar className="h-4 w-4" strokeWidth={active === 'calendar' ? 2.25 : 1.75} />
-			</RailLink>
+			<div className="flex flex-col items-center gap-0.5 px-2 pt-3">
+				<RailLink to={MAIL_HOME_PATH} label="Mail" isActive={active === 'mail'} ariaLabel="Mail">
+					<Mail className="h-[18px] w-[18px]" strokeWidth={active === 'mail' ? 2.25 : 1.75} />
+				</RailLink>
+				<RailLink
+					to={CALENDAR_HOME_PATH}
+					label="Calendar"
+					isActive={active === 'calendar'}
+					ariaLabel="Calendar"
+				>
+					<Calendar className="h-[18px] w-[18px]" strokeWidth={active === 'calendar' ? 2.25 : 1.75} />
+				</RailLink>
+			</div>
 
-			<div className="mt-auto border-t border-border">
+			<div className="mt-auto flex flex-col items-center gap-0.5 px-2 pb-3 pt-2">
+				<div className="app-rail-divider" aria-hidden="true" />
 				<RailButton onClick={toggleTheme} ariaLabel={themeToggleLabel(mounted, isDark)}>
-					{mounted && isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+					{mounted && isDark ? <Sun className="h-[17px] w-[17px]" /> : <Moon className="h-[17px] w-[17px]" />}
 				</RailButton>
 				<RailButton onClick={onOpenCommandPalette} ariaLabel="Open command palette" title="⌘K">
-					<Search className="h-4 w-4" />
+					<Search className="h-[17px] w-[17px]" />
 				</RailButton>
 				<form action="/logout" method="get" className="contents">
 					<RailButton type="submit" ariaLabel="Sign out">
-						<LogOut className="h-4 w-4" />
+						<LogOut className="h-[17px] w-[17px]" />
 					</RailButton>
 				</form>
-				<div
-					className={cn(
-						'flex items-center justify-center border-t border-border',
-						CHROME_ROW_CLASS,
-					)}
-					title={displayName ? `${displayName} · ${email}` : email}
-				>
-					<div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
-						{initials(displayName ?? email)}
-					</div>
+				<div className="app-rail-account mt-1" role="img" title={accountLabel} aria-label={accountLabel}>
+					<span className="app-rail-account-inner">
+						<span className="app-rail-account-initials">{initials(displayName ?? email)}</span>
+					</span>
 				</div>
 			</div>
 		</nav>
@@ -126,16 +135,11 @@ function RailLink({
 			to={to}
 			aria-label={ariaLabel}
 			aria-current={isActive ? 'page' : undefined}
-			className={cn(
-				'relative flex w-full flex-col items-center border-b border-border transition-colors',
-				CHROME_ROW_CLASS,
-				isActive
-					? 'nav-item-active'
-					: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-			)}
+			title={label}
+			className={cn('app-rail-item', isActive && 'app-rail-item-active')}
 		>
-			<span className={APP_RAIL_ICON_SLOT_CLASS}>{children}</span>
-			<span className={APP_RAIL_LABEL_SLOT_CLASS}>{label}</span>
+			{isActive ? <span className="app-rail-item-indicator" aria-hidden="true" /> : null}
+			{children}
 		</Link>
 	)
 }
@@ -157,10 +161,7 @@ function RailButton({
 		<button
 			type={type}
 			onClick={onClick}
-			className={cn(
-				'flex w-full items-center justify-center border-b border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground',
-				CHROME_ROW_CLASS,
-			)}
+			className="app-rail-item app-rail-item-utility"
 			aria-label={ariaLabel}
 			title={title}
 		>
