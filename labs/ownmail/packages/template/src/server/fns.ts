@@ -13,6 +13,7 @@ import { requireNylasProviderId } from './ids.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
+import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
 
 async function requireMailbox() {
@@ -166,14 +167,7 @@ export const sendMessage = createServerFn({ method: 'POST' })
 			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
 		}) => {
-			const to = input.to
-				.split(',')
-				.map((e) => e.trim())
-				.filter(Boolean)
-			if (to.length === 0) throw new Error('At least one recipient is required')
-			for (const email of to) {
-				if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid recipient: ${email}`)
-			}
+			const to = parseRecipientEmails(input.to, { required: true })
 			if (input.body.length > 500_000) throw new Error('Message body too large')
 			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
 				throw new Error('Invalid reply reference')
@@ -242,19 +236,16 @@ export const saveDraft = createServerFn({ method: 'POST' })
 			attachments?: OutboundAttachment[]
 		}) => ({
 			...input,
+			...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
+			toList: parseRecipientEmails(input.to, { required: false }),
 			attachments: normalizeOutboundAttachments(input.attachments),
 		}),
 	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
-		const to = data.to
-			.split(',')
-			.map((e) => e.trim())
-			.filter(Boolean)
-			.map((email) => ({ email }))
 		try {
 			const payload = {
-				to,
+				to: data.toList.map((email) => ({ email })),
 				subject: data.subject,
 				body: data.body,
 				...(data.attachments ? { attachments: data.attachments } : {}),
