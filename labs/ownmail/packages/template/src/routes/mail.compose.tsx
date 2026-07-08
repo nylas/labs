@@ -461,7 +461,7 @@ function Compose() {
 				{!minimized ? (
 					<>
 						<div className="flex flex-col">
-							<label className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
+							<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
 								<span className="w-14 shrink-0 text-muted-foreground">To</span>
 								<RecipientInput
 									value={to}
@@ -469,10 +469,14 @@ function Compose() {
 									placeholder="recipient@email.com"
 									className="compose-field min-h-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
 								/>
-							</label>
-							<label className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
+							</div>
+							<label
+								htmlFor="compose-subject"
+								className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm"
+							>
 								<span className="w-14 text-muted-foreground">Subject</span>
 								<input
+									id="compose-subject"
 									value={subject}
 									onChange={(event) => setSubject(event.target.value)}
 									placeholder="Subject"

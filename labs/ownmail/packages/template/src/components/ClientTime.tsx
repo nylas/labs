@@ -10,13 +10,7 @@ const MESSAGE_TIME_OPTIONS: Intl.DateTimeFormatOptions = {
 }
 
 /** Relative list date (Today, Tue, Jul 8) — client-only to avoid SSR locale drift. */
-export function ClientListDate({
-	epochSeconds,
-	className,
-}: {
-	epochSeconds?: number
-	className?: string
-}) {
+export function ClientListDate({ epochSeconds, className }: { epochSeconds?: number; className?: string }) {
 	const [label, setLabel] = useState('')
 
 	useEffect(() => {
@@ -33,13 +27,7 @@ export function ClientListDate({
 }
 
 /** Full message timestamp — client-only to avoid SSR locale drift. */
-export function ClientMessageTime({
-	epochSeconds,
-	className,
-}: {
-	epochSeconds: number
-	className?: string
-}) {
+export function ClientMessageTime({ epochSeconds, className }: { epochSeconds: number; className?: string }) {
 	const [label, setLabel] = useState('')
 	const iso = new Date(epochSeconds * 1000).toISOString()
 

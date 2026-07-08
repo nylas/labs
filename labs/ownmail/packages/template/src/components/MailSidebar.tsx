@@ -1,15 +1,6 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { Link } from '@tanstack/react-router'
-import {
-	Archive,
-	FileText,
-	Inbox,
-	type LucideIcon,
-	Pencil,
-	Send,
-	Star,
-	Trash2,
-} from 'lucide-react'
+import { Archive, FileText, Inbox, type LucideIcon, Pencil, Send, Star, Trash2 } from 'lucide-react'
 import {
 	cn,
 	labelBaseFolderId,

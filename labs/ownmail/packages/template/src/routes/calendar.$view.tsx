@@ -4,7 +4,6 @@ import { Check, ChevronLeft, ChevronRight, PanelLeft, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
-import { Sheet } from '../components/Sheet.js'
 import {
 	addDays,
 	type CalView,
@@ -23,6 +22,7 @@ import {
 	ymd,
 } from '../components/calendar.js'
 import { EventModal } from '../components/EventModal.js'
+import { Sheet } from '../components/Sheet.js'
 import { calendarTone, cn, type EventTone, eventColorClass, eventTone } from '../components/ui-model.js'
 import { getEvents } from '../server/calendar-fns.js'
 import { getMailboxInfo } from '../server/fns.js'
@@ -344,7 +344,9 @@ function CalendarSidebarPanel({
 		<div className="flex flex-col gap-5 px-1 py-2">
 			<MiniCalendar refDate={anchor} onPick={onPickDate} />
 			<div>
-				<p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">My calendars</p>
+				<p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+					My calendars
+				</p>
 				<div className="flex flex-col gap-0.5">
 					{calendars.map((cal, index) => {
 						const hidden = hiddenCalendarIds.has(cal.id)

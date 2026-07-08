@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 import { cn } from './ui-model.js'
 
 /** Slide-over panel for mobile navigation and sidebars. */

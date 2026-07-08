@@ -13,6 +13,8 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ClientMessageTime } from '../components/ClientTime.js'
+import { MessageBody } from '../components/MessageBody.js'
 import {
 	cn,
 	collapsedMessagePreview,
@@ -25,8 +27,6 @@ import {
 	STAR_FILLED_CLASS,
 	threadLabels,
 } from '../components/ui-model.js'
-import { MessageBody } from '../components/MessageBody.js'
-import { ClientMessageTime } from '../components/ClientTime.js'
 import { getThreadMessages, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -348,9 +348,7 @@ function MessageBlock({
 				<div className="min-w-0 flex-1">
 					<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
 						<span className="text-sm font-semibold text-foreground">{fromLabel}</span>
-						{open ? (
-							<span className="text-xs text-muted-foreground">to {recipients}</span>
-						) : null}
+						{open ? <span className="text-xs text-muted-foreground">to {recipients}</span> : null}
 						{message.date ? (
 							<ClientMessageTime
 								epochSeconds={message.date}
@@ -359,7 +357,9 @@ function MessageBlock({
 						) : null}
 					</div>
 					{!open ? (
-						<p className="mt-0.5 truncate text-sm text-muted-foreground">{collapsedMessagePreview(message)}</p>
+						<p className="mt-0.5 truncate text-sm text-muted-foreground">
+							{collapsedMessagePreview(message)}
+						</p>
 					) : null}
 				</div>
 				<ChevronDown

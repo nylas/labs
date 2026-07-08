@@ -35,7 +35,10 @@ export function LoginScreen({ signInHref }: { signInHref: string }) {
 					<div className="mb-6 flex flex-col gap-3">
 						<Feature icon={<Mail className="h-4 w-4" />} label="Unified mail with fast search" />
 						<Feature icon={<Calendar className="h-4 w-4" />} label="Calendar and events, side by side" />
-						<Feature icon={<ShieldCheck className="h-4 w-4" />} label="Secure sign-in through your provider" />
+						<Feature
+							icon={<ShieldCheck className="h-4 w-4" />}
+							label="Secure sign-in through your provider"
+						/>
 					</div>
 
 					<button

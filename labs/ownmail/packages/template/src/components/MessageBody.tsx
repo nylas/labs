@@ -1,7 +1,8 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMounted } from './ClientTime.js'
-import { messageBodyParagraphs, messageHasHtml, sanitizeEmailHtml } from './ui-model.js'
+import { sanitizeEmailHtml } from './sanitize-email.js'
+import { messageBodyParagraphs, messageHasHtml } from './ui-model.js'
 
 export function MessageBody({ message }: { message: Message }) {
 	const mounted = useMounted()
@@ -11,9 +12,7 @@ export function MessageBody({ message }: { message: Message }) {
 		if (!mounted) {
 			return plain.length > 0 ? <PlainBody paragraphs={plain} /> : null
 		}
-		return (
-			<HtmlMessageBody html={sanitizeEmailHtml(message.body ?? '')} messageId={message.id} />
-		)
+		return <HtmlMessageBody html={sanitizeEmailHtml(message.body ?? '')} messageId={message.id} />
 	}
 
 	const paragraphs = messageBodyParagraphs(message)

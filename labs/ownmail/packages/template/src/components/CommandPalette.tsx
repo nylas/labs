@@ -1,8 +1,8 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Calendar, Inbox, Mail, Moon, Pencil, Search, Star, Sun } from 'lucide-react'
+import { Calendar, Mail, Moon, Pencil, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
-import { THEME_STORAGE_KEY, themeClassName, ROOT_BACKGROUND_CLASS } from './theme.js'
+import { ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from './theme.js'
 import { cn, MAIL_FOLDERS } from './ui-model.js'
 
 type Command = {
@@ -95,10 +95,6 @@ export function CommandPalette({
 	}, [commands, query])
 
 	useEffect(() => {
-		setActiveIndex(0)
-	}, [query])
-
-	useEffect(() => {
 		if (!open) return
 		setQuery('')
 		setActiveIndex(0)
@@ -151,7 +147,10 @@ export function CommandPalette({
 					<input
 						ref={inputRef}
 						value={query}
-						onChange={(event) => setQuery(event.target.value)}
+						onChange={(event) => {
+							setQuery(event.target.value)
+							setActiveIndex(0)
+						}}
 						placeholder="Search commands…"
 						className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
 						aria-label="Filter commands"
@@ -160,31 +159,31 @@ export function CommandPalette({
 					/>
 					<kbd className="kbd hidden sm:inline-flex">esc</kbd>
 				</div>
-				<ul className="max-h-[min(24rem,50vh)] overflow-y-auto p-2" role="listbox">
+				<div className="max-h-[min(24rem,50vh)] overflow-y-auto p-2">
 					{filtered.length === 0 ? (
-						<li className="px-3 py-6 text-center text-sm text-muted-foreground">No matching commands</li>
+						<p className="px-3 py-6 text-center text-sm text-muted-foreground">No matching commands</p>
 					) : (
 						filtered.map((command, index) => (
-							<li key={command.id} role="option" aria-selected={index === activeIndex}>
-								<button
-									type="button"
-									onMouseEnter={() => setActiveIndex(index)}
-									onClick={() => go(command.run)}
-									className={cn(
-										'command-row flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm',
-										index === activeIndex && 'bg-accent text-accent-foreground',
-									)}
-								>
-									<span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
-										{command.icon}
-									</span>
-									<span className="min-w-0 flex-1 truncate font-medium">{command.label}</span>
-									{command.hint ? <kbd className="kbd">{command.hint}</kbd> : null}
-								</button>
-							</li>
+							<button
+								key={command.id}
+								type="button"
+								onMouseEnter={() => setActiveIndex(index)}
+								onClick={() => go(command.run)}
+								aria-current={index === activeIndex ? 'true' : undefined}
+								className={cn(
+									'command-row flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm',
+									index === activeIndex && 'bg-accent text-accent-foreground',
+								)}
+							>
+								<span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+									{command.icon}
+								</span>
+								<span className="min-w-0 flex-1 truncate font-medium">{command.label}</span>
+								{command.hint ? <kbd className="kbd">{command.hint}</kbd> : null}
+							</button>
 						))
 					)}
-				</ul>
+				</div>
 				<div className="flex items-center gap-3 border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
 					<span className="inline-flex items-center gap-1">
 						<kbd className="kbd">↑↓</kbd> navigate

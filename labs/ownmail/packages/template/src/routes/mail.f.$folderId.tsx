@@ -2,6 +2,7 @@ import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useRouter, useRouterState } from '@tanstack/react-router'
 import { Loader2, Paperclip, Reply, Star } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { ClientListDate } from '../components/ClientTime.js'
 import {
 	cn,
 	draftRecipientName,
@@ -14,7 +15,6 @@ import {
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
-import { ClientListDate } from '../components/ClientTime.js'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
@@ -28,7 +28,12 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 export async function loadMailFolderData(folderId: string) {
 	const folders = await getFolders()
 	if (folderId === 'drafts') {
-		return { threads: [] as Thread[], drafts: await listDrafts(), folders, nextCursor: undefined as string | undefined }
+		return {
+			threads: [] as Thread[],
+			drafts: await listDrafts(),
+			folders,
+			nextCursor: undefined as string | undefined,
+		}
 	}
 	if (folderId === 'starred') {
 		const res = await getThreads({ data: { starred: true } })
@@ -45,13 +50,7 @@ function FolderView() {
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
 
-	return (
-		<MailFolderRouteScreen
-			{...loaderData}
-			folderId={folderId}
-			baseFolderId={baseFolderId}
-		/>
-	)
+	return <MailFolderRouteScreen {...loaderData} folderId={folderId} baseFolderId={baseFolderId} />
 }
 
 export function MailFolderRouteScreen({
@@ -83,10 +82,11 @@ export function MailFolderRouteScreen({
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset paginated threads when the folder changes
 	useEffect(() => {
 		setExtraThreads([])
 		setNextCursor(initialCursor)
-	}, [folderId, initialCursor, initialThreads])
+	}, [folderId, initialCursor])
 
 	// Light-touch realtime: refresh the list every 30s while the tab is visible.
 	useEffect(() => {
