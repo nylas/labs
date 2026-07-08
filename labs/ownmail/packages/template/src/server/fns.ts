@@ -8,6 +8,7 @@ import { type Folder, type Message, NylasApiError, type Thread } from '@nylas-la
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
+import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
 import { threadSearchParams } from './search.js'
 
@@ -122,10 +123,13 @@ export const updateThreadState = createServerFn({ method: 'POST' })
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
+			const folders = data.folder
+				? threadFoldersAfterMove((await mailbox.getThread(data.threadId)).data.folders, data.folder)
+				: undefined
 			await mailbox.updateThread(data.threadId, {
 				...(data.unread !== undefined ? { unread: data.unread } : {}),
 				...(data.starred !== undefined ? { starred: data.starred } : {}),
-				...(data.folder ? { folders: [data.folder] } : {}),
+				...(folders ? { folders } : {}),
 			})
 		} catch (err) {
 			throw friendly(err)

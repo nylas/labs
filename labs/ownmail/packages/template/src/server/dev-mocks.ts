@@ -11,6 +11,7 @@ import type {
 	SendMessageRequest,
 	Thread,
 } from '@nylas-labs/cli-kit/v3'
+import { threadFoldersAfterMove } from './mail-folders.js'
 
 const GRANT_ID = 'dev-grant'
 const MAILBOX_NAME = 'Ada Lovelace'
@@ -838,7 +839,7 @@ export function mockUpdateThreadState(input: {
 		}
 	}
 	if (input.starred !== undefined) thread.starred = input.starred
-	if (input.folder) thread.folders = [input.folder]
+	if (input.folder) thread.folders = threadFoldersAfterMove(thread.folders, input.folder)
 	return { ok: true }
 }
 

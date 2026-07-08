@@ -7,6 +7,7 @@ import {
 	mockEvents,
 	mockThreadMessages,
 	mockThreads,
+	mockUpdateThreadState,
 } from './dev-mocks.js'
 
 describe('dev mock reference identity', () => {
@@ -81,6 +82,15 @@ describe('dev mock reference identity', () => {
 			mockThreads({ folderId: 'starred' }).threads.map((thread) => thread.id),
 		)
 		expect(starred.every((thread) => thread.starred)).toBe(true)
+	})
+
+	it('preserves reference labels when archiving a thread', () => {
+		mockUpdateThreadState({ threadId: 'thread-roadmap', folder: 'archive' })
+		const roadmap = mockThreads({ folderId: 'archive' }).threads.find(
+			(thread) => thread.id === 'thread-roadmap',
+		)
+
+		expect(roadmap?.folders).toEqual(['archive', 'work'])
 	})
 
 	it('models Agent Account thread search by subject or participant email', () => {
