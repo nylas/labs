@@ -272,6 +272,10 @@ export function composeSearchFromMailLocation(
 	}
 }
 
+export function composeMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
+	return pathname === '/' ? { to: '/' } : undefined
+}
+
 export function composeBackdropThreadSearch(input: {
 	folderId: string
 	threadId: string

@@ -8,6 +8,7 @@ import {
 	collapsedMessagePreview,
 	composeBackdropListSearch,
 	composeBackdropThreadSearch,
+	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
 	draftRecipientList,
 	draftRecipientName,
@@ -278,6 +279,12 @@ describe('ui-model mail helpers', () => {
 			to: 'grace@example.com',
 			subject: 'Re: Q3 roadmap',
 		})
+	})
+
+	it('masks root inbox compose navigation to match the reference modal URL', () => {
+		expect(composeMaskFromMailLocation('/')).toEqual({ to: '/' })
+		expect(composeMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
+		expect(composeMaskFromMailLocation('/mail/search')).toBeUndefined()
 	})
 })
 

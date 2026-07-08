@@ -18,6 +18,7 @@ import { AppRail } from '../components/AppRail.js'
 import {
 	activeMailSidebarFolderId,
 	cn,
+	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
 	labelBaseFolderId,
 	labelDotClass,
@@ -110,6 +111,7 @@ export function MailRouteScreen({
 		() => composeSearchFromMailLocation(pathname, activeSearchFolderId, selectedSearchThreadId),
 		[activeSearchFolderId, pathname, selectedSearchThreadId],
 	)
+	const composeMask = useMemo(() => composeMaskFromMailLocation(pathname), [pathname])
 	const [query, setQuery] = useState('')
 	useVersionPolling()
 
@@ -149,12 +151,16 @@ export function MailRouteScreen({
 			}
 			if (event.key.toLowerCase() === 'c') {
 				event.preventDefault()
-				navigate({ to: '/mail/compose', search: composeSearch })
+				navigate({
+					to: '/mail/compose',
+					search: composeSearch,
+					...(composeMask ? { mask: composeMask } : {}),
+				})
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [composeSearch, navigate])
+	}, [composeMask, composeSearch, navigate])
 
 	return (
 		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -163,6 +169,7 @@ export function MailRouteScreen({
 				<div className="hidden md:flex">
 					<MailSidebar
 						folders={folders}
+						composeMask={composeMask}
 						composeSearch={composeSearch}
 						currentFolderId={currentFolderId}
 						baseFolderId={labelBaseFolder}
@@ -227,11 +234,13 @@ export function MailRouteScreen({
 
 function MailSidebar({
 	folders,
+	composeMask,
 	composeSearch,
 	currentFolderId,
 	baseFolderId,
 }: {
 	folders: Folder[]
+	composeMask?: { to: '/' }
 	composeSearch: { folderId?: string; threadId?: string }
 	currentFolderId?: string
 	baseFolderId?: string
@@ -242,6 +251,7 @@ function MailSidebar({
 			<Link
 				to="/mail/compose"
 				search={composeSearch}
+				{...(composeMask ? { mask: composeMask } : {})}
 				className="flex items-center justify-center gap-2 rounded-sm bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
 			>
 				<Pencil className="h-4 w-4" strokeWidth={2.5} />
