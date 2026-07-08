@@ -140,6 +140,21 @@ describe('ui-model mail helpers', () => {
 		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
 	})
 
+	it('does not leak script contents from spaced script end tags', () => {
+		const message = {
+			body: '<p>Hello</p><script>alert(1)</script ><p>Goodbye</p>',
+		} as Message
+
+		expect(messageBodyParagraphs(message)).toEqual(['Hello', 'Goodbye'])
+	})
+
+	it('decodes html entities once when building message previews', () => {
+		expect(messagePreview({ body: '<p>&amp;lt;script&amp;gt;</p>' } as Message)).toBe('&lt;script&gt;')
+		expect(messagePreview({ body: '<p>&lt;hello&gt; &amp; welcome</p>' } as Message)).toBe(
+			'<hello> & welcome',
+		)
+	})
+
 	it('formats relative list dates like the reference thread list', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2026-07-08T12:00:00Z'))

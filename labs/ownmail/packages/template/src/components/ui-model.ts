@@ -136,30 +136,121 @@ export function messageBodyParagraphs(message: Message): string[] {
 
 function plainTextFromHtml(html: string, preserveParagraphs = false): string {
 	const paragraphBreak = preserveParagraphs ? '\n\n' : ' '
-	return decodeHtmlEntities(
-		html
-			.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-			.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-			.replace(/<br\s*\/?>/gi, '\n')
-			.replace(/<\/(p|div|li|tr|h[1-6])>/gi, paragraphBreak)
-			.replace(/<[^>]*>/g, ' ')
-			.replace(/\u00a0/g, ' ')
-			.replace(/[ \t]+/g, ' ')
-			.replace(preserveParagraphs ? /\n{3,}/g : /\s+/g, preserveParagraphs ? '\n\n' : ' ')
-			.trim(),
-	)
+	const text = decodeHtmlEntities(htmlTextContent(html, paragraphBreak)).replace(/\u00a0/g, ' ')
+	return text
+		.replace(/[ \t]+/g, ' ')
+		.replace(preserveParagraphs ? /\n{3,}/g : /\s+/g, preserveParagraphs ? '\n\n' : ' ')
+		.trim()
 }
 
 function decodeHtmlEntities(value: string): string {
-	return value
-		.replace(/&nbsp;/gi, ' ')
-		.replace(/&amp;/gi, '&')
-		.replace(/&lt;/gi, '<')
-		.replace(/&gt;/gi, '>')
-		.replace(/&quot;/gi, '"')
-		.replace(/&#39;/gi, "'")
-		.replace(/&#(\d+);/g, (_, code: string) => safeCodePoint(Number(code)))
-		.replace(/&#x([0-9a-f]+);/gi, (_, code: string) => safeCodePoint(Number.parseInt(code, 16)))
+	return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, body: string) => {
+		const named = decodeNamedEntity(body)
+		if (named !== undefined) return named
+		if (body[0] !== '#') return entity
+		const codePoint =
+			body[1]?.toLowerCase() === 'x' ? Number.parseInt(body.slice(2), 16) : Number(body.slice(1))
+		return safeCodePoint(codePoint)
+	})
+}
+
+function htmlTextContent(html: string, paragraphBreak: string): string {
+	let text = ''
+	let cursor = 0
+	while (cursor < html.length) {
+		const tagStart = html.indexOf('<', cursor)
+		if (tagStart === -1) {
+			text += html.slice(cursor)
+			break
+		}
+		text += html.slice(cursor, tagStart)
+		const tagEnd = html.indexOf('>', tagStart + 1)
+		if (tagEnd === -1) {
+			text += html.slice(tagStart)
+			break
+		}
+		const tag = html.slice(tagStart + 1, tagEnd)
+		const tagName = htmlTagName(tag)
+		if (tagName === 'script' || tagName === 'style') {
+			cursor = afterRawTextElement(html, tagEnd + 1, tagName)
+			text += ' '
+			continue
+		}
+		if (tagName === 'br') text += '\n'
+		else if (isClosingBlockTag(tag, tagName)) text += paragraphBreak
+		else text += ' '
+		cursor = tagEnd + 1
+	}
+	return text
+}
+
+function afterRawTextElement(html: string, cursor: number, tagName: 'script' | 'style'): number {
+	let next = cursor
+	while (next < html.length) {
+		const closeStart = html.indexOf('<', next)
+		if (closeStart === -1) return html.length
+		const closeEnd = html.indexOf('>', closeStart + 1)
+		if (closeEnd === -1) return html.length
+		const tag = html.slice(closeStart + 1, closeEnd)
+		if (isClosingTag(tag, tagName)) return closeEnd + 1
+		next = closeEnd + 1
+	}
+	return html.length
+}
+
+function htmlTagName(tag: string): string {
+	let index = 0
+	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
+	if (tag[index] === '/') index++
+	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
+	const start = index
+	while (index < tag.length && isTagNameChar(tag.charCodeAt(index))) index++
+	return tag.slice(start, index).toLowerCase()
+}
+
+function isClosingTag(tag: string, tagName: string): boolean {
+	let index = 0
+	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
+	if (tag[index] !== '/') return false
+	index++
+	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
+	if (tag.slice(index, index + tagName.length).toLowerCase() !== tagName) return false
+	const next = tag.charCodeAt(index + tagName.length)
+	return Number.isNaN(next) || next === 47 || isAsciiWhitespace(next)
+}
+
+function isClosingBlockTag(tag: string, tagName: string): boolean {
+	const headingLevel = tagName[1]
+	return (
+		isClosingTag(tag, tagName) &&
+		(tagName === 'p' ||
+			tagName === 'div' ||
+			tagName === 'li' ||
+			tagName === 'tr' ||
+			(tagName.length === 2 &&
+				tagName[0] === 'h' &&
+				headingLevel !== undefined &&
+				headingLevel >= '1' &&
+				headingLevel <= '6'))
+	)
+}
+
+function isAsciiWhitespace(code: number): boolean {
+	return code === 9 || code === 10 || code === 12 || code === 13 || code === 32
+}
+
+function isTagNameChar(code: number): boolean {
+	return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function decodeNamedEntity(body: string): string | undefined {
+	if (body.toLowerCase() === 'nbsp') return ' '
+	if (body.toLowerCase() === 'amp') return '&'
+	if (body.toLowerCase() === 'lt') return '<'
+	if (body.toLowerCase() === 'gt') return '>'
+	if (body.toLowerCase() === 'quot') return '"'
+	if (body.toLowerCase() === 'apos' || body === '#39') return "'"
+	return undefined
 }
 
 function safeCodePoint(codePoint: number): string {
