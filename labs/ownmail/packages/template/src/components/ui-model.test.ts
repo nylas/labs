@@ -5,6 +5,7 @@ import {
 	calendarTone,
 	collapsedMessagePreview,
 	draftRecipientList,
+	draftRecipientName,
 	eventHour,
 	eventTone,
 	folderCount,
@@ -122,6 +123,10 @@ describe('ui-model mail helpers', () => {
 			draftRecipientList({ to: [{ email: 'a@example.com' }, { email: 'b@example.com' }] } as never),
 		).toBe('a@example.com, b@example.com')
 		expect(draftRecipientList({} as never)).toBe('(no recipient)')
+		expect(draftRecipientName({ to: [{ name: 'Grace Hopper', email: 'grace@example.com' }] } as never)).toBe(
+			'Grace Hopper',
+		)
+		expect(draftRecipientName({ to: [{ email: 'grace@example.com' }] } as never)).toBe('grace@example.com')
 	})
 
 	it('builds reference compose defaults for replies', () => {

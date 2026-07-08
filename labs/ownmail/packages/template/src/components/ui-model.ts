@@ -157,6 +157,11 @@ export function draftRecipientList(draft: Draft): string {
 	return draft.to?.map((person) => person.email).join(', ') || '(no recipient)'
 }
 
+export function draftRecipientName(draft: Draft): string {
+	const recipient = draft.to?.[0]
+	return recipient?.name || recipient?.email || '(no recipient)'
+}
+
 export function replyDraftSearch(message: Message): {
 	to: string
 	subject: string

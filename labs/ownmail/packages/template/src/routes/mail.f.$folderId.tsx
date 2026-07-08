@@ -4,7 +4,7 @@ import { Paperclip, Reply, Star } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import {
 	cn,
-	draftRecipientList,
+	draftRecipientName,
 	formatListDate,
 	labelBadgeClass,
 	mailFolderTitle,
@@ -118,6 +118,8 @@ function EmptyState() {
 }
 
 function DraftRow({ draft }: { draft: Draft }) {
+	const recipient = draftRecipientName(draft)
+	const when = formatListDate(draft.date)
 	return (
 		<Link
 			to="/mail/compose"
@@ -125,15 +127,14 @@ function DraftRow({ draft }: { draft: Draft }) {
 			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
 		>
 			<div className="flex items-center gap-2">
-				<span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">Draft</span>
-				<span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
-					Saved
+				<span className="shrink-0 text-muted-foreground">
+					<Star className="h-4 w-4" />
 				</span>
+				<span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{recipient}</span>
+				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
 			</div>
-			<p className="truncate text-sm font-semibold text-foreground">To: {draftRecipientList(draft)}</p>
-			<p className="min-w-0 truncate text-xs text-muted-foreground">
-				{draft.subject || '(no subject)'} · {draft.snippet}
-			</p>
+			<p className="truncate text-sm text-foreground/80">{draft.subject || '(no subject)'}</p>
+			<p className="min-w-0 truncate text-xs text-muted-foreground">{draft.snippet}</p>
 		</Link>
 	)
 }
