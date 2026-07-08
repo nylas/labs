@@ -132,7 +132,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 					'@types/react-dom': '^19.1.0',
 					'@vitejs/plugin-react': '^4.5.0',
 					tailwindcss: '^4.1.0',
-					typescript: '^5.8.0',
+					typescript: '^7.0.0',
 					vite: '^7.0.0',
 				},
 			},

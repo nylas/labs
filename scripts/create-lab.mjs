@@ -46,7 +46,7 @@ writeFileSync(
 				typecheck: 'tsc -p tsconfig.json --noEmit',
 				test: 'vitest run',
 			},
-			devDependencies: { '@types/node': '^24.0.0', typescript: '^5.8.0', vitest: '^3.1.0' },
+			devDependencies: { '@types/node': '^24.0.0', typescript: '^7.0.0', vitest: '^3.1.0' },
 			engines: { node: '>=20.0.0' },
 		},
 		null,
