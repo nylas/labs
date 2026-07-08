@@ -101,6 +101,10 @@ export function fmtTime(d: Date): string {
 	return fmtCompactTime(d)
 }
 
+export function fmtAgendaTime(d: Date): string {
+	return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export function fmtCompactTime(d: Date): string {
 	const hour = d.getHours()
 	const minute = d.getMinutes()

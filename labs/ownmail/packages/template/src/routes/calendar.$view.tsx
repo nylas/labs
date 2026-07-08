@@ -9,6 +9,7 @@ import {
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
+	fmtAgendaTime,
 	fmtTime,
 	isCalView,
 	shiftAnchor,
@@ -246,7 +247,7 @@ function CalendarPage() {
 													{event.title || '(untitled)'}
 												</span>
 												<span className="text-xs text-muted-foreground">
-													{fmtTime(eventTimes(event).start)}
+													{fmtAgendaTime(eventTimes(event).start)}
 												</span>
 											</span>
 										</button>
