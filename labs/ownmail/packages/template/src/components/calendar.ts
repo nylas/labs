@@ -94,6 +94,58 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 		})
 }
 
+export type AllDayEventSegment = {
+	event: Event
+	index: number
+	row: number
+	startColumn: number
+	span: number
+}
+
+export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEventSegment[] {
+	const segments = events
+		.map((event, index) => {
+			if (!eventTimes(event).allDay) return null
+
+			let firstDay = -1
+			let lastDay = -1
+			for (let dayIndex = 0; dayIndex < columns.length; dayIndex += 1) {
+				const column = columns[dayIndex]
+				if (!column || !eventsOnDay([event], column).length) continue
+				if (firstDay === -1) firstDay = dayIndex
+				lastDay = dayIndex
+			}
+			if (firstDay === -1) return null
+
+			return {
+				event,
+				index,
+				startColumn: firstDay + 1,
+				span: lastDay - firstDay + 1,
+			}
+		})
+		.filter((segment): segment is Omit<AllDayEventSegment, 'row'> => segment !== null)
+		.sort((a, b) => {
+			const aTimes = eventTimes(a.event)
+			const bTimes = eventTimes(b.event)
+			return (
+				a.startColumn - b.startColumn ||
+				b.span - a.span ||
+				aTimes.start.getTime() - bTimes.start.getTime() ||
+				(a.event.title ?? '').localeCompare(b.event.title ?? '')
+			)
+		})
+
+	const rowEnds: number[] = []
+	return segments.map((segment) => {
+		const endColumn = segment.startColumn + segment.span - 1
+		let row = rowEnds.findIndex((rowEnd) => segment.startColumn > rowEnd)
+		if (row === -1) row = rowEnds.length
+		rowEnds[row] = endColumn
+		return { ...segment, row }
+	})
+}
+
 export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: ReadonlySet<string>): Event[] {
 	if (hiddenCalendarIds.size === 0) return events
 	return events.filter((event) => !event.calendar_id || !hiddenCalendarIds.has(event.calendar_id))

@@ -6,6 +6,7 @@ import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import {
 	addDays,
+	allDayEventSegments,
 	type CalView,
 	dateWithHour,
 	eventsOnDay,
@@ -24,12 +25,12 @@ import {
 import { EventModal } from '../components/EventModal.js'
 import { Sheet } from '../components/Sheet.js'
 import {
-	calendarTone,
-	CHROME_ROW_CLASS,
-	CHROME_ROW_SHELL_CLASS,
+	APP_RAIL_WIDTH_CLASS,
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
-	APP_RAIL_WIDTH_CLASS,
+	CHROME_ROW_CLASS,
+	CHROME_ROW_SHELL_CLASS,
+	calendarTone,
 	cn,
 	type EventTone,
 	eventChipClass,
@@ -182,7 +183,7 @@ export function CalendarRouteScreen({
 	return (
 		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
-				<AppRailLogo />
+				<AppRailLogo appName={info.appName} />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
@@ -238,9 +239,14 @@ export function CalendarRouteScreen({
 								<ChevronRight className="h-4 w-4" />
 							</button>
 							<div className="flex min-w-0 flex-1 items-center border-r border-border px-3">
-								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">{title}</h1>
+								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">
+									{title}
+								</h1>
 							</div>
-							<div className="flex shrink-0 items-stretch" role="group" aria-label="Calendar view">
+							<fieldset
+								className="m-0 flex min-w-0 shrink-0 items-stretch border-0 p-0"
+								aria-label="Calendar view"
+							>
 								{(['day', 'week', 'month'] as const).map((v) => (
 									<button
 										key={v}
@@ -257,7 +263,7 @@ export function CalendarRouteScreen({
 										{v}
 									</button>
 								))}
-							</div>
+							</fieldset>
 						</div>
 					</div>
 				</header>
@@ -276,40 +282,40 @@ export function CalendarRouteScreen({
 						CALENDAR_SIDEBAR_WIDTH_CLASS,
 					)}
 				>
-						<CalendarSidebarPanel
+					<CalendarSidebarPanel
+						anchor={anchor}
+						calendars={calendars}
+						calendarById={calendarById}
+						hiddenCalendarIds={hiddenCalendarIds}
+						agenda={agenda}
+						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
+						onToggleCalendar={toggleCalendar}
+						onPickEvent={setEditing}
+					/>
+				</aside>
+				<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+					{currentView === 'month' ? (
+						<MonthGrid
 							anchor={anchor}
-							calendars={calendars}
+							events={visibleEvents}
 							calendarById={calendarById}
-							hiddenCalendarIds={hiddenCalendarIds}
-							agenda={agenda}
-							onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
-							onToggleCalendar={toggleCalendar}
+							onPickDay={(d) => go('day', d)}
 							onPickEvent={setEditing}
 						/>
-					</aside>
-					<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-						{currentView === 'month' ? (
-							<MonthGrid
-								anchor={anchor}
-								events={visibleEvents}
-								calendarById={calendarById}
-								onPickDay={(d) => go('day', d)}
-								onPickEvent={setEditing}
-							/>
-						) : (
-							<TimeGrid
-								days={currentView === 'week' ? 7 : 1}
-								start={currentView === 'week' ? startOfWeek(anchor) : anchor}
-								events={visibleEvents}
-								calendarById={calendarById}
-								onPickEvent={setEditing}
-								onPickSlot={(date, hour) => {
-									setNewStart(dateWithHour(date, hour))
-									setEditing('new')
-								}}
-							/>
-						)}
-					</div>
+					) : (
+						<TimeGrid
+							days={currentView === 'week' ? 7 : 1}
+							start={currentView === 'week' ? startOfWeek(anchor) : anchor}
+							events={visibleEvents}
+							calendarById={calendarById}
+							onPickEvent={setEditing}
+							onPickSlot={(date, hour) => {
+								setNewStart(dateWithHour(date, hour))
+								setEditing('new')
+							}}
+						/>
+					)}
+				</div>
 			</div>
 
 			{editing ? (
@@ -667,10 +673,10 @@ function TimeGrid({
 	const todayIso = ymd(new Date())
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [nowOffset, setNowOffset] = useState<number | null>(null)
-	const allDayByDay = columns.map((day) =>
-		eventsOnDay(events, day).filter((event) => eventTimes(event).allDay),
-	)
-	const hasAllDay = allDayByDay.some((dayEvents) => dayEvents.length > 0)
+	const allDaySegments = allDayEventSegments(events, columns)
+	const allDayRowCount = Math.max(1, ...allDaySegments.map((segment) => segment.row + 1))
+	const hasAllDay = allDaySegments.length > 0
+	const dayGridTemplateColumns = days === 1 ? '3.5rem minmax(0, 1fr)' : '3.5rem repeat(7, minmax(0, 1fr))'
 
 	useEffect(() => {
 		function updateNowOffset() {
@@ -689,72 +695,103 @@ function TimeGrid({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="flex border-b border-border pr-3">
-				<div className="w-14 shrink-0" />
-				<div className={cn('grid flex-1', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
-					{columns.map((day) => (
-						<div key={day.toISOString()} className="flex flex-col items-center gap-0.5 py-2">
-							<span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-								{day.toLocaleDateString(undefined, { weekday: 'short' })}
-							</span>
-							<span
-								className={cn(
-									'flex h-8 min-w-8 items-center justify-center rounded-sm px-1 text-sm font-semibold tabular-nums',
-									ymd(day) === todayIso ? 'bg-primary text-primary-foreground' : 'text-foreground',
-								)}
-							>
-								{day.getDate()}
-							</span>
-						</div>
-					))}
-				</div>
-			</div>
-			{hasAllDay ? (
-				<div className="flex border-b border-border pr-3">
-					<div className="flex w-14 shrink-0 items-center justify-end pr-2 text-[10px] text-muted-foreground uppercase">
-						All day
-					</div>
-					<div className={cn('grid flex-1 gap-1 py-1.5', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
+			<div ref={scrollRef} className="isolate relative min-h-0 flex-1 overflow-y-auto">
+				<div className="sticky top-0 z-30 bg-background">
+					<div
+						className="grid border-b border-border pr-3"
+						style={{ gridTemplateColumns: dayGridTemplateColumns }}
+					>
+						<div aria-hidden="true" style={{ gridColumn: 1, gridRow: 1 }} />
 						{columns.map((day, dayIndex) => (
-							<div key={day.toISOString()} className="flex min-h-8 flex-col gap-1 px-1">
-								{allDayByDay[dayIndex]?.map((event, index) => {
-									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
-									return (
-										<button
-											key={event.id}
-											type="button"
-											onClick={() => onPickEvent(event)}
-											className={cn(
-												'truncate rounded px-2 py-1 text-left text-xs font-medium text-primary-foreground',
-												eventBarClass(tone),
-											)}
-										>
-											{event.title || '(untitled)'}
-										</button>
-									)
-								})}
-							</div>
-						))}
-					</div>
-				</div>
-			) : null}
-			<div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-				<div className="flex pr-3">
-					<div className="w-14 shrink-0">
-						{HOURS.map((hour) => (
-							<div key={hour} className="relative h-[52px]">
-								<span className="absolute -top-2 right-2 text-[11px] tabular-nums text-muted-foreground">
-									{hour === START_HOUR ? '' : fmtHour(hour)}
+							<div
+								key={day.toISOString()}
+								className="flex flex-col items-center gap-0.5 py-2"
+								style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
+							>
+								<span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+									{day.toLocaleDateString(undefined, { weekday: 'short' })}
+								</span>
+								<span
+									className={cn(
+										'flex h-8 min-w-8 items-center justify-center rounded-sm px-1 text-sm font-semibold tabular-nums',
+										ymd(day) === todayIso ? 'bg-primary text-primary-foreground' : 'text-foreground',
+									)}
+								>
+									{day.getDate()}
 								</span>
 							</div>
 						))}
 					</div>
-					<div className={cn('relative grid flex-1', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
-						{columns.map((day) => {
+					{hasAllDay ? (
+						<div
+							className="grid border-b border-border pr-3"
+							style={{
+								gridTemplateColumns: dayGridTemplateColumns,
+								gridTemplateRows: `repeat(${allDayRowCount}, minmax(2.5rem, auto))`,
+							}}
+						>
+							<div
+								className="flex items-center justify-end self-stretch pr-2 text-[10px] text-muted-foreground uppercase"
+								style={{ gridColumn: 1, gridRow: `1 / span ${allDayRowCount}` }}
+							>
+								All day
+							</div>
+							{columns.map((day, dayIndex) => (
+								<div
+									key={day.toISOString()}
+									aria-hidden="true"
+									className="pointer-events-none min-h-10"
+									style={{
+										gridColumn: dayIndex + 2,
+										gridRow: `1 / span ${allDayRowCount}`,
+									}}
+								/>
+							))}
+							{allDaySegments.map((segment) => {
+								const { event } = segment
+								const tone = eventTone(event, segment.index, calendarById.get(event.calendar_id))
+								return (
+									<button
+										key={event.id}
+										type="button"
+										onClick={() => onPickEvent(event)}
+										style={{
+											gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
+											gridRow: segment.row + 1,
+										}}
+										className={cn(
+											'z-10 mx-1 min-w-0 self-center truncate rounded-sm px-2 py-1 text-left text-xs font-medium text-primary-foreground',
+											eventBarClass(tone),
+										)}
+									>
+										{event.title || '(untitled)'}
+									</button>
+								)
+							})}
+						</div>
+					) : null}
+				</div>
+				<div className="relative">
+					<ContinuousDayColumnRules days={days} gridTemplateColumns={dayGridTemplateColumns} />
+					<div className="grid pr-3" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
+						<div style={{ gridColumn: 1, gridRow: 1 }}>
+							{HOURS.map((hour) => (
+								<div key={hour} className="relative h-[52px]">
+									<span className="absolute -top-2 right-2 text-[11px] tabular-nums text-muted-foreground">
+										{hour === START_HOUR ? '' : fmtHour(hour)}
+									</span>
+								</div>
+							))}
+						</div>
+						{columns.map((day, dayIndex) => {
 							const dayEvents = eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
 							const isToday = ymd(day) === todayIso
 							return (
-								<div key={day.toISOString()} className="relative border-l border-border first:border-l-0">
+								<div
+									key={day.toISOString()}
+									className="relative min-w-0 overflow-visible [clip-path:inset(-100vh_0_-100vh_0)]"
+									style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
+								>
 									{HOURS.map((hour) => (
 										<button
 											key={hour}
@@ -792,9 +829,12 @@ function TimeGrid({
 												key={event.id}
 												type="button"
 												onClick={() => onPickEvent(event)}
-												style={layout}
+												style={{
+													top: layout.top,
+													height: layout.height,
+												}}
 												className={cn(
-													'absolute right-0.5 left-0.5 z-10 flex flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
+													'absolute right-1 left-1 z-10 flex min-w-0 flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
 													eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
 												)}
 											>
@@ -815,6 +855,35 @@ function TimeGrid({
 					</div>
 				</div>
 			</div>
+		</div>
+	)
+}
+
+function ContinuousDayColumnRules({
+	days,
+	gridTemplateColumns,
+}: {
+	days: number
+	gridTemplateColumns: string
+}) {
+	if (days <= 1) return null
+	const ruleGridColumns = Array.from({ length: days - 1 }, (_, offset) => offset + 3)
+	return (
+		<div
+			aria-hidden="true"
+			className="pointer-events-none absolute inset-y-0 right-3 left-0 z-0 grid"
+			style={{ gridTemplateColumns }}
+		>
+			{ruleGridColumns.map((gridColumn) => (
+				<div
+					key={`day-column-rule-${gridColumn}`}
+					className="w-0 self-stretch justify-self-start border-l border-border"
+					style={{
+						gridColumn,
+						gridRow: 1,
+					}}
+				/>
+			))}
 		</div>
 	)
 }

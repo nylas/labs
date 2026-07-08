@@ -315,14 +315,136 @@
 	box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground), transparent 80%);
 }
 
-.app-rail-logo-mark {
+.app-rail-org-mark {
+	display: flex;
+	height: 1.75rem;
+	width: 1.75rem;
+	padding: 1px;
+	border-radius: 0.5rem;
+	background: linear-gradient(
+		145deg,
+		color-mix(in oklch, var(--foreground), transparent 55%),
+		color-mix(in oklch, var(--accent-foreground), transparent 70%)
+	);
+	box-shadow: 0 1px 2px color-mix(in oklch, var(--background), transparent 40%);
+	transition:
+		transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+		box-shadow 160ms ease;
+}
+
+.group:hover .app-rail-org-mark {
+	transform: scale(1.04);
+	box-shadow: 0 2px 8px color-mix(in oklch, var(--foreground), transparent 88%);
+}
+
+.app-rail-org-mark-inner {
+	display: flex;
+	height: 100%;
+	width: 100%;
+	align-items: center;
+	justify-content: center;
+	border-radius: calc(0.5rem - 1px);
+	background: var(--card);
+}
+
+.app-rail-org-initials {
 	font-family: var(--font-display);
-	font-size: 1rem;
+	font-size: 0.625rem;
 	font-weight: 700;
 	line-height: 1;
 	color: var(--foreground);
-	letter-spacing: -0.04em;
-	transform: translateX(-0.5px);
+	letter-spacing: -0.03em;
+}
+
+.app-rail-item {
+	position: relative;
+	display: flex;
+	height: 2.25rem;
+	width: 2.25rem;
+	align-items: center;
+	justify-content: center;
+	border-radius: 0.5rem;
+	color: var(--muted-foreground);
+	transition:
+		background-color 140ms ease,
+		color 140ms ease,
+		transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-rail-item:hover {
+	background: color-mix(in oklch, var(--muted), transparent 35%);
+	color: var(--foreground);
+}
+
+.app-rail-item:active {
+	transform: scale(0.96);
+}
+
+.app-rail-item-active {
+	background: color-mix(in oklch, var(--foreground), transparent 91%);
+	color: var(--foreground);
+}
+
+.app-rail-item-active:hover {
+	background: color-mix(in oklch, var(--foreground), transparent 87%);
+}
+
+.app-rail-item-indicator {
+	position: absolute;
+	left: -0.5rem;
+	top: 50%;
+	width: 2px;
+	height: 0.875rem;
+	border-radius: 9999px;
+	background: var(--foreground);
+	transform: translateY(-50%);
+}
+
+.app-rail-item-utility {
+	opacity: 0.82;
+}
+
+.app-rail-item-utility:hover {
+	opacity: 1;
+}
+
+.app-rail-divider {
+	height: 1px;
+	width: 1.25rem;
+	margin: 0.25rem 0 0.375rem;
+	background: var(--border);
+}
+
+.app-rail-account {
+	display: flex;
+	height: 1.625rem;
+	width: 1.625rem;
+	padding: 1px;
+	border-radius: 9999px;
+	background: color-mix(in oklch, var(--border), transparent 20%);
+	transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-rail-account:hover {
+	transform: scale(1.06);
+}
+
+.app-rail-account-inner {
+	display: flex;
+	height: 100%;
+	width: 100%;
+	align-items: center;
+	justify-content: center;
+	border-radius: 9999px;
+	background: var(--muted);
+}
+
+.app-rail-account-initials {
+	font-size: 0.5625rem;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--foreground);
+	letter-spacing: -0.02em;
 }
 
 .thread-row {
@@ -368,6 +490,7 @@
 }
 
 .event-chip {
+	background-color: color-mix(in oklch, currentColor 10%, var(--background));
 	border-radius: var(--radius-sm);
 }
 
