@@ -221,7 +221,7 @@ export function liveSearchTarget(
 	value: string,
 	currentPathname: string,
 	folderId?: string,
-	selectedThreadId?: string,
+	_selectedThreadId?: string,
 ):
 	| { kind: 'search'; q: string; folderId?: string }
 	| { kind: 'folder'; folderId: string }
@@ -230,7 +230,6 @@ export function liveSearchTarget(
 	const q = value.trim()
 	if (q) return { kind: 'search', q, ...(folderId ? { folderId } : {}) }
 	if (!currentPathname.startsWith('/mail/search')) return { kind: 'stay' }
-	if (selectedThreadId) return { kind: 'thread', folderId: folderId ?? 'inbox', threadId: selectedThreadId }
 	return { kind: 'folder', folderId: folderId ?? 'inbox' }
 }
 
@@ -277,6 +276,10 @@ export function composeMaskFromMailLocation(pathname: string): { to: '/' } | und
 }
 
 export function threadMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
+	return pathname === '/' ? { to: '/' } : undefined
+}
+
+export function searchMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
 	return pathname === '/' ? { to: '/' } : undefined
 }
 

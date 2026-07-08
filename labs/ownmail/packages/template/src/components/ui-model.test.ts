@@ -28,6 +28,7 @@ import {
 	messagePreview,
 	replyDraftSearch,
 	searchListSearch,
+	searchMaskFromMailLocation,
 	shouldUseBrowserBackForComposeClose,
 	sidebarFolderCount,
 	threadLabels,
@@ -205,9 +206,8 @@ describe('ui-model mail helpers', () => {
 			folderId: 'work',
 		})
 		expect(liveSearchTarget('', '/mail/search', 'inbox', 'thread-roadmap')).toEqual({
-			kind: 'thread',
+			kind: 'folder',
 			folderId: 'inbox',
-			threadId: 'thread-roadmap',
 		})
 		expect(liveSearchTarget('', '/mail/search', 'work')).toEqual({ kind: 'folder', folderId: 'work' })
 		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
@@ -292,6 +292,12 @@ describe('ui-model mail helpers', () => {
 		expect(threadMaskFromMailLocation('/')).toEqual({ to: '/' })
 		expect(threadMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
 		expect(threadMaskFromMailLocation('/mail/search')).toBeUndefined()
+	})
+
+	it('masks root inbox search navigation to match the reference filtered list URL', () => {
+		expect(searchMaskFromMailLocation('/')).toEqual({ to: '/' })
+		expect(searchMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
+		expect(searchMaskFromMailLocation('/mail/search')).toBeUndefined()
 	})
 })
 

@@ -26,6 +26,7 @@ import {
 	liveSearchTarget,
 	MAIL_FOLDERS,
 	mailSearchInputValue,
+	searchMaskFromMailLocation,
 	sidebarFolderCount,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
@@ -96,6 +97,12 @@ export function MailRouteScreen({
 }) {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	const publicPathname = useRouterState({
+		select: (state) => state.location.maskedLocation?.pathname ?? state.location.pathname,
+	})
+	const isSearchRoute = useRouterState({
+		select: (state) => state.matches.some((match) => match.routeId === '/mail/search'),
+	})
 	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
 	const routeSearchQuery = typeof searchParams.q === 'string' ? searchParams.q : undefined
@@ -111,31 +118,45 @@ export function MailRouteScreen({
 		() => composeSearchFromMailLocation(pathname, activeSearchFolderId, selectedSearchThreadId),
 		[activeSearchFolderId, pathname, selectedSearchThreadId],
 	)
-	const composeMask = useMemo(() => composeMaskFromMailLocation(pathname), [pathname])
+	const composeMask = useMemo(() => composeMaskFromMailLocation(publicPathname), [publicPathname])
+	const searchMask = useMemo(() => searchMaskFromMailLocation(publicPathname), [publicPathname])
+	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
 	const [query, setQuery] = useState('')
 	useVersionPolling()
 
 	useEffect(() => {
-		setQuery(mailSearchInputValue(pathname, routeSearchQuery))
-	}, [pathname, routeSearchQuery])
+		setQuery(mailSearchInputValue(searchAwarePathname, routeSearchQuery))
+	}, [routeSearchQuery, searchAwarePathname])
 
 	function updateSearch(nextQuery: string) {
 		setQuery(nextQuery)
-		const target = liveSearchTarget(nextQuery, pathname, activeSearchFolderId, selectedSearchThreadId)
+		const target = liveSearchTarget(
+			nextQuery,
+			searchAwarePathname,
+			activeSearchFolderId,
+			selectedSearchThreadId,
+		)
 		if (target.kind === 'search') {
 			navigate({
 				to: '/mail/search',
 				search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
 				replace: true,
+				...(searchMask ? { mask: searchMask } : {}),
 			})
 		} else if (target.kind === 'thread') {
 			navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId: target.folderId, threadId: target.threadId },
 				replace: true,
+				...(searchMask ? { mask: searchMask } : {}),
 			})
 		} else if (target.kind === 'folder') {
-			navigate({ to: '/mail/f/$folderId', params: { folderId: target.folderId }, replace: true })
+			navigate({
+				to: '/mail/f/$folderId',
+				params: { folderId: target.folderId },
+				replace: true,
+				...(searchMask ? { mask: searchMask } : {}),
+			})
 		}
 	}
 
@@ -181,11 +202,12 @@ export function MailRouteScreen({
 							className="relative flex-1 md:max-w-md"
 							onSubmit={(event) => {
 								event.preventDefault()
-								const target = liveSearchTarget(query, pathname, activeSearchFolderId)
+								const target = liveSearchTarget(query, searchAwarePathname, activeSearchFolderId)
 								if (target.kind === 'search') {
 									navigate({
 										to: '/mail/search',
 										search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
+										...(searchMask ? { mask: searchMask } : {}),
 									})
 								}
 							}}

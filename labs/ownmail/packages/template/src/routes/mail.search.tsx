@@ -22,6 +22,7 @@ import {
 	messageBodyParagraphs,
 	replyDraftSearch,
 	searchListSearch,
+	searchMaskFromMailLocation,
 	threadLabels,
 	threadRouteFolderId,
 	threadSender,
@@ -60,6 +61,8 @@ function SearchResults() {
 	const { threads, folders, folderId, selected } = Route.useLoaderData()
 	const { q, threadId } = Route.useSearch()
 	const router = useRouter()
+	const publicPathname = router.state.location.maskedLocation?.pathname ?? router.state.location.pathname
+	const searchMask = searchMaskFromMailLocation(publicPathname)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -101,6 +104,7 @@ function SearchResults() {
 								thread={thread}
 								q={q}
 								searchFolderId={folderId}
+								mask={searchMask}
 								active={thread.id === threadId}
 							/>
 						))
@@ -109,7 +113,7 @@ function SearchResults() {
 			</section>
 			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden md:flex')}>
 				{selected ? (
-					<SearchThreadDetail selected={selected} q={q} folderId={folderId} />
+					<SearchThreadDetail selected={selected} q={q} folderId={folderId} mask={searchMask} />
 				) : (
 					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
@@ -130,11 +134,13 @@ function SearchThreadRow({
 	thread,
 	q,
 	searchFolderId,
+	mask,
 	active,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	q: string
 	searchFolderId?: string
+	mask?: { to: '/' }
 	active: boolean
 }) {
 	const folderId = threadRouteFolderId(thread)
@@ -153,6 +159,7 @@ function SearchThreadRow({
 		<Link
 			to="/mail/search"
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
+			{...(mask ? { mask } : {})}
 			className={cn(
 				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
 				active && 'bg-accent hover:bg-accent',
@@ -213,10 +220,12 @@ function SearchThreadDetail({
 	selected,
 	q,
 	folderId,
+	mask,
 }: {
 	selected: { thread: Thread; messages: Message[] }
 	q: string
 	folderId?: string
+	mask?: { to: '/' }
 }) {
 	const router = useRouter()
 	const routeFolderId = threadRouteFolderId(selected.thread)
@@ -235,12 +244,16 @@ function SearchThreadDetail({
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			if (event.key === 'Escape') {
 				event.preventDefault()
-				router.navigate({ to: '/mail/search', search: searchList })
+				router.navigate({
+					to: '/mail/search',
+					search: searchList,
+					...(mask ? { mask } : {}),
+				})
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [router, searchList])
+	}, [mask, router, searchList])
 
 	async function act(input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) {
 		await updateThreadState({ data: { threadId: selected.thread.id, ...input } })
@@ -248,6 +261,7 @@ function SearchThreadDetail({
 			await router.navigate({
 				to: '/mail/search',
 				search: searchList,
+				...(mask ? { mask } : {}),
 			})
 		}
 		await router.invalidate()
@@ -259,6 +273,7 @@ function SearchThreadDetail({
 				<Link
 					to="/mail/search"
 					search={searchList}
+					{...(mask ? { mask } : {})}
 					aria-label="Back to list"
 					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
 				>
