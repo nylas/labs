@@ -2,24 +2,111 @@
 @import "./tokens.css";
 @import "tailwindcss";
 
-@theme {
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
 	--font-sans:
-		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		var(--font-poppins), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+		sans-serif;
+	--font-display: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+	--font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-event-blue: var(--event-blue);
+	--color-event-teal: var(--event-teal);
+	--color-event-amber: var(--event-amber);
+	--color-event-rose: var(--event-rose);
+
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
 }
 
 :root {
 	color-scheme: light;
-	font-family: var(--font-body);
+	--font-poppins:
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-manrope:
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+	--background: oklch(0.99 0.002 145);
+	--foreground: oklch(0.2 0.01 160);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.2 0.01 160);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.2 0.01 160);
+	--primary: oklch(0.6 0.12 158);
+	--primary-foreground: oklch(0.99 0.01 145);
+	--secondary: oklch(0.965 0.004 145);
+	--secondary-foreground: oklch(0.24 0.01 160);
+	--muted: oklch(0.965 0.004 145);
+	--muted-foreground: oklch(0.52 0.012 160);
+	--accent: oklch(0.95 0.03 158);
+	--accent-foreground: oklch(0.42 0.1 158);
+	--destructive: oklch(0.58 0.2 25);
+	--border: oklch(0.915 0.004 145);
+	--input: oklch(0.915 0.004 145);
+	--ring: oklch(0.6 0.12 158);
+	--radius: 0.125rem;
+	--event-blue: oklch(0.52 0.1 165);
+	--event-teal: oklch(0.56 0.07 215);
+	--event-amber: oklch(0.64 0.11 75);
+	--event-rose: oklch(0.56 0.12 32);
+	--sidebar: oklch(0.965 0.004 145);
+	--sidebar-foreground: oklch(0.3 0.01 160);
+	--sidebar-primary: oklch(0.6 0.12 158);
+	--sidebar-primary-foreground: oklch(0.99 0.01 145);
+	--sidebar-accent: oklch(0.93 0.02 158);
+	--sidebar-accent-foreground: oklch(0.4 0.1 158);
+	--sidebar-border: oklch(0.9 0.004 145);
+	--sidebar-ring: oklch(0.6 0.12 158);
+	font-family: var(--font-sans);
 }
 
 html,
 body {
 	overflow-x: clip;
-	background: var(--color-paper);
-	color: var(--color-ink);
-	font-family: var(--font-body);
+	background: var(--background);
+	color: var(--foreground);
+	font-family: var(--font-sans);
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+	font-family: var(--font-display);
+	letter-spacing: -0.015em;
 }
 
 button,

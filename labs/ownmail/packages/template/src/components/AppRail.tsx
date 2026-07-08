@@ -1,0 +1,95 @@
+import { Link } from '@tanstack/react-router'
+import { Calendar, LogOut, Mail, Moon, Search, Settings } from 'lucide-react'
+
+function initials(email: string): string {
+	const local = email.split('@')[0] ?? email
+	return local
+		.split(/[._-]+/)
+		.map((part) => part[0])
+		.filter(Boolean)
+		.slice(0, 2)
+		.join('')
+		.toUpperCase()
+}
+
+export function AppRail({ email, active }: { email: string; active: 'mail' | 'calendar' }) {
+	return (
+		<nav
+			aria-label="Primary"
+			className="flex h-full w-16 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3"
+		>
+			<Link
+				to="/mail"
+				className="mb-2 flex h-10 w-10 items-center justify-center rounded-sm bg-primary text-primary-foreground"
+				aria-label="ownmail home"
+			>
+				<span className="font-display text-lg font-extrabold leading-none">o</span>
+			</Link>
+
+			<Link
+				to="/mail"
+				aria-label="Mail"
+				aria-current={active === 'mail' ? 'page' : undefined}
+				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
+					active === 'mail'
+						? 'bg-sidebar-primary text-sidebar-primary-foreground'
+						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+				}`}
+			>
+				<Mail className="h-5 w-5" strokeWidth={active === 'mail' ? 2.4 : 2} />
+				<span className="mt-0.5 text-[10px] font-medium tracking-tight">Mail</span>
+			</Link>
+			<Link
+				to="/calendar/$view"
+				params={{ view: 'week' }}
+				aria-label="Calendar"
+				aria-current={active === 'calendar' ? 'page' : undefined}
+				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
+					active === 'calendar'
+						? 'bg-sidebar-primary text-sidebar-primary-foreground'
+						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+				}`}
+			>
+				<Calendar className="h-5 w-5" strokeWidth={active === 'calendar' ? 2.4 : 2} />
+				<span className="mt-0.5 text-[10px] font-medium tracking-tight">Calendar</span>
+			</Link>
+
+			<div className="mt-auto flex flex-col items-center gap-1">
+				<button
+					type="button"
+					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Toggle theme"
+				>
+					<Moon className="h-5 w-5" />
+				</button>
+				<button
+					type="button"
+					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Search"
+				>
+					<Search className="h-5 w-5" />
+				</button>
+				<button
+					type="button"
+					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Settings"
+				>
+					<Settings className="h-5 w-5" />
+				</button>
+				<a
+					href="/logout"
+					className="group relative flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Sign out"
+				>
+					<LogOut className="h-5 w-5" />
+				</a>
+				<div
+					className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground"
+					title={email}
+				>
+					{initials(email)}
+				</div>
+			</div>
+		</nav>
+	)
+}

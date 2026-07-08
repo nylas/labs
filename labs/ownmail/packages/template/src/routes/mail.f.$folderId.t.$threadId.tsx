@@ -1,6 +1,18 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import {
+	Archive,
+	ArrowLeft,
+	Forward,
+	MoreHorizontal,
+	Paperclip,
+	Reply,
+	ReplyAll,
+	Star,
+	Trash2,
+} from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { cn, initials, messagePreview } from '../components/ui-model.js'
 import { getThreadMessages, sendMessage, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -21,9 +33,7 @@ function ThreadView() {
 			setError(null)
 			try {
 				await updateThreadState({ data: { threadId, ...input } })
-				if (leave) {
-					navigate({ to: '/mail/f/$folderId', params: { folderId } })
-				}
+				if (leave) navigate({ to: '/mail/f/$folderId', params: { folderId } })
 				router.invalidate()
 			} catch (err) {
 				setError(err instanceof Error ? err.message : 'Action failed')
@@ -64,122 +74,184 @@ function ThreadView() {
 	}, [act, folderId, navigate, thread.starred])
 
 	return (
-		<article className="thread-article">
-			<div className="thread-toolbar">
-				<Link to="/mail/f/$folderId" params={{ folderId }} className="btn btn-quiet">
-					Back
-				</Link>
-				<ActionButton label="Archive" shortcut="E" onClick={() => act({ folder: 'archive' }, true)}>
-					Archive
-				</ActionButton>
-				<ActionButton label="Delete" shortcut="#" danger onClick={() => act({ folder: 'trash' }, true)}>
-					Delete
-				</ActionButton>
-				<ActionButton
+		<div className="flex min-w-0 flex-1 flex-col bg-background">
+			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
+				<button
+					type="button"
+					onClick={() => navigate({ to: '/mail/f/$folderId', params: { folderId } })}
+					aria-label="Back to list"
+					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+				>
+					<ArrowLeft className="h-5 w-5" />
+				</button>
+				<IconButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
+					<Archive className="h-4 w-4" />
+				</IconButton>
+				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
+					<Trash2 className="h-4 w-4" />
+				</IconButton>
+				<IconButton
 					label={thread.starred ? 'Unstar' : 'Star'}
-					shortcut="S"
 					onClick={() => act({ starred: !thread.starred })}
 				>
-					{thread.starred ? 'Unstar' : 'Star'}
-				</ActionButton>
-				<ActionButton label="Mark unread" shortcut="U" onClick={() => act({ unread: true }, true)}>
-					Mark unread
-				</ActionButton>
+					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
+				</IconButton>
+				<div className="ml-auto">
+					<IconButton label="More">
+						<MoreHorizontal className="h-4 w-4" />
+					</IconButton>
+				</div>
 			</div>
 			{error ? <ErrorBanner message={error} /> : null}
-			<h1 className="thread-title">{thread.subject || '(no subject)'}</h1>
-			<div>
-				{messages.map((message) => (
-					<MessageCard key={message.id} message={message} />
-				))}
+
+			<div className="min-h-0 flex-1 overflow-y-auto">
+				<div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
+					<div className="flex flex-wrap items-center gap-2">
+						<h2 className="text-xl font-semibold text-balance">{thread.subject || '(no subject)'}</h2>
+					</div>
+
+					{thread.has_attachments ? (
+						<div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+							<Paperclip className="h-4 w-4 text-muted-foreground" />
+							<span className="font-medium text-foreground">Attachments</span>
+						</div>
+					) : null}
+
+					<div className="mt-4 space-y-3">
+						{messages.map((message, index) => (
+							<MessageBlock key={message.id} message={message} defaultOpen={index === messages.length - 1} />
+						))}
+					</div>
+
+					<div className="mt-4 flex flex-wrap gap-2">
+						{lastMessage ? <ReplyButton lastMessage={lastMessage} /> : null}
+						<button
+							type="button"
+							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+						>
+							<ReplyAll className="h-4 w-4" /> Reply all
+						</button>
+						<button
+							type="button"
+							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+						>
+							<Forward className="h-4 w-4" /> Forward
+						</button>
+					</div>
+				</div>
 			</div>
-			{lastMessage ? <ReplyBox lastMessage={lastMessage} /> : null}
-		</article>
+		</div>
 	)
 }
 
-function ActionButton({
+function IconButton({
 	label,
 	onClick,
 	children,
-	shortcut,
-	danger,
 }: {
 	label: string
-	onClick: () => void
+	onClick?: () => void
 	children: React.ReactNode
-	shortcut?: string
-	danger?: boolean
 }) {
 	return (
 		<button
 			type="button"
-			title={label}
-			aria-label={label}
 			onClick={onClick}
-			className={`btn ${danger ? 'btn-danger' : 'btn-quiet'}`}
+			aria-label={label}
+			title={label}
+			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 		>
-			<span>{children}</span>
-			{shortcut ? <span className="kbd">{shortcut}</span> : null}
+			{children}
 		</button>
 	)
 }
 
-function MessageCard({ message }: { message: Message }) {
+function MessageBlock({ message, defaultOpen }: { message: Message; defaultOpen: boolean }) {
+	const [open, setOpen] = useState(defaultOpen)
 	const from = message.from?.[0]
-	const attachments = (message.attachments ?? []).filter((a) => !a.is_inline)
+	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	return (
-		<div className="message-card">
-			<header className="message-card-header">
-				<div className="min-w-0">
-					<span className="sender">{from?.name || from?.email}</span>
-					{from?.name ? <span className="ml-2 text-xs text-neutral-500">{from.email}</span> : null}
+		<div className="rounded-sm border border-border bg-card">
+			<button
+				type="button"
+				onClick={() => setOpen((value) => !value)}
+				className="flex w-full items-start gap-3 px-4 py-3 text-left"
+			>
+				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+					{initials(fromLabel)}
 				</div>
-				{message.date ? (
-					<time className="shrink-0 text-xs text-neutral-400">
-						{new Date(message.date * 1000).toLocaleString()}
-					</time>
-				) : null}
-			</header>
-			<div className="p-4">
-				<MessageBody message={message} />
-			</div>
-			{attachments.length > 0 ? (
-				<footer className="flex flex-wrap gap-2 border-t border-neutral-100 px-4 py-3">
-					{attachments.map((a) => (
-						<a
-							key={a.id}
-							href={`/attachments/${encodeURIComponent(a.id)}?message_id=${encodeURIComponent(message.id)}`}
-							className="btn btn-quiet min-h-9 px-3 text-xs"
-							download={a.filename}
-						>
-							{a.filename ?? 'attachment'}
-							{a.size ? <span className="text-neutral-400">({formatSize(a.size)})</span> : null}
-						</a>
-					))}
-				</footer>
+				<div className="min-w-0 flex-1">
+					<div className="flex items-baseline justify-between gap-2">
+						<span className="truncate text-sm font-semibold text-foreground">{fromLabel}</span>
+						{message.date ? (
+							<span className="shrink-0 text-xs text-muted-foreground">
+								{new Date(message.date * 1000).toLocaleString(undefined, {
+									weekday: 'short',
+									month: 'short',
+									day: 'numeric',
+									hour: 'numeric',
+									minute: '2-digit',
+								})}
+							</span>
+						) : null}
+					</div>
+					{open ? (
+						<p className="truncate text-xs text-muted-foreground">
+							to {message.to?.map((person) => person.name || person.email).join(', ') || 'me'}
+						</p>
+					) : (
+						<p className="truncate text-xs text-muted-foreground">{messagePreview(message)}</p>
+					)}
+				</div>
+			</button>
+
+			{open ? (
+				<div className="px-4 pb-4 pl-16">
+					<MessageBody message={message} />
+					<MessageAttachments message={message} />
+				</div>
 			) : null}
 		</div>
 	)
 }
 
-function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`
-	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+function MessageAttachments({ message }: { message: Message }) {
+	const attachments = (message.attachments ?? []).filter((attachment) => !attachment.is_inline)
+	if (attachments.length === 0) return null
+	return (
+		<div className="mt-4 flex flex-wrap gap-2">
+			{attachments.map((attachment) => (
+				<a
+					key={attachment.id}
+					href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(message.id)}`}
+					className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-muted"
+					download={attachment.filename}
+				>
+					<Paperclip className="h-4 w-4 text-muted-foreground" />
+					<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
+					{attachment.size ? (
+						<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
+					) : null}
+				</a>
+			))}
+		</div>
+	)
 }
 
 function MessageBody({ message }: { message: Message }) {
 	// Email bodies are untrusted HTML. Render inside a sandboxed iframe so
 	// scripts/styles can't touch the app; srcDoc keeps it same-process but inert.
 	if (message.body) {
-		return <iframe title="message" sandbox="" srcDoc={message.body} className="mail-frame" />
+		return (
+			<iframe title="message" sandbox="" srcDoc={message.body} className="min-h-60 w-full border-0 bg-card" />
+		)
 	}
-	return <p className="whitespace-pre-wrap text-sm text-neutral-800">{message.snippet}</p>
+	return <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{message.snippet}</p>
 }
 
-function ReplyBox({ lastMessage }: { lastMessage: Message }) {
+function ReplyButton({ lastMessage }: { lastMessage: Message }) {
 	const router = useRouter()
+	const [open, setOpen] = useState(false)
 	const [body, setBody] = useState('')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -200,6 +272,7 @@ function ReplyBox({ lastMessage }: { lastMessage: Message }) {
 				},
 			})
 			setBody('')
+			setOpen(false)
 			router.invalidate()
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to send')
@@ -208,35 +281,60 @@ function ReplyBox({ lastMessage }: { lastMessage: Message }) {
 		}
 	}
 
+	if (!open) {
+		return (
+			<button
+				type="button"
+				onClick={() => setOpen(true)}
+				className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+			>
+				<Reply className="h-4 w-4" /> Reply
+			</button>
+		)
+	}
+
 	return (
-		<div className="reply-box">
-			<p className="mb-2 text-xs text-neutral-500">Reply to {replyTo}</p>
+		<div className="basis-full rounded-sm border border-border bg-card p-3">
+			<p className="mb-2 text-xs text-muted-foreground">Reply to {replyTo}</p>
 			<textarea
 				value={body}
-				onChange={(e) => setBody(e.target.value)}
+				onChange={(event) => setBody(event.target.value)}
 				rows={4}
-				placeholder="Write your reply…"
-				className="app-textarea"
+				placeholder="Write your reply..."
+				className="w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
 			/>
 			{error ? <ErrorBanner message={error} /> : null}
-			<div className="mt-2 flex justify-end">
+			<div className="mt-2 flex justify-end gap-2">
+				<button
+					type="button"
+					className="rounded-lg px-3 py-2 text-sm hover:bg-muted"
+					onClick={() => setOpen(false)}
+				>
+					Cancel
+				</button>
 				<button
 					type="button"
 					disabled={busy || body.trim() === ''}
 					onClick={submit}
-					className="btn btn-primary"
+					className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
 				>
-					{busy ? 'Sending…' : 'Send'}
+					{busy ? 'Sending...' : 'Send'}
 				</button>
 			</div>
 		</div>
 	)
 }
 
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export function ErrorBanner({ message }: { message: string }) {
 	const isQuota = message.startsWith('QUOTA:')
 	return (
-		<p className={`error-banner ${isQuota ? 'error-banner-quota' : ''}`}>
+		<p className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 			{isQuota ? message.slice(6).trim() : message}
 		</p>
 	)

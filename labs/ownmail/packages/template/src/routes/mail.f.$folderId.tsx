@@ -1,12 +1,24 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useRouter } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
-import { getThreads, listDrafts } from '../server/fns.js'
+import { createFileRoute, Link, Outlet, useRouter, useRouterState } from '@tanstack/react-router'
+import { Paperclip, Reply, Star } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import {
+	cn,
+	draftRecipientList,
+	formatListDate,
+	threadSender,
+	threadTimestamp,
+} from '../components/ui-model.js'
+import { getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
 	loader: async ({ params }) => {
 		if (params.folderId === 'drafts') {
 			return { threads: [] as Thread[], drafts: await listDrafts() }
+		}
+		if (params.folderId === 'starred') {
+			const res = await getThreads({ data: { folderId: 'inbox' } })
+			return { threads: res.threads.filter((thread) => thread.starred), drafts: [] as Draft[] }
 		}
 		const res = await getThreads({ data: { folderId: params.folderId } })
 		return { ...res, drafts: [] as Draft[] }
@@ -18,14 +30,13 @@ function FolderView() {
 	const { threads, drafts } = Route.useLoaderData()
 	const { folderId } = Route.useParams()
 	const router = useRouter()
-	const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
-	const visibleThreads = useMemo(() => {
-		if (filter === 'unread') return threads.filter((thread) => thread.unread)
-		if (filter === 'starred') return threads.filter((thread) => thread.starred)
-		return threads
-	}, [filter, threads])
-	const unreadCount = threads.filter((thread) => thread.unread).length
-	const starredCount = threads.filter((thread) => thread.starred).length
+	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	const hasThread = pathname.includes('/t/')
+	const sortedThreads = useMemo(
+		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
+		[threads],
+	)
+	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 
 	// Light-touch realtime: refresh the list every 30s while the tab is visible.
 	useEffect(() => {
@@ -37,142 +48,153 @@ function FolderView() {
 
 	return (
 		<>
-			<section className="folder-panel">
-				<header className="folder-header">
-					<div className="flex items-end justify-between gap-3">
-						<div>
-							<h1 className="folder-title">{folderId}</h1>
-							<p className="muted-line">
-								{folderId === 'drafts'
-									? `${drafts.length} draft${drafts.length === 1 ? '' : 's'}`
-									: `${threads.length} thread${threads.length === 1 ? '' : 's'} · ${unreadCount} unread`}
-							</p>
-						</div>
-						<button type="button" className="icon-btn" onClick={() => router.invalidate()} title="Refresh">
-							↻
-						</button>
-					</div>
-					{folderId !== 'drafts' ? (
-						<fieldset className="mt-3 segmented">
-							<legend className="sr-only">Thread filters</legend>
-							<FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
-								All
-							</FilterButton>
-							<FilterButton active={filter === 'unread'} onClick={() => setFilter('unread')}>
-								Unread {unreadCount ? `(${unreadCount})` : ''}
-							</FilterButton>
-							<FilterButton active={filter === 'starred'} onClick={() => setFilter('starred')}>
-								Starred {starredCount ? `(${starredCount})` : ''}
-							</FilterButton>
-						</fieldset>
-					) : null}
-				</header>
-				{folderId === 'drafts' ? (
-					drafts.length === 0 ? (
-						<EmptyState title="No drafts" body="Saved drafts will wait here until you send or delete them." />
-					) : (
-						<ul className="message-list">
-							{drafts.map((draft) => (
-								<DraftRow key={draft.id} draft={draft} />
-							))}
-						</ul>
-					)
-				) : visibleThreads.length === 0 ? (
-					<EmptyState
-						title={filter === 'all' ? 'Nothing here yet' : `No ${filter} mail`}
-						body="Change filters, search, or compose a new message."
-					/>
-				) : (
-					<ul className="message-list">
-						{visibleThreads.map((thread) => (
-							<ThreadRow key={thread.id} thread={thread} folderId={folderId} />
-						))}
-					</ul>
+			<section
+				className={cn(
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none',
 				)}
+			>
+				<div className="flex items-center justify-between border-b border-border px-4 py-3">
+					<h1 className="text-base font-semibold capitalize">{folderId}</h1>
+					{unreadCount > 0 ? (
+						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+							{unreadCount} unread
+						</span>
+					) : null}
+				</div>
+
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					{folderId === 'drafts' ? (
+						drafts.length === 0 ? (
+							<EmptyState />
+						) : (
+							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} />)
+						)
+					) : sortedThreads.length === 0 ? (
+						<EmptyState />
+					) : (
+						sortedThreads.map((thread) => (
+							<ThreadRow
+								key={thread.id}
+								thread={thread}
+								folderId={folderId}
+								onChanged={() => router.invalidate()}
+							/>
+						))
+					)}
+				</div>
 			</section>
-			<section className="detail-panel">
-				<Outlet />
+			<section className="min-w-0 flex-1">
+				{hasThread ? (
+					<Outlet />
+				) : (
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
+						<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+							<Reply className="h-6 w-6" />
+						</div>
+						<div>
+							<p className="text-sm font-medium text-foreground">Select a conversation</p>
+							<p className="text-sm text-muted-foreground">Choose a message from the list to read it here.</p>
+						</div>
+					</div>
+				)}
 			</section>
 		</>
 	)
 }
 
-function FilterButton({
-	active,
-	onClick,
-	children,
-}: {
-	active: boolean
-	onClick: () => void
-	children: React.ReactNode
-}) {
+function EmptyState() {
 	return (
-		<button type="button" className="tab-btn" data-active={active} onClick={onClick}>
-			{children}
-		</button>
-	)
-}
-
-function EmptyState({ title, body }: { title: string; body: string }) {
-	return (
-		<div className="grid min-h-80 place-items-center p-6 text-center">
-			<div>
-				<h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-				<p className="mt-1 max-w-xs text-sm text-neutral-500">{body}</p>
-			</div>
+		<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+			<p className="text-sm font-medium text-foreground">Nothing here</p>
+			<p className="text-sm text-muted-foreground">This view is empty.</p>
 		</div>
 	)
 }
 
 function DraftRow({ draft }: { draft: Draft }) {
 	return (
-		<li>
-			<Link to="/mail/compose" search={{ draft: draft.id }} className="message-row">
-				<div className="message-row-top">
-					<span className="sender">Draft</span>
-					<span className="badge">Saved</span>
-				</div>
-				<div className="message-subject">
-					To: {draft.to?.map((p) => p.email).join(', ') || '(no recipient)'}
-				</div>
-				<div className="message-snippet">
-					{draft.subject || '(no subject)'} · {draft.snippet}
-				</div>
-			</Link>
-		</li>
+		<Link
+			to="/mail/compose"
+			search={{ draft: draft.id }}
+			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
+		>
+			<div className="flex items-center gap-2">
+				<span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">Draft</span>
+				<span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+					Saved
+				</span>
+			</div>
+			<p className="truncate text-sm font-semibold text-foreground">To: {draftRecipientList(draft)}</p>
+			<p className="min-w-0 truncate text-xs text-muted-foreground">
+				{draft.subject || '(no subject)'} · {draft.snippet}
+			</p>
+		</Link>
 	)
 }
 
-function ThreadRow({ thread, folderId }: { thread: Thread; folderId: string }) {
-	const from = thread.participants?.[0]
-	const when = thread.latest_message_received_date ?? thread.latest_message_sent_date
-	return (
-		<li>
-			<Link
-				to="/mail/f/$folderId/t/$threadId"
-				params={{ folderId, threadId: thread.id }}
-				className={`message-row ${thread.unread ? 'message-row-unread' : ''}`}
-				activeProps={{ className: 'message-row-active' }}
-			>
-				<div className="message-row-top">
-					<span className="sender">
-						{thread.starred ? <span title="Starred">★ </span> : null}
-						{from?.name || from?.email || '(unknown sender)'}
-					</span>
-					{when ? <time className="shrink-0 text-xs text-neutral-500">{formatDate(when)}</time> : null}
-				</div>
-				<div className="message-subject">{thread.subject || '(no subject)'}</div>
-				<div className="message-snippet">{thread.snippet}</div>
-			</Link>
-		</li>
-	)
-}
+function ThreadRow({
+	thread,
+	folderId,
+	onChanged,
+}: {
+	thread: Thread
+	folderId: string
+	onChanged: () => void
+}) {
+	const when = formatListDate(threadTimestamp(thread))
+	const sender = threadSender(thread, folderId)
 
-function formatDate(epochSeconds: number): string {
-	const date = new Date(epochSeconds * 1000)
-	const now = new Date()
-	if (date.toDateString() === now.toDateString()) {
-		return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+	async function toggleStar(event: React.MouseEvent<HTMLButtonElement>) {
+		event.preventDefault()
+		event.stopPropagation()
+		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
+		onChanged()
 	}
-	return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+	return (
+		<Link
+			to="/mail/f/$folderId/t/$threadId"
+			params={{ folderId, threadId: thread.id }}
+			className={cn(
+				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
+				thread.unread && 'bg-card',
+			)}
+			activeProps={{ className: 'bg-accent hover:bg-accent' }}
+		>
+			{thread.unread ? <span className="absolute top-0 left-0 h-full w-0.5 bg-primary" aria-hidden /> : null}
+			<div className="flex items-center gap-2">
+				<button
+					type="button"
+					onClick={toggleStar}
+					aria-label={thread.starred ? 'Unstar' : 'Star'}
+					className="shrink-0 text-muted-foreground transition-colors hover:text-event-amber"
+				>
+					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
+				</button>
+				<span
+					className={cn(
+						'min-w-0 flex-1 truncate text-sm',
+						thread.unread ? 'font-semibold text-foreground' : 'font-medium text-foreground/90',
+					)}
+				>
+					{sender}
+					{(thread.message_ids?.length ?? 0) > 1 ? (
+						<span className="ml-1 font-normal text-muted-foreground">({thread.message_ids?.length})</span>
+					) : null}
+				</span>
+				{thread.has_attachments ? <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
+			</div>
+
+			<p
+				className={cn(
+					'truncate text-sm',
+					thread.unread ? 'font-semibold text-foreground' : 'text-foreground/80',
+				)}
+			>
+				{thread.subject || '(no subject)'}
+			</p>
+			<p className="min-w-0 truncate text-xs text-muted-foreground">{thread.snippet}</p>
+		</Link>
+	)
 }

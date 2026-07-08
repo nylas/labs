@@ -1,11 +1,27 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
+import { AlignLeft, CalendarDays, Clock, MapPin, Trash2, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent, updateEvent } from '../server/calendar-fns.js'
 import { eventTimes, ymd } from './calendar.js'
+import { cn, type EventTone, eventTone } from './ui-model.js'
 
 function toLocalInput(d: Date): string {
 	const pad = (n: number) => String(n).padStart(2, '0')
 	return `${ymd(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function eventBarClass(tone: EventTone): string {
+	if (tone === 'teal') return 'bg-event-teal'
+	if (tone === 'amber') return 'bg-event-amber'
+	if (tone === 'rose') return 'bg-event-rose'
+	return 'bg-event-blue'
+}
+
+function eventDotClass(tone: EventTone): string {
+	if (tone === 'teal') return 'bg-event-teal'
+	if (tone === 'amber') return 'bg-event-amber'
+	if (tone === 'rose') return 'bg-event-rose'
+	return 'bg-event-blue'
 }
 
 /** Create/edit/RSVP dialog for a single event on the primary calendar. */
@@ -35,8 +51,9 @@ export function EventModal({
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
-	const isOrganizerless = Boolean(event && event.read_only)
+	const isOrganizerless = Boolean(event?.read_only)
 	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
+	const tone = event ? eventTone(event) : 'blue'
 
 	async function save() {
 		setBusy(true)
@@ -97,111 +114,165 @@ export function EventModal({
 	}
 
 	return (
-		<div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
-			<div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
-				<div className="mb-3 flex items-baseline justify-between">
-					<h2 className="text-lg font-semibold">{event ? 'Event' : 'New event'}</h2>
-					<span className="text-xs text-neutral-400">{calendarName}</span>
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]">
+			<button
+				type="button"
+				className="absolute inset-0 cursor-default"
+				aria-label="Close event dialog"
+				onClick={() => onClose(false)}
+			/>
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label={event ? 'Event details' : 'New event'}
+				className="relative w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl"
+			>
+				<div className={cn('h-1.5 w-full', eventBarClass(tone))} />
+				<div className="flex items-start justify-between gap-3 px-5 pt-4">
+					<div className="flex min-w-0 items-start gap-3">
+						<span className={cn('mt-1.5 h-3 w-3 shrink-0 rounded-full', eventDotClass(tone))} />
+						<div className="min-w-0">
+							<h2 className="text-lg leading-snug font-semibold text-balance">
+								{event ? 'Event' : 'New event'}
+							</h2>
+							<p className="text-sm text-muted-foreground">{calendarName}</p>
+						</div>
+					</div>
+					<button
+						type="button"
+						onClick={() => onClose(false)}
+						aria-label="Close"
+						className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+					>
+						<X className="h-4 w-4" />
+					</button>
 				</div>
-				<div className="space-y-3">
+
+				<div className="space-y-4 px-5 py-4">
 					<input
 						value={title}
 						onChange={(e) => setTitle(e.target.value)}
-						placeholder="Title"
+						placeholder="Add title"
 						disabled={isOrganizerless}
-						className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-neutral-50"
+						className="w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary disabled:text-muted-foreground"
 					/>
-					<div className="flex gap-2">
-						<label className="flex-1 text-xs text-neutral-500">
-							Starts
-							<input
-								type="datetime-local"
-								value={start}
-								onChange={(e) => setStart(e.target.value)}
-								disabled={isOrganizerless}
-								className="mt-0.5 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm disabled:bg-neutral-50"
-							/>
-						</label>
-						<label className="flex-1 text-xs text-neutral-500">
-							Ends
-							<input
-								type="datetime-local"
-								value={end}
-								onChange={(e) => setEnd(e.target.value)}
-								disabled={isOrganizerless}
-								className="mt-0.5 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm disabled:bg-neutral-50"
-							/>
-						</label>
+					<div className="flex items-center gap-3 text-sm">
+						<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+						<span>
+							{new Date(start).toLocaleDateString(undefined, {
+								weekday: 'long',
+								month: 'long',
+								day: 'numeric',
+							})}
+						</span>
 					</div>
-					<input
-						value={location}
-						onChange={(e) => setLocation(e.target.value)}
-						placeholder="Location"
-						disabled={isOrganizerless}
-						className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-neutral-50"
-					/>
-					{!event ? (
+					<div className="flex items-center gap-3 text-sm">
+						<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+						<label className="sr-only" htmlFor="event-start">
+							Starts
+						</label>
 						<input
-							value={participants}
-							onChange={(e) => setParticipants(e.target.value)}
-							placeholder="Guests (comma-separated emails)"
-							className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+							id="event-start"
+							type="datetime-local"
+							value={start}
+							onChange={(e) => setStart(e.target.value)}
+							disabled={isOrganizerless}
+							className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary disabled:bg-muted"
 						/>
+						<span className="text-muted-foreground">to</span>
+						<label className="sr-only" htmlFor="event-end">
+							Ends
+						</label>
+						<input
+							id="event-end"
+							type="datetime-local"
+							value={end}
+							onChange={(e) => setEnd(e.target.value)}
+							disabled={isOrganizerless}
+							className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary disabled:bg-muted"
+						/>
+					</div>
+					<label className="flex items-center gap-3 text-sm">
+						<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+						<input
+							value={location}
+							onChange={(e) => setLocation(e.target.value)}
+							placeholder="Add location"
+							disabled={isOrganizerless}
+							className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:text-muted-foreground"
+						/>
+					</label>
+					{!event ? (
+						<label className="flex items-center gap-3 text-sm">
+							<Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+							<input
+								value={participants}
+								onChange={(e) => setParticipants(e.target.value)}
+								placeholder="Add guests"
+								className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+							/>
+						</label>
 					) : null}
-					<textarea
-						value={description}
-						onChange={(e) => setDescription(e.target.value)}
-						placeholder="Description"
-						rows={3}
-						disabled={isOrganizerless}
-						className="w-full resize-y rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-neutral-50"
-					/>
-					{error ? <p className="text-xs text-red-600">{error}</p> : null}
-					<div className="flex items-center justify-between pt-1">
-						<div className="flex gap-1">
-							{canRsvp
-								? (['yes', 'maybe', 'no'] as const).map((status) => (
-										<button
-											key={status}
-											type="button"
-											disabled={busy}
-											onClick={() => rsvp(status)}
-											className="rounded-full border border-neutral-200 px-3 py-1 text-xs capitalize hover:bg-neutral-50"
-										>
-											{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
-										</button>
-									))
-								: null}
-						</div>
-						<div className="flex gap-2">
-							{event && !isOrganizerless ? (
-								<button
-									type="button"
-									disabled={busy}
-									onClick={remove}
-									className="rounded-full px-4 py-1.5 text-sm text-red-600 hover:bg-red-50"
-								>
-									Delete
-								</button>
-							) : null}
+					<label className="flex items-start gap-3 text-sm">
+						<AlignLeft className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+						<textarea
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							placeholder="Add description"
+							rows={3}
+							disabled={isOrganizerless}
+							className="min-h-20 flex-1 resize-none bg-transparent outline-none placeholder:text-muted-foreground disabled:text-muted-foreground"
+						/>
+					</label>
+					{error ? (
+						<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+					) : null}
+				</div>
+
+				<div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
+					<div className="flex gap-1">
+						{canRsvp
+							? (['yes', 'maybe', 'no'] as const).map((status) => (
+									<button
+										key={status}
+										type="button"
+										disabled={busy}
+										onClick={() => rsvp(status)}
+										className="rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted"
+									>
+										{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
+									</button>
+								))
+							: null}
+					</div>
+					<div className="flex gap-2">
+						{event && !isOrganizerless ? (
 							<button
 								type="button"
-								onClick={() => onClose(false)}
-								className="rounded-full px-4 py-1.5 text-sm text-neutral-600 hover:bg-neutral-100"
+								disabled={busy}
+								onClick={remove}
+								className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
 							>
-								Close
+								<Trash2 className="h-4 w-4" /> Delete
 							</button>
-							{!isOrganizerless ? (
-								<button
-									type="button"
-									disabled={busy || !title.trim()}
-									onClick={save}
-									className="rounded-full bg-blue-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-								>
-									{busy ? 'Saving…' : 'Save'}
-								</button>
-							) : null}
-						</div>
+						) : null}
+						<button
+							type="button"
+							onClick={() => onClose(false)}
+							className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+						>
+							Cancel
+						</button>
+						{!isOrganizerless ? (
+							<button
+								type="button"
+								disabled={busy || !title.trim()}
+								onClick={save}
+								className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+							>
+								{busy ? 'Saving...' : 'Save event'}
+							</button>
+						) : null}
 					</div>
 				</div>
 			</div>

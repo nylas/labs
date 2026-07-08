@@ -1,6 +1,21 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouter } from '@tanstack/react-router'
+import {
+	Archive,
+	FileText,
+	Inbox,
+	type LucideIcon,
+	Pencil,
+	Search,
+	Send,
+	SlidersHorizontal,
+	Star,
+	Trash2,
+	X,
+} from 'lucide-react'
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { AppRail } from '../components/AppRail.js'
+import { cn, folderCount, LABELS, MAIL_FOLDERS, totalUnread } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail')({
@@ -11,7 +26,14 @@ export const Route = createFileRoute('/mail')({
 	component: MailLayout,
 })
 
-const FOLDER_ORDER = ['inbox', 'sent', 'drafts', 'archive', 'junk', 'trash']
+const FOLDER_ICONS: Record<string, LucideIcon> = {
+	inbox: Inbox,
+	starred: Star,
+	sent: Send,
+	drafts: FileText,
+	archive: Archive,
+	trash: Trash2,
+}
 
 /**
  * Near-realtime updates: poll the cheap /api/version signal every 10s and
@@ -43,12 +65,6 @@ function MailLayout() {
 	const [query, setQuery] = useState('')
 	const [commandOpen, setCommandOpen] = useState(false)
 	useVersionPolling()
-	const sorted = [...folders].sort((a, b) => {
-		const ai = FOLDER_ORDER.indexOf(a.id)
-		const bi = FOLDER_ORDER.indexOf(b.id)
-		return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
-	})
-	const unreadCount = folders.reduce((sum, folder) => sum + (folder.unread_count ?? 0), 0)
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
@@ -79,91 +95,70 @@ function MailLayout() {
 	}, [navigate])
 
 	return (
-		<div className="ownmail-shell">
-			<header className="app-topbar">
-				<div className="topbar-row">
-					<div className="brand-lockup">
-						<div className="brand-title">{info.appName}</div>
-						<div className="brand-subtitle" title={info.email}>
-							{info.email}
-						</div>
-					</div>
-					<div className="topbar-actions">
-						<button type="button" className="btn btn-quiet" onClick={() => setCommandOpen(true)}>
-							<span>Command</span>
-							<span className="kbd">⌘K</span>
+		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+			<AppRail email={info.email} active="mail" />
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				<div className="hidden md:flex">
+					<MailSidebar folders={folders} />
+				</div>
+				<div className="flex min-w-0 flex-1 flex-col">
+					<header className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
+						<form
+							className="relative flex-1 md:max-w-md"
+							onSubmit={(event) => {
+								event.preventDefault()
+								if (query.trim()) navigate({ to: '/mail/search', search: { q: query.trim() } })
+							}}
+						>
+							<Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+							<input
+								id="mail-search"
+								type="search"
+								value={query}
+								onChange={(event) => setQuery(event.target.value)}
+								placeholder="Search mail"
+								className="h-9 w-full rounded-lg border border-border bg-card pr-9 pl-9 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+								aria-label="Search mail"
+								enterKeyHint="search"
+								autoCapitalize="none"
+							/>
+							{query ? (
+								<button
+									type="button"
+									onClick={() => setQuery('')}
+									aria-label="Clear search"
+									className="absolute top-1/2 right-2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+								>
+									<X className="h-4 w-4" />
+								</button>
+							) : null}
+						</form>
+						<button
+							type="button"
+							className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:bg-muted"
+							onClick={() => setCommandOpen(true)}
+						>
+							<SlidersHorizontal className="h-4 w-4" />
+							<span className="hidden sm:inline">Filters</span>
 						</button>
+						<span className="ml-auto hidden text-xs text-muted-foreground lg:inline">
+							Press <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono">C</kbd> to
+							compose
+						</span>
+					</header>
+					<div className="flex min-h-0 flex-1">
+						<Outlet />
 					</div>
 				</div>
-				<form
-					className="search-field"
-					onSubmit={(e) => {
-						e.preventDefault()
-						if (query.trim()) {
-							navigate({ to: '/mail/search', search: { q: query.trim() } })
-						}
-					}}
-				>
-					<input
-						id="mail-search"
-						type="search"
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						placeholder="Search mail, people, subjects"
-						aria-label="Search mail"
-						enterKeyHint="search"
-						autoCapitalize="none"
-					/>
-				</form>
-				<div className="topbar-actions">
-					<Link to="/mail/compose" className="btn btn-primary">
-						Compose
-						<span className="kbd">C</span>
-					</Link>
-				</div>
-			</header>
-			<div className="mail-workbench">
-				<aside className="mail-sidebar">
-					<div className="folder-nav">
-						<div className="muted-line">Unread now</div>
-						<div className="brand-title">{unreadCount}</div>
-					</div>
-					<FolderNav folders={sorted} />
-					<div className="mt-auto grid gap-2 p-4">
-						<Link to="/calendar/$view" params={{ view: 'month' }} className="btn w-full">
-							Calendar
-						</Link>
-						<a href="/logout" className="btn btn-quiet w-full">
-							Sign out
-						</a>
-					</div>
-				</aside>
-				<main className="mail-main">
-					<Outlet />
-				</main>
 			</div>
-			<nav className="bottom-tabs" aria-label="Primary">
-				<Link to="/mail/f/$folderId" params={{ folderId: 'inbox' }} className="bottom-tab">
-					Inbox
-				</Link>
-				<Link to="/mail/f/$folderId" params={{ folderId: 'drafts' }} className="bottom-tab">
-					Drafts
-				</Link>
-				<Link to="/mail/compose" className="bottom-tab">
-					Compose
-				</Link>
-				<Link to="/calendar/$view" params={{ view: 'month' }} className="bottom-tab">
-					Calendar
-				</Link>
-			</nav>
 			{commandOpen ? (
 				<CommandPalette
-					folders={sorted}
+					folders={folders}
 					onClose={() => setCommandOpen(false)}
 					onNavigate={(to) => {
 						setCommandOpen(false)
 						if (to === 'compose') navigate({ to: '/mail/compose' })
-						else if (to === 'calendar') navigate({ to: '/calendar/$view', params: { view: 'month' } })
+						else if (to === 'calendar') navigate({ to: '/calendar/$view', params: { view: 'week' } })
 						else navigate({ to: '/mail/f/$folderId', params: { folderId: to } })
 					}}
 				/>
@@ -172,22 +167,70 @@ function MailLayout() {
 	)
 }
 
-function FolderNav({ folders }: { folders: Folder[] }) {
+function MailSidebar({ folders }: { folders: Folder[] }) {
 	return (
-		<nav className="folder-nav" aria-label="Folders">
-			{folders.map((folder) => (
-				<Link
-					key={folder.id}
-					to="/mail/f/$folderId"
-					params={{ folderId: folder.id }}
-					className="folder-link"
-					activeProps={{ className: 'folder-link-active' }}
-				>
-					<span className="capitalize">{folder.name}</span>
-					{folder.unread_count ? <span className="badge">{folder.unread_count}</span> : null}
-				</Link>
-			))}
-		</nav>
+		<aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-border bg-sidebar px-3 py-4">
+			<Link
+				to="/mail/compose"
+				className="flex items-center justify-center gap-2 rounded-sm bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
+			>
+				<Pencil className="h-4 w-4" strokeWidth={2.5} />
+				Compose
+			</Link>
+
+			<nav className="flex flex-col gap-0.5" aria-label="Mail folders">
+				{MAIL_FOLDERS.map((folder) => {
+					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
+					const count =
+						folder.id === 'starred' ? folderCount(folders, 'starred') : folderCount(folders, folder.id)
+					return (
+						<Link
+							key={folder.id}
+							to="/mail/f/$folderId"
+							params={{ folderId: folder.id }}
+							className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
+							activeProps={{
+								className: 'bg-accent font-semibold text-accent-foreground hover:bg-accent',
+							}}
+						>
+							<Icon className="h-4 w-4 shrink-0" />
+							<span className="flex-1 text-left">{folder.label}</span>
+							{count > 0 ? <span className="text-xs tabular-nums text-muted-foreground">{count}</span> : null}
+						</Link>
+					)
+				})}
+			</nav>
+
+			<div className="mt-1">
+				<p className="px-3 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+					Labels
+				</p>
+				<div className="flex flex-col gap-0.5">
+					{LABELS.map((label) => (
+						<Link
+							key={label.id}
+							to="/mail/search"
+							search={{ q: label.name }}
+							className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
+							activeProps={{ className: 'bg-accent font-semibold text-accent-foreground' }}
+						>
+							<span className={`h-2.5 w-2.5 rounded-full bg-event-${label.tone}`} />
+							<span className="flex-1 text-left">{label.name}</span>
+						</Link>
+					))}
+				</div>
+			</div>
+
+			<div className="mt-auto rounded-sm border border-border bg-card p-3">
+				<p className="text-xs font-semibold text-foreground">Storage</p>
+				<div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+					<div className="h-full w-[38%] rounded-full bg-primary" />
+				</div>
+				<p className="mt-1.5 text-xs text-muted-foreground">
+					{totalUnread(folders)} unread · local workspace
+				</p>
+			</div>
+		</aside>
 	)
 }
 
@@ -208,10 +251,10 @@ function CommandPalette({
 		() => [
 			{ id: 'compose', label: 'Compose message', detail: 'Start a new email', shortcut: 'C' },
 			{ id: 'calendar', label: 'Open calendar', detail: 'Month, week, and day views' },
-			...folders.map((folder) => ({
+			...MAIL_FOLDERS.map((folder) => ({
 				id: folder.id,
-				label: `Open ${folder.name}`,
-				detail: `${folder.total_count ?? 0} total · ${folder.unread_count ?? 0} unread`,
+				label: `Open ${folder.label}`,
+				detail: `${folderCount(folders, folder.id)} unread`,
 			})),
 		],
 		[folders],
@@ -255,7 +298,7 @@ function CommandPalette({
 		if (!first || !last) return
 		if (event.shiftKey && document.activeElement === first) {
 			event.preventDefault()
-			last?.focus()
+			last.focus()
 		} else if (!event.shiftKey && document.activeElement === last) {
 			event.preventDefault()
 			first.focus()
@@ -263,16 +306,16 @@ function CommandPalette({
 	}
 
 	return (
-		<div className="command-backdrop">
+		<div className="fixed inset-0 z-50 flex items-start justify-center bg-foreground/30 p-4 pt-20 backdrop-blur-[2px]">
 			<button
 				type="button"
-				className="command-dismiss"
+				className="absolute inset-0"
 				aria-label="Close command palette"
 				onClick={onClose}
 			/>
 			<div
 				ref={panelRef}
-				className="command-panel"
+				className="relative w-full max-w-xl overflow-hidden rounded-sm border border-border bg-card shadow-2xl"
 				role="dialog"
 				aria-modal="true"
 				aria-label="Command palette"
@@ -280,26 +323,32 @@ function CommandPalette({
 			>
 				<input
 					ref={inputRef}
-					className="command-input"
+					className="h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
 					placeholder="Go to folder, compose, open calendar"
 					aria-label="Command palette"
 				/>
-				<div className="command-list">
+				<div className="max-h-80 overflow-y-auto p-1.5">
 					{filtered.map((command, index) => (
 						<button
 							key={command.id}
 							type="button"
-							className="command-row"
-							data-active={index === 0}
+							className={cn(
+								'flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
+								index === 0 && 'bg-accent',
+							)}
 							onClick={() => onNavigate(command.id)}
 						>
 							<span>
-								<strong>{command.label}</strong>
-								<span className="block muted-line">{command.detail}</span>
+								<strong className="font-semibold">{command.label}</strong>
+								<span className="block text-xs text-muted-foreground">{command.detail}</span>
 							</span>
-							{command.shortcut ? <span className="kbd">{command.shortcut}</span> : null}
+							{command.shortcut ? (
+								<span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+									{command.shortcut}
+								</span>
+							) : null}
 						</button>
 					))}
 				</div>
