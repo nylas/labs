@@ -247,6 +247,10 @@ export function activeMailSidebarFolderId(pathname: string, scopedFolderId?: str
 	return mailFolderIdFromPath(pathname) ?? scopedFolderId
 }
 
+export function mailSearchInputValue(pathname: string, routeQuery?: string): string {
+	return pathname.startsWith('/mail/search') ? (routeQuery ?? '') : ''
+}
+
 export function composeSearchFromMailLocation(
 	pathname: string,
 	folderId?: string,

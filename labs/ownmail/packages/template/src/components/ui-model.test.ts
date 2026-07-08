@@ -21,6 +21,7 @@ import {
 	liveSearchTarget,
 	mailFolderIdFromPath,
 	mailFolderTitle,
+	mailSearchInputValue,
 	messageBodyParagraphs,
 	messagePreview,
 	replyDraftSearch,
@@ -213,6 +214,12 @@ describe('ui-model mail helpers', () => {
 		expect(activeMailSidebarFolderId('/mail/f/sent', 'inbox')).toBe('sent')
 		expect(activeMailSidebarFolderId('/mail/compose', 'inbox')).toBe('inbox')
 		expect(activeMailSidebarFolderId('/mail/search', 'work')).toBe('work')
+	})
+
+	it('shows the route search query in the reference header input only on search routes', () => {
+		expect(mailSearchInputValue('/mail/search', 'roadmap')).toBe('roadmap')
+		expect(mailSearchInputValue('/mail/search', undefined)).toBe('')
+		expect(mailSearchInputValue('/mail/f/inbox', 'roadmap')).toBe('')
 	})
 
 	it('keeps the reference backdrop context when opening compose', () => {

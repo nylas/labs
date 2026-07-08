@@ -24,6 +24,7 @@ import {
 	labelToggleFolderId,
 	liveSearchTarget,
 	MAIL_FOLDERS,
+	mailSearchInputValue,
 	sidebarFolderCount,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
@@ -75,6 +76,7 @@ function MailLayout() {
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
+	const routeSearchQuery = typeof searchParams.q === 'string' ? searchParams.q : undefined
 	const currentFolderId = useMemo(
 		() => activeMailSidebarFolderId(pathname, searchScopeFolderId),
 		[pathname, searchScopeFolderId],
@@ -89,6 +91,10 @@ function MailLayout() {
 	)
 	const [query, setQuery] = useState('')
 	useVersionPolling()
+
+	useEffect(() => {
+		setQuery(mailSearchInputValue(pathname, routeSearchQuery))
+	}, [pathname, routeSearchQuery])
 
 	function updateSearch(nextQuery: string) {
 		setQuery(nextQuery)
