@@ -93,6 +93,9 @@ export const sendMessage = createServerFn({ method: 'POST' })
 			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid recipient: ${email}`)
 		}
 		if (input.body.length > 500_000) throw new Error('Message body too large')
+		if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+			throw new Error('Invalid reply reference')
+		}
 		return { ...input, toList: to }
 	})
 	.handler(async ({ data }) => {

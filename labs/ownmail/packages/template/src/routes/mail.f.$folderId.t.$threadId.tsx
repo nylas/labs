@@ -1,5 +1,5 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import {
 	Archive,
 	ArrowLeft,
@@ -18,9 +18,10 @@ import {
 	initials,
 	labelBadgeClass,
 	messageBodyParagraphs,
+	replyDraftSearch,
 	threadLabels,
 } from '../components/ui-model.js'
-import { getThreadMessages, sendMessage, updateThreadState } from '../server/fns.js'
+import { getThreadMessages, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	loader: async ({ params }) => getThreadMessages({ data: { threadId: params.threadId } }),
@@ -151,7 +152,19 @@ function ThreadView() {
 					</div>
 
 					<div className="mt-4 flex flex-wrap gap-2">
-						{lastMessage ? <ReplyButton lastMessage={lastMessage} /> : null}
+						{lastMessage ? (
+							<Link
+								to="/mail/compose"
+								search={{
+									folderId,
+									threadId,
+									...replyDraftSearch(lastMessage),
+								}}
+								className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+							>
+								<Reply className="h-4 w-4" /> Reply
+							</Link>
+						) : null}
 						<button
 							type="button"
 							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
@@ -275,82 +288,6 @@ function MessageBody({ message }: { message: Message }) {
 					{paragraph}
 				</p>
 			))}
-		</div>
-	)
-}
-
-function ReplyButton({ lastMessage }: { lastMessage: Message }) {
-	const router = useRouter()
-	const [open, setOpen] = useState(false)
-	const [body, setBody] = useState('')
-	const [busy, setBusy] = useState(false)
-	const [error, setError] = useState<string | null>(null)
-	const replyTo = lastMessage.reply_to?.[0]?.email ?? lastMessage.from?.[0]?.email ?? ''
-
-	async function submit() {
-		setBusy(true)
-		setError(null)
-		try {
-			await sendMessage({
-				data: {
-					to: replyTo,
-					subject: lastMessage.subject?.startsWith('Re:')
-						? lastMessage.subject
-						: `Re: ${lastMessage.subject ?? ''}`,
-					body: body.replaceAll('\n', '<br>'),
-					replyToMessageId: lastMessage.id,
-				},
-			})
-			setBody('')
-			setOpen(false)
-			router.invalidate()
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to send')
-		} finally {
-			setBusy(false)
-		}
-	}
-
-	if (!open) {
-		return (
-			<button
-				type="button"
-				onClick={() => setOpen(true)}
-				className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-			>
-				<Reply className="h-4 w-4" /> Reply
-			</button>
-		)
-	}
-
-	return (
-		<div className="basis-full rounded-sm border border-border bg-card p-3">
-			<p className="mb-2 text-xs text-muted-foreground">Reply to {replyTo}</p>
-			<textarea
-				value={body}
-				onChange={(event) => setBody(event.target.value)}
-				rows={4}
-				placeholder="Write your reply..."
-				className="w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-			/>
-			{error ? <ErrorBanner message={error} /> : null}
-			<div className="mt-2 flex justify-end gap-2">
-				<button
-					type="button"
-					className="rounded-lg px-3 py-2 text-sm hover:bg-muted"
-					onClick={() => setOpen(false)}
-				>
-					Cancel
-				</button>
-				<button
-					type="button"
-					disabled={busy || body.trim() === ''}
-					onClick={submit}
-					className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-				>
-					{busy ? 'Sending...' : 'Send'}
-				</button>
-			</div>
 		</div>
 	)
 }

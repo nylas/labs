@@ -30,15 +30,30 @@ import { getDraft, getThreadMessages, getThreads, saveDraft, sendMessage } from 
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 export const Route = createFileRoute('/mail/compose')({
-	validateSearch: (search): { draft?: string; folderId?: string; threadId?: string } => ({
+	validateSearch: (
+		search,
+	): {
+		draft?: string
+		folderId?: string
+		threadId?: string
+		to?: string
+		subject?: string
+		replyToMessageId?: string
+	} => ({
 		...(typeof search.draft === 'string' ? { draft: search.draft } : {}),
 		...(typeof search.folderId === 'string' ? { folderId: search.folderId } : {}),
 		...(typeof search.threadId === 'string' ? { threadId: search.threadId } : {}),
+		...(typeof search.to === 'string' ? { to: search.to } : {}),
+		...(typeof search.subject === 'string' ? { subject: search.subject } : {}),
+		...(typeof search.replyToMessageId === 'string' ? { replyToMessageId: search.replyToMessageId } : {}),
 	}),
 	loaderDeps: ({ search }) => ({
 		draft: search.draft,
 		folderId: search.folderId,
 		threadId: search.threadId,
+		to: search.to,
+		subject: search.subject,
+		replyToMessageId: search.replyToMessageId,
 	}),
 	loader: async ({ deps }) => {
 		const [draft, inbox, selected] = await Promise.all([
@@ -46,17 +61,29 @@ export const Route = createFileRoute('/mail/compose')({
 			getThreads({ data: { folderId: 'inbox' } }),
 			deps.threadId ? getThreadMessages({ data: { threadId: deps.threadId } }) : null,
 		])
-		return { draft, threads: inbox.threads, selected, folderId: deps.folderId ?? 'inbox' }
+		return {
+			draft,
+			threads: inbox.threads,
+			selected,
+			folderId: deps.folderId ?? 'inbox',
+			reply: deps.replyToMessageId
+				? {
+						to: deps.to ?? '',
+						subject: deps.subject ?? '',
+						replyToMessageId: deps.replyToMessageId,
+					}
+				: null,
+		}
 	},
 	component: Compose,
 })
 
 function Compose() {
-	const { draft, threads, selected, folderId } = Route.useLoaderData()
+	const { draft, threads, selected, folderId, reply } = Route.useLoaderData()
 	const navigate = useNavigate()
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
-	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? '')
-	const [subject, setSubject] = useState(draft?.subject ?? '')
+	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
+	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
 	const [body, setBody] = useState(draft?.body ?? '')
 	const [busy, setBusy] = useState(false)
 	const [minimized, setMinimized] = useState(false)
@@ -98,7 +125,14 @@ function Compose() {
 		setBusy(true)
 		setError(null)
 		try {
-			await sendMessage({ data: { to, subject, body: body.replaceAll('\n', '<br>') } })
+			await sendMessage({
+				data: {
+					to,
+					subject,
+					body: body.replaceAll('\n', '<br>'),
+					...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
+				},
+			})
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to send')

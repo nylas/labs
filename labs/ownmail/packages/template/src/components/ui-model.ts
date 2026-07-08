@@ -157,6 +157,16 @@ export function draftRecipientList(draft: Draft): string {
 	return draft.to?.map((person) => person.email).join(', ') || '(no recipient)'
 }
 
+export function replyDraftSearch(message: Message): {
+	to: string
+	subject: string
+	replyToMessageId: string
+} {
+	const to = message.reply_to?.[0]?.email ?? message.from?.[0]?.email ?? ''
+	const subject = message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject ?? ''}`
+	return { to, subject, replyToMessageId: message.id }
+}
+
 export function threadLabels(thread: Thread): typeof LABELS {
 	const folderIds = new Set(thread.folders ?? [])
 	return LABELS.filter((label) => folderIds.has(label.id))

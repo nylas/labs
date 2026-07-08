@@ -14,6 +14,7 @@ import {
 	mailFolderTitle,
 	messageBodyParagraphs,
 	messagePreview,
+	replyDraftSearch,
 	sidebarFolderCount,
 	threadLabels,
 	threadRouteFolderId,
@@ -121,6 +122,28 @@ describe('ui-model mail helpers', () => {
 			draftRecipientList({ to: [{ email: 'a@example.com' }, { email: 'b@example.com' }] } as never),
 		).toBe('a@example.com, b@example.com')
 		expect(draftRecipientList({} as never)).toBe('(no recipient)')
+	})
+
+	it('builds reference compose defaults for replies', () => {
+		expect(
+			replyDraftSearch({
+				id: 'msg-1',
+				subject: 'Q3 roadmap',
+				from: [{ email: 'grace@example.com' }],
+			} as Message),
+		).toEqual({
+			to: 'grace@example.com',
+			subject: 'Re: Q3 roadmap',
+			replyToMessageId: 'msg-1',
+		})
+		expect(
+			replyDraftSearch({
+				id: 'msg-2',
+				subject: 'Re: Q3 roadmap',
+				reply_to: [{ email: 'team@example.com' }],
+				from: [{ email: 'grace@example.com' }],
+			} as Message),
+		).toMatchObject({ to: 'team@example.com', subject: 'Re: Q3 roadmap' })
 	})
 
 	it('maps Nylas folder labels to reference row badges', () => {
