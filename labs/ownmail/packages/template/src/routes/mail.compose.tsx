@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import {
 	cn,
+	collapsedMessagePreview,
 	formatListDate,
 	initials,
 	labelBadgeClass,
@@ -365,7 +366,7 @@ function BackdropMessage({ message, open }: { message: Message; open: boolean })
 					<p className="truncate text-xs text-muted-foreground">
 						{open
 							? `to ${message.to?.map((person) => person.name || person.email).join(', ') || 'me'}`
-							: message.snippet}
+							: collapsedMessagePreview(message)}
 					</p>
 				</div>
 			</div>

@@ -95,6 +95,10 @@ export function messagePreview(message: Message): string {
 	return plainTextFromHtml(message.body)
 }
 
+export function collapsedMessagePreview(message: Message): string {
+	return messageBodyParagraphs(message)[0] ?? messagePreview(message)
+}
+
 export function messageBodyParagraphs(message: Message): string[] {
 	const source = message.body ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
 	return source

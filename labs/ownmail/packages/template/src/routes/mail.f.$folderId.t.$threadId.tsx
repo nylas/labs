@@ -14,10 +14,10 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import {
 	cn,
+	collapsedMessagePreview,
 	initials,
 	labelBadgeClass,
 	messageBodyParagraphs,
-	messagePreview,
 	threadLabels,
 } from '../components/ui-model.js'
 import { getThreadMessages, sendMessage, updateThreadState } from '../server/fns.js'
@@ -227,7 +227,7 @@ function MessageBlock({ message, defaultOpen }: { message: Message; defaultOpen:
 							to {message.to?.map((person) => person.name || person.email).join(', ') || 'me'}
 						</p>
 					) : (
-						<p className="truncate text-xs text-muted-foreground">{messagePreview(message)}</p>
+						<p className="truncate text-xs text-muted-foreground">{collapsedMessagePreview(message)}</p>
 					)}
 				</div>
 			</button>

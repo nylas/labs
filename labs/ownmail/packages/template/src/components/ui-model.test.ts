@@ -2,6 +2,7 @@ import type { Event, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it, vi } from 'vitest'
 import { fmtCompactTime, formatFullDate } from './calendar.js'
 import {
+	collapsedMessagePreview,
 	draftRecipientList,
 	eventHour,
 	eventTone,
@@ -75,6 +76,16 @@ describe('ui-model mail helpers', () => {
 		expect(initials('Ada Lovelace')).toBe('AL')
 		expect(initials('ada.lovelace@example.com')).toBe('AL')
 		expect(messagePreview({ body: '<p>Hello <strong>there</strong></p>' } as Message)).toBe('Hello there')
+	})
+
+	it('uses the first body paragraph for collapsed message previews', () => {
+		const message = {
+			snippet: 'Long provider snippet',
+			body: '<p>Hi Ada,</p><p>Longer message body.</p>',
+		} as Message
+
+		expect(collapsedMessagePreview(message)).toBe('Hi Ada,')
+		expect(collapsedMessagePreview({ snippet: 'Snippet fallback' } as Message)).toBe('Snippet fallback')
 	})
 
 	it('projects html message bodies into safe plain-text paragraphs', () => {
