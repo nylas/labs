@@ -9,6 +9,7 @@ import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '../components/route-paths.js'
+import { requireNylasProviderId } from './ids.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
@@ -118,7 +119,9 @@ export const getThreads = createServerFn({ method: 'GET' })
 	})
 
 export const getThreadMessages = createServerFn({ method: 'GET' })
-	.validator((input: { threadId: string }) => input)
+	.validator((input: { threadId: string }) => ({
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+	}))
 	.handler(
 		async ({
 			data,
@@ -197,7 +200,11 @@ export const sendMessage = createServerFn({ method: 'POST' })
 // ---- Thread actions -----------------------------------------------------------
 
 export const updateThreadState = createServerFn({ method: 'POST' })
-	.validator((input: { threadId: string; unread?: boolean; starred?: boolean; folder?: string }) => input)
+	.validator((input: { threadId: string; unread?: boolean; starred?: boolean; folder?: string }) => ({
+		...input,
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+		...(input.folder !== undefined ? { folder: requireNylasProviderId(input.folder, 'folder') } : {}),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
@@ -262,7 +269,9 @@ export const saveDraft = createServerFn({ method: 'POST' })
 	})
 
 export const getDraft = createServerFn({ method: 'GET' })
-	.validator((input: { draftId: string }) => input)
+	.validator((input: { draftId: string }) => ({
+		draftId: requireNylasProviderId(input.draftId, 'draft'),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
@@ -274,7 +283,9 @@ export const getDraft = createServerFn({ method: 'GET' })
 	})
 
 export const sendDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId: string }) => input)
+	.validator((input: { draftId: string }) => ({
+		draftId: requireNylasProviderId(input.draftId, 'draft'),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
@@ -286,7 +297,9 @@ export const sendDraft = createServerFn({ method: 'POST' })
 	})
 
 export const deleteDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId: string }) => input)
+	.validator((input: { draftId: string }) => ({
+		draftId: requireNylasProviderId(input.draftId, 'draft'),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {

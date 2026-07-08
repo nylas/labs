@@ -7,6 +7,7 @@ import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '../components/route-paths.js'
+import { requireNylasProviderId } from './ids.js'
 import { mailboxFromRequest } from './nylas.js'
 
 async function requireMailbox() {
@@ -79,7 +80,12 @@ export const createEvent = createServerFn({ method: 'POST' })
 			for (const email of input.participants ?? []) {
 				if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid participant: ${email}`)
 			}
-			return input
+			return {
+				...input,
+				...(input.calendarId !== undefined
+					? { calendarId: requireNylasProviderId(input.calendarId, 'calendar') }
+					: {}),
+			}
 		},
 	)
 	.handler(async ({ data }) => {
@@ -107,7 +113,13 @@ export const updateEvent = createServerFn({ method: 'POST' })
 			location?: string
 			startTime?: number
 			endTime?: number
-		}) => input,
+		}) => ({
+			...input,
+			eventId: requireNylasProviderId(input.eventId, 'event'),
+			...(input.calendarId !== undefined
+				? { calendarId: requireNylasProviderId(input.calendarId, 'calendar') }
+				: {}),
+		}),
 	)
 	.handler(async ({ data }) => {
 		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
@@ -127,7 +139,12 @@ export const updateEvent = createServerFn({ method: 'POST' })
 	})
 
 export const deleteEvent = createServerFn({ method: 'POST' })
-	.validator((input: { eventId: string; calendarId?: string }) => input)
+	.validator((input: { eventId: string; calendarId?: string }) => ({
+		eventId: requireNylasProviderId(input.eventId, 'event'),
+		...(input.calendarId !== undefined
+			? { calendarId: requireNylasProviderId(input.calendarId, 'calendar') }
+			: {}),
+	}))
 	.handler(async ({ data }) => {
 		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
 		await mailbox.deleteEvent(data.eventId, calendar.id)
@@ -137,7 +154,13 @@ export const deleteEvent = createServerFn({ method: 'POST' })
 export const rsvpEvent = createServerFn({ method: 'POST' })
 	.validator((input: { eventId: string; calendarId?: string; status: 'yes' | 'no' | 'maybe' }) => {
 		if (!['yes', 'no', 'maybe'].includes(input.status)) throw new Error('Invalid RSVP')
-		return input
+		return {
+			...input,
+			eventId: requireNylasProviderId(input.eventId, 'event'),
+			...(input.calendarId !== undefined
+				? { calendarId: requireNylasProviderId(input.calendarId, 'calendar') }
+				: {}),
+		}
 	})
 	.handler(async ({ data }) => {
 		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
