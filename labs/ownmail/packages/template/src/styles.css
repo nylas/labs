@@ -317,7 +317,8 @@ h5 {
 }
 
 .event-dialog-field:focus-visible,
-.compose-field:focus-visible {
+.compose-field:focus-visible,
+.mail-search-field:focus-visible {
 	outline: none;
 }
 

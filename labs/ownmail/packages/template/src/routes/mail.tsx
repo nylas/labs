@@ -127,7 +127,7 @@ function MailLayout() {
 								value={query}
 								onChange={(event) => updateSearch(event.target.value)}
 								placeholder="Search mail"
-								className="h-9 w-full rounded-lg border border-border bg-card pr-9 pl-9 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+								className="mail-search-field h-9 w-full rounded-lg border border-border bg-card pr-9 pl-9 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
 								aria-label="Search mail"
 								enterKeyHint="search"
 								autoCapitalize="none"
