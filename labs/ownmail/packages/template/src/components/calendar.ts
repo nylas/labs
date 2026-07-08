@@ -2,6 +2,22 @@ import type { Event } from '@nylas-labs/cli-kit/v3'
 
 export type CalView = 'month' | 'week' | 'day'
 
+const MONTHS = [
+	'January',
+	'February',
+	'March',
+	'April',
+	'May',
+	'June',
+	'July',
+	'August',
+	'September',
+	'October',
+	'November',
+	'December',
+]
+const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
 export function isCalView(value: string): value is CalView {
 	return value === 'month' || value === 'week' || value === 'day'
 }
@@ -74,6 +90,21 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 
 export function fmtTime(d: Date): string {
 	return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+export function fmtCompactTime(d: Date): string {
+	const hour = d.getHours()
+	const minute = d.getMinutes()
+	const period = hour >= 12 ? 'PM' : 'AM'
+	const displayHour = hour % 12 === 0 ? 12 : hour % 12
+	return minute === 0
+		? `${displayHour} ${period}`
+		: `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+}
+
+export function formatFullDate(d: Date, withYear = false): string {
+	const base = `${WEEKDAYS_LONG[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`
+	return withYear ? `${base}, ${d.getFullYear()}` : base
 }
 
 export function ymd(d: Date): string {

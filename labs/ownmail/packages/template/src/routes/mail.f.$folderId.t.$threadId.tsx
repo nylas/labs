@@ -12,7 +12,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { cn, initials, messagePreview } from '../components/ui-model.js'
+import { cn, initials, labelBadgeClass, messagePreview, threadLabels } from '../components/ui-model.js'
 import { getThreadMessages, sendMessage, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -27,6 +27,10 @@ function ThreadView() {
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
 	const lastMessage = messages.at(-1)
+	const labels = threadLabels(thread)
+	const firstAttachment = messages
+		.flatMap((message) => message.attachments ?? [])
+		.find((attachment) => !attachment.is_inline)
 
 	const act = useCallback(
 		async (input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) => {
@@ -108,12 +112,28 @@ function ThreadView() {
 				<div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
 					<div className="flex flex-wrap items-center gap-2">
 						<h2 className="text-xl font-semibold text-balance">{thread.subject || '(no subject)'}</h2>
+						{labels.map((label) => (
+							<span
+								key={label.id}
+								className={cn(
+									'rounded-md border px-2 py-0.5 text-xs font-medium',
+									labelBadgeClass(label.tone),
+								)}
+							>
+								{label.name}
+							</span>
+						))}
 					</div>
 
 					{thread.has_attachments ? (
 						<div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
 							<Paperclip className="h-4 w-4 text-muted-foreground" />
-							<span className="font-medium text-foreground">Attachments</span>
+							<span className="font-medium text-foreground">
+								{firstAttachment?.filename ?? 'attachment.pdf'}
+							</span>
+							<span className="text-muted-foreground">
+								· {firstAttachment?.size ? formatSize(firstAttachment.size) : '248 KB'}
+							</span>
 						</div>
 					) : null}
 

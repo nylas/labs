@@ -1,7 +1,7 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import {
 	addDays,
@@ -305,12 +305,12 @@ function formatWeekTitle(anchor: Date): string {
 	const sameMonth = start.getMonth() === end.getMonth()
 	const sameYear = start.getFullYear() === end.getFullYear()
 	if (sameMonth && sameYear) {
-		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${end.getDate()}, ${end.getFullYear()}`
+		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.getDate()}, ${end.getFullYear()}`
 	}
 	if (sameYear) {
-		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 	}
-	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
 function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date) => void }) {
@@ -529,10 +529,27 @@ function TimeGrid({
 	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
 	const todayIso = ymd(new Date())
+	const scrollRef = useRef<HTMLDivElement>(null)
+	const [nowOffset, setNowOffset] = useState<number | null>(null)
 	const allDayByDay = columns.map((day) =>
 		eventsOnDay(events, day).filter((event) => eventTimes(event).allDay),
 	)
 	const hasAllDay = allDayByDay.some((dayEvents) => dayEvents.length > 0)
+
+	useEffect(() => {
+		function updateNowOffset() {
+			const current = new Date()
+			const hour = current.getHours() + current.getMinutes() / 60
+			setNowOffset(hour < START_HOUR || hour > END_HOUR ? null : (hour - START_HOUR) * HOUR_PX)
+		}
+		updateNowOffset()
+		const id = setInterval(updateNowOffset, 60_000)
+		return () => clearInterval(id)
+	}, [])
+
+	useEffect(() => {
+		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (8 - START_HOUR) * HOUR_PX - 12)
+	}, [])
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -558,13 +575,13 @@ function TimeGrid({
 			</div>
 			{hasAllDay ? (
 				<div className="flex border-b border-border pr-3">
-					<div className="flex w-14 shrink-0 items-start justify-end px-2 py-2 text-[11px] text-muted-foreground">
+					<div className="flex w-14 shrink-0 items-center justify-end pr-2 text-[10px] text-muted-foreground uppercase">
 						All day
 					</div>
-					<div className={cn('grid flex-1', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
+					<div className={cn('grid flex-1 gap-1 py-1.5', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
 						{columns.map((day, dayIndex) => (
-							<div key={day.toISOString()} className="min-h-9 border-l border-border p-1 first:border-l-0">
-								{allDayByDay[dayIndex]?.slice(0, 2).map((event, index) => {
+							<div key={day.toISOString()} className="flex min-h-8 flex-col gap-1 px-1">
+								{allDayByDay[dayIndex]?.map((event, index) => {
 									const tone = eventTone(event, index)
 									return (
 										<button
@@ -572,11 +589,11 @@ function TimeGrid({
 											type="button"
 											onClick={() => onPickEvent(event)}
 											className={cn(
-												'mb-1 flex w-full items-center truncate rounded-sm px-1.5 py-0.5 text-left text-xs font-medium text-primary-foreground',
+												'truncate rounded px-2 py-1 text-left text-xs font-medium text-primary-foreground',
 												eventBarClass(tone),
 											)}
 										>
-											<span className="truncate">{event.title || '(untitled)'}</span>
+											{event.title || '(untitled)'}
 										</button>
 									)
 								})}
@@ -585,7 +602,7 @@ function TimeGrid({
 					</div>
 				</div>
 			) : null}
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			<div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
 				<div className="flex pr-3">
 					<div className="w-14 shrink-0">
 						{HOURS.map((hour) => (
@@ -599,6 +616,7 @@ function TimeGrid({
 					<div className={cn('relative grid flex-1', days === 1 ? 'grid-cols-1' : 'grid-cols-7')}>
 						{columns.map((day) => {
 							const dayEvents = eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
+							const isToday = ymd(day) === todayIso
 							return (
 								<div key={day.toISOString()} className="relative border-l border-border first:border-l-0">
 									{HOURS.map((hour) => (
@@ -612,6 +630,17 @@ function TimeGrid({
 											className="h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
 										/>
 									))}
+									{isToday && nowOffset !== null ? (
+										<div
+											className="pointer-events-none absolute right-0 left-0 z-20"
+											style={{ top: nowOffset }}
+										>
+											<div className="relative">
+												<div className="absolute -top-1 -left-1 h-2 w-2 rounded-full bg-destructive" />
+												<div className="h-px w-full bg-destructive" />
+											</div>
+										</div>
+									) : null}
 									{dayEvents.map((event, index) => {
 										const { start: s, end: e } = eventTimes(event)
 										const top = (s.getHours() + s.getMinutes() / 60 - START_HOUR) * HOUR_PX
@@ -636,7 +665,7 @@ function TimeGrid({
 												</span>
 												{height > 30 ? (
 													<span className="truncate text-[10px] opacity-80">
-														{fmtTime(s)} - {fmtTime(e)}
+														{fmtTime(s)} – {fmtTime(e)}
 													</span>
 												) : null}
 											</button>
