@@ -620,6 +620,9 @@ function seedEvents() {
 			{ name: 'Katherine Johnson', email: 'katherine@vercel.com', status: 'yes' },
 		],
 	})
+	addEvent('event-coffee-katherine', 'Coffee with Katherine', addDays(startOfDay, -1), 10, 0, 30, {
+		calendar_id: 'social',
+	})
 	addEvent('event-lunch', 'Lunch with Alan', startOfDay, 12, 30, 60, {
 		calendar_id: 'social',
 		location: 'Tartine, Mission',

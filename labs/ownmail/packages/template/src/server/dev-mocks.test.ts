@@ -91,11 +91,14 @@ describe('dev mock reference identity', () => {
 
 	it('preserves reference calendar event copy', () => {
 		const now = Math.floor(Date.now() / 1000)
-		const { events } = mockEvents({ start: now - 86_400, end: now + 7 * 86_400 })
+		const { events } = mockEvents({ start: now - 2 * 86_400, end: now + 7 * 86_400 })
 		const roadmap = events.find((event) => event.id === 'event-roadmap-review')
+		const coffee = events.find((event) => event.id === 'event-coffee-katherine')
 		const dentist = events.find((event) => event.id === 'event-dentist')
 
 		expect(roadmap?.location).toBe('Meet — Aurora room')
+		expect(coffee?.title).toBe('Coffee with Katherine')
+		expect(coffee?.calendar_id).toBe('social')
 		expect(dentist?.title).toBe('Dentist — Dr. Reyes')
 	})
 })
