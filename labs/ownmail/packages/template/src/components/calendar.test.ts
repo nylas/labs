@@ -1,6 +1,6 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
-import { filterEventsByCalendars, timedEventsOnDay, viewRange, ymd } from './calendar.js'
+import { dateWithHour, filterEventsByCalendars, timedEventsOnDay, viewRange, ymd } from './calendar.js'
 
 function timedEvent(id: string, calendarId: string, start: string, end: string): Event {
 	return {
@@ -58,5 +58,14 @@ describe('calendar view helpers', () => {
 		expect(timedEventsOnDay(events, new Date('2026-07-08T12:00:00')).map((event) => event.id)).toEqual([
 			'today',
 		])
+	})
+
+	it('builds a create-event slot date without changing the selected day', () => {
+		const slot = dateWithHour(new Date('2026-07-08T00:00:00'), 14.5)
+
+		expect(ymd(slot)).toBe('2026-07-08')
+		expect(slot.getHours()).toBe(14)
+		expect(slot.getMinutes()).toBe(30)
+		expect(slot.getSeconds()).toBe(0)
 	})
 })

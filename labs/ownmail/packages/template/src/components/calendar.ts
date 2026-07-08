@@ -115,6 +115,13 @@ export function fmtCompactTime(d: Date): string {
 		: `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
 }
 
+export function dateWithHour(day: Date, hour: number): Date {
+	const next = new Date(day)
+	const wholeHour = Math.floor(hour)
+	next.setHours(wholeHour, Math.round((hour - wholeHour) * 60), 0, 0)
+	return next
+}
+
 export function formatFullDate(d: Date, withYear = false): string {
 	const base = `${WEEKDAYS_LONG[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`
 	return withYear ? `${base}, ${d.getFullYear()}` : base

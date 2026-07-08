@@ -2,7 +2,7 @@ import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { AlignLeft, CalendarDays, Clock, MapPin, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent } from '../server/calendar-fns.js'
-import { eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
+import { dateWithHour, eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
 import { calendarTone, cn, type EventTone, eventTone } from './ui-model.js'
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
@@ -378,13 +378,6 @@ export function eventInitialHours(start: Date): { startHour: number; endHour: nu
 
 function nearestHalfHour(hour: number): number {
 	return Math.round(hour * 2) / 2
-}
-
-function dateWithHour(day: Date, hour: number): Date {
-	const next = new Date(day)
-	const wholeHour = Math.floor(hour)
-	next.setHours(wholeHour, Math.round((hour - wholeHour) * 60), 0, 0)
-	return next
 }
 
 function formatDecimalHour(hour: number): string {

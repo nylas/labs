@@ -6,6 +6,7 @@ import { AppRail } from '../components/AppRail.js'
 import {
 	addDays,
 	type CalView,
+	dateWithHour,
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
@@ -272,6 +273,10 @@ function CalendarPage() {
 								events={visibleEvents}
 								calendarById={calendarById}
 								onPickEvent={setEditing}
+								onPickSlot={(date, hour) => {
+									setNewStart(dateWithHour(date, hour))
+									setEditing('new')
+								}}
 							/>
 						)}
 					</div>
@@ -519,12 +524,14 @@ function TimeGrid({
 	events,
 	calendarById,
 	onPickEvent,
+	onPickSlot,
 }: {
 	days: number
 	start: Date
 	events: Event[]
 	calendarById: Map<string, Calendar>
 	onPickEvent: (e: Event) => void
+	onPickSlot: (date: Date, hour: number) => void
 }) {
 	const HOUR_PX = 52
 	const START_HOUR = 7
@@ -623,7 +630,17 @@ function TimeGrid({
 							return (
 								<div key={day.toISOString()} className="relative border-l border-border first:border-l-0">
 									{HOURS.map((hour) => (
-										<div key={hour} className="h-[52px] w-full border-b border-border/60" />
+										<button
+											key={hour}
+											type="button"
+											onClick={() => onPickSlot(day, hour)}
+											aria-label={`Create event at ${fmtHour(hour)} on ${day.toLocaleDateString(undefined, {
+												weekday: 'long',
+												month: 'long',
+												day: 'numeric',
+											})}`}
+											className="h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
+										/>
 									))}
 									{isToday && nowOffset !== null ? (
 										<div
