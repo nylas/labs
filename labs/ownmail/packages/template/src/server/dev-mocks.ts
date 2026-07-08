@@ -301,7 +301,8 @@ const messages = new Map<string, StoredMessage>(
 			id: 'msg-hiking-1',
 			thread_id: 'thread-hiking',
 			subject: 'Weekend hiking plans?',
-			snippet: 'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning.',
+			snippet:
+				'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.',
 			body: "<p>Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.</p><p>Want to join? We'd start around 8 to beat the crowds. I can drive.</p>",
 			from: [{ name: 'Alan Turing', email: 'alan@hey.com' }],
 			to: [ACCOUNT],
@@ -453,7 +454,8 @@ const threads = new Map<string, StoredThread>(
 		{
 			id: 'thread-hiking',
 			subject: 'Weekend hiking plans?',
-			snippet: 'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning.',
+			snippet:
+				'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.',
 			participants: [{ name: 'Alan Turing', email: 'alan@hey.com' }],
 			message_ids: ['msg-hiking-1'],
 			latest_message_received_date: daysAgo(1, 11, 45),

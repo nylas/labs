@@ -29,6 +29,7 @@ describe('dev mock reference identity', () => {
 		)
 		const travel = mockThreads({ folderId: 'inbox' }).threads.find((thread) => thread.id === 'thread-travel')
 		const tokens = mockThreads({ folderId: 'inbox' }).threads.find((thread) => thread.id === 'thread-tokens')
+		const hiking = mockThreads({ folderId: 'inbox' }).threads.find((thread) => thread.id === 'thread-hiking')
 		const dentist = mockThreads({ folderId: 'inbox' }).threads.find(
 			(thread) => thread.id === 'thread-dentist',
 		)
@@ -39,6 +40,9 @@ describe('dev mock reference identity', () => {
 		expect(travel?.snippet).toBe('Your trip is booked!')
 		expect(tokens?.snippet).toBe(
 			'The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.',
+		)
+		expect(hiking?.snippet).toBe(
+			'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.',
 		)
 		expect(dentist?.snippet).toBe(
 			'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.',
