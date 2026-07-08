@@ -15,6 +15,7 @@ import { mailboxFromRequest } from './nylas.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
+import { normalizeThreadStateInput } from './thread-state.js'
 
 async function requireMailbox() {
 	const request = getRequest()
@@ -194,11 +195,7 @@ export const sendMessage = createServerFn({ method: 'POST' })
 // ---- Thread actions -----------------------------------------------------------
 
 export const updateThreadState = createServerFn({ method: 'POST' })
-	.validator((input: { threadId: string; unread?: boolean; starred?: boolean; folder?: string }) => ({
-		...input,
-		threadId: requireNylasProviderId(input.threadId, 'thread'),
-		...(input.folder !== undefined ? { folder: requireNylasProviderId(input.folder, 'folder') } : {}),
-	}))
+	.validator(normalizeThreadStateInput)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
