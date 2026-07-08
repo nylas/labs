@@ -19,6 +19,7 @@ import {
 	messageBodyParagraphs,
 	messagePreview,
 	replyDraftSearch,
+	searchListSearch,
 	sidebarFolderCount,
 	threadLabels,
 	threadRouteFolderId,
@@ -196,6 +197,8 @@ describe('ui-model mail helpers', () => {
 		})
 		expect(liveSearchTarget('', '/mail/search', 'work')).toEqual({ kind: 'folder', folderId: 'work' })
 		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
+		expect(searchListSearch('roadmap', 'inbox')).toEqual({ q: 'roadmap', folderId: 'inbox' })
+		expect(searchListSearch('roadmap')).toEqual({ q: 'roadmap' })
 	})
 })
 

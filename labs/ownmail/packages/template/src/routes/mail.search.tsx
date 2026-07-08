@@ -21,6 +21,7 @@ import {
 	mailFolderTitle,
 	messageBodyParagraphs,
 	replyDraftSearch,
+	searchListSearch,
 	threadLabels,
 	threadRouteFolderId,
 	threadSender,
@@ -224,13 +225,29 @@ function SearchThreadDetail({
 	const firstAttachment = selected.messages
 		.flatMap((message) => message.attachments ?? [])
 		.find((attachment) => !attachment.is_inline)
+	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
+
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+			if (event.key === 'Escape') {
+				event.preventDefault()
+				router.navigate({ to: '/mail/search', search: searchList })
+			}
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [router, searchList])
 
 	async function act(input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) {
 		await updateThreadState({ data: { threadId: selected.thread.id, ...input } })
 		if (leave) {
 			await router.navigate({
 				to: '/mail/search',
-				search: { q, ...(folderId ? { folderId } : {}) },
+				search: searchList,
 			})
 		}
 		await router.invalidate()
@@ -241,7 +258,7 @@ function SearchThreadDetail({
 			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
 				<Link
 					to="/mail/search"
-					search={{ q, ...(folderId ? { folderId } : {}) }}
+					search={searchList}
 					aria-label="Back to list"
 					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
 				>

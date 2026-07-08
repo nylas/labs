@@ -234,6 +234,10 @@ export function liveSearchTarget(
 	return { kind: 'folder', folderId: folderId ?? 'inbox' }
 }
 
+export function searchListSearch(q: string, folderId?: string): { q: string; folderId?: string } {
+	return { q, ...(folderId ? { folderId } : {}) }
+}
+
 const TONE_RGB: Record<EventTone, [number, number, number]> = {
 	blue: [37, 99, 235],
 	teal: [20, 184, 166],
