@@ -12,7 +12,14 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { cn, initials, labelBadgeClass, messagePreview, threadLabels } from '../components/ui-model.js'
+import {
+	cn,
+	initials,
+	labelBadgeClass,
+	messageBodyParagraphs,
+	messagePreview,
+	threadLabels,
+} from '../components/ui-model.js'
 import { getThreadMessages, sendMessage, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -259,14 +266,17 @@ function MessageAttachments({ message }: { message: Message }) {
 }
 
 function MessageBody({ message }: { message: Message }) {
-	// Email bodies are untrusted HTML. Render inside a sandboxed iframe so
-	// scripts/styles can't touch the app; srcDoc keeps it same-process but inert.
-	if (message.body) {
-		return (
-			<iframe title="message" sandbox="" srcDoc={message.body} className="min-h-60 w-full border-0 bg-card" />
-		)
-	}
-	return <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{message.snippet}</p>
+	const paragraphs = messageBodyParagraphs(message)
+	if (paragraphs.length === 0) return null
+	return (
+		<div className="space-y-3 text-sm leading-relaxed text-foreground/90">
+			{paragraphs.map((paragraph) => (
+				<p key={`${message.id}-${paragraph}`} className="whitespace-pre-line text-pretty">
+					{paragraph}
+				</p>
+			))}
+		</div>
+	)
 }
 
 function ReplyButton({ lastMessage }: { lastMessage: Message }) {

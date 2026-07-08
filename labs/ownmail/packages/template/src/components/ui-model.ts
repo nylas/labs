@@ -92,10 +92,53 @@ export function initials(nameOrEmail: string): string {
 export function messagePreview(message: Message): string {
 	if (message.snippet) return message.snippet
 	if (!message.body) return ''
-	return message.body
-		.replace(/<[^>]*>/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim()
+	return plainTextFromHtml(message.body)
+}
+
+export function messageBodyParagraphs(message: Message): string[] {
+	const source = message.body ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
+	return source
+		.split(/\n{2,}/)
+		.map((paragraph) =>
+			paragraph
+				.replace(/[ \t]+\n/g, '\n')
+				.replace(/\s+/g, ' ')
+				.trim(),
+		)
+		.filter(Boolean)
+}
+
+function plainTextFromHtml(html: string, preserveParagraphs = false): string {
+	const paragraphBreak = preserveParagraphs ? '\n\n' : ' '
+	return decodeHtmlEntities(
+		html
+			.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+			.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+			.replace(/<br\s*\/?>/gi, '\n')
+			.replace(/<\/(p|div|li|tr|h[1-6])>/gi, paragraphBreak)
+			.replace(/<[^>]*>/g, ' ')
+			.replace(/\u00a0/g, ' ')
+			.replace(/[ \t]+/g, ' ')
+			.replace(preserveParagraphs ? /\n{3,}/g : /\s+/g, preserveParagraphs ? '\n\n' : ' ')
+			.trim(),
+	)
+}
+
+function decodeHtmlEntities(value: string): string {
+	return value
+		.replace(/&nbsp;/gi, ' ')
+		.replace(/&amp;/gi, '&')
+		.replace(/&lt;/gi, '<')
+		.replace(/&gt;/gi, '>')
+		.replace(/&quot;/gi, '"')
+		.replace(/&#39;/gi, "'")
+		.replace(/&#(\d+);/g, (_, code: string) => safeCodePoint(Number(code)))
+		.replace(/&#x([0-9a-f]+);/gi, (_, code: string) => safeCodePoint(Number.parseInt(code, 16)))
+}
+
+function safeCodePoint(codePoint: number): string {
+	if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return ''
+	return String.fromCodePoint(codePoint)
 }
 
 export function draftRecipientList(draft: Draft): string {

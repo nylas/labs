@@ -9,6 +9,7 @@ import {
 	formatListDate,
 	initials,
 	mailFolderTitle,
+	messageBodyParagraphs,
 	messagePreview,
 	sidebarFolderCount,
 	threadLabels,
@@ -73,6 +74,14 @@ describe('ui-model mail helpers', () => {
 		expect(initials('Ada Lovelace')).toBe('AL')
 		expect(initials('ada.lovelace@example.com')).toBe('AL')
 		expect(messagePreview({ body: '<p>Hello <strong>there</strong></p>' } as Message)).toBe('Hello there')
+	})
+
+	it('projects html message bodies into safe plain-text paragraphs', () => {
+		const message = {
+			body: '<p>Hello &amp; welcome,</p><p>Line one<br>Line two</p><script>alert(1)</script>',
+		} as Message
+
+		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
 	})
 
 	it('formats relative list dates like the reference thread list', () => {
