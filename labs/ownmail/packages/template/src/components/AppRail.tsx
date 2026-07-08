@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
 import { initials } from './ui-model.js'
 
+export const THEME_STORAGE_KEY = 'theme'
+
 export function AppRail({
 	email,
 	displayName,
@@ -17,7 +19,7 @@ export function AppRail({
 	const [mounted, setMounted] = useState(false)
 
 	useEffect(() => {
-		const saved = localStorage.getItem('ownmail_theme')
+		const saved = localStorage.getItem(THEME_STORAGE_KEY)
 		const nextDark = initialThemeIsDark(saved)
 		document.documentElement.classList.toggle('dark', nextDark)
 		setIsDark(nextDark)
@@ -27,7 +29,7 @@ export function AppRail({
 	function toggleTheme() {
 		const nextDark = !isDark
 		document.documentElement.classList.toggle('dark', nextDark)
-		localStorage.setItem('ownmail_theme', nextDark ? 'dark' : 'light')
+		localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
 		setIsDark(nextDark)
 	}
 

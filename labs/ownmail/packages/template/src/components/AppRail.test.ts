@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialThemeIsDark } from './AppRail.js'
+import { initialThemeIsDark, THEME_STORAGE_KEY } from './AppRail.js'
 import { AUTH_PATH, LOGIN_PATH, MAIL_HOME_PATH } from './route-paths.js'
 
 describe('AppRail theme defaults', () => {
@@ -17,6 +17,10 @@ describe('AppRail theme defaults', () => {
 
 	it('defaults to the reference light theme without a saved preference', () => {
 		expect(initialThemeIsDark(null)).toBe(false)
+	})
+
+	it('uses the reference next-themes storage key', () => {
+		expect(THEME_STORAGE_KEY).toBe('theme')
 	})
 
 	it('honors saved dark preference', () => {
