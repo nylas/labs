@@ -13,13 +13,13 @@ export function LoginScreen({ signInHref }: { signInHref: string }) {
 	}
 
 	return (
-		<main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[oklch(0.13_0.006_165)] px-4 py-10 text-white">
+		<main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[oklch(0.13_0.006_165)] px-4 py-10">
 			<div className="relative z-10 w-full max-w-md">
 				<div className="mb-8 flex flex-col items-center text-center">
 					<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-[oklch(0.72_0.13_158)] text-[oklch(0.15_0.01_165)]">
 						<span className="font-display text-2xl leading-none font-extrabold">o</span>
 					</div>
-					<h1 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-balance">
+					<h1 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-white text-balance">
 						Welcome to ownmail
 					</h1>
 					<p className="mt-2 text-pretty text-sm leading-relaxed text-white/60">
