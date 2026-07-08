@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import {
 	cn,
+	composeSearchFromMailLocation,
 	labelBaseFolderId,
 	labelDotClass,
 	labelToggleFolderId,
@@ -72,13 +73,16 @@ function MailLayout() {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
-	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
 	const currentFolderId = useMemo(() => folderIdFromPath(pathname), [pathname])
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
 	const selectedSearchThreadId = typeof searchParams.threadId === 'string' ? searchParams.threadId : undefined
 	const labelBaseFolder =
 		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
 	const activeSearchFolderId = currentFolderId ?? searchScopeFolderId
+	const composeSearch = useMemo(
+		() => composeSearchFromMailLocation(pathname, activeSearchFolderId, selectedSearchThreadId),
+		[activeSearchFolderId, pathname, selectedSearchThreadId],
+	)
 	const [query, setQuery] = useState('')
 	useVersionPolling()
 
@@ -278,12 +282,6 @@ function MailSidebar({
 			</div>
 		</aside>
 	)
-}
-
-function composeSearchFromPath(pathname: string): { folderId?: string; threadId?: string } {
-	const match = pathname.match(/^\/mail\/f\/([^/]+)\/t\/([^/]+)/)
-	if (!match?.[1] || !match[2]) return {}
-	return { folderId: decodeURIComponent(match[1]), threadId: decodeURIComponent(match[2]) }
 }
 
 function folderIdFromPath(pathname: string): string | undefined {

@@ -20,13 +20,13 @@ import {
 	formatListDate,
 	initials,
 	labelBadgeClass,
-	type MailFolderId,
+	mailFolderTitle,
 	messageBodyParagraphs,
 	threadLabels,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
-import { getDraft, getThreadMessages, getThreads, saveDraft, sendMessage } from '../server/fns.js'
+import { getDraft, getFolders, getThreadMessages, getThreads, saveDraft, sendMessage } from '../server/fns.js'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 export const Route = createFileRoute('/mail/compose')({
@@ -56,16 +56,20 @@ export const Route = createFileRoute('/mail/compose')({
 		replyToMessageId: search.replyToMessageId,
 	}),
 	loader: async ({ deps }) => {
-		const [draft, inbox, selected] = await Promise.all([
+		const folderId = deps.folderId ?? 'inbox'
+		const threadQuery = folderId === 'starred' ? { starred: true } : { folderId }
+		const [draft, folders, threads, selected] = await Promise.all([
 			deps.draft ? getDraft({ data: { draftId: deps.draft } }) : null,
-			getThreads({ data: { folderId: 'inbox' } }),
+			getFolders(),
+			getThreads({ data: threadQuery }),
 			deps.threadId ? getThreadMessages({ data: { threadId: deps.threadId } }) : null,
 		])
 		return {
 			draft,
-			threads: inbox.threads,
+			folders,
+			threads: threads.threads,
 			selected,
-			folderId: deps.folderId ?? 'inbox',
+			folderId,
 			reply: deps.replyToMessageId
 				? {
 						to: deps.to ?? '',
@@ -79,7 +83,7 @@ export const Route = createFileRoute('/mail/compose')({
 })
 
 function Compose() {
-	const { draft, threads, selected, folderId, reply } = Route.useLoaderData()
+	const { draft, folders, threads, selected, folderId, reply } = Route.useLoaderData()
 	const navigate = useNavigate()
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
@@ -94,6 +98,7 @@ function Compose() {
 		[threads],
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
+	const folderTitle = mailFolderTitle(folderId, folders)
 
 	function close() {
 		if (history.length > 1) history.back()
@@ -102,7 +107,7 @@ function Compose() {
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId, threadId: selected.thread.id },
 			})
-		} else navigate({ to: '/mail/f/$folderId', params: { folderId: 'inbox' } })
+		} else navigate({ to: '/mail/f/$folderId', params: { folderId } })
 	}
 
 	// Autosave a draft 3s after the last edit.
@@ -146,7 +151,7 @@ function Compose() {
 				<>
 					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
 						<div className="flex items-center justify-between border-b border-border px-4 py-3">
-							<h1 className="text-base font-semibold capitalize">Inbox</h1>
+							<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
 							{unreadCount > 0 ? (
 								<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
 									{unreadCount} unread
@@ -158,7 +163,7 @@ function Compose() {
 								<ComposeThreadRow
 									key={thread.id}
 									thread={thread}
-									folderId="inbox"
+									folderId={folderId}
 									active={selected.thread.id === thread.id}
 								/>
 							))}
@@ -172,7 +177,7 @@ function Compose() {
 				<>
 					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
 						<div className="flex items-center justify-between border-b border-border px-4 py-3">
-							<h1 className="text-base font-semibold capitalize">Inbox</h1>
+							<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
 							{unreadCount > 0 ? (
 								<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
 									{unreadCount} unread
@@ -181,7 +186,7 @@ function Compose() {
 						</div>
 						<div className="min-h-0 flex-1 overflow-y-auto">
 							{sortedThreads.map((thread) => (
-								<ComposeThreadRow key={thread.id} thread={thread} folderId="inbox" />
+								<ComposeThreadRow key={thread.id} thread={thread} folderId={folderId} />
 							))}
 						</div>
 					</section>
@@ -303,7 +308,7 @@ function ComposeThreadRow({
 	active,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
-	folderId: MailFolderId
+	folderId: string
 	active?: boolean
 }) {
 	const when = formatListDate(threadTimestamp(thread))

@@ -4,6 +4,7 @@ import { fmtAgendaTime, fmtCompactTime, fmtTime, formatFullDate } from './calend
 import {
 	calendarTone,
 	collapsedMessagePreview,
+	composeSearchFromMailLocation,
 	draftRecipientList,
 	draftRecipientName,
 	eventHour,
@@ -199,6 +200,19 @@ describe('ui-model mail helpers', () => {
 		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
 		expect(searchListSearch('roadmap', 'inbox')).toEqual({ q: 'roadmap', folderId: 'inbox' })
 		expect(searchListSearch('roadmap')).toEqual({ q: 'roadmap' })
+	})
+
+	it('keeps the reference backdrop context when opening compose', () => {
+		expect(composeSearchFromMailLocation('/mail/f/sent', 'sent')).toEqual({ folderId: 'sent' })
+		expect(composeSearchFromMailLocation('/mail/f/work', 'work')).toEqual({ folderId: 'work' })
+		expect(composeSearchFromMailLocation('/mail/f/inbox/t/thread-roadmap', 'inbox')).toEqual({
+			folderId: 'inbox',
+			threadId: 'thread-roadmap',
+		})
+		expect(composeSearchFromMailLocation('/mail/search', 'inbox', 'thread-roadmap')).toEqual({
+			folderId: 'inbox',
+			threadId: 'thread-roadmap',
+		})
 	})
 })
 

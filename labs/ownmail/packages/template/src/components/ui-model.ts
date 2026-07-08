@@ -238,6 +238,21 @@ export function searchListSearch(q: string, folderId?: string): { q: string; fol
 	return { q, ...(folderId ? { folderId } : {}) }
 }
 
+export function composeSearchFromMailLocation(
+	pathname: string,
+	folderId?: string,
+	selectedThreadId?: string,
+): { folderId?: string; threadId?: string } {
+	const match = pathname.match(/^\/mail\/f\/([^/]+)\/t\/([^/]+)/)
+	if (match?.[1] && match[2]) {
+		return { folderId: decodeURIComponent(match[1]), threadId: decodeURIComponent(match[2]) }
+	}
+	return {
+		...(folderId ? { folderId } : {}),
+		...(selectedThreadId ? { threadId: selectedThreadId } : {}),
+	}
+}
+
 const TONE_RGB: Record<EventTone, [number, number, number]> = {
 	blue: [37, 99, 235],
 	teal: [20, 184, 166],
