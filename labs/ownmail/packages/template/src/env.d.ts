@@ -11,6 +11,7 @@ declare namespace Cloudflare {
 		NYLAS_CLIENT_ID: string
 		NYLAS_REGION: 'us' | 'eu'
 		NYLAS_API_BASE_URL?: string
+		OWNMAIL_DEV_MOCKS?: string
 		APP_NAME: string
 		INBOX_EMAIL: string
 		TEMPLATE_VERSION: string

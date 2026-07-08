@@ -1,23 +1,84 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useRouter } from '@tanstack/react-router'
-import { useEffect } from 'react'
-import { getThreads, listDrafts } from '../server/fns.js'
+import { createFileRoute, Link, Outlet, useRouter, useRouterState } from '@tanstack/react-router'
+import { Paperclip, Reply, Star } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import {
+	cn,
+	draftRecipientName,
+	formatListDate,
+	labelBadgeClass,
+	mailFolderTitle,
+	STAR_FILLED_CLASS,
+	STAR_HOVER_CLASS,
+	threadLabels,
+	threadMaskFromMailLocation,
+	threadSender,
+	threadTimestamp,
+} from '../components/ui-model.js'
+import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
-	loader: async ({ params }) => {
-		if (params.folderId === 'drafts') {
-			return { threads: [] as Thread[], drafts: await listDrafts() }
-		}
-		const res = await getThreads({ data: { folderId: params.folderId } })
-		return { ...res, drafts: [] as Draft[] }
-	},
+	validateSearch: (search): { baseFolderId?: string } => ({
+		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
+	}),
+	loader: async ({ params }) => loadMailFolderData(params.folderId),
 	component: FolderView,
 })
 
+export async function loadMailFolderData(folderId: string) {
+	const folders = await getFolders()
+	if (folderId === 'drafts') {
+		return { threads: [] as Thread[], drafts: await listDrafts(), folders }
+	}
+	if (folderId === 'starred') {
+		const res = await getThreads({ data: { starred: true } })
+		return { ...res, drafts: [] as Draft[], folders }
+	}
+	const res = await getThreads({ data: { folderId } })
+	return { ...res, drafts: [] as Draft[], folders }
+}
+
+type MailFolderRouteData = Awaited<ReturnType<typeof loadMailFolderData>>
+
 function FolderView() {
-	const { threads, drafts } = Route.useLoaderData()
+	const { threads, drafts, folders } = Route.useLoaderData()
 	const { folderId } = Route.useParams()
+	const { baseFolderId } = Route.useSearch()
+
+	return (
+		<MailFolderRouteScreen
+			threads={threads}
+			drafts={drafts}
+			folders={folders}
+			folderId={folderId}
+			baseFolderId={baseFolderId}
+		/>
+	)
+}
+
+export function MailFolderRouteScreen({
+	threads,
+	drafts,
+	folders,
+	folderId,
+	baseFolderId,
+}: MailFolderRouteData & { folderId: string; baseFolderId?: string }) {
+	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
+	const publicPathname = useRouterState({
+		select: (state) => state.location.maskedLocation?.pathname ?? state.location.pathname,
+	})
+	const hasThread = useRouterState({
+		select: (state) =>
+			state.location.pathname.includes('/t/') ||
+			state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
+	})
+	const threadMask = threadMaskFromMailLocation(publicPathname)
+	const sortedThreads = useMemo(
+		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
+		[threads],
+	)
+	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 
 	// Light-touch realtime: refresh the list every 30s while the tab is visible.
 	useEffect(() => {
@@ -28,82 +89,179 @@ function FolderView() {
 	}, [router])
 
 	return (
-		<div className="flex h-full">
-			<section className="w-96 shrink-0 overflow-y-auto border-r border-neutral-200">
-				{folderId === 'drafts' ? (
-					drafts.length === 0 ? (
-						<p className="p-6 text-sm text-neutral-500">No drafts.</p>
+		<>
+			<section
+				className={cn(
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none',
+					hasThread ? 'hidden' : 'flex',
+				)}
+			>
+				<div className="flex items-center justify-between border-b border-border px-4 py-3">
+					<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
+					{unreadCount > 0 ? (
+						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+							{unreadCount} unread
+						</span>
+					) : null}
+				</div>
+
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					{folderId === 'drafts' ? (
+						drafts.length === 0 ? (
+							<EmptyState />
+						) : (
+							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} mask={threadMask} />)
+						)
+					) : sortedThreads.length === 0 ? (
+						<EmptyState />
 					) : (
-						<ul>
-							{drafts.map((draft) => (
-								<DraftRow key={draft.id} draft={draft} />
-							))}
-						</ul>
-					)
-				) : threads.length === 0 ? (
-					<p className="p-6 text-sm text-neutral-500">Nothing here yet.</p>
+						sortedThreads.map((thread) => (
+							<ThreadRow
+								key={thread.id}
+								thread={thread}
+								folderId={folderId}
+								baseFolderId={baseFolderId}
+								mask={threadMask}
+								onChanged={() => router.invalidate()}
+							/>
+						))
+					)}
+				</div>
+			</section>
+			<section className={cn('min-w-0 flex-1 flex-col bg-background', hasThread ? 'flex' : 'hidden md:flex')}>
+				{hasThread ? (
+					<Outlet />
 				) : (
-					<ul>
-						{threads.map((thread) => (
-							<ThreadRow key={thread.id} thread={thread} folderId={folderId} />
-						))}
-					</ul>
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
+						<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+							<Reply className="h-6 w-6" />
+						</div>
+						<div>
+							<p className="text-sm font-medium text-foreground">Select a conversation</p>
+							<p className="text-sm text-muted-foreground">Choose a message from the list to read it here.</p>
+						</div>
+					</div>
 				)}
 			</section>
-			<section className="min-w-0 flex-1 overflow-y-auto">
-				<Outlet />
-			</section>
+		</>
+	)
+}
+
+function EmptyState() {
+	return (
+		<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+			<p className="text-sm font-medium text-foreground">Nothing here</p>
+			<p className="text-sm text-muted-foreground">This view is empty.</p>
 		</div>
 	)
 }
 
-function DraftRow({ draft }: { draft: Draft }) {
+function DraftRow({ draft, mask }: { draft: Draft; mask?: { to: '/' } }) {
+	const recipient = draftRecipientName(draft)
+	const when = formatListDate(draft.date)
 	return (
-		<li className="border-b border-neutral-100">
-			<Link to="/mail/compose" search={{ draft: draft.id }} className="block px-4 py-3 hover:bg-neutral-50">
-				<div className="truncate text-sm text-neutral-700">
-					To: {draft.to?.map((p) => p.email).join(', ') || '(no recipient)'}
-				</div>
-				<div className="truncate text-sm font-medium">{draft.subject || '(no subject)'}</div>
-				<div className="truncate text-xs text-neutral-400">{draft.snippet}</div>
-			</Link>
-		</li>
+		<Link
+			to="/mail/f/$folderId/t/$threadId"
+			params={{ folderId: 'drafts', threadId: draft.id }}
+			{...(mask ? { mask } : {})}
+			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
+		>
+			<div className="flex items-center gap-2">
+				<span className="shrink-0 text-muted-foreground">
+					<Star className="h-4 w-4" />
+				</span>
+				<span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{recipient}</span>
+				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
+			</div>
+			<p className="truncate text-sm text-foreground/80">{draft.subject || '(no subject)'}</p>
+			<p className="min-w-0 truncate text-xs text-muted-foreground">{draft.snippet}</p>
+		</Link>
 	)
 }
 
-function ThreadRow({ thread, folderId }: { thread: Thread; folderId: string }) {
-	const from = thread.participants?.[0]
-	const when = thread.latest_message_received_date ?? thread.latest_message_sent_date
-	return (
-		<li className="border-b border-neutral-100">
-			<Link
-				to="/mail/f/$folderId/t/$threadId"
-				params={{ folderId, threadId: thread.id }}
-				className="block px-4 py-3 hover:bg-neutral-50"
-				activeProps={{ className: 'bg-blue-50 hover:bg-blue-50' }}
-			>
-				<div className="flex items-baseline justify-between gap-2">
-					<span
-						className={`truncate text-sm ${thread.unread ? 'font-semibold text-neutral-900' : 'text-neutral-700'}`}
-					>
-						{from?.name || from?.email || '(unknown sender)'}
-					</span>
-					{when ? <time className="shrink-0 text-xs text-neutral-400">{formatDate(when)}</time> : null}
-				</div>
-				<div className={`truncate text-sm ${thread.unread ? 'font-medium' : 'text-neutral-600'}`}>
-					{thread.subject || '(no subject)'}
-				</div>
-				<div className="truncate text-xs text-neutral-400">{thread.snippet}</div>
-			</Link>
-		</li>
-	)
-}
+function ThreadRow({
+	thread,
+	folderId,
+	baseFolderId,
+	mask,
+	onChanged,
+}: {
+	thread: Thread
+	folderId: string
+	baseFolderId?: string
+	mask?: { to: '/' }
+	onChanged: () => void
+}) {
+	const when = formatListDate(threadTimestamp(thread))
+	const sender = threadSender(thread, folderId)
+	const labels = threadLabels(thread)
 
-function formatDate(epochSeconds: number): string {
-	const date = new Date(epochSeconds * 1000)
-	const now = new Date()
-	if (date.toDateString() === now.toDateString()) {
-		return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+	async function toggleStar(event: React.MouseEvent<HTMLButtonElement>) {
+		event.preventDefault()
+		event.stopPropagation()
+		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
+		onChanged()
 	}
-	return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+	return (
+		<Link
+			to="/mail/f/$folderId/t/$threadId"
+			params={{ folderId, threadId: thread.id }}
+			search={baseFolderId ? { baseFolderId } : {}}
+			{...(mask ? { mask } : {})}
+			className={cn(
+				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
+				thread.unread && 'bg-card',
+			)}
+			activeProps={{ className: 'bg-accent hover:bg-accent' }}
+		>
+			{thread.unread ? <span className="absolute top-0 left-0 h-full w-0.5 bg-primary" aria-hidden /> : null}
+			<div className="flex items-center gap-2">
+				<button
+					type="button"
+					onClick={toggleStar}
+					aria-label={thread.starred ? 'Unstar' : 'Star'}
+					className={cn('shrink-0 text-muted-foreground transition-colors', STAR_HOVER_CLASS)}
+				>
+					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
+				</button>
+				<span
+					className={cn(
+						'min-w-0 flex-1 truncate text-sm',
+						thread.unread ? 'font-semibold text-foreground' : 'font-medium text-foreground/90',
+					)}
+				>
+					{sender}
+					{(thread.message_ids?.length ?? 0) > 1 ? (
+						<span className="ml-1 font-normal text-muted-foreground">({thread.message_ids?.length})</span>
+					) : null}
+				</span>
+				{thread.has_attachments ? <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
+			</div>
+
+			<p
+				className={cn(
+					'truncate text-sm',
+					thread.unread ? 'font-semibold text-foreground' : 'text-foreground/80',
+				)}
+			>
+				{thread.subject || '(no subject)'}
+			</p>
+			<div className="flex items-center gap-2">
+				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{thread.snippet}</p>
+				{labels.map((label) => (
+					<span
+						key={label.id}
+						className={cn(
+							'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+							labelBadgeClass(label.tone),
+						)}
+					>
+						{label.name}
+					</span>
+				))}
+			</div>
+		</Link>
+	)
 }

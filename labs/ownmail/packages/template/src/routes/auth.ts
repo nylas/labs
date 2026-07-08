@@ -1,7 +1,8 @@
 import { buildAuthorizeUrl, generatePkcePair } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
-import { platform } from '../server/platform.js'
-import { storePkce } from '../server/session.js'
+import { MAIL_HOME_PATH } from '../components/route-paths.js'
+import { platform, usingDevMocks } from '../server/platform.js'
+import { createReferenceDevSessionCookie, storePkce } from '../server/session.js'
 
 export const Route = createFileRoute('/auth')({
 	server: {
@@ -9,6 +10,12 @@ export const Route = createFileRoute('/auth')({
 			/** Kicks off Nylas Hosted Auth (provider "nylas") with PKCE. */
 			GET: async ({ request }) => {
 				const { env } = await platform()
+				if (await usingDevMocks()) {
+					return new Response(null, {
+						status: 302,
+						headers: { Location: MAIL_HOME_PATH, 'Set-Cookie': createReferenceDevSessionCookie() },
+					})
+				}
 				if (!env.NYLAS_CLIENT_ID?.trim()) {
 					return configurationErrorResponse('NYLAS_CLIENT_ID is not configured for this deployment.')
 				}

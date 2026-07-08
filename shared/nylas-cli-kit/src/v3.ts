@@ -497,6 +497,42 @@ export class NylasV3Client {
 		}
 		return parsed as T
 	}
+
+	async rawRequest(method: string, path: string, body?: unknown): Promise<Response> {
+		const res = await fetchWithTimeout(
+			this.fetchImpl,
+			`${this.baseUrl}${path}`,
+			{
+				method,
+				headers: {
+					Authorization: `Bearer ${this.apiKey}`,
+					...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+				},
+				body: body === undefined ? null : JSON.stringify(body),
+			},
+			`Nylas API ${method} ${path}`,
+		)
+		if (!res.ok) {
+			let parsed: unknown = null
+			try {
+				parsed = await res.clone().json()
+			} catch {
+				parsed = await res.text().catch(() => null)
+			}
+			const errBody = parsed as {
+				request_id?: string
+				error?: { type?: string; message?: string }
+			} | null
+			throw new NylasApiError(
+				errBody?.error?.message ?? `Nylas API ${method} ${path} failed with ${res.status}`,
+				res.status,
+				errBody?.request_id,
+				errBody?.error?.type,
+				parsed,
+			)
+		}
+		return res
+	}
 }
 
 function listData<T>(response: { data?: T[] | null }): T[] {
@@ -592,6 +628,9 @@ export class GrantScopedClient {
 	listDrafts(query?: ListQuery): Promise<ListResponse<Draft>> {
 		return this.client.request('GET', this.path(`/drafts${toQuery(query)}`))
 	}
+	getDraft(draftId: string): Promise<ItemResponse<Draft>> {
+		return this.client.request('GET', this.path(`/drafts/${encodeURIComponent(draftId)}`))
+	}
 	createDraft(body: SendMessageRequest): Promise<ItemResponse<Draft>> {
 		return this.client.request('POST', this.path('/drafts'), body)
 	}
@@ -612,7 +651,7 @@ export class GrantScopedClient {
 		)
 	}
 	downloadAttachment(attachmentId: string, messageId: string): Promise<Response> {
-		return this.client.request('GET', this.attachmentDownloadUrl(attachmentId, messageId))
+		return this.client.rawRequest('GET', this.attachmentDownloadUrl(attachmentId, messageId))
 	}
 
 	// Calendars / events

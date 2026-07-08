@@ -1,0 +1,11 @@
+[
+	{
+		"date": "2026-07-08",
+		"genre": "modern-minimal",
+		"macrostructure": "Workbench",
+		"theme": "Quiet",
+		"nav": "N4 hidden behind command",
+		"footer": "none",
+		"scope": "OwnMail mailbox, calendar, mobile PWA shell, and local UI development"
+	}
+]

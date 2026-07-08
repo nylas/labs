@@ -65,8 +65,8 @@ function cookieValue(request: Request, name: string): string | null {
 	return match?.[1] ?? null
 }
 
-function setCookie(name: string, value: string, maxAge: number): string {
-	return `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`
+function setCookie(name: string, value: string, maxAge: number, secure = true): string {
+	return `${name}=${value}; Path=/; HttpOnly${secure ? '; Secure' : ''}; SameSite=Lax; Max-Age=${maxAge}`
 }
 
 /** Returns the Set-Cookie header value establishing the session. */
@@ -88,7 +88,15 @@ export async function createSession(grantId: string, email: string): Promise<str
 }
 
 export function clearSessionCookie(): string {
-	return setCookie(COOKIE_NAME, '', 0)
+	return setCookie(COOKIE_NAME, '', 0, false)
+}
+
+export function createReferenceDevSessionCookie(): string {
+	return setCookie(COOKIE_NAME, 'authenticated', 60 * 60 * 24 * 30, false)
+}
+
+export function hasReferenceDevSessionCookie(request: Request): boolean {
+	return cookieValue(request, COOKIE_NAME) === 'authenticated'
 }
 
 export async function getSession(request: Request): Promise<Session | null> {

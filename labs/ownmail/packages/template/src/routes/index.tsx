@@ -1,46 +1,43 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { platform } from '../server/platform.js'
+import { DEFAULT_MAIL_FOLDER_ID, LOGIN_PATH } from '../components/route-paths.js'
+import { getMailboxInfo } from '../server/fns.js'
+import { usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
+import { loadMailFolderData, MailFolderRouteScreen } from './mail.f.$folderId.js'
+import { MailRouteScreen } from './mail.js'
 
 const homeState = createServerFn({ method: 'GET' }).handler(async () => {
-	const { env } = await platform()
-	const session = await getSession(getRequest())
-	return {
-		loggedIn: session !== null,
-		email: env.INBOX_EMAIL,
-		appName: env.APP_NAME,
+	if (await usingDevMocks()) {
+		return { authenticated: true }
 	}
+	const session = await getSession(getRequest())
+	return { authenticated: Boolean(session) }
 })
 
 export const Route = createFileRoute('/')({
-	loader: () => homeState(),
+	loader: async () => {
+		const state = await homeState()
+		if (!state.authenticated) throw redirect({ to: LOGIN_PATH })
+		const [info, folderData] = await Promise.all([
+			getMailboxInfo(),
+			loadMailFolderData(DEFAULT_MAIL_FOLDER_ID),
+		])
+		return { ...state, authenticated: true as const, info, folderData }
+	},
 	component: Home,
 })
 
 function Home() {
-	const { loggedIn, email, appName } = Route.useLoaderData()
+	const data = Route.useLoaderData()
 	return (
-		<main className="min-h-screen bg-white text-neutral-950">
-			<section className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center px-6 py-12">
-				<p className="text-sm font-medium uppercase tracking-normal text-neutral-500">{appName}</p>
-				<h1 className="mt-4 text-4xl font-semibold tracking-normal text-neutral-950 sm:text-5xl">
-					Your mailbox is ready.
-				</h1>
-				<p className="mt-4 max-w-xl text-base leading-7 text-neutral-600">
-					Sign in with your ownmail address to read mail, send messages, and manage your calendar.
-				</p>
-				<div className="mt-8 flex flex-wrap items-center gap-3">
-					<a
-						href={loggedIn ? '/mail' : '/auth'}
-						className="inline-flex h-11 items-center justify-center rounded-md bg-neutral-950 px-5 text-sm font-medium text-white hover:bg-neutral-800"
-					>
-						{loggedIn ? 'Open inbox' : 'Sign in'}
-					</a>
-					{email ? <span className="text-sm text-neutral-500">{email}</span> : null}
-				</div>
-			</section>
-		</main>
+		<MailRouteScreen
+			info={data.info}
+			folders={data.folderData.folders}
+			defaultFolderId={DEFAULT_MAIL_FOLDER_ID}
+		>
+			<MailFolderRouteScreen {...data.folderData} folderId={DEFAULT_MAIL_FOLDER_ID} />
+		</MailRouteScreen>
 	)
 }

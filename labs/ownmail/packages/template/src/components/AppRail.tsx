@@ -1,0 +1,129 @@
+import { Link } from '@tanstack/react-router'
+import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import {
+	initialThemeIsDark,
+	ROOT_BACKGROUND_CLASS,
+	THEME_STORAGE_KEY,
+	themeClassName,
+	themeToggleLabel,
+} from './theme.js'
+import { initials } from './ui-model.js'
+
+export function AppRail({
+	email,
+	displayName,
+	active,
+}: {
+	email: string
+	displayName?: string
+	active: 'mail' | 'calendar'
+}) {
+	const [isDark, setIsDark] = useState(false)
+	const [mounted, setMounted] = useState(false)
+
+	useEffect(() => {
+		const saved = localStorage.getItem(THEME_STORAGE_KEY)
+		const nextDark = initialThemeIsDark(saved)
+		applyThemeClass(nextDark)
+		setIsDark(nextDark)
+		setMounted(true)
+	}, [])
+
+	function toggleTheme() {
+		const nextDark = !isDark
+		applyThemeClass(nextDark)
+		localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
+		setIsDark(nextDark)
+	}
+
+	return (
+		<nav
+			aria-label="Primary"
+			className="flex h-full w-16 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3"
+		>
+			<Link
+				to={MAIL_HOME_PATH}
+				className="mb-2 flex h-10 w-10 items-center justify-center rounded-sm bg-primary text-primary-foreground"
+				aria-label="ownmail home"
+			>
+				<span className="font-display text-lg font-extrabold leading-none">o</span>
+			</Link>
+
+			<Link
+				to={MAIL_HOME_PATH}
+				aria-label="Mail"
+				aria-current={active === 'mail' ? 'page' : undefined}
+				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
+					active === 'mail'
+						? 'bg-sidebar-primary text-sidebar-primary-foreground'
+						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+				}`}
+			>
+				<Mail className="h-5 w-5" strokeWidth={active === 'mail' ? 2.4 : 2} />
+				<span className="mt-0.5 text-[10px] font-medium tracking-tight">Mail</span>
+			</Link>
+			<Link
+				to={CALENDAR_HOME_PATH}
+				aria-label="Calendar"
+				aria-current={active === 'calendar' ? 'page' : undefined}
+				className={`group relative flex h-11 w-11 flex-col items-center justify-center rounded-sm transition-colors ${
+					active === 'calendar'
+						? 'bg-sidebar-primary text-sidebar-primary-foreground'
+						: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+				}`}
+			>
+				<Calendar className="h-5 w-5" strokeWidth={active === 'calendar' ? 2.4 : 2} />
+				<span className="mt-0.5 text-[10px] font-medium tracking-tight">Calendar</span>
+			</Link>
+
+			<div className="mt-auto flex flex-col items-center gap-1">
+				<button
+					type="button"
+					onClick={toggleTheme}
+					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label={themeToggleLabel(mounted, isDark)}
+				>
+					{mounted && isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+				</button>
+				<button
+					type="button"
+					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Search"
+				>
+					<Search className="h-5 w-5" />
+				</button>
+				<button
+					type="button"
+					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+					aria-label="Settings"
+				>
+					<Settings className="h-5 w-5" />
+				</button>
+				<form action="/logout" method="get" className="contents">
+					<button
+						type="submit"
+						className="group relative flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+						aria-label="Sign out"
+					>
+						<LogOut className="h-5 w-5" />
+					</button>
+				</form>
+				<div
+					className="mt-1 flex h-9 w-9 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground"
+					title={displayName ? `${displayName} · ${email}` : email}
+				>
+					{initials(displayName ?? email)}
+				</div>
+			</div>
+		</nav>
+	)
+}
+
+function applyThemeClass(isDark: boolean): void {
+	const next = themeClassName(isDark)
+	const previous = isDark ? 'light' : 'dark'
+	document.documentElement.classList.add(ROOT_BACKGROUND_CLASS, next)
+	document.documentElement.classList.remove(previous)
+}

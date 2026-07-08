@@ -13,6 +13,7 @@ export type AppEnv = {
 	NYLAS_CLIENT_ID: string
 	NYLAS_REGION: 'us' | 'eu'
 	NYLAS_API_BASE_URL?: string
+	OWNMAIL_DEV_MOCKS?: string
 	APP_NAME: string
 	INBOX_EMAIL: string
 	TEMPLATE_VERSION: string
@@ -24,22 +25,40 @@ export type KvLike = {
 	delete(key: string): Promise<void>
 }
 
-export type Platform = { env: AppEnv; kv: KvLike | null }
+export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
 
 let cached: Platform | null = null
 
 export async function platform(): Promise<Platform> {
 	if (cached) return cached
+	const rawProcessEnv = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
+	const processEnv = rawProcessEnv as unknown as AppEnv | undefined
+	if (processEnv?.OWNMAIL_DEV_MOCKS === '1' && rawProcessEnv?.NODE_ENV !== 'production') {
+		if (!processEnv.SESSION_SECRET) {
+			throw new Error('Platform env unavailable - SESSION_SECRET not configured')
+		}
+		cached = { env: processEnv, kv: null, runtime: 'node' }
+		return cached
+	}
 	try {
 		const { env } = await import('cloudflare:workers')
-		cached = { env: env as unknown as AppEnv, kv: (env as { SESSIONS?: KvLike }).SESSIONS ?? null }
-	} catch {
-		const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process
-			?.env as unknown as AppEnv
-		if (!env?.SESSION_SECRET) {
-			throw new Error('Platform env unavailable — SESSION_SECRET not configured')
+		cached = {
+			env: env as unknown as AppEnv,
+			kv: (env as { SESSIONS?: KvLike }).SESSIONS ?? null,
+			runtime: 'cloudflare',
 		}
-		cached = { env, kv: null }
+	} catch {
+		const env = processEnv
+		if (!env?.SESSION_SECRET) {
+			throw new Error('Platform env unavailable - SESSION_SECRET not configured')
+		}
+		cached = { env, kv: null, runtime: 'node' }
 	}
 	return cached
+}
+
+export async function usingDevMocks(): Promise<boolean> {
+	const { env, runtime } = await platform()
+	const nodeEnv = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
+	return runtime === 'node' && env.OWNMAIL_DEV_MOCKS === '1' && nodeEnv?.NODE_ENV !== 'production'
 }

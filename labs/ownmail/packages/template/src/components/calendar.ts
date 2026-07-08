@@ -1,6 +1,24 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 
 export type CalView = 'month' | 'week' | 'day'
+export const DEFAULT_CALENDAR_VIEW: CalView = 'week'
+export const CALENDAR_ENTRY_EVENT_RANGE_VIEW: CalView = 'month'
+
+const MONTHS = [
+	'January',
+	'February',
+	'March',
+	'April',
+	'May',
+	'June',
+	'July',
+	'August',
+	'September',
+	'October',
+	'November',
+	'December',
+]
+const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export function isCalView(value: string): value is CalView {
 	return value === 'month' || value === 'week' || value === 'day'
@@ -16,10 +34,10 @@ export function viewRange(view: CalView, anchor: Date): { start: Date; end: Date
 		const start = startOfWeek(anchor)
 		return { start, end: addDays(start, 7) }
 	}
-	// Month grid: from the week containing the 1st through the week containing the last day.
+	// Reference month grid is always 6x7, starting with the week containing the 1st.
 	const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
-	const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)
-	return { start: startOfWeek(first), end: addDays(startOfWeek(last), 7) }
+	const start = startOfWeek(first)
+	return { start, end: addDays(start, 42) }
 }
 
 export function startOfDay(d: Date): Date {
@@ -56,7 +74,7 @@ export function eventTimes(event: Event): { start: Date; end: Date; allDay: bool
 	}
 	return {
 		start: new Date(`${when.start_date}T00:00:00`),
-		end: addDays(new Date(`${when.end_date}T00:00:00`), 1),
+		end: new Date(`${when.end_date}T00:00:00`),
 		allDay: true,
 	}
 }
@@ -69,11 +87,72 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 			const { start, end } = eventTimes(e)
 			return start.getTime() < dayEnd && end.getTime() > dayStart
 		})
-		.sort((a, b) => eventTimes(a).start.getTime() - eventTimes(b).start.getTime())
+		.sort((a, b) => {
+			const aTimes = eventTimes(a)
+			const bTimes = eventTimes(b)
+			return Number(bTimes.allDay) - Number(aTimes.allDay) || aTimes.start.getTime() - bTimes.start.getTime()
+		})
+}
+
+export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: ReadonlySet<string>): Event[] {
+	if (hiddenCalendarIds.size === 0) return events
+	return events.filter((event) => !event.calendar_id || !hiddenCalendarIds.has(event.calendar_id))
+}
+
+export function timedEventsOnDay(events: Event[], day: Date): Event[] {
+	return eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
+}
+
+export function timedEventLayout(
+	event: Event,
+	day: Date,
+	options: { startHour: number; endHour: number; hourHeight: number },
+): { top: number; height: number } | null {
+	const times = eventTimes(event)
+	if (times.allDay) return null
+
+	const visibleStart = dateWithHour(startOfDay(day), options.startHour)
+	const visibleEnd = dateWithHour(startOfDay(day), options.endHour)
+	const start = new Date(Math.max(times.start.getTime(), visibleStart.getTime()))
+	const end = new Date(Math.min(times.end.getTime(), visibleEnd.getTime()))
+	if (end <= start) return null
+
+	const startDecimal = start.getHours() + start.getMinutes() / 60
+	const endDecimal = end.getHours() + end.getMinutes() / 60
+	return {
+		top: (startDecimal - options.startHour) * options.hourHeight,
+		height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),
+	}
 }
 
 export function fmtTime(d: Date): string {
-	return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+	return fmtCompactTime(d)
+}
+
+export function fmtAgendaTime(d: Date): string {
+	return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+export function fmtCompactTime(d: Date): string {
+	const hour = d.getHours()
+	const minute = d.getMinutes()
+	const period = hour >= 12 ? 'PM' : 'AM'
+	const displayHour = hour % 12 === 0 ? 12 : hour % 12
+	return minute === 0
+		? `${displayHour} ${period}`
+		: `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+}
+
+export function dateWithHour(day: Date, hour: number): Date {
+	const next = new Date(day)
+	const wholeHour = Math.floor(hour)
+	next.setHours(wholeHour, Math.round((hour - wholeHour) * 60), 0, 0)
+	return next
+}
+
+export function formatFullDate(d: Date, withYear = false): string {
+	const base = `${WEEKDAYS_LONG[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`
+	return withYear ? `${base}, ${d.getFullYear()}` : base
 }
 
 export function ymd(d: Date): string {

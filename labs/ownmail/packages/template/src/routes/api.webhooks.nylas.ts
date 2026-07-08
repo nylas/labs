@@ -63,6 +63,8 @@ async function verifySignature(secret: string, body: string, signatureHex: strin
 		false,
 		['verify'],
 	)
-	const sigBytes = new Uint8Array(signatureHex.match(/.{2}/g)!.map((h) => Number.parseInt(h, 16)))
+	const hexPairs = signatureHex.match(/.{2}/g)
+	if (!hexPairs) return false
+	const sigBytes = new Uint8Array(hexPairs.map((h) => Number.parseInt(h, 16)))
 	return crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(body))
 }

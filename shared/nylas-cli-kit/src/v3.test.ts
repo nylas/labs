@@ -119,4 +119,45 @@ describe('NylasV3Client', () => {
 			'POST https://api.us.nylas.com/v3/webhooks',
 		])
 	})
+
+	it('reads a draft directly by id', async () => {
+		let requestUrl = ''
+		let requestMethod = ''
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requestUrl = String(input)
+			requestMethod = init?.method ?? 'GET'
+			return Response.json({
+				request_id: 'req-draft',
+				data: {
+					id: 'draft#123',
+					grant_id: 'grant-123',
+					subject: 'Direct lookup',
+				},
+			})
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		const draft = await client.forGrant('grant-123').getDraft('draft#123')
+
+		expect(requestMethod).toBe('GET')
+		expect(requestUrl).toBe('https://api.us.nylas.com/v3/grants/grant-123/drafts/draft%23123')
+		expect(draft.data.subject).toBe('Direct lookup')
+	})
+
+	it('downloads attachments as a raw response', async () => {
+		let requestUrl = ''
+		const fetchImpl: typeof fetch = async (input) => {
+			requestUrl = String(input)
+			return new Response('pdf-bytes', { headers: { 'Content-Type': 'application/pdf' } })
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		const response = await client.forGrant('grant-123').downloadAttachment('att#1', 'msg=1')
+
+		expect(requestUrl).toBe(
+			'https://api.us.nylas.com/v3/grants/grant-123/attachments/att%231/download?message_id=msg%3D1',
+		)
+		expect(response.headers.get('Content-Type')).toBe('application/pdf')
+		expect(await response.text()).toBe('pdf-bytes')
+	})
 })

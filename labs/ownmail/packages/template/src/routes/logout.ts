@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { LOGIN_PATH } from '../components/route-paths.js'
 import { clearSessionCookie, destroySession } from '../server/session.js'
 
 export const Route = createFileRoute('/logout')({
@@ -8,7 +9,7 @@ export const Route = createFileRoute('/logout')({
 				await destroySession(request)
 				return new Response(null, {
 					status: 302,
-					headers: { Location: '/', 'Set-Cookie': clearSessionCookie() },
+					headers: { Location: LOGIN_PATH, 'Set-Cookie': clearSessionCookie() },
 				})
 			},
 		},

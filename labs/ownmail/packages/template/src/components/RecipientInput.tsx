@@ -48,15 +48,25 @@ export function RecipientInput({
 
 	return (
 		<div className="relative">
+			<label className="sr-only" htmlFor="recipient-input">
+				Recipients
+			</label>
 			<input
+				id="recipient-input"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={() => setTimeout(() => setOpen(false), 150)}
 				placeholder={placeholder ?? 'To (comma-separated)'}
-				className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+				className="app-input"
+				type="email"
+				multiple
+				inputMode="email"
+				autoComplete="email"
+				autoCapitalize="none"
+				enterKeyHint="next"
 			/>
 			{open ? (
-				<ul className="absolute z-10 mt-1 w-full rounded-md border border-neutral-200 bg-white py-1 shadow-lg">
+				<ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg">
 					{suggestions.map((s) => (
 						<li key={s.email}>
 							<button
@@ -65,7 +75,7 @@ export function RecipientInput({
 									e.preventDefault()
 									pick(s.email)
 								}}
-								className="block w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50"
+								className="command-row block w-full px-3 py-2 text-left text-sm"
 							>
 								{s.name ? (
 									<>

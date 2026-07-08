@@ -4,16 +4,24 @@
  * never supply it.
  */
 
-import { type Folder, type Message, NylasApiError, type Thread } from '@nylas-labs/cli-kit/v3'
+import { type Draft, type Folder, type Message, NylasApiError, type Thread } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
+import { LOGIN_PATH } from '../components/route-paths.js'
+import { requireNylasProviderId } from './ids.js'
+import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
+import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
+import { parseRecipientEmails } from './recipients.js'
+import { threadSearchParams } from './search.js'
+import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
+import { normalizeThreadStateInput } from './thread-state.js'
 
 async function requireMailbox() {
 	const request = getRequest()
 	const resolved = await mailboxFromRequest(request)
-	if (!resolved) throw redirect({ to: '/auth' })
+	if (!resolved) throw redirect({ to: LOGIN_PATH })
 	return resolved
 }
 
@@ -33,11 +41,56 @@ function friendly(err: unknown): Error {
 	return new Error('Something went wrong talking to your mailbox. Please try again.')
 }
 
+function isNotFound(err: unknown): boolean {
+	return err instanceof NylasApiError
+		? err.status === 404
+		: err instanceof Error && /not found|deleted/i.test(err.message)
+}
+
+function draftThreadMessages(
+	draft: Draft,
+	email: string,
+	displayName?: string,
+): { thread: Thread; messages: Message[] } {
+	const from = draft.from?.length ? draft.from : [{ email, ...(displayName ? { name: displayName } : {}) }]
+	const message: Message = {
+		...draft,
+		from,
+		thread_id: draft.thread_id ?? draft.id,
+		folders: draft.folders ?? ['drafts'],
+		unread: false,
+		starred: draft.starred ?? false,
+	}
+	const thread: Thread = {
+		id: draft.id,
+		grant_id: draft.grant_id,
+		subject: draft.subject,
+		snippet: draft.snippet ?? stripHtml(draft.body ?? '').slice(0, 140),
+		participants: draft.to ?? [],
+		message_ids: [draft.id],
+		latest_draft_or_message: message,
+		earliest_message_date: draft.date,
+		latest_message_sent_date: draft.date,
+		has_attachments: Boolean(draft.attachments?.some((attachment) => !attachment.is_inline)),
+		unread: false,
+		starred: draft.starred ?? false,
+		folders: draft.folders ?? ['drafts'],
+	}
+	return { thread, messages: [message] }
+}
+
+function stripHtml(value: string): string {
+	return value
+		.replace(/<[^>]*>/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+}
+
 export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async () => {
 	const { platform } = await import('./platform.js')
 	const { env } = await platform()
-	const { email } = await requireMailbox()
-	return { email, appName: env.APP_NAME }
+	const { email, displayName } = await requireMailbox()
+	return { email, ...(displayName ? { displayName } : {}), appName: env.APP_NAME }
 })
 
 export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Promise<Folder[]> => {
@@ -47,46 +100,76 @@ export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Pr
 })
 
 export const getThreads = createServerFn({ method: 'GET' })
-	.validator((input: { folderId: string; pageToken?: string; q?: string }) => input)
+	.validator((input: ThreadListInput) => normalizeThreadListInput(input))
 	.handler(async ({ data }): Promise<{ threads: Thread[]; nextCursor?: string }> => {
 		const { mailbox } = await requireMailbox()
+		const search = threadSearchParams(data.q)
 		const res = await mailbox.listThreads({
 			limit: 30,
-			in: data.folderId,
+			...(data.folderId ? { in: data.folderId } : {}),
 			...(data.pageToken ? { page_token: data.pageToken } : {}),
-			...(data.q ? { search_query_native: data.q } : {}),
+			...search,
+			...(data.starred !== undefined ? { starred: data.starred } : {}),
 		})
 		return { threads: res.data, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
 	})
 
 export const getThreadMessages = createServerFn({ method: 'GET' })
-	.validator((input: { threadId: string }) => input)
-	.handler(async ({ data }): Promise<{ thread: Thread; messages: Message[] }> => {
-		const { mailbox } = await requireMailbox()
-		const thread = await mailbox.getThread(data.threadId)
-		const messageIds = thread.data.message_ids ?? []
-		const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
-		messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
-		if (thread.data.unread) {
-			// Fire-and-forget read marking; a failure only affects the badge.
-			mailbox.updateThread(data.threadId, { unread: false }).catch(() => {})
-		}
-		return { thread: thread.data, messages }
-	})
+	.validator((input: { threadId: string }) => ({
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+	}))
+	.handler(
+		async ({
+			data,
+		}): Promise<{
+			thread: Thread
+			messages: Message[]
+			mailboxEmail: string
+			markedRead?: boolean
+		}> => {
+			const { mailbox, email, displayName } = await requireMailbox()
+			try {
+				const thread = await mailbox.getThread(data.threadId)
+				const messageIds = thread.data.message_ids ?? []
+				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
+				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
+				if (thread.data.unread) {
+					await mailbox.updateThread(data.threadId, { unread: false })
+					return {
+						thread: { ...thread.data, unread: false },
+						messages,
+						mailboxEmail: email,
+						markedRead: true,
+					}
+				}
+				return { thread: thread.data, messages, mailboxEmail: email }
+			} catch (err) {
+				if (!isNotFound(err)) throw err
+				const drafts = await mailbox.listDrafts({ limit: 50 })
+				const draft = drafts.data.find((item) => item.id === data.threadId)
+				if (!draft) throw friendly(err)
+				return { ...draftThreadMessages(draft, email, displayName), mailboxEmail: email }
+			}
+		},
+	)
 
 export const sendMessage = createServerFn({ method: 'POST' })
-	.validator((input: { to: string; subject: string; body: string; replyToMessageId?: string }) => {
-		const to = input.to
-			.split(',')
-			.map((e) => e.trim())
-			.filter(Boolean)
-		if (to.length === 0) throw new Error('At least one recipient is required')
-		for (const email of to) {
-			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Invalid recipient: ${email}`)
-		}
-		if (input.body.length > 500_000) throw new Error('Message body too large')
-		return { ...input, toList: to }
-	})
+	.validator(
+		(input: {
+			to: string
+			subject: string
+			body: string
+			replyToMessageId?: string
+			attachments?: OutboundAttachment[]
+		}) => {
+			const to = parseRecipientEmails(input.to, { required: true })
+			if (input.body.length > 500_000) throw new Error('Message body too large')
+			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+				throw new Error('Invalid reply reference')
+			}
+			return { ...input, toList: to, attachments: normalizeOutboundAttachments(input.attachments) }
+		},
+	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
@@ -94,6 +177,7 @@ export const sendMessage = createServerFn({ method: 'POST' })
 				to: data.toList.map((email) => ({ email })),
 				subject: data.subject,
 				body: data.body,
+				...(data.attachments ? { attachments: data.attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
 		} catch (err) {
@@ -105,16 +189,27 @@ export const sendMessage = createServerFn({ method: 'POST' })
 // ---- Thread actions -----------------------------------------------------------
 
 export const updateThreadState = createServerFn({ method: 'POST' })
-	.validator((input: { threadId: string; unread?: boolean; starred?: boolean; folder?: string }) => input)
+	.validator(normalizeThreadStateInput)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
+			const folders = data.folder
+				? threadFoldersAfterMove((await mailbox.getThread(data.threadId)).data.folders, data.folder)
+				: undefined
 			await mailbox.updateThread(data.threadId, {
 				...(data.unread !== undefined ? { unread: data.unread } : {}),
 				...(data.starred !== undefined ? { starred: data.starred } : {}),
-				...(data.folder ? { folders: [data.folder] } : {}),
+				...(folders ? { folders } : {}),
 			})
 		} catch (err) {
+			if (isNotFound(err) && data.folder && ['archive', 'trash'].includes(data.folder)) {
+				try {
+					await mailbox.deleteDraft(data.threadId)
+					return { ok: true }
+				} catch {
+					// fall through to the original, user-safe thread action error
+				}
+			}
 			throw friendly(err)
 		}
 		return { ok: true }
@@ -123,16 +218,29 @@ export const updateThreadState = createServerFn({ method: 'POST' })
 // ---- Drafts ---------------------------------------------------------------------
 
 export const saveDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId?: string; to: string; subject: string; body: string }) => input)
+	.validator(
+		(input: {
+			draftId?: string
+			to: string
+			subject: string
+			body: string
+			attachments?: OutboundAttachment[]
+		}) => ({
+			...input,
+			...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
+			toList: parseRecipientEmails(input.to, { required: false }),
+			attachments: normalizeOutboundAttachments(input.attachments),
+		}),
+	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
-		const to = data.to
-			.split(',')
-			.map((e) => e.trim())
-			.filter(Boolean)
-			.map((email) => ({ email }))
 		try {
-			const payload = { to, subject: data.subject, body: data.body }
+			const payload = {
+				to: data.toList.map((email) => ({ email })),
+				subject: data.subject,
+				body: data.body,
+				...(data.attachments ? { attachments: data.attachments } : {}),
+			}
 			const saved = data.draftId
 				? await mailbox.updateDraft(data.draftId, payload)
 				: await mailbox.createDraft(payload)
@@ -143,17 +251,23 @@ export const saveDraft = createServerFn({ method: 'POST' })
 	})
 
 export const getDraft = createServerFn({ method: 'GET' })
-	.validator((input: { draftId: string }) => input)
+	.validator((input: { draftId: string }) => ({
+		draftId: requireNylasProviderId(input.draftId, 'draft'),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
-		const res = await mailbox.listDrafts({ limit: 50 })
-		const draft = res.data.find((d) => d.id === data.draftId)
-		if (!draft) throw friendly(new NylasApiError('draft not found', 404))
-		return draft
+		try {
+			const res = await mailbox.getDraft(data.draftId)
+			return res.data
+		} catch (err) {
+			throw friendly(err)
+		}
 	})
 
 export const sendDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId: string }) => input)
+	.validator((input: { draftId: string }) => ({
+		draftId: requireNylasProviderId(input.draftId, 'draft'),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
@@ -165,7 +279,9 @@ export const sendDraft = createServerFn({ method: 'POST' })
 	})
 
 export const deleteDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId: string }) => input)
+	.validator((input: { draftId: string }) => ({
+		draftId: requireNylasProviderId(input.draftId, 'draft'),
+	}))
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {

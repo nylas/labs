@@ -1,14 +1,275 @@
 @import "tailwindcss";
 
-@theme {
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+	font-family: "Manrope";
+	font-style: normal;
+	font-weight: 200 800;
+	font-display: swap;
+	src: url("/fonts/manrope-latin.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Manrope Fallback";
+	src: local("Arial");
+	ascent-override: 103.31%;
+	descent-override: 29.07%;
+	line-gap-override: 0%;
+	size-adjust: 103.19%;
+}
+
+@font-face {
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/poppins-latin-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("/fonts/poppins-latin-500.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/fonts/poppins-latin-600.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/poppins-latin-700.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Poppins Fallback";
+	src: local("Arial");
+	ascent-override: 93.62%;
+	descent-override: 31.21%;
+	line-gap-override: 8.92%;
+	size-adjust: 112.16%;
+}
+
+@theme inline {
 	--font-sans:
-		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		var(--font-poppins), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+		sans-serif;
+	--font-display: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+	--font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-event-blue: var(--event-blue);
+	--color-event-teal: var(--event-teal);
+	--color-event-amber: var(--event-amber);
+	--color-event-rose: var(--event-rose);
+
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
 }
 
 :root {
 	color-scheme: light;
+	--font-poppins: "Poppins", "Poppins Fallback", ui-sans-serif, system-ui, sans-serif;
+	--font-manrope: "Manrope", "Manrope Fallback", ui-sans-serif, system-ui, sans-serif;
+	--font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+	--background: oklch(0.99 0.002 145);
+	--foreground: oklch(0.2 0.01 160);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.2 0.01 160);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.2 0.01 160);
+	--primary: oklch(0.6 0.12 158);
+	--primary-foreground: oklch(0.99 0.01 145);
+	--secondary: oklch(0.965 0.004 145);
+	--secondary-foreground: oklch(0.24 0.01 160);
+	--muted: oklch(0.965 0.004 145);
+	--muted-foreground: oklch(0.52 0.012 160);
+	--accent: oklch(0.95 0.03 158);
+	--accent-foreground: oklch(0.42 0.1 158);
+	--destructive: oklch(0.58 0.2 25);
+	--border: oklch(0.915 0.004 145);
+	--input: oklch(0.915 0.004 145);
+	--ring: oklch(0.6 0.12 158);
+	--radius: 0.125rem;
+	--event-blue: oklch(0.52 0.1 165);
+	--event-teal: oklch(0.56 0.07 215);
+	--event-amber: oklch(0.64 0.11 75);
+	--event-rose: oklch(0.56 0.12 32);
+	--sidebar: oklch(0.965 0.004 145);
+	--sidebar-foreground: oklch(0.3 0.01 160);
+	--sidebar-primary: oklch(0.6 0.12 158);
+	--sidebar-primary-foreground: oklch(0.99 0.01 145);
+	--sidebar-accent: oklch(0.93 0.02 158);
+	--sidebar-accent-foreground: oklch(0.4 0.1 158);
+	--sidebar-border: oklch(0.9 0.004 145);
+	--sidebar-ring: oklch(0.6 0.12 158);
+	font-family: var(--font-sans);
 }
 
-body {
-	@apply bg-white text-neutral-900 antialiased;
+.dark {
+	color-scheme: dark;
+	--background: oklch(0.15 0.006 165);
+	--foreground: oklch(0.96 0.004 150);
+	--card: oklch(0.195 0.007 165);
+	--card-foreground: oklch(0.96 0.004 150);
+	--popover: oklch(0.195 0.007 165);
+	--popover-foreground: oklch(0.96 0.004 150);
+	--primary: oklch(0.72 0.13 158);
+	--primary-foreground: oklch(0.15 0.01 165);
+	--secondary: oklch(0.25 0.008 165);
+	--secondary-foreground: oklch(0.96 0.004 150);
+	--muted: oklch(0.25 0.008 165);
+	--muted-foreground: oklch(0.68 0.01 155);
+	--accent: oklch(0.3 0.05 158);
+	--accent-foreground: oklch(0.88 0.1 158);
+	--destructive: oklch(0.66 0.19 25);
+	--border: oklch(1 0 0 / 10%);
+	--input: oklch(1 0 0 / 14%);
+	--ring: oklch(0.72 0.13 158);
+	--event-blue: oklch(0.72 0.1 165);
+	--event-teal: oklch(0.74 0.07 215);
+	--event-amber: oklch(0.78 0.11 75);
+	--event-rose: oklch(0.72 0.12 32);
+	--sidebar: oklch(0.12 0.006 165);
+	--sidebar-foreground: oklch(0.9 0.006 150);
+	--sidebar-primary: oklch(0.72 0.13 158);
+	--sidebar-primary-foreground: oklch(0.14 0.01 165);
+	--sidebar-accent: oklch(0.26 0.04 160);
+	--sidebar-accent-foreground: oklch(0.9 0.08 158);
+	--sidebar-border: oklch(1 0 0 / 8%);
+	--sidebar-ring: oklch(0.72 0.13 158);
+}
+
+@layer base {
+	* {
+		border-color: var(--border);
+		outline-color: color-mix(in oklch, var(--ring), transparent 50%);
+	}
+
+	html,
+	body {
+		overflow-x: clip;
+		background: var(--background);
+		color: var(--foreground);
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
+	}
+
+	h1,
+	h2,
+	h3,
+	h4,
+	h5 {
+		font-family: var(--font-display);
+		letter-spacing: -0.015em;
+	}
+
+	:focus {
+		outline: none;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+
+	::selection {
+		background: var(--accent);
+		color: var(--accent-foreground);
+	}
+}
+
+.app-input {
+	min-height: 2.25rem;
+	width: 100%;
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	background: var(--card);
+	color: var(--foreground);
+	padding: 0 0.75rem;
+	font-size: 0.875rem;
+	outline: none;
+	transition:
+		border-color 150ms ease,
+		box-shadow 150ms ease,
+		background-color 150ms ease;
+}
+
+.app-input::placeholder {
+	color: var(--muted-foreground);
+}
+
+.app-input:focus-visible {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary), transparent 80%);
+}
+
+.command-row {
+	color: var(--foreground);
+	transition:
+		background-color 150ms ease,
+		color 150ms ease;
+}
+
+.command-row:hover,
+.command-row:focus-visible {
+	background: var(--muted);
+}
+
+.event-dialog-field:focus-visible,
+.compose-field:focus-visible,
+.mail-search-field:focus-visible {
+	outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 1ms;
+		animation-iteration-count: 1;
+		scroll-behavior: auto;
+		transition-duration: 1ms;
+	}
 }
