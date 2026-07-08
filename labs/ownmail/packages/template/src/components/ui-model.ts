@@ -3,6 +3,8 @@ import { eventTimes, startOfDay } from './calendar.js'
 
 export type MailFolderId = 'inbox' | 'starred' | 'sent' | 'drafts' | 'archive' | 'trash'
 export type EventTone = 'blue' | 'teal' | 'amber' | 'rose'
+export const STAR_HOVER_CLASS = 'hover:text-[var(--event-amber)]'
+export const STAR_FILLED_CLASS = 'fill-[var(--event-amber)] text-[var(--event-amber)]'
 
 export const MAIL_FOLDERS: Array<{ id: MailFolderId; label: string }> = [
 	{ id: 'inbox', label: 'Inbox' },

@@ -22,6 +22,7 @@ import {
 	messageBodyParagraphs,
 	replyAllDraftSearch,
 	replyDraftSearch,
+	STAR_FILLED_CLASS,
 	threadLabels,
 } from '../components/ui-model.js'
 import { getThreadMessages, updateThreadState } from '../server/fns.js'
@@ -138,7 +139,7 @@ function ThreadView() {
 					label={thread.starred ? 'Unstar' : 'Star'}
 					onClick={() => act({ starred: !thread.starred })}
 				>
-					<Star className={cn('h-4.5 w-4.5', thread.starred && 'fill-event-amber text-event-amber')} />
+					<Star className={cn('h-4.5 w-4.5', thread.starred && STAR_FILLED_CLASS)} />
 				</IconButton>
 				<div className="ml-auto">
 					<IconButton label="More">

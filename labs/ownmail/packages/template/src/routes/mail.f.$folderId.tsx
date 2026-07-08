@@ -8,6 +8,8 @@ import {
 	formatListDate,
 	labelBadgeClass,
 	mailFolderTitle,
+	STAR_FILLED_CLASS,
+	STAR_HOVER_CLASS,
 	threadLabels,
 	threadMaskFromMailLocation,
 	threadSender,
@@ -219,9 +221,9 @@ function ThreadRow({
 					type="button"
 					onClick={toggleStar}
 					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					className="shrink-0 text-muted-foreground transition-colors hover:text-event-amber"
+					className={cn('shrink-0 text-muted-foreground transition-colors', STAR_HOVER_CLASS)}
 				>
-					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
+					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
 				</button>
 				<span
 					className={cn(

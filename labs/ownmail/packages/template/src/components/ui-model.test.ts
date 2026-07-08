@@ -32,6 +32,8 @@ import {
 	messagePreview,
 	replyAllDraftSearch,
 	replyDraftSearch,
+	STAR_FILLED_CLASS,
+	STAR_HOVER_CLASS,
 	searchListSearch,
 	searchMaskFromMailLocation,
 	shouldUseBrowserBackForComposeClose,
@@ -229,6 +231,11 @@ describe('ui-model mail helpers', () => {
 		expect(labelBadgeClass('amber')).toBe(
 			'bg-[var(--event-amber)]/12 text-[var(--event-amber)] border-l-[3px] border-[var(--event-amber)]',
 		)
+	})
+
+	it('uses reference CSS-variable star accent classes', () => {
+		expect(STAR_HOVER_CLASS).toBe('hover:text-[var(--event-amber)]')
+		expect(STAR_FILLED_CLASS).toBe('fill-[var(--event-amber)] text-[var(--event-amber)]')
 	})
 
 	it('keeps reference label dot colors stable by label id', () => {

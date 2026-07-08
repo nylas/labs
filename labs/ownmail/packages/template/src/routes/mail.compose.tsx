@@ -27,6 +27,8 @@ import {
 	mailFolderTitle,
 	messageBodyParagraphs,
 	replyAllDraftSearch,
+	STAR_FILLED_CLASS,
+	STAR_HOVER_CLASS,
 	shouldUseBrowserBackForComposeClose,
 	threadLabels,
 	threadSender,
@@ -585,9 +587,9 @@ function ComposeThreadRow({
 						onToggleStar()
 					}}
 					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					className="shrink-0 text-muted-foreground transition-colors hover:text-event-amber"
+					className={cn('shrink-0 text-muted-foreground transition-colors', STAR_HOVER_CLASS)}
 				>
-					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
+					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
 				</button>
 				<span
 					className={cn(
@@ -662,7 +664,7 @@ function ComposeThreadBackdrop({
 					<Trash2 className="h-4.5 w-4.5" />
 				</BackdropIcon>
 				<BackdropIcon label={thread.starred ? 'Unstar' : 'Star'} onClick={onToggleStar}>
-					<Star className={cn('h-4.5 w-4.5', thread.starred && 'fill-event-amber text-event-amber')} />
+					<Star className={cn('h-4.5 w-4.5', thread.starred && STAR_FILLED_CLASS)} />
 				</BackdropIcon>
 				<div className="ml-auto">
 					<BackdropIcon label="More">
