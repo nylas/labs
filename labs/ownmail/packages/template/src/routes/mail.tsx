@@ -16,6 +16,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import {
+	activeMailSidebarFolderId,
 	cn,
 	composeSearchFromMailLocation,
 	labelBaseFolderId,
@@ -73,8 +74,11 @@ function MailLayout() {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
-	const currentFolderId = useMemo(() => folderIdFromPath(pathname), [pathname])
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
+	const currentFolderId = useMemo(
+		() => activeMailSidebarFolderId(pathname, searchScopeFolderId),
+		[pathname, searchScopeFolderId],
+	)
 	const selectedSearchThreadId = typeof searchParams.threadId === 'string' ? searchParams.threadId : undefined
 	const labelBaseFolder =
 		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
@@ -291,11 +295,6 @@ function MailSidebar({
 			</div>
 		</aside>
 	)
-}
-
-function folderIdFromPath(pathname: string): string | undefined {
-	const match = pathname.match(/^\/mail\/f\/([^/]+)/)
-	return match?.[1] ? decodeURIComponent(match[1]) : undefined
 }
 
 function isCustomFolder(folder: Folder): boolean {

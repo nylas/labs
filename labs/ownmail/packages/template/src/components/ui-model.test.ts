@@ -2,6 +2,7 @@ import type { Calendar, Event, Folder, Message, Thread } from '@nylas-labs/cli-k
 import { describe, expect, it, vi } from 'vitest'
 import { fmtAgendaTime, fmtCompactTime, fmtTime, formatFullDate } from './calendar.js'
 import {
+	activeMailSidebarFolderId,
 	calendarTone,
 	collapsedMessagePreview,
 	composeBackdropListSearch,
@@ -18,6 +19,7 @@ import {
 	labelDotClass,
 	labelToggleFolderId,
 	liveSearchTarget,
+	mailFolderIdFromPath,
 	mailFolderTitle,
 	messageBodyParagraphs,
 	messagePreview,
@@ -202,6 +204,15 @@ describe('ui-model mail helpers', () => {
 		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
 		expect(searchListSearch('roadmap', 'inbox')).toEqual({ q: 'roadmap', folderId: 'inbox' })
 		expect(searchListSearch('roadmap')).toEqual({ q: 'roadmap' })
+	})
+
+	it('keeps the reference sidebar folder active for scoped compose routes', () => {
+		expect(mailFolderIdFromPath('/mail/f/inbox')).toBe('inbox')
+		expect(mailFolderIdFromPath('/mail/f/work/t/thread-roadmap')).toBe('work')
+		expect(mailFolderIdFromPath('/mail/compose')).toBeUndefined()
+		expect(activeMailSidebarFolderId('/mail/f/sent', 'inbox')).toBe('sent')
+		expect(activeMailSidebarFolderId('/mail/compose', 'inbox')).toBe('inbox')
+		expect(activeMailSidebarFolderId('/mail/search', 'work')).toBe('work')
 	})
 
 	it('keeps the reference backdrop context when opening compose', () => {

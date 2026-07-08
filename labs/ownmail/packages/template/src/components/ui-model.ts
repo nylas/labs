@@ -238,6 +238,15 @@ export function searchListSearch(q: string, folderId?: string): { q: string; fol
 	return { q, ...(folderId ? { folderId } : {}) }
 }
 
+export function mailFolderIdFromPath(pathname: string): string | undefined {
+	const match = pathname.match(/^\/mail\/f\/([^/]+)/)
+	return match?.[1] ? decodeURIComponent(match[1]) : undefined
+}
+
+export function activeMailSidebarFolderId(pathname: string, scopedFolderId?: string): string | undefined {
+	return mailFolderIdFromPath(pathname) ?? scopedFolderId
+}
+
 export function composeSearchFromMailLocation(
 	pathname: string,
 	folderId?: string,
