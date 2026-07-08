@@ -21,8 +21,8 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 			return { threads: [] as Thread[], drafts: await listDrafts(), folders }
 		}
 		if (params.folderId === 'starred') {
-			const res = await getThreads({ data: { folderId: 'inbox' } })
-			return { threads: res.threads.filter((thread) => thread.starred), drafts: [] as Draft[], folders }
+			const res = await getThreads({ data: { starred: true } })
+			return { ...res, drafts: [] as Draft[], folders }
 		}
 		const res = await getThreads({ data: { folderId: params.folderId } })
 		return { ...res, drafts: [] as Draft[], folders }

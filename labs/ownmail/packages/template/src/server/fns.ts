@@ -47,10 +47,12 @@ export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Pr
 })
 
 export const getThreads = createServerFn({ method: 'GET' })
-	.validator((input: { folderId?: string; pageToken?: string; q?: string }) => {
+	.validator((input: { folderId?: string; pageToken?: string; q?: string; starred?: boolean }) => {
 		if (input.folderId !== undefined && input.folderId.length > 200) throw new Error('Invalid folder')
 		if (input.pageToken !== undefined && input.pageToken.length > 500) throw new Error('Invalid page token')
 		if (input.q !== undefined && input.q.length > 500) throw new Error('Search query too long')
+		if (input.starred !== undefined && typeof input.starred !== 'boolean')
+			throw new Error('Invalid starred filter')
 		return input
 	})
 	.handler(async ({ data }): Promise<{ threads: Thread[]; nextCursor?: string }> => {
@@ -60,6 +62,7 @@ export const getThreads = createServerFn({ method: 'GET' })
 			...(data.folderId ? { in: data.folderId } : {}),
 			...(data.pageToken ? { page_token: data.pageToken } : {}),
 			...(data.q ? { search_query_native: data.q } : {}),
+			...(data.starred !== undefined ? { starred: data.starred } : {}),
 		})
 		return { threads: res.data, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
 	})

@@ -56,7 +56,8 @@ class DevMailbox {
 	async listThreads(query?: ListQuery): Promise<ListResponse<Thread>> {
 		const folderId = typeof query?.in === 'string' ? query.in : undefined
 		const q = typeof query?.search_query_native === 'string' ? query.search_query_native : undefined
-		return listResponse(mockThreads({ folderId, q }).threads)
+		const starred = typeof query?.starred === 'boolean' ? query.starred : undefined
+		return listResponse(mockThreads({ folderId, q, starred }).threads)
 	}
 
 	async getThread(threadId: string): Promise<ItemResponse<Thread>> {
@@ -712,10 +713,13 @@ export function mockFolders(): Folder[] {
 	}))
 }
 
-export function mockThreads(input: { folderId?: string; q?: string }): { threads: Thread[] } {
+export function mockThreads(input: { folderId?: string; q?: string; starred?: boolean }): {
+	threads: Thread[]
+} {
 	const query = input.q?.trim().toLowerCase()
 	const base = input.folderId ? visibleThreads(input.folderId) : visibleThreads()
 	const selected = base.filter((thread) => {
+		if (input.starred !== undefined && thread.starred !== input.starred) return false
 		if (!query) return true
 		const text = [
 			thread.subject,

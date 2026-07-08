@@ -45,6 +45,15 @@ describe('dev mock reference identity', () => {
 		expect(attachment?.size).toBe(248 * 1024)
 	})
 
+	it('models starred as an account-wide thread query', () => {
+		const starred = mockThreads({ starred: true }).threads
+
+		expect(starred.map((thread) => thread.id)).toEqual(
+			mockThreads({ folderId: 'starred' }).threads.map((thread) => thread.id),
+		)
+		expect(starred.every((thread) => thread.starred)).toBe(true)
+	})
+
 	it('preserves reference calendar event copy', () => {
 		const now = Math.floor(Date.now() / 1000)
 		const { events } = mockEvents({ start: now - 86_400, end: now + 86_400 })
