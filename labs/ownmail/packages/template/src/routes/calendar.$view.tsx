@@ -1,4 +1,4 @@
-import type { Event } from '@nylas-labs/cli-kit/v3'
+import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -18,7 +18,7 @@ import {
 	ymd,
 } from '../components/calendar.js'
 import { EventModal } from '../components/EventModal.js'
-import { cn, type EventTone, eventTone } from '../components/ui-model.js'
+import { calendarTone, cn, type EventTone, eventTone } from '../components/ui-model.js'
 import { getEvents } from '../server/calendar-fns.js'
 import { getMailboxInfo } from '../server/fns.js'
 
@@ -64,6 +64,7 @@ function CalendarPage() {
 		() => new Map(calendars.map((cal) => [cal.id, cal.name || 'Calendar'])),
 		[calendars],
 	)
+	const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars])
 	const agenda = useMemo(
 		() =>
 			timedEventsOnDay(visibleEvents, today)
@@ -194,7 +195,7 @@ function CalendarPage() {
 							<div className="flex flex-col gap-0.5">
 								{calendars.map((cal, index) => {
 									const hidden = hiddenCalendarIds.has(cal.id)
-									const tone = eventTone({ title: cal.name, calendar_id: cal.id } as Event, index)
+									const tone = calendarTone(cal, index)
 									return (
 										<button
 											key={cal.id}
@@ -237,7 +238,7 @@ function CalendarPage() {
 											<span
 												className={cn(
 													'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-													eventDotClass(eventTone(event, index)),
+													eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
 												)}
 											/>
 											<span className="min-w-0">
@@ -259,6 +260,7 @@ function CalendarPage() {
 							<MonthGrid
 								anchor={anchor}
 								events={visibleEvents}
+								calendarById={calendarById}
 								onPickDay={(d) => go('day', d)}
 								onPickEvent={setEditing}
 							/>
@@ -267,6 +269,7 @@ function CalendarPage() {
 								days={view === 'week' ? 7 : 1}
 								start={view === 'week' ? startOfWeek(anchor) : anchor}
 								events={visibleEvents}
+								calendarById={calendarById}
 								onPickEvent={setEditing}
 								onCreateAt={(d) => {
 									setNewStart(d)
@@ -409,11 +412,13 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 function MonthGrid({
 	anchor,
 	events,
+	calendarById,
 	onPickDay,
 	onPickEvent,
 }: {
 	anchor: Date
 	events: Event[]
+	calendarById: Map<string, Calendar>
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
 }) {
@@ -466,7 +471,7 @@ function MonthGrid({
 							</div>
 							<div className="flex min-h-0 flex-col gap-1 overflow-hidden">
 								{dayEvents.slice(0, 3).map((event, index) => {
-									const tone = eventTone(event, index)
+									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 									const allDay = eventTimes(event).allDay
 									return (
 										<button
@@ -525,12 +530,14 @@ function TimeGrid({
 	days,
 	start,
 	events,
+	calendarById,
 	onPickEvent,
 	onCreateAt,
 }: {
 	days: number
 	start: Date
 	events: Event[]
+	calendarById: Map<string, Calendar>
 	onPickEvent: (e: Event) => void
 	onCreateAt: (d: Date) => void
 }) {
@@ -593,7 +600,7 @@ function TimeGrid({
 						{columns.map((day, dayIndex) => (
 							<div key={day.toISOString()} className="flex min-h-8 flex-col gap-1 px-1">
 								{allDayByDay[dayIndex]?.map((event, index) => {
-									const tone = eventTone(event, index)
+									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 									return (
 										<button
 											key={event.id}
@@ -668,7 +675,7 @@ function TimeGrid({
 												style={{ top, height }}
 												className={cn(
 													'absolute right-0.5 left-0.5 z-10 flex flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
-													eventBlockClass(eventTone(event, index)),
+													eventBlockClass(eventTone(event, index, calendarById.get(event.calendar_id))),
 												)}
 											>
 												<span className="truncate text-xs leading-tight font-semibold">

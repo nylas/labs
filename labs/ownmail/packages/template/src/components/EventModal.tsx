@@ -3,7 +3,7 @@ import { AlignLeft, CalendarDays, Clock, MapPin, Trash2, Users, X } from 'lucide
 import { useEffect, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent } from '../server/calendar-fns.js'
 import { eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
-import { cn, type EventTone, eventTone } from './ui-model.js'
+import { calendarTone, cn, type EventTone, eventTone } from './ui-model.js'
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
 
@@ -53,11 +53,10 @@ export function EventModal({
 	const titleInputRef = useRef<HTMLInputElement>(null)
 
 	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
-	const tone = event ? eventTone(event) : 'blue'
+	const eventCalendar = event ? calendars.find((calendar) => calendar.id === event.calendar_id) : undefined
+	const tone = event ? eventTone(event, 0, eventCalendar) : 'blue'
 	const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId) ?? calendars[0]
-	const selectedCalendarTone = selectedCalendar
-		? eventTone({ title: selectedCalendar.name, calendar_id: selectedCalendar.id } as Event)
-		: 'blue'
+	const selectedCalendarTone = selectedCalendar ? calendarTone(selectedCalendar) : 'blue'
 
 	async function save() {
 		setBusy(true)
@@ -298,10 +297,7 @@ export function EventModal({
 					<div className="flex flex-wrap items-center gap-2">
 						{calendars.map((calendar, index) => {
 							const active = calendar.id === selectedCalendarId
-							const calendarTone = eventTone(
-								{ title: calendar.name, calendar_id: calendar.id } as Event,
-								index,
-							)
+							const tone = calendarTone(calendar, index)
 							return (
 								<button
 									key={calendar.id}
@@ -310,11 +306,11 @@ export function EventModal({
 									className={cn(
 										'flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors',
 										active
-											? cn('border-transparent', eventBlockClass(calendarTone))
+											? cn('border-transparent', eventBlockClass(tone))
 											: 'border-border text-muted-foreground hover:bg-muted',
 									)}
 								>
-									<span className={cn('h-2 w-2 rounded-full', eventDotClass(calendarTone))} />
+									<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
 									{calendar.name || 'Calendar'}
 								</button>
 							)
