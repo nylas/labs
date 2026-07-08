@@ -53,9 +53,16 @@ export function totalUnread(folders: Folder[]): number {
 }
 
 export function threadSender(thread: Thread, folderId: string): string {
-	const participant = thread.participants?.[0]
-	if (folderId === 'sent' || folderId === 'drafts') return participant?.name || participant?.email || 'Sent'
-	return participant?.name || participant?.email || '(unknown sender)'
+	const participant =
+		folderId === 'sent' || folderId === 'drafts'
+			? (thread.latest_draft_or_message?.to?.[0] ?? thread.participants?.[0])
+			: thread.participants?.[0]
+	if (folderId === 'sent' || folderId === 'drafts') return participantLabel(participant) || 'Sent'
+	return participantLabel(participant) || '(unknown sender)'
+}
+
+function participantLabel(participant: NonNullable<Thread['participants']>[number] | undefined): string {
+	return participant?.name || participant?.email || ''
 }
 
 export function threadTimestamp(thread: Thread): number | undefined {

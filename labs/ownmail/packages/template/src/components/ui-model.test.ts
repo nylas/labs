@@ -84,11 +84,17 @@ describe('ui-model mail helpers', () => {
 
 	it('chooses sender text based on the active folder', () => {
 		const thread = {
-			participants: [{ name: 'Grace Hopper', email: 'grace@example.com' }],
+			participants: [{ name: 'Ada Lovelace', email: 'ada@example.com' }],
+			latest_draft_or_message: {
+				to: [{ name: 'Grace Hopper', email: 'grace@example.com' }],
+			},
 		} as Thread
 
-		expect(threadSender(thread, 'inbox')).toBe('Grace Hopper')
+		expect(threadSender(thread, 'inbox')).toBe('Ada Lovelace')
 		expect(threadSender(thread, 'sent')).toBe('Grace Hopper')
+		expect(threadSender({ participants: [{ email: 'team@example.com' }] } as Thread, 'sent')).toBe(
+			'team@example.com',
+		)
 	})
 
 	it('chooses the latest thread timestamp across sent and received dates', () => {
