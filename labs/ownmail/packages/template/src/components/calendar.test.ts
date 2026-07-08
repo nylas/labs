@@ -6,6 +6,7 @@ import {
 	dateWithHour,
 	eventsOnDay,
 	filterEventsByCalendars,
+	timedEventLayout,
 	timedEventsOnDay,
 	viewRange,
 	ymd,
@@ -126,5 +127,36 @@ describe('calendar view helpers', () => {
 		expect(slot.getHours()).toBe(14)
 		expect(slot.getMinutes()).toBe(30)
 		expect(slot.getSeconds()).toBe(0)
+	})
+
+	it('keeps reference time-grid layout for same-day timed events', () => {
+		const event = timedEvent('standup', 'work', '2026-07-08T09:30:00', '2026-07-08T11:00:00')
+
+		expect(
+			timedEventLayout(event, new Date('2026-07-08T12:00:00'), {
+				startHour: 7,
+				endHour: 23,
+				hourHeight: 52,
+			}),
+		).toEqual({ top: 130, height: 76 })
+	})
+
+	it('clamps overnight Nylas events to the visible part of the rendered day', () => {
+		const event = timedEvent('deploy', 'work', '2026-07-08T22:30:00', '2026-07-09T01:00:00')
+
+		expect(
+			timedEventLayout(event, new Date('2026-07-08T12:00:00'), {
+				startHour: 7,
+				endHour: 23,
+				hourHeight: 52,
+			}),
+		).toEqual({ top: 806, height: 24 })
+		expect(
+			timedEventLayout(event, new Date('2026-07-09T12:00:00'), {
+				startHour: 7,
+				endHour: 23,
+				hourHeight: 52,
+			}),
+		).toBeNull()
 	})
 })

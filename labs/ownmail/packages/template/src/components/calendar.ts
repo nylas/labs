@@ -103,6 +103,28 @@ export function timedEventsOnDay(events: Event[], day: Date): Event[] {
 	return eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
 }
 
+export function timedEventLayout(
+	event: Event,
+	day: Date,
+	options: { startHour: number; endHour: number; hourHeight: number },
+): { top: number; height: number } | null {
+	const times = eventTimes(event)
+	if (times.allDay) return null
+
+	const visibleStart = dateWithHour(startOfDay(day), options.startHour)
+	const visibleEnd = dateWithHour(startOfDay(day), options.endHour)
+	const start = new Date(Math.max(times.start.getTime(), visibleStart.getTime()))
+	const end = new Date(Math.min(times.end.getTime(), visibleEnd.getTime()))
+	if (end <= start) return null
+
+	const startDecimal = start.getHours() + start.getMinutes() / 60
+	const endDecimal = end.getHours() + end.getMinutes() / 60
+	return {
+		top: (startDecimal - options.startHour) * options.hourHeight,
+		height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),
+	}
+}
+
 export function fmtTime(d: Date): string {
 	return fmtCompactTime(d)
 }

@@ -15,6 +15,7 @@ import {
 	isCalView,
 	shiftAnchor,
 	startOfWeek,
+	timedEventLayout,
 	timedEventsOnDay,
 	viewRange,
 	ymd,
@@ -568,6 +569,7 @@ function TimeGrid({
 	const HOUR_PX = 52
 	const START_HOUR = 7
 	const END_HOUR = 22
+	const GRID_END_HOUR = END_HOUR + 1
 	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
 	const todayIso = ymd(new Date())
@@ -687,18 +689,18 @@ function TimeGrid({
 									) : null}
 									{dayEvents.map((event, index) => {
 										const { start: s, end: e } = eventTimes(event)
-										const top = (s.getHours() + s.getMinutes() / 60 - START_HOUR) * HOUR_PX
-										const endHour = e.getHours() + e.getMinutes() / 60
-										const height = Math.max(
-											(endHour - (s.getHours() + s.getMinutes() / 60)) * HOUR_PX - 2,
-											20,
-										)
+										const layout = timedEventLayout(event, day, {
+											startHour: START_HOUR,
+											endHour: GRID_END_HOUR,
+											hourHeight: HOUR_PX,
+										})
+										if (!layout) return null
 										return (
 											<button
 												key={event.id}
 												type="button"
 												onClick={() => onPickEvent(event)}
-												style={{ top, height }}
+												style={layout}
 												className={cn(
 													'absolute right-0.5 left-0.5 z-10 flex flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
 													eventBlockClass(eventTone(event, index, calendarById.get(event.calendar_id))),
@@ -707,7 +709,7 @@ function TimeGrid({
 												<span className="truncate text-xs leading-tight font-semibold">
 													{event.title || '(untitled)'}
 												</span>
-												{height > 30 ? (
+												{layout.height > 30 ? (
 													<span className="truncate text-[10px] opacity-80">
 														{fmtTime(s)} – {fmtTime(e)}
 													</span>
