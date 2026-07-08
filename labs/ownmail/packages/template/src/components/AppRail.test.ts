@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialThemeIsDark, THEME_STORAGE_KEY } from './AppRail.js'
+import { initialThemeIsDark, THEME_STORAGE_KEY, themeClassName } from './AppRail.js'
 import { AUTH_PATH, LOGIN_PATH, MAIL_HOME_PATH } from './route-paths.js'
 
 describe('AppRail theme defaults', () => {
@@ -26,5 +26,10 @@ describe('AppRail theme defaults', () => {
 	it('honors saved dark preference', () => {
 		expect(initialThemeIsDark('dark')).toBe(true)
 		expect(initialThemeIsDark('light')).toBe(false)
+	})
+
+	it('uses reference light and dark document class names', () => {
+		expect(themeClassName(false)).toBe('light')
+		expect(themeClassName(true)).toBe('dark')
 	})
 })

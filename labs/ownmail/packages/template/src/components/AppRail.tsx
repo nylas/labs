@@ -21,14 +21,14 @@ export function AppRail({
 	useEffect(() => {
 		const saved = localStorage.getItem(THEME_STORAGE_KEY)
 		const nextDark = initialThemeIsDark(saved)
-		document.documentElement.classList.toggle('dark', nextDark)
+		applyThemeClass(nextDark)
 		setIsDark(nextDark)
 		setMounted(true)
 	}, [])
 
 	function toggleTheme() {
 		const nextDark = !isDark
-		document.documentElement.classList.toggle('dark', nextDark)
+		applyThemeClass(nextDark)
 		localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
 		setIsDark(nextDark)
 	}
@@ -118,4 +118,15 @@ export function AppRail({
 
 export function initialThemeIsDark(savedTheme: string | null): boolean {
 	return savedTheme === 'dark'
+}
+
+export function themeClassName(isDark: boolean): 'dark' | 'light' {
+	return isDark ? 'dark' : 'light'
+}
+
+function applyThemeClass(isDark: boolean): void {
+	const next = themeClassName(isDark)
+	const previous = isDark ? 'light' : 'dark'
+	document.documentElement.classList.add(next)
+	document.documentElement.classList.remove(previous)
 }
