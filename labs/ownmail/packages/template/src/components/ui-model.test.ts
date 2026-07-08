@@ -13,6 +13,7 @@ import {
 	initials,
 	labelDotClass,
 	labelToggleFolderId,
+	liveSearchTarget,
 	mailFolderTitle,
 	messageBodyParagraphs,
 	messagePreview,
@@ -170,6 +171,12 @@ describe('ui-model mail helpers', () => {
 		expect(labelToggleFolderId('work', 'work')).toBe('inbox')
 		expect(labelToggleFolderId('inbox', 'work')).toBe('work')
 		expect(labelToggleFolderId(undefined, 'work')).toBe('work')
+	})
+
+	it('routes live search changes like the reference search box', () => {
+		expect(liveSearchTarget(' hiking ', '/mail/f/inbox')).toEqual({ kind: 'search', q: 'hiking' })
+		expect(liveSearchTarget('', '/mail/search')).toEqual({ kind: 'inbox' })
+		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
 	})
 })
 

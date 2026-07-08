@@ -201,6 +201,15 @@ export function labelToggleFolderId(currentFolderId: string | undefined, labelId
 	return currentFolderId === labelId ? 'inbox' : labelId
 }
 
+export function liveSearchTarget(
+	value: string,
+	currentPathname: string,
+): { kind: 'search'; q: string } | { kind: 'inbox' } | { kind: 'stay' } {
+	const q = value.trim()
+	if (q) return { kind: 'search', q }
+	return currentPathname.startsWith('/mail/search') ? { kind: 'inbox' } : { kind: 'stay' }
+}
+
 const TONE_RGB: Record<EventTone, [number, number, number]> = {
 	blue: [37, 99, 235],
 	teal: [20, 184, 166],

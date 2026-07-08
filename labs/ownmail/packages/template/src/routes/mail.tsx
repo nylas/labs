@@ -19,6 +19,7 @@ import {
 	cn,
 	labelDotClass,
 	labelToggleFolderId,
+	liveSearchTarget,
 	MAIL_FOLDERS,
 	sidebarFolderCount,
 } from '../components/ui-model.js'
@@ -74,6 +75,16 @@ function MailLayout() {
 	const [query, setQuery] = useState('')
 	useVersionPolling()
 
+	function updateSearch(nextQuery: string) {
+		setQuery(nextQuery)
+		const target = liveSearchTarget(nextQuery, pathname)
+		if (target.kind === 'search') {
+			navigate({ to: '/mail/search', search: { q: target.q }, replace: true })
+		} else if (target.kind === 'inbox') {
+			navigate({ to: '/mail/f/$folderId', params: { folderId: 'inbox' }, replace: true })
+		}
+	}
+
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			const target = event.target as HTMLElement | null
@@ -114,7 +125,7 @@ function MailLayout() {
 								id="mail-search"
 								type="search"
 								value={query}
-								onChange={(event) => setQuery(event.target.value)}
+								onChange={(event) => updateSearch(event.target.value)}
 								placeholder="Search mail"
 								className="h-9 w-full rounded-lg border border-border bg-card pr-9 pl-9 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
 								aria-label="Search mail"
@@ -124,7 +135,7 @@ function MailLayout() {
 							{query ? (
 								<button
 									type="button"
-									onClick={() => setQuery('')}
+									onClick={() => updateSearch('')}
 									aria-label="Clear search"
 									className="absolute top-1/2 right-2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted"
 								>
