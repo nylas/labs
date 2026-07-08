@@ -5,32 +5,52 @@ import {
 	cn,
 	formatListDate,
 	labelBadgeClass,
+	mailFolderTitle,
 	threadLabels,
 	threadRouteFolderId,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
-import { getThreads, updateThreadState } from '../server/fns.js'
+import { getFolders, getThreads, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/search')({
-	validateSearch: (search): { q: string } => ({ q: String(search.q ?? '') }),
-	loaderDeps: ({ search }) => ({ q: search.q }),
-	loader: async ({ deps }) => getThreads({ data: { q: deps.q } }),
+	validateSearch: (search): { q: string; folderId?: string } => ({
+		q: String(search.q ?? ''),
+		...(typeof search.folderId === 'string' ? { folderId: search.folderId } : {}),
+	}),
+	loaderDeps: ({ search }) => ({ q: search.q, folderId: search.folderId }),
+	loader: async ({ deps }) => {
+		const [folders, res] = await Promise.all([
+			getFolders(),
+			getThreads({
+				data: {
+					q: deps.q,
+					...(deps.folderId === 'starred'
+						? { starred: true }
+						: deps.folderId
+							? { folderId: deps.folderId }
+							: {}),
+				},
+			}),
+		])
+		return { ...res, folders, folderId: deps.folderId }
+	},
 	component: SearchResults,
 })
 
 function SearchResults() {
-	const { threads } = Route.useLoaderData()
+	const { threads, folders, folderId } = Route.useLoaderData()
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
+	const title = mailFolderTitle(folderId ?? 'inbox', folders)
 	return (
 		<>
 			<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
 				<div className="flex items-center justify-between border-b border-border px-4 py-3">
-					<h1 className="text-base font-semibold capitalize">Inbox</h1>
+					<h1 className="text-base font-semibold capitalize">{title}</h1>
 					{unreadCount > 0 ? (
 						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
 							{unreadCount} unread

@@ -103,6 +103,10 @@ describe('dev mock reference identity', () => {
 		expect(mockThreads({ searchQueryNative: 'Alan Turing' }).threads.map((thread) => thread.id)).toContain(
 			'thread-hiking',
 		)
+		expect(
+			mockThreads({ folderId: 'work', searchQueryNative: 'roadmap' }).threads.map((thread) => thread.id),
+		).toEqual(['thread-roadmap'])
+		expect(mockThreads({ folderId: 'work', searchQueryNative: 'Welcome' }).threads).toEqual([])
 		expect(mockThreads({ anyEmail: 'grace@vercel.com' }).threads.map((thread) => thread.id)).toContain(
 			'thread-roadmap',
 		)

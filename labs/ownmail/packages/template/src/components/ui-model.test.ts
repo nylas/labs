@@ -174,8 +174,17 @@ describe('ui-model mail helpers', () => {
 	})
 
 	it('routes live search changes like the reference search box', () => {
-		expect(liveSearchTarget(' hiking ', '/mail/f/inbox')).toEqual({ kind: 'search', q: 'hiking' })
-		expect(liveSearchTarget('', '/mail/search')).toEqual({ kind: 'inbox' })
+		expect(liveSearchTarget(' hiking ', '/mail/f/inbox', 'inbox')).toEqual({
+			kind: 'search',
+			q: 'hiking',
+			folderId: 'inbox',
+		})
+		expect(liveSearchTarget(' Welcome ', '/mail/f/work', 'work')).toEqual({
+			kind: 'search',
+			q: 'Welcome',
+			folderId: 'work',
+		})
+		expect(liveSearchTarget('', '/mail/search', 'work')).toEqual({ kind: 'folder', folderId: 'work' })
 		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
 	})
 })

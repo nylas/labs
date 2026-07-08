@@ -204,10 +204,16 @@ export function labelToggleFolderId(currentFolderId: string | undefined, labelId
 export function liveSearchTarget(
 	value: string,
 	currentPathname: string,
-): { kind: 'search'; q: string } | { kind: 'inbox' } | { kind: 'stay' } {
+	folderId?: string,
+):
+	| { kind: 'search'; q: string; folderId?: string }
+	| { kind: 'folder'; folderId: string }
+	| { kind: 'stay' } {
 	const q = value.trim()
-	if (q) return { kind: 'search', q }
-	return currentPathname.startsWith('/mail/search') ? { kind: 'inbox' } : { kind: 'stay' }
+	if (q) return { kind: 'search', q, ...(folderId ? { folderId } : {}) }
+	return currentPathname.startsWith('/mail/search')
+		? { kind: 'folder', folderId: folderId ?? 'inbox' }
+		: { kind: 'stay' }
 }
 
 const TONE_RGB: Record<EventTone, [number, number, number]> = {

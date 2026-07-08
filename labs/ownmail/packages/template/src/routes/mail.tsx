@@ -70,18 +70,25 @@ function MailLayout() {
 	const { info, folders } = Route.useLoaderData()
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
 	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
 	const currentFolderId = useMemo(() => folderIdFromPath(pathname), [pathname])
+	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
+	const activeSearchFolderId = currentFolderId ?? searchScopeFolderId
 	const [query, setQuery] = useState('')
 	useVersionPolling()
 
 	function updateSearch(nextQuery: string) {
 		setQuery(nextQuery)
-		const target = liveSearchTarget(nextQuery, pathname)
+		const target = liveSearchTarget(nextQuery, pathname, activeSearchFolderId)
 		if (target.kind === 'search') {
-			navigate({ to: '/mail/search', search: { q: target.q }, replace: true })
-		} else if (target.kind === 'inbox') {
-			navigate({ to: '/mail/f/$folderId', params: { folderId: 'inbox' }, replace: true })
+			navigate({
+				to: '/mail/search',
+				search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
+				replace: true,
+			})
+		} else if (target.kind === 'folder') {
+			navigate({ to: '/mail/f/$folderId', params: { folderId: target.folderId }, replace: true })
 		}
 	}
 
@@ -117,7 +124,13 @@ function MailLayout() {
 							className="relative flex-1 md:max-w-md"
 							onSubmit={(event) => {
 								event.preventDefault()
-								if (query.trim()) navigate({ to: '/mail/search', search: { q: query.trim() } })
+								const target = liveSearchTarget(query, pathname, activeSearchFolderId)
+								if (target.kind === 'search') {
+									navigate({
+										to: '/mail/search',
+										search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
+									})
+								}
 							}}
 						>
 							<Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
