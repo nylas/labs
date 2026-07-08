@@ -28,18 +28,27 @@ export function folderCount(folders: Folder[], folderId: string): number {
 	return folders.find((folder) => folder.id === folderId)?.unread_count ?? 0
 }
 
+export function sidebarFolderCount(folders: Folder[], folderId: string): number {
+	const folder = folders.find((item) => item.id === folderId)
+	if (!folder) return 0
+	if (folderId === 'starred' || folderId === 'drafts') return folder.total_count ?? 0
+	return folder.unread_count ?? 0
+}
+
 export function totalUnread(folders: Folder[]): number {
 	return folders.reduce((sum, folder) => sum + (folder.unread_count ?? 0), 0)
 }
 
 export function threadSender(thread: Thread, folderId: string): string {
 	const participant = thread.participants?.[0]
-	if (folderId === 'sent' || folderId === 'drafts') return participant?.email ?? 'Sent'
+	if (folderId === 'sent' || folderId === 'drafts') return participant?.name || participant?.email || 'Sent'
 	return participant?.name || participant?.email || '(unknown sender)'
 }
 
 export function threadTimestamp(thread: Thread): number | undefined {
-	return thread.latest_message_received_date ?? thread.latest_message_sent_date
+	const received = thread.latest_message_received_date ?? 0
+	const sent = thread.latest_message_sent_date ?? 0
+	return Math.max(received, sent) || undefined
 }
 
 export function formatListDate(epochSeconds?: number): string {
@@ -78,6 +87,18 @@ export function messagePreview(message: Message): string {
 
 export function draftRecipientList(draft: Draft): string {
 	return draft.to?.map((person) => person.email).join(', ') || '(no recipient)'
+}
+
+export function threadLabels(thread: Thread): typeof LABELS {
+	const folderIds = new Set(thread.folders ?? [])
+	return LABELS.filter((label) => folderIds.has(label.id))
+}
+
+export function labelBadgeClass(tone: EventTone): string {
+	if (tone === 'teal') return 'bg-event-teal/10 text-event-teal border-l-[3px] border-event-teal'
+	if (tone === 'amber') return 'bg-event-amber/12 text-event-amber border-l-[3px] border-event-amber'
+	if (tone === 'rose') return 'bg-event-rose/10 text-event-rose border-l-[3px] border-event-rose'
+	return 'bg-event-blue/10 text-event-blue border-l-[3px] border-event-blue'
 }
 
 export function eventTone(event: Event, index = 0): EventTone {

@@ -14,7 +14,6 @@ import type {
 
 const GRANT_ID = 'dev-grant'
 const MAILBOX_EMAIL = 'demo@ownmail.local'
-const now = Math.floor(Date.now() / 1000)
 
 type StoredThread = Thread & { folders: string[]; message_ids: string[] }
 type StoredMessage = Message & { thread_id: string }
@@ -22,12 +21,14 @@ type StoredDraft = Draft & { id: string }
 
 const folderNames = new Map<string, { name: string; system: boolean }>([
 	['inbox', { name: 'Inbox', system: true }],
+	['starred', { name: 'Starred', system: true }],
 	['sent', { name: 'Sent', system: true }],
 	['drafts', { name: 'Drafts', system: true }],
 	['archive', { name: 'Archive', system: true }],
 	['junk', { name: 'Junk', system: true }],
 	['trash', { name: 'Trash', system: true }],
 	['work', { name: 'Work', system: false }],
+	['personal', { name: 'Personal', system: false }],
 	['finance', { name: 'Finance', system: false }],
 	['travel', { name: 'Travel', system: false }],
 ])
@@ -207,54 +208,190 @@ function itemResponse<T>(data: T): ItemResponse<T> {
 	return { request_id: 'dev', data }
 }
 
+function daysAgo(dayCount: number, hour: number, minute: number): number {
+	const date = new Date()
+	date.setDate(date.getDate() - dayCount)
+	date.setHours(hour, minute, 0, 0)
+	return Math.floor(date.getTime() / 1000)
+}
+
 const messages = new Map<string, StoredMessage>(
 	[
 		{
-			id: 'msg-welcome-1',
-			thread_id: 'thread-welcome',
-			subject: 'Welcome to your local OwnMail workspace',
-			snippet: 'Use this mock inbox to tune layout, empty states, and thread actions without deploying.',
-			body: '<p>Use this local workspace to tune OwnMail UI without touching Cloudflare or a live mailbox.</p><p>Thread actions, replies, drafts, contacts, and calendar edits update in memory while the dev server is running.</p>',
-			from: [{ name: 'OwnMail Team', email: 'team@ownmail.local' }],
+			id: 'msg-roadmap-1',
+			thread_id: 'thread-roadmap',
+			subject: 'Q3 product roadmap - final review before Monday',
+			snippet: 'Hi Ada, I went through the latest roadmap deck and it is looking sharp.',
+			body: '<p>Hi Ada,</p><p>I went through the latest roadmap deck and it is looking sharp. Before we lock it on Monday, can you take one more pass at the sequencing for the calendar sync work?</p><p>I have attached the updated deck with my comments in the margins.</p><p>Best,<br>Grace</p>',
+			from: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
 			to: [{ email: MAILBOX_EMAIL }],
-			date: now - 60 * 25,
+			date: daysAgo(0, 8, 12),
 			unread: true,
 			starred: true,
 			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
-		},
-		{
-			id: 'msg-design-1',
-			thread_id: 'thread-design',
-			subject: 'Calendar density pass',
-			snippet: 'Could you check the week view after the event modal changes?',
-			body: '<p>Could you check the week view after the event modal changes?</p><p>The local mock calendar has a few overlapping events for visual QA.</p>',
-			from: [{ name: 'Mina Park', email: 'mina@example.com' }],
-			to: [{ email: MAILBOX_EMAIL }],
-			date: now - 60 * 60 * 4,
-			unread: false,
-			folders: ['inbox', 'work'],
-			grant_id: GRANT_ID,
 			attachments: [
 				{
-					id: 'att-calendar-notes',
-					filename: 'calendar-notes.txt',
-					content_type: 'text/plain',
-					size: 1840,
+					id: 'att-roadmap-deck',
+					filename: 'roadmap-review.pdf',
+					content_type: 'application/pdf',
+					size: 2_400_000,
 				},
 			],
 		},
 		{
-			id: 'msg-sent-1',
-			thread_id: 'thread-sent',
-			subject: 'Re: Billing copy',
-			snippet: 'I tightened the text and left the failure-state wording generic.',
-			body: '<p>I tightened the text and left the failure-state wording generic.</p>',
+			id: 'msg-roadmap-2',
+			thread_id: 'thread-roadmap',
+			subject: 'Q3 product roadmap - final review before Monday',
+			snippet: 'Thanks Grace - this is great.',
+			body: '<p>Thanks Grace - this is great.</p><p>I think we hold shared-inbox for the next release. It needs the new permissions model to land first, and I would rather not couple the two timelines.</p><p>Ada</p>',
 			from: [{ email: MAILBOX_EMAIL }],
-			to: [{ name: 'Alex Rivera', email: 'alex@example.com' }],
-			date: now - 60 * 60 * 27,
+			to: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
+			date: daysAgo(0, 9, 30),
 			unread: false,
-			folders: ['sent', 'finance'],
+			folders: ['inbox', 'work'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-travel-1',
+			thread_id: 'thread-travel',
+			subject: 'Your itinerary for Lisbon is confirmed',
+			snippet: 'Your trip is booked! Departure: Fri, 8:40 AM - SFO to LIS.',
+			body: '<p>Your trip is booked!</p><p>Departure: Fri, 8:40 AM - SFO to LIS, connecting in Lisbon.</p><p>Hotel: Praca Boutique, check-in from 3:00 PM. Confirmation #VYG-40192.</p>',
+			from: [{ name: 'Voyage', email: 'trips@voyage.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(0, 7, 5),
+			unread: true,
+			starred: false,
+			folders: ['inbox', 'travel'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-invoice-1',
+			thread_id: 'thread-invoice',
+			subject: 'Invoice #2041 has been paid',
+			snippet: 'You received a payment of $4,200.00 from Northwind Studio.',
+			body: '<p>You received a payment of $4,200.00 from Northwind Studio.</p><p>Invoice #2041 is now marked as paid. Funds will settle to your account within 2 business days.</p>',
+			from: [{ name: 'Stripe', email: 'receipts@stripe.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(1, 16, 20),
+			unread: false,
+			starred: false,
+			folders: ['inbox', 'finance'],
+			grant_id: GRANT_ID,
+			attachments: [
+				{
+					id: 'att-invoice-receipt',
+					filename: 'invoice-2041.pdf',
+					content_type: 'application/pdf',
+					size: 184_000,
+				},
+			],
+		},
+		{
+			id: 'msg-hiking-1',
+			thread_id: 'thread-hiking',
+			subject: 'Weekend hiking plans?',
+			snippet: 'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning.',
+			body: '<p>Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.</p><p>Want to join? We would start around 8 to beat the crowds. I can drive.</p>',
+			from: [{ name: 'Alan Turing', email: 'alan@hey.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(1, 11, 45),
+			unread: false,
+			starred: true,
+			folders: ['inbox', 'personal'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-tokens-1',
+			thread_id: 'thread-tokens',
+			subject: 'Design system: new component tokens shipped',
+			snippet: 'The v3 token set is live in the shared library.',
+			body: '<p>The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.</p><p>Nothing you need to do today - existing components will pick up the changes automatically on the next release.</p>',
+			from: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(2, 14, 0),
+			unread: false,
+			starred: false,
+			folders: ['inbox', 'work'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-dentist-1',
+			thread_id: 'thread-dentist',
+			subject: 'Reminder: dentist appointment Thursday 2:00 PM',
+			snippet: 'This is a friendly reminder about your upcoming cleaning with Dr. Reyes.',
+			body: '<p>This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.</p><p>Reply to reschedule, or arrive 10 minutes early to update your paperwork.</p>',
+			from: [{ name: 'Bright Smile Dental', email: 'hello@brightsmile.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(2, 10, 30),
+			unread: false,
+			starred: false,
+			folders: ['inbox', 'personal'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-statement-1',
+			thread_id: 'thread-statement',
+			subject: 'Your monthly statement is ready',
+			snippet: 'Your statement for June is now available.',
+			body: '<p>Your statement for June is now available. Sign in to view your transactions and balances.</p><p>As always, we will never ask for your password by email.</p>',
+			from: [{ name: 'Meridian Bank', email: 'noreply@meridian.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(3, 6, 0),
+			unread: false,
+			starred: false,
+			folders: ['inbox', 'finance'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-welcome-1',
+			thread_id: 'thread-welcome',
+			subject: 'Welcome to ownmail',
+			snippet: 'Welcome aboard! ownmail brings your mail and your calendar into one calm, fast workspace.',
+			body: '<p>Welcome aboard! ownmail brings your mail and your calendar into one calm, fast workspace.</p><p>Press C to compose, or jump to your calendar from the rail on the left. Everything you need is a keystroke away.</p><p>Happy sending,<br>The ownmail team</p>',
+			from: [{ name: 'The ownmail team', email: 'team@ownmail.com' }],
+			to: [{ email: MAILBOX_EMAIL }],
+			date: daysAgo(4, 9, 0),
+			unread: false,
+			starred: false,
+			folders: ['inbox'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'msg-contract-1',
+			thread_id: 'thread-contract',
+			subject: 'Re: Contract draft',
+			snippet: 'Attached is the countersigned draft.',
+			body: '<p>Attached is the countersigned draft. Let me know if anything else is needed on my end.</p><p>Ada</p>',
+			from: [{ email: MAILBOX_EMAIL }],
+			to: [{ name: 'Legal', email: 'legal@northwind.com' }],
+			date: daysAgo(1, 17, 10),
+			unread: false,
+			starred: false,
+			folders: ['sent', 'work'],
+			grant_id: GRANT_ID,
+			attachments: [
+				{
+					id: 'att-contract-draft',
+					filename: 'contract-draft.pdf',
+					content_type: 'application/pdf',
+					size: 420_000,
+				},
+			],
+		},
+		{
+			id: 'msg-sync-1',
+			thread_id: 'thread-sync',
+			subject: "Notes from today's sync",
+			snippet: 'Quick recap of what we agreed on today, with owners and dates.',
+			body: '<p>Quick recap of what we agreed on today, with owners and dates. Shout if I missed anything.</p>',
+			from: [{ email: MAILBOX_EMAIL }],
+			to: [{ name: 'Team', email: 'team@vercel.com' }],
+			date: daysAgo(2, 18, 0),
+			unread: false,
+			starred: false,
+			folders: ['sent', 'work'],
 			grant_id: GRANT_ID,
 		},
 	].map((message) => [message.id, message]),
@@ -263,42 +400,134 @@ const messages = new Map<string, StoredMessage>(
 const threads = new Map<string, StoredThread>(
 	[
 		{
-			id: 'thread-welcome',
-			subject: 'Welcome to your local OwnMail workspace',
-			snippet: 'Use this mock inbox to tune layout, empty states, and thread actions without deploying.',
-			participants: [{ name: 'OwnMail Team', email: 'team@ownmail.local' }],
-			message_ids: ['msg-welcome-1'],
-			latest_message_received_date: now - 60 * 25,
-			has_attachments: false,
+			id: 'thread-roadmap',
+			subject: 'Q3 product roadmap - final review before Monday',
+			snippet: 'Thanks Grace - this is great.',
+			participants: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
+			message_ids: ['msg-roadmap-1', 'msg-roadmap-2'],
+			latest_message_received_date: daysAgo(0, 8, 12),
+			latest_message_sent_date: daysAgo(0, 9, 30),
+			has_attachments: true,
 			unread: true,
 			starred: true,
 			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
 		},
 		{
-			id: 'thread-design',
-			subject: 'Calendar density pass',
-			snippet: 'Could you check the week view after the event modal changes?',
-			participants: [{ name: 'Mina Park', email: 'mina@example.com' }],
-			message_ids: ['msg-design-1'],
-			latest_message_received_date: now - 60 * 60 * 4,
+			id: 'thread-travel',
+			subject: 'Your itinerary for Lisbon is confirmed',
+			snippet: 'Your trip is booked! Departure: Fri, 8:40 AM - SFO to LIS.',
+			participants: [{ name: 'Voyage', email: 'trips@voyage.com' }],
+			message_ids: ['msg-travel-1'],
+			latest_message_received_date: daysAgo(0, 7, 5),
+			has_attachments: false,
+			unread: true,
+			starred: false,
+			folders: ['inbox', 'travel'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-invoice',
+			subject: 'Invoice #2041 has been paid',
+			snippet: 'You received a payment of $4,200.00 from Northwind Studio.',
+			participants: [{ name: 'Stripe', email: 'receipts@stripe.com' }],
+			message_ids: ['msg-invoice-1'],
+			latest_message_received_date: daysAgo(1, 16, 20),
 			has_attachments: true,
+			unread: false,
+			starred: false,
+			folders: ['inbox', 'finance'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-hiking',
+			subject: 'Weekend hiking plans?',
+			snippet: 'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning.',
+			participants: [{ name: 'Alan Turing', email: 'alan@hey.com' }],
+			message_ids: ['msg-hiking-1'],
+			latest_message_received_date: daysAgo(1, 11, 45),
+			has_attachments: false,
+			unread: false,
+			starred: true,
+			folders: ['inbox', 'personal'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-tokens',
+			subject: 'Design system: new component tokens shipped',
+			snippet: 'The v3 token set is live in the shared library.',
+			participants: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com' }],
+			message_ids: ['msg-tokens-1'],
+			latest_message_received_date: daysAgo(2, 14, 0),
+			has_attachments: false,
 			unread: false,
 			starred: false,
 			folders: ['inbox', 'work'],
 			grant_id: GRANT_ID,
 		},
 		{
-			id: 'thread-sent',
-			subject: 'Re: Billing copy',
-			snippet: 'I tightened the text and left the failure-state wording generic.',
-			participants: [{ name: 'Alex Rivera', email: 'alex@example.com' }],
-			message_ids: ['msg-sent-1'],
-			latest_message_sent_date: now - 60 * 60 * 27,
+			id: 'thread-dentist',
+			subject: 'Reminder: dentist appointment Thursday 2:00 PM',
+			snippet: 'This is a friendly reminder about your upcoming cleaning with Dr. Reyes.',
+			participants: [{ name: 'Bright Smile Dental', email: 'hello@brightsmile.com' }],
+			message_ids: ['msg-dentist-1'],
+			latest_message_received_date: daysAgo(2, 10, 30),
 			has_attachments: false,
 			unread: false,
 			starred: false,
-			folders: ['sent', 'finance'],
+			folders: ['inbox', 'personal'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-statement',
+			subject: 'Your monthly statement is ready',
+			snippet: 'Your statement for June is now available.',
+			participants: [{ name: 'Meridian Bank', email: 'noreply@meridian.com' }],
+			message_ids: ['msg-statement-1'],
+			latest_message_received_date: daysAgo(3, 6, 0),
+			has_attachments: false,
+			unread: false,
+			starred: false,
+			folders: ['inbox', 'finance'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-welcome',
+			subject: 'Welcome to ownmail',
+			snippet: 'Welcome aboard! ownmail brings your mail and your calendar into one calm, fast workspace.',
+			participants: [{ name: 'The ownmail team', email: 'team@ownmail.com' }],
+			message_ids: ['msg-welcome-1'],
+			latest_message_received_date: daysAgo(4, 9, 0),
+			has_attachments: false,
+			unread: false,
+			starred: false,
+			folders: ['inbox'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-contract',
+			subject: 'Re: Contract draft',
+			snippet: 'Attached is the countersigned draft.',
+			participants: [{ name: 'Legal', email: 'legal@northwind.com' }],
+			message_ids: ['msg-contract-1'],
+			latest_message_sent_date: daysAgo(1, 17, 10),
+			has_attachments: true,
+			unread: false,
+			starred: false,
+			folders: ['sent', 'work'],
+			grant_id: GRANT_ID,
+		},
+		{
+			id: 'thread-sync',
+			subject: "Notes from today's sync",
+			snippet: 'Quick recap of what we agreed on today, with owners and dates.',
+			participants: [{ name: 'Team', email: 'team@vercel.com' }],
+			message_ids: ['msg-sync-1'],
+			latest_message_sent_date: daysAgo(2, 18, 0),
+			has_attachments: false,
+			unread: false,
+			starred: false,
+			folders: ['sent', 'work'],
 			grant_id: GRANT_ID,
 		},
 	].map((thread) => [thread.id, thread]),
@@ -310,11 +539,11 @@ const drafts = new Map<string, StoredDraft>([
 		{
 			id: 'draft-launch-copy',
 			grant_id: GRANT_ID,
-			subject: 'Launch checklist',
-			snippet: 'Confirm callbacks, smoke test search, and verify calendar create/edit.',
-			body: 'Confirm callbacks, smoke test search, and verify calendar create/edit.',
-			to: [{ name: 'Sam Lee', email: 'sam@example.com' }],
-			date: now - 60 * 15,
+			subject: 'Thoughts on the offsite agenda',
+			snippet: 'Here are a few ideas for the offsite -',
+			body: 'Here are a few ideas for the offsite -',
+			to: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
+			date: daysAgo(0, 12, 0),
 			folders: ['drafts'],
 		},
 	],
@@ -365,22 +594,72 @@ function seedEvents() {
 	if (events.size > 0) return
 	const today = new Date()
 	const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-	addEvent('event-standup', 'Product standup', startOfDay, 9, 30, 30, { calendar_id: 'work' })
-	addEvent('event-design', 'UI review', startOfDay, 11, 0, 60, {
-		calendar_id: 'work',
-		location: 'Zoom',
-		participants: [{ name: 'Mina Park', email: 'mina@example.com', status: 'yes' }],
+	addEvent('event-focus-block', 'Morning focus block', startOfDay, 8, 0, 90, {
+		calendar_id: 'focus',
+		description: 'Deep work on the roadmap sequencing. No meetings.',
 	})
-	addEvent('event-focus', 'Inbox polish block', startOfDay, 14, 0, 120, { calendar_id: 'focus' })
-	addEvent('event-tomorrow', 'Integration smoke test', addDays(startOfDay, 1), 10, 0, 45, {
+	addEvent('event-roadmap-review', 'Roadmap review with Grace', startOfDay, 10, 0, 60, {
 		calendar_id: 'work',
+		location: 'Meet - Aurora room',
+		description: 'Final pass on the Q3 deck before Monday lock.',
+		participants: [
+			{ name: 'Grace Hopper', email: 'grace@vercel.com', status: 'yes' },
+			{ name: 'Katherine Johnson', email: 'katherine@vercel.com', status: 'yes' },
+		],
+	})
+	addEvent('event-lunch', 'Lunch with Alan', startOfDay, 12, 30, 60, {
+		calendar_id: 'social',
+		location: 'Tartine, Mission',
+	})
+	addEvent('event-design-system', 'Design system sync', startOfDay, 15, 0, 60, {
+		calendar_id: 'work',
+		participants: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com', status: 'yes' }],
+	})
+	addEvent('event-manager', '1:1 with manager', addDays(startOfDay, 1), 9, 0, 30, {
+		calendar_id: 'work',
+	})
+	addEvent('event-standup', 'Team standup', addDays(startOfDay, 1), 11, 0, 15, {
+		calendar_id: 'work',
+	})
+	addEvent('event-gym', 'Gym', addDays(startOfDay, 1), 18, 0, 60, {
+		calendar_id: 'primary',
+	})
+	addEvent('event-writing', 'Writing sprint', addDays(startOfDay, 2), 9, 0, 120, {
+		calendar_id: 'focus',
+	})
+	addEvent('event-dentist', 'Dentist - Dr. Reyes', addDays(startOfDay, 2), 14, 0, 60, {
+		calendar_id: 'primary',
+		location: 'Bright Smile Dental',
+	})
+	addEvent('event-flight', 'Flight to Lisbon', addDays(startOfDay, 3), 8, 30, 150, {
+		calendar_id: 'primary',
+		location: 'SFO Terminal 2',
+		description: 'Confirmation #VYG-40192',
+	})
+	addEvent('event-planning', 'Quarterly planning', addDays(startOfDay, 4), 13, 0, 120, {
+		calendar_id: 'work',
+		participants: [
+			{ name: 'Grace Hopper', email: 'grace@vercel.com', status: 'yes' },
+			{ name: 'Team', email: 'team@vercel.com', status: 'yes' },
+		],
+	})
+	addEvent('event-prs', 'Review PRs', addDays(startOfDay, 4), 16, 0, 60, {
+		calendar_id: 'focus',
+	})
+	addEvent('event-hike', 'Dipsea trail hike', addDays(startOfDay, 5), 8, 0, 180, {
+		calendar_id: 'social',
+		location: 'Mill Valley',
+	})
+	addEvent('event-dinner', 'Dinner party', addDays(startOfDay, 6), 19, 0, 180, {
+		calendar_id: 'social',
+		location: 'Home',
 	})
 	events.set('event-all-day', {
 		id: 'event-all-day',
 		calendar_id: 'primary',
 		grant_id: GRANT_ID,
-		title: 'Local QA day',
-		when: { object: 'date', date: ymd(startOfDay) },
+		title: 'Pay rent',
+		when: { object: 'date', date: ymd(addDays(startOfDay, 2)) },
 		busy: false,
 	})
 }
@@ -653,7 +932,7 @@ export function mockRsvpEvent(input: { eventId: string; status: 'yes' | 'no' | '
 
 function visibleThreads(folderId: string): StoredThread[] {
 	return [...threads.values()]
-		.filter((thread) => thread.folders.includes(folderId))
+		.filter((thread) => (folderId === 'starred' ? thread.starred : thread.folders.includes(folderId)))
 		.sort(
 			(a, b) =>
 				(b.latest_message_received_date ?? b.latest_message_sent_date ?? 0) -

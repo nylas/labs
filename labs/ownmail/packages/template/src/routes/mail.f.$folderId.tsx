@@ -6,6 +6,8 @@ import {
 	cn,
 	draftRecipientList,
 	formatListDate,
+	labelBadgeClass,
+	threadLabels,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
@@ -143,6 +145,7 @@ function ThreadRow({
 }) {
 	const when = formatListDate(threadTimestamp(thread))
 	const sender = threadSender(thread, folderId)
+	const labels = threadLabels(thread)
 
 	async function toggleStar(event: React.MouseEvent<HTMLButtonElement>) {
 		event.preventDefault()
@@ -194,7 +197,20 @@ function ThreadRow({
 			>
 				{thread.subject || '(no subject)'}
 			</p>
-			<p className="min-w-0 truncate text-xs text-muted-foreground">{thread.snippet}</p>
+			<div className="flex items-center gap-2">
+				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{thread.snippet}</p>
+				{labels.map((label) => (
+					<span
+						key={label.id}
+						className={cn(
+							'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+							labelBadgeClass(label.tone),
+						)}
+					>
+						{label.name}
+					</span>
+				))}
+			</div>
 		</Link>
 	)
 }

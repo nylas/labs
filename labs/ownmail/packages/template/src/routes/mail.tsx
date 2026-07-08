@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
-import { cn, folderCount, MAIL_FOLDERS, totalUnread } from '../components/ui-model.js'
+import { cn, MAIL_FOLDERS, sidebarFolderCount } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail')({
@@ -182,8 +182,7 @@ function MailSidebar({ folders }: { folders: Folder[] }) {
 			<nav className="flex flex-col gap-0.5" aria-label="Mail folders">
 				{MAIL_FOLDERS.map((folder) => {
 					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
-					const count =
-						folder.id === 'starred' ? folderCount(folders, 'starred') : folderCount(folders, folder.id)
+					const count = sidebarFolderCount(folders, folder.id)
 					return (
 						<Link
 							key={folder.id}
@@ -218,9 +217,6 @@ function MailSidebar({ folders }: { folders: Folder[] }) {
 							>
 								<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(index))} />
 								<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
-								{label.unread_count ? (
-									<span className="text-xs tabular-nums text-muted-foreground">{label.unread_count}</span>
-								) : null}
 							</Link>
 						))}
 					</div>
@@ -232,9 +228,7 @@ function MailSidebar({ folders }: { folders: Folder[] }) {
 				<div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
 					<div className="h-full w-[38%] rounded-full bg-primary" />
 				</div>
-				<p className="mt-1.5 text-xs text-muted-foreground">
-					{totalUnread(folders)} unread · local workspace
-				</p>
+				<p className="mt-1.5 text-xs text-muted-foreground">5.7 GB of 15 GB used</p>
 			</div>
 		</aside>
 	)
@@ -261,7 +255,7 @@ function CommandPalette({
 			...MAIL_FOLDERS.map((folder) => ({
 				id: folder.id,
 				label: `Open ${folder.label}`,
-				detail: `${folderCount(folders, folder.id)} unread`,
+				detail: `${sidebarFolderCount(folders, folder.id)} items`,
 			})),
 			...labels.map((folder) => ({
 				id: folder.id,
