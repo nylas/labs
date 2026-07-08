@@ -32,10 +32,10 @@ export function viewRange(view: CalView, anchor: Date): { start: Date; end: Date
 		const start = startOfWeek(anchor)
 		return { start, end: addDays(start, 7) }
 	}
-	// Month grid: from the week containing the 1st through the week containing the last day.
+	// Reference month grid is always 6x7, starting with the week containing the 1st.
 	const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
-	const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)
-	return { start: startOfWeek(first), end: addDays(startOfWeek(last), 7) }
+	const start = startOfWeek(first)
+	return { start, end: addDays(start, 42) }
 }
 
 export function startOfDay(d: Date): Date {
