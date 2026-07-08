@@ -442,39 +442,26 @@ function MonthGrid({
 					const dayEvents = eventsOnDay(events, day)
 					const iso = ymd(day)
 					return (
+						// biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Reference calendar cells are mouse-clickable static cells, not separate buttons.
 						<div
 							key={day.toISOString()}
+							onClick={() => onPickDay(day)}
 							className={cn(
 								'group relative flex min-h-0 cursor-pointer flex-col gap-1 border-r border-b border-border p-1.5 transition-colors hover:bg-muted/40',
 								!inMonth && 'bg-muted/30',
 							)}
 						>
-							<button
-								type="button"
-								aria-label={`Open ${day.toLocaleDateString(undefined, {
-									weekday: 'long',
-									month: 'long',
-									day: 'numeric',
-								})}`}
-								onClick={() => onPickDay(day)}
-								className="absolute inset-0 z-0 cursor-pointer"
-							/>
 							<div className="pointer-events-none relative z-10 flex items-center justify-center">
-								<button
-									type="button"
-									onClick={(event) => {
-										event.stopPropagation()
-										onPickDay(day)
-									}}
+								<span
 									className={cn(
-										'pointer-events-auto flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
+										'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
 										iso === todayIso && 'bg-primary text-primary-foreground',
 										iso !== todayIso && !inMonth && 'text-muted-foreground/60',
 										iso !== todayIso && inMonth && 'text-foreground',
 									)}
 								>
 									{day.getDate()}
-								</button>
+								</span>
 							</div>
 							<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
 								{dayEvents.slice(0, 3).map((event, index) => {
@@ -513,16 +500,9 @@ function MonthGrid({
 									)
 								})}
 								{dayEvents.length > 3 ? (
-									<button
-										type="button"
-										onClick={(event) => {
-											event.stopPropagation()
-											onPickDay(day)
-										}}
-										className="pointer-events-auto px-1.5 text-left text-xs font-medium text-muted-foreground"
-									>
+									<span className="px-1.5 text-left text-xs font-medium text-muted-foreground">
 										+{dayEvents.length - 3} more
-									</button>
+									</span>
 								) : null}
 							</div>
 						</div>
