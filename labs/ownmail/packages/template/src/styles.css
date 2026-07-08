@@ -180,42 +180,44 @@
 	--sidebar-ring: oklch(0.72 0.13 158);
 }
 
-* {
-	border-color: var(--border);
-	outline-color: color-mix(in oklch, var(--ring), transparent 50%);
-}
+@layer base {
+	* {
+		border-color: var(--border);
+		outline-color: color-mix(in oklch, var(--ring), transparent 50%);
+	}
 
-html,
-body {
-	overflow-x: clip;
-	background: var(--background);
-	color: var(--foreground);
-	font-family: var(--font-sans);
-	-webkit-font-smoothing: antialiased;
-	text-rendering: optimizeLegibility;
-}
+	html,
+	body {
+		overflow-x: clip;
+		background: var(--background);
+		color: var(--foreground);
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
+	}
 
-h1,
-h2,
-h3,
-h4,
-h5 {
-	font-family: var(--font-display);
-	letter-spacing: -0.015em;
-}
+	h1,
+	h2,
+	h3,
+	h4,
+	h5 {
+		font-family: var(--font-display);
+		letter-spacing: -0.015em;
+	}
 
-:focus {
-	outline: none;
-}
+	:focus {
+		outline: none;
+	}
 
-:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
-}
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
 
-::selection {
-	background: var(--accent);
-	color: var(--accent-foreground);
+	::selection {
+		background: var(--accent);
+		color: var(--accent-foreground);
+	}
 }
 
 .app-input {

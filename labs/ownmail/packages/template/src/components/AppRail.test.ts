@@ -7,6 +7,7 @@ import {
 	rootThemeClassNames,
 	THEME_STORAGE_KEY,
 	themeClassName,
+	themeToggleLabel,
 } from './theme.js'
 
 describe('AppRail theme defaults', () => {
@@ -38,6 +39,12 @@ describe('AppRail theme defaults', () => {
 	it('uses reference light and dark document class names', () => {
 		expect(themeClassName(false)).toBe('light')
 		expect(themeClassName(true)).toBe('dark')
+	})
+
+	it('uses the reference theme toggle labels before and after mount', () => {
+		expect(themeToggleLabel(false, false)).toBe('Toggle theme')
+		expect(themeToggleLabel(true, false)).toBe('Switch to dark mode')
+		expect(themeToggleLabel(true, true)).toBe('Switch to light mode')
 	})
 
 	it('keeps the reference root background class with the theme class', () => {

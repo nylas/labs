@@ -20,6 +20,7 @@ import {
 	formatListDate,
 	forwardDraftSearch,
 	initials,
+	labelBadgeClass,
 	labelBaseFolderId,
 	labelDotClass,
 	labelToggleFolderId,
@@ -222,6 +223,12 @@ describe('ui-model mail helpers', () => {
 		const thread = { folders: ['inbox', 'work', 'travel'] } as Thread
 
 		expect(threadLabels(thread).map((label) => label.name)).toEqual(['Work', 'Travel'])
+		expect(labelBadgeClass('blue')).toBe(
+			'bg-[var(--event-blue)]/10 text-[var(--event-blue)] border-l-[3px] border-[var(--event-blue)]',
+		)
+		expect(labelBadgeClass('amber')).toBe(
+			'bg-[var(--event-amber)]/12 text-[var(--event-amber)] border-l-[3px] border-[var(--event-amber)]',
+		)
 	})
 
 	it('keeps reference label dot colors stable by label id', () => {

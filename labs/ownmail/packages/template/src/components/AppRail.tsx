@@ -2,7 +2,13 @@ import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
-import { initialThemeIsDark, ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from './theme.js'
+import {
+	initialThemeIsDark,
+	ROOT_BACKGROUND_CLASS,
+	THEME_STORAGE_KEY,
+	themeClassName,
+	themeToggleLabel,
+} from './theme.js'
 import { initials } from './ui-model.js'
 
 export function AppRail({
@@ -77,7 +83,7 @@ export function AppRail({
 					type="button"
 					onClick={toggleTheme}
 					className="flex h-11 w-11 items-center justify-center rounded-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-					aria-label={mounted && isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+					aria-label={themeToggleLabel(mounted, isDark)}
 				>
 					{mounted && isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
 				</button>

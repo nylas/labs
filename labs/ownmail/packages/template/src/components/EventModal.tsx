@@ -343,10 +343,13 @@ export function EventModal({
 }
 
 function eventBlockClass(tone: EventTone): string {
-	if (tone === 'teal') return 'bg-event-teal/10 text-event-teal border-l-[3px] border-event-teal'
-	if (tone === 'amber') return 'bg-event-amber/12 text-event-amber border-l-[3px] border-event-amber'
-	if (tone === 'rose') return 'bg-event-rose/10 text-event-rose border-l-[3px] border-event-rose'
-	return 'bg-event-blue/10 text-event-blue border-l-[3px] border-event-blue'
+	if (tone === 'teal')
+		return 'bg-[var(--event-teal)]/10 text-[var(--event-teal)] border-l-[3px] border-[var(--event-teal)]'
+	if (tone === 'amber')
+		return 'bg-[var(--event-amber)]/12 text-[var(--event-amber)] border-l-[3px] border-[var(--event-amber)]'
+	if (tone === 'rose')
+		return 'bg-[var(--event-rose)]/10 text-[var(--event-rose)] border-l-[3px] border-[var(--event-rose)]'
+	return 'bg-[var(--event-blue)]/10 text-[var(--event-blue)] border-l-[3px] border-[var(--event-blue)]'
 }
 
 function decimalHour(date: Date): number {
