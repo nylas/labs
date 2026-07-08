@@ -9,12 +9,20 @@ import {
 describe('EventModal helpers', () => {
 	it('matches the reference default time for newly created events', () => {
 		expect(NEW_EVENT_HOURS).toEqual({ startHour: 9, endHour: 10 })
+		expect(eventInitialHours(new Date('2026-07-08T00:00:00'))).toEqual(NEW_EVENT_HOURS)
 	})
 
-	it('rounds existing event start times onto reference half-hour options', () => {
+	it('rounds event start times onto reference half-hour options', () => {
 		expect(eventInitialHours(new Date('2026-07-08T14:10:00'))).toEqual({
 			startHour: 14,
 			endHour: 15,
+		})
+	})
+
+	it('prefills newly created events from the clicked calendar slot hour', () => {
+		expect(eventInitialHours(new Date('2026-07-08T14:30:00'))).toEqual({
+			startHour: 14.5,
+			endHour: 15.5,
 		})
 	})
 

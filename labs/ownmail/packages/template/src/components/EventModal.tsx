@@ -36,7 +36,7 @@ export function EventModal({
 }) {
 	const times = event ? eventTimes(event) : null
 	const initialStart = times?.start ?? new Date(defaultStart.getTime())
-	const initialHours = event ? eventInitialHours(initialStart) : NEW_EVENT_HOURS
+	const initialHours = eventInitialHours(initialStart)
 
 	const [title, setTitle] = useState(event?.title ?? '')
 	const [location, setLocation] = useState(event?.location ?? '')
