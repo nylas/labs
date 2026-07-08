@@ -639,7 +639,7 @@ function seedEvents() {
 	addEvent('event-writing', 'Writing sprint', addDays(startOfDay, 2), 9, 0, 120, {
 		calendar_id: 'focus',
 	})
-	addEvent('event-dentist', 'Dentist - Dr. Reyes', addDays(startOfDay, 2), 14, 0, 60, {
+	addEvent('event-dentist', 'Dentist — Dr. Reyes', addDays(startOfDay, 2), 14, 0, 60, {
 		calendar_id: 'primary',
 		location: 'Bright Smile Dental',
 	})
