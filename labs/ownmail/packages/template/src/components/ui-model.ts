@@ -64,6 +64,14 @@ export function threadTimestamp(thread: Thread): number | undefined {
 	return Math.max(received, sent) || undefined
 }
 
+export function threadRouteFolderId(thread: Thread): MailFolderId {
+	return (
+		(thread.folders?.find((folder): folder is MailFolderId =>
+			MAIL_FOLDERS.some((standard) => standard.id === folder),
+		) as MailFolderId | undefined) ?? 'inbox'
+	)
+}
+
 export function formatListDate(epochSeconds?: number): string {
 	if (!epochSeconds) return ''
 	const date = new Date(epochSeconds * 1000)

@@ -16,6 +16,7 @@ import {
 	messagePreview,
 	sidebarFolderCount,
 	threadLabels,
+	threadRouteFolderId,
 	threadSender,
 	threadTimestamp,
 	toneFromHex,
@@ -72,6 +73,12 @@ describe('ui-model mail helpers', () => {
 		} as Thread
 
 		expect(threadTimestamp(thread)).toBe(200)
+	})
+
+	it('routes search rows through real mail folders, not label folders', () => {
+		expect(threadRouteFolderId({ folders: ['work', 'archive'] } as Thread)).toBe('archive')
+		expect(threadRouteFolderId({ folders: ['personal', 'travel'] } as Thread)).toBe('inbox')
+		expect(threadRouteFolderId({ folders: ['sent'] } as Thread)).toBe('sent')
 	})
 
 	it('formats initials and strips html previews', () => {

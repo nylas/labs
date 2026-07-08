@@ -1,10 +1,12 @@
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import { Paperclip, Star } from 'lucide-react'
+import { Paperclip, Reply, Star } from 'lucide-react'
+import { useMemo } from 'react'
 import {
 	cn,
 	formatListDate,
 	labelBadgeClass,
 	threadLabels,
+	threadRouteFolderId,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
@@ -19,34 +21,51 @@ export const Route = createFileRoute('/mail/search')({
 
 function SearchResults() {
 	const { threads } = Route.useLoaderData()
-	const { q } = Route.useSearch()
+	const sortedThreads = useMemo(
+		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
+		[threads],
+	)
+	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	return (
-		<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
-			<div className="flex items-center justify-between border-b border-border px-4 py-3">
-				<div>
-					<h1 className="text-base font-semibold">Search</h1>
-					<p className="text-xs text-muted-foreground">
-						{threads.length} result{threads.length === 1 ? '' : 's'} for "{q}"
-					</p>
+		<>
+			<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
+				<div className="flex items-center justify-between border-b border-border px-4 py-3">
+					<h1 className="text-base font-semibold capitalize">Inbox</h1>
+					{unreadCount > 0 ? (
+						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+							{unreadCount} unread
+						</span>
+					) : null}
 				</div>
-			</div>
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				{threads.length === 0 ? (
-					<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-						<p className="text-sm font-medium text-foreground">Nothing here</p>
-						<p className="text-sm text-muted-foreground">Try a different search.</p>
+
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					{sortedThreads.length === 0 ? (
+						<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+							<p className="text-sm font-medium text-foreground">Nothing here</p>
+							<p className="text-sm text-muted-foreground">This view is empty.</p>
+						</div>
+					) : (
+						sortedThreads.map((thread) => <SearchThreadRow key={thread.id} thread={thread} />)
+					)}
+				</div>
+			</section>
+			<section className="hidden min-w-0 flex-1 flex-col bg-background md:flex">
+				<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
+					<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+						<Reply className="h-6 w-6" />
 					</div>
-				) : (
-					threads.map((thread) => <SearchThreadRow key={thread.id} thread={thread} />)
-				)}
-			</div>
-		</section>
+					<div>
+						<p className="text-sm font-medium text-foreground">Select a conversation</p>
+						<p className="text-sm text-muted-foreground">Choose a message from the list to read it here.</p>
+					</div>
+				</div>
+			</section>
+		</>
 	)
 }
 
 function SearchThreadRow({ thread }: { thread: Awaited<ReturnType<typeof getThreads>>['threads'][number] }) {
-	const folderId =
-		thread.folders?.find((folder) => !['work', 'personal', 'finance', 'travel'].includes(folder)) ?? 'inbox'
+	const folderId = threadRouteFolderId(thread)
 	const when = formatListDate(threadTimestamp(thread))
 	const labels = threadLabels(thread)
 	const router = useRouter()
