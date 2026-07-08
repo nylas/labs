@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
 import {
 	cn,
+	labelBaseFolderId,
 	labelDotClass,
 	labelToggleFolderId,
 	liveSearchTarget,
@@ -74,6 +75,8 @@ function MailLayout() {
 	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
 	const currentFolderId = useMemo(() => folderIdFromPath(pathname), [pathname])
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
+	const labelBaseFolder =
+		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
 	const activeSearchFolderId = currentFolderId ?? searchScopeFolderId
 	const [query, setQuery] = useState('')
 	useVersionPolling()
@@ -116,7 +119,12 @@ function MailLayout() {
 			<AppRail email={info.email} displayName={info.displayName} active="mail" />
 			<div className="flex min-h-0 flex-1 overflow-hidden">
 				<div className="hidden md:flex">
-					<MailSidebar folders={folders} composeSearch={composeSearch} currentFolderId={currentFolderId} />
+					<MailSidebar
+						folders={folders}
+						composeSearch={composeSearch}
+						currentFolderId={currentFolderId}
+						baseFolderId={labelBaseFolder}
+					/>
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col">
 					<header className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
@@ -181,10 +189,12 @@ function MailSidebar({
 	folders,
 	composeSearch,
 	currentFolderId,
+	baseFolderId,
 }: {
 	folders: Folder[]
 	composeSearch: { folderId?: string; threadId?: string }
 	currentFolderId?: string
+	baseFolderId?: string
 }) {
 	const labels = folders.filter(isCustomFolder)
 	return (
@@ -228,11 +238,14 @@ function MailSidebar({
 					<div className="flex flex-col gap-0.5">
 						{labels.map((label, index) => {
 							const active = currentFolderId === label.id
+							const nextFolderId = labelToggleFolderId(currentFolderId, label.id, baseFolderId)
+							const nextBaseFolderId = active ? undefined : labelBaseFolderId(currentFolderId, baseFolderId)
 							return (
 								<Link
 									key={label.id}
 									to="/mail/f/$folderId"
-									params={{ folderId: labelToggleFolderId(currentFolderId, label.id) }}
+									params={{ folderId: nextFolderId }}
+									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
 									className={cn(
 										'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
 										active

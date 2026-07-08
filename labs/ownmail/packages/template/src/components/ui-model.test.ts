@@ -11,6 +11,7 @@ import {
 	folderCount,
 	formatListDate,
 	initials,
+	labelBaseFolderId,
 	labelDotClass,
 	labelToggleFolderId,
 	liveSearchTarget,
@@ -169,8 +170,12 @@ describe('ui-model mail helpers', () => {
 
 	it('toggles an active label back to the reference default inbox view', () => {
 		expect(labelToggleFolderId('work', 'work')).toBe('inbox')
+		expect(labelToggleFolderId('work', 'work', 'sent')).toBe('sent')
 		expect(labelToggleFolderId('inbox', 'work')).toBe('work')
 		expect(labelToggleFolderId(undefined, 'work')).toBe('work')
+		expect(labelBaseFolderId('sent')).toBe('sent')
+		expect(labelBaseFolderId('work', 'sent')).toBe('sent')
+		expect(labelBaseFolderId('work')).toBe('inbox')
 	})
 
 	it('routes live search changes like the reference search box', () => {

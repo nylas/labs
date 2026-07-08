@@ -15,6 +15,9 @@ import {
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
+	validateSearch: (search): { baseFolderId?: string } => ({
+		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
+	}),
 	loader: async ({ params }) => {
 		const folders = await getFolders()
 		if (params.folderId === 'drafts') {
@@ -33,6 +36,7 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 function FolderView() {
 	const { threads, drafts, folders } = Route.useLoaderData()
 	const { folderId } = Route.useParams()
+	const { baseFolderId } = Route.useSearch()
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -83,6 +87,7 @@ function FolderView() {
 								key={thread.id}
 								thread={thread}
 								folderId={folderId}
+								baseFolderId={baseFolderId}
 								onChanged={() => router.invalidate()}
 							/>
 						))
@@ -142,10 +147,12 @@ function DraftRow({ draft }: { draft: Draft }) {
 function ThreadRow({
 	thread,
 	folderId,
+	baseFolderId,
 	onChanged,
 }: {
 	thread: Thread
 	folderId: string
+	baseFolderId?: string
 	onChanged: () => void
 }) {
 	const when = formatListDate(threadTimestamp(thread))
@@ -163,6 +170,7 @@ function ThreadRow({
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId, threadId: thread.id }}
+			search={baseFolderId ? { baseFolderId } : {}}
 			className={cn(
 				'group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent',
 				thread.unread && 'bg-card',

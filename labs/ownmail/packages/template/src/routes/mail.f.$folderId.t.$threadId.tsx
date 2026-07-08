@@ -24,6 +24,9 @@ import {
 import { getThreadMessages, updateThreadState } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
+	validateSearch: (search): { baseFolderId?: string } => ({
+		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
+	}),
 	loader: async ({ params }) => getThreadMessages({ data: { threadId: params.threadId } }),
 	component: ThreadView,
 })
@@ -31,6 +34,7 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 function ThreadView() {
 	const { thread, messages, markedRead } = Route.useLoaderData()
 	const { folderId, threadId } = Route.useParams()
+	const { baseFolderId } = Route.useSearch()
 	const router = useRouter()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
@@ -45,13 +49,19 @@ function ThreadView() {
 			setError(null)
 			try {
 				await updateThreadState({ data: { threadId, ...input } })
-				if (leave) navigate({ to: '/mail/f/$folderId', params: { folderId } })
+				if (leave) {
+					navigate({
+						to: '/mail/f/$folderId',
+						params: { folderId },
+						search: baseFolderId ? { baseFolderId } : {},
+					})
+				}
 				router.invalidate()
 			} catch (err) {
 				setError(err instanceof Error ? err.message : 'Action failed')
 			}
 		},
-		[folderId, navigate, router, threadId],
+		[baseFolderId, folderId, navigate, router, threadId],
 	)
 
 	useEffect(() => {
@@ -78,12 +88,16 @@ function ThreadView() {
 			}
 			if (event.key === 'Escape') {
 				event.preventDefault()
-				navigate({ to: '/mail/f/$folderId', params: { folderId } })
+				navigate({
+					to: '/mail/f/$folderId',
+					params: { folderId },
+					search: baseFolderId ? { baseFolderId } : {},
+				})
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, folderId, navigate, thread.starred])
+	}, [act, baseFolderId, folderId, navigate, thread.starred])
 
 	useEffect(() => {
 		if (markedRead) router.invalidate()
@@ -94,7 +108,13 @@ function ThreadView() {
 			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
 				<button
 					type="button"
-					onClick={() => navigate({ to: '/mail/f/$folderId', params: { folderId } })}
+					onClick={() =>
+						navigate({
+							to: '/mail/f/$folderId',
+							params: { folderId },
+							search: baseFolderId ? { baseFolderId } : {},
+						})
+					}
 					aria-label="Back to list"
 					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
 				>

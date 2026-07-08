@@ -197,8 +197,24 @@ export function labelDotClass(labelId: string, fallbackIndex = 0): string {
 	return 'bg-event-blue'
 }
 
-export function labelToggleFolderId(currentFolderId: string | undefined, labelId: string): string {
-	return currentFolderId === labelId ? 'inbox' : labelId
+export function isMailLabel(folderId: string | undefined): boolean {
+	return Boolean(folderId && LABELS.some((label) => label.id === folderId))
+}
+
+export function labelBaseFolderId(
+	currentFolderId: string | undefined,
+	currentBaseFolderId?: string,
+): string | undefined {
+	if (isMailLabel(currentFolderId)) return currentBaseFolderId ?? 'inbox'
+	return currentFolderId
+}
+
+export function labelToggleFolderId(
+	currentFolderId: string | undefined,
+	labelId: string,
+	currentBaseFolderId?: string,
+): string {
+	return currentFolderId === labelId ? (currentBaseFolderId ?? 'inbox') : labelId
 }
 
 export function liveSearchTarget(
