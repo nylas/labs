@@ -92,6 +92,9 @@ describe('dev mock reference identity', () => {
 			mockThreads({ folderId: 'starred' }).threads.map((thread) => thread.id),
 		)
 		expect(starred.every((thread) => thread.starred)).toBe(true)
+
+		mockUpdateThreadState({ threadId: 'thread-roadmap', starred: false })
+		expect(mockThreads({ starred: true }).threads.map((thread) => thread.id)).not.toContain('thread-roadmap')
 	})
 
 	it('preserves reference labels when archiving a thread', () => {

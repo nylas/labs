@@ -141,6 +141,11 @@ function Compose() {
 		await router.invalidate()
 	}
 
+	async function toggleBackdropRowStar(thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]) {
+		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
+		await router.invalidate()
+	}
+
 	function close() {
 		if (history.length > 1) history.back()
 		else if (selected) {
@@ -206,6 +211,7 @@ function Compose() {
 									thread={thread}
 									folderId={folderId}
 									search={composeThreadSearch(thread.id)}
+									onToggleStar={() => toggleBackdropRowStar(thread)}
 									active={selected.thread.id === thread.id}
 								/>
 							))}
@@ -241,6 +247,7 @@ function Compose() {
 									thread={thread}
 									folderId={folderId}
 									search={composeThreadSearch(thread.id)}
+									onToggleStar={() => toggleBackdropRowStar(thread)}
 								/>
 							))}
 						</div>
@@ -361,11 +368,13 @@ function ComposeThreadRow({
 	thread,
 	folderId,
 	search,
+	onToggleStar,
 	active,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	folderId: string
 	search: ReturnType<typeof composeBackdropThreadSearch>
+	onToggleStar: () => void
 	active?: boolean
 }) {
 	const when = formatListDate(threadTimestamp(thread))
@@ -381,9 +390,18 @@ function ComposeThreadRow({
 		>
 			{thread.unread ? <span className="absolute top-0 left-0 h-full w-0.5 bg-primary" aria-hidden /> : null}
 			<div className="flex items-center gap-2">
-				<span className="shrink-0 text-muted-foreground">
+				<button
+					type="button"
+					onClick={(event) => {
+						event.preventDefault()
+						event.stopPropagation()
+						onToggleStar()
+					}}
+					aria-label={thread.starred ? 'Unstar' : 'Star'}
+					className="shrink-0 text-muted-foreground transition-colors hover:text-event-amber"
+				>
 					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
-				</span>
+				</button>
 				<span
 					className={cn(
 						'min-w-0 flex-1 truncate text-sm',
