@@ -13,7 +13,7 @@ import {
 	Trash2,
 	X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
 	cn,
 	collapsedMessagePreview,
@@ -120,14 +120,17 @@ function Compose() {
 			...(search.to ? { to: search.to } : {}),
 			...(search.subject ? { subject: search.subject } : {}),
 		})
-	const composeListSearch = () =>
-		composeBackdropListSearch({
-			folderId,
-			...(draftId ? { draftId } : {}),
-			...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
-			...(search.to ? { to: search.to } : {}),
-			...(search.subject ? { subject: search.subject } : {}),
-		})
+	const composeListSearch = useCallback(
+		() =>
+			composeBackdropListSearch({
+				folderId,
+				...(draftId ? { draftId } : {}),
+				...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
+				...(search.to ? { to: search.to } : {}),
+				...(search.subject ? { subject: search.subject } : {}),
+			}),
+		[draftId, folderId, search.replyToMessageId, search.subject, search.to],
+	)
 
 	async function actOnBackdropThread(
 		threadId: string,
@@ -145,6 +148,22 @@ function Compose() {
 		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
 		await router.invalidate()
 	}
+
+	useEffect(() => {
+		if (!selected) return
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+			if (event.key === 'Escape') {
+				event.preventDefault()
+				navigate({ to: '/mail/compose', search: composeListSearch() })
+			}
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [composeListSearch, navigate, selected])
 
 	function close() {
 		if (history.length > 1) history.back()
