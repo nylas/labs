@@ -223,19 +223,28 @@ function MailSidebar({
 				{MAIL_FOLDERS.map((folder) => {
 					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
 					const count = sidebarFolderCount(folders, folder.id)
+					const active = currentFolderId === folder.id
 					return (
 						<Link
 							key={folder.id}
 							to="/mail/f/$folderId"
 							params={{ folderId: folder.id }}
-							className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
-							activeProps={{
-								className: 'bg-accent font-semibold text-accent-foreground hover:bg-accent',
-							}}
+							className={cn(
+								'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
+								active
+									? 'bg-accent font-semibold text-accent-foreground'
+									: 'text-foreground/80 hover:bg-muted',
+							)}
 						>
 							<Icon className="h-4 w-4 shrink-0" />
 							<span className="flex-1 text-left">{folder.label}</span>
-							{count > 0 ? <span className="text-xs tabular-nums text-muted-foreground">{count}</span> : null}
+							{count > 0 ? (
+								<span
+									className={cn('text-xs tabular-nums', active ? 'font-semibold' : 'text-muted-foreground')}
+								>
+									{count}
+								</span>
+							) : null}
 						</Link>
 					)
 				})}
