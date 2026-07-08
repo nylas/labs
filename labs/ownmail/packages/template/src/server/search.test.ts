@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { threadSearchParams } from './search.js'
 
-describe('Nylas Agent Account search params', () => {
-	it('uses supported thread filters instead of provider-native full-text search', () => {
-		expect(threadSearchParams(' roadmap ')).toEqual({ subject: 'roadmap' })
+describe('Nylas thread search params', () => {
+	it('uses email filtering for email-like input and native full-text otherwise', () => {
+		expect(threadSearchParams(' roadmap ')).toEqual({ search_query_native: 'roadmap' })
 		expect(threadSearchParams('grace@vercel.com')).toEqual({ any_email: 'grace@vercel.com' })
 		expect(threadSearchParams('')).toEqual({})
 	})

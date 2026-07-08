@@ -93,14 +93,20 @@ describe('dev mock reference identity', () => {
 		expect(roadmap?.folders).toEqual(['archive', 'work'])
 	})
 
-	it('models Agent Account thread search by subject or participant email', () => {
-		expect(mockThreads({ subject: 'roadmap' }).threads.map((thread) => thread.id)).toContain('thread-roadmap')
+	it('models Nylas thread search by native text or participant email', () => {
+		expect(mockThreads({ searchQueryNative: 'roadmap' }).threads.map((thread) => thread.id)).toContain(
+			'thread-roadmap',
+		)
+		expect(mockThreads({ searchQueryNative: 'crowds' }).threads.map((thread) => thread.id)).toContain(
+			'thread-hiking',
+		)
+		expect(mockThreads({ searchQueryNative: 'Alan Turing' }).threads.map((thread) => thread.id)).toContain(
+			'thread-hiking',
+		)
 		expect(mockThreads({ anyEmail: 'grace@vercel.com' }).threads.map((thread) => thread.id)).toContain(
 			'thread-roadmap',
 		)
-		expect(mockThreads({ subject: '8:40 AM' }).threads.map((thread) => thread.id)).not.toContain(
-			'thread-travel',
-		)
+		expect(mockThreads({ searchQueryNative: 'not-present-in-reference' }).threads).toEqual([])
 	})
 
 	it('preserves reference calendar event copy', () => {

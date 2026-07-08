@@ -58,8 +58,10 @@ class DevMailbox {
 		const folderId = typeof query?.in === 'string' ? query.in : undefined
 		const subject = typeof query?.subject === 'string' ? query.subject : undefined
 		const anyEmail = typeof query?.any_email === 'string' ? query.any_email : undefined
+		const searchQueryNative =
+			typeof query?.search_query_native === 'string' ? query.search_query_native : undefined
 		const starred = typeof query?.starred === 'boolean' ? query.starred : undefined
-		return listResponse(mockThreads({ folderId, subject, anyEmail, starred }).threads)
+		return listResponse(mockThreads({ folderId, subject, anyEmail, searchQueryNative, starred }).threads)
 	}
 
 	async getThread(threadId: string): Promise<ItemResponse<Thread>> {
@@ -729,16 +731,19 @@ export function mockThreads(input: {
 	q?: string
 	subject?: string
 	anyEmail?: string
+	searchQueryNative?: string
 	starred?: boolean
 }): {
 	threads: Thread[]
 } {
 	const subject = (input.subject ?? input.q)?.trim().toLowerCase()
 	const anyEmail = input.anyEmail?.trim().toLowerCase()
+	const searchQuery = input.searchQueryNative?.trim().toLowerCase()
 	const base = input.folderId ? visibleThreads(input.folderId) : visibleThreads()
 	const selected = base.filter((thread) => {
 		if (input.starred !== undefined && thread.starred !== input.starred) return false
 		if (subject && !thread.subject?.toLowerCase().includes(subject)) return false
+		if (searchQuery && !searchableThreadText(thread).includes(searchQuery)) return false
 		if (!anyEmail) return true
 		const emails = [
 			...(thread.participants ?? []).flatMap((participant) => [participant.name, participant.email]),
@@ -759,6 +764,30 @@ export function mockThreads(input: {
 		return emails.includes(anyEmail)
 	})
 	return { threads: selected.map(toThread) }
+}
+
+function searchableThreadText(thread: StoredThread): string {
+	return [
+		thread.subject,
+		thread.snippet,
+		...(thread.participants ?? []).flatMap((participant) => [participant.name, participant.email]),
+		...thread.message_ids.flatMap((messageId) => {
+			const message = messages.get(messageId)
+			if (!message) return []
+			return [
+				message.subject,
+				message.snippet,
+				message.body ? stripHtml(message.body) : undefined,
+				...(message.from ?? []).flatMap((participant) => [participant.name, participant.email]),
+				...(message.to ?? []).flatMap((participant) => [participant.name, participant.email]),
+				...(message.cc ?? []).flatMap((participant) => [participant.name, participant.email]),
+				...(message.bcc ?? []).flatMap((participant) => [participant.name, participant.email]),
+			]
+		}),
+	]
+		.filter(Boolean)
+		.join(' ')
+		.toLowerCase()
 }
 
 export function mockThreadMessages(threadId: string): { thread: Thread; messages: Message[] } {
