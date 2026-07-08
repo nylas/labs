@@ -15,7 +15,13 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
-import { cn, labelDotClass, MAIL_FOLDERS, sidebarFolderCount } from '../components/ui-model.js'
+import {
+	cn,
+	labelDotClass,
+	labelToggleFolderId,
+	MAIL_FOLDERS,
+	sidebarFolderCount,
+} from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail')({
@@ -64,6 +70,7 @@ function MailLayout() {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
+	const currentFolderId = useMemo(() => folderIdFromPath(pathname), [pathname])
 	const [query, setQuery] = useState('')
 	useVersionPolling()
 
@@ -91,7 +98,7 @@ function MailLayout() {
 			<AppRail email={info.email} displayName={info.displayName} active="mail" />
 			<div className="flex min-h-0 flex-1 overflow-hidden">
 				<div className="hidden md:flex">
-					<MailSidebar folders={folders} composeSearch={composeSearch} />
+					<MailSidebar folders={folders} composeSearch={composeSearch} currentFolderId={currentFolderId} />
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col">
 					<header className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
@@ -149,9 +156,11 @@ function MailLayout() {
 function MailSidebar({
 	folders,
 	composeSearch,
+	currentFolderId,
 }: {
 	folders: Folder[]
 	composeSearch: { folderId?: string; threadId?: string }
+	currentFolderId?: string
 }) {
 	const labels = folders.filter(isCustomFolder)
 	return (
@@ -193,18 +202,25 @@ function MailSidebar({
 						Labels
 					</p>
 					<div className="flex flex-col gap-0.5">
-						{labels.map((label, index) => (
-							<Link
-								key={label.id}
-								to="/mail/f/$folderId"
-								params={{ folderId: label.id }}
-								className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
-								activeProps={{ className: 'bg-accent font-semibold text-accent-foreground' }}
-							>
-								<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(label.id, index))} />
-								<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
-							</Link>
-						))}
+						{labels.map((label, index) => {
+							const active = currentFolderId === label.id
+							return (
+								<Link
+									key={label.id}
+									to="/mail/f/$folderId"
+									params={{ folderId: labelToggleFolderId(currentFolderId, label.id) }}
+									className={cn(
+										'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
+										active
+											? 'bg-accent font-semibold text-accent-foreground'
+											: 'text-foreground/80 hover:bg-muted',
+									)}
+								>
+									<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(label.id, index))} />
+									<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
+								</Link>
+							)
+						})}
 					</div>
 				</div>
 			) : null}
@@ -224,6 +240,11 @@ function composeSearchFromPath(pathname: string): { folderId?: string; threadId?
 	const match = pathname.match(/^\/mail\/f\/([^/]+)\/t\/([^/]+)/)
 	if (!match?.[1] || !match[2]) return {}
 	return { folderId: decodeURIComponent(match[1]), threadId: decodeURIComponent(match[2]) }
+}
+
+function folderIdFromPath(pathname: string): string | undefined {
+	const match = pathname.match(/^\/mail\/f\/([^/]+)/)
+	return match?.[1] ? decodeURIComponent(match[1]) : undefined
 }
 
 function isCustomFolder(folder: Folder): boolean {

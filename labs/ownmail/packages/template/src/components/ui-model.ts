@@ -197,6 +197,10 @@ export function labelDotClass(labelId: string, fallbackIndex = 0): string {
 	return 'bg-event-blue'
 }
 
+export function labelToggleFolderId(currentFolderId: string | undefined, labelId: string): string {
+	return currentFolderId === labelId ? 'inbox' : labelId
+}
+
 const TONE_RGB: Record<EventTone, [number, number, number]> = {
 	blue: [37, 99, 235],
 	teal: [20, 184, 166],

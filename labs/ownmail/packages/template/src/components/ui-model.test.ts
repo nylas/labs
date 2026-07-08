@@ -12,6 +12,7 @@ import {
 	formatListDate,
 	initials,
 	labelDotClass,
+	labelToggleFolderId,
 	mailFolderTitle,
 	messageBodyParagraphs,
 	messagePreview,
@@ -163,6 +164,12 @@ describe('ui-model mail helpers', () => {
 		expect(labelDotClass('finance', 1)).toBe('bg-event-amber')
 		expect(labelDotClass('travel', 2)).toBe('bg-event-rose')
 		expect(labelDotClass('custom', 2)).toBe('bg-event-amber')
+	})
+
+	it('toggles an active label back to the reference default inbox view', () => {
+		expect(labelToggleFolderId('work', 'work')).toBe('inbox')
+		expect(labelToggleFolderId('inbox', 'work')).toBe('work')
+		expect(labelToggleFolderId(undefined, 'work')).toBe('work')
 	})
 })
 
