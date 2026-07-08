@@ -261,10 +261,6 @@ function CalendarPage() {
 								events={visibleEvents}
 								onPickDay={(d) => go('day', d)}
 								onPickEvent={setEditing}
-								onCreateAt={(d) => {
-									setNewStart(d)
-									setEditing('new')
-								}}
 							/>
 						) : (
 							<TimeGrid
@@ -415,13 +411,11 @@ function MonthGrid({
 	events,
 	onPickDay,
 	onPickEvent,
-	onCreateAt,
 }: {
 	anchor: Date
 	events: Event[]
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
-	onCreateAt: (d: Date) => void
 }) {
 	const { start, end } = viewRange('month', anchor)
 	const days: Date[] = []
@@ -453,7 +447,7 @@ function MonthGrid({
 								!inMonth && 'bg-muted/30',
 							)}
 						>
-							<div className="flex items-center justify-center gap-1">
+							<div className="flex items-center justify-center">
 								<button
 									type="button"
 									onClick={(event) => {
@@ -468,14 +462,6 @@ function MonthGrid({
 									)}
 								>
 									{day.getDate()}
-								</button>
-								<button
-									type="button"
-									onClick={() => onCreateAt(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9))}
-									className="flex h-6 w-6 items-center justify-center rounded-sm text-xs text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100"
-									aria-label={`Create event on ${day.toLocaleDateString()}`}
-								>
-									+
 								</button>
 							</div>
 							<div className="flex min-h-0 flex-col gap-1 overflow-hidden">
