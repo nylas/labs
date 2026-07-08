@@ -189,6 +189,11 @@ describe('ui-model mail helpers', () => {
 			q: 'Welcome',
 			folderId: 'work',
 		})
+		expect(liveSearchTarget('', '/mail/search', 'inbox', 'thread-roadmap')).toEqual({
+			kind: 'thread',
+			folderId: 'inbox',
+			threadId: 'thread-roadmap',
+		})
 		expect(liveSearchTarget('', '/mail/search', 'work')).toEqual({ kind: 'folder', folderId: 'work' })
 		expect(liveSearchTarget('', '/mail/f/inbox')).toEqual({ kind: 'stay' })
 	})

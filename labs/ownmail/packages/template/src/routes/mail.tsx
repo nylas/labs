@@ -75,6 +75,7 @@ function MailLayout() {
 	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
 	const currentFolderId = useMemo(() => folderIdFromPath(pathname), [pathname])
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
+	const selectedSearchThreadId = typeof searchParams.threadId === 'string' ? searchParams.threadId : undefined
 	const labelBaseFolder =
 		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
 	const activeSearchFolderId = currentFolderId ?? searchScopeFolderId
@@ -83,11 +84,17 @@ function MailLayout() {
 
 	function updateSearch(nextQuery: string) {
 		setQuery(nextQuery)
-		const target = liveSearchTarget(nextQuery, pathname, activeSearchFolderId)
+		const target = liveSearchTarget(nextQuery, pathname, activeSearchFolderId, selectedSearchThreadId)
 		if (target.kind === 'search') {
 			navigate({
 				to: '/mail/search',
 				search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
+				replace: true,
+			})
+		} else if (target.kind === 'thread') {
+			navigate({
+				to: '/mail/f/$folderId/t/$threadId',
+				params: { folderId: target.folderId, threadId: target.threadId },
 				replace: true,
 			})
 		} else if (target.kind === 'folder') {

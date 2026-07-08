@@ -221,15 +221,17 @@ export function liveSearchTarget(
 	value: string,
 	currentPathname: string,
 	folderId?: string,
+	selectedThreadId?: string,
 ):
 	| { kind: 'search'; q: string; folderId?: string }
 	| { kind: 'folder'; folderId: string }
+	| { kind: 'thread'; folderId: string; threadId: string }
 	| { kind: 'stay' } {
 	const q = value.trim()
 	if (q) return { kind: 'search', q, ...(folderId ? { folderId } : {}) }
-	return currentPathname.startsWith('/mail/search')
-		? { kind: 'folder', folderId: folderId ?? 'inbox' }
-		: { kind: 'stay' }
+	if (!currentPathname.startsWith('/mail/search')) return { kind: 'stay' }
+	if (selectedThreadId) return { kind: 'thread', folderId: folderId ?? 'inbox', threadId: selectedThreadId }
+	return { kind: 'folder', folderId: folderId ?? 'inbox' }
 }
 
 const TONE_RGB: Record<EventTone, [number, number, number]> = {
