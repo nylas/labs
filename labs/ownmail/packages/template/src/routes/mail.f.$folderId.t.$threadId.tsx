@@ -121,20 +121,20 @@ function ThreadView() {
 					<ArrowLeft className="h-5 w-5" />
 				</button>
 				<IconButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
-					<Archive className="h-4 w-4" />
+					<Archive className="h-4.5 w-4.5" />
 				</IconButton>
 				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
-					<Trash2 className="h-4 w-4" />
+					<Trash2 className="h-4.5 w-4.5" />
 				</IconButton>
 				<IconButton
 					label={thread.starred ? 'Unstar' : 'Star'}
 					onClick={() => act({ starred: !thread.starred })}
 				>
-					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
+					<Star className={cn('h-4.5 w-4.5', thread.starred && 'fill-event-amber text-event-amber')} />
 				</IconButton>
 				<div className="ml-auto">
 					<IconButton label="More">
-						<MoreHorizontal className="h-4 w-4" />
+						<MoreHorizontal className="h-4.5 w-4.5" />
 					</IconButton>
 				</div>
 			</div>

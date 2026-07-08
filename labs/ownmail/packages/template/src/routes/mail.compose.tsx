@@ -496,17 +496,17 @@ function ComposeThreadBackdrop({
 		<div className="flex min-w-0 flex-1 flex-col">
 			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
 				<BackdropIcon label="Archive" onClick={onArchive}>
-					<Archive className="h-4 w-4" />
+					<Archive className="h-4.5 w-4.5" />
 				</BackdropIcon>
 				<BackdropIcon label="Delete" onClick={onDelete}>
-					<Trash2 className="h-4 w-4" />
+					<Trash2 className="h-4.5 w-4.5" />
 				</BackdropIcon>
 				<BackdropIcon label={thread.starred ? 'Unstar' : 'Star'} onClick={onToggleStar}>
-					<Star className={cn('h-4 w-4', thread.starred && 'fill-event-amber text-event-amber')} />
+					<Star className={cn('h-4.5 w-4.5', thread.starred && 'fill-event-amber text-event-amber')} />
 				</BackdropIcon>
 				<div className="ml-auto">
 					<BackdropIcon label="More">
-						<MoreHorizontal className="h-4 w-4" />
+						<MoreHorizontal className="h-4.5 w-4.5" />
 					</BackdropIcon>
 				</div>
 			</div>
