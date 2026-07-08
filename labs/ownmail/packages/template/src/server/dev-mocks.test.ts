@@ -34,6 +34,10 @@ describe('dev mock reference identity', () => {
 		const dentist = mockThreads({ folderId: 'inbox' }).threads.find(
 			(thread) => thread.id === 'thread-dentist',
 		)
+		const contract = mockThreads({ folderId: 'work' }).threads.find(
+			(thread) => thread.id === 'thread-contract',
+		)
+		const sync = mockThreads({ folderId: 'work' }).threads.find((thread) => thread.id === 'thread-sync')
 		const draft = mockDrafts()[0]
 
 		expect(roadmap?.subject).toBe('Q3 product roadmap — final review before Monday')
@@ -47,6 +51,12 @@ describe('dev mock reference identity', () => {
 		)
 		expect(dentist?.snippet).toBe(
 			'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.',
+		)
+		expect(contract?.snippet).toBe(
+			'Attached is the countersigned draft. Let me know if anything else is needed on my end.',
+		)
+		expect(sync?.snippet).toBe(
+			'Quick recap of what we agreed on today, with owners and dates. Shout if I missed anything.',
 		)
 		expect(draft?.body).toBe('Here are a few ideas for the offsite —')
 	})
