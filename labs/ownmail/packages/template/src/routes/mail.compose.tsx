@@ -638,7 +638,7 @@ function BackdropAction({ icon, label }: { icon: React.ReactNode; label: string 
 	return (
 		<button
 			type="button"
-			className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium"
+			className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
 		>
 			{icon}
 			{label}
