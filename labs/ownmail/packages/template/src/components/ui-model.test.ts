@@ -26,6 +26,7 @@ import {
 	messagePreview,
 	replyDraftSearch,
 	searchListSearch,
+	shouldUseBrowserBackForComposeClose,
 	sidebarFolderCount,
 	threadLabels,
 	threadRouteFolderId,
@@ -220,6 +221,13 @@ describe('ui-model mail helpers', () => {
 		expect(mailSearchInputValue('/mail/search', 'roadmap')).toBe('roadmap')
 		expect(mailSearchInputValue('/mail/search', undefined)).toBe('')
 		expect(mailSearchInputValue('/mail/f/inbox', 'roadmap')).toBe('')
+	})
+
+	it('only uses browser back for compose close after in-app route navigation', () => {
+		expect(shouldUseBrowserBackForComposeClose({ __TSR_index: 1 })).toBe(true)
+		expect(shouldUseBrowserBackForComposeClose({ __TSR_index: 0 })).toBe(false)
+		expect(shouldUseBrowserBackForComposeClose({})).toBe(false)
+		expect(shouldUseBrowserBackForComposeClose(null)).toBe(false)
 	})
 
 	it('keeps the reference backdrop context when opening compose', () => {

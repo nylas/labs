@@ -24,6 +24,7 @@ import {
 	labelBadgeClass,
 	mailFolderTitle,
 	messageBodyParagraphs,
+	shouldUseBrowserBackForComposeClose,
 	threadLabels,
 	threadSender,
 	threadTimestamp,
@@ -167,8 +168,11 @@ function Compose() {
 	}, [composeListSearch, navigate, selected])
 
 	function close() {
-		if (history.length > 1) history.back()
-		else if (selected) {
+		if (shouldUseBrowserBackForComposeClose(history.state)) {
+			history.back()
+			return
+		}
+		if (selected) {
 			navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId, threadId: selected.thread.id },

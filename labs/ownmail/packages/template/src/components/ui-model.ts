@@ -251,6 +251,12 @@ export function mailSearchInputValue(pathname: string, routeQuery?: string): str
 	return pathname.startsWith('/mail/search') ? (routeQuery ?? '') : ''
 }
 
+export function shouldUseBrowserBackForComposeClose(historyState: unknown): boolean {
+	if (!historyState || typeof historyState !== 'object') return false
+	const index = (historyState as { __TSR_index?: unknown }).__TSR_index
+	return typeof index === 'number' && index > 0
+}
+
 export function composeSearchFromMailLocation(
 	pathname: string,
 	folderId?: string,
