@@ -8,6 +8,7 @@ import {
 	folderCount,
 	formatListDate,
 	initials,
+	labelDotClass,
 	mailFolderTitle,
 	messageBodyParagraphs,
 	messagePreview,
@@ -106,6 +107,14 @@ describe('ui-model mail helpers', () => {
 		const thread = { folders: ['inbox', 'work', 'travel'] } as Thread
 
 		expect(threadLabels(thread).map((label) => label.name)).toEqual(['Work', 'Travel'])
+	})
+
+	it('keeps reference label dot colors stable by label id', () => {
+		expect(labelDotClass('work', 3)).toBe('bg-event-blue')
+		expect(labelDotClass('personal', 0)).toBe('bg-event-teal')
+		expect(labelDotClass('finance', 1)).toBe('bg-event-amber')
+		expect(labelDotClass('travel', 2)).toBe('bg-event-rose')
+		expect(labelDotClass('custom', 2)).toBe('bg-event-amber')
 	})
 })
 

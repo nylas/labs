@@ -157,6 +157,19 @@ export function labelBadgeClass(tone: EventTone): string {
 	return 'bg-event-blue/10 text-event-blue border-l-[3px] border-event-blue'
 }
 
+export function labelDotClass(labelId: string, fallbackIndex = 0): string {
+	const tone = LABELS.find((label) => label.id === labelId)?.tone
+	if (tone === 'teal') return 'bg-event-teal'
+	if (tone === 'amber') return 'bg-event-amber'
+	if (tone === 'rose') return 'bg-event-rose'
+	if (tone === 'blue') return 'bg-event-blue'
+	const fallbackTone = fallbackIndex % 4
+	if (fallbackTone === 1) return 'bg-event-teal'
+	if (fallbackTone === 2) return 'bg-event-amber'
+	if (fallbackTone === 3) return 'bg-event-rose'
+	return 'bg-event-blue'
+}
+
 export function eventTone(event: Event, index = 0): EventTone {
 	const title = `${event.title ?? ''} ${event.calendar_id ?? ''}`.toLowerCase()
 	if (/social|travel|flight|dinner|coffee|lunch/.test(title)) return 'rose'

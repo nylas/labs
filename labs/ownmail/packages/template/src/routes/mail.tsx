@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRail } from '../components/AppRail.js'
-import { cn, MAIL_FOLDERS, sidebarFolderCount } from '../components/ui-model.js'
+import { cn, labelDotClass, MAIL_FOLDERS, sidebarFolderCount } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
 export const Route = createFileRoute('/mail')({
@@ -224,7 +224,7 @@ function MailSidebar({
 								className="flex items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-muted"
 								activeProps={{ className: 'bg-accent font-semibold text-accent-foreground' }}
 							>
-								<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(index))} />
+								<span className={cn('h-2.5 w-2.5 rounded-full', labelDotClass(label.id, index))} />
 								<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
 							</Link>
 						))}
@@ -379,12 +379,4 @@ function CommandPalette({
 
 function isCustomFolder(folder: Folder): boolean {
 	return !folder.system_folder && !MAIL_FOLDERS.some((standard) => standard.id === folder.id)
-}
-
-function labelDotClass(index: number): string {
-	const tone = index % 4
-	if (tone === 1) return 'bg-event-teal'
-	if (tone === 2) return 'bg-event-amber'
-	if (tone === 3) return 'bg-event-rose'
-	return 'bg-event-blue'
 }
