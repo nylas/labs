@@ -565,7 +565,7 @@ const calendars: Calendar[] = [
 		name: 'Personal',
 		timezone: localTimezone,
 		is_primary: true,
-		hex_color: '#2563eb',
+		hex_color: '#14b8a6',
 	},
 	{
 		id: 'work',
@@ -573,7 +573,7 @@ const calendars: Calendar[] = [
 		name: 'Work',
 		timezone: localTimezone,
 		is_primary: false,
-		hex_color: '#14b8a6',
+		hex_color: '#2563eb',
 	},
 	{
 		id: 'focus',
@@ -607,7 +607,7 @@ function seedEvents() {
 	})
 	addEvent('event-roadmap-review', 'Roadmap review with Grace', startOfDay, 10, 0, 60, {
 		calendar_id: 'work',
-		location: 'Meet - Aurora room',
+		location: 'Meet — Aurora room',
 		description: 'Final pass on the Q3 deck before Monday lock.',
 		participants: [
 			{ name: 'Grace Hopper', email: 'grace@vercel.com', status: 'yes' },

@@ -123,7 +123,9 @@ describe('ui-model calendar helpers', () => {
 		expect(eventTone({ title: 'Morning focus block' } as Event)).toBe('amber')
 		expect(eventTone({ title: 'Dentist' } as Event)).toBe('teal')
 		expect(eventTone({ title: 'Flight to Lisbon' } as Event)).toBe('rose')
-		expect(eventTone({ title: 'Roadmap review' } as Event)).toBe('amber')
+		expect(eventTone({ title: 'Roadmap review with Grace', calendar_id: 'work' } as Event)).toBe('blue')
+		expect(eventTone({ title: 'Review PRs', calendar_id: 'focus' } as Event)).toBe('amber')
+		expect(eventTone({ title: 'Pay rent' } as Event)).toBe('amber')
 	})
 
 	it('converts Nylas event times to decimal hours', () => {

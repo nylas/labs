@@ -159,9 +159,10 @@ export function labelBadgeClass(tone: EventTone): string {
 
 export function eventTone(event: Event, index = 0): EventTone {
 	const title = `${event.title ?? ''} ${event.calendar_id ?? ''}`.toLowerCase()
-	if (/focus|write|review|deep/.test(title)) return 'amber'
-	if (/personal|dentist|home|gym/.test(title)) return 'teal'
-	if (/travel|flight|dinner|coffee|lunch|social/.test(title)) return 'rose'
+	if (/social|travel|flight|dinner|coffee|lunch/.test(title)) return 'rose'
+	if (/personal|dentist|home|gym|hike|dipsea/.test(title)) return 'teal'
+	if (/focus|writing|sprint|prs|pay rent|deep/.test(title)) return 'amber'
+	if (/work|roadmap|manager|standup|design system|planning|team/.test(title)) return 'blue'
 	return (['blue', 'teal', 'amber', 'rose'] as const)[index % 4] ?? 'blue'
 }
 
