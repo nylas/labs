@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { messageBodyParagraphs } from '../components/ui-model.js'
 import {
 	devMailboxEmail,
 	devMailboxName,
@@ -33,6 +34,20 @@ describe('dev mock reference identity', () => {
 		expect(roadmap?.snippet).toBe('Thanks Grace — this is great.')
 		expect(travel?.snippet).toContain('8:40 AM — SFO to LIS')
 		expect(draft?.body).toBe('Here are a few ideas for the offsite —')
+	})
+
+	it('preserves reference message body paragraphs', () => {
+		const invoice = mockThreadMessages('thread-invoice').messages[0]
+		const hiking = mockThreadMessages('thread-hiking').messages[0]
+
+		expect(invoice).toBeDefined()
+		expect(hiking).toBeDefined()
+		if (!invoice || !hiking) return
+
+		expect(messageBodyParagraphs(invoice)).toContain('A PDF receipt is attached for your records.')
+		expect(messageBodyParagraphs(hiking)).toContain(
+			"Want to join? We'd start around 8 to beat the crowds. I can drive.",
+		)
 	})
 
 	it('preserves reference attachment metadata', () => {
