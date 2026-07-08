@@ -312,6 +312,18 @@ export function composeBackdropThreadSearch(input: {
 	}
 }
 
+export function composeBackdropReplySearch(input: {
+	folderId: string
+	threadId: string
+	message: Message
+}): ReturnType<typeof composeBackdropThreadSearch> {
+	return composeBackdropThreadSearch({
+		folderId: input.folderId,
+		threadId: input.threadId,
+		...replyDraftSearch(input.message),
+	})
+}
+
 export function composeBackdropListSearch(input: {
 	folderId: string
 	draftId?: string

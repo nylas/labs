@@ -7,6 +7,7 @@ import {
 	calendarTone,
 	collapsedMessagePreview,
 	composeBackdropListSearch,
+	composeBackdropReplySearch,
 	composeBackdropThreadSearch,
 	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
@@ -277,6 +278,23 @@ describe('ui-model mail helpers', () => {
 		).toEqual({
 			folderId: 'inbox',
 			draft: 'draft-1',
+			replyToMessageId: 'msg-1',
+			to: 'grace@example.com',
+			subject: 'Re: Q3 roadmap',
+		})
+		expect(
+			composeBackdropReplySearch({
+				folderId: 'work',
+				threadId: 'thread-roadmap',
+				message: {
+					id: 'msg-1',
+					subject: 'Q3 roadmap',
+					from: [{ email: 'grace@example.com' }],
+				} as Message,
+			}),
+		).toEqual({
+			folderId: 'work',
+			threadId: 'thread-roadmap',
 			replyToMessageId: 'msg-1',
 			to: 'grace@example.com',
 			subject: 'Re: Q3 roadmap',

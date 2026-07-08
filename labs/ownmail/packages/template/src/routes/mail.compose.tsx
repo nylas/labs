@@ -18,6 +18,7 @@ import {
 	cn,
 	collapsedMessagePreview,
 	composeBackdropListSearch,
+	composeBackdropReplySearch,
 	composeBackdropThreadSearch,
 	formatListDate,
 	initials,
@@ -151,6 +152,22 @@ function Compose() {
 		await router.invalidate()
 	}
 
+	function replyFromBackdrop(thread: Thread, messages: Message[]) {
+		const message = messages.at(-1)
+		if (!message) return
+		const replySearch = composeBackdropReplySearch({ folderId, threadId: thread.id, message })
+		setDraftId(undefined)
+		setTo(replySearch.to ?? '')
+		setSubject(replySearch.subject ?? '')
+		setBody('')
+		setError(null)
+		dirty.current = true
+		navigate({
+			to: '/mail/compose',
+			search: replySearch,
+		})
+	}
+
 	useEffect(() => {
 		if (!selected) return
 		function onKeyDown(event: KeyboardEvent) {
@@ -262,6 +279,7 @@ function Compose() {
 							onToggleStar={() =>
 								actOnBackdropThread(selected.thread.id, { starred: !selected.thread.starred })
 							}
+							onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
 						/>
 					</section>
 				</>
@@ -485,12 +503,14 @@ function ComposeThreadBackdrop({
 	onArchive,
 	onDelete,
 	onToggleStar,
+	onReply,
 }: {
 	thread: Thread
 	messages: Message[]
 	onArchive: () => void
 	onDelete: () => void
 	onToggleStar: () => void
+	onReply: () => void
 }) {
 	const labels = threadLabels(thread)
 	const firstAttachment = messages
@@ -555,7 +575,7 @@ function ComposeThreadBackdrop({
 					</div>
 
 					<div className="mt-4 flex flex-wrap gap-2">
-						<BackdropAction icon={<Reply className="h-4 w-4" />} label="Reply" />
+						<BackdropAction icon={<Reply className="h-4 w-4" />} label="Reply" onClick={onReply} />
 						<BackdropAction icon={<ReplyAll className="h-4 w-4" />} label="Reply all" />
 						<BackdropAction icon={<Forward className="h-4 w-4" />} label="Forward" />
 					</div>
@@ -638,10 +658,19 @@ function BackdropMessage({ message, defaultOpen }: { message: Message; defaultOp
 	)
 }
 
-function BackdropAction({ icon, label }: { icon: React.ReactNode; label: string }) {
+function BackdropAction({
+	icon,
+	label,
+	onClick,
+}: {
+	icon: React.ReactNode
+	label: string
+	onClick?: () => void
+}) {
 	return (
 		<button
 			type="button"
+			onClick={onClick}
 			className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
 		>
 			{icon}
