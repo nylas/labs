@@ -64,7 +64,7 @@ function FolderView() {
 				)}
 			>
 				<div className="flex items-center justify-between border-b border-border px-4 py-3">
-					<h1 className="text-base font-semibold">{folderTitle}</h1>
+					<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
 					{unreadCount > 0 ? (
 						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
 							{unreadCount} unread
