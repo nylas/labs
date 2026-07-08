@@ -45,10 +45,10 @@ describe('ui-model mail helpers', () => {
 
 	it('formats API folder titles for list headers', () => {
 		expect(mailFolderTitle('inbox')).toBe('Inbox')
-		expect(mailFolderTitle('work')).toBe('Work')
+		expect(mailFolderTitle('work')).toBe('Filtered')
 		expect(
 			mailFolderTitle('client_projects', [{ id: 'client_projects', name: 'Client Projects' }] as Folder[]),
-		).toBe('Client Projects')
+		).toBe('Filtered')
 		expect(mailFolderTitle('shared-team')).toBe('Shared Team')
 	})
 

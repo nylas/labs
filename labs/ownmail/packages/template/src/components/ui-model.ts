@@ -36,16 +36,16 @@ export function sidebarFolderCount(folders: Folder[], folderId: string): number 
 }
 
 export function mailFolderTitle(folderId: string, folders: Folder[] = []): string {
-	return (
-		MAIL_FOLDERS.find((folder) => folder.id === folderId)?.label ??
-		LABELS.find((label) => label.id === folderId)?.name ??
-		folders.find((folder) => folder.id === folderId)?.name ??
-		folderId
-			.split(/[-_\s]+/)
-			.filter(Boolean)
-			.map((part) => part[0]?.toUpperCase() + part.slice(1))
-			.join(' ')
-	)
+	const systemFolder = MAIL_FOLDERS.find((folder) => folder.id === folderId)
+	if (systemFolder) return systemFolder.label
+	if (LABELS.some((label) => label.id === folderId) || folders.some((folder) => folder.id === folderId)) {
+		return 'Filtered'
+	}
+	return folderId
+		.split(/[-_\s]+/)
+		.filter(Boolean)
+		.map((part) => part[0]?.toUpperCase() + part.slice(1))
+		.join(' ')
 }
 
 export function totalUnread(folders: Folder[]): number {
