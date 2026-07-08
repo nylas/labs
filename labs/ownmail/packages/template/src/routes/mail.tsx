@@ -1,5 +1,5 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
 import {
 	Archive,
 	FileText,
@@ -62,6 +62,8 @@ function useVersionPolling() {
 function MailLayout() {
 	const { info, folders } = Route.useLoaderData()
 	const navigate = useNavigate()
+	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	const composeSearch = useMemo(() => composeSearchFromPath(pathname), [pathname])
 	const [query, setQuery] = useState('')
 	const [commandOpen, setCommandOpen] = useState(false)
 	useVersionPolling()
@@ -83,7 +85,7 @@ function MailLayout() {
 			}
 			if (event.key.toLowerCase() === 'c') {
 				event.preventDefault()
-				navigate({ to: '/mail/compose' })
+				navigate({ to: '/mail/compose', search: composeSearch })
 			}
 			if (event.key.toLowerCase() === 'g') {
 				event.preventDefault()
@@ -92,14 +94,14 @@ function MailLayout() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [navigate])
+	}, [composeSearch, navigate])
 
 	return (
 		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
 			<AppRail email={info.email} displayName={info.displayName} active="mail" />
 			<div className="flex min-h-0 flex-1 overflow-hidden">
 				<div className="hidden md:flex">
-					<MailSidebar folders={folders} />
+					<MailSidebar folders={folders} composeSearch={composeSearch} />
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col">
 					<header className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
@@ -157,7 +159,7 @@ function MailLayout() {
 					onClose={() => setCommandOpen(false)}
 					onNavigate={(to) => {
 						setCommandOpen(false)
-						if (to === 'compose') navigate({ to: '/mail/compose' })
+						if (to === 'compose') navigate({ to: '/mail/compose', search: composeSearch })
 						else if (to === 'calendar') navigate({ to: '/calendar/$view', params: { view: 'week' } })
 						else navigate({ to: '/mail/f/$folderId', params: { folderId: to } })
 					}}
@@ -167,12 +169,19 @@ function MailLayout() {
 	)
 }
 
-function MailSidebar({ folders }: { folders: Folder[] }) {
+function MailSidebar({
+	folders,
+	composeSearch,
+}: {
+	folders: Folder[]
+	composeSearch: { folderId?: string; threadId?: string }
+}) {
 	const labels = folders.filter(isCustomFolder)
 	return (
 		<aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-border bg-sidebar px-3 py-4">
 			<Link
 				to="/mail/compose"
+				search={composeSearch}
 				className="flex items-center justify-center gap-2 rounded-sm bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
 			>
 				<Pencil className="h-4 w-4" strokeWidth={2.5} />
@@ -232,6 +241,12 @@ function MailSidebar({ folders }: { folders: Folder[] }) {
 			</div>
 		</aside>
 	)
+}
+
+function composeSearchFromPath(pathname: string): { folderId?: string; threadId?: string } {
+	const match = pathname.match(/^\/mail\/f\/([^/]+)\/t\/([^/]+)/)
+	if (!match?.[1] || !match[2]) return {}
+	return { folderId: decodeURIComponent(match[1]), threadId: decodeURIComponent(match[2]) }
 }
 
 function CommandPalette({
