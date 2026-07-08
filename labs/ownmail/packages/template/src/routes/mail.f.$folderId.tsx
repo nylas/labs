@@ -122,8 +122,8 @@ function DraftRow({ draft }: { draft: Draft }) {
 	const when = formatListDate(draft.date)
 	return (
 		<Link
-			to="/mail/compose"
-			search={{ draft: draft.id }}
+			to="/mail/f/$folderId/t/$threadId"
+			params={{ folderId: 'drafts', threadId: draft.id }}
 			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
 		>
 			<div className="flex items-center gap-2">
