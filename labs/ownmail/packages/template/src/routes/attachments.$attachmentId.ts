@@ -1,6 +1,6 @@
-import { resolveV3BaseUrl } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
-import { platform, usingDevMocks } from '../server/platform.js'
+import { nylas } from '../server/nylas.js'
+import { usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
 
 export const Route = createFileRoute('/attachments/$attachmentId')({
@@ -11,7 +11,6 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 			 * id comes from the session, so users can only reach their own mail.
 			 */
 			GET: async ({ request, params }) => {
-				const { env } = await platform()
 				if (await usingDevMocks()) {
 					const attachment = attachmentDownloadFilename(params.attachmentId)
 					return new Response(`Local mock attachment: ${attachment}\n`, {
@@ -34,12 +33,9 @@ export const Route = createFileRoute('/attachments/$attachmentId')({
 					return new Response('Bad request', { status: 400 })
 				}
 
-				const upstream = await fetch(
-					`${resolveV3BaseUrl(env.NYLAS_REGION, env.NYLAS_API_BASE_URL)}/v3/grants/${encodeURIComponent(session.grantId)}/attachments/${encodeURIComponent(
-						params.attachmentId,
-					)}/download?message_id=${encodeURIComponent(messageId)}`,
-					{ headers: { Authorization: `Bearer ${env.NYLAS_API_KEY}` } },
-				)
+				const upstream = await (await nylas())
+					.forGrant(session.grantId)
+					.downloadAttachment(params.attachmentId, messageId)
 				if (!upstream.ok || !upstream.body) {
 					return new Response('Attachment unavailable', { status: 404 })
 				}
