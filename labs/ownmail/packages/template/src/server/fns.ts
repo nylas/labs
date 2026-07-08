@@ -8,6 +8,7 @@ import { type Draft, type Folder, type Message, NylasApiError, type Thread } fro
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
+import { LOGIN_PATH } from '../components/route-paths.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
 import { threadSearchParams } from './search.js'
@@ -15,7 +16,7 @@ import { threadSearchParams } from './search.js'
 async function requireMailbox() {
 	const request = getRequest()
 	const resolved = await mailboxFromRequest(request)
-	if (!resolved) throw redirect({ to: '/auth' })
+	if (!resolved) throw redirect({ to: LOGIN_PATH })
 	return resolved
 }
 

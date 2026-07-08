@@ -6,11 +6,12 @@ import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
+import { LOGIN_PATH } from '../components/route-paths.js'
 import { mailboxFromRequest } from './nylas.js'
 
 async function requireMailbox() {
 	const resolved = await mailboxFromRequest(getRequest())
-	if (!resolved) throw redirect({ to: '/auth' })
+	if (!resolved) throw redirect({ to: LOGIN_PATH })
 	return resolved
 }
 
