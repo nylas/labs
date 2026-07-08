@@ -116,13 +116,13 @@ export function EventModal({
 			.filter(Boolean)
 			.join(', ')
 		return (
-			<div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]">
-				<button
-					type="button"
-					className="absolute inset-0 cursor-default"
-					aria-label="Close event dialog"
-					onClick={() => onClose(false)}
-				/>
+			// biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Matches the reference modal backdrop; the visible Close button is keyboard accessible.
+			<div
+				className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]"
+				onClick={(clickEvent) => {
+					if (clickEvent.target === clickEvent.currentTarget) onClose(false)
+				}}
+			>
 				<div
 					role="dialog"
 					aria-modal="true"
@@ -220,13 +220,13 @@ export function EventModal({
 	}
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]">
-			<button
-				type="button"
-				className="absolute inset-0 cursor-default"
-				aria-label="Close event dialog"
-				onClick={() => onClose(false)}
-			/>
+		// biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Matches the reference modal backdrop; the visible Close button is keyboard accessible.
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]"
+			onClick={(clickEvent) => {
+				if (clickEvent.target === clickEvent.currentTarget) onClose(false)
+			}}
+		>
 			<div
 				role="dialog"
 				aria-modal="true"
