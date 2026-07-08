@@ -1,5 +1,6 @@
 import type { Event, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it, vi } from 'vitest'
+import { fmtCompactTime, formatFullDate } from './calendar.js'
 import {
 	draftRecipientList,
 	eventHour,
@@ -90,6 +91,15 @@ describe('ui-model mail helpers', () => {
 })
 
 describe('ui-model calendar helpers', () => {
+	it('formats reference-style calendar dialog dates and times', () => {
+		const date = new Date('2026-07-08T10:30:00')
+
+		expect(formatFullDate(date)).toBe('Wednesday, July 8')
+		expect(formatFullDate(date, true)).toBe('Wednesday, July 8, 2026')
+		expect(fmtCompactTime(date)).toBe('10:30 AM')
+		expect(fmtCompactTime(new Date('2026-07-08T11:00:00'))).toBe('11 AM')
+	})
+
 	it('assigns stable event tones from event context', () => {
 		expect(eventTone({ title: 'Morning focus block' } as Event)).toBe('amber')
 		expect(eventTone({ title: 'Dentist' } as Event)).toBe('teal')

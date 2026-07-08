@@ -268,6 +268,7 @@ function CalendarPage() {
 							? (calendarNameById.get(editing.calendar_id) ?? calendar.name)
 							: calendar.name
 					}
+					calendars={calendars}
 					onClose={(changed) => {
 						setEditing(null)
 						if (changed) router.invalidate()
