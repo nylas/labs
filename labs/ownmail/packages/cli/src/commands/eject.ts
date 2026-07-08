@@ -80,6 +80,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 					'@nylas-labs/cli-kit': '^0.1.0',
 					'@tanstack/react-router': '^1.130.0',
 					'@tanstack/react-start': '^1.138.0',
+					'lucide-react': '^1.23.0',
 					react: '^19.1.0',
 					'react-dom': '^19.1.0',
 				},
