@@ -204,10 +204,7 @@ function ThreadView() {
 						{labels.map((label) => (
 							<span
 								key={label.id}
-								className={cn(
-									'rounded-md border px-2 py-0.5 text-xs font-medium',
-									labelBadgeClass(label.tone),
-								)}
+								className={cn('text-xs', labelBadgeClass(label.tone))}
 							>
 								{label.name}
 							</span>

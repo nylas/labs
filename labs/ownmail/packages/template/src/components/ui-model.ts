@@ -31,6 +31,24 @@ export function cn(...classes: Array<string | false | null | undefined>): string
 	return classes.filter(Boolean).join(' ')
 }
 
+/** Shared chrome dimensions — keep rail, header, and column spacers on the same grid. */
+export const CHROME_ROW_CLASS = 'h-11'
+export const CHROME_ROW_SHELL_CLASS = 'flex h-11 shrink-0 items-stretch'
+export const APP_RAIL_WIDTH_CLASS = 'w-14'
+/** Nav link icon + label rows inside h-11 cells (not used in the chrome-row logo). */
+export const APP_RAIL_ICON_SLOT_CLASS = 'flex h-7 w-full shrink-0 items-center justify-center'
+export const APP_RAIL_LABEL_SLOT_CLASS =
+	'flex h-4 w-full shrink-0 items-center justify-center text-[10px] leading-none font-medium'
+export const MAIL_SIDEBAR_WIDTH_CLASS = 'w-56'
+
+export const MAIL_HEADER_GRID_CLASS =
+	'grid grid-cols-[minmax(0,1fr)] md:grid-cols-[14rem_minmax(0,1fr)]'
+
+export const CALENDAR_SIDEBAR_WIDTH_CLASS = 'w-64'
+
+export const CALENDAR_HEADER_GRID_CLASS =
+	'grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)]'
+
 export function folderCount(folders: Folder[], folderId: string): number {
 	return folders.find((folder) => folder.id === folderId)?.unread_count ?? 0
 }
@@ -357,14 +375,14 @@ export function threadLabels(thread: Thread): typeof LABELS {
 	return LABELS.filter((label) => folderIds.has(label.id))
 }
 
+export function eventChipClass(tone: EventTone): string {
+	const bgOpacity = tone === 'amber' ? '12' : '10'
+	return `event-chip bg-[var(--event-${tone})]/${bgOpacity} text-[var(--event-${tone})] border border-[var(--event-${tone})]/20`
+}
+
 export function labelBadgeClass(tone: EventTone): string {
-	if (tone === 'teal')
-		return 'bg-[var(--event-teal)]/10 text-[var(--event-teal)] border-l-[3px] border-[var(--event-teal)]'
-	if (tone === 'amber')
-		return 'bg-[var(--event-amber)]/12 text-[var(--event-amber)] border-l-[3px] border-[var(--event-amber)]'
-	if (tone === 'rose')
-		return 'bg-[var(--event-rose)]/10 text-[var(--event-rose)] border-l-[3px] border-[var(--event-rose)]'
-	return 'bg-[var(--event-blue)]/10 text-[var(--event-blue)] border-l-[3px] border-[var(--event-blue)]'
+	const bgOpacity = tone === 'amber' ? '10' : '8'
+	return `label-badge border border-[var(--event-${tone})]/20 bg-[var(--event-${tone})]/${bgOpacity} text-[var(--event-${tone})]`
 }
 
 export function labelDotClass(labelId: string, fallbackIndex = 0): string {

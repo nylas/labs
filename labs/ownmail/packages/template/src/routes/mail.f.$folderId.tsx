@@ -263,7 +263,7 @@ function ThreadRow({
 				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent',
 				thread.unread && 'bg-card/80',
 			)}
-			activeProps={{ 'data-active': 'true', className: 'bg-accent hover:bg-accent' }}
+			activeProps={{ 'data-active': 'true' }}
 			data-unread={thread.unread ? 'true' : undefined}
 		>
 			<div className="flex items-center gap-2">
@@ -307,7 +307,7 @@ function ThreadRow({
 					<span
 						key={label.id}
 						className={cn(
-							'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+							'shrink-0',
 							labelBadgeClass(label.tone),
 						)}
 					>

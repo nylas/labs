@@ -2,7 +2,7 @@ import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { Check, ChevronLeft, ChevronRight, PanelLeft, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppRail } from '../components/AppRail.js'
+import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import {
 	addDays,
@@ -23,7 +23,19 @@ import {
 } from '../components/calendar.js'
 import { EventModal } from '../components/EventModal.js'
 import { Sheet } from '../components/Sheet.js'
-import { calendarTone, cn, type EventTone, eventColorClass, eventTone } from '../components/ui-model.js'
+import {
+	calendarTone,
+	CHROME_ROW_CLASS,
+	CHROME_ROW_SHELL_CLASS,
+	CALENDAR_HEADER_GRID_CLASS,
+	CALENDAR_SIDEBAR_WIDTH_CLASS,
+	APP_RAIL_WIDTH_CLASS,
+	cn,
+	type EventTone,
+	eventChipClass,
+	eventColorClass,
+	eventTone,
+} from '../components/ui-model.js'
 import { getEvents } from '../server/calendar-fns.js'
 import { getMailboxInfo } from '../server/fns.js'
 
@@ -168,80 +180,102 @@ export function CalendarRouteScreen({
 				: anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
 	return (
-		<div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-			<AppRail
-				email={info.email}
-				displayName={info.displayName}
-				active="calendar"
-				onOpenCommandPalette={openPalette}
-			/>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex flex-wrap items-center gap-2 border-b border-border bg-background/80 px-3 py-2.5 backdrop-blur-sm sm:gap-3 sm:px-4">
+		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+			<div className={CHROME_ROW_SHELL_CLASS}>
+				<AppRailLogo />
+				<header
+					className={cn(
+						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
+						CHROME_ROW_CLASS,
+					)}
+				>
 					<button
 						type="button"
 						onClick={() => setSidebarOpen(true)}
-						className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+						className={cn(
+							'flex shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:hidden',
+							APP_RAIL_WIDTH_CLASS,
+						)}
 						aria-label="Open calendar sidebar"
 					>
-						<PanelLeft className="h-5 w-5" />
+						<PanelLeft className="h-4 w-4" />
 					</button>
-					<button
-						type="button"
-						onClick={() => {
-							setNewStart(anchor)
-							setEditing('new')
-						}}
-						className="flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:brightness-105 active:scale-[0.98]"
-					>
-						<Plus className="h-4 w-4" strokeWidth={2.5} /> Create
-					</button>
-					<button
-						type="button"
-						className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
-						onClick={() => go(currentView, new Date())}
-					>
-						Today
-					</button>
-					<div className="flex items-center">
-						<button
-							type="button"
-							className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
-							onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
-							aria-label="Previous"
-						>
-							<ChevronLeft className="h-5 w-5" />
-						</button>
-						<button
-							type="button"
-							className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
-							onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
-							aria-label="Next"
-						>
-							<ChevronRight className="h-5 w-5" />
-						</button>
-					</div>
-					<h1 className="font-display text-lg font-semibold text-balance">{title}</h1>
-					<div className="ml-auto flex items-center rounded-lg border border-border bg-card p-0.5">
-						{(['day', 'week', 'month'] as const).map((v) => (
+					<div className={cn('min-w-0 flex-1', CALENDAR_HEADER_GRID_CLASS)}>
+						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
+						<div className="flex min-w-0 items-stretch">
 							<button
-								key={v}
 								type="button"
-								onClick={() => go(v, anchor)}
-								className={cn(
-									'rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors',
-									v === currentView
-										? 'bg-primary text-primary-foreground'
-										: 'text-muted-foreground hover:text-foreground',
-								)}
+								onClick={() => {
+									setNewStart(anchor)
+									setEditing('new')
+								}}
+								className="flex shrink-0 items-center gap-1.5 border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
 							>
-								{v}
+								<Plus className="h-4 w-4" strokeWidth={2} />
+								<span className="hidden sm:inline">Create</span>
 							</button>
-						))}
+							<button
+								type="button"
+								className="flex shrink-0 items-center border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+								onClick={() => go(currentView, new Date())}
+							>
+								Today
+							</button>
+							<button
+								type="button"
+								className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+								onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
+								aria-label="Previous"
+							>
+								<ChevronLeft className="h-4 w-4" />
+							</button>
+							<button
+								type="button"
+								className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+								onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
+								aria-label="Next"
+							>
+								<ChevronRight className="h-4 w-4" />
+							</button>
+							<div className="flex min-w-0 flex-1 items-center border-r border-border px-3">
+								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">{title}</h1>
+							</div>
+							<div className="flex shrink-0 items-stretch" role="group" aria-label="Calendar view">
+								{(['day', 'week', 'month'] as const).map((v) => (
+									<button
+										key={v}
+										type="button"
+										onClick={() => go(v, anchor)}
+										aria-pressed={v === currentView}
+										className={cn(
+											'flex items-center border-r border-border px-3 text-sm font-medium capitalize transition-colors last:border-r-0',
+											v === currentView
+												? 'bg-muted text-foreground'
+												: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+										)}
+									>
+										{v}
+									</button>
+								))}
+							</div>
+						</div>
 					</div>
 				</header>
+			</div>
 
-				<div className="flex min-h-0 flex-1">
-					<aside className="hidden w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-sidebar px-4 py-4 lg:flex">
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				<AppRailNav
+					email={info.email}
+					displayName={info.displayName}
+					active="calendar"
+					onOpenCommandPalette={openPalette}
+				/>
+				<aside
+					className={cn(
+						'hidden shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-4 lg:flex',
+						CALENDAR_SIDEBAR_WIDTH_CLASS,
+					)}
+				>
 						<CalendarSidebarPanel
 							anchor={anchor}
 							calendars={calendars}
@@ -276,7 +310,6 @@ export function CalendarRouteScreen({
 							/>
 						)}
 					</div>
-				</div>
 			</div>
 
 			{editing ? (
@@ -411,16 +444,6 @@ function CalendarSidebarPanel({
 
 function eventBarClass(tone: EventTone): string {
 	return eventColorClass(tone, 'bg')
-}
-
-function eventBlockClass(tone: EventTone): string {
-	if (tone === 'teal')
-		return 'bg-[var(--event-teal)]/10 text-[var(--event-teal)] border-l-[3px] border-[var(--event-teal)]'
-	if (tone === 'amber')
-		return 'bg-[var(--event-amber)]/12 text-[var(--event-amber)] border-l-[3px] border-[var(--event-amber)]'
-	if (tone === 'rose')
-		return 'bg-[var(--event-rose)]/10 text-[var(--event-rose)] border-l-[3px] border-[var(--event-rose)]'
-	return 'bg-[var(--event-blue)]/10 text-[var(--event-blue)] border-l-[3px] border-[var(--event-blue)]'
 }
 
 function eventDotClass(tone: EventTone): string {
@@ -772,7 +795,7 @@ function TimeGrid({
 												style={layout}
 												className={cn(
 													'absolute right-0.5 left-0.5 z-10 flex flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
-													eventBlockClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+													eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
 												)}
 											>
 												<span className="truncate text-xs leading-tight font-semibold">
