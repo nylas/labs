@@ -2,25 +2,15 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { ArrowRight, Calendar, Mail, ShieldCheck } from 'lucide-react'
-import { devMailboxEmail } from '../server/dev-mocks.js'
-import { platform, usingDevMocks } from '../server/platform.js'
+import { usingDevMocks } from '../server/platform.js'
 import { getSession } from '../server/session.js'
 
 const homeState = createServerFn({ method: 'GET' }).handler(async () => {
-	const { env } = await platform()
 	if (await usingDevMocks()) {
-		return {
-			loggedIn: true,
-			email: devMailboxEmail(env.INBOX_EMAIL),
-			appName: env.APP_NAME,
-		}
+		return { signInHref: '/mail' }
 	}
 	const session = await getSession(getRequest())
-	return {
-		loggedIn: session !== null,
-		email: env.INBOX_EMAIL,
-		appName: env.APP_NAME,
-	}
+	return { signInHref: session ? '/mail' : '/auth' }
 })
 
 export const Route = createFileRoute('/')({
@@ -29,7 +19,7 @@ export const Route = createFileRoute('/')({
 })
 
 function Home() {
-	const { loggedIn, email, appName } = Route.useLoaderData()
+	const { signInHref } = Route.useLoaderData()
 	return (
 		<main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[oklch(0.13_0.006_165)] px-4 py-10 text-white">
 			<div className="relative z-10 w-full max-w-md">
@@ -37,7 +27,7 @@ function Home() {
 					<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-[oklch(0.72_0.13_158)] text-[oklch(0.15_0.01_165)]">
 						<span className="font-display text-2xl leading-none font-extrabold">o</span>
 					</div>
-					<h1 className="mt-5 font-display text-3xl font-extrabold tracking-normal text-balance">
+					<h1 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-balance">
 						Welcome to ownmail
 					</h1>
 					<p className="mt-2 text-pretty text-sm leading-relaxed text-white/60">
@@ -56,17 +46,15 @@ function Home() {
 					</div>
 
 					<a
-						href={loggedIn ? '/mail' : '/auth'}
+						href={signInHref}
 						className="group flex w-full items-center justify-center gap-2 rounded-full bg-[oklch(0.72_0.13_158)] px-6 py-3.5 text-sm font-semibold text-[oklch(0.15_0.01_165)] transition-all hover:brightness-105 active:scale-[0.99]"
 					>
-						{loggedIn ? 'Open inbox' : 'Sign in to continue'}
+						Sign in to continue
 						<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 					</a>
 
 					<p className="mt-4 text-center text-xs leading-relaxed text-white/40">
-						{loggedIn
-							? `Signed in as ${email || appName}.`
-							: "You'll be redirected to your identity provider to authenticate securely."}
+						You&apos;ll be redirected to your identity provider to authenticate securely.
 					</p>
 				</div>
 
