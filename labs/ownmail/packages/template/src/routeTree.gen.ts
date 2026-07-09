@@ -13,13 +13,17 @@ import { Route as MailRouteImport } from './routes/mail'
 import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HealthzRouteImport } from './routes/healthz'
+import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as CalendarRouteImport } from './routes/calendar'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MailIndexRouteImport } from './routes/mail.index'
+import { Route as ContactsIndexRouteImport } from './routes/contacts.index'
 import { Route as CalendarIndexRouteImport } from './routes/calendar.index'
 import { Route as MailSearchRouteImport } from './routes/mail.search'
 import { Route as MailComposeRouteImport } from './routes/mail.compose'
+import { Route as ContactsNewRouteImport } from './routes/contacts.new'
+import { Route as ContactsContactIdRouteImport } from './routes/contacts.$contactId'
 import { Route as CalendarViewRouteImport } from './routes/calendar.$view'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AttachmentsAttachmentIdRouteImport } from './routes/attachments.$attachmentId'
@@ -48,6 +52,11 @@ const HealthzRoute = HealthzRouteImport.update({
   path: '/healthz',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContactsRoute = ContactsRouteImport.update({
+  id: '/contacts',
+  path: '/contacts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CalendarRoute = CalendarRouteImport.update({
   id: '/calendar',
   path: '/calendar',
@@ -68,6 +77,11 @@ const MailIndexRoute = MailIndexRouteImport.update({
   path: '/',
   getParentRoute: () => MailRoute,
 } as any)
+const ContactsIndexRoute = ContactsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ContactsRoute,
+} as any)
 const CalendarIndexRoute = CalendarIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -82,6 +96,16 @@ const MailComposeRoute = MailComposeRouteImport.update({
   id: '/compose',
   path: '/compose',
   getParentRoute: () => MailRoute,
+} as any)
+const ContactsNewRoute = ContactsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => ContactsRoute,
+} as any)
+const ContactsContactIdRoute = ContactsContactIdRouteImport.update({
+  id: '/$contactId',
+  path: '/$contactId',
+  getParentRoute: () => ContactsRoute,
 } as any)
 const CalendarViewRoute = CalendarViewRouteImport.update({
   id: '/$view',
@@ -123,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRouteWithChildren
   '/calendar': typeof CalendarRouteWithChildren
+  '/contacts': typeof ContactsRouteWithChildren
   '/healthz': typeof HealthzRoute
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
@@ -131,9 +156,12 @@ export interface FileRoutesByFullPath {
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/calendar/$view': typeof CalendarViewRoute
+  '/contacts/$contactId': typeof ContactsContactIdRoute
+  '/contacts/new': typeof ContactsNewRoute
   '/mail/compose': typeof MailComposeRoute
   '/mail/search': typeof MailSearchRoute
   '/calendar/': typeof CalendarIndexRoute
+  '/contacts/': typeof ContactsIndexRoute
   '/mail/': typeof MailIndexRoute
   '/api/webhooks/nylas': typeof ApiWebhooksNylasRoute
   '/mail/f/$folderId': typeof MailFFolderIdRouteWithChildren
@@ -149,9 +177,12 @@ export interface FileRoutesByTo {
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/calendar/$view': typeof CalendarViewRoute
+  '/contacts/$contactId': typeof ContactsContactIdRoute
+  '/contacts/new': typeof ContactsNewRoute
   '/mail/compose': typeof MailComposeRoute
   '/mail/search': typeof MailSearchRoute
   '/calendar': typeof CalendarIndexRoute
+  '/contacts': typeof ContactsIndexRoute
   '/mail': typeof MailIndexRoute
   '/api/webhooks/nylas': typeof ApiWebhooksNylasRoute
   '/mail/f/$folderId': typeof MailFFolderIdRouteWithChildren
@@ -162,6 +193,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRouteWithChildren
   '/calendar': typeof CalendarRouteWithChildren
+  '/contacts': typeof ContactsRouteWithChildren
   '/healthz': typeof HealthzRoute
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
@@ -170,9 +202,12 @@ export interface FileRoutesById {
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/calendar/$view': typeof CalendarViewRoute
+  '/contacts/$contactId': typeof ContactsContactIdRoute
+  '/contacts/new': typeof ContactsNewRoute
   '/mail/compose': typeof MailComposeRoute
   '/mail/search': typeof MailSearchRoute
   '/calendar/': typeof CalendarIndexRoute
+  '/contacts/': typeof ContactsIndexRoute
   '/mail/': typeof MailIndexRoute
   '/api/webhooks/nylas': typeof ApiWebhooksNylasRoute
   '/mail/f/$folderId': typeof MailFFolderIdRouteWithChildren
@@ -184,6 +219,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/calendar'
+    | '/contacts'
     | '/healthz'
     | '/login'
     | '/logout'
@@ -192,9 +228,12 @@ export interface FileRouteTypes {
     | '/attachments/$attachmentId'
     | '/auth/callback'
     | '/calendar/$view'
+    | '/contacts/$contactId'
+    | '/contacts/new'
     | '/mail/compose'
     | '/mail/search'
     | '/calendar/'
+    | '/contacts/'
     | '/mail/'
     | '/api/webhooks/nylas'
     | '/mail/f/$folderId'
@@ -210,9 +249,12 @@ export interface FileRouteTypes {
     | '/attachments/$attachmentId'
     | '/auth/callback'
     | '/calendar/$view'
+    | '/contacts/$contactId'
+    | '/contacts/new'
     | '/mail/compose'
     | '/mail/search'
     | '/calendar'
+    | '/contacts'
     | '/mail'
     | '/api/webhooks/nylas'
     | '/mail/f/$folderId'
@@ -222,6 +264,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/calendar'
+    | '/contacts'
     | '/healthz'
     | '/login'
     | '/logout'
@@ -230,9 +273,12 @@ export interface FileRouteTypes {
     | '/attachments/$attachmentId'
     | '/auth/callback'
     | '/calendar/$view'
+    | '/contacts/$contactId'
+    | '/contacts/new'
     | '/mail/compose'
     | '/mail/search'
     | '/calendar/'
+    | '/contacts/'
     | '/mail/'
     | '/api/webhooks/nylas'
     | '/mail/f/$folderId'
@@ -243,6 +289,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRouteWithChildren
   CalendarRoute: typeof CalendarRouteWithChildren
+  ContactsRoute: typeof ContactsRouteWithChildren
   HealthzRoute: typeof HealthzRoute
   LoginRoute: typeof LoginRoute
   LogoutRoute: typeof LogoutRoute
@@ -282,6 +329,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HealthzRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contacts': {
+      id: '/contacts'
+      path: '/contacts'
+      fullPath: '/contacts'
+      preLoaderRoute: typeof ContactsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/calendar': {
       id: '/calendar'
       path: '/calendar'
@@ -310,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailIndexRouteImport
       parentRoute: typeof MailRoute
     }
+    '/contacts/': {
+      id: '/contacts/'
+      path: '/'
+      fullPath: '/contacts/'
+      preLoaderRoute: typeof ContactsIndexRouteImport
+      parentRoute: typeof ContactsRoute
+    }
     '/calendar/': {
       id: '/calendar/'
       path: '/'
@@ -330,6 +391,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/mail/compose'
       preLoaderRoute: typeof MailComposeRouteImport
       parentRoute: typeof MailRoute
+    }
+    '/contacts/new': {
+      id: '/contacts/new'
+      path: '/new'
+      fullPath: '/contacts/new'
+      preLoaderRoute: typeof ContactsNewRouteImport
+      parentRoute: typeof ContactsRoute
+    }
+    '/contacts/$contactId': {
+      id: '/contacts/$contactId'
+      path: '/$contactId'
+      fullPath: '/contacts/$contactId'
+      preLoaderRoute: typeof ContactsContactIdRouteImport
+      parentRoute: typeof ContactsRoute
     }
     '/calendar/$view': {
       id: '/calendar/$view'
@@ -407,6 +482,22 @@ const CalendarRouteWithChildren = CalendarRoute._addFileChildren(
   CalendarRouteChildren,
 )
 
+interface ContactsRouteChildren {
+  ContactsContactIdRoute: typeof ContactsContactIdRoute
+  ContactsNewRoute: typeof ContactsNewRoute
+  ContactsIndexRoute: typeof ContactsIndexRoute
+}
+
+const ContactsRouteChildren: ContactsRouteChildren = {
+  ContactsContactIdRoute: ContactsContactIdRoute,
+  ContactsNewRoute: ContactsNewRoute,
+  ContactsIndexRoute: ContactsIndexRoute,
+}
+
+const ContactsRouteWithChildren = ContactsRoute._addFileChildren(
+  ContactsRouteChildren,
+)
+
 interface MailFFolderIdRouteChildren {
   MailFFolderIdTThreadIdRoute: typeof MailFFolderIdTThreadIdRoute
 }
@@ -439,6 +530,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRouteWithChildren,
   CalendarRoute: CalendarRouteWithChildren,
+  ContactsRoute: ContactsRouteWithChildren,
   HealthzRoute: HealthzRoute,
   LoginRoute: LoginRoute,
   LogoutRoute: LogoutRoute,

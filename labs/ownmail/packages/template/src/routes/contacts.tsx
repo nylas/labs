@@ -1,0 +1,228 @@
+import type { Contact } from '@nylas-labs/cli-kit/v3'
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Plus, Search } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
+import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
+import {
+	contactDisplayName,
+	contactIdFromPath,
+	contactSubtitle,
+	filterContacts,
+	sortContacts,
+} from '../components/contacts-model.js'
+import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS, cn, initials } from '../components/ui-model.js'
+import { getContacts, getMailboxInfo } from '../server/fns.js'
+
+export const Route = createFileRoute('/contacts')({
+	validateSearch: (search): { q?: string } =>
+		typeof search.q === 'string' && search.q ? { q: search.q } : {},
+	loader: async () => {
+		const [info, page] = await Promise.all([getMailboxInfo(), getContacts({ data: {} })])
+		return { info, contacts: page.contacts, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) }
+	},
+	staleTime: 30_000,
+	component: ContactsLayout,
+})
+
+type ContactsInfo = { email: string; displayName?: string; appName: string }
+
+function ContactsLayout() {
+	const { info, contacts, nextCursor } = Route.useLoaderData()
+	const { q } = Route.useSearch()
+	const navigate = useNavigate()
+	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	return (
+		<ContactsShell
+			info={info}
+			contacts={contacts}
+			nextCursor={nextCursor}
+			query={q ?? ''}
+			selectedId={contactIdFromPath(pathname)}
+			onQueryChange={(next) => navigate({ to: '/contacts', search: next ? { q: next } : {}, replace: true })}
+		/>
+	)
+}
+
+export function ContactsShell({
+	info,
+	contacts,
+	nextCursor: initialCursor,
+	query,
+	selectedId,
+	onQueryChange,
+}: {
+	info: ContactsInfo
+	contacts: Contact[]
+	nextCursor?: string
+	query: string
+	selectedId?: string
+	onQueryChange: (query: string) => void
+}) {
+	const [extra, setExtra] = useState<Contact[]>([])
+	const [nextCursor, setNextCursor] = useState(initialCursor)
+	const [loadingMore, setLoadingMore] = useState(false)
+	const [paletteOpen, setPaletteOpen] = useState(false)
+
+	const openPalette = useCallback(() => setPaletteOpen(true), [])
+	const closePalette = useCallback(() => setPaletteOpen(false), [])
+	useCommandPaletteShortcut(openPalette)
+
+	// A fresh loader run (after a mutation) replaces `contacts`; drop the paged-in
+	// extras and reset the cursor so we don't show stale or duplicated rows. The
+	// `contacts` dep is the trigger even though the body doesn't read it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when a new contacts page arrives
+	useEffect(() => {
+		setExtra([])
+		setNextCursor(initialCursor)
+	}, [contacts, initialCursor])
+
+	const all = useMemo(() => sortContacts([...contacts, ...extra]), [contacts, extra])
+	const filtered = useMemo(() => filterContacts(all, query), [all, query])
+	// Preserve the active search when following a contact link so the list stays filtered.
+	const linkSearch = query ? { q: query } : {}
+
+	async function loadMore() {
+		// Only reachable from the paged button, which renders solely when a cursor
+		// exists and is disabled while a fetch is in flight — no re-entry guard needed.
+		setLoadingMore(true)
+		try {
+			const res = await getContacts({ data: { pageToken: nextCursor } })
+			setExtra((prev) => [...prev, ...res.contacts])
+			setNextCursor(res.nextCursor)
+		} catch {
+			// best-effort; the button stays for a retry
+		} finally {
+			setLoadingMore(false)
+		}
+	}
+
+	const railNavProps = {
+		email: info.email,
+		displayName: info.displayName,
+		active: 'contacts' as const,
+		onOpenCommandPalette: openPalette,
+	}
+
+	return (
+		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+			<div className={CHROME_ROW_SHELL_CLASS}>
+				<AppRailLogo appName={info.appName} />
+				<header
+					className={cn(
+						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
+						CHROME_ROW_CLASS,
+					)}
+				>
+					<div className="relative flex min-w-0 flex-1 items-center px-3">
+						<Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
+						<input
+							id="contacts-search"
+							type="search"
+							value={query}
+							onChange={(event) => onQueryChange(event.target.value)}
+							placeholder="Search contacts"
+							className="h-full w-full border-0 bg-transparent py-2 pr-3 pl-7 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+							aria-label="Search contacts"
+							autoCapitalize="none"
+						/>
+					</div>
+					<Link
+						to="/contacts/new"
+						search={linkSearch}
+						className="flex shrink-0 items-center gap-2 border-l border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+					>
+						<Plus className="h-4 w-4" />
+						<span className="hidden sm:inline">New contact</span>
+					</Link>
+				</header>
+			</div>
+
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				<AppRailNav {...railNavProps} />
+
+				<div
+					className={cn(
+						'flex w-full shrink-0 flex-col overflow-hidden border-r border-border bg-background md:w-80',
+						selectedId && 'hidden md:flex',
+					)}
+				>
+					{filtered.length === 0 ? (
+						<p className="px-4 py-8 text-center text-sm text-muted-foreground">
+							{query ? 'No contacts match your search.' : 'No contacts yet.'}
+						</p>
+					) : (
+						<ul className="min-h-0 flex-1 overflow-y-auto py-1">
+							{filtered.map((contact) => (
+								<li key={contact.id}>
+									<ContactListItem contact={contact} active={contact.id === selectedId} search={linkSearch} />
+								</li>
+							))}
+						</ul>
+					)}
+					{nextCursor ? (
+						<button
+							type="button"
+							onClick={loadMore}
+							disabled={loadingMore}
+							className="border-t border-border py-2.5 text-center text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
+						>
+							{loadingMore ? 'Loading…' : 'Load more'}
+						</button>
+					) : null}
+				</div>
+
+				<div className={cn('min-w-0 flex-1 overflow-y-auto', !selectedId && 'hidden md:block')}>
+					<Outlet />
+				</div>
+			</div>
+
+			<CommandPalette open={paletteOpen} onClose={closePalette} />
+		</div>
+	)
+}
+
+function ContactListItem({
+	contact,
+	active,
+	search,
+}: {
+	contact: Contact
+	active: boolean
+	search: { q?: string }
+}) {
+	const name = contactDisplayName(contact)
+	const subtitle = contactSubtitle(contact)
+	return (
+		<Link
+			to="/contacts/$contactId"
+			params={{ contactId: contact.id }}
+			search={search}
+			aria-current={active ? 'true' : undefined}
+			className={cn(
+				'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/60',
+				active && 'bg-muted',
+			)}
+		>
+			<ContactAvatar name={name} className="h-8 w-8 text-xs" />
+			<span className="min-w-0 flex-1">
+				<span className="block truncate text-sm font-medium">{name}</span>
+				{subtitle ? <span className="block truncate text-xs text-muted-foreground">{subtitle}</span> : null}
+			</span>
+		</Link>
+	)
+}
+
+export function ContactAvatar({ name, className }: { name: string; className?: string }) {
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				'flex shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-muted-foreground',
+				className,
+			)}
+		>
+			{initials(name)}
+		</span>
+	)
+}

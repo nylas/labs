@@ -57,6 +57,10 @@ function makeMailbox() {
 		getDraft: vi.fn(),
 		sendDraft: vi.fn(),
 		listContacts: vi.fn(),
+		getContact: vi.fn(),
+		createContact: vi.fn(),
+		updateContact: vi.fn(),
+		deleteContact: vi.fn(),
 	}
 }
 
@@ -479,6 +483,144 @@ describe('listDrafts', () => {
 		resolveMailbox()
 		mailbox.listDrafts.mockResolvedValue({ data: [{ id: 'd1' }] })
 		expect(await fns.listDrafts.handler({})).toEqual([{ id: 'd1' }])
+	})
+})
+
+describe('getContacts', () => {
+	it('rejects a page token that is not a valid provider id', () => {
+		expect(() => fns.getContacts.validator({ pageToken: 'x\n' })).toThrow('Invalid page token')
+	})
+
+	it('omits the page token from the query when none is supplied', () => {
+		expect(fns.getContacts.validator({})).toEqual({})
+	})
+
+	it('lists the first page and surfaces the next cursor', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockResolvedValue({
+			data: [{ id: 'contact-1', given_name: 'Ada' }],
+			next_cursor: 'cursor-2',
+		})
+		const res = await fns.getContacts.handler({ data: {} })
+		expect(mailbox.listContacts).toHaveBeenCalledWith({ limit: 50 })
+		expect(res).toEqual({ contacts: [{ id: 'contact-1', given_name: 'Ada' }], nextCursor: 'cursor-2' })
+	})
+
+	it('passes the page token through and omits an absent cursor', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockResolvedValue({ data: [] })
+		const res = await fns.getContacts.handler({ data: { pageToken: 'cursor-2' } })
+		expect(mailbox.listContacts).toHaveBeenCalledWith({ limit: 50, page_token: 'cursor-2' })
+		expect(res).toEqual({ contacts: [] })
+	})
+
+	it('maps API failures to a user-safe error', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockRejectedValue(new Error('down'))
+		await expect(fns.getContacts.handler({ data: {} })).rejects.toThrow('Something went wrong')
+	})
+})
+
+describe('getContact', () => {
+	it('rejects an invalid contact id', () => {
+		expect(() => fns.getContact.validator({ contactId: '' })).toThrow('Invalid contact')
+	})
+
+	it('returns the contact record', async () => {
+		resolveMailbox()
+		mailbox.getContact.mockResolvedValue({ data: { id: 'contact-1', given_name: 'Ada' } })
+		expect(await fns.getContact.handler({ data: { contactId: 'contact-1' } })).toEqual({
+			id: 'contact-1',
+			given_name: 'Ada',
+		})
+	})
+
+	it('maps a missing contact to a not-found error', async () => {
+		resolveMailbox()
+		mailbox.getContact.mockRejectedValue(new NylasApiError('gone', 404))
+		await expect(fns.getContact.handler({ data: { contactId: 'contact-1' } })).rejects.toThrow('Not found')
+	})
+})
+
+describe('createContact', () => {
+	it('rejects a contact with no identifying fields', () => {
+		expect(() => fns.createContact.validator({})).toThrow('Add a name, company, or email')
+	})
+
+	it('normalizes the form fields into a Nylas payload', () => {
+		expect(fns.createContact.validator({ givenName: '  Ada  ', emails: [{ email: 'ada@x.com' }] })).toEqual({
+			given_name: 'Ada',
+			emails: [{ email: 'ada@x.com' }],
+		})
+	})
+
+	it('creates the contact and returns its id', async () => {
+		resolveMailbox()
+		mailbox.createContact.mockResolvedValue({ data: { id: 'contact-new' } })
+		const res = await fns.createContact.handler({ data: { given_name: 'Ada' } })
+		expect(mailbox.createContact).toHaveBeenCalledWith({ given_name: 'Ada' })
+		expect(res).toEqual({ contactId: 'contact-new' })
+	})
+
+	it('maps API failures to a user-safe error', async () => {
+		resolveMailbox()
+		mailbox.createContact.mockRejectedValue(new Error('down'))
+		await expect(fns.createContact.handler({ data: { given_name: 'Ada' } })).rejects.toThrow(
+			'Something went wrong',
+		)
+	})
+})
+
+describe('updateContact', () => {
+	it('rejects an invalid contact id before validating fields', () => {
+		expect(() => fns.updateContact.validator({ contactId: '', givenName: 'Ada' })).toThrow('Invalid contact')
+	})
+
+	it('splits the id from the normalized fields', () => {
+		expect(fns.updateContact.validator({ contactId: 'contact-1', givenName: 'Ada' })).toEqual({
+			contactId: 'contact-1',
+			fields: { given_name: 'Ada' },
+		})
+	})
+
+	it('sends the full field set on update (PUT replaces the contact)', async () => {
+		resolveMailbox()
+		mailbox.updateContact.mockResolvedValue({ data: { id: 'contact-1' } })
+		const res = await fns.updateContact.handler({
+			data: { contactId: 'contact-1', fields: { given_name: 'Ada' } },
+		})
+		expect(mailbox.updateContact).toHaveBeenCalledWith('contact-1', { given_name: 'Ada' })
+		expect(res).toEqual({ ok: true })
+	})
+
+	it('maps API failures to a user-safe error', async () => {
+		resolveMailbox()
+		mailbox.updateContact.mockRejectedValue(new Error('down'))
+		await expect(
+			fns.updateContact.handler({ data: { contactId: 'contact-1', fields: { given_name: 'Ada' } } }),
+		).rejects.toThrow('Something went wrong')
+	})
+})
+
+describe('deleteContact', () => {
+	it('rejects an invalid contact id', () => {
+		expect(() => fns.deleteContact.validator({ contactId: '' })).toThrow('Invalid contact')
+	})
+
+	it('deletes the contact', async () => {
+		resolveMailbox()
+		mailbox.deleteContact.mockResolvedValue(undefined)
+		const res = await fns.deleteContact.handler({ data: { contactId: 'contact-1' } })
+		expect(mailbox.deleteContact).toHaveBeenCalledWith('contact-1')
+		expect(res).toEqual({ ok: true })
+	})
+
+	it('maps API failures to a user-safe error', async () => {
+		resolveMailbox()
+		mailbox.deleteContact.mockRejectedValue(new Error('down'))
+		await expect(fns.deleteContact.handler({ data: { contactId: 'contact-1' } })).rejects.toThrow(
+			'Something went wrong',
+		)
 	})
 })
 

@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Calendar, Mail, Moon, Pencil, Search } from 'lucide-react'
+import { Calendar, Mail, Moon, Pencil, Search, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CALENDAR_HOME_PATH } from './route-paths.js'
+import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH } from './route-paths.js'
 import { ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from './theme.js'
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js'
 import { cn, MAIL_FOLDERS } from './ui-model.js'
@@ -59,6 +59,12 @@ export function CommandPalette({
 				label: 'Open calendar',
 				icon: <Calendar className="h-4 w-4" />,
 				run: () => navigate({ to: CALENDAR_HOME_PATH }),
+			},
+			{
+				id: 'contacts',
+				label: 'Open contacts',
+				icon: <Users className="h-4 w-4" />,
+				run: () => navigate({ to: CONTACTS_HOME_PATH }),
 			},
 			...MAIL_FOLDERS.map((folder) => ({
 				id: `folder-${folder.id}`,

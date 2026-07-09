@@ -4,10 +4,14 @@ import {
 	createDevMailbox,
 	devMailboxEmail,
 	devMailboxName,
+	mockContactList,
+	mockCreateContact,
 	mockCreateEvent,
+	mockDeleteContact,
 	mockDraft,
 	mockDrafts,
 	mockEvents,
+	mockGetContact,
 	mockMailboxInfo,
 	mockRsvpEvent,
 	mockSaveDraft,
@@ -15,6 +19,7 @@ import {
 	mockSendMessage,
 	mockThreadMessages,
 	mockThreads,
+	mockUpdateContact,
 	mockUpdateThreadState,
 } from './dev-mocks.js'
 
@@ -316,13 +321,14 @@ describe('dev mock Nylas client surface', () => {
 		expect(sent.data.folders).toContain('sent')
 	})
 
-	it('lists contacts for a query and returns nothing for a blank query', async () => {
+	it('filters contacts by an email query and lists all of them for a blank query', async () => {
 		const matches = await mailbox.listContacts({ email: 'mina' })
 		expect(matches.data[0]?.given_name).toBe('Mina')
 		expect(matches.data[0]?.surname).toBe('Park')
 
-		const empty = await mailbox.listContacts()
-		expect(empty.data).toEqual([])
+		// The management view lists the whole directory — a blank query is no longer empty.
+		const all = await mailbox.listContacts()
+		expect(all.data.length).toBeGreaterThanOrEqual(4)
 	})
 
 	it('lists calendars and events, defaulting the range when omitted', async () => {
@@ -493,5 +499,69 @@ describe('dev mock optional-field defaults', () => {
 		mockSendMessage({ toList: ['grace@vercel.com'], subject: 'EmptyBodyMarker', body: '' })
 		const found = mockThreads({ searchQueryNative: 'emptybodymarker' }).threads
 		expect(found.map((thread) => thread.subject)).toContain('EmptyBodyMarker')
+	})
+})
+
+describe('dev mock contact store', () => {
+	const mailbox = createDevMailbox()
+
+	it('returns every seeded contact when the query is blank', () => {
+		const all = mockContactList('')
+		expect(all.length).toBeGreaterThanOrEqual(4)
+		expect(all.map((contact) => contact.given_name)).toContain('Mina')
+	})
+
+	it('filters by name, email, or company across the seed data', () => {
+		// A contact with no company_name still matches on name/email — contactHaystack drops the
+		// missing field rather than indexing "undefined".
+		expect(mockContactList('northwind').map((contact) => contact.given_name)).toEqual(['Mina'])
+		expect(mockContactList('sam@example.com').map((contact) => contact.given_name)).toEqual(['Sam'])
+		expect(mockContactList('zzzz')).toEqual([])
+	})
+
+	it('caps results through the client only when a limit is supplied', async () => {
+		const unlimited = await mailbox.listContacts()
+		const capped = await mailbox.listContacts({ limit: 1 })
+		expect(unlimited.data.length).toBeGreaterThan(1)
+		expect(capped.data).toHaveLength(1)
+	})
+
+	it('scopes the client contact search to the email query parameter', async () => {
+		const res = await mailbox.listContacts({ email: 'mina' })
+		expect(res.data.map((contact) => contact.given_name)).toEqual(['Mina'])
+	})
+
+	it('creates, reads, updates, and deletes a contact through the store writers', () => {
+		const created = mockCreateContact({ given_name: 'Grace', emails: [{ email: 'grace@example.com' }] })
+		expect(mockGetContact(created.id).given_name).toBe('Grace')
+
+		const updated = mockUpdateContact(created.id, { given_name: 'Grace', job_title: 'Admiral' })
+		expect(updated.job_title).toBe('Admiral')
+
+		mockDeleteContact(created.id)
+		expect(() => mockGetContact(created.id)).toThrow('Not found')
+	})
+
+	it('exposes the same lifecycle through the client surface', async () => {
+		const created = await mailbox.createContact({ given_name: 'Ada' })
+		const fetched = await mailbox.getContact(created.data.id)
+		expect(fetched.data.given_name).toBe('Ada')
+
+		const updated = await mailbox.updateContact(created.data.id, { given_name: 'Ada Lovelace' })
+		expect(updated.data.given_name).toBe('Ada Lovelace')
+
+		await mailbox.deleteContact(created.data.id)
+		await expect(mailbox.getContact(created.data.id)).rejects.toThrow('Not found')
+	})
+
+	it('searches contacts that have no email addresses', () => {
+		// contactHaystack must tolerate a contact with no emails array while filtering.
+		const created = mockCreateContact({ given_name: 'Zeb', surname: 'Quist' })
+		expect(mockContactList('quist').map((contact) => contact.id)).toContain(created.id)
+	})
+
+	it('reports a missing contact as not found when read or updated', () => {
+		expect(() => mockGetContact('contact-missing')).toThrow('Not found')
+		expect(() => mockUpdateContact('contact-missing', { given_name: 'Nobody' })).toThrow('Not found')
 	})
 })

@@ -4,11 +4,25 @@
  * never supply it.
  */
 
-import { type Draft, type Folder, type Message, NylasApiError, type Thread } from '@nylas-labs/cli-kit/v3'
+import {
+	type Contact,
+	type Draft,
+	type Folder,
+	type Message,
+	NylasApiError,
+	type Thread,
+} from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '../components/route-paths.js'
+import {
+	type ContactFieldsInput,
+	normalizeContactFields,
+	normalizeContactIdInput,
+	normalizeUpdateContactInput,
+	type UpdateContactInput,
+} from './contact-input.js'
 import { requireNylasProviderId } from './ids.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { mailboxFromRequest } from './nylas.js'
@@ -297,6 +311,75 @@ export const listDrafts = createServerFn({ method: 'GET' }).handler(async () => 
 	const res = await mailbox.listDrafts({ limit: 50 })
 	return res.data
 })
+
+// ---- Contacts -------------------------------------------------------------------
+
+export const getContacts = createServerFn({ method: 'GET' })
+	.validator((input: { pageToken?: string }) => ({
+		...(input.pageToken !== undefined
+			? { pageToken: requireNylasProviderId(input.pageToken, 'page token') }
+			: {}),
+	}))
+	.handler(async ({ data }): Promise<{ contacts: Contact[]; nextCursor?: string }> => {
+		const { mailbox } = await requireMailbox()
+		try {
+			const res = await mailbox.listContacts({
+				limit: 50,
+				...(data.pageToken ? { page_token: data.pageToken } : {}),
+			})
+			return { contacts: res.data, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+export const getContact = createServerFn({ method: 'GET' })
+	.validator((input: { contactId: string }) => normalizeContactIdInput(input))
+	.handler(async ({ data }): Promise<Contact> => {
+		const { mailbox } = await requireMailbox()
+		try {
+			const res = await mailbox.getContact(data.contactId)
+			return res.data
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+export const createContact = createServerFn({ method: 'POST' })
+	.validator((input: ContactFieldsInput) => normalizeContactFields(input))
+	.handler(async ({ data }) => {
+		const { mailbox } = await requireMailbox()
+		try {
+			const created = await mailbox.createContact(data)
+			return { contactId: created.data.id }
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+export const updateContact = createServerFn({ method: 'POST' })
+	.validator((input: UpdateContactInput) => normalizeUpdateContactInput(input))
+	.handler(async ({ data }) => {
+		const { mailbox } = await requireMailbox()
+		try {
+			await mailbox.updateContact(data.contactId, data.fields)
+			return { ok: true }
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+export const deleteContact = createServerFn({ method: 'POST' })
+	.validator((input: { contactId: string }) => normalizeContactIdInput(input))
+	.handler(async ({ data }) => {
+		const { mailbox } = await requireMailbox()
+		try {
+			await mailbox.deleteContact(data.contactId)
+			return { ok: true }
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
 
 // ---- Contacts (compose autocomplete) --------------------------------------------
 
