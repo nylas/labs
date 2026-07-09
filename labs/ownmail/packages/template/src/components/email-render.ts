@@ -12,9 +12,43 @@ export const EMAIL_ELEMENT_TAG = 'ownmail-email'
 /** Event the element dispatches (composed, bubbling) as links are hovered/focused. */
 export const LINK_PREVIEW_EVENT = 'link-preview'
 
-/** Detail payload of a {@link LINK_PREVIEW_EVENT}: the hovered link, or null to clear. */
+/**
+ * Detail payload of a {@link LINK_PREVIEW_EVENT}: the hovered link (or null to
+ * clear) plus the viewport point to anchor the preview to — the pointer position
+ * for mouse hovers, or the link's own position for keyboard focus. When clearing,
+ * the point is unused and reported as the origin.
+ */
 export interface LinkPreviewDetail {
 	href: string | null
+	x: number
+	y: number
+}
+
+/** A viewport-relative point the preview anchors to. */
+export interface PreviewPoint {
+	x: number
+	y: number
+}
+
+/**
+ * Inline style that places the URL preview beside the cursor rather than in a
+ * fixed corner — an anti-phishing aid, so the real link target sits right where
+ * the reader is already looking. The box is offset off the pointer, and flipped
+ * toward the viewport interior once the pointer passes the halfway line, so it
+ * stays on-screen without having to measure the rendered box.
+ */
+export function previewBoxStyle(
+	point: PreviewPoint,
+	viewport: { width: number; height: number },
+): { left: number; top: number; transform: string } {
+	const offset = 16
+	const flipX = point.x > viewport.width / 2
+	const flipY = point.y > viewport.height / 2
+	return {
+		left: flipX ? point.x - offset : point.x + offset,
+		top: flipY ? point.y - offset : point.y + offset,
+		transform: `translate(${flipX ? '-100%' : '0'}, ${flipY ? '-100%' : '0'})`,
+	}
 }
 
 /** Minimal structural view of the element the React wrapper drives imperatively. */
@@ -100,10 +134,10 @@ export function applyDarkInvert(element: Element | null, invert: boolean): void 
  */
 export function subscribeLinkPreview(
 	element: EventTarget | null,
-	onChange: (href: string | null) => void,
+	onChange: (detail: LinkPreviewDetail) => void,
 ): () => void {
 	if (!element) return () => {}
-	const handler = (event: Event) => onChange((event as CustomEvent<LinkPreviewDetail>).detail.href)
+	const handler = (event: Event) => onChange((event as CustomEvent<LinkPreviewDetail>).detail)
 	element.addEventListener(LINK_PREVIEW_EVENT, handler)
 	return () => element.removeEventListener(LINK_PREVIEW_EVENT, handler)
 }

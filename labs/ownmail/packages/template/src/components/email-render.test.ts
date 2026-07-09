@@ -8,6 +8,7 @@ import {
 	emailSupportsDarkMode,
 	LINK_PREVIEW_EVENT,
 	linkPreviewText,
+	previewBoxStyle,
 	scaledHeight,
 	shadowStyleText,
 	subscribeLinkPreview,
@@ -105,17 +106,38 @@ describe('subscribeLinkPreview', () => {
 		expect(() => unsubscribe()).not.toThrow()
 	})
 
-	it('forwards preview hrefs and stops after unsubscribing', () => {
+	it('forwards the preview detail and stops after unsubscribing', () => {
 		const el = document.createElement('div')
 		const onChange = vi.fn()
 		const unsubscribe = subscribeLinkPreview(el, onChange)
 
-		el.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail: { href: 'https://a.com' } }))
-		expect(onChange).toHaveBeenCalledWith('https://a.com')
+		const detail = { href: 'https://a.com', x: 40, y: 60 }
+		el.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail }))
+		expect(onChange).toHaveBeenCalledWith(detail)
 
 		unsubscribe()
-		el.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail: { href: 'https://b.com' } }))
+		el.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail: { href: 'https://b.com', x: 0, y: 0 } }))
 		expect(onChange).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe('previewBoxStyle', () => {
+	const viewport = { width: 1000, height: 800 }
+
+	it('places the box below-right of a pointer in the top-left quadrant', () => {
+		expect(previewBoxStyle({ x: 100, y: 100 }, viewport)).toEqual({
+			left: 116,
+			top: 116,
+			transform: 'translate(0, 0)',
+		})
+	})
+
+	it('flips the box above-left when the pointer is in the bottom-right quadrant', () => {
+		expect(previewBoxStyle({ x: 900, y: 700 }, viewport)).toEqual({
+			left: 884,
+			top: 684,
+			transform: 'translate(-100%, -100%)',
+		})
 	})
 })
 
