@@ -301,8 +301,8 @@ describe('mail.compose thread list', () => {
 		expect(screen.getByText('Work')).toBeInTheDocument()
 		// A starred thread offers an Unstar affordance.
 		expect(screen.getByRole('button', { name: 'Unstar' })).toBeInTheDocument()
-		// Unread threads bump the header badge.
-		expect(screen.getByText('1 unread')).toBeInTheDocument()
+		// Unread threads bump the header badge (count only, matching the mail folder list).
+		expect(screen.getByText('1')).toBeInTheDocument()
 	})
 
 	it('falls back to "(no subject)" and hides date/counts for a sparse read thread', () => {
@@ -320,7 +320,8 @@ describe('mail.compose thread list', () => {
 
 		expect(screen.getByText('(no subject)')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Star' })).toBeInTheDocument()
-		expect(screen.queryByText(/unread/)).not.toBeInTheDocument()
+		// A fully-read folder shows no unread-count badge in the header.
+		expect(screen.queryByText('1')).not.toBeInTheDocument()
 	})
 
 	it('toggles a row star through the server and refreshes the list', async () => {
@@ -524,8 +525,8 @@ describe('mail.compose selected backdrop', () => {
 				selected: { thread: active, messages: [makeMessage()], mailboxEmail: 'me@x.com' },
 			},
 		})
-		// The unread badge is shared with the selected-conversation layout.
-		expect(screen.getByText('1 unread')).toBeInTheDocument()
+		// The unread badge is shared with the selected-conversation layout (count only).
+		expect(screen.getByText('1')).toBeInTheDocument()
 		// The newest (unread) row sorts first; starring it hits the server.
 		fireEvent.click(screen.getAllByRole('button', { name: 'Star' })[0])
 		await waitFor(() =>
