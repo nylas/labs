@@ -38,7 +38,8 @@ describe('home route redirect', () => {
 
 		await expect(Route.options.beforeLoad()).rejects.toMatchObject({
 			to: '/mail/f/$folderId',
-			options: { params: { folderId: 'inbox' } },
+			// Replaces the transient root entry so Back doesn't bounce off the redirect.
+			options: { params: { folderId: 'inbox' }, replace: true },
 		})
 	})
 

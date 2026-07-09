@@ -14,6 +14,8 @@ export const Route = createFileRoute('/mail/')({
 	beforeLoad: async () => {
 		const state = await mailIndexState()
 		if (!state.authenticated) throw redirect({ to: LOGIN_PATH })
-		throw redirect({ to: '/mail/f/$folderId', params: { folderId: DEFAULT_MAIL_FOLDER_ID } })
+		// Replace (not push) so Back skips the transient /mail entry instead of
+		// re-triggering this redirect and trapping the user on the inbox.
+		throw redirect({ to: '/mail/f/$folderId', params: { folderId: DEFAULT_MAIL_FOLDER_ID }, replace: true })
 	},
 })

@@ -269,6 +269,28 @@ function SearchThreadDetail({
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<ThreadConversation thread={selected.thread} messages={selected.messages} />
 			</div>
+
+			{lastMessage ? (
+				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
+					<button
+						type="button"
+						onClick={() =>
+							router.navigate({
+								to: '/mail/compose',
+								search: {
+									folderId: routeFolderId,
+									threadId: selected.thread.id,
+									...replyDraftSearch(lastMessage),
+								},
+							})
+						}
+						className="flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground"
+					>
+						<Reply className="h-4 w-4 shrink-0" />
+						<span>Write a reply…</span>
+					</button>
+				</div>
+			) : null}
 		</div>
 	)
 }

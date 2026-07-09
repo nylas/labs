@@ -347,6 +347,8 @@ describe('/mail/search thread detail', () => {
 		await user.click(screen.getByRole('button', { name: 'Reply' }))
 		await user.click(screen.getByRole('button', { name: 'Reply all' }))
 		await user.click(screen.getByRole('button', { name: 'Forward' }))
+		// The mobile "Write a reply…" footer also routes to the composer.
+		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
 		await waitFor(() =>
 			expect(h.navigate).toHaveBeenCalledWith(
 				expect.objectContaining({
