@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
-import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
+import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
+import { Compass } from 'lucide-react'
 import { APP_DESCRIPTION, APP_TITLE, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '../components/app-meta.js'
+import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { INITIAL_ROOT_CLASS_NAME } from '../components/theme.js'
 import appCss from '../styles.css?url'
 
@@ -23,7 +25,30 @@ export const Route = createRootRoute({
 		],
 	}),
 	component: RootComponent,
+	notFoundComponent: NotFoundComponent,
 })
+
+function NotFoundComponent() {
+	return (
+		<div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+			<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
+				<Compass className="h-6 w-6" />
+			</div>
+			<div>
+				<p className="font-display text-sm font-semibold text-foreground">Page not found</p>
+				<p className="mt-1 text-sm text-muted-foreground">
+					The page you’re looking for doesn’t exist or has moved.
+				</p>
+			</div>
+			<Link
+				to={MAIL_HOME_PATH}
+				className="mt-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+			>
+				Back to mail
+			</Link>
+		</div>
+	)
+}
 
 function RootComponent() {
 	return (
