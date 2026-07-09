@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { Calendar, Mail, Moon, Pencil, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import { CALENDAR_HOME_PATH } from './route-paths.js'
 import { ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from './theme.js'
 import { cn, MAIL_FOLDERS } from './ui-model.js'
 
@@ -67,7 +67,6 @@ export function CommandPalette({
 					navigate({
 						to: '/mail/f/$folderId',
 						params: { folderId: folder.id },
-						...(folder.id === 'inbox' ? { mask: { to: MAIL_HOME_PATH } } : {}),
 					}),
 			})),
 			{

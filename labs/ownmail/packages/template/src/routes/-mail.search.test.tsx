@@ -384,9 +384,8 @@ describe('/mail/search thread detail', () => {
 				data: { threadId: 'th1', folder: 'archive' },
 			}),
 		)
-		expect(h.navigate).toHaveBeenCalledWith(
-			expect.objectContaining({ to: '/mail/search', mask: { to: '/' } }),
-		)
+		expect(h.navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
+		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
 
 		// Deleting also leaves the thread, moving it to trash.
 		await user.click(screen.getByLabelText('Delete'))
@@ -405,12 +404,11 @@ describe('/mail/search thread detail', () => {
 			}),
 		)
 
-		// Escape returns to the list, carrying the masked route so the URL stays private.
+		// Escape returns to the list with a real URL (no mask).
 		h.navigate.mockClear()
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-		expect(h.navigate).toHaveBeenCalledWith(
-			expect.objectContaining({ to: '/mail/search', mask: { to: '/' } }),
-		)
+		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
+		expect(h.navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
 	})
 
 	it('falls back to placeholder attachment metadata and disables reply when a thread has no messages', async () => {

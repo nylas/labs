@@ -26,7 +26,6 @@ import {
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
 	searchListSearch,
-	searchMaskFromMailLocation,
 	threadLabels,
 	threadRouteFolderId,
 	threadSender,
@@ -65,8 +64,6 @@ function SearchResults() {
 	const { threads, folders, folderId, selected } = Route.useLoaderData()
 	const { q, threadId } = Route.useSearch()
 	const router = useRouter()
-	const publicPathname = router.state.location.maskedLocation?.pathname ?? router.state.location.pathname
-	const searchMask = searchMaskFromMailLocation(publicPathname)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -108,7 +105,6 @@ function SearchResults() {
 								thread={thread}
 								q={q}
 								searchFolderId={folderId}
-								mask={searchMask}
 								active={thread.id === threadId}
 							/>
 						))
@@ -117,7 +113,7 @@ function SearchResults() {
 			</section>
 			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden md:flex')}>
 				{selected ? (
-					<SearchThreadDetail selected={selected} q={q} folderId={folderId} mask={searchMask} />
+					<SearchThreadDetail selected={selected} q={q} folderId={folderId} />
 				) : (
 					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
@@ -138,13 +134,11 @@ function SearchThreadRow({
 	thread,
 	q,
 	searchFolderId,
-	mask,
 	active,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	q: string
 	searchFolderId?: string
-	mask?: { to: '/' }
 	active: boolean
 }) {
 	const folderId = threadRouteFolderId(thread)
@@ -163,7 +157,6 @@ function SearchThreadRow({
 		<Link
 			to="/mail/search"
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
-			{...(mask ? { mask } : {})}
 			data-active={active ? 'true' : undefined}
 			data-unread={thread.unread ? 'true' : undefined}
 			className={cn(
@@ -218,12 +211,10 @@ function SearchThreadDetail({
 	selected,
 	q,
 	folderId,
-	mask,
 }: {
 	selected: { thread: Thread; messages: Message[]; mailboxEmail: string }
 	q: string
 	folderId?: string
-	mask?: { to: '/' }
 }) {
 	const router = useRouter()
 	const routeFolderId = threadRouteFolderId(selected.thread)
@@ -245,13 +236,12 @@ function SearchThreadDetail({
 				router.navigate({
 					to: '/mail/search',
 					search: searchList,
-					...(mask ? { mask } : {}),
 				})
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [mask, router, searchList])
+	}, [router, searchList])
 
 	async function act(input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) {
 		await updateThreadState({ data: { threadId: selected.thread.id, ...input } })
@@ -259,7 +249,6 @@ function SearchThreadDetail({
 			await router.navigate({
 				to: '/mail/search',
 				search: searchList,
-				...(mask ? { mask } : {}),
 			})
 		}
 		await router.invalidate()
@@ -271,7 +260,6 @@ function SearchThreadDetail({
 				<Link
 					to="/mail/search"
 					search={searchList}
-					{...(mask ? { mask } : {})}
 					aria-label="Back to list"
 					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
 				>

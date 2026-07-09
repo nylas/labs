@@ -86,17 +86,16 @@ describe('CommandPalette', () => {
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 
-	it('masks the inbox folder command to the mail home path', () => {
+	it('navigates to the inbox folder with a real URL (no mask)', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		fireEvent.click(screen.getByText('Go to Inbox'))
 		expect(navigateSpy).toHaveBeenCalledWith({
 			to: '/mail/f/$folderId',
 			params: { folderId: 'inbox' },
-			mask: { to: '/' },
 		})
 	})
 
-	it('navigates to non-inbox folders without a mask', () => {
+	it('navigates to non-inbox folders with a real URL (no mask)', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		fireEvent.click(screen.getByText('Go to Sent'))
 		expect(navigateSpy).toHaveBeenCalledWith({
