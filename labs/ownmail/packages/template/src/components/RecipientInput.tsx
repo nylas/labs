@@ -115,11 +115,13 @@ export function RecipientInput({
 	}
 
 	return (
-		<div className="relative">
+		// The width class lives on the root so the absolutely-positioned suggestion
+		// list (w-full) spans the whole field instead of just the typed content.
+		<div className={cn('relative', className)}>
 			<label className="sr-only" htmlFor={id}>
 				{label}
 			</label>
-			<div className={cn('flex flex-wrap items-center gap-1', className)}>
+			<div className="flex flex-wrap items-center gap-1">
 				{tokens.map((token, index) => (
 					<span
 						key={token}
@@ -175,11 +177,11 @@ export function RecipientInput({
 							>
 								{suggestion.name ? (
 									<>
-										<span className="font-medium">{suggestion.name}</span>{' '}
-										<span className="text-muted-foreground">&lt;{suggestion.email}&gt;</span>
+										<span className="block truncate font-medium">{suggestion.name}</span>
+										<span className="block truncate text-muted-foreground">{suggestion.email}</span>
 									</>
 								) : (
-									suggestion.email
+									<span className="block truncate">{suggestion.email}</span>
 								)}
 							</button>
 						</li>

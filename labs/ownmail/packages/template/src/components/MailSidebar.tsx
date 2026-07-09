@@ -38,7 +38,7 @@ export function MailSidebar({
 
 	return (
 		<aside className={cn('flex w-full flex-col', className)}>
-			<div className="border-b border-border p-3">
+			<div className="flex h-14 shrink-0 items-center border-b border-border px-3">
 				<Link
 					to="/mail/compose"
 					search={composeSearch}

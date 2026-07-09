@@ -262,7 +262,7 @@ describe('mail.compose composer prefill', () => {
 			},
 		})
 		expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('a@x.com, b@x.com')
-		expect((screen.getByPlaceholderText('Subject') as HTMLInputElement).value).toBe('Draft subject')
+		expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toBe('Draft subject')
 		expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
 			'Draft body',
 		)
@@ -571,7 +571,7 @@ describe('mail.compose keyboard escape', () => {
 	it('ignores Escape and modifier keys while typing or with modifiers held', () => {
 		renderSelected()
 		// Typing in a field must not close the composer.
-		fireEvent.keyDown(screen.getByPlaceholderText('Subject'), { key: 'Escape' })
+		fireEvent.keyDown(screen.getByLabelText('Subject'), { key: 'Escape' })
 		fireEvent.keyDown(screen.getByPlaceholderText('Write your message...'), { key: 'Escape' })
 		fireEvent.keyDown(document.body, { key: 'Escape', repeat: true })
 		fireEvent.keyDown(document.body, { key: 'Escape', metaKey: true })
@@ -642,11 +642,11 @@ describe('mail.compose window controls', () => {
 describe('mail.compose editing', () => {
 	it('updates subject and body as the user types', () => {
 		renderCompose()
-		fireEvent.change(screen.getByPlaceholderText('Subject'), { target: { value: 'My subject' } })
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'My subject' } })
 		fireEvent.change(screen.getByPlaceholderText('Write your message...'), {
 			target: { value: 'My body' },
 		})
-		expect((screen.getByPlaceholderText('Subject') as HTMLInputElement).value).toBe('My subject')
+		expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toBe('My subject')
 		expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
 			'My body',
 		)
