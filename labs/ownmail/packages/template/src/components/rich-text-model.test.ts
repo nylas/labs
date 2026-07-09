@@ -12,7 +12,6 @@ import {
 	docToHtml,
 	emptyDoc,
 	htmlToDoc,
-	insertSoftBreak,
 	insertText,
 	linkAt,
 	type Mark,
@@ -241,16 +240,15 @@ describe('rich-text-model: splitBlock', () => {
 	})
 })
 
-describe('rich-text-model: insertText & insertSoftBreak', () => {
+describe('rich-text-model: insertText', () => {
 	it('drops the empty fragment when inserting an empty string, leaving the text intact', () => {
 		// Normalisation must discard the zero-length span so no empty run pollutes the model.
 		const doc = [para(span('hi'))]
 		expect(insertText(doc, 0, 0, '').doc).toEqual([para(span('hi'))])
 	})
 
-	it('inserts a soft break and advances the caret so Shift+Enter stays within a block', () => {
-		const doc = [para(span('ab'))]
-		const result = insertSoftBreak(doc, 1)
+	it('turns a newline in inserted text into a soft break so pasted multi-line text keeps its breaks', () => {
+		const result = insertText([para(span('ab'))], 1, 1, '\n')
 		expect(docText(result.doc)).toBe('a\nb')
 		expect(result.caret).toBe(2)
 	})

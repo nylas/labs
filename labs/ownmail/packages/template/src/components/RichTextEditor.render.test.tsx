@@ -166,12 +166,16 @@ describe('RichTextEditor structural keys', () => {
 		expect(editor.querySelectorAll('p')[1]?.textContent).toBe('cd')
 	})
 
-	it('inserts a soft break within the block on Shift+Enter', () => {
+	it('leaves Shift+Enter to the browser so it manages the soft-break filler and caret', () => {
+		// A caret cannot sit after a trailing <br>, so we do not intercept Shift+Enter:
+		// the browser inserts the break natively and onInput re-parses. Here we assert we
+		// neither prevent the default nor run a model commit.
 		const { editor, onChange } = setup('<p>abcd</p>')
 		select(editor, 2)
-		fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
-		expect(editor.querySelectorAll('p')).toHaveLength(1)
-		expect(lastHtml(onChange)).toBe('<p>ab<br>cd</p>')
+		onChange.mockClear()
+		const notPrevented = fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
+		expect(notPrevented).toBe(true)
+		expect(onChange).not.toHaveBeenCalled()
 	})
 
 	it('replaces a selection with the split when Enter is pressed over a range', () => {

@@ -142,8 +142,23 @@ function locateInNodes(nodes: Node[], local: number): { node: Node; offset: numb
 		for (const child of Array.from(current.childNodes)) visit(child)
 	}
 	for (const node of nodes) visit(node)
-	// Empty block (an empty element like `<p></p>`): anchor in its first node.
-	return result ?? { node: nodes[0] as Node, offset: 0 }
+	// The caret is at or past the end of the block's content (e.g. right after a
+	// trailing `<br>` from Shift+Enter, or an empty block). Anchor at the end, not
+	// the start, so the next character lands on the new line rather than the top.
+	return result ?? endOfNodes(nodes)
+}
+
+/** The DOM position at the very end of a block's content. */
+function endOfNodes(nodes: Node[]): { node: Node; offset: number } {
+	const last = nodes[nodes.length - 1] as Node
+	// A block-level container (e.g. <p>, <li>) holds the caret at the end of its
+	// children — that sits after a trailing <br>. A bare text/<br> at the root has
+	// no such container, so anchor just after it in its parent.
+	if (last.nodeType === 1 && (last as HTMLElement).tagName !== 'BR') {
+		return { node: last, offset: last.childNodes.length }
+	}
+	const parent = last.parentNode as Node
+	return { node: parent, offset: Array.from(parent.childNodes).indexOf(last as ChildNode) + 1 }
 }
 
 // ---- live-selection wrappers -------------------------------------------------

@@ -109,6 +109,22 @@ describe('pointAt', () => {
 		expect(point.offset).toBe(0)
 	})
 
+	it('anchors after a trailing <br> so a Shift+Enter caret lands on the new line', () => {
+		// `<p>text<br></p>` is what "text" + a trailing soft break renders to; offset 5
+		// (after the break) must resolve to the END of the block, not its start.
+		const root = mount('<p>text<br></p>')
+		const point = pointAt(root, 5)
+		expect((point.node as HTMLElement).tagName).toBe('P')
+		expect(point.offset).toBe(2) // after both the text node and the <br>
+	})
+
+	it('anchors after a trailing <br> in loose top-level content (no block wrapper)', () => {
+		const root = mount('text<br>')
+		const point = pointAt(root, 5)
+		expect(point.node).toBe(root)
+		expect(point.offset).toBe(2) // after the text node and the <br> within the root
+	})
+
 	it('anchors at a leading <br> element position for an empty block', () => {
 		const root = mount('<p><br></p>')
 		const point = pointAt(root, 0)
@@ -192,5 +208,12 @@ describe('writeOffsets', () => {
 		const root = mount('<p>hello</p><p>world</p>')
 		writeOffsets(root, 2, 8)
 		expect(readOffsets(root)).toEqual({ start: 2, end: 8 })
+	})
+
+	it('round-trips a caret placed right after a trailing soft break', () => {
+		// Regression: the caret after a trailing <br> used to collapse to offset 0.
+		const root = mount('<p>text<br></p>')
+		writeOffsets(root, 5, 5)
+		expect(readOffsets(root)).toEqual({ start: 5, end: 5 })
 	})
 })

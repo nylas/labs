@@ -11,7 +11,6 @@ import {
 	docIsEmpty,
 	docToHtml,
 	htmlToDoc,
-	insertSoftBreak,
 	insertText,
 	linkAt,
 	type Mark,
@@ -202,15 +201,17 @@ export function RichTextEditor({
 				else openLink()
 				return
 			}
-			if (event.key === 'Enter') {
+			// Shift+Enter (soft break) is left to the browser: it manages the trailing
+			// `<br>` filler and caret in ways a controlled re-render cannot (a caret
+			// cannot sit after a trailing `<br>`). onInput re-parses to stay in sync.
+			if (event.key === 'Enter' && !event.shiftKey) {
 				const range = readOffsets(root)
 				/* v8 ignore next -- Enter cannot fire without a selection inside the editable */
 				if (!range) return
 				event.preventDefault()
 				const doc =
 					range.start === range.end ? currentDoc() : deleteRange(currentDoc(), range.start, range.end)
-				const caret = Math.min(range.start, range.end)
-				const result = event.shiftKey ? insertSoftBreak(doc, caret) : splitBlock(doc, caret)
+				const result = splitBlock(doc, Math.min(range.start, range.end))
 				commit(result.doc, result.caret)
 				return
 			}

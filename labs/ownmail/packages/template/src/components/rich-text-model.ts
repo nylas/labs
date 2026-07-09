@@ -294,14 +294,9 @@ export function splitBlock(doc: Doc, offset: number): { doc: Doc; caret: number 
 	return { doc: rebuilt, caret: blockStart(rebuilt, index + 1) }
 }
 
-/** Insert a soft line break (`\n`) at the caret, staying within the block. */
-export function insertSoftBreak(doc: Doc, offset: number): { doc: Doc; caret: number } {
-	return { doc: insertText(doc, offset, offset, '\n').doc, caret: offset + 1 }
-}
-
 /**
  * Replace `[start, end)` with `text` inside a single block. Newlines become
- * soft breaks; callers use this for plain runs, soft breaks, and paste.
+ * soft breaks; callers use this for plain runs and paste.
  */
 export function insertText(doc: Doc, start: number, end: number, text: string): { doc: Doc; caret: number } {
 	const [from, to] = order(start, end)
