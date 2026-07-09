@@ -3,6 +3,7 @@ import { Calendar, Mail, Moon, Pencil, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CALENDAR_HOME_PATH } from './route-paths.js'
 import { ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from './theme.js'
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js'
 import { cn, MAIL_FOLDERS } from './ui-model.js'
 
 type Command = {
@@ -104,10 +105,6 @@ export function CommandPalette({
 	useEffect(() => {
 		if (!open) return
 		function onKeyDown(event: KeyboardEvent) {
-			if (event.key === 'Escape') {
-				event.preventDefault()
-				onClose()
-			}
 			if (event.key === 'ArrowDown') {
 				event.preventDefault()
 				setActiveIndex((index) => Math.min(index + 1, Math.max(filtered.length - 1, 0)))
@@ -123,24 +120,24 @@ export function CommandPalette({
 		}
 		document.addEventListener('keydown', onKeyDown)
 		return () => document.removeEventListener('keydown', onKeyDown)
-	}, [activeIndex, filtered, go, onClose, open])
-
-	if (!open) return null
+	}, [activeIndex, filtered, go, open])
 
 	return (
-		<div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]" role="presentation">
-			<button
-				type="button"
-				aria-label="Close command palette"
-				className="sheet-backdrop absolute inset-0 bg-foreground/25 backdrop-blur-[3px]"
-				onClick={onClose}
-			/>
-			<div
-				role="dialog"
-				aria-modal="true"
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (!next) onClose()
+			}}
+		>
+			<DialogContent
 				aria-label="Command palette"
-				className="command-palette relative w-full max-w-lg overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+				className="command-palette top-[12vh] translate-y-0"
+				onOpenAutoFocus={(event) => {
+					event.preventDefault()
+					inputRef.current?.focus()
+				}}
 			>
+				<DialogTitle className="sr-only">Command palette</DialogTitle>
 				<div className="flex items-center gap-3 border-b border-border px-4 py-3">
 					<Search className="h-4 w-4 shrink-0 text-muted-foreground" />
 					<input
@@ -191,8 +188,8 @@ export function CommandPalette({
 						<kbd className="kbd">↵</kbd> select
 					</span>
 				</div>
-			</div>
-		</div>
+			</DialogContent>
+		</Dialog>
 	)
 }
 

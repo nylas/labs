@@ -147,10 +147,10 @@ describe('CommandPalette', () => {
 		expect(calendarRow).toHaveAttribute('aria-current', 'true')
 	})
 
-	it('closes when the backdrop is clicked', () => {
+	it('closes on Escape via the dialog dismiss layer', () => {
 		const onClose = vi.fn()
 		render(<CommandPalette open={true} onClose={onClose} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Close command palette' }))
+		fireEvent.keyDown(document.body, { key: 'Escape' })
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 })
