@@ -75,20 +75,10 @@ function CalendarViewRoutePage() {
 	return <CalendarRouteScreen view={view} data={data} />
 }
 
-export function CalendarRouteScreen({
-	view,
-	data,
-	navigationMode = 'route',
-}: {
-	view: CalView
-	data: CalendarRouteData
-	navigationMode?: 'route' | 'local'
-}) {
+export function CalendarRouteScreen({ view, data }: { view: CalView; data: CalendarRouteData }) {
 	const { events, calendar, calendars, info, anchorIso } = data
 	const navigate = useNavigate()
 	const router = useRouter()
-	const [localView, setLocalView] = useState(view)
-	const [localAnchorIso, setLocalAnchorIso] = useState(anchorIso)
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
@@ -98,8 +88,8 @@ export function CalendarRouteScreen({
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	useCommandPaletteShortcut(openPalette)
-	const currentView = navigationMode === 'local' ? localView : view
-	const currentAnchorIso = navigationMode === 'local' ? localAnchorIso : anchorIso
+	const currentView = view
+	const currentAnchorIso = anchorIso
 	const anchor = useMemo(() => new Date(`${currentAnchorIso}T00:00:00`), [currentAnchorIso])
 	const visibleEvents = useMemo(
 		() => filterEventsByCalendars(events, hiddenCalendarIds),
@@ -129,20 +119,10 @@ export function CalendarRouteScreen({
 
 	const go = useCallback(
 		(nextView: CalView, nextAnchor: Date) => {
-			if (navigationMode === 'local') {
-				setLocalView(nextView)
-				setLocalAnchorIso(ymd(nextAnchor))
-				return
-			}
 			navigate({ to: '/calendar/$view', params: { view: nextView }, search: { date: ymd(nextAnchor) } })
 		},
-		[navigate, navigationMode],
+		[navigate],
 	)
-
-	useEffect(() => {
-		setLocalView(view)
-		setLocalAnchorIso(anchorIso)
-	}, [anchorIso, view])
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
