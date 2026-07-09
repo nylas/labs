@@ -248,8 +248,56 @@ function daysAgo(dayCount: number, hour: number, minute: number): number {
 	return Math.floor(date.getTime() / 1000)
 }
 
+// A real-world HTML newsletter: table layout, a fixed 600px width, inline styles,
+// remote image, and several links — exercises the HTML renderer (shadow-DOM CSS
+// scoping, links-open-in-new-tab + hover preview, auto-dark, and shrink-to-fit on
+// narrow screens). Deliberately ships no dark-mode styles so auto-dark kicks in.
+const NEWSLETTER_BODY = `
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;margin:0 auto;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;background:#ffffff;color:#1f2937">
+	<tr><td style="background:#4f46e5;padding:28px 32px">
+		<span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.3px">The&nbsp;Dispatch</span>
+		<span style="color:#c7d2fe;font-size:13px;float:right;padding-top:6px">Issue #48 · Weekly</span>
+	</td></tr>
+	<tr><td style="padding:0">
+		<img src="https://picsum.photos/600/220" width="600" alt="A desk with a laptop and coffee" style="display:block;width:600px;height:auto" />
+	</td></tr>
+	<tr><td style="padding:32px 32px 8px">
+		<h1 style="margin:0 0 12px;font-size:26px;line-height:1.25;color:#111827">Calendar sync is here — and it’s fast</h1>
+		<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#374151">This week we shipped two-way calendar sync across Google, Microsoft, and iCloud. Events you create in ownmail now land in your provider within seconds, and vice versa. Here’s everything new.</p>
+		<a href="https://ownmail.example.com/blog/calendar-sync" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:8px">Read the announcement →</a>
+	</td></tr>
+	<tr><td style="padding:24px 32px">
+		<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 24px" />
+		<h2 style="margin:0 0 8px;font-size:17px;color:#111827">Three tips for shipping faster</h2>
+		<p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#374151">Small changes, reviewed and deployed the same day, beat big-bang releases. Our team’s favorite habits, distilled.</p>
+		<p style="margin:0 0 24px"><a href="https://ownmail.example.com/blog/shipping-tips" style="color:#4f46e5;text-decoration:none;font-weight:600;font-size:14px">Keep reading →</a></p>
+		<h2 style="margin:0 0 8px;font-size:17px;color:#111827">What we learned rebuilding search</h2>
+		<p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#374151">Rebuilding full-text search on top of a new index cut p95 latency by 60%. The tradeoffs, and what we’d do differently.</p>
+		<p style="margin:0"><a href="https://ownmail.example.com/blog/search-rebuild" style="color:#4f46e5;text-decoration:none;font-weight:600;font-size:14px">Read the deep dive →</a></p>
+	</td></tr>
+	<tr><td style="background:#f9fafb;padding:24px 32px;text-align:center">
+		<p style="margin:0 0 8px;font-size:13px;color:#6b7280">You’re receiving this because you subscribed to The Dispatch.</p>
+		<p style="margin:0;font-size:13px;color:#6b7280"><a href="https://ownmail.example.com/unsubscribe" style="color:#6b7280;text-decoration:underline">Unsubscribe</a> · <a href="https://ownmail.example.com/preferences" style="color:#6b7280;text-decoration:underline">Manage preferences</a></p>
+	</td></tr>
+</table>`
+
 const messages = new Map<string, StoredMessage>(
 	[
+		{
+			id: 'msg-newsletter-1',
+			thread_id: 'thread-newsletter',
+			subject: 'The Dispatch — your weekly product digest',
+			snippet:
+				'This week: the new calendar sync, three shipping tips, and what we learned rebuilding search.',
+			body: NEWSLETTER_BODY,
+			from: [{ name: 'The Dispatch', email: 'digest@dispatch.email' }],
+			to: [ACCOUNT],
+			date: daysAgo(0, 9, 45),
+			unread: true,
+			starred: false,
+			folders: ['inbox'],
+			grant_id: GRANT_ID,
+		},
 		{
 			id: 'msg-roadmap-1',
 			thread_id: 'thread-roadmap',
@@ -435,6 +483,20 @@ const messages = new Map<string, StoredMessage>(
 
 const threads = new Map<string, StoredThread>(
 	[
+		{
+			id: 'thread-newsletter',
+			subject: 'The Dispatch — your weekly product digest',
+			snippet:
+				'This week: the new calendar sync, three shipping tips, and what we learned rebuilding search.',
+			participants: [{ name: 'The Dispatch', email: 'digest@dispatch.email' }],
+			message_ids: ['msg-newsletter-1'],
+			latest_message_received_date: daysAgo(0, 9, 45),
+			has_attachments: false,
+			unread: true,
+			starred: false,
+			folders: ['inbox'],
+			grant_id: GRANT_ID,
+		},
 		{
 			id: 'thread-roadmap',
 			subject: 'Q3 product roadmap — final review before Monday',
