@@ -296,92 +296,92 @@ export function EventModal({
 			</div>
 
 			<div className="space-y-4 px-5 py-4">
+				<input
+					ref={titleInputRef}
+					value={title}
+					onChange={(e) => setTitle(e.target.value)}
+					placeholder="Add title"
+					className="event-dialog-field w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary"
+				/>
+				<div className="flex items-center gap-3 text-sm">
+					<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+					<span>{formatFullDate(defaultStart)}</span>
+				</div>
+				<div className="flex items-center gap-3 text-sm">
+					<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+					<select
+						value={startHour}
+						onChange={(e) => setStartHour(Number(e.target.value))}
+						className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
+					>
+						{TIME_OPTIONS.map((hour) => (
+							<option key={hour} value={hour}>
+								{formatDecimalHour(hour)}
+							</option>
+						))}
+					</select>
+					<span className="text-muted-foreground">to</span>
+					<select
+						value={endHour}
+						onChange={(e) => setEndHour(Number(e.target.value))}
+						className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
+					>
+						{TIME_OPTIONS.map((hour) => (
+							<option key={hour} value={hour}>
+								{formatDecimalHour(hour)}
+							</option>
+						))}
+					</select>
+				</div>
+				<label className="flex items-center gap-3 text-sm">
+					<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
 					<input
-						ref={titleInputRef}
-						value={title}
-						onChange={(e) => setTitle(e.target.value)}
-						placeholder="Add title"
-						className="event-dialog-field w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary"
+						value={location}
+						onChange={(e) => setLocation(e.target.value)}
+						placeholder="Add location"
+						className="event-dialog-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 					/>
-					<div className="flex items-center gap-3 text-sm">
-						<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-						<span>{formatFullDate(defaultStart)}</span>
-					</div>
-					<div className="flex items-center gap-3 text-sm">
-						<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-						<select
-							value={startHour}
-							onChange={(e) => setStartHour(Number(e.target.value))}
-							className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
-						>
-							{TIME_OPTIONS.map((hour) => (
-								<option key={hour} value={hour}>
-									{formatDecimalHour(hour)}
-								</option>
-							))}
-						</select>
-						<span className="text-muted-foreground">to</span>
-						<select
-							value={endHour}
-							onChange={(e) => setEndHour(Number(e.target.value))}
-							className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
-						>
-							{TIME_OPTIONS.map((hour) => (
-								<option key={hour} value={hour}>
-									{formatDecimalHour(hour)}
-								</option>
-							))}
-						</select>
-					</div>
-					<label className="flex items-center gap-3 text-sm">
-						<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-						<input
-							value={location}
-							onChange={(e) => setLocation(e.target.value)}
-							placeholder="Add location"
-							className="event-dialog-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-						/>
-					</label>
-					<div className="flex flex-wrap items-center gap-2">
-						{calendars.map((calendar, index) => {
-							const active = calendar.id === selectedCalendarId
-							const tone = calendarTone(calendar, index)
-							return (
-								<button
-									key={calendar.id}
-									type="button"
-									onClick={() => setSelectedCalendarId(calendar.id)}
-									className={eventCalendarChoiceClass(active, tone)}
-								>
-									<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
-									{calendar.name || 'Calendar'}
-								</button>
-							)
-						})}
-					</div>
-					{error ? (
-						<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
-					) : null}
+				</label>
+				<div className="flex flex-wrap items-center gap-2">
+					{calendars.map((calendar, index) => {
+						const active = calendar.id === selectedCalendarId
+						const tone = calendarTone(calendar, index)
+						return (
+							<button
+								key={calendar.id}
+								type="button"
+								onClick={() => setSelectedCalendarId(calendar.id)}
+								className={eventCalendarChoiceClass(active, tone)}
+							>
+								<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
+								{calendar.name || 'Calendar'}
+							</button>
+						)
+					})}
 				</div>
-
-				<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
-					<button
-						type="button"
-						onClick={() => onClose(false)}
-						className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
-					>
-						Cancel
-					</button>
-					<button
-						type="button"
-						disabled={busy}
-						onClick={save}
-						className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
-					>
-						{busy ? 'Saving...' : 'Save event'}
-					</button>
-				</div>
+				{error ? (
+					<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+				) : null}
 			</div>
+
+			<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+				<button
+					type="button"
+					onClick={() => onClose(false)}
+					className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					disabled={busy}
+					onClick={save}
+					className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+				>
+					{busy ? 'Saving...' : 'Save event'}
+				</button>
+			</div>
+		</div>
 	)
 }
 
