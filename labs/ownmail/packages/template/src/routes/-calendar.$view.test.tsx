@@ -265,8 +265,7 @@ describe('CalendarViewRoutePage wrapper', () => {
 // ---- week view (route navigation) -----------------------------------------
 
 describe('week view + header navigation', () => {
-	const renderWeek = (data = richData()) =>
-		render(<CalendarRouteScreen view="week" data={data} navigationMode="route" />)
+	const renderWeek = (data = richData()) => render(<CalendarRouteScreen view="week" data={data} />)
 
 	it('renders the week title and marks the week view as active', () => {
 		renderWeek()
@@ -335,8 +334,7 @@ describe('week view + header navigation', () => {
 })
 
 describe('week view mini-calendar', () => {
-	const renderWeek = () =>
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+	const renderWeek = () => render(<CalendarRouteScreen view="week" data={richData()} />)
 
 	it('pages the mini calendar between months without navigating the grid', () => {
 		renderWeek()
@@ -362,7 +360,7 @@ describe('week view mini-calendar', () => {
 
 describe('week view calendar list', () => {
 	it('toggles a calendar off and back on, hiding its events in between', () => {
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+		render(<CalendarRouteScreen view="week" data={richData()} />)
 		const workToggle = screen.getByRole('button', { name: 'Work' })
 		expect(workToggle).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: /Standup/ })).toBeInTheDocument()
@@ -375,14 +373,13 @@ describe('week view calendar list', () => {
 	})
 
 	it('labels an unnamed calendar as "Calendar"', () => {
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+		render(<CalendarRouteScreen view="week" data={richData()} />)
 		expect(screen.getByRole('button', { name: 'Calendar' })).toBeInTheDocument()
 	})
 })
 
 describe('week view time grid', () => {
-	const renderWeek = () =>
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+	const renderWeek = () => render(<CalendarRouteScreen view="week" data={richData()} />)
 
 	it('renders an all-day band with single-day and multi-day segments', () => {
 		renderWeek()
@@ -440,14 +437,14 @@ describe('week view time grid', () => {
 			...richData(),
 			events: [{ id: 'ad', calendar_id: 'cal1', title: '', when: { date: '2024-06-15' } }] as Event[],
 		}
-		render(<CalendarRouteScreen view="day" data={data} navigationMode="route" />)
+		render(<CalendarRouteScreen view="day" data={data} />)
 		expect(screen.getByRole('button', { name: '(untitled)' })).toBeInTheDocument()
 	})
 })
 
 describe('day view time grid', () => {
 	it('renders a single day column with all-day events and no inter-day rules', () => {
-		const { container } = render(<CalendarRouteScreen view="day" data={richData()} navigationMode="route" />)
+		const { container } = render(<CalendarRouteScreen view="day" data={richData()} />)
 		// Only 16 hour slots for a single day column (7:00 through 22:00 inclusive).
 		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(16)
 		expect(screen.getByText('All day')).toBeInTheDocument()
@@ -455,7 +452,7 @@ describe('day view time grid', () => {
 	})
 
 	it('omits the all-day band entirely when a day has only timed events', () => {
-		render(<CalendarRouteScreen view="day" data={timedOnlyData()} navigationMode="route" />)
+		render(<CalendarRouteScreen view="day" data={timedOnlyData()} />)
 		expect(screen.queryByText('All day')).toBeNull()
 		expect(screen.getByRole('button', { name: /Focus/ })).toBeInTheDocument()
 	})
@@ -472,8 +469,7 @@ describe('month view', () => {
 		vi.useRealTimers()
 	})
 
-	const renderMonth = () =>
-		render(<CalendarRouteScreen view="month" data={monthData()} navigationMode="route" />)
+	const renderMonth = () => render(<CalendarRouteScreen view="month" data={monthData()} />)
 
 	it('highlights today and dims out-of-month days', () => {
 		renderMonth()
@@ -539,49 +535,42 @@ describe('current-time indicator', () => {
 	it('draws the now line on the current day when the hour is in view', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
-		const { container } = render(
-			<CalendarRouteScreen view="day" data={richData('2024-06-15')} navigationMode="route" />,
-		)
+		const { container } = render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
 		expect(container.querySelector('.bg-destructive')).not.toBeNull()
 	})
 
 	it('hides the now line when the current hour is outside the visible window', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T05:00:00'))
-		const { container } = render(
-			<CalendarRouteScreen view="day" data={richData('2024-06-15')} navigationMode="route" />,
-		)
+		const { container } = render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
 		expect(container.querySelector('.bg-destructive')).toBeNull()
 	})
 })
 
-// ---- local navigation mode ------------------------------------------------
+// ---- keyboard shortcuts ---------------------------------------------------
 
-describe('local navigation mode', () => {
-	const renderLocal = (view: 'day' | 'week' | 'month' = 'week') =>
-		render(<CalendarRouteScreen view={view} data={richData()} navigationMode="local" />)
+describe('keyboard shortcuts', () => {
+	const renderView = (view: 'day' | 'week' | 'month' = 'week') =>
+		render(<CalendarRouteScreen view={view} data={richData()} />)
 
-	it('switches views in place via the toggle without touching the router', () => {
-		renderLocal()
-		fireEvent.click(screen.getByRole('button', { name: 'month' }))
-		expect(screen.getByText('Mon')).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'month' })).toHaveAttribute('aria-pressed', 'true')
-		expect(h.navigate).not.toHaveBeenCalled()
-	})
-
-	it('supports m / w / d keyboard shortcuts to change view', () => {
-		renderLocal()
+	it('navigates the view via the m / w / d shortcuts', () => {
+		renderView('week')
 		fireEvent.keyDown(document.body, { key: 'm' })
-		expect(screen.getByRole('button', { name: 'month' })).toHaveAttribute('aria-pressed', 'true')
+		expect(h.navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ to: '/calendar/$view', params: { view: 'month' } }),
+		)
 		fireEvent.keyDown(document.body, { key: 'd' })
-		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'true')
+		expect(h.navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ to: '/calendar/$view', params: { view: 'day' } }),
+		)
 		fireEvent.keyDown(document.body, { key: 'w' })
-		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
-		expect(h.navigate).not.toHaveBeenCalled()
+		expect(h.navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ to: '/calendar/$view', params: { view: 'week' } }),
+		)
 	})
 
 	it('opens a blank new-event editor with the n shortcut', () => {
-		renderLocal()
+		renderView()
 		fireEvent.keyDown(document.body, { key: 'n' })
 		const modal = screen.getByTestId('event-modal')
 		expect(modal.dataset.event).toBe('new')
@@ -590,27 +579,22 @@ describe('local navigation mode', () => {
 	})
 
 	it('ignores shortcuts while typing, with modifiers, on other keys, and inside dialogs', () => {
-		renderLocal()
-		const stillWeek = () =>
-			expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
+		renderView()
 
 		const input = document.createElement('input')
 		document.body.appendChild(input)
 		fireEvent.keyDown(input, { key: 'm' })
-		stillWeek()
 		input.remove()
 
 		const textarea = document.createElement('textarea')
 		document.body.appendChild(textarea)
 		fireEvent.keyDown(textarea, { key: 'm' })
-		stillWeek()
 		textarea.remove()
 
 		const editable = document.createElement('div')
 		Object.defineProperty(editable, 'isContentEditable', { value: true, configurable: true })
 		document.body.appendChild(editable)
 		fireEvent.keyDown(editable, { key: 'm' })
-		stillWeek()
 		editable.remove()
 
 		fireEvent.keyDown(document.body, { key: 'm', metaKey: true })
@@ -618,21 +602,21 @@ describe('local navigation mode', () => {
 		fireEvent.keyDown(document.body, { key: 'm', altKey: true })
 		fireEvent.keyDown(document.body, { key: 'm', repeat: true })
 		fireEvent.keyDown(document.body, { key: 'x' })
-		stillWeek()
+		// None of the guarded keys reach the calendar, so no view navigation fires.
+		expect(h.navigate).not.toHaveBeenCalled()
 
 		// Keys pressed from inside an open dialog must not steer the calendar behind it.
 		fireEvent.keyDown(document.body, { key: 'n' })
 		const dialogButton = within(screen.getByTestId('event-modal')).getByText('close-unchanged')
 		fireEvent.keyDown(dialogButton, { key: 'd' })
-		stillWeek()
+		expect(h.navigate).not.toHaveBeenCalled()
 	})
 })
 
 // ---- editor open/close paths ----------------------------------------------
 
 describe('event editor', () => {
-	const renderWeek = () =>
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+	const renderWeek = () => render(<CalendarRouteScreen view="week" data={richData()} />)
 
 	it('seeds the editor from the create button using the primary calendar name', () => {
 		renderWeek()
@@ -679,7 +663,7 @@ describe('mobile calendar sheet', () => {
 	})
 
 	it('opens the sheet and re-anchors the grid when a sheet date is picked', () => {
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+		render(<CalendarRouteScreen view="week" data={richData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
 		const sheet = screen.getByTestId('sheet')
 		fireEvent.click(within(sheet).getByRole('button', { name: '10' }))
@@ -693,7 +677,7 @@ describe('mobile calendar sheet', () => {
 	})
 
 	it('drills from a month-view sheet date straight into that day', () => {
-		render(<CalendarRouteScreen view="month" data={monthData()} navigationMode="route" />)
+		render(<CalendarRouteScreen view="month" data={monthData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
 		const sheet = screen.getByTestId('sheet')
 		fireEvent.click(within(sheet).getByRole('button', { name: '12' }))
@@ -705,7 +689,7 @@ describe('mobile calendar sheet', () => {
 	})
 
 	it('dismisses the sheet via its own close control', () => {
-		render(<CalendarRouteScreen view="week" data={richData()} navigationMode="route" />)
+		render(<CalendarRouteScreen view="week" data={richData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
 		const sheet = screen.getByTestId('sheet')
 		fireEvent.click(within(sheet).getByRole('button', { name: 'close-sheet' }))
@@ -715,7 +699,7 @@ describe('mobile calendar sheet', () => {
 	it('opens an event editor from the sheet agenda and closes the sheet', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
-		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} navigationMode="route" />)
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
 		const sheet = screen.getByTestId('sheet')
 		// The agenda lists the day's timed events; open the first one.
@@ -729,7 +713,7 @@ describe('mobile calendar sheet', () => {
 
 describe('week title formatting', () => {
 	const titleFor = (anchorIso: string) => {
-		render(<CalendarRouteScreen view="week" data={richData(anchorIso)} navigationMode="route" />)
+		render(<CalendarRouteScreen view="week" data={richData(anchorIso)} />)
 		return screen.getByRole('heading', { level: 1 }).textContent ?? ''
 	}
 
