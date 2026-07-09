@@ -26,6 +26,7 @@ import {
 import { EventModal } from '../components/EventModal.js'
 import type { Rect } from '../components/modal-position.js'
 import { Sheet } from '../components/Sheet.js'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip.js'
 import {
 	APP_RAIL_WIDTH_CLASS,
 	CALENDAR_HEADER_GRID_CLASS,
@@ -200,22 +201,32 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							>
 								Today
 							</button>
-							<button
-								type="button"
-								className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-								onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
-								aria-label="Previous"
-							>
-								<ChevronLeft className="h-4 w-4" />
-							</button>
-							<button
-								type="button"
-								className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-								onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
-								aria-label="Next"
-							>
-								<ChevronRight className="h-4 w-4" />
-							</button>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										type="button"
+										className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+										onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
+										aria-label="Previous"
+									>
+										<ChevronLeft className="h-4 w-4" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent>Previous {currentView}</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										type="button"
+										className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+										onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
+										aria-label="Next"
+									>
+										<ChevronRight className="h-4 w-4" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent>Next {currentView}</TooltipContent>
+							</Tooltip>
 							<div className="flex min-w-0 flex-1 items-center border-r border-border px-3">
 								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">
 									{title}

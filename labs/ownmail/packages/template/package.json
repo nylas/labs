@@ -30,6 +30,7 @@
 	"dependencies": {
 		"@nylas-labs/cli-kit": "workspace:*",
 		"@radix-ui/react-slot": "^1.3.0",
+		"@radix-ui/react-tooltip": "^1.2.12",
 		"@tanstack/react-router": "^1.130.0",
 		"@tanstack/react-start": "^1.138.0",
 		"class-variance-authority": "^0.7.1",
