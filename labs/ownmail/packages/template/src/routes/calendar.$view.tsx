@@ -7,8 +7,8 @@ import { CommandPalette, useCommandPaletteShortcut } from '../components/Command
 import {
 	addDays,
 	allDayEventSegments,
-	calendarKeyAction,
 	type CalView,
+	calendarKeyAction,
 	dateWithHour,
 	eventsOnDay,
 	eventTimes,
