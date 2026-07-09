@@ -1,17 +1,22 @@
 // @vitest-environment jsdom
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventModal } from './EventModal.js'
 
-const { createEvent, deleteEvent, rsvpEvent } = vi.hoisted(() => ({
+const { createEvent, deleteEvent, rsvpEvent, updateEvent } = vi.hoisted(() => ({
 	createEvent: vi.fn(),
 	deleteEvent: vi.fn(),
 	rsvpEvent: vi.fn(),
+	updateEvent: vi.fn(),
 }))
 
-vi.mock('../server/calendar-fns.js', () => ({ createEvent, deleteEvent, rsvpEvent }))
+vi.mock('../server/calendar-fns.js', () => ({ createEvent, deleteEvent, rsvpEvent, updateEvent }))
+
+// The guest field's contact lookup is a server fn; stub it so rendering the
+// composer never reaches the network. Guest tests commit addresses directly.
+vi.mock('../server/fns.js', () => ({ searchContacts: vi.fn().mockResolvedValue([]) }))
 
 // The composer's time pickers are Radix Selects, which need pointer-capture,
 // ResizeObserver, and scrollIntoView — none implemented by jsdom.
@@ -34,6 +39,7 @@ beforeEach(() => {
 	createEvent.mockReset().mockResolvedValue({ eventId: 'new-1' })
 	deleteEvent.mockReset().mockResolvedValue({ ok: true })
 	rsvpEvent.mockReset().mockResolvedValue({ ok: true })
+	updateEvent.mockReset().mockResolvedValue({ ok: true })
 })
 
 afterEach(cleanup)
@@ -102,6 +108,36 @@ describe('EventModal — new event', () => {
 		expect(createEvent).toHaveBeenCalledTimes(1)
 		const payload = createEvent.mock.calls[0][0].data
 		expect(payload).toMatchObject({ calendarId: 'cal2', title: 'Lunch', location: 'Cafe' })
+	})
+
+	it('includes typed guests as participants and a description when provided', async () => {
+		const onClose = vi.fn()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+		const user = userEvent.setup()
+		await user.type(screen.getByPlaceholderText('Add title'), 'Planning')
+		await user.type(screen.getByPlaceholderText('Add description'), 'Agenda: roadmap')
+		// A trailing comma commits every address before it as a chip.
+		fireEvent.change(screen.getByLabelText('Guests'), {
+			target: { value: 'mina@example.com, alex@acme.com,' },
+		})
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
+		const payload = createEvent.mock.calls[0][0].data
+		expect(payload).toMatchObject({
+			title: 'Planning',
+			description: 'Agenda: roadmap',
+			participants: ['mina@example.com', 'alex@acme.com'],
+		})
 	})
 
 	it('defaults an empty title to "Untitled event" and omits an empty location', async () => {
@@ -589,5 +625,117 @@ describe('EventModal — existing event', () => {
 		)
 		fireEvent.keyDown(document.body, { key: 'Escape' })
 		expect(onClose).toHaveBeenCalledWith(false)
+	})
+})
+
+describe('EventModal — editing an existing event', () => {
+	function renderEdit(overrides: Partial<Event> = {}, onClose = vi.fn(), calendarId = 'cal1') {
+		render(
+			<EventModal
+				event={timedEvent(overrides)}
+				defaultStart={defaultStart}
+				calendarId={calendarId}
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+		return onClose
+	}
+
+	it('opens the edit form prefilled and saves changes via updateEvent', async () => {
+		const user = userEvent.setup()
+		const onClose = renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+
+		const titleField = screen.getByLabelText('Title') as HTMLInputElement
+		expect(titleField.value).toBe('Team Sync')
+		expect((screen.getByLabelText('Location') as HTMLInputElement).value).toBe('Room 5')
+		expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe('Weekly sync')
+
+		await user.clear(titleField)
+		await user.type(titleField, 'Team Sync v2')
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
+		expect(updateEvent).toHaveBeenCalledTimes(1)
+		expect(updateEvent.mock.calls[0][0].data).toMatchObject({
+			eventId: 'evt1',
+			calendarId: 'cal1',
+			title: 'Team Sync v2',
+			location: 'Room 5',
+			description: 'Weekly sync',
+		})
+	})
+
+	it('cancels editing and returns to the read view without calling updateEvent', async () => {
+		const user = userEvent.setup()
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+		// Back to the read view: the Edit affordance and event title heading return.
+		expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
+		expect(screen.getByRole('heading', { name: 'Team Sync' })).toBeInTheDocument()
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('does not offer editing for a read-only event', () => {
+		renderEdit({ read_only: true })
+		expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull()
+	})
+
+	it('defaults an emptied title to "Untitled event"', async () => {
+		const user = userEvent.setup()
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		await user.clear(screen.getByLabelText('Title'))
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		await waitFor(() => expect(updateEvent).toHaveBeenCalled())
+		expect(updateEvent.mock.calls[0][0].data.title).toBe('Untitled event')
+	})
+
+	it('falls back to the passed calendarId when the event lacks one', async () => {
+		const user = userEvent.setup()
+		renderEdit({ calendar_id: undefined }, vi.fn(), 'cal-default')
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		await waitFor(() => expect(updateEvent).toHaveBeenCalled())
+		expect(updateEvent.mock.calls[0][0].data.calendarId).toBe('cal-default')
+	})
+
+	it('surfaces an update failure from a thrown Error and re-enables the form', async () => {
+		const user = userEvent.setup()
+		updateEvent.mockRejectedValueOnce(new Error('update failed'))
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		expect(await screen.findByText('update failed')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled()
+	})
+
+	it('shows a generic message when a non-Error is thrown on update', async () => {
+		const user = userEvent.setup()
+		updateEvent.mockRejectedValueOnce('nope')
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
+	})
+
+	it('shows a busy label while the update is in flight', async () => {
+		const user = userEvent.setup()
+		let resolveUpdate: (value: unknown) => void = () => {}
+		updateEvent.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveUpdate = resolve
+			}),
+		)
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		const saving = await screen.findByRole('button', { name: 'Saving...' })
+		expect(saving).toBeDisabled()
+		resolveUpdate({ ok: true })
 	})
 })

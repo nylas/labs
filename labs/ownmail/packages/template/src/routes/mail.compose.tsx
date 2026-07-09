@@ -450,10 +450,11 @@ function Compose() {
 							<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
 								<span className="w-14 shrink-0 text-muted-foreground">To</span>
 								<RecipientInput
+									id="compose-to"
 									value={to}
 									onChange={setTo}
 									placeholder="recipient@email.com"
-									className="compose-field min-h-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+									className="flex-1"
 								/>
 							</div>
 							<label
