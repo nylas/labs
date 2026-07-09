@@ -74,7 +74,9 @@ export function EmailHtml({ html, messageId }: { html: string; messageId: string
 	return (
 		<div className="relative">
 			{showToggle ? (
-				<div className="mb-2 flex justify-end">
+				// Float in the top-right corner so the toggle never pushes the email down
+				// (a full-width row here left an awkward empty band under the sender header).
+				<div className="absolute right-2 top-2 z-10">
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button
@@ -82,7 +84,7 @@ export function EmailHtml({ html, messageId }: { html: string; messageId: string
 								onClick={() => setAutoDark((value) => !value)}
 								aria-pressed={autoDark}
 								aria-label="Toggle automatic dark mode for this email"
-								className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
+								className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/80 px-2 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted"
 							>
 								{autoDark ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
 								{autoDark ? 'Dark' : 'Original'}
