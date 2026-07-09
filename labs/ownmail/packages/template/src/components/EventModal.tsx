@@ -10,6 +10,7 @@ import {
 	type Point,
 	type Rect,
 } from './modal-position.js'
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js'
 import { calendarTone, cn, type EventTone, eventColorClass, eventTone, labelBadgeClass } from './ui-model.js'
 
@@ -172,14 +173,14 @@ export function EventModal({
 			.filter(Boolean)
 			.join(', ')
 		return (
-			// biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Matches the reference modal backdrop; the visible Close button is keyboard accessible.
-			<div
-				className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]"
-				onClick={(clickEvent) => {
-					if (clickEvent.target === clickEvent.currentTarget) onClose(false)
+			<Dialog
+				open
+				onOpenChange={(next) => {
+					if (!next) onClose(false)
 				}}
 			>
-				<div role="dialog" aria-modal="true" aria-label="Event details" className={EVENT_DIALOG_PANEL_CLASS}>
+				<DialogContent className={EVENT_DIALOG_PANEL_CLASS}>
+					<DialogTitle className="sr-only">Event details</DialogTitle>
 					<div className={cn('h-1.5 w-full', eventBarClass(tone))} />
 					<div className="flex items-start justify-between gap-3 px-5 pt-4">
 						<div className="flex min-w-0 items-start gap-3">
@@ -265,8 +266,8 @@ export function EventModal({
 							Done
 						</button>
 					</div>
-				</div>
-			</div>
+				</DialogContent>
+			</Dialog>
 		)
 	}
 
