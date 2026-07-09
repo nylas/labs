@@ -1,38 +1,20 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
-import {
-	Archive,
-	Forward,
-	Minus,
-	MoreHorizontal,
-	Paperclip,
-	Reply,
-	ReplyAll,
-	Send,
-	Star,
-	Trash2,
-	X,
-} from 'lucide-react'
+import { Archive, Forward, Minus, Paperclip, Reply, ReplyAll, Send, Star, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '../components/RecipientInput.js'
+import { formatSize, ThreadConversation } from '../components/ThreadConversation.js'
+import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import {
 	cn,
-	collapsedMessagePreview,
 	composeBackdropListSearch,
 	composeBackdropReplySearch,
 	composeBackdropThreadSearch,
-	formatListDate,
 	forwardDraftSearch,
-	initials,
-	labelBadgeClass,
 	mailFolderTitle,
-	messageBodyParagraphs,
 	replyAllDraftSearch,
 	STAR_FILLED_CLASS,
-	STAR_HOVER_CLASS,
 	shouldUseBrowserBackForComposeClose,
-	threadLabels,
-	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
 import {
@@ -580,62 +562,15 @@ function ComposeThreadRow({
 	onToggleStar: () => void
 	active?: boolean
 }) {
-	const when = formatListDate(threadTimestamp(thread))
-	const labels = threadLabels(thread)
 	return (
 		<Link
 			to="/mail/compose"
 			search={search}
 			data-active={active ? 'true' : undefined}
 			data-unread={thread.unread ? 'true' : undefined}
-			className={cn(
-				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent',
-				thread.unread && 'bg-card/80',
-			)}
+			className={cn(THREAD_ROW_CLASS, thread.unread && 'bg-card/80')}
 		>
-			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					onClick={(event) => {
-						event.preventDefault()
-						event.stopPropagation()
-						onToggleStar()
-					}}
-					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					className={cn('shrink-0 text-muted-foreground transition-colors', STAR_HOVER_CLASS)}
-				>
-					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
-				</button>
-				<span
-					className={cn(
-						'min-w-0 flex-1 truncate text-sm',
-						thread.unread ? 'font-semibold text-foreground' : 'font-medium text-foreground/90',
-					)}
-				>
-					{threadSender(thread, folderId)}
-					{(thread.message_ids?.length ?? 0) > 1 ? (
-						<span className="ml-1 font-normal text-muted-foreground">({thread.message_ids?.length})</span>
-					) : null}
-				</span>
-				{thread.has_attachments ? <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
-			</div>
-			<p
-				className={cn(
-					'truncate text-sm',
-					thread.unread ? 'font-semibold text-foreground' : 'text-foreground/80',
-				)}
-			>
-				{thread.subject || '(no subject)'}
-			</p>
-			<div className="flex items-center gap-2">
-				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{thread.snippet}</p>
-				{labels.map((label) => (
-					<span key={label.id} className={cn('shrink-0', labelBadgeClass(label.tone))}>
-						{label.name}
-					</span>
-				))}
-			</div>
+			<ThreadRowContent thread={thread} folderId={folderId} onToggleStar={onToggleStar} />
 		</Link>
 	)
 }
@@ -659,68 +594,33 @@ function ComposeThreadBackdrop({
 	onReplyAll: () => void
 	onForward: () => void
 }) {
-	const labels = threadLabels(thread)
-	const firstAttachment = messages
-		.flatMap((message) => message.attachments ?? [])
-		.find((attachment) => !attachment.is_inline)
 	return (
-		<div className="flex min-w-0 flex-1 flex-col">
-			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
+		<div className="flex min-w-0 flex-1 flex-col bg-background">
+			<div className="flex items-center gap-1 border-b border-border px-3 py-2">
 				<BackdropIcon label="Archive" onClick={onArchive}>
-					<Archive className="h-4.5 w-4.5" />
+					<Archive className="h-4 w-4" />
 				</BackdropIcon>
 				<BackdropIcon label="Delete" onClick={onDelete}>
-					<Trash2 className="h-4.5 w-4.5" />
+					<Trash2 className="h-4 w-4" />
 				</BackdropIcon>
 				<BackdropIcon label={thread.starred ? 'Unstar' : 'Star'} onClick={onToggleStar}>
-					<Star className={cn('h-4.5 w-4.5', thread.starred && STAR_FILLED_CLASS)} />
+					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
 				</BackdropIcon>
-				<div className="ml-auto">
-					<BackdropIcon label="More">
-						<MoreHorizontal className="h-4.5 w-4.5" />
-					</BackdropIcon>
+				<div className="ml-auto hidden items-center gap-1 sm:flex">
+					<BackdropAction label="Reply" onClick={onReply}>
+						<Reply className="h-4 w-4" />
+					</BackdropAction>
+					<BackdropAction label="Reply all" onClick={onReplyAll}>
+						<ReplyAll className="h-4 w-4" />
+					</BackdropAction>
+					<BackdropAction label="Forward" onClick={onForward}>
+						<Forward className="h-4 w-4" />
+					</BackdropAction>
 				</div>
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
-					<div className="flex flex-wrap items-center gap-2">
-						<h2 className="text-xl font-semibold text-balance">{thread.subject || '(no subject)'}</h2>
-						{labels.map((label) => (
-							<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
-								{label.name}
-							</span>
-						))}
-					</div>
-
-					{thread.has_attachments ? (
-						<div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
-							<Paperclip className="h-4 w-4 text-muted-foreground" />
-							<span className="font-medium text-foreground">
-								{firstAttachment?.filename ?? 'attachment.pdf'}
-							</span>
-							<span className="text-muted-foreground">
-								· {firstAttachment?.size ? formatSize(firstAttachment.size) : '248 KB'}
-							</span>
-						</div>
-					) : null}
-
-					<div className="mt-4 space-y-3">
-						{messages.map((message, index) => (
-							<BackdropMessage
-								key={message.id}
-								message={message}
-								defaultOpen={index === messages.length - 1}
-							/>
-						))}
-					</div>
-
-					<div className="mt-4 flex flex-wrap gap-2">
-						<BackdropAction icon={<Reply className="h-4 w-4" />} label="Reply" onClick={onReply} />
-						<BackdropAction icon={<ReplyAll className="h-4 w-4" />} label="Reply all" onClick={onReplyAll} />
-						<BackdropAction icon={<Forward className="h-4 w-4" />} label="Forward" onClick={onForward} />
-					</div>
-				</div>
+				<ThreadConversation thread={thread} messages={messages} />
 			</div>
 		</div>
 	)
@@ -748,82 +648,26 @@ function BackdropIcon({
 	)
 }
 
-function BackdropMessage({ message, defaultOpen }: { message: Message; defaultOpen: boolean }) {
-	const [open, setOpen] = useState(defaultOpen)
-	const from = message.from?.[0]
-	const fromLabel = from?.name || from?.email || '(unknown sender)'
-	return (
-		<div className="rounded-sm border border-border bg-card">
-			<button
-				type="button"
-				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-start gap-3 px-4 py-3 text-left"
-			>
-				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-					{initials(fromLabel)}
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex items-baseline justify-between gap-2">
-						<span className="truncate text-sm font-semibold text-foreground">{fromLabel}</span>
-						{message.date ? (
-							<span className="shrink-0 text-xs text-muted-foreground">
-								{new Date(message.date * 1000).toLocaleString(undefined, {
-									weekday: 'short',
-									month: 'short',
-									day: 'numeric',
-									hour: 'numeric',
-									minute: '2-digit',
-								})}
-							</span>
-						) : null}
-					</div>
-					<p className="truncate text-xs text-muted-foreground">
-						{open
-							? `to ${message.to?.map((person) => person.name || person.email).join(', ') || 'me'}`
-							: collapsedMessagePreview(message)}
-					</p>
-				</div>
-			</button>
-			{open ? (
-				<div className="px-4 pb-4 pl-16">
-					<div className="space-y-3 text-sm leading-relaxed text-foreground/90">
-						{messageBodyParagraphs(message).map((paragraph) => (
-							<p key={`${message.id}-${paragraph}`} className="whitespace-pre-line text-pretty">
-								{paragraph}
-							</p>
-						))}
-					</div>
-				</div>
-			) : null}
-		</div>
-	)
-}
-
 function BackdropAction({
-	icon,
 	label,
 	onClick,
+	children,
 }: {
-	icon: React.ReactNode
 	label: string
 	onClick?: () => void
+	children: React.ReactNode
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+			aria-label={label}
+			className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 		>
-			{icon}
-			{label}
+			{children}
+			<span className="hidden md:inline">{label}</span>
 		</button>
 	)
-}
-
-function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`
-	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 async function fileToAttachment(file: File): Promise<ComposeAttachment> {

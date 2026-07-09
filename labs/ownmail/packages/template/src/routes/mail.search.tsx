@@ -1,34 +1,18 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import {
-	Archive,
-	ArrowLeft,
-	Forward,
-	MoreHorizontal,
-	Paperclip,
-	Reply,
-	ReplyAll,
-	Star,
-	Trash2,
-} from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Archive, ArrowLeft, Forward, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import { ThreadConversation } from '../components/ThreadConversation.js'
+import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import {
 	cn,
-	collapsedMessagePreview,
-	formatListDate,
 	forwardDraftSearch,
-	initials,
-	labelBadgeClass,
 	mailFolderTitle,
-	messageBodyParagraphs,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
-	STAR_HOVER_CLASS,
 	searchListSearch,
-	threadLabels,
 	threadRouteFolderId,
-	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
 import { getFolders, getThreadMessages, getThreads, updateThreadState } from '../server/fns.js'
@@ -79,15 +63,15 @@ function SearchResults() {
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none',
 					selected ? 'hidden' : 'flex',
 				)}
 			>
 				<div className="flex items-center justify-between border-b border-border px-4 py-3">
-					<h1 className="text-base font-semibold capitalize">{title}</h1>
+					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
 					{unreadCount > 0 ? (
-						<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
-							{unreadCount} unread
+						<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+							{unreadCount}
 						</span>
 					) : null}
 				</div>
@@ -95,7 +79,7 @@ function SearchResults() {
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					{sortedThreads.length === 0 ? (
 						<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-							<p className="text-sm font-medium text-foreground">Nothing here</p>
+							<p className="font-display text-sm font-semibold text-foreground">Nothing here</p>
 							<p className="text-sm text-muted-foreground">This view is empty.</p>
 						</div>
 					) : (
@@ -115,13 +99,15 @@ function SearchResults() {
 				{selected ? (
 					<SearchThreadDetail selected={selected} q={q} folderId={folderId} />
 				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
-						<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 							<Reply className="h-6 w-6" />
 						</div>
 						<div>
-							<p className="text-sm font-medium text-foreground">Select a conversation</p>
-							<p className="text-sm text-muted-foreground">Choose a message from the list to read it here.</p>
+							<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Choose a message from the list to read it here.
+							</p>
 						</div>
 					</div>
 				)}
@@ -142,13 +128,9 @@ function SearchThreadRow({
 	active: boolean
 }) {
 	const folderId = threadRouteFolderId(thread)
-	const when = formatListDate(threadTimestamp(thread))
-	const labels = threadLabels(thread)
 	const router = useRouter()
 
-	async function toggleStar(event: React.MouseEvent<HTMLButtonElement>) {
-		event.preventDefault()
-		event.stopPropagation()
+	async function toggleStar() {
 		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
 		router.invalidate()
 	}
@@ -159,50 +141,9 @@ function SearchThreadRow({
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
 			data-active={active ? 'true' : undefined}
 			data-unread={thread.unread ? 'true' : undefined}
-			className={cn(
-				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-muted',
-				thread.unread && !active && 'bg-card/80',
-			)}
+			className={cn(THREAD_ROW_CLASS, thread.unread && 'bg-card/80')}
 		>
-			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					onClick={toggleStar}
-					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					className={cn('shrink-0 text-muted-foreground transition-colors', STAR_HOVER_CLASS)}
-				>
-					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
-				</button>
-				<span
-					className={cn(
-						'min-w-0 flex-1 truncate text-sm',
-						thread.unread ? 'font-semibold text-foreground' : 'font-medium text-foreground/90',
-					)}
-				>
-					{threadSender(thread, folderId)}
-					{(thread.message_ids?.length ?? 0) > 1 ? (
-						<span className="ml-1 font-normal text-muted-foreground">({thread.message_ids?.length})</span>
-					) : null}
-				</span>
-				{thread.has_attachments ? <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-				{when ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{when}</span> : null}
-			</div>
-			<p
-				className={cn(
-					'truncate text-sm',
-					thread.unread ? 'font-semibold text-foreground' : 'text-foreground/80',
-				)}
-			>
-				{thread.subject || '(no subject)'}
-			</p>
-			<div className="flex items-center gap-2">
-				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{thread.snippet}</p>
-				{labels.map((label) => (
-					<span key={label.id} className={cn('shrink-0', labelBadgeClass(label.tone))}>
-						{label.name}
-					</span>
-				))}
-			</div>
+			<ThreadRowContent thread={thread} folderId={folderId} onToggleStar={toggleStar} />
 		</Link>
 	)
 }
@@ -218,11 +159,7 @@ function SearchThreadDetail({
 }) {
 	const router = useRouter()
 	const routeFolderId = threadRouteFolderId(selected.thread)
-	const labels = threadLabels(selected.thread)
 	const lastMessage = selected.messages.at(-1)
-	const firstAttachment = selected.messages
-		.flatMap((message) => message.attachments ?? [])
-		.find((attachment) => !attachment.is_inline)
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 
 	useEffect(() => {
@@ -256,7 +193,7 @@ function SearchThreadDetail({
 
 	return (
 		<div className="flex min-w-0 flex-1 flex-col bg-background">
-			<div className="flex items-center gap-1 border-b border-border px-3 py-2.5">
+			<div className="flex items-center gap-1 border-b border-border px-3 py-2">
 				<Link
 					to="/mail/search"
 					search={searchList}
@@ -266,116 +203,71 @@ function SearchThreadDetail({
 					<ArrowLeft className="h-5 w-5" />
 				</Link>
 				<IconButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
-					<Archive className="h-4.5 w-4.5" />
+					<Archive className="h-4 w-4" />
 				</IconButton>
 				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
-					<Trash2 className="h-4.5 w-4.5" />
+					<Trash2 className="h-4 w-4" />
 				</IconButton>
 				<IconButton
 					label={selected.thread.starred ? 'Unstar' : 'Star'}
 					onClick={() => act({ starred: !selected.thread.starred })}
 				>
-					<Star className={cn('h-4.5 w-4.5', selected.thread.starred && STAR_FILLED_CLASS)} />
+					<Star className={cn('h-4 w-4', selected.thread.starred && STAR_FILLED_CLASS)} />
 				</IconButton>
-				<div className="ml-auto">
-					<IconButton label="More">
-						<MoreHorizontal className="h-4.5 w-4.5" />
-					</IconButton>
-				</div>
+
+				{lastMessage ? (
+					<div className="ml-auto hidden items-center gap-1 sm:flex">
+						<ActionButton
+							label="Reply"
+							onClick={() =>
+								router.navigate({
+									to: '/mail/compose',
+									search: {
+										folderId: routeFolderId,
+										threadId: selected.thread.id,
+										...replyDraftSearch(lastMessage),
+									},
+								})
+							}
+						>
+							<Reply className="h-4 w-4" />
+						</ActionButton>
+						<ActionButton
+							label="Reply all"
+							onClick={() =>
+								router.navigate({
+									to: '/mail/compose',
+									search: {
+										folderId: routeFolderId,
+										threadId: selected.thread.id,
+										...replyAllDraftSearch(lastMessage, selected.mailboxEmail),
+									},
+								})
+							}
+						>
+							<ReplyAll className="h-4 w-4" />
+						</ActionButton>
+						<ActionButton
+							label="Forward"
+							onClick={() =>
+								router.navigate({
+									to: '/mail/compose',
+									search: {
+										folderId: routeFolderId,
+										threadId: selected.thread.id,
+										...forwardDraftSearch(lastMessage),
+									},
+								})
+							}
+						>
+							<Forward className="h-4 w-4" />
+						</ActionButton>
+					</div>
+				) : null}
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
-					<div className="flex flex-wrap items-center gap-2">
-						<h2 className="text-xl font-semibold text-balance">
-							{selected.thread.subject || '(no subject)'}
-						</h2>
-						{labels.map((label) => (
-							<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
-								{label.name}
-							</span>
-						))}
-					</div>
-
-					{selected.thread.has_attachments ? (
-						<div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
-							<Paperclip className="h-4 w-4 text-muted-foreground" />
-							<span className="font-medium text-foreground">
-								{firstAttachment?.filename ?? 'attachment.pdf'}
-							</span>
-							<span className="text-muted-foreground">
-								· {firstAttachment?.size ? formatSize(firstAttachment.size) : '248 KB'}
-							</span>
-						</div>
-					) : null}
-
-					<div className="mt-4 space-y-3">
-						{selected.messages.map((message, index) => (
-							<MessageBlock
-								key={message.id}
-								message={message}
-								defaultOpen={index === selected.messages.length - 1}
-							/>
-						))}
-					</div>
-
-					<div className="mt-4 flex flex-wrap gap-2">
-						{lastMessage ? (
-							<button
-								type="button"
-								onClick={() =>
-									router.navigate({
-										to: '/mail/compose',
-										search: {
-											folderId: routeFolderId,
-											threadId: selected.thread.id,
-											...replyDraftSearch(lastMessage),
-										},
-									})
-								}
-								className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-							>
-								<Reply className="h-4 w-4" /> Reply
-							</button>
-						) : null}
-						<button
-							type="button"
-							onClick={() =>
-								lastMessage
-									? router.navigate({
-											to: '/mail/compose',
-											search: {
-												folderId: routeFolderId,
-												threadId: selected.thread.id,
-												...replyAllDraftSearch(lastMessage, selected.mailboxEmail),
-											},
-										})
-									: undefined
-							}
-							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-						>
-							<ReplyAll className="h-4 w-4" /> Reply all
-						</button>
-						<button
-							type="button"
-							onClick={() =>
-								lastMessage
-									? router.navigate({
-											to: '/mail/compose',
-											search: {
-												folderId: routeFolderId,
-												threadId: selected.thread.id,
-												...forwardDraftSearch(lastMessage),
-											},
-										})
-									: undefined
-							}
-							className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
-						>
-							<Forward className="h-4 w-4" /> Forward
-						</button>
-					</div>
-				</div>
+				<ThreadConversation thread={selected.thread} messages={selected.messages} />
 			</div>
 		</div>
 	)
@@ -403,94 +295,23 @@ function IconButton({
 	)
 }
 
-function MessageBlock({ message, defaultOpen }: { message: Message; defaultOpen: boolean }) {
-	const [open, setOpen] = useState(defaultOpen)
-	const from = message.from?.[0]
-	const fromLabel = from?.name || from?.email || '(unknown sender)'
+function ActionButton({
+	label,
+	onClick,
+	children,
+}: {
+	label: string
+	onClick?: () => void
+	children: React.ReactNode
+}) {
 	return (
-		<div className="rounded-sm border border-border bg-card">
-			<button
-				type="button"
-				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-start gap-3 px-4 py-3 text-left"
-			>
-				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-					{initials(fromLabel)}
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex items-baseline justify-between gap-2">
-						<span className="truncate text-sm font-semibold text-foreground">{fromLabel}</span>
-						{message.date ? (
-							<span className="shrink-0 text-xs text-muted-foreground">
-								{new Date(message.date * 1000).toLocaleString(undefined, {
-									weekday: 'short',
-									month: 'short',
-									day: 'numeric',
-									hour: 'numeric',
-									minute: '2-digit',
-								})}
-							</span>
-						) : null}
-					</div>
-					{open ? (
-						<p className="truncate text-xs text-muted-foreground">
-							to {message.to?.map((person) => person.name || person.email).join(', ') || 'me'}
-						</p>
-					) : (
-						<p className="truncate text-xs text-muted-foreground">{collapsedMessagePreview(message)}</p>
-					)}
-				</div>
-			</button>
-
-			{open ? (
-				<div className="px-4 pb-4 pl-16">
-					<MessageBody message={message} />
-					<MessageAttachments message={message} />
-				</div>
-			) : null}
-		</div>
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+		>
+			{children}
+			<span className="hidden md:inline">{label}</span>
+		</button>
 	)
-}
-
-function MessageAttachments({ message }: { message: Message }) {
-	const attachments = (message.attachments ?? []).filter((attachment) => !attachment.is_inline)
-	if (attachments.length === 0) return null
-	return (
-		<div className="mt-4 flex flex-wrap gap-2">
-			{attachments.map((attachment) => (
-				<a
-					key={attachment.id}
-					href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(message.id)}`}
-					className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-muted"
-					download={attachment.filename}
-				>
-					<Paperclip className="h-4 w-4 text-muted-foreground" />
-					<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
-					{attachment.size ? (
-						<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
-					) : null}
-				</a>
-			))}
-		</div>
-	)
-}
-
-function MessageBody({ message }: { message: Message }) {
-	const paragraphs = messageBodyParagraphs(message)
-	if (paragraphs.length === 0) return null
-	return (
-		<div className="space-y-3 text-sm leading-relaxed text-foreground/90">
-			{paragraphs.map((paragraph) => (
-				<p key={`${message.id}-${paragraph}`} className="whitespace-pre-line text-pretty">
-					{paragraph}
-				</p>
-			))}
-		</div>
-	)
-}
-
-function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`
-	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
