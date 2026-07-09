@@ -24,6 +24,7 @@ import {
 	ymd,
 } from '../components/calendar.js'
 import { EventModal } from '../components/EventModal.js'
+import type { Rect } from '../components/modal-position.js'
 import { Sheet } from '../components/Sheet.js'
 import {
 	APP_RAIL_WIDTH_CLASS,
@@ -82,6 +83,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const router = useRouter()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
@@ -140,6 +142,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 			else if (action.kind === 'today') go(currentView, new Date())
 			else {
 				setNewStart(null)
+				setComposerAnchor(null)
 				setEditing('new')
 			}
 		}
@@ -182,6 +185,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								type="button"
 								onClick={() => {
 									setNewStart(anchor)
+									setComposerAnchor(null)
 									setEditing('new')
 								}}
 								className="flex shrink-0 items-center gap-1.5 border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
@@ -283,8 +287,9 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							events={visibleEvents}
 							calendarById={calendarById}
 							onPickEvent={setEditing}
-							onPickSlot={(date, hour) => {
+							onPickSlot={(date, hour, rect) => {
 								setNewStart(dateWithHour(date, hour))
+								setComposerAnchor(rect)
 								setEditing('new')
 							}}
 						/>
@@ -303,6 +308,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							: calendar.name
 					}
 					calendars={calendars}
+					anchorRect={editing === 'new' ? composerAnchor : null}
 					onClose={(changed) => {
 						setEditing(null)
 						if (changed) router.invalidate()
@@ -636,7 +642,7 @@ function TimeGrid({
 	events: Event[]
 	calendarById: Map<string, Calendar>
 	onPickEvent: (e: Event) => void
-	onPickSlot: (date: Date, hour: number) => void
+	onPickSlot: (date: Date, hour: number, rect: Rect) => void
 }) {
 	const HOUR_PX = 52
 	const START_HOUR = 7
@@ -770,7 +776,9 @@ function TimeGrid({
 										<button
 											key={hour}
 											type="button"
-											onClick={() => onPickSlot(day, hour)}
+											onClick={(clickEvent) =>
+												onPickSlot(day, hour, clickEvent.currentTarget.getBoundingClientRect())
+											}
 											aria-label={`Create event at ${fmtHour(hour)} on ${day.toLocaleDateString(undefined, {
 												weekday: 'long',
 												month: 'long',

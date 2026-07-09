@@ -222,7 +222,7 @@ describe('EventModal — new event', () => {
 		expect(createEvent).not.toHaveBeenCalled()
 	})
 
-	it('closes on the X button and on a backdrop click, but not on an in-dialog click', () => {
+	it('renders the composer as a floating panel (no backdrop) and closes via the X button', () => {
 		const onClose = vi.fn()
 		render(
 			<EventModal
@@ -234,19 +234,94 @@ describe('EventModal — new event', () => {
 				onClose={onClose}
 			/>,
 		)
-		const dialog = screen.getByRole('dialog')
-		const backdrop = dialog.parentElement as HTMLElement
-
-		// Clicking inside the dialog (target !== backdrop) must not close.
-		fireEvent.click(dialog)
-		expect(onClose).not.toHaveBeenCalled()
-
-		// Clicking the backdrop itself closes.
-		fireEvent.click(backdrop)
-		expect(onClose).toHaveBeenCalledWith(false)
+		const dialog = screen.getByRole('dialog', { name: 'New event' })
+		// The composer floats: it positions itself with inline left/top instead of a dimmed backdrop.
+		expect(dialog.className).toContain('fixed')
+		expect(dialog.style.left).not.toBe('')
+		expect(dialog.style.top).not.toBe('')
 
 		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-		expect(onClose).toHaveBeenCalledTimes(2)
+		expect(onClose).toHaveBeenCalledWith(false)
+	})
+
+	it('positions the composer to the right of the anchor slot when one is given', () => {
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				anchorRect={{ top: 100, left: 50, width: 60, height: 40 }}
+				onClose={vi.fn()}
+			/>,
+		)
+		const dialog = screen.getByRole('dialog', { name: 'New event' })
+		// Anchor right edge (50 + 60) + gap (12) = 122; top aligns with the slot.
+		expect(dialog.style.left).toBe('122px')
+		expect(dialog.style.top).toBe('100px')
+	})
+
+	it('closes the floating composer on Escape but ignores other keys', () => {
+		const onClose = vi.fn()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+		fireEvent.keyDown(window, { key: 'a' })
+		expect(onClose).not.toHaveBeenCalled()
+		fireEvent.keyDown(window, { key: 'Escape' })
+		expect(onClose).toHaveBeenCalledWith(false)
+	})
+
+	it('drags the composer by its header and stops tracking on pointer up', () => {
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				anchorRect={{ top: 100, left: 50, width: 60, height: 40 }}
+				onClose={vi.fn()}
+			/>,
+		)
+		const dialog = screen.getByRole('dialog', { name: 'New event' })
+		// Grab the header (the heading bubbles the pointerdown to the draggable row).
+		fireEvent.pointerDown(screen.getByRole('heading', { name: 'New event' }), { clientX: 200, clientY: 200 })
+		fireEvent.pointerMove(window, { clientX: 240, clientY: 230 })
+		// Started at 122,100; moved by (+40, +30).
+		expect(dialog.style.left).toBe('162px')
+		expect(dialog.style.top).toBe('130px')
+
+		fireEvent.pointerUp(window)
+		// After release the move listeners are detached, so further motion is ignored.
+		fireEvent.pointerMove(window, { clientX: 900, clientY: 900 })
+		expect(dialog.style.left).toBe('162px')
+		expect(dialog.style.top).toBe('130px')
+	})
+
+	it('tears down an in-flight drag when the composer unmounts', () => {
+		const { unmount } = render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		fireEvent.pointerDown(screen.getByRole('heading', { name: 'New event' }), { clientX: 100, clientY: 100 })
+		// Unmounting mid-drag must run cleanup without throwing and detach the window listeners.
+		expect(() => unmount()).not.toThrow()
+		fireEvent.pointerMove(window, { clientX: 500, clientY: 500 })
 	})
 })
 
