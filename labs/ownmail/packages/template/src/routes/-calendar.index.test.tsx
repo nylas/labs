@@ -45,6 +45,8 @@ describe('/calendar index redirect', () => {
 			to: '/calendar/$view',
 			params: { view: 'week' },
 			search: { date: '2024-01-02' },
+			// Replaces the landing entry so Back doesn't bounce off the redirect.
+			replace: true,
 		})
 	})
 
