@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { searchContacts } from '../server/fns.js'
-import { cn } from './ui-model.js'
+import { Input } from './ui/input.js'
 
 /** "To" field with contact autocomplete (best-effort, debounced). */
 export function RecipientInput({
@@ -55,13 +55,13 @@ export function RecipientInput({
 			<label className="sr-only" htmlFor="recipient-input">
 				Recipients
 			</label>
-			<input
+			<Input
 				id="recipient-input"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={() => setTimeout(() => setOpen(false), 150)}
 				placeholder={placeholder ?? 'To (comma-separated)'}
-				className={cn('app-input', className)}
+				className={className}
 				type="email"
 				multiple
 				inputMode="email"
