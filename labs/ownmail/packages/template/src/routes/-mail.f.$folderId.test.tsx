@@ -12,10 +12,12 @@ type RouterState = {
 
 let routerState: RouterState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
 const invalidate = vi.fn()
+const navigate = vi.fn()
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 	useRouter: () => ({ invalidate }),
+	useNavigate: () => navigate,
 	useRouterState: (opts: any) => opts.select(routerState),
 	Outlet: () => <div data-testid="thread-outlet" />,
 	Link: ({ children, to, params, search, mask, activeProps, ...rest }: any) => {
@@ -57,6 +59,10 @@ vi.mock('../components/ClientTime.js', () => ({
 		<time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
 	),
 }))
+
+// jsdom doesn't implement scrollIntoView; the keyboard cursor calls it to keep
+// the highlighted row visible, so stub it to a no-op spy for these tests.
+Element.prototype.scrollIntoView = vi.fn()
 
 import { loadMailFolderData, MailFolderRouteScreen, Route } from './mail.f.$folderId.js'
 
@@ -391,5 +397,129 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+})
+
+describe('MailFolderRouteScreen — keyboard navigation', () => {
+	const threads = [
+		thread({ id: 't1', subject: 'First', latest_message_received_date: 300 }),
+		thread({ id: 't2', subject: 'Second', latest_message_received_date: 200 }),
+		thread({ id: 't3', subject: 'Third', latest_message_received_date: 100 }),
+	]
+
+	function renderInbox(props: Partial<Parameters<typeof MailFolderRouteScreen>[0]> = {}) {
+		return render(
+			<MailFolderRouteScreen
+				threads={threads}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+				{...props}
+			/>,
+		)
+	}
+
+	const cursored = () =>
+		screen.getAllByRole('link').find((link) => link.getAttribute('data-nav-cursor') === 'true')
+
+	it('moves a visible cursor down with j / ArrowDown and up with k / ArrowUp, clamping at the top', () => {
+		renderInbox()
+		// No cursor until the first key press.
+		expect(cursored()).toBeUndefined()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toHaveTextContent('First')
+		fireEvent.keyDown(window, { key: 'ArrowDown' })
+		expect(cursored()).toHaveTextContent('Second')
+		fireEvent.keyDown(window, { key: 'k' })
+		expect(cursored()).toHaveTextContent('First')
+		fireEvent.keyDown(window, { key: 'ArrowUp' })
+		expect(cursored()).toHaveTextContent('First')
+		// The cursor keeps its row on screen.
+		expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+	})
+
+	it('opens the cursored thread on Enter, carrying the baseFolderId search', () => {
+		renderInbox({ baseFolderId: 'archive' })
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(navigate).toHaveBeenCalledWith({
+			to: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'inbox', threadId: 't2' },
+			search: { baseFolderId: 'archive' },
+		})
+	})
+
+	it('opens on the "o" key as well', () => {
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'o' })
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't1' } }),
+		)
+	})
+
+	it('does nothing when Enter is pressed with no row cursored', () => {
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('ignores navigation while typing, with a modifier, or on unrelated keys', () => {
+		renderInbox()
+		const field = document.createElement('input')
+		document.body.appendChild(field)
+		fireEvent.keyDown(field, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j', metaKey: true })
+		fireEvent.keyDown(window, { key: 'x' })
+		expect(cursored()).toBeUndefined()
+		field.remove()
+	})
+
+	it('does not hijack keys aimed at a focused control (button / link / select)', () => {
+		renderInbox()
+		// Enter/j while a real control is focused must reach the control, not the list.
+		const button = document.createElement('button')
+		document.body.appendChild(button)
+		fireEvent.keyDown(button, { key: 'Enter' })
+		fireEvent.keyDown(button, { key: 'j' })
+		expect(navigate).not.toHaveBeenCalled()
+		expect(cursored()).toBeUndefined()
+		button.remove()
+	})
+
+	it('suspends navigation while a dialog (palette, compose, event) is open', () => {
+		renderInbox()
+		const dialog = document.createElement('div')
+		dialog.setAttribute('role', 'dialog')
+		document.body.appendChild(dialog)
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toBeUndefined()
+		dialog.remove()
+	})
+
+	it('navigates and opens drafts by keyboard in the drafts folder', () => {
+		const drafts = [
+			{ id: 'd1', to: [{ email: 'a@b.com' }], subject: 'One', snippet: 'x' },
+			{ id: 'd2', to: [{ email: 'c@d.com' }], subject: 'Two', snippet: 'y' },
+		] as unknown as Draft[]
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={drafts}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(navigate).toHaveBeenCalledWith({
+			to: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'drafts', threadId: 'd2' },
+			search: {},
+		})
 	})
 })

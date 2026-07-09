@@ -467,6 +467,11 @@
 	background: var(--muted);
 }
 
+.thread-row[data-nav-cursor="true"]:not([data-active="true"]) {
+	background: color-mix(in oklch, var(--muted), transparent 20%);
+	box-shadow: inset 2px 0 0 var(--ring);
+}
+
 .thread-row[data-unread="true"]:not([data-active="true"])::before {
 	content: "";
 	position: absolute;
