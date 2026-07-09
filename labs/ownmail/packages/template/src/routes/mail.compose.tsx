@@ -351,12 +351,12 @@ function Compose() {
 		<>
 			{selected ? (
 				<>
-					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
+					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none">
 						<div className="flex items-center justify-between border-b border-border px-4 py-3">
-							<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
+							<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 							{unreadCount > 0 ? (
-								<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
-									{unreadCount} unread
+								<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+									{unreadCount}
 								</span>
 							) : null}
 						</div>
@@ -392,12 +392,12 @@ function Compose() {
 				</>
 			) : (
 				<>
-					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card md:flex md:w-96 md:max-w-96 md:flex-none">
+					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none">
 						<div className="flex items-center justify-between border-b border-border px-4 py-3">
-							<h1 className="text-base font-semibold capitalize">{folderTitle}</h1>
+							<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 							{unreadCount > 0 ? (
-								<span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
-									{unreadCount} unread
+								<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+									{unreadCount}
 								</span>
 							) : null}
 						</div>
@@ -414,13 +414,13 @@ function Compose() {
 						</div>
 					</section>
 					<section className="hidden min-w-0 flex-1 flex-col bg-background md:flex">
-						<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background text-center md:flex">
-							<div className="flex h-14 w-14 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+						<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+							<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 								<Reply className="h-6 w-6" />
 							</div>
 							<div>
-								<p className="text-sm font-medium text-foreground">Select a conversation</p>
-								<p className="text-sm text-muted-foreground">
+								<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
+								<p className="mt-1 text-sm text-muted-foreground">
 									Choose a message from the list to read it here.
 								</p>
 							</div>
@@ -589,9 +589,8 @@ function ComposeThreadRow({
 			data-active={active ? 'true' : undefined}
 			data-unread={thread.unread ? 'true' : undefined}
 			className={cn(
-				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-muted',
-				!active && 'bg-card',
-				thread.unread && !active && 'bg-card/80',
+				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent',
+				thread.unread && 'bg-card/80',
 			)}
 		>
 			<div className="flex items-center gap-2">
