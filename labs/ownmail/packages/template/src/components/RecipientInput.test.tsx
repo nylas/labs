@@ -150,7 +150,8 @@ describe('RecipientInput', () => {
 		expect(screen.getByRole('list')).toBeInTheDocument()
 		expect(mockSearch).toHaveBeenCalledWith({ data: { q: 'jo' } })
 		expect(screen.getByText('Jordan Lee')).toBeInTheDocument()
-		expect(screen.getByText('<jordan@acme.com>')).toBeInTheDocument()
+		// Name and email render on their own truncating lines (no angle brackets).
+		expect(screen.getByText('jordan@acme.com')).toBeInTheDocument()
 		expect(screen.getByText('noname@acme.com')).toBeInTheDocument()
 	})
 

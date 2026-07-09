@@ -335,7 +335,7 @@ function Compose() {
 			{selected ? (
 				<>
 					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none">
-						<div className="flex items-center justify-between border-b border-border px-4 py-3">
+						<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
 							<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 							{unreadCount > 0 ? (
 								<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
@@ -376,7 +376,7 @@ function Compose() {
 			) : (
 				<>
 					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none">
-						<div className="flex items-center justify-between border-b border-border px-4 py-3">
+						<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
 							<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 							{unreadCount > 0 ? (
 								<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
@@ -466,7 +466,6 @@ function Compose() {
 									id="compose-subject"
 									value={subject}
 									onChange={(event) => setSubject(event.target.value)}
-									placeholder="Subject"
 									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
 								/>
 							</label>
@@ -596,7 +595,7 @@ function ComposeThreadBackdrop({
 }) {
 	return (
 		<div className="flex min-w-0 flex-1 flex-col bg-background">
-			<div className="flex items-center gap-1 border-b border-border px-3 py-2">
+			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
 				<BackdropIcon label="Archive" onClick={onArchive}>
 					<Archive className="h-4 w-4" />
 				</BackdropIcon>
