@@ -119,6 +119,9 @@ export function MailFolderRouteScreen({
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
+			// Don't hijack keys aimed at a focused control (a row link, the star
+			// button, Load more, …) — let Enter/Space activate what the user picked.
+			if (target?.closest?.('button, a, select')) return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return

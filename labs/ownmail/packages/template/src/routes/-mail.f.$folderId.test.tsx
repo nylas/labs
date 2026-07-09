@@ -477,6 +477,18 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		field.remove()
 	})
 
+	it('does not hijack keys aimed at a focused control (button / link / select)', () => {
+		renderInbox()
+		// Enter/j while a real control is focused must reach the control, not the list.
+		const button = document.createElement('button')
+		document.body.appendChild(button)
+		fireEvent.keyDown(button, { key: 'Enter' })
+		fireEvent.keyDown(button, { key: 'j' })
+		expect(navigate).not.toHaveBeenCalled()
+		expect(cursored()).toBeUndefined()
+		button.remove()
+	})
+
 	it('suspends navigation while a dialog (palette, compose, event) is open', () => {
 		renderInbox()
 		const dialog = document.createElement('div')
