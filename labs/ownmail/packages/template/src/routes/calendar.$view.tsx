@@ -8,6 +8,7 @@ import {
 	addDays,
 	allDayEventSegments,
 	type CalView,
+	calendarKeyAction,
 	dateWithHour,
 	eventsOnDay,
 	eventTimes,
@@ -23,6 +24,7 @@ import {
 	ymd,
 } from '../components/calendar.js'
 import { EventModal } from '../components/EventModal.js'
+import type { Rect } from '../components/modal-position.js'
 import { Sheet } from '../components/Sheet.js'
 import {
 	APP_RAIL_WIDTH_CLASS,
@@ -81,6 +83,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const router = useRouter()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
@@ -131,27 +134,21 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			if (target?.closest('[role="dialog"]')) return
-			if (event.key.toLowerCase() === 'm') {
-				event.preventDefault()
-				go('month', anchor)
-			}
-			if (event.key.toLowerCase() === 'w') {
-				event.preventDefault()
-				go('week', anchor)
-			}
-			if (event.key.toLowerCase() === 'd') {
-				event.preventDefault()
-				go('day', anchor)
-			}
-			if (event.key.toLowerCase() === 'n') {
-				event.preventDefault()
+			const action = calendarKeyAction(event.key)
+			if (!action) return
+			event.preventDefault()
+			if (action.kind === 'view') go(action.view, anchor)
+			else if (action.kind === 'shift') go(currentView, shiftAnchor(currentView, anchor, action.direction))
+			else if (action.kind === 'today') go(currentView, new Date())
+			else {
 				setNewStart(null)
+				setComposerAnchor(null)
 				setEditing('new')
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [anchor, go])
+	}, [anchor, currentView, go])
 
 	const title =
 		currentView === 'month'
@@ -188,6 +185,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								type="button"
 								onClick={() => {
 									setNewStart(anchor)
+									setComposerAnchor(null)
 									setEditing('new')
 								}}
 								className="flex shrink-0 items-center gap-1.5 border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
@@ -289,8 +287,9 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							events={visibleEvents}
 							calendarById={calendarById}
 							onPickEvent={setEditing}
-							onPickSlot={(date, hour) => {
+							onPickSlot={(date, hour, rect) => {
 								setNewStart(dateWithHour(date, hour))
+								setComposerAnchor(rect)
 								setEditing('new')
 							}}
 						/>
@@ -309,6 +308,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							: calendar.name
 					}
 					calendars={calendars}
+					anchorRect={editing === 'new' ? composerAnchor : null}
 					onClose={(changed) => {
 						setEditing(null)
 						if (changed) router.invalidate()
@@ -642,7 +642,7 @@ function TimeGrid({
 	events: Event[]
 	calendarById: Map<string, Calendar>
 	onPickEvent: (e: Event) => void
-	onPickSlot: (date: Date, hour: number) => void
+	onPickSlot: (date: Date, hour: number, rect: Rect) => void
 }) {
 	const HOUR_PX = 52
 	const START_HOUR = 7
@@ -776,7 +776,9 @@ function TimeGrid({
 										<button
 											key={hour}
 											type="button"
-											onClick={() => onPickSlot(day, hour)}
+											onClick={(clickEvent) =>
+												onPickSlot(day, hour, clickEvent.currentTarget.getBoundingClientRect())
+											}
 											aria-label={`Create event at ${fmtHour(hour)} on ${day.toLocaleDateString(undefined, {
 												weekday: 'long',
 												month: 'long',

@@ -62,6 +62,30 @@ export function shiftAnchor(view: CalView, anchor: Date, direction: 1 | -1): Dat
 	return new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1)
 }
 
+/** What a keyboard shortcut asks the calendar to do, or null when the key is unbound. */
+export type CalendarKeyAction =
+	| { kind: 'view'; view: CalView }
+	| { kind: 'shift'; direction: 1 | -1 }
+	| { kind: 'today' }
+	| { kind: 'new' }
+
+/**
+ * Map a keyboard key to a calendar action. `m`/`w`/`d` switch views, `[`/`]`
+ * and the left/right arrows page the visible range, `t` jumps to today, and
+ * `n` opens a blank event editor. Letters are case-insensitive.
+ */
+export function calendarKeyAction(key: string): CalendarKeyAction | null {
+	const lower = key.toLowerCase()
+	if (lower === 'm') return { kind: 'view', view: 'month' }
+	if (lower === 'w') return { kind: 'view', view: 'week' }
+	if (lower === 'd') return { kind: 'view', view: 'day' }
+	if (lower === 't') return { kind: 'today' }
+	if (lower === 'n') return { kind: 'new' }
+	if (key === 'ArrowLeft' || key === '[') return { kind: 'shift', direction: -1 }
+	if (key === 'ArrowRight' || key === ']') return { kind: 'shift', direction: 1 }
+	return null
+}
+
 export function eventTimes(event: Event): { start: Date; end: Date; allDay: boolean } {
 	const when = event.when
 	if ('start_time' in when) {
