@@ -183,9 +183,11 @@ describe('ContactDetailRoute wrapper', () => {
 		renderRoute()
 		fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
-		await waitFor(() => expect(h.deleteContact).toHaveBeenCalledWith({ data: { contactId: 'contact-1' } }))
+		// invalidate + navigate run only after deleteContact resolves — wait for the
+		// final navigate, which implies the whole chain completed.
+		await waitFor(() => expect(h.navigate).toHaveBeenCalledWith({ to: '/contacts', search: {} }))
+		expect(h.deleteContact).toHaveBeenCalledWith({ data: { contactId: 'contact-1' } })
 		expect(h.invalidate).toHaveBeenCalled()
-		expect(h.navigate).toHaveBeenCalledWith({ to: '/contacts', search: {} })
 	})
 
 	it('backs out of a delete confirmation', () => {

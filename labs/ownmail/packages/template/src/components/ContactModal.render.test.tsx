@@ -50,7 +50,9 @@ describe('ContactModal — create', () => {
 		fireEvent.change(screen.getByLabelText('Email 1 type'), { target: { value: 'home' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
 
-		await waitFor(() => expect(createContact).toHaveBeenCalledTimes(1))
+		// onClose fires only after createContact resolves; wait for it, which implies
+		// the create call already happened.
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true, 'contact-new'))
 		expect(createContact.mock.calls[0][0].data).toMatchObject({
 			givenName: 'Grace',
 			surname: 'Hopper',
@@ -59,7 +61,6 @@ describe('ContactModal — create', () => {
 			notes: 'Coined "debugging"',
 			emails: [{ email: 'grace@x.com', type: 'home' }],
 		})
-		expect(onClose).toHaveBeenCalledWith(true, 'contact-new')
 	})
 
 	it('lets you add and remove email and phone rows', () => {
@@ -132,13 +133,14 @@ describe('ContactModal — edit', () => {
 		})
 		fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
-		await waitFor(() => expect(updateContact).toHaveBeenCalledTimes(1))
+		// onClose fires only after updateContact resolves; wait for it, which implies
+		// the update call already happened.
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true, 'contact-1'))
 		expect(updateContact.mock.calls[0][0].data).toMatchObject({
 			contactId: 'contact-1',
 			givenName: 'Ada B.',
 			emails: [{ email: 'ada@x.com', type: 'work' }],
 		})
-		expect(onClose).toHaveBeenCalledWith(true, 'contact-1')
 	})
 })
 
