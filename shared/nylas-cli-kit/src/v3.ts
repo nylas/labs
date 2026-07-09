@@ -146,7 +146,10 @@ export type Contact = {
 	given_name?: string
 	surname?: string
 	company_name?: string
+	job_title?: string
 	emails?: { email: string; type?: string }[]
+	phone_numbers?: { number: string; type?: string }[]
+	notes?: string
 	picture_url?: string
 }
 
@@ -658,6 +661,18 @@ export class GrantScopedClient {
 	// Contacts
 	listContacts(query?: ListQuery): Promise<ListResponse<Contact>> {
 		return this.client.request('GET', this.path(`/contacts${toQuery(query)}`))
+	}
+	getContact(contactId: string): Promise<ItemResponse<Contact>> {
+		return this.client.request('GET', this.path(`/contacts/${encodeURIComponent(contactId)}`))
+	}
+	createContact(body: Partial<Contact>): Promise<ItemResponse<Contact>> {
+		return this.client.request('POST', this.path('/contacts'), body)
+	}
+	updateContact(contactId: string, body: Partial<Contact>): Promise<ItemResponse<Contact>> {
+		return this.client.request('PUT', this.path(`/contacts/${encodeURIComponent(contactId)}`), body)
+	}
+	deleteContact(contactId: string): Promise<void> {
+		return this.client.request('DELETE', this.path(`/contacts/${encodeURIComponent(contactId)}`))
 	}
 
 	listCalendars(query?: ListQuery): Promise<ListResponse<Calendar>> {

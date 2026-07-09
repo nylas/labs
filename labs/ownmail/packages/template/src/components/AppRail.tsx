@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Sun } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Search, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
-import { CALENDAR_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
 import {
 	initialThemeIsDark,
 	ROOT_BACKGROUND_CLASS,
@@ -14,7 +14,7 @@ import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS, cn, initials } from './ui-model
 type AppRailNavProps = {
 	email: string
 	displayName?: string
-	active: 'mail' | 'calendar'
+	active: 'mail' | 'calendar' | 'contacts'
 	onOpenCommandPalette?: () => void
 }
 
@@ -91,6 +91,14 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 					ariaLabel="Calendar"
 				>
 					<Calendar className="h-[18px] w-[18px]" strokeWidth={active === 'calendar' ? 2.25 : 1.75} />
+				</RailLink>
+				<RailLink
+					to={CONTACTS_HOME_PATH}
+					label="Contacts"
+					isActive={active === 'contacts'}
+					ariaLabel="Contacts"
+				>
+					<Users className="h-[18px] w-[18px]" strokeWidth={active === 'contacts' ? 2.25 : 1.75} />
 				</RailLink>
 			</div>
 

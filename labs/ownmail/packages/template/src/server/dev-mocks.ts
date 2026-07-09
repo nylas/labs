@@ -147,15 +147,25 @@ class DevMailbox {
 
 	async listContacts(query?: ListQuery): Promise<ListResponse<Contact>> {
 		const q = typeof query?.email === 'string' ? query.email : ''
-		return listResponse(
-			mockContacts(q).map((contact, index) => ({
-				id: `contact-${index}`,
-				grant_id: GRANT_ID,
-				given_name: contact.name?.split(' ')[0],
-				surname: contact.name?.split(' ').slice(1).join(' '),
-				emails: [{ email: contact.email }],
-			})),
-		)
+		const limit = typeof query?.limit === 'number' ? query.limit : undefined
+		const matched = mockContactList(q)
+		return listResponse(limit === undefined ? matched : matched.slice(0, limit))
+	}
+
+	async getContact(contactId: string): Promise<ItemResponse<Contact>> {
+		return itemResponse(mockGetContact(contactId))
+	}
+
+	async createContact(body: Partial<Contact>): Promise<ItemResponse<Contact>> {
+		return itemResponse(mockCreateContact(body))
+	}
+
+	async updateContact(contactId: string, body: Partial<Contact>): Promise<ItemResponse<Contact>> {
+		return itemResponse(mockUpdateContact(contactId, body))
+	}
+
+	async deleteContact(contactId: string): Promise<void> {
+		mockDeleteContact(contactId)
 	}
 
 	async listCalendars(): Promise<ListResponse<Calendar>> {
@@ -968,16 +978,89 @@ function base64DecodedBytes(value: string): number {
 	return Math.floor((value.length * 3) / 4) - padding
 }
 
-export function mockContacts(query: string): { email: string; name?: string }[] {
-	const normalized = query.trim().toLowerCase()
-	if (normalized.length < 2) return []
-	const contacts = [
-		{ name: 'Mina Park', email: 'mina@example.com' },
-		{ name: 'Alex Rivera', email: 'alex@example.com' },
-		{ name: 'Sam Lee', email: 'sam@example.com' },
-		{ name: 'OwnMail Team', email: 'team@ownmail.local' },
+const contacts = new Map<string, Contact>(
+	(
+		[
+			{
+				id: 'contact-mina',
+				given_name: 'Mina',
+				surname: 'Park',
+				company_name: 'Northwind Traders',
+				job_title: 'Product Designer',
+				emails: [{ email: 'mina@example.com', type: 'work' }],
+				phone_numbers: [{ number: '+1 (555) 0142', type: 'mobile' }],
+			},
+			{
+				id: 'contact-alex',
+				given_name: 'Alex',
+				surname: 'Rivera',
+				company_name: 'Contoso',
+				job_title: 'Engineering Manager',
+				emails: [
+					{ email: 'alex@example.com', type: 'work' },
+					{ email: 'alex.rivera@personal.example', type: 'home' },
+				],
+			},
+			{
+				id: 'contact-sam',
+				given_name: 'Sam',
+				surname: 'Lee',
+				emails: [{ email: 'sam@example.com' }],
+				notes: 'Met at the 2024 accessibility summit.',
+			},
+			{
+				id: 'contact-team',
+				given_name: 'OwnMail',
+				surname: 'Team',
+				emails: [{ email: 'team@ownmail.local', type: 'work' }],
+			},
+		] satisfies Contact[]
+	).map((contact) => [contact.id, { ...contact, grant_id: GRANT_ID }]),
+)
+
+/** Name + email + company haystack for the dev search/autocomplete filter. */
+function contactHaystack(contact: Contact): string {
+	return [
+		contact.given_name,
+		contact.surname,
+		contact.company_name,
+		...(contact.emails ?? []).map((entry) => entry.email),
 	]
-	return contacts.filter((contact) => `${contact.name} ${contact.email}`.toLowerCase().includes(normalized))
+		.filter(Boolean)
+		.join(' ')
+		.toLowerCase()
+}
+
+export function mockContactList(query: string): Contact[] {
+	const normalized = query.trim().toLowerCase()
+	const all = [...contacts.values()]
+	if (!normalized) return all
+	return all.filter((contact) => contactHaystack(contact).includes(normalized))
+}
+
+export function mockGetContact(contactId: string): Contact {
+	const contact = contacts.get(contactId)
+	if (!contact) throw new Error('Not found - it may have been deleted.')
+	return contact
+}
+
+export function mockCreateContact(body: Partial<Contact>): Contact {
+	const id = `contact-${Date.now()}`
+	const contact: Contact = { ...body, id, grant_id: GRANT_ID }
+	contacts.set(id, contact)
+	return contact
+}
+
+export function mockUpdateContact(contactId: string, body: Partial<Contact>): Contact {
+	if (!contacts.has(contactId)) throw new Error('Not found - it may have been deleted.')
+	const updated: Contact = { ...body, id: contactId, grant_id: GRANT_ID }
+	contacts.set(contactId, updated)
+	return updated
+}
+
+export function mockDeleteContact(contactId: string): { ok: true } {
+	contacts.delete(contactId)
+	return { ok: true }
 }
 
 export function mockEvents(input: { start: number; end: number }): { calendar: Calendar; events: Event[] } {

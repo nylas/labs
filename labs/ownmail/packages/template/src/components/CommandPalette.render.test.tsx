@@ -110,6 +110,12 @@ describe('CommandPalette', () => {
 		expect(navigateSpy).toHaveBeenCalledWith({ to: '/calendar' })
 	})
 
+	it('opens contacts via its command', () => {
+		render(<CommandPalette open={true} onClose={vi.fn()} />)
+		fireEvent.click(screen.getByText('Open contacts'))
+		expect(navigateSpy).toHaveBeenCalledWith({ to: '/contacts' })
+	})
+
 	it('toggles the theme both directions and persists the choice', () => {
 		const { rerender } = render(<CommandPalette open={true} onClose={vi.fn()} />)
 		// From light -> dark.

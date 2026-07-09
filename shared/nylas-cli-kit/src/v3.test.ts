@@ -160,4 +160,46 @@ describe('NylasV3Client', () => {
 		expect(response.headers.get('Content-Type')).toBe('application/pdf')
 		expect(await response.text()).toBe('pdf-bytes')
 	})
+
+	it('performs the full contact CRUD cycle against grant-scoped contact endpoints', async () => {
+		const calls: { method: string; url: string; body: unknown }[] = []
+		const fetchImpl: typeof fetch = async (input, init) => {
+			calls.push({
+				method: init?.method ?? 'GET',
+				url: String(input),
+				body: init?.body ? JSON.parse(String(init.body)) : null,
+			})
+			return Response.json({ request_id: 'req', data: { id: 'contact#1', given_name: 'Ada' } })
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		const created = await mailbox.createContact({ given_name: 'Ada', emails: [{ email: 'ada@x.com' }] })
+		await mailbox.getContact('contact#1')
+		await mailbox.updateContact('contact#1', { job_title: 'Engineer' })
+		await mailbox.deleteContact('contact#1')
+
+		expect(created.data.given_name).toBe('Ada')
+		expect(calls).toEqual([
+			{
+				method: 'POST',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/contacts',
+				body: { given_name: 'Ada', emails: [{ email: 'ada@x.com' }] },
+			},
+			{
+				method: 'GET',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/contacts/contact%231',
+				body: null,
+			},
+			{
+				method: 'PUT',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/contacts/contact%231',
+				body: { job_title: 'Engineer' },
+			},
+			{
+				method: 'DELETE',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/contacts/contact%231',
+				body: null,
+			},
+		])
+	})
 })
