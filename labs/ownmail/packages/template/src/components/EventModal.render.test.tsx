@@ -2,7 +2,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventModal } from './EventModal.js'
 
 const { createEvent, deleteEvent, rsvpEvent } = vi.hoisted(() => ({
@@ -12,6 +12,23 @@ const { createEvent, deleteEvent, rsvpEvent } = vi.hoisted(() => ({
 }))
 
 vi.mock('../server/calendar-fns.js', () => ({ createEvent, deleteEvent, rsvpEvent }))
+
+// The composer's time pickers are Radix Selects, which need pointer-capture,
+// ResizeObserver, and scrollIntoView — none implemented by jsdom.
+beforeAll(() => {
+	vi.stubGlobal(
+		'ResizeObserver',
+		class {
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		},
+	)
+	Element.prototype.scrollIntoView = vi.fn()
+	Element.prototype.hasPointerCapture = vi.fn(() => false)
+	Element.prototype.setPointerCapture = vi.fn()
+	Element.prototype.releasePointerCapture = vi.fn()
+})
 
 beforeEach(() => {
 	createEvent.mockReset().mockResolvedValue({ eventId: 'new-1' })
@@ -107,7 +124,7 @@ describe('EventModal — new event', () => {
 		expect(payload).not.toHaveProperty('location')
 	})
 
-	it('updates the start and end times from the selects', async () => {
+	it('updates the start and end times from the Select pickers', async () => {
 		const user = userEvent.setup()
 		render(
 			<EventModal
@@ -119,13 +136,16 @@ describe('EventModal — new event', () => {
 				onClose={vi.fn()}
 			/>,
 		)
-		const selects = screen.getAllByRole('combobox')
-		await user.selectOptions(selects[0], '8')
-		await user.selectOptions(selects[1], '9.5')
+		// Pick 8 AM as the start and 11 AM as the end via the Radix listboxes.
+		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
+		await user.click(await screen.findByRole('option', { name: '8 AM' }))
+		await user.click(screen.getByRole('combobox', { name: 'End time' }))
+		await user.click(await screen.findByRole('option', { name: '11 AM' }))
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
 		await waitFor(() => expect(createEvent).toHaveBeenCalled())
 		const { startTime, endTime } = createEvent.mock.calls[0][0].data
-		expect(endTime).toBeGreaterThan(startTime)
+		// 8 AM start, 11 AM end -> 3 hours apart.
+		expect(endTime - startTime).toBe(3 * 60 * 60)
 	})
 
 	it('falls back to the passed calendarId when there are no calendars', async () => {

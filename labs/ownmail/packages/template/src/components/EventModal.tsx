@@ -10,6 +10,7 @@ import {
 	type Point,
 	type Rect,
 } from './modal-position.js'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js'
 import { calendarTone, cn, type EventTone, eventColorClass, eventTone, labelBadgeClass } from './ui-model.js'
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
@@ -309,29 +310,31 @@ export function EventModal({
 				</div>
 				<div className="flex items-center gap-3 text-sm">
 					<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-					<select
-						value={startHour}
-						onChange={(e) => setStartHour(Number(e.target.value))}
-						className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
-					>
-						{TIME_OPTIONS.map((hour) => (
-							<option key={hour} value={hour}>
-								{formatDecimalHour(hour)}
-							</option>
-						))}
-					</select>
+					<Select value={String(startHour)} onValueChange={(value) => setStartHour(Number(value))}>
+						<SelectTrigger aria-label="Start time" className="w-32">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{TIME_OPTIONS.map((hour) => (
+								<SelectItem key={hour} value={String(hour)}>
+									{formatDecimalHour(hour)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 					<span className="text-muted-foreground">to</span>
-					<select
-						value={endHour}
-						onChange={(e) => setEndHour(Number(e.target.value))}
-						className="event-dialog-field rounded-lg border border-border bg-card px-2 py-1.5 outline-none focus:border-primary"
-					>
-						{TIME_OPTIONS.map((hour) => (
-							<option key={hour} value={hour}>
-								{formatDecimalHour(hour)}
-							</option>
-						))}
-					</select>
+					<Select value={String(endHour)} onValueChange={(value) => setEndHour(Number(value))}>
+						<SelectTrigger aria-label="End time" className="w-32">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{TIME_OPTIONS.map((hour) => (
+								<SelectItem key={hour} value={String(hour)}>
+									{formatDecimalHour(hour)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 				</div>
 				<label className="flex items-center gap-3 text-sm">
 					<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
