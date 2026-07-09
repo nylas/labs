@@ -575,7 +575,7 @@ describe('EventModal — existing event', () => {
 		expect(onClose).toHaveBeenCalledWith(false)
 	})
 
-	it('closes on a backdrop click for the details view', () => {
+	it('closes the details view on Escape via the dialog dismiss layer', () => {
 		const onClose = vi.fn()
 		render(
 			<EventModal
@@ -587,8 +587,7 @@ describe('EventModal — existing event', () => {
 				onClose={onClose}
 			/>,
 		)
-		const backdrop = screen.getByRole('dialog').parentElement as HTMLElement
-		fireEvent.click(backdrop)
+		fireEvent.keyDown(document.body, { key: 'Escape' })
 		expect(onClose).toHaveBeenCalledWith(false)
 	})
 })
