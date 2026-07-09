@@ -1,5 +1,8 @@
 import type { Calendar, Draft, Event, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
+import { cn } from '../lib/utils.js'
 import { eventTimes, startOfDay } from './calendar.js'
+
+export { cn }
 
 export type MailFolderId = 'inbox' | 'starred' | 'sent' | 'drafts' | 'archive' | 'trash'
 export type EventTone = 'blue' | 'teal' | 'amber' | 'rose'
@@ -26,10 +29,6 @@ export const LABELS: Array<{ id: string; name: string; tone: EventTone }> = [
 	{ id: 'finance', name: 'Finance', tone: 'amber' },
 	{ id: 'travel', name: 'Travel', tone: 'rose' },
 ]
-
-export function cn(...classes: Array<string | false | null | undefined>): string {
-	return classes.filter(Boolean).join(' ')
-}
 
 /** Shared chrome dimensions — keep rail, header, and column spacers on the same grid. */
 export const CHROME_ROW_CLASS = 'h-11'
