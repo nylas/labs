@@ -55,6 +55,18 @@ vi.mock('../components/RecipientInput.js', () => ({
 		/>
 	),
 }))
+// The rich-text editor is a unit of its own (see -RichTextEditor.render.test.tsx);
+// here it stands in as a plain textarea so composer flows — prefill, send, autosave,
+// minimize — are asserted on the body string the editor reports upward.
+vi.mock('../components/RichTextEditor.js', () => ({
+	RichTextEditor: ({ value, onChange, placeholder }: any) => (
+		<textarea
+			placeholder={placeholder ?? 'Write your message...'}
+			value={value}
+			onChange={(event) => onChange(event.target.value)}
+		/>
+	),
+}))
 vi.mock('./mail.f.$folderId.t.$threadId.js', () => ({
 	ErrorBanner: ({ message }: any) => <div role="alert">{message}</div>,
 }))
@@ -740,13 +752,15 @@ describe('mail.compose attachments', () => {
 })
 
 describe('mail.compose send', () => {
-	it('sends a plain message and navigates to the Sent folder on success', async () => {
-		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'line one\nline two' } } })
+	it('sends the editor body verbatim (already HTML) and navigates to Sent on success', async () => {
+		// The composer now trusts the editor's canonical output and sends it as-is;
+		// the newline→<br> shim that plain text used to need is gone.
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: '<p>line one</p>' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 
 		await waitFor(() =>
 			expect(sendMessage).toHaveBeenCalledWith({
-				data: { to: 'a@b.com', subject: 'Hi', body: 'line one<br>line two' },
+				data: { to: 'a@b.com', subject: 'Hi', body: '<p>line one</p>' },
 			}),
 		)
 		expect(navigate).toHaveBeenCalledWith({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
