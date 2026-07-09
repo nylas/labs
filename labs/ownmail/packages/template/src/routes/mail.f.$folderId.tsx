@@ -1,8 +1,9 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useRouter, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ClientListDate } from '../components/ClientTime.js'
+import { listNavAction, moveCursor } from '../components/list-nav.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import { cn, draftRecipientName, mailFolderTitle, threadTimestamp } from '../components/ui-model.js'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
@@ -53,9 +54,12 @@ export function MailFolderRouteScreen({
 }: MailFolderRouteData & { folderId: string; baseFolderId?: string }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const router = useRouter()
+	const navigate = useNavigate()
 	const [extraThreads, setExtraThreads] = useState<Thread[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [loadingMore, setLoadingMore] = useState(false)
+	const [cursor, setCursor] = useState(-1)
+	const listScrollRef = useRef<HTMLDivElement>(null)
 	const hasThread = useRouterState({
 		select: (state) =>
 			state.location.pathname.includes('/t/') ||
@@ -68,11 +72,66 @@ export function MailFolderRouteScreen({
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset paginated threads when the folder changes
+	// The keyboard cursor walks a flat list of the rows actually on screen —
+	// drafts in the drafts folder, otherwise the sorted threads — so `j`/`k`
+	// order matches render order and Enter opens the right conversation.
+	const navItems = useMemo(() => {
+		if (folderId === 'drafts') {
+			return drafts.map((draft) => ({ folderId: 'drafts', threadId: draft.id, search: {} }))
+		}
+		const search = baseFolderId ? { baseFolderId } : {}
+		return sortedThreads.map((thread) => ({ folderId, threadId: thread.id, search }))
+	}, [baseFolderId, drafts, folderId, sortedThreads])
+
+	const openItem = useCallback(
+		(index: number) => {
+			const item = navItems[index]
+			if (!item) return
+			navigate({
+				to: '/mail/f/$folderId/t/$threadId',
+				params: { folderId: item.folderId, threadId: item.threadId },
+				search: item.search,
+			})
+		},
+		[navItems, navigate],
+	)
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset paginated threads and the keyboard cursor when the folder changes
 	useEffect(() => {
 		setExtraThreads([])
 		setNextCursor(initialCursor)
+		setCursor(-1)
 	}, [folderId, initialCursor])
+
+	// Keep the cursored row visible as it walks past the fold.
+	useEffect(() => {
+		if (cursor < 0) return
+		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
+		rows?.[cursor]?.scrollIntoView({ block: 'nearest' })
+	}, [cursor])
+
+	// Global list navigation: j/k or arrows move the cursor, Enter/o opens it.
+	// Skip while typing, while a dialog (command palette, compose, event) is up,
+	// or when a modifier is held so app/browser shortcuts keep working.
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
+			if (document.querySelector('[role="dialog"]')) return
+			const action = listNavAction(event.key)
+			if (!action) return
+			event.preventDefault()
+			if (action === 'open') {
+				openItem(cursor)
+				return
+			}
+			setCursor((current) => moveCursor(current, action === 'down' ? 1 : -1, navItems.length))
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [cursor, navItems.length, openItem])
 
 	// Light-touch realtime: refresh the list every 30s while the tab is visible.
 	useEffect(() => {
@@ -117,23 +176,26 @@ export function MailFolderRouteScreen({
 					) : null}
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto">
+				<div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
 					{folderId === 'drafts' ? (
 						drafts.length === 0 ? (
 							<EmptyState />
 						) : (
-							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} />)
+							drafts.map((draft, index) => (
+								<DraftRow key={draft.id} draft={draft} navActive={cursor === index} />
+							))
 						)
 					) : sortedThreads.length === 0 ? (
 						<EmptyState />
 					) : (
 						<>
-							{sortedThreads.map((thread) => (
+							{sortedThreads.map((thread, index) => (
 								<ThreadRow
 									key={thread.id}
 									thread={thread}
 									folderId={folderId}
 									baseFolderId={baseFolderId}
+									navActive={cursor === index}
 									onChanged={() => router.invalidate()}
 								/>
 							))}
@@ -189,13 +251,15 @@ function EmptyState() {
 	)
 }
 
-function DraftRow({ draft }: { draft: Draft }) {
+function DraftRow({ draft, navActive }: { draft: Draft; navActive: boolean }) {
 	const recipient = draftRecipientName(draft)
 	return (
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId: 'drafts', threadId: draft.id }}
-			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
+			data-nav-row=""
+			data-nav-cursor={navActive ? 'true' : undefined}
+			className="thread-row group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent"
 		>
 			<div className="flex items-center gap-2">
 				<span className="shrink-0 text-muted-foreground">
@@ -219,11 +283,13 @@ function ThreadRow({
 	thread,
 	folderId,
 	baseFolderId,
+	navActive,
 	onChanged,
 }: {
 	thread: Thread
 	folderId: string
 	baseFolderId?: string
+	navActive: boolean
 	onChanged: () => void
 }) {
 	async function toggleStar() {
@@ -238,6 +304,8 @@ function ThreadRow({
 			search={baseFolderId ? { baseFolderId } : {}}
 			className={cn(THREAD_ROW_CLASS, thread.unread && 'bg-card/80')}
 			activeProps={{ 'data-active': 'true' }}
+			data-nav-row=""
+			data-nav-cursor={navActive ? 'true' : undefined}
 			data-unread={thread.unread ? 'true' : undefined}
 		>
 			<ThreadRowContent thread={thread} folderId={folderId} onToggleStar={toggleStar} />
