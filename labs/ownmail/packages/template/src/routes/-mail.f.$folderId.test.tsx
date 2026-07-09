@@ -272,8 +272,8 @@ describe('MailFolderRouteScreen — drafts', () => {
 		expect(screen.getAllByText('date')).toHaveLength(1)
 	})
 
-	it('masks draft links to the mail home path when the public location is the root', () => {
-		routerState = { location: { pathname: '/mail/f/drafts', maskedLocation: { pathname: '/' } }, matches: [] }
+	it('links drafts to their real thread URL without a mask', () => {
+		routerState = { location: { pathname: '/mail/f/drafts' }, matches: [] }
 		render(
 			<MailFolderRouteScreen
 				threads={[]}
@@ -283,7 +283,9 @@ describe('MailFolderRouteScreen — drafts', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		expect(screen.getByRole('link')).toHaveAttribute('data-mask', 'yes')
+		const link = screen.getByRole('link')
+		expect(link).toHaveAttribute('data-mask', 'no')
+		expect(link).toHaveAttribute('href', '/mail/f/drafts/t/d1')
 	})
 })
 
@@ -348,8 +350,8 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		expect(screen.queryByText('Select a conversation')).toBeNull()
 	})
 
-	it('passes the public (masked) path down and marks label links with a mask', () => {
-		routerState = { location: { pathname: '/mail/f/work', maskedLocation: { pathname: '/' } }, matches: [] }
+	it('links threads to their real URL and carries the baseFolderId search (no mask)', () => {
+		routerState = { location: { pathname: '/mail/f/work' }, matches: [] }
 		render(
 			<MailFolderRouteScreen
 				threads={[thread({ id: 't1' })]}
@@ -360,9 +362,9 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		// The mask (pathname '/') makes the thread link carry mask metadata + baseFolderId search.
+		// Thread links use real URLs; the baseFolderId is preserved as a search param.
 		const link = screen.getAllByRole('link')[0]
-		expect(link).toHaveAttribute('data-mask', 'yes')
+		expect(link).toHaveAttribute('data-mask', 'no')
 		expect(link).toHaveAttribute('data-search', JSON.stringify({ baseFolderId: 'inbox' }))
 	})
 

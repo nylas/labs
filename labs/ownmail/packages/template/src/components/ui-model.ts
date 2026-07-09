@@ -446,6 +446,12 @@ export function mailSearchInputValue(pathname: string, routeQuery?: string): str
 	return pathname.startsWith('/mail/search') ? (routeQuery ?? '') : ''
 }
 
+/**
+ * When the composer is closed, prefer a real browser back so the compose
+ * history entry is popped instead of pushing another entry (which would let
+ * the browser Back button re-open the composer). Only safe when a prior
+ * in-app entry exists — otherwise the caller navigates explicitly.
+ */
 export function shouldUseBrowserBackForComposeClose(historyState: unknown): boolean {
 	if (!historyState || typeof historyState !== 'object') return false
 	const index = (historyState as { __TSR_index?: unknown }).__TSR_index
@@ -465,22 +471,6 @@ export function composeSearchFromMailLocation(
 		...(folderId ? { folderId } : {}),
 		...(selectedThreadId ? { threadId: selectedThreadId } : {}),
 	}
-}
-
-export function composeMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
-	return pathname === '/' ? { to: '/' } : undefined
-}
-
-export function threadMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
-	return pathname === '/' ? { to: '/' } : undefined
-}
-
-export function searchMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
-	return pathname === '/' ? { to: '/' } : undefined
-}
-
-export function folderMaskFromMailLocation(pathname: string): { to: '/' } | undefined {
-	return pathname === '/' ? { to: '/' } : undefined
 }
 
 export function composeBackdropThreadSearch(input: {

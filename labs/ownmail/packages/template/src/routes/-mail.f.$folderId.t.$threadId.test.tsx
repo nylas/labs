@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // A single navigate/invalidate pair backs the mocked router hooks; `routerState`
-// is reassigned per-test to steer the masked-location / folder-mask branches.
+// supplies the router state consumed via useRouter().
 const navigate = vi.fn()
 const invalidate = vi.fn()
 let routerState: any
@@ -253,28 +253,27 @@ describe('toolbar actions', () => {
 		expect(updateThreadState).not.toHaveBeenCalled()
 	})
 
-	it('carries the baseFolderId and folder mask through leave navigation', async () => {
-		routerState = { location: { pathname: '/mail/f/inbox/t/t1', maskedLocation: { pathname: '/' } } }
+	it('carries the baseFolderId through leave navigation as a real URL', async () => {
 		const user = userEvent.setup()
 		renderThread(loaderData(), { baseFolderId: 'starred' })
 		await user.click(screen.getByRole('button', { name: 'Archive' }))
 		await waitFor(() => expect(navigate).toHaveBeenCalled())
 		expect(navigate).toHaveBeenCalledWith(
 			expect.objectContaining({
+				to: '/mail/f/$folderId',
+				params: { folderId: 'inbox' },
 				search: { baseFolderId: 'starred' },
-				mask: { to: '/' },
 			}),
 		)
+		expect(navigate.mock.calls.every(([arg]) => !('mask' in arg))).toBe(true)
 	})
 
-	it('preserves baseFolderId and mask when using the mobile back button', async () => {
-		routerState = { location: { pathname: '/mail/f/inbox/t/t1', maskedLocation: { pathname: '/' } } }
+	it('preserves baseFolderId when using the mobile back button (no mask)', async () => {
 		const user = userEvent.setup()
 		renderThread(loaderData(), { baseFolderId: 'starred' })
 		await user.click(screen.getByRole('button', { name: 'Back to list' }))
-		expect(navigate).toHaveBeenCalledWith(
-			expect.objectContaining({ search: { baseFolderId: 'starred' }, mask: { to: '/' } }),
-		)
+		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ search: { baseFolderId: 'starred' } }))
+		expect(navigate.mock.calls.every(([arg]) => !('mask' in arg))).toBe(true)
 	})
 })
 
@@ -467,15 +466,13 @@ describe('keyboard shortcuts', () => {
 		expect(updateThreadState).not.toHaveBeenCalled()
 	})
 
-	it('preserves baseFolderId and mask when closing on Escape', async () => {
-		routerState = { location: { pathname: '/mail/f/inbox/t/t1', maskedLocation: { pathname: '/' } } }
+	it('preserves baseFolderId when closing on Escape (no mask)', async () => {
 		renderThread(loaderData(), { baseFolderId: 'starred' })
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'Escape' })
 		})
-		expect(navigate).toHaveBeenCalledWith(
-			expect.objectContaining({ search: { baseFolderId: 'starred' }, mask: { to: '/' } }),
-		)
+		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ search: { baseFolderId: 'starred' } }))
+		expect(navigate.mock.calls.every(([arg]) => !('mask' in arg))).toBe(true)
 	})
 })
 

@@ -21,18 +21,14 @@ const FOLDER_ICONS: Record<string, LucideIcon> = {
 
 export function MailSidebar({
 	folders,
-	composeMask,
 	composeSearch,
-	folderMask,
 	currentFolderId,
 	baseFolderId,
 	onNavigate,
 	className,
 }: {
 	folders: Folder[]
-	composeMask?: { to: '/' }
 	composeSearch: { folderId?: string; threadId?: string }
-	folderMask?: { to: '/' }
 	currentFolderId?: string
 	baseFolderId?: string
 	onNavigate?: () => void
@@ -46,7 +42,6 @@ export function MailSidebar({
 				<Link
 					to="/mail/compose"
 					search={composeSearch}
-					{...(composeMask ? { mask: composeMask } : {})}
 					onClick={onNavigate}
 					className="flex h-9 w-full items-center justify-center gap-2 border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-muted"
 				>
@@ -66,7 +61,6 @@ export function MailSidebar({
 							key={folder.id}
 							to="/mail/f/$folderId"
 							params={{ folderId: folder.id }}
-							{...(folderMask ? { mask: folderMask } : {})}
 							onClick={onNavigate}
 							className={cn(
 								'relative flex h-9 items-center gap-3 px-4 text-sm transition-colors',
@@ -103,7 +97,6 @@ export function MailSidebar({
 									to="/mail/f/$folderId"
 									params={{ folderId: nextFolderId }}
 									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
-									{...(folderMask ? { mask: folderMask } : {})}
 									onClick={onNavigate}
 									className={cn(
 										'relative flex h-9 items-center gap-3 px-4 text-sm transition-colors',

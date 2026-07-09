@@ -11,7 +11,6 @@ import {
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
 	threadLabels,
-	threadMaskFromMailLocation,
 	threadSender,
 	threadTimestamp,
 } from '../components/ui-model.js'
@@ -66,15 +65,11 @@ export function MailFolderRouteScreen({
 	const [extraThreads, setExtraThreads] = useState<Thread[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [loadingMore, setLoadingMore] = useState(false)
-	const publicPathname = useRouterState({
-		select: (state) => state.location.maskedLocation?.pathname ?? state.location.pathname,
-	})
 	const hasThread = useRouterState({
 		select: (state) =>
 			state.location.pathname.includes('/t/') ||
 			state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
 	})
-	const threadMask = threadMaskFromMailLocation(publicPathname)
 	const threads = useMemo(() => [...initialThreads, ...extraThreads], [extraThreads, initialThreads])
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
@@ -136,7 +131,7 @@ export function MailFolderRouteScreen({
 						drafts.length === 0 ? (
 							<EmptyState />
 						) : (
-							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} mask={threadMask} />)
+							drafts.map((draft) => <DraftRow key={draft.id} draft={draft} />)
 						)
 					) : sortedThreads.length === 0 ? (
 						<EmptyState />
@@ -148,7 +143,6 @@ export function MailFolderRouteScreen({
 									thread={thread}
 									folderId={folderId}
 									baseFolderId={baseFolderId}
-									mask={threadMask}
 									onChanged={() => router.invalidate()}
 								/>
 							))}
@@ -204,13 +198,12 @@ function EmptyState() {
 	)
 }
 
-function DraftRow({ draft, mask }: { draft: Draft; mask?: { to: '/' } }) {
+function DraftRow({ draft }: { draft: Draft }) {
 	const recipient = draftRecipientName(draft)
 	return (
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId: 'drafts', threadId: draft.id }}
-			{...(mask ? { mask } : {})}
 			className="group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-accent"
 		>
 			<div className="flex items-center gap-2">
@@ -235,13 +228,11 @@ function ThreadRow({
 	thread,
 	folderId,
 	baseFolderId,
-	mask,
 	onChanged,
 }: {
 	thread: Thread
 	folderId: string
 	baseFolderId?: string
-	mask?: { to: '/' }
 	onChanged: () => void
 }) {
 	const sender = threadSender(thread, folderId)
@@ -259,7 +250,6 @@ function ThreadRow({
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId, threadId: thread.id }}
 			search={baseFolderId ? { baseFolderId } : {}}
-			{...(mask ? { mask } : {})}
 			className={cn(
 				'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent',
 				thread.unread && 'bg-card/80',

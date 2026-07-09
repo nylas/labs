@@ -9,7 +9,6 @@ import {
 	composeBackdropListSearch,
 	composeBackdropReplySearch,
 	composeBackdropThreadSearch,
-	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
 	draftRecipientList,
 	draftRecipientName,
@@ -18,7 +17,6 @@ import {
 	eventHour,
 	eventTone,
 	folderCount,
-	folderMaskFromMailLocation,
 	formatListDate,
 	forwardDraftSearch,
 	initials,
@@ -38,11 +36,9 @@ import {
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
 	searchListSearch,
-	searchMaskFromMailLocation,
 	shouldUseBrowserBackForComposeClose,
 	sidebarFolderCount,
 	threadLabels,
-	threadMaskFromMailLocation,
 	threadRouteFolderId,
 	threadSender,
 	threadTimestamp,
@@ -399,30 +395,6 @@ describe('ui-model mail helpers', () => {
 			to: 'grace@example.com',
 			subject: 'Re: Q3 roadmap',
 		})
-	})
-
-	it('masks root inbox compose navigation to match the reference modal URL', () => {
-		expect(composeMaskFromMailLocation('/')).toEqual({ to: '/' })
-		expect(composeMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
-		expect(composeMaskFromMailLocation('/mail/search')).toBeUndefined()
-	})
-
-	it('masks root inbox thread selection to match the reference reading pane URL', () => {
-		expect(threadMaskFromMailLocation('/')).toEqual({ to: '/' })
-		expect(threadMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
-		expect(threadMaskFromMailLocation('/mail/search')).toBeUndefined()
-	})
-
-	it('masks root inbox search navigation to match the reference filtered list URL', () => {
-		expect(searchMaskFromMailLocation('/')).toEqual({ to: '/' })
-		expect(searchMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
-		expect(searchMaskFromMailLocation('/mail/search')).toBeUndefined()
-	})
-
-	it('masks root inbox folder and label navigation to match the reference filtered URL', () => {
-		expect(folderMaskFromMailLocation('/')).toEqual({ to: '/' })
-		expect(folderMaskFromMailLocation('/mail/f/inbox')).toBeUndefined()
-		expect(folderMaskFromMailLocation('/mail/search')).toBeUndefined()
 	})
 })
 

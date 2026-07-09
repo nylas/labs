@@ -18,7 +18,6 @@ import { MessageBody } from '../components/MessageBody.js'
 import {
 	cn,
 	collapsedMessagePreview,
-	folderMaskFromMailLocation,
 	forwardDraftSearch,
 	initials,
 	labelBadgeClass,
@@ -43,8 +42,6 @@ function ThreadView() {
 	const { baseFolderId } = Route.useSearch()
 	const router = useRouter()
 	const navigate = useNavigate()
-	const publicPathname = router.state.location.maskedLocation?.pathname ?? router.state.location.pathname
-	const folderMask = folderMaskFromMailLocation(publicPathname)
 	const [error, setError] = useState<string | null>(null)
 	const lastMessage = messages.at(-1)
 	const labels = threadLabels(thread)
@@ -66,7 +63,6 @@ function ThreadView() {
 						to: '/mail/f/$folderId',
 						params: { folderId },
 						search: baseFolderId ? { baseFolderId } : {},
-						...(folderMask ? { mask: folderMask } : {}),
 					})
 				}
 				await router.invalidate()
@@ -74,7 +70,7 @@ function ThreadView() {
 				setError(err instanceof Error ? err.message : 'Action failed')
 			}
 		},
-		[baseFolderId, folderId, folderMask, navigate, router, threadId],
+		[baseFolderId, folderId, navigate, router, threadId],
 	)
 
 	useEffect(() => {
@@ -105,13 +101,12 @@ function ThreadView() {
 					to: '/mail/f/$folderId',
 					params: { folderId },
 					search: baseFolderId ? { baseFolderId } : {},
-					...(folderMask ? { mask: folderMask } : {}),
 				})
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, baseFolderId, folderId, folderMask, navigate, thread.starred])
+	}, [act, baseFolderId, folderId, navigate, thread.starred])
 
 	useEffect(() => {
 		if (markedRead) router.invalidate()
@@ -127,7 +122,6 @@ function ThreadView() {
 							to: '/mail/f/$folderId',
 							params: { folderId },
 							search: baseFolderId ? { baseFolderId } : {},
-							...(folderMask ? { mask: folderMask } : {}),
 						})
 					}
 					aria-label="Back to list"

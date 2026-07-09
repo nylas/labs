@@ -210,17 +210,8 @@ describe('MailRouteScreen — layout wiring', () => {
 	})
 })
 
-describe('MailRouteScreen — masks', () => {
-	it('masks the compose FAB link to "/" when the public location is the root', () => {
-		renderScreen(
-			{},
-			{ location: { pathname: '/mail/f/inbox', search: {}, maskedLocation: { pathname: '/' } } },
-		)
-		const fab = screen.getByRole('link', { name: 'Compose message' })
-		expect(fab).toHaveAttribute('data-mask', 'yes')
-	})
-
-	it('leaves the compose FAB link unmasked on a normal location', () => {
+describe('MailRouteScreen — compose link', () => {
+	it('renders the compose FAB as a real URL (never masked)', () => {
 		renderScreen()
 		expect(screen.getByRole('link', { name: 'Compose message' })).toHaveAttribute('data-mask', 'no')
 	})
@@ -238,18 +229,14 @@ describe('MailRouteScreen — search navigation', () => {
 		})
 	})
 
-	it('searches without a folder scope and carries the mask when on the masked root', () => {
-		renderScreen(
-			{},
-			{ location: { pathname: '/mail/search', search: {}, maskedLocation: { pathname: '/' } } },
-		)
+	it('searches without a folder scope when the current route has none', () => {
+		renderScreen({}, { location: { pathname: '/mail/search', search: {} } })
 		fireEvent.change(searchInput(), { target: { value: 'x' } })
 		submitSearch()
 		expect(navigate).toHaveBeenCalledWith({
 			to: '/mail/search',
 			search: { q: 'x' },
 			replace: true,
-			mask: { to: '/' },
 		})
 	})
 
@@ -267,25 +254,6 @@ describe('MailRouteScreen — search navigation', () => {
 		})
 	})
 
-	it('returns to the folder list with a mask when clearing search on the masked root', () => {
-		routerState = {
-			location: {
-				pathname: '/mail/search',
-				search: { folderId: 'inbox' },
-				maskedLocation: { pathname: '/' },
-			},
-			matches: [{ routeId: '/mail/search' }],
-		}
-		render(<MailRouteScreen info={info} folders={[]} />)
-		submitSearch()
-		expect(navigate).toHaveBeenCalledWith({
-			to: '/mail/f/$folderId',
-			params: { folderId: 'inbox' },
-			replace: true,
-			mask: { to: '/' },
-		})
-	})
-
 	it('navigates straight to a thread when the live target resolves to one', () => {
 		vi.mocked(liveSearchTarget).mockReturnValueOnce({ kind: 'thread', folderId: 'inbox', threadId: 't9' })
 		renderScreen()
@@ -296,19 +264,6 @@ describe('MailRouteScreen — search navigation', () => {
 			params: { folderId: 'inbox', threadId: 't9' },
 			replace: true,
 		})
-	})
-
-	it('carries a mask when navigating to a thread from the masked root', () => {
-		vi.mocked(liveSearchTarget).mockReturnValueOnce({ kind: 'thread', folderId: 'inbox', threadId: 't9' })
-		renderScreen(
-			{},
-			{ location: { pathname: '/mail/f/inbox', search: {}, maskedLocation: { pathname: '/' } } },
-		)
-		fireEvent.change(searchInput(), { target: { value: 'ada' } })
-		submitSearch()
-		expect(navigate).toHaveBeenCalledWith(
-			expect.objectContaining({ to: '/mail/f/$folderId/t/$threadId', mask: { to: '/' } }),
-		)
 	})
 
 	it('does nothing on an empty submit outside the search route', () => {
@@ -366,13 +321,11 @@ describe('MailRouteScreen — keyboard shortcuts', () => {
 		})
 	})
 
-	it('masks the compose shortcut when on the masked root', () => {
-		renderScreen(
-			{},
-			{ location: { pathname: '/mail/f/inbox', search: {}, maskedLocation: { pathname: '/' } } },
-		)
+	it('composes via a real URL with no mask on the "c" shortcut', () => {
+		renderScreen({}, { location: { pathname: '/mail/f/inbox', search: {} } })
 		fireEvent.keyDown(window, { key: 'c' })
-		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose', mask: { to: '/' } }))
+		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+		expect(navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
 	})
 
 	it('ignores shortcuts while typing in a field or with a modifier or key repeat', () => {

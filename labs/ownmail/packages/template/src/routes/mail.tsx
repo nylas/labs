@@ -12,14 +12,11 @@ import {
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
 	cn,
-	composeMaskFromMailLocation,
 	composeSearchFromMailLocation,
-	folderMaskFromMailLocation,
 	liveSearchTarget,
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
 	mailSearchInputValue,
-	searchMaskFromMailLocation,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
 
@@ -76,9 +73,6 @@ export function MailRouteScreen({
 }) {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
-	const publicPathname = useRouterState({
-		select: (state) => state.location.maskedLocation?.pathname ?? state.location.pathname,
-	})
 	const isSearchRoute = useRouterState({
 		select: (state) => state.matches.some((match) => match.routeId === '/mail/search'),
 	})
@@ -97,9 +91,6 @@ export function MailRouteScreen({
 		() => composeSearchFromMailLocation(pathname, activeSearchFolderId, selectedSearchThreadId),
 		[activeSearchFolderId, pathname, selectedSearchThreadId],
 	)
-	const composeMask = useMemo(() => composeMaskFromMailLocation(publicPathname), [publicPathname])
-	const folderMask = useMemo(() => folderMaskFromMailLocation(publicPathname), [publicPathname])
-	const searchMask = useMemo(() => searchMaskFromMailLocation(publicPathname), [publicPathname])
 	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
 	const [query, setQuery] = useState('')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -131,21 +122,18 @@ export function MailRouteScreen({
 				to: '/mail/search',
 				search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
 				replace: true,
-				...(searchMask ? { mask: searchMask } : {}),
 			})
 		} else if (target.kind === 'thread') {
 			navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId: target.folderId, threadId: target.threadId },
 				replace: true,
-				...(searchMask ? { mask: searchMask } : {}),
 			})
 		} else if (target.kind === 'folder') {
 			navigate({
 				to: '/mail/f/$folderId',
 				params: { folderId: target.folderId },
 				replace: true,
-				...(searchMask ? { mask: searchMask } : {}),
 			})
 		}
 	}
@@ -177,19 +165,16 @@ export function MailRouteScreen({
 				navigate({
 					to: '/mail/compose',
 					search: composeSearch,
-					...(composeMask ? { mask: composeMask } : {}),
 				})
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [composeMask, composeSearch, navigate])
+	}, [composeSearch, navigate])
 
 	const sidebarProps = {
 		folders,
-		composeMask,
 		composeSearch,
-		folderMask,
 		currentFolderId,
 		baseFolderId: labelBaseFolder,
 		onNavigate: () => setSidebarOpen(false),
@@ -300,13 +285,7 @@ export function MailRouteScreen({
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} onFocusSearch={focusSearch} />
 
-			<Link
-				to="/mail/compose"
-				search={composeSearch}
-				{...(composeMask ? { mask: composeMask } : {})}
-				className="fab md:hidden"
-				aria-label="Compose message"
-			>
+			<Link to="/mail/compose" search={composeSearch} className="fab md:hidden" aria-label="Compose message">
 				<Pencil className="h-5 w-5" strokeWidth={2.5} />
 			</Link>
 		</div>
