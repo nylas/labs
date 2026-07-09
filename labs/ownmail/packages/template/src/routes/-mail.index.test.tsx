@@ -38,7 +38,8 @@ describe('/mail index redirect', () => {
 
 		await expect(Route.options.beforeLoad()).rejects.toMatchObject({
 			to: '/mail/f/$folderId',
-			options: { params: { folderId: 'inbox' } },
+			// Replaces the transient /mail entry so Back doesn't bounce off the redirect.
+			options: { params: { folderId: 'inbox' }, replace: true },
 		})
 	})
 

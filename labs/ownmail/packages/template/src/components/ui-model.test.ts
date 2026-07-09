@@ -165,6 +165,8 @@ describe('ui-model mail helpers', () => {
 		expect(formatListDate(Date.parse('2026-07-08T08:30:00Z') / 1000)).toMatch(/8:30|4:30/)
 		expect(formatListDate(Date.parse('2026-07-07T08:30:00Z') / 1000)).toMatch(/Tue|Jul/)
 		expect(formatListDate(Date.parse('2026-06-20T08:30:00Z') / 1000)).toBe('Jun 20')
+		// A missing/zero timestamp yields an empty label.
+		expect(formatListDate(undefined)).toBe('')
 
 		vi.useRealTimers()
 	})

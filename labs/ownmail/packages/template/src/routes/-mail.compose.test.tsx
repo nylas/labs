@@ -379,90 +379,24 @@ describe('mail.compose selected backdrop', () => {
 		}
 	}
 
-	it('marks the active row and renders the selected thread with a found attachment size', () => {
+	it('marks the active row and renders the selected thread in the shared reader', () => {
 		renderCompose({
 			loader: selectedLoader({
 				thread: { has_attachments: true, folders: ['finance'] },
 				messages: [
 					makeMessage({
 						id: 'm1',
-						attachments: [{ filename: 'report.pdf', size: 1_572_864, is_inline: false }],
+						attachments: [{ id: 'report', filename: 'report.pdf', size: 1_572_864, is_inline: false }],
 					}),
 				],
 			}),
 		})
 		// The chosen thread's row is flagged active for styling.
-		const activeRow = document.querySelector('[data-active="true"]')
-		expect(activeRow).not.toBeNull()
-		expect(screen.getByText('report.pdf')).toBeInTheDocument()
-		expect(screen.getByText('· 1.5 MB')).toBeInTheDocument()
-		// The Finance label shows on both the list row and the backdrop header.
+		expect(document.querySelector('[data-active="true"]')).not.toBeNull()
+		// The shared reader (same component as the folder thread view) renders the attachment
+		// and the Finance label appears on both the list row and the reader header.
+		expect(screen.getAllByText('report.pdf').length).toBeGreaterThan(0)
 		expect(screen.getAllByText('Finance').length).toBeGreaterThan(1)
-	})
-
-	it('falls back to placeholder attachment text when only inline attachments exist', () => {
-		renderCompose({
-			loader: selectedLoader({
-				thread: { has_attachments: true, subject: '' },
-				messages: [makeMessage({ attachments: [{ filename: 'sig.png', is_inline: true }] })],
-			}),
-		})
-		expect(screen.getByText('attachment.pdf')).toBeInTheDocument()
-		expect(screen.getByText('· 248 KB')).toBeInTheDocument()
-	})
-
-	it('shows the filename but a fallback size when a real attachment reports no size', () => {
-		renderCompose({
-			loader: selectedLoader({
-				thread: { has_attachments: true },
-				messages: [makeMessage({ attachments: [{ filename: 'nosize.doc', is_inline: false }] })],
-			}),
-		})
-		expect(screen.getByText('nosize.doc')).toBeInTheDocument()
-		expect(screen.getByText('· 248 KB')).toBeInTheDocument()
-	})
-
-	it('renders each message: the last expands with recipients, earlier ones collapse to a preview', () => {
-		renderCompose({
-			loader: selectedLoader({
-				messages: [
-					makeMessage({ id: 'mA', from: [{ name: 'Alice', email: 'alice@x.com' }] }),
-					makeMessage({
-						id: 'mC',
-						from: undefined,
-						to: undefined,
-						body: '<p>Latest</p>',
-					}),
-				],
-			}),
-		})
-		// Last message is open by default, addressed with the "to me" fallback and unknown sender.
-		expect(screen.getByText('to me')).toBeInTheDocument()
-		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
-		expect(screen.getByText('Latest')).toBeInTheDocument()
-	})
-
-	it('expands an earlier message on click and collapses the open one', () => {
-		renderCompose({
-			loader: selectedLoader({
-				messages: [
-					makeMessage({
-						id: 'mA',
-						from: [{ email: 'carol@x.com' }],
-						to: [],
-						date: undefined,
-						body: '',
-						snippet: 'collapsed preview',
-					}),
-					makeMessage({ id: 'mC', body: '<p>Latest body</p>' }),
-				],
-			}),
-		})
-		// The earlier message starts collapsed, showing its preview.
-		expect(screen.getByText('collapsed preview')).toBeInTheDocument()
-		fireEvent.click(screen.getByText('carol@x.com'))
-		// Expanding an empty-body message falls back to its snippet paragraph.
-		expect(screen.getAllByText('collapsed preview').length).toBeGreaterThan(0)
 	})
 
 	it('archives the selected thread, leaves the composer, and refreshes', async () => {
@@ -542,16 +476,17 @@ describe('mail.compose selected backdrop', () => {
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
-	it('shows the placeholder attachment when a message omits its attachments array entirely', () => {
+	it('renders the reader safely when a message omits its attachments array entirely', () => {
 		// A message with `attachments: undefined` (not just an empty array) must not throw;
-		// the `?? []` fallback keeps the placeholder attachment showing.
+		// the shared reader's `?? []` fallback keeps it rendering.
 		renderCompose({
 			loader: selectedLoader({
 				thread: { has_attachments: true },
 				messages: [makeMessage({ attachments: undefined })],
 			}),
 		})
-		expect(screen.getByText('attachment.pdf')).toBeInTheDocument()
+		// The backdrop toolbar renders, proving the reader mounted without throwing.
+		expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument()
 	})
 
 	it('addresses an open message by recipient email when the recipient has no name', () => {

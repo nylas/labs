@@ -190,7 +190,8 @@ describe('/mail/search results list', () => {
 
 		// Label-scoped title resolves via the labels table.
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Filtered')
-		expect(screen.getByText('1 unread')).toBeTruthy()
+		// Unread badge shows the count only, matching the mail folder list.
+		expect(screen.getByText('1')).toBeTruthy()
 		expect(screen.getByText('Hello there')).toBeTruthy()
 		// Empty subject falls back to a placeholder.
 		expect(screen.getByText('(no subject)')).toBeTruthy()
@@ -321,8 +322,7 @@ describe('/mail/search thread detail', () => {
 		}))
 	}
 
-	it('renders a rich conversation: banner, message blocks, sizes and reply actions', async () => {
-		h.location = { pathname: '/x', maskedLocation: { pathname: '/' } }
+	it('renders the shared reader and routes reply actions + toolbar to the composer/list', async () => {
 		const user = userEvent.setup()
 		seedDetail({
 			thread: {
@@ -337,37 +337,18 @@ describe('/mail/search thread detail', () => {
 
 		renderRoute()
 
-		// Subject + label chip in the header.
+		// The shared reader (same component as the folder thread view) shows the subject,
+		// label chip, and the last message's HTML body via the iframe renderer.
 		expect(screen.getByText('Subject A')).toBeTruthy()
 		expect(screen.getAllByText('Work').length).toBeGreaterThan(0)
-		// Attachment banner uses the first non-inline attachment (500 bytes -> "B").
-		expect(screen.getAllByText('file.pdf').length).toBeGreaterThan(0)
-		expect(screen.getByText(/500 B/)).toBeTruthy()
-		// Last message opens by default: recipient line collapses to "me", body renders.
-		expect(screen.getByText(/to me/)).toBeTruthy()
-		expect(screen.getByText('Last body')).toBeTruthy()
-		// Its attachments cover the MB size branch and the filename fallback.
-		expect(screen.getByText(/2\.0 MB/)).toBeTruthy()
-		expect(screen.getByText('nosize.txt')).toBeTruthy()
-		expect(screen.getByText('attachment')).toBeTruthy()
-
-		// Expand the first (collapsed) message: recipients + body + KB-sized attachment appear.
-		await user.click(screen.getByRole('button', { name: /Alice/ }))
-		expect(screen.getByText(/to Bob/)).toBeTruthy()
-		expect(screen.getByText('Second para')).toBeTruthy()
-		expect(screen.getByText(/5 KB/)).toBeTruthy()
-
-		// Collapse the last message: it now shows a one-line preview instead of "to ...".
-		await user.click(screen.getByRole('button', { name: /carol/ }))
-
-		// Expand the empty (no-sender) message: its empty body and attachment lists collapse to nothing.
-		await user.click(screen.getByRole('button', { name: /unknown sender/i }))
-		expect(screen.getByText(/to me/)).toBeTruthy()
+		expect(screen.getByTitle('Email content m3')).toBeTruthy()
 
 		// Reply / Reply all / Forward each route to the composer for the latest message.
 		await user.click(screen.getByRole('button', { name: 'Reply' }))
 		await user.click(screen.getByRole('button', { name: 'Reply all' }))
 		await user.click(screen.getByRole('button', { name: 'Forward' }))
+		// The mobile "Write a reply…" footer also routes to the composer.
+		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
 		await waitFor(() =>
 			expect(h.navigate).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -377,15 +358,15 @@ describe('/mail/search thread detail', () => {
 			),
 		)
 
-		// Archive leaves the thread (state update + navigate back to the list + invalidate).
+		// Archive leaves the thread (state update + navigate back to the list, no mask).
 		await user.click(screen.getByLabelText('Archive'))
 		await waitFor(() =>
 			expect(fns.updateThreadState).toHaveBeenCalledWith({
 				data: { threadId: 'th1', folder: 'archive' },
 			}),
 		)
-		expect(h.navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
 		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
+		expect(h.navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
 
 		// Deleting also leaves the thread, moving it to trash.
 		await user.click(screen.getByLabelText('Delete'))
@@ -411,7 +392,7 @@ describe('/mail/search thread detail', () => {
 		expect(h.navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
 	})
 
-	it('falls back to placeholder attachment metadata and disables reply when a thread has no messages', async () => {
+	it('hides all reply actions and refreshes on a marked-read thread with no messages', async () => {
 		const user = userEvent.setup()
 		seedDetail({
 			thread: {
@@ -429,14 +410,10 @@ describe('/mail/search thread detail', () => {
 
 		// markedRead selection triggers a background refresh on mount.
 		expect(h.invalidate).toHaveBeenCalled()
-		// No messages -> banner shows placeholder filename and size.
-		expect(screen.getByText('attachment.pdf')).toBeTruthy()
-		expect(screen.getByText(/248 KB/)).toBeTruthy()
-		// Reply is hidden with no message to reply to; Reply all/Forward are inert.
+		// With no message to act on, none of the reply actions render.
 		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
-		await user.click(screen.getByRole('button', { name: 'Reply all' }))
-		await user.click(screen.getByRole('button', { name: 'Forward' }))
-		expect(h.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+		expect(screen.queryByRole('button', { name: 'Reply all' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Forward' })).toBeNull()
 
 		// Unstar (thread already starred) updates state without leaving the view.
 		await user.click(screen.getByLabelText('Unstar'))
@@ -447,7 +424,7 @@ describe('/mail/search thread detail', () => {
 		)
 		expect(h.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
 
-		// Archiving without a mask navigates back with just the search scope.
+		// Archiving navigates back with just the search scope.
 		await user.click(screen.getByLabelText('Archive'))
 		await waitFor(() =>
 			expect(h.navigate).toHaveBeenCalledWith({
@@ -457,7 +434,7 @@ describe('/mail/search thread detail', () => {
 		)
 	})
 
-	it('renders no attachment banner when the thread carries no attachments', () => {
+	it('renders the reader body for a thread that carries no attachments', () => {
 		seedDetail({
 			thread: { id: 'thC', subject: 'C', starred: false, has_attachments: false, folders: [] },
 			messages: [{ id: 'mc', from: [{ name: 'Z' }], body: '<p>hi</p>' }],
@@ -465,9 +442,10 @@ describe('/mail/search thread detail', () => {
 
 		renderRoute()
 
-		expect(screen.getByText('hi')).toBeTruthy()
-		expect(screen.queryByText(/248 KB/)).toBeNull()
-		expect(screen.queryByText('attachment.pdf')).toBeNull()
+		expect(screen.getByText('C')).toBeTruthy()
+		expect(screen.getByTitle('Email content mc')).toBeTruthy()
+		// No non-inline attachments -> no attachment download links in the reader.
+		expect(document.querySelector('a[download]')).toBeNull()
 	})
 })
 
