@@ -22,19 +22,26 @@ describe('EmailHtml', () => {
 		expect(el.shadowRoot?.querySelector('.email-root')?.innerHTML).toContain('Newsletter body')
 	})
 
-	it('shows a URL preview while a link is hovered and hides it on leave', () => {
+	it('shows a URL preview anchored near the cursor while a link is hovered, and hides it on leave', () => {
 		render(<EmailHtml html="<p>x</p>" messageId="m2" />)
 		const el = emailElement()
 
 		act(() => {
 			el.dispatchEvent(
-				new CustomEvent(LINK_PREVIEW_EVENT, { detail: { href: 'https://preview.example.com/path' } }),
+				new CustomEvent(LINK_PREVIEW_EVENT, {
+					detail: { href: 'https://preview.example.com/path', x: 50, y: 60 },
+				}),
 			)
 		})
-		expect(screen.getByText('https://preview.example.com/path')).toBeInTheDocument()
+		const box = screen.getByText('https://preview.example.com/path')
+		expect(box).toBeInTheDocument()
+		// Positioned relative to the pointer (top-left quadrant → offset down-right),
+		// not pinned to a fixed corner.
+		expect(box.style.left).toBe('66px')
+		expect(box.style.top).toBe('76px')
 
 		act(() => {
-			el.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail: { href: null } }))
+			el.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail: { href: null, x: 0, y: 0 } }))
 		})
 		expect(screen.queryByText('https://preview.example.com/path')).toBeNull()
 	})

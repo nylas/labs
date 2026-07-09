@@ -3,6 +3,7 @@ import {
 	EMAIL_ELEMENT_TAG,
 	LINK_PREVIEW_EVENT,
 	type LinkPreviewDetail,
+	type PreviewPoint,
 	scaledHeight,
 	shadowStyleText,
 } from './email-render.js'
@@ -27,6 +28,19 @@ export function anchorHref(target: EventTarget | null): string | null {
 	if (!(target instanceof Element)) return null
 	const anchor = target.closest('a[href]')
 	return anchor ? anchor.getAttribute('href') : null
+}
+
+/**
+ * Where to anchor the preview for a hover/focus event on a link. Mouse hovers
+ * carry a pointer position; keyboard focus does not, so fall back to the link's
+ * own on-screen box (its bottom-left) so the preview still lands next to it.
+ * Only called once a link href is known, so the target is an element inside a link.
+ */
+export function previewPoint(event: Event, target: EventTarget | null): PreviewPoint {
+	if (event instanceof MouseEvent) return { x: event.clientX, y: event.clientY }
+	const anchor = (target as Element).closest('a[href]') as Element
+	const rect = anchor.getBoundingClientRect()
+	return { x: rect.left, y: rect.bottom }
 }
 
 /** Force every link to open in a new tab without leaking the opener. */
@@ -107,15 +121,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		private readonly handleEnter = (event: Event): void => {
 			const href = anchorHref(event.target)
-			if (href) this.emitPreview(href)
+			if (href) this.emitPreview(href, previewPoint(event, event.target))
 		}
 
 		private readonly handleLeave = (): void => {
 			this.emitPreview(null)
 		}
 
-		private emitPreview(href: string | null): void {
-			const detail: LinkPreviewDetail = { href }
+		private emitPreview(href: string | null, point: PreviewPoint = { x: 0, y: 0 }): void {
+			const detail: LinkPreviewDetail = { href, x: point.x, y: point.y }
 			this.dispatchEvent(new CustomEvent(LINK_PREVIEW_EVENT, { detail, bubbles: true, composed: true }))
 		}
 	}

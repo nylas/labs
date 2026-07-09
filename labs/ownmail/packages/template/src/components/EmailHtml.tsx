@@ -7,7 +7,9 @@ import {
 	EMAIL_ELEMENT_TAG,
 	type EmailElementLike,
 	emailSupportsDarkMode,
+	type LinkPreviewDetail,
 	linkPreviewText,
+	previewBoxStyle,
 	subscribeLinkPreview,
 } from './email-render.js'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js'
@@ -46,7 +48,7 @@ function useIsDark(): boolean {
 export function EmailHtml({ html, messageId }: { html: string; messageId: string }) {
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
-	const [preview, setPreview] = useState<string | null>(null)
+	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
 	const [autoDark, setAutoDark] = useState(true)
 
 	const isDark = useIsDark()
@@ -101,9 +103,17 @@ export function EmailHtml({ html, messageId }: { html: string; messageId: string
 				<OwnmailEmail ref={ref} title={`Email content ${messageId}`} className="block w-full" />
 			) : null}
 
-			{preview !== null ? (
-				<div className="pointer-events-none fixed bottom-3 left-3 z-50 max-w-[min(90vw,32rem)] truncate rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-lg">
-					{linkPreviewText(preview)}
+			{preview && preview.href !== null ? (
+				// Anchored next to the pointer (not a fixed corner) so the reader sees the
+				// real link target right where they are looking — an anti-phishing aid.
+				<div
+					className="pointer-events-none fixed z-50 max-w-[min(90vw,32rem)] truncate rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-lg"
+					style={previewBoxStyle(
+						{ x: preview.x, y: preview.y },
+						{ width: window.innerWidth, height: window.innerHeight },
+					)}
+				>
+					{linkPreviewText(preview.href)}
 				</div>
 			) : null}
 		</div>

@@ -154,19 +154,38 @@ describe('<ownmail-email> scaling', () => {
 	})
 })
 
+type PreviewDetail = { href: string | null; x: number; y: number }
+
 describe('<ownmail-email> link preview events', () => {
-	it('emits the hovered link href and clears on leave', () => {
+	it('emits the hovered link with the pointer position and clears on leave', () => {
 		const el = mount('<a href="https://link.com">go</a>')
-		const events: Array<string | null> = []
+		const details: PreviewDetail[] = []
 		el.addEventListener(LINK_PREVIEW_EVENT, (e) => {
-			events.push((e as CustomEvent<{ href: string | null }>).detail.href)
+			details.push((e as CustomEvent<PreviewDetail>).detail)
 		})
 
 		const anchor = el.shadowRoot?.querySelector('a') as HTMLElement
-		anchor.dispatchEvent(new Event('pointerover', { bubbles: true }))
+		anchor.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, clientX: 120, clientY: 240 }))
 		anchor.dispatchEvent(new Event('pointerout', { bubbles: true }))
 
-		expect(events).toEqual(['https://link.com', null])
+		expect(details).toEqual([
+			{ href: 'https://link.com', x: 120, y: 240 },
+			{ href: null, x: 0, y: 0 },
+		])
+	})
+
+	it('anchors the preview to the link box for keyboard focus (no pointer position)', () => {
+		const el = mount('<a href="https://link.com">go</a>')
+		const anchor = el.shadowRoot?.querySelector('a') as HTMLElement
+		anchor.getBoundingClientRect = () => ({ left: 30, bottom: 50 }) as DOMRect
+		let detail: PreviewDetail | undefined
+		el.addEventListener(LINK_PREVIEW_EVENT, (e) => {
+			detail = (e as CustomEvent<PreviewDetail>).detail
+		})
+
+		anchor.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+
+		expect(detail).toEqual({ href: 'https://link.com', x: 30, y: 50 })
 	})
 
 	it('does not emit when hovering a non-link region', () => {
