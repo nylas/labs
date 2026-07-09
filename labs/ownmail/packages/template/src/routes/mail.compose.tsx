@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '../components/RecipientInput.js'
 import { formatSize, ThreadConversation } from '../components/ThreadConversation.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
+import { Button } from '../components/ui/button.js'
 import {
 	cn,
 	composeBackdropListSearch,
@@ -503,23 +504,19 @@ function Compose() {
 						) : null}
 						{error ? <ErrorBanner message={error} /> : null}
 						<div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
-							<button
-								type="button"
-								disabled={busy}
-								onClick={submit}
-								className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
-							>
+							<Button type="button" disabled={busy} onClick={submit} className="font-semibold">
 								<Send className="h-4 w-4" /> {busy ? 'Sending...' : 'Send'}
-							</button>
-							<button
+							</Button>
+							<Button
 								type="button"
+								variant="ghost"
+								size="icon"
 								aria-label="Attach file"
 								disabled={busy}
 								onClick={() => attachmentInputRef.current?.click()}
-								className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 							>
 								<Paperclip className="h-4 w-4" />
-							</button>
+							</Button>
 							<input
 								ref={attachmentInputRef}
 								type="file"
@@ -532,15 +529,17 @@ function Compose() {
 									event.target.value = ''
 								}}
 							/>
-							<button
+							<Button
 								type="button"
+								variant="ghost"
+								size="icon"
 								disabled={busy}
 								onClick={discard}
 								aria-label="Discard draft"
-								className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-destructive disabled:opacity-50"
+								className="ml-auto hover:text-destructive"
 							>
 								<Trash2 className="h-4 w-4" />
-							</button>
+							</Button>
 						</div>
 					</>
 				) : null}
