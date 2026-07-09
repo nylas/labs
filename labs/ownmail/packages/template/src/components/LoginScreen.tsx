@@ -1,5 +1,6 @@
 import { ArrowRight, Calendar, Loader2, Mail, ShieldCheck } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
+import { Button } from './ui/button.js'
 
 export function LoginScreen({ signInHref }: { signInHref: string }) {
 	const [connecting, setConnecting] = useState(false)
@@ -42,11 +43,11 @@ export function LoginScreen({ signInHref }: { signInHref: string }) {
 						/>
 					</div>
 
-					<button
+					<Button
 						type="button"
 						onClick={handleSignIn}
 						disabled={connecting}
-						className="group flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3.5 text-sm font-semibold text-primary-foreground transition-all hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70"
+						className="group h-auto w-full rounded-lg py-3.5 font-semibold"
 					>
 						{connecting ? (
 							<>
@@ -59,7 +60,7 @@ export function LoginScreen({ signInHref }: { signInHref: string }) {
 								<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 							</>
 						)}
-					</button>
+					</Button>
 
 					<p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
 						You&apos;ll be redirected to your identity provider to authenticate securely.
