@@ -33,6 +33,15 @@ describe('AppRailNav', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
 		expect(screen.getByRole('link', { name: 'Mail' })).toHaveAttribute('aria-current', 'page')
 		expect(screen.getByRole('link', { name: 'Calendar' })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: 'Contacts' })).not.toHaveAttribute('aria-current')
+	})
+
+	it('marks the contacts section as active and links it to the contacts home', () => {
+		render(<AppRailNav email="ada@ownmail.com" active="contacts" />)
+		const contacts = screen.getByRole('link', { name: 'Contacts' })
+		expect(contacts).toHaveAttribute('aria-current', 'page')
+		expect(contacts).toHaveAttribute('href', '/contacts')
+		expect(screen.getByRole('link', { name: 'Mail' })).not.toHaveAttribute('aria-current')
 	})
 
 	it('shows the moon (offer dark mode) when the saved theme is light and toggles to dark', () => {

@@ -221,7 +221,8 @@ describe('MailFolderRouteScreen — thread list', () => {
 		await waitFor(() =>
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
-		expect(invalidate).toHaveBeenCalled()
+		// invalidate() runs only after updateThreadState resolves, so wait for it too.
+		await waitFor(() => expect(invalidate).toHaveBeenCalled())
 		// A starred thread advertises the un-star action.
 		cleanup()
 		render(
@@ -314,8 +315,10 @@ describe('MailFolderRouteScreen — pagination', () => {
 		await waitFor(() =>
 			expect(getThreads).toHaveBeenCalledWith({ data: { starred: true, pageToken: 'cursor-1' } }),
 		)
-		// Appended thread appears; the Load more button disappears once the cursor is exhausted.
-		expect(screen.getByText('Appended thread')).toBeInTheDocument()
+		// Appended thread appears once the fetch resolves; the Load more button then
+		// disappears because the cursor is exhausted. Await the render rather than
+		// asserting synchronously right after the getThreads call.
+		expect(await screen.findByText('Appended thread')).toBeInTheDocument()
 		await waitFor(() => expect(screen.queryByRole('button', { name: /Load more/ })).toBeNull())
 	})
 
