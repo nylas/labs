@@ -1,14 +1,24 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { AlignLeft, CalendarDays, Clock, MapPin, Trash2, Users, X } from 'lucide-react'
+import { AlignLeft, CalendarDays, Clock, GripVertical, MapPin, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent } from '../server/calendar-fns.js'
 import { dateWithHour, eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
+import {
+	clampPointToViewport,
+	createPanelPosition,
+	ESTIMATED_PANEL_SIZE,
+	type Point,
+	type Rect,
+} from './modal-position.js'
 import { calendarTone, cn, type EventTone, eventColorClass, eventTone, labelBadgeClass } from './ui-model.js'
 
 const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
+/** Floating, draggable composer panel — no backdrop, positioned beside the slot. */
+export const EVENT_COMPOSER_PANEL_CLASS =
+	'fixed z-50 w-[27rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl'
 
 function eventBarClass(tone: EventTone): string {
 	return eventColorClass(tone, 'bg')
@@ -25,6 +35,7 @@ export function EventModal({
 	calendarId,
 	calendarName,
 	calendars,
+	anchorRect,
 	onClose,
 }: {
 	event: Event | null
@@ -32,6 +43,7 @@ export function EventModal({
 	calendarId: string
 	calendarName: string
 	calendars: Calendar[]
+	anchorRect?: Rect | null
 	onClose: (changed: boolean) => void
 }) {
 	const times = event ? eventTimes(event) : null
@@ -46,6 +58,51 @@ export function EventModal({
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const titleInputRef = useRef<HTMLInputElement>(null)
+
+	// The create composer floats over the calendar (no backdrop) so the grid
+	// stays visible; the user can drag it aside by its header to reference a day.
+	const [panelPos, setPanelPos] = useState<Point>(() =>
+		createPanelPosition(anchorRect, ESTIMATED_PANEL_SIZE, {
+			width: window.innerWidth,
+			height: window.innerHeight,
+		}),
+	)
+	const dragCleanup = useRef<(() => void) | null>(null)
+
+	function startPanelDrag(pointerEvent: React.PointerEvent) {
+		const start = { x: pointerEvent.clientX, y: pointerEvent.clientY }
+		const origin = { x: panelPos.x, y: panelPos.y }
+		function onMove(moveEvent: PointerEvent) {
+			setPanelPos(
+				clampPointToViewport(
+					{ x: origin.x + (moveEvent.clientX - start.x), y: origin.y + (moveEvent.clientY - start.y) },
+					ESTIMATED_PANEL_SIZE,
+					{ width: window.innerWidth, height: window.innerHeight },
+				),
+			)
+		}
+		function stop() {
+			window.removeEventListener('pointermove', onMove)
+			window.removeEventListener('pointerup', stop)
+			dragCleanup.current = null
+		}
+		window.addEventListener('pointermove', onMove)
+		window.addEventListener('pointerup', stop)
+		dragCleanup.current = stop
+	}
+
+	// Tear down a drag still in flight if the composer unmounts mid-drag.
+	useEffect(() => () => dragCleanup.current?.(), [])
+
+	// The floating composer has no backdrop to click away, so Escape closes it.
+	useEffect(() => {
+		if (event) return
+		function onKey(keyEvent: KeyboardEvent) {
+			if (keyEvent.key === 'Escape') onClose(false)
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [event, onClose])
 
 	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
 	const eventCalendar = event ? calendars.find((calendar) => calendar.id === event.calendar_id) : undefined
@@ -213,34 +270,32 @@ export function EventModal({
 	}
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Matches the reference modal backdrop; the visible Close button is keyboard accessible.
 		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-[2px]"
-			onClick={(clickEvent) => {
-				if (clickEvent.target === clickEvent.currentTarget) onClose(false)
-			}}
+			role="dialog"
+			aria-label="New event"
+			className={EVENT_COMPOSER_PANEL_CLASS}
+			style={{ left: panelPos.x, top: panelPos.y }}
 		>
+			<div className={cn('h-px w-full opacity-50', eventBarClass(selectedCalendarTone))} />
 			<div
-				role="dialog"
-				aria-modal="true"
-				/* v8 ignore next -- this branch renders only when `event && times` is false, i.e. event is always null here; the 'Event details' arm is unreachable */
-				aria-label={event ? 'Event details' : 'New event'}
-				className={EVENT_DIALOG_PANEL_CLASS}
+				onPointerDown={startPanelDrag}
+				className="flex touch-none items-center justify-between gap-2 px-5 pt-4 pb-1 select-none"
 			>
-				<div className={cn('h-px w-full opacity-50', eventBarClass(selectedCalendarTone))} />
-				<div className="flex items-center justify-between px-5 pt-4">
+				<div className="flex min-w-0 cursor-grab items-center gap-1.5 active:cursor-grabbing">
+					<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 					<h2 className="text-lg font-semibold">New event</h2>
-					<button
-						type="button"
-						onClick={() => onClose(false)}
-						aria-label="Close"
-						className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
-					>
-						<X className="h-4 w-4" />
-					</button>
 				</div>
+				<button
+					type="button"
+					onClick={() => onClose(false)}
+					aria-label="Close"
+					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+				>
+					<X className="h-4 w-4" />
+				</button>
+			</div>
 
-				<div className="space-y-4 px-5 py-4">
+			<div className="space-y-4 px-5 py-4">
 					<input
 						ref={titleInputRef}
 						value={title}
@@ -327,7 +382,6 @@ export function EventModal({
 					</button>
 				</div>
 			</div>
-		</div>
 	)
 }
 
