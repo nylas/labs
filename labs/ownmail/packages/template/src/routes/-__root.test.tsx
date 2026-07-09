@@ -7,6 +7,11 @@ vi.mock('@tanstack/react-router', () => ({
 	HeadContent: () => null,
 	Outlet: () => null,
 	Scripts: () => null,
+	Link: ({ to, children, ...rest }: any) => (
+		<a href={to} {...rest}>
+			{children}
+		</a>
+	),
 }))
 
 vi.mock('../styles.css?url', () => ({ default: '/assets/styles.css' }))
@@ -33,5 +38,13 @@ describe('root route', () => {
 		expect(script?.innerHTML).toContain("localStorage.getItem('theme')")
 		// Both theme-color metas ship so the browser chrome matches light and dark.
 		expect(document.head.querySelectorAll('meta[name="theme-color"]').length).toBe(2)
+	})
+
+	it('renders a not-found page with a route back home so bad URLs are recoverable, not a dead end', () => {
+		const NotFound = Route.options.notFoundComponent
+		const { getByText, getByRole } = render(<NotFound />)
+		expect(getByText('Page not found')).toBeTruthy()
+		// The recovery link points at the canonical mail home rather than a broken URL.
+		expect(getByRole('link', { name: 'Back to mail' }).getAttribute('href')).toBe('/')
 	})
 })
