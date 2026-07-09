@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	addDays,
 	allDayEventSegments,
+	calendarKeyAction,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	eventsOnDay,
@@ -53,6 +54,31 @@ function allDaySpanEvent(id: string, calendarId: string, startDate: string, endD
 		busy: false,
 	}
 }
+
+describe('calendarKeyAction', () => {
+	it('maps m / w / d to view switches, case-insensitively', () => {
+		expect(calendarKeyAction('m')).toEqual({ kind: 'view', view: 'month' })
+		expect(calendarKeyAction('W')).toEqual({ kind: 'view', view: 'week' })
+		expect(calendarKeyAction('d')).toEqual({ kind: 'view', view: 'day' })
+	})
+
+	it('maps t to today and n to a new event', () => {
+		expect(calendarKeyAction('t')).toEqual({ kind: 'today' })
+		expect(calendarKeyAction('n')).toEqual({ kind: 'new' })
+	})
+
+	it('pages backward with ArrowLeft or [ and forward with ArrowRight or ]', () => {
+		expect(calendarKeyAction('ArrowLeft')).toEqual({ kind: 'shift', direction: -1 })
+		expect(calendarKeyAction('[')).toEqual({ kind: 'shift', direction: -1 })
+		expect(calendarKeyAction('ArrowRight')).toEqual({ kind: 'shift', direction: 1 })
+		expect(calendarKeyAction(']')).toEqual({ kind: 'shift', direction: 1 })
+	})
+
+	it('returns null for unbound keys so the caller leaves the event alone', () => {
+		expect(calendarKeyAction('x')).toBeNull()
+		expect(calendarKeyAction('Enter')).toBeNull()
+	})
+})
 
 describe('calendar view helpers', () => {
 	it('links calendar navigation to the reference calendar entry route', () => {

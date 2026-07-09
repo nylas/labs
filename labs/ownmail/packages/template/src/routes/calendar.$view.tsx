@@ -7,6 +7,7 @@ import { CommandPalette, useCommandPaletteShortcut } from '../components/Command
 import {
 	addDays,
 	allDayEventSegments,
+	calendarKeyAction,
 	type CalView,
 	dateWithHour,
 	eventsOnDay,
@@ -131,27 +132,20 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			if (target?.closest('[role="dialog"]')) return
-			if (event.key.toLowerCase() === 'm') {
-				event.preventDefault()
-				go('month', anchor)
-			}
-			if (event.key.toLowerCase() === 'w') {
-				event.preventDefault()
-				go('week', anchor)
-			}
-			if (event.key.toLowerCase() === 'd') {
-				event.preventDefault()
-				go('day', anchor)
-			}
-			if (event.key.toLowerCase() === 'n') {
-				event.preventDefault()
+			const action = calendarKeyAction(event.key)
+			if (!action) return
+			event.preventDefault()
+			if (action.kind === 'view') go(action.view, anchor)
+			else if (action.kind === 'shift') go(currentView, shiftAnchor(currentView, anchor, action.direction))
+			else if (action.kind === 'today') go(currentView, new Date())
+			else {
 				setNewStart(null)
 				setEditing('new')
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [anchor, go])
+	}, [anchor, currentView, go])
 
 	const title =
 		currentView === 'month'

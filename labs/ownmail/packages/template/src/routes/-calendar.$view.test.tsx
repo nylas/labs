@@ -578,6 +578,32 @@ describe('keyboard shortcuts', () => {
 		expect(modal.dataset.defaultStart).toBeTruthy()
 	})
 
+	it('pages the visible range backward with [ / ArrowLeft and forward with ] / ArrowRight', () => {
+		renderView('week') // anchor 2024-06-15
+		fireEvent.keyDown(document.body, { key: 'ArrowLeft' })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'week' },
+			search: { date: '2024-06-08' },
+		})
+		fireEvent.keyDown(document.body, { key: ']' })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'week' },
+			search: { date: '2024-06-22' },
+		})
+	})
+
+	it('jumps to today with the t shortcut, keeping the current view', () => {
+		renderView('week')
+		fireEvent.keyDown(document.body, { key: 't' })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'week' },
+			search: { date: ymd(new Date()) },
+		})
+	})
+
 	it('ignores shortcuts while typing, with modifiers, on other keys, and inside dialogs', () => {
 		renderView()
 
