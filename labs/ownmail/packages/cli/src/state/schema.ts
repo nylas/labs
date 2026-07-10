@@ -23,6 +23,8 @@ export type AuthState = z.infer<typeof AuthStateSchema>
 export const StepIdSchema = z.enum([
 	'dashboard-auth',
 	'org',
+	'domain-plan',
+	'plan-confirmed',
 	'app',
 	'connector',
 	'api-key',
@@ -54,6 +56,8 @@ export const ProjectStateSchema = z.object({
 	domainAddress: z.string().optional(),
 	domainBranded: z.boolean().optional(),
 	domainVerified: z.boolean().optional(),
+	plannedDomainAddress: z.string().optional(),
+	plannedDomainBranded: z.boolean().optional(),
 
 	grantId: z.string().optional(),
 	inboxEmail: z.string().optional(),
