@@ -23,54 +23,111 @@ import {
 	stepOrg,
 } from '../steps/provision.js'
 
-type Step = { id: string; run: (ctx: StepContext) => Promise<void> }
+type Step = {
+	id: ProjectState['completedSteps'][number]
+	run: (ctx: StepContext) => Promise<void>
+}
+
+type SetupPhase = { name: string; steps: Step[] }
 
 /**
  * The step machine. Every step is lookup-first/idempotent; a re-run resumes
  * wherever the previous run stopped. Note redirect-uris runs after deploy —
  * the workers.dev URL only exists once the first deploy lands.
  */
-const STEPS: Step[] = [
-	{ id: 'dashboard-auth', run: stepDashboardAuth },
-	{ id: 'org', run: stepOrg },
-	{ id: 'app', run: stepApp },
-	{ id: 'api-key', run: stepApiKey },
-	{ id: 'connector', run: stepConnector },
-	{ id: 'domain', run: stepDomain },
-	{ id: 'grant', run: stepGrant },
-	{ id: 'hosting', run: stepHostingProvider },
-	{ id: 'cf-auth', run: stepCfAuth },
-	{ id: 'cf-resources', run: stepCfResources },
-	{ id: 'deploy', run: stepDeploy },
-	{ id: 'webhook', run: stepWebhook },
-	{ id: 'redirect-uris', run: stepRedirectUris },
-	{ id: 'verify', run: stepVerify },
+const SETUP_PHASES: SetupPhase[] = [
+	{
+		name: 'Connect your Nylas account',
+		steps: [
+			{ id: 'dashboard-auth', run: stepDashboardAuth },
+			{ id: 'org', run: stepOrg },
+		],
+	},
+	{
+		name: 'Create your email address and inbox',
+		steps: [
+			{ id: 'app', run: stepApp },
+			{ id: 'api-key', run: stepApiKey },
+			{ id: 'connector', run: stepConnector },
+			{ id: 'domain', run: stepDomain },
+			{ id: 'grant', run: stepGrant },
+		],
+	},
+	{
+		name: 'Connect your hosting account',
+		steps: [
+			{ id: 'hosting', run: stepHostingProvider },
+			{ id: 'cf-auth', run: stepCfAuth },
+		],
+	},
+	{
+		name: 'Deploy your mailbox app',
+		steps: [
+			{ id: 'cf-resources', run: stepCfResources },
+			{ id: 'deploy', run: stepDeploy },
+			{ id: 'webhook', run: stepWebhook },
+			{ id: 'redirect-uris', run: stepRedirectUris },
+		],
+	},
+	{
+		name: 'Verify your app',
+		steps: [{ id: 'verify', run: stepVerify }],
+	},
 ]
 
 export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): Promise<void> {
 	p.intro('ownmail — your inbox, your domain, no per-seat fees')
+	p.note(
+		[
+			'OwnMail creates a Nylas email address and inbox, then deploys a private mailbox + calendar web app to your hosting account.',
+			'',
+			'You’ll need a Nylas sign-in and, for automated hosting, a Cloudflare account. A free nylas.email address needs no DNS changes; using your own email domain does.',
+			'',
+			'Your inbox password is shown once, so save it when prompted. Setup progress is saved locally and is safe to resume.',
+		].join('\n'),
+		'Before you start',
+	)
 
 	const project = await resolveProject(opts)
+	showResumePoint(project)
 	const ctx = await createContext(project)
 
-	for (const step of STEPS) {
-		try {
-			await step.run(ctx)
-		} catch (err) {
-			if (err instanceof CancelledError) {
-				p.cancel('Paused. Re-run `npx ownmail` any time — you’ll pick up right here.')
+	for (const [phaseIndex, phase] of SETUP_PHASES.entries()) {
+		p.log.step(`[${phaseIndex + 1}/${SETUP_PHASES.length}] ${phase.name}`)
+		for (const step of phase.steps) {
+			try {
+				await step.run(ctx)
+			} catch (err) {
+				if (err instanceof CancelledError) {
+					p.cancel('Paused. Re-run `npx ownmail` any time — you’ll pick up right here.')
+					process.exitCode = 1
+					return
+				}
+				p.log.error(err instanceof Error ? err.message : String(err))
+				p.cancel(
+					'Something went wrong. Fix the issue above and re-run `npx ownmail` — completed steps are skipped.',
+				)
 				process.exitCode = 1
 				return
 			}
-			p.log.error(err instanceof Error ? err.message : String(err))
-			p.cancel(
-				'Something went wrong. Fix the issue above and re-run `npx ownmail` — completed steps are skipped.',
-			)
-			process.exitCode = 1
-			return
 		}
 	}
 	p.outro('Enjoy your inbox — powered by Nylas.')
+}
+
+function showResumePoint(project: ProjectState): void {
+	const activePhase = SETUP_PHASES.find((phase) =>
+		phase.steps.some((step) => !project.completedSteps.includes(step.id)),
+	)
+	if (!activePhase) {
+		p.log.info(`Checking completed project “${project.slug}” across ${SETUP_PHASES.length} setup phases.`)
+		return
+	}
+	const activePhaseIndex = SETUP_PHASES.indexOf(activePhase)
+	const verb = project.completedSteps.length === 0 ? 'Starting' : 'Resuming'
+	p.log.info(
+		`${verb} “${project.slug}” at [${activePhaseIndex + 1}/${SETUP_PHASES.length}] ${activePhase.name}. Completed work is checked and reused.`,
+	)
 }
 
 async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }) {

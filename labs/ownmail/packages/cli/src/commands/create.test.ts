@@ -7,8 +7,9 @@ const CANCEL = Symbol('cancel')
 vi.mock('@clack/prompts', () => ({
 	intro: vi.fn(),
 	outro: vi.fn(),
+	note: vi.fn(),
 	cancel: vi.fn(),
-	log: { error: vi.fn(), info: vi.fn() },
+	log: { error: vi.fn(), info: vi.fn(), step: vi.fn() },
 	select: vi.fn(),
 	text: vi.fn(),
 	isCancel: vi.fn((v: unknown) => v === CANCEL),
@@ -212,7 +213,7 @@ describe('runCreate — normalizeProjectRegion', () => {
 		await runCreate({ name: 'acme', region: 'us' })
 
 		expect(saveProject).not.toHaveBeenCalled()
-		expect(p.log.info).not.toHaveBeenCalled()
+		expect(p.log.info).not.toHaveBeenCalledWith(expect.stringContaining('Using US'))
 	})
 
 	it('switches region when the project has no provisioned resources', async () => {
@@ -296,7 +297,51 @@ describe('runCreate — step machine', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(p.outro).toHaveBeenCalledWith('Enjoy your inbox — powered by Nylas.')
+		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('Nylas email address'), 'Before you start')
+		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('Starting “acme” at [1/5]'))
+		expect(p.log.step).toHaveBeenCalledTimes(5)
+		expect(p.log.step).toHaveBeenNthCalledWith(1, '[1/5] Connect your Nylas account')
+		expect(p.log.step).toHaveBeenNthCalledWith(5, '[5/5] Verify your app')
 		expect(process.exitCode).toBeUndefined()
+	})
+
+	it('identifies the next user-facing phase when resuming', async () => {
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({
+				slug: 'acme',
+				completedSteps: ['dashboard-auth', 'org', 'app', 'api-key', 'connector', 'domain', 'grant'],
+			}),
+		)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.log.info).toHaveBeenCalledWith(
+			expect.stringContaining('Resuming “acme” at [3/5] Connect your hosting account'),
+		)
+	})
+
+	it('reports a completed project without exposing internal step IDs', async () => {
+		const completedSteps = [
+			'dashboard-auth',
+			'org',
+			'app',
+			'api-key',
+			'connector',
+			'domain',
+			'grant',
+			'hosting',
+			'cf-auth',
+			'cf-resources',
+			'deploy',
+			'webhook',
+			'redirect-uris',
+			'verify',
+		] as ProjectState['completedSteps']
+		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme', completedSteps }))
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.log.info).toHaveBeenCalledWith('Checking completed project “acme” across 5 setup phases.')
 	})
 
 	it('pauses and sets exit code when a step cancels', async () => {
