@@ -110,7 +110,9 @@ describe('activeAppUrl', () => {
 			),
 		).toBe('https://mail.acme.com')
 		expect(activeAppUrl(project({ manualAppUrl: 'https://manual.acme.com' }))).toBe('https://manual.acme.com')
-		expect(activeAppUrl(project({ workersDevUrl: 'https://acme.workers.dev' }))).toBe('https://acme.workers.dev')
+		expect(activeAppUrl(project({ workersDevUrl: 'https://acme.workers.dev' }))).toBe(
+			'https://acme.workers.dev',
+		)
 	})
 })
 

@@ -66,7 +66,12 @@ export function projectStatusSummary(project: ProjectState): ProjectStatusSummar
 function hostingLabel(project: ProjectState): string {
 	if (project.ejected) return 'Ejected source'
 	if (project.hostingProvider === 'manual') return 'Manual upload'
-	if (project.hostingProvider === 'cloudflare' || project.workerName || project.workersDevUrl || project.appDomain) {
+	if (
+		project.hostingProvider === 'cloudflare' ||
+		project.workerName ||
+		project.workersDevUrl ||
+		project.appDomain
+	) {
 		return 'Cloudflare Workers'
 	}
 	return 'Not selected'

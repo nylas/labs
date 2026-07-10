@@ -65,10 +65,15 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	if (!v3 && sessionOk && project.applicationId) {
 		if (opts.fix) {
 			try {
-				const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
-					name: `ownmail doctor ${new Date().toISOString()}`,
-					expiresIn: 3600,
-				})
+				const key = await requireGateway(ctx).createApiKey(
+					tokens(ctx),
+					project.region,
+					project.applicationId,
+					{
+						name: `ownmail doctor ${new Date().toISOString()}`,
+						expiresIn: 3600,
+					},
+				)
 				probeKeyId = key.id
 				v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
 				results.push({
@@ -87,7 +92,8 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			results.push({
 				name: 'Nylas API checks',
 				status: 'skip',
-				detail: 'read-only mode cannot create a temporary API key; run `npx ownmail doctor --fix` to allow API checks and repairs',
+				detail:
+					'read-only mode cannot create a temporary API key; run `npx ownmail doctor --fix` to allow API checks and repairs',
 			})
 		}
 	}
@@ -96,7 +102,11 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		// 3. Domain verification
 		if (project.domainId && sessionOk) {
 			try {
-				const domain = await requireDashboard(ctx).getInboxDomain(tokens(ctx), project.domainId, project.region)
+				const domain = await requireDashboard(ctx).getInboxDomain(
+					tokens(ctx),
+					project.domainId,
+					project.region,
+				)
 				const ok = domain.verifiedOwnership && domain.verifiedMx
 				results.push({
 					name: `Domain ${domain.domainAddress}`,
@@ -245,7 +255,10 @@ function outroMessage(failing: number, skipped: number): string {
 
 function needsCloudflareLogin(project: ProjectState): boolean {
 	if (project.ejected || project.hostingProvider === 'manual') return false
-	return project.hostingProvider === 'cloudflare' || Boolean(project.workerName || project.workersDevUrl || project.appDomain)
+	return (
+		project.hostingProvider === 'cloudflare' ||
+		Boolean(project.workerName || project.workersDevUrl || project.appDomain)
+	)
 }
 
 function formatStateIssues(issues: ReturnType<typeof listProjectStateIssues>): string {
