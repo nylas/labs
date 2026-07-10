@@ -6,8 +6,9 @@ import { z } from 'zod'
  * - projects/<slug>.json: one deployed project
  *
  * Durable secrets (API key, session secret) live only as Cloudflare Worker
- * secrets. `pendingSecrets` holds one-time plaintexts between minting and
- * `wrangler secret put`; it is scrubbed once the deploy step succeeds.
+ * secrets. `pendingSecrets` tracks one-time setup secrets between minting and
+ * deploy. New writes use the OS credential store when available; legacy or
+ * fallback string values are scrubbed once setup verification succeeds.
  */
 
 export const AuthStateSchema = z.object({
@@ -39,6 +40,19 @@ export const StepIdSchema = z.enum([
 	'verify',
 ])
 export type StepId = z.infer<typeof StepIdSchema>
+
+export const PendingSecretReferenceSchema = z.object({
+	storage: z.literal('keyring'),
+	service: z.string().min(1),
+	account: z.string().min(1),
+})
+export type PendingSecretReference = z.infer<typeof PendingSecretReferenceSchema>
+
+export const PendingSecretValueSchema = z.union([z.string(), PendingSecretReferenceSchema])
+export type PendingSecretValue = z.infer<typeof PendingSecretValueSchema>
+
+export const PendingSecretNameSchema = z.enum(['apiKey', 'clientSecret', 'appPassword'])
+export type PendingSecretName = z.infer<typeof PendingSecretNameSchema>
 
 export const ProjectStateSchema = z.object({
 	slug: z.string(),
@@ -75,12 +89,12 @@ export const ProjectStateSchema = z.object({
 
 	completedSteps: z.array(StepIdSchema).default([]),
 
-	/** One-time plaintexts awaiting `wrangler secret put`; scrubbed after deploy. */
+	/** One-time setup secrets, preferably by OS keyring reference; scrubbed after verification. */
 	pendingSecrets: z
 		.object({
-			apiKey: z.string().optional(),
-			clientSecret: z.string().optional(),
-			appPassword: z.string().optional(),
+			apiKey: PendingSecretValueSchema.optional(),
+			clientSecret: PendingSecretValueSchema.optional(),
+			appPassword: PendingSecretValueSchema.optional(),
 		})
 		.default({}),
 })

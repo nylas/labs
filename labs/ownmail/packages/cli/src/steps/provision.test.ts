@@ -75,6 +75,31 @@ vi.mock('../state/store.js', () => ({
 	hasStep: vi.fn(),
 }))
 
+vi.mock('../state/pending-secrets.js', () => ({
+	clearPendingSecret: vi.fn((project: ProjectState, name: keyof ProjectState['pendingSecrets']) => {
+		delete project.pendingSecrets[name]
+	}),
+	hasPendingSecret: vi.fn((project: ProjectState, name: keyof ProjectState['pendingSecrets']) =>
+		Boolean(project.pendingSecrets[name]),
+	),
+	readPendingSecret: vi.fn((project: ProjectState, name: keyof ProjectState['pendingSecrets']) => {
+		const secret = project.pendingSecrets[name]
+		return typeof secret === 'string' ? secret : null
+	}),
+	storePendingSecret: vi.fn(
+		(project: ProjectState, name: keyof ProjectState['pendingSecrets'], value: string) => {
+			project.pendingSecrets[name] = {
+				storage: 'keyring',
+				service: 'ownmail',
+				account: `${project.slug}:${project.createdAt}:${name}`,
+			}
+			return value ? { storage: 'keyring' } : { storage: 'local' }
+		},
+	),
+}))
+
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
+
 const fakeDpop = { toStored: () => ({ privateJwk: { crv: 'Ed25519' } }) }
 
 function setDefaults(): void {
@@ -481,7 +506,7 @@ describe('stepApp', () => {
 		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('app-eu')) // name falls back to id
 	})
 
-	it('creates a new sandbox app and stashes the client secret when none can be reused', async () => {
+	it('creates a new sandbox app without retaining the unused client secret', async () => {
 		const listApplications = vi.fn().mockResolvedValue([])
 		const createApplication = vi
 			.fn()
@@ -495,7 +520,7 @@ describe('stepApp', () => {
 
 		expect(createApplication).toHaveBeenCalled()
 		expect(ctx.project.applicationId).toBe('app-new')
-		expect(ctx.project.pendingSecrets.clientSecret).toBe('secret-xyz')
+		expect(ctx.project.pendingSecrets.clientSecret).toBeUndefined()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'app')
 	})
 })
@@ -526,9 +551,53 @@ describe('stepApiKey', () => {
 		await stepApiKey(ctx)
 
 		expect(ctx.project.apiKeyId).toBe('key-1')
-		expect(ctx.project.pendingSecrets.apiKey).toBe('nyk_secret')
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_secret')
+		expect(ctx.project.pendingSecrets.apiKey).toEqual({
+			storage: 'keyring',
+			service: 'ownmail',
+			account: 'acme:0:apiKey',
+		})
 		expect(NylasV3Client).toHaveBeenCalledWith('nyk_secret', 'us', fetch, 'https://api.test.nylas.com')
 		expect(saveProject).toHaveBeenCalled()
+	})
+
+	it('clears an unreadable pending API key reference and mints a fresh key', async () => {
+		const createApiKey = vi.fn().mockResolvedValue({ id: 'key-2', apiKey: 'nyk_fresh' })
+		const ctx = baseCtx({
+			project: baseProject({
+				applicationId: 'app-1',
+				pendingSecrets: {
+					apiKey: { storage: 'keyring', service: 'ownmail', account: 'missing' },
+				},
+			}),
+			gateway: { createApiKey } as never,
+		})
+
+		await stepApiKey(ctx)
+
+		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey')
+		expect(p.log.warn).toHaveBeenCalledWith(
+			expect.stringContaining('Could not read the pending Nylas API key'),
+		)
+		expect(createApiKey).toHaveBeenCalled()
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_fresh')
+	})
+
+	it('warns when a fresh API key falls back to local pending storage', async () => {
+		vi.mocked(storePendingSecret).mockImplementationOnce((project, name, value) => {
+			project.pendingSecrets[name] = value
+			return { storage: 'local' }
+		})
+		const createApiKey = vi.fn().mockResolvedValue({ id: 'key-1', apiKey: 'nyk_secret' })
+		const ctx = baseCtx({
+			project: baseProject({ applicationId: 'app-1' }),
+			gateway: { createApiKey } as never,
+		})
+
+		await stepApiKey(ctx)
+
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not use the OS keyring'))
+		expect(ctx.project.pendingSecrets.apiKey).toBe('nyk_secret')
 	})
 
 	it('stops the spinner and rethrows if key creation fails', async () => {
@@ -923,6 +992,31 @@ describe('stepGrant', () => {
 		await stepGrant(ctx)
 
 		expect(p.note).toHaveBeenCalled()
+		expect(p.confirm).toHaveBeenCalledWith(
+			expect.objectContaining({ message: 'I saved this inbox password somewhere safe.' }),
+		)
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'grant')
+	})
+
+	it('clears an unreadable pending inbox password reference on resume', async () => {
+		const ctx = baseCtx({
+			project: baseProject({
+				grantId: 'grant-1',
+				inboxEmail: 'contact@acme.nylas.email',
+				pendingSecrets: {
+					appPassword: { storage: 'keyring', service: 'ownmail', account: 'missing' },
+				},
+			}),
+			v3: {} as never,
+		})
+
+		await stepGrant(ctx)
+
+		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'appPassword')
+		expect(p.log.warn).toHaveBeenCalledWith(
+			expect.stringContaining('Could not read the pending inbox password'),
+		)
+		expect(p.note).not.toHaveBeenCalled()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'grant')
 	})
 
@@ -995,8 +1089,48 @@ describe('stepGrant', () => {
 			name: 'acme',
 		})
 		expect(ctx.project.grantId).toBe('grant-new')
-		expect(ctx.project.pendingSecrets.appPassword).toBe('GeneratedPassw0rd!!x')
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'appPassword', 'GeneratedPassw0rd!!x')
+		expect(ctx.project.pendingSecrets.appPassword).toEqual({
+			storage: 'keyring',
+			service: 'ownmail',
+			account: 'acme:0:appPassword',
+		})
 		expect(p.note).toHaveBeenCalled()
+	})
+
+	it('throws CancelledError when the password acknowledgement is declined', async () => {
+		const listGrants = vi.fn().mockResolvedValue({ data: [] })
+		const createAgentAccount = vi.fn().mockResolvedValue({ id: 'grant-new' })
+		const ctx = baseCtx({
+			project: baseProject({ domainAddress: 'acme.nylas.email' }),
+			v3: { listGrants, createAgentAccount } as never,
+		})
+		vi.mocked(p.text).mockResolvedValueOnce('contact' as never)
+		vi.mocked(p.confirm)
+			.mockResolvedValueOnce(true) // generate password
+			.mockResolvedValueOnce(false) // acknowledgement
+
+		await expect(stepGrant(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(ctx.project.grantId).toBe('grant-new')
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'grant')
+	})
+
+	it('throws CancelledError when the password acknowledgement is cancelled', async () => {
+		const listGrants = vi.fn().mockResolvedValue({ data: [] })
+		const createAgentAccount = vi.fn().mockResolvedValue({ id: 'grant-new' })
+		const ctx = baseCtx({
+			project: baseProject({ domainAddress: 'acme.nylas.email' }),
+			v3: { listGrants, createAgentAccount } as never,
+		})
+		vi.mocked(p.text).mockResolvedValueOnce('contact' as never)
+		vi.mocked(p.confirm)
+			.mockResolvedValueOnce(true) // generate password
+			.mockResolvedValueOnce(CANCEL as never) // acknowledgement
+
+		await expect(stepGrant(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'grant')
 	})
 
 	it('refuses to create when the sandbox mailbox cap is reached', async () => {
@@ -1033,6 +1167,7 @@ describe('stepGrant', () => {
 			name: 'acme',
 		})
 		expect(ctx.project.inboxEmail).toBe('sales@acme.nylas.email')
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'appPassword', 'MyTyp3dPassword!!x')
 
 		// Local-part rule accepts a valid handle and rejects an empty/illegal one.
 		const localValidate = validatorFrom(vi.mocked(p.text))

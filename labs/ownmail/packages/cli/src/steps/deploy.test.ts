@@ -1,4 +1,5 @@
 import * as p from '@clack/prompts'
+import open from 'open'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { exportManualBundle, loadManifest, materialize } from '../deploy/materialize.js'
 import {
@@ -46,6 +47,8 @@ vi.mock('@clack/prompts', () => ({
 	tasks: vi.fn(),
 }))
 
+vi.mock('open', () => ({ default: vi.fn() }))
+
 vi.mock('../deploy/wrangler.js', () => ({
 	runWrangler: vi.fn(),
 	wranglerLoggedIn: vi.fn(),
@@ -77,12 +80,24 @@ vi.mock('../state/store.js', () => ({
 	saveAuth: vi.fn(),
 }))
 
+vi.mock('../state/pending-secrets.js', () => ({
+	clearPendingSecrets: vi.fn((project: ProjectState) => {
+		project.pendingSecrets = {}
+	}),
+	readPendingSecret: vi.fn((project: ProjectState, name: keyof ProjectState['pendingSecrets']) => {
+		const secret = project.pendingSecrets[name]
+		return typeof secret === 'string' ? secret : null
+	}),
+}))
+
 vi.mock('@nylas-labs/cli-kit', () => ({
 	DashboardAccountClient: class {},
 	DpopKey: class {},
 	GatewayClient: class {},
 	NylasV3Client: class {},
 }))
+
+import { clearPendingSecrets } from '../state/pending-secrets.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 	return {
@@ -128,6 +143,7 @@ beforeEach(() => {
 	vi.mocked(exportManualBundle).mockReturnValue('/tmp/export')
 	vi.mocked(resourceNameSuffix).mockReturnValue('')
 	vi.mocked(deployedApiBaseUrl).mockReturnValue(undefined)
+	vi.mocked(open).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof open>>)
 	delete process.env.CLOUDFLARE_API_TOKEN
 })
 
@@ -333,19 +349,35 @@ describe('stepDeploy (cloudflare)', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
 	})
 
-	it('deploys without a custom domain, runtime base URL, or API key', async () => {
+	it('deploys without a custom domain or runtime base URL', async () => {
 		vi.mocked(deploy).mockResolvedValueOnce('https://plain.workers.dev')
 		const ctx = makeCtx(
-			makeProject({ applicationId: 'client-id', workerName: 'worker', kvNamespaceId: 'kv' }),
+			makeProject({
+				applicationId: 'client-id',
+				workerName: 'worker',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
 		)
 		await stepDeploy(ctx)
 		const materializeArg = vi.mocked(materialize).mock.calls[0][0]
 		expect(materializeArg.appDomain).toBeUndefined()
 		expect(materializeArg.vars.NYLAS_API_BASE_URL).toBeUndefined()
 		expect(materializeArg.vars.INBOX_EMAIL).toBe('')
-		// Only the session secret is set (no API key present).
-		expect(putSecret).toHaveBeenCalledTimes(1)
+		expect(putSecret).toHaveBeenCalledTimes(2)
+		expect(putSecret).toHaveBeenCalledWith('worker', 'NYLAS_API_KEY', 'secret-key')
 		expect(putSecret).toHaveBeenCalledWith('worker', 'SESSION_SECRET', expect.any(String))
+	})
+
+	it('throws when the pending API key is missing at deploy time', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://plain.workers.dev')
+		const ctx = makeCtx(
+			makeProject({ applicationId: 'client-id', workerName: 'worker', kvNamespaceId: 'kv' }),
+		)
+		await expect(stepDeploy(ctx)).rejects.toThrow(/Pending Nylas API key is missing/)
+		expect(materialize).not.toHaveBeenCalled()
+		expect(deploy).not.toHaveBeenCalled()
+		expect(putSecret).not.toHaveBeenCalled()
 	})
 
 	it('throws when the Nylas client id is missing', async () => {
@@ -388,20 +420,33 @@ describe('stepDeploy (manual)', () => {
 				applicationId: 'client-id',
 				manualDeployDir: '/existing/dir',
 				manualAppUrl: 'https://already.example.com',
+				pendingSecrets: { apiKey: 'secret-key' },
 			}),
 		)
 		await stepDeploy(ctx)
 		const exportArg = vi.mocked(exportManualBundle).mock.calls[0][0]
 		expect(exportArg.targetDir).toBe('/existing/dir')
 		expect(exportArg.apiBaseUrl).toBeUndefined()
-		expect(exportArg.apiKey).toBeUndefined()
+		expect(exportArg.apiKey).toBe('secret-key')
 		expect(p.confirm).not.toHaveBeenCalled()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
 	})
 
+	it('throws when the pending API key is missing for manual export', async () => {
+		const ctx = makeCtx(makeProject({ hostingProvider: 'manual', applicationId: 'client-id' }))
+		await expect(stepDeploy(ctx)).rejects.toThrow(/Pending Nylas API key is missing/)
+		expect(exportManualBundle).not.toHaveBeenCalled()
+	})
+
 	it('cancels the run when the URL is not yet available', async () => {
 		vi.mocked(p.confirm).mockResolvedValueOnce(false)
-		const ctx = makeCtx(makeProject({ hostingProvider: 'manual', applicationId: 'client-id' }))
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
 		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
 		expect(p.cancel).toHaveBeenCalled()
 		expect(markStep).not.toHaveBeenCalled()
@@ -410,7 +455,13 @@ describe('stepDeploy (manual)', () => {
 	it('throws CancelledError when the has-URL confirm is cancelled', async () => {
 		vi.mocked(p.confirm).mockResolvedValueOnce(true)
 		vi.mocked(p.isCancel).mockReturnValueOnce(true)
-		const ctx = makeCtx(makeProject({ hostingProvider: 'manual', applicationId: 'client-id' }))
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
 		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
 	})
 
@@ -418,14 +469,26 @@ describe('stepDeploy (manual)', () => {
 		vi.mocked(p.confirm).mockResolvedValueOnce(true)
 		vi.mocked(p.text).mockResolvedValueOnce('https://x.example.com')
 		vi.mocked(p.isCancel).mockReturnValueOnce(false).mockReturnValueOnce(true)
-		const ctx = makeCtx(makeProject({ hostingProvider: 'manual', applicationId: 'client-id' }))
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
 		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
 	})
 
 	it('validates the public URL input', async () => {
 		vi.mocked(p.confirm).mockResolvedValueOnce(true)
 		vi.mocked(p.text).mockResolvedValueOnce('https://mail.example.com')
-		const ctx = makeCtx(makeProject({ hostingProvider: 'manual', applicationId: 'client-id' }))
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
 		await stepDeploy(ctx)
 		const validate = vi.mocked(p.text).mock.calls[0][0].validate as (
 			v: string | undefined,
@@ -527,17 +590,56 @@ describe('stepRedirectUris', () => {
 })
 
 describe('stepVerify', () => {
-	it('reports the app is live when the health check passes', async () => {
+	it('reports the app is live, clears pending secrets, and opens the app when requested', async () => {
 		const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true })
 		vi.stubGlobal('fetch', fetchMock)
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
 		const ctx = makeCtx(
-			makeProject({ workersDevUrl: 'https://app.workers.dev', inboxEmail: 'me@example.com' }),
+			makeProject({
+				workersDevUrl: 'https://app.workers.dev',
+				inboxEmail: 'me@example.com',
+				pendingSecrets: { apiKey: 'secret-key', appPassword: 'Sup3rSecret!!x' },
+			}),
 		)
 		await stepVerify(ctx)
 		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz')
 		expect(fetchMock).toHaveBeenCalledTimes(1)
+		expect(clearPendingSecrets).toHaveBeenCalledWith(ctx.project)
 		expect(ctx.project.pendingSecrets).toEqual({})
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'verify')
+		expect(p.note).toHaveBeenCalledWith(
+			expect.stringContaining('Reset password:    npx ownmail inbox reset-password'),
+			'🎉 Done',
+		)
+		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('IMAP:'), '🎉 Done')
+		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('SMTP:'), '🎉 Done')
+		expect(open).toHaveBeenCalledWith('https://app.workers.dev')
+		vi.unstubAllGlobals()
+	})
+
+	it('warns when opening the live app fails', async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true })
+		vi.stubGlobal('fetch', fetchMock)
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
+		vi.mocked(open).mockRejectedValueOnce(new Error('no browser'))
+		const ctx = makeCtx(makeProject({ workersDevUrl: 'https://app.workers.dev' }))
+
+		await stepVerify(ctx)
+
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not open the browser'))
+		vi.unstubAllGlobals()
+	})
+
+	it('skips opening the app when the browser prompt is cancelled', async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true })
+		vi.stubGlobal('fetch', fetchMock)
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+		const ctx = makeCtx(makeProject({ workersDevUrl: 'https://app.workers.dev' }))
+
+		await stepVerify(ctx)
+
+		expect(open).not.toHaveBeenCalled()
 		vi.unstubAllGlobals()
 	})
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectState } from '../state/schema.js'
-import { runDestroy, runGrants, runLogin } from './misc.js'
+import { runCleanupSecrets, runDestroy, runGrants, runLogin } from './misc.js'
 
 const { listGrants } = vi.hoisted(() => ({ listGrants: vi.fn() }))
 
@@ -113,6 +113,73 @@ describe('runGrants', () => {
 		expect(messages[1]).toContain('b@x.com  (valid, g-other)')
 		expect(messages[1]).not.toContain('← this app')
 		expect(p.log.info).toHaveBeenCalledWith('2/5 sandbox inboxes used.')
+	})
+})
+
+describe('runCleanupSecrets', () => {
+	it('does nothing when there are no pending setup secrets', async () => {
+		const proj = project()
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+
+		await runCleanupSecrets({ name: 'acme' })
+
+		expect(p.log.info).toHaveBeenCalledWith('No pending setup secrets are stored for this project.')
+		expect(p.outro).toHaveBeenCalledWith('Nothing to clean up.')
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
+	it('keeps pending setup secrets when confirmation is cancelled', async () => {
+		const proj = project({
+			pendingSecrets: { apiKey: 'nyk_secret', appPassword: 'Sup3rSecret!!x' },
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+
+		await runCleanupSecrets({})
+
+		expect(p.cancel).toHaveBeenCalledWith('Cleanup cancelled — pending setup secrets were kept.')
+		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret', appPassword: 'Sup3rSecret!!x' })
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
+	it('keeps pending setup secrets when the typed project name does not match', async () => {
+		const proj = project({ pendingSecrets: { apiKey: 'nyk_secret' } })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('wrong')
+
+		await runCleanupSecrets({})
+
+		expect(p.cancel).toHaveBeenCalledWith('Cleanup cancelled — pending setup secrets were kept.')
+		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
+	it('clears pending setup secrets without printing secret values', async () => {
+		const proj = project({
+			pendingSecrets: {
+				apiKey: 'nyk_secret',
+				clientSecret: 'client-secret',
+				appPassword: 'Sup3rSecret!!x',
+			},
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+
+		await runCleanupSecrets({})
+
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('Nylas API key awaiting deploy')
+		expect(warning).toContain('Legacy Nylas application client secret')
+		expect(warning).toContain('Inbox password awaiting final verification')
+		expect(warning).not.toContain('nyk_secret')
+		expect(warning).not.toContain('client-secret')
+		expect(warning).not.toContain('Sup3rSecret!!x')
+		expect(proj.pendingSecrets).toEqual({})
+		expect(saveProject).toHaveBeenCalledWith(proj)
+		expect(p.outro).toHaveBeenCalledWith(
+			'Pending setup secrets cleared from local state/keyring. Remote resources and mail were untouched.',
+		)
 	})
 })
 
