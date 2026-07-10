@@ -4,7 +4,7 @@
 
 - Node.js 20+ (`node -v`)
 - A Google, Microsoft, or GitHub account (to create your free Nylas account)
-- A Cloudflare account (free tier — created during setup if you don't have one)
+- A Cloudflare account (you can create one during browser sign-in)
 
 ## Create your inbox + app
 
@@ -30,7 +30,8 @@ The wizard walks you through everything:
    your own domain (you'll add a few DNS records; the wizard waits and verifies).
 3. **Name your inbox** — e.g. `contact@you.nylas.email`, and save the
    generated password (shown exactly once).
-4. **Connect Cloudflare** — browser OAuth via wrangler; no tokens to paste.
+4. **Connect Cloudflare** — recommended browser OAuth via Wrangler; no tokens
+   to paste. A least-privilege API token is available as an advanced option.
 5. Done — your mailbox app is live at `https://<name>-ownmail.<account>.workers.dev`.
 
 Log in with your inbox email + password. That's it.

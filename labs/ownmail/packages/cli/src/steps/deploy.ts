@@ -63,9 +63,9 @@ export async function ensureCloudflareAuth(): Promise<void> {
 
 	p.log.info(
 		[
-			'Cloudflare is used to deploy the mailbox app and session KV.',
-			'For least privilege, use a Cloudflare API token with Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read, plus User: User Details Read and Memberships Read.',
-			'If you later add a custom app domain, include Zone: Workers Routes Edit for that zone.',
+			'Cloudflare Workers hosts the mailbox app and its session storage.',
+			'Recommended: Wrangler OAuth opens a browser so you can sign in without copying credentials.',
+			'Advanced: for least privilege, use an API token with Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read; User: User Details Read, Memberships Read. Add Zone: Workers Routes Edit only when using a custom app domain.',
 		].join('\n'),
 	)
 
@@ -74,14 +74,14 @@ export async function ensureCloudflareAuth(): Promise<void> {
 			message: 'Connect Cloudflare with',
 			options: [
 				{
-					value: 'token' as const,
-					label: 'API token',
-					hint: 'least privilege, pasted once',
+					value: 'oauth' as const,
+					label: 'Wrangler OAuth (recommended)',
+					hint: 'easiest, sign in with your browser',
 				},
 				{
-					value: 'oauth' as const,
-					label: 'Wrangler OAuth link',
-					hint: 'broader access, prints URL',
+					value: 'token' as const,
+					label: 'API token (advanced)',
+					hint: 'least privilege, pasted once',
 				},
 			],
 		})
@@ -110,7 +110,9 @@ export async function ensureCloudflareAuth(): Promise<void> {
 	}
 
 	if (!(await wranglerLoggedIn())) {
-		throw new Error('Cloudflare authentication failed. Check the token permissions and re-run ownmail.')
+		throw new Error(
+			'Cloudflare authentication failed. Re-run ownmail to reconnect, or verify your API token permissions.',
+		)
 	}
 }
 
