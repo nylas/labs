@@ -56,9 +56,18 @@ const main = defineCommand({
 				),
 		}),
 		doctor: defineCommand({
-			meta: { name: 'doctor', description: 'Check (and fix) your project’s health' },
-			args: { name: nameArg },
-			run: ({ args }) => runTopLevel(() => runDoctor(args.name ? { name: args.name } : {})),
+			meta: { name: 'doctor', description: 'Check your project health; use --fix for repairs' },
+			args: {
+				name: nameArg,
+				fix: { type: 'boolean', description: 'Repair safe issues such as missing redirect URIs' },
+			},
+			run: ({ args }) =>
+				runTopLevel(() =>
+					runDoctor({
+						...(typeof args.name === 'string' ? { name: args.name } : {}),
+						fix: args.fix === true,
+					}),
+				),
 		}),
 		grants: defineCommand({
 			meta: { name: 'grants', description: 'List the inboxes on your Nylas app' },
@@ -76,7 +85,8 @@ const main = defineCommand({
 		}),
 		status: defineCommand({
 			meta: { name: 'status', description: 'Show your projects and their state' },
-			run: () => runTopLevel(() => runStatus()),
+			args: { json: { type: 'boolean', description: 'Print machine-readable JSON' } },
+			run: ({ args }) => runTopLevel(() => runStatus({ json: args.json === true })),
 		}),
 		inbox: defineCommand({
 			meta: { name: 'inbox', description: 'Manage inboxes' },

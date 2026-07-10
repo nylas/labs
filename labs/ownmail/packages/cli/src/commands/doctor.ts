@@ -2,17 +2,46 @@ import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
 import { wranglerLoggedIn } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
+import type { ProjectState } from '../state/schema.js'
+import { listProjectStateIssues } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
+import { activeAppUrl, redirectCallbackUrls } from './project-summary.js'
 import { pickExistingProject } from './shared.js'
 
-type CheckResult = { name: string; ok: boolean; detail: string; fixed?: boolean }
+type CheckResult = {
+	name: string
+	status: 'pass' | 'fail' | 'skip'
+	detail: string
+	fixed?: boolean
+}
 
-/** Re-checks every external dependency of a project and fixes what it can. */
-export async function runDoctor(opts: { name?: string }): Promise<void> {
+/** Re-checks every external dependency of a project; repairs only with --fix. */
+export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise<void> {
 	p.intro('ownmail doctor')
-	const project = await pickExistingProject(opts.name)
+	const stateIssues = listProjectStateIssues(opts.name)
+	let project: ProjectState
+	try {
+		project = await pickExistingProject(opts.name)
+	} catch (err) {
+		if (stateIssues.length === 0) throw err
+		reportResults([
+			{
+				name: 'Local project state',
+				status: 'fail',
+				detail: formatStateIssues(stateIssues),
+			},
+		])
+		return
+	}
 	const ctx = await createContext(project)
 	const results: CheckResult[] = []
+	if (stateIssues.length > 0) {
+		results.push({
+			name: 'Local project state',
+			status: 'fail',
+			detail: formatStateIssues(stateIssues),
+		})
+	}
 
 	// 1. Dashboard session
 	let sessionOk = false
@@ -26,111 +55,200 @@ export async function runDoctor(opts: { name?: string }): Promise<void> {
 	}
 	results.push({
 		name: 'Nylas session',
-		ok: sessionOk,
+		status: sessionOk ? 'pass' : 'fail',
 		detail: sessionOk ? 'valid' : 'expired — run `npx ownmail login`',
 	})
 
-	// 2. API access (mint a probe client from a fresh key if session works)
+	// 2. API access. Plain doctor is read-only, so it only uses an existing client.
 	let v3: NylasV3Client | null = ctx.v3
+	let probeKeyId: string | undefined
 	if (!v3 && sessionOk && project.applicationId) {
-		try {
-			const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
-				name: `ownmail doctor ${Date.now()}`,
-			})
-			v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
-		} catch {
-			// reported below
-		}
-	}
-
-	// 3. Domain verification
-	if (project.domainId && sessionOk) {
-		try {
-			const domain = await requireDashboard(ctx).getInboxDomain(tokens(ctx), project.domainId, project.region)
-			const ok = domain.verifiedOwnership && domain.verifiedMx
-			results.push({
-				name: `Domain ${domain.domainAddress}`,
-				ok,
-				detail: ok
-					? 'verified'
-					: `unverified checks: ${[
-							!domain.verifiedOwnership && 'ownership',
-							!domain.verifiedMx && 'mx',
-							!domain.verifiedSpf && 'spf',
-							!domain.verifiedDkim && 'dkim',
-						]
-							.filter(Boolean)
-							.join(', ')} — run \`npx ownmail\` to resume verification`,
-			})
-		} catch {
-			results.push({ name: 'Domain', ok: false, detail: 'could not fetch domain state' })
-		}
-	}
-
-	// 4. Grant exists
-	if (v3 && project.grantId) {
-		try {
-			const grants = await v3.listGrants({ limit: 200 })
-			const found = grants.data.find((g) => g.id === project.grantId)
-			results.push({
-				name: `Inbox ${project.inboxEmail ?? ''}`,
-				ok: Boolean(found),
-				detail: found ? `grant ${found.grant_status ?? 'valid'}` : 'grant missing — was it deleted?',
-			})
-		} catch (err) {
-			results.push({ name: 'Inbox', ok: false, detail: `API error: ${(err as Error).message}` })
-		}
-	}
-
-	// 5. Redirect URIs (auto-fix)
-	if (v3 && project.workersDevUrl) {
-		const wanted = [`${project.workersDevUrl}/auth/callback`, 'http://localhost:3000/auth/callback']
-		if (project.appDomain) wanted.push(`https://${project.appDomain}/auth/callback`)
-		try {
-			const existing = await v3.listRedirectUris()
-			const have = new Set(existing.data.map((r) => r.url))
-			const missing = wanted.filter((u) => !have.has(u))
-			if (missing.length > 0) await v3.ensureRedirectUris(wanted)
-			results.push({
-				name: 'Login redirect URIs',
-				ok: true,
-				detail: missing.length > 0 ? `re-registered: ${missing.join(', ')}` : 'registered',
-				fixed: missing.length > 0,
-			})
-		} catch (err) {
-			results.push({ name: 'Login redirect URIs', ok: false, detail: (err as Error).message })
-		}
-	}
-
-	// 6. Cloudflare + worker health
-	results.push({
-		name: 'Cloudflare login',
-		ok: await wranglerLoggedIn(),
-		detail: (await wranglerLoggedIn()) ? 'authenticated' : 'run any ownmail deploy command to log in',
-	})
-	if (project.workersDevUrl) {
-		let healthy = false
-		let detail = 'unreachable'
-		try {
-			const res = await fetch(`${project.workersDevUrl}/healthz`)
-			healthy = res.ok
-			if (res.ok) {
-				const body = (await res.json()) as { templateVersion?: string }
-				detail = `live (template ${body.templateVersion ?? '?'})`
-			} else {
-				detail = `HTTP ${res.status}`
+		if (opts.fix) {
+			try {
+				const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
+					name: `ownmail doctor ${new Date().toISOString()}`,
+					expiresIn: 3600,
+				})
+				probeKeyId = key.id
+				v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
+				results.push({
+					name: 'Temporary API access',
+					status: 'pass',
+					detail: 'created for this repair run',
+				})
+			} catch {
+				results.push({
+					name: 'Temporary API access',
+					status: 'fail',
+					detail: 'could not create a temporary API key; API checks and repairs were skipped',
+				})
 			}
-		} catch {
-			// unreachable
+		} else {
+			results.push({
+				name: 'Nylas API checks',
+				status: 'skip',
+				detail: 'read-only mode cannot create a temporary API key; run `npx ownmail doctor --fix` to allow API checks and repairs',
+			})
 		}
-		results.push({ name: `App ${project.workersDevUrl}`, ok: healthy, detail })
 	}
 
+	try {
+		// 3. Domain verification
+		if (project.domainId && sessionOk) {
+			try {
+				const domain = await requireDashboard(ctx).getInboxDomain(tokens(ctx), project.domainId, project.region)
+				const ok = domain.verifiedOwnership && domain.verifiedMx
+				results.push({
+					name: `Domain ${domain.domainAddress}`,
+					status: ok ? 'pass' : 'fail',
+					detail: ok
+						? 'verified'
+						: `unverified checks: ${[
+								!domain.verifiedOwnership && 'ownership',
+								!domain.verifiedMx && 'mx',
+								!domain.verifiedSpf && 'spf',
+								!domain.verifiedDkim && 'dkim',
+							]
+								.filter(Boolean)
+								.join(', ')} — run \`npx ownmail\` to resume verification`,
+				})
+			} catch {
+				results.push({ name: 'Domain', status: 'fail', detail: 'could not fetch domain state' })
+			}
+		}
+
+		// 4. Grant exists
+		if (project.grantId) {
+			if (v3) {
+				try {
+					const grants = await v3.listGrants({ limit: 200 })
+					const found = grants.data.find((g) => g.id === project.grantId)
+					results.push({
+						name: `Inbox ${project.inboxEmail ?? ''}`,
+						status: found ? 'pass' : 'fail',
+						detail: found ? `grant ${found.grant_status ?? 'valid'}` : 'grant missing — was it deleted?',
+					})
+				} catch (err) {
+					results.push({ name: 'Inbox', status: 'fail', detail: `API error: ${(err as Error).message}` })
+				}
+			} else {
+				results.push({
+					name: `Inbox ${project.inboxEmail ?? ''}`,
+					status: 'skip',
+					detail: 'requires Nylas API access; run `npx ownmail doctor --fix` to check it',
+				})
+			}
+		}
+
+		// 5. Redirect URIs. Missing URIs are repaired only in --fix mode.
+		const wanted = redirectCallbackUrls(project)
+		if (wanted.length > 1) {
+			if (v3) {
+				try {
+					const existing = await v3.listRedirectUris()
+					const have = new Set(existing.data.map((r) => r.url))
+					const missing = wanted.filter((u) => !have.has(u))
+					if (missing.length > 0 && opts.fix) {
+						await v3.ensureRedirectUris(wanted)
+					}
+					results.push({
+						name: 'Login redirect URIs',
+						status: missing.length === 0 || opts.fix ? 'pass' : 'fail',
+						detail:
+							missing.length === 0
+								? 'registered'
+								: opts.fix
+									? `registered missing callbacks: ${missing.join(', ')}`
+									: `missing callbacks: ${missing.join(', ')} — run \`npx ownmail doctor --fix\``,
+						...(missing.length > 0 && opts.fix ? { fixed: true } : {}),
+					})
+				} catch (err) {
+					results.push({ name: 'Login redirect URIs', status: 'fail', detail: (err as Error).message })
+				}
+			} else {
+				results.push({
+					name: 'Login redirect URIs',
+					status: 'skip',
+					detail: 'requires Nylas API access; run `npx ownmail doctor --fix` to check and repair them',
+				})
+			}
+		}
+
+		// 6. Hosting + app health
+		if (needsCloudflareLogin(project)) {
+			const cloudflareOk = await wranglerLoggedIn()
+			results.push({
+				name: 'Cloudflare login',
+				status: cloudflareOk ? 'pass' : 'fail',
+				detail: cloudflareOk ? 'authenticated' : 'run any ownmail deploy command to log in',
+			})
+		}
+		const url = activeAppUrl(project)
+		if (url) {
+			let healthy = false
+			let detail = 'unreachable'
+			try {
+				const res = await fetch(`${url}/healthz`)
+				healthy = res.ok
+				if (res.ok) {
+					const body = (await res.json()) as { templateVersion?: string }
+					detail = `live (template ${body.templateVersion ?? '?'})`
+				} else {
+					detail = `HTTP ${res.status}`
+				}
+			} catch {
+				// unreachable
+			}
+			results.push({ name: `App ${url}`, status: healthy ? 'pass' : 'fail', detail })
+		} else if (project.completedSteps.includes('deploy')) {
+			results.push({
+				name: 'App URL',
+				status: 'fail',
+				detail: 'missing from local state — run `npx ownmail` to repair deployment state',
+			})
+		}
+	} finally {
+		if (probeKeyId && project.applicationId) {
+			try {
+				await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, project.applicationId, probeKeyId)
+				results.push({ name: 'Temporary API key', status: 'pass', detail: 'revoked' })
+			} catch (err) {
+				results.push({
+					name: 'Temporary API key',
+					status: 'fail',
+					detail: `could not revoke temporary key: ${(err as Error).message}`,
+				})
+			}
+		}
+	}
+
+	reportResults(results)
+}
+
+function reportResults(results: CheckResult[]): void {
 	for (const r of results) {
-		const icon = r.ok ? (r.fixed ? '🔧' : '✅') : '❌'
+		const icon = r.status === 'pass' ? (r.fixed ? '🔧' : '✅') : r.status === 'skip' ? '⚠️' : '❌'
 		p.log.message(`${icon} ${r.name}: ${r.detail}`)
 	}
-	const failing = results.filter((r) => !r.ok)
-	p.outro(failing.length === 0 ? 'All checks passed.' : `${failing.length} check(s) need attention.`)
+	const failing = results.filter((r) => r.status === 'fail')
+	const skipped = results.filter((r) => r.status === 'skip')
+	p.outro(outroMessage(failing.length, skipped.length))
 	if (failing.length > 0) process.exitCode = 1
+}
+
+function outroMessage(failing: number, skipped: number): string {
+	if (failing === 0 && skipped === 0) return 'All checks passed.'
+	if (failing === 0) return `All completed checks passed. ${skipped} check(s) skipped.`
+	if (skipped === 0) return `${failing} check(s) need attention.`
+	return `${failing} check(s) need attention. ${skipped} check(s) skipped.`
+}
+
+function needsCloudflareLogin(project: ProjectState): boolean {
+	if (project.ejected || project.hostingProvider === 'manual') return false
+	return project.hostingProvider === 'cloudflare' || Boolean(project.workerName || project.workersDevUrl || project.appDomain)
+}
+
+function formatStateIssues(issues: ReturnType<typeof listProjectStateIssues>): string {
+	const labels = issues.map((issue) => issue.file).join(', ')
+	return `malformed local state file(s): ${labels}. Move the file aside or fix the JSON, then rerun doctor.`
 }

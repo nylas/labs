@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import envPaths from 'env-paths'
 import { ownmailStateName } from '../nylas-env.js'
@@ -68,6 +68,29 @@ export function listProjects(): ProjectState[] {
 	return projects
 }
 
+export type ProjectStateIssue = { file: string; reason: 'invalid-json' | 'invalid-schema' }
+
+export function listProjectStateIssues(slug?: string): ProjectStateIssue[] {
+	const dir = projectsDir()
+	const files = slug ? [`${slug}.json`] : projectStateFiles(dir)
+	const issues: ProjectStateIssue[] = []
+	for (const file of files) {
+		const path = join(dir, file)
+		if (slug && !existsSync(path)) continue
+		let raw: unknown
+		try {
+			raw = JSON.parse(readFileSync(path, 'utf8')) as unknown
+		} catch {
+			issues.push({ file, reason: 'invalid-json' })
+			continue
+		}
+		if (!ProjectStateSchema.safeParse(raw).success) {
+			issues.push({ file, reason: 'invalid-schema' })
+		}
+	}
+	return issues
+}
+
 export function loadProject(slug: string): ProjectState | null {
 	const raw = readJson<unknown>(join(projectsDir(), `${slug}.json`))
 	if (!raw) return null
@@ -96,4 +119,12 @@ export function markStep(state: ProjectState, step: ProjectState['completedSteps
 
 export function hasStep(state: ProjectState, step: ProjectState['completedSteps'][number]): boolean {
 	return state.completedSteps.includes(step)
+}
+
+function projectStateFiles(dir: string): string[] {
+	try {
+		return readdirSync(dir).filter((f) => f.endsWith('.json'))
+	} catch {
+		return []
+	}
 }
