@@ -94,14 +94,19 @@ function MessageBlock({
 			<button
 				type="button"
 				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-start gap-3 text-left"
+				className="w-full text-left"
 				aria-expanded={open}
 			>
-				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
-					{initials(fromLabel)}
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+				{/*
+				 * The sender-identity row is a single line in every state, so the avatar
+				 * always centers against exactly one line of text — no orphaned avatar
+				 * height when expanded, and the row never changes height on toggle.
+				 */}
+				<div className="flex items-center gap-3">
+					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
+						{initials(fromLabel)}
+					</div>
+					<div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
 						<span className="text-sm font-semibold text-foreground">{fromLabel}</span>
 						{open ? <span className="text-xs text-muted-foreground">to {recipients}</span> : null}
 						{message.date ? (
@@ -111,22 +116,26 @@ function MessageBlock({
 							/>
 						) : null}
 					</div>
-					{!open ? (
-						<p className="mt-0.5 truncate text-sm text-muted-foreground">
-							{collapsedMessagePreview(message)}
-						</p>
-					) : null}
+					<ChevronDown
+						className={cn(
+							'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+							open && 'rotate-180',
+						)}
+					/>
 				</div>
-				<ChevronDown
-					className={cn(
-						'mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-						open && 'rotate-180',
-					)}
-				/>
+				{/* Collapsed preview sits below the identity row, indented to the name's edge. */}
+				{!open ? (
+					<p className="mt-1 truncate pl-12 text-sm text-muted-foreground">
+						{collapsedMessagePreview(message)}
+					</p>
+				) : null}
 			</button>
 
 			{open ? (
-				<div className="mt-4">
+				// Indent by the avatar column (w-9) plus the header gap (gap-3) so the body
+				// shares the sender/recipient/timestamp left edge — one reading column, with
+				// the avatar as a gutter rather than dead space beside the text.
+				<div className="mt-4 pl-12">
 					<MessageBody message={message} />
 					<MessageAttachments message={message} />
 				</div>
