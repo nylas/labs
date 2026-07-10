@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { markdownToDraftBody } from '../components/html-to-markdown.js'
 import { markdownToEmailHtml } from '../components/markdown-model.js'
 
 // TanStack router/start are stubbed so the route module can be imported and its
@@ -864,8 +865,10 @@ describe('mail.compose autosave', () => {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(3000)
 		})
+		// The body is stored in the markdown envelope so reloading the draft never
+		// mistakes markdown containing literal tags for a legacy HTML draft.
 		expect(saveDraft).toHaveBeenCalledWith({
-			data: { to: 'a@b.com', subject: 'Hi', body: 'draft body' },
+			data: { to: 'a@b.com', subject: 'Hi', body: markdownToDraftBody('draft body') },
 		})
 		expect(screen.getByText('Saved')).toBeInTheDocument()
 

@@ -167,8 +167,36 @@ export function htmlToMarkdown(html: string): string {
 
 const LOOKS_LIKE_HTML = /<(p|div|br|ul|ol|li|blockquote|strong|b|em|i|u|a|span|h[1-6])\b/i
 
-/** Adopt a seed that may be HTML (a legacy draft) or plain text (already markdown). */
+/**
+ * Drafts saved by the markdown composer are wrapped in this envelope. Markdown
+ * legitimately contains tag-looking text (`<b>`, `use <br> here`), so a
+ * heuristic cannot tell new markdown drafts from legacy HTML drafts — the
+ * envelope makes the distinction explicit while staying valid HTML, so draft
+ * snippets and previews still render the source as plain text.
+ */
+const MARKDOWN_DRAFT_ATTR = 'data-ownmail-markdown'
+
+function escapeHtml(text: string): string {
+	return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Wrap markdown source for draft storage so reloading never has to guess. */
+export function markdownToDraftBody(markdown: string): string {
+	return `<pre ${MARKDOWN_DRAFT_ATTR}="1">${escapeHtml(markdown)}</pre>`
+}
+
+/**
+ * Adopt a seed: an enveloped markdown draft round-trips exactly; other HTML
+ * (a legacy WYSIWYG draft) converts; plain text is already markdown.
+ */
 export function seedToMarkdown(raw: string): string {
 	if (raw.trim() === '') return ''
+	// Providers may rewrap stored bodies, so locate the envelope by parsing
+	// rather than by exact prefix match.
+	if (raw.includes(MARKDOWN_DRAFT_ATTR)) {
+		const parsed = new DOMParser().parseFromString(raw, 'text/html')
+		const envelope = parsed.querySelector(`pre[${MARKDOWN_DRAFT_ATTR}]`)
+		if (envelope) return envelope.textContent as string
+	}
 	return LOOKS_LIKE_HTML.test(raw) ? htmlToMarkdown(raw) : raw.replace(/\r\n?/g, '\n')
 }

@@ -2,6 +2,7 @@ import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import { Archive, Forward, Minus, Paperclip, Reply, ReplyAll, Send, Star, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { markdownToDraftBody } from '../components/html-to-markdown.js'
 import { MarkdownEditor } from '../components/MarkdownEditor.js'
 import { markdownToEmailHtml } from '../components/markdown-model.js'
 import { RecipientInput } from '../components/RecipientInput.js'
@@ -252,7 +253,8 @@ function Compose() {
 						...(draftId ? { draftId } : {}),
 						to,
 						subject,
-						body,
+						// Enveloped so reloading can tell markdown from legacy HTML drafts.
+						body: body ? markdownToDraftBody(body) : '',
 						...(attachments.length ? { attachments } : {}),
 					},
 				})

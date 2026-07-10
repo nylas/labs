@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { markdownToDraftBody } from './html-to-markdown.js'
 import { MarkdownEditor } from './MarkdownEditor.js'
 import { writeLineRange } from './markdown-dom.js'
 
@@ -102,6 +103,12 @@ describe('MarkdownEditor rendering', () => {
 		const { editor, onChange } = setup('<p><strong>hi</strong> there</p>')
 		expect(lastMarkdown(onChange)).toBe('**hi** there')
 		expect(editor.innerHTML).toBe('<p><strong>hi</strong> there</p>')
+	})
+
+	it('restores an enveloped markdown draft exactly, keeping literal tag text', () => {
+		const { editor, onChange } = setup(markdownToDraftBody('use <br> here **now**'))
+		expect(lastMarkdown(onChange)).toBe('use <br> here **now**')
+		expect(editor.innerHTML).toBe('<p>use &lt;br&gt; here <strong>now</strong></p>')
 	})
 
 	it('re-seeds when the parent supplies a brand new value', () => {

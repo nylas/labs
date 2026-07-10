@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { htmlToMarkdown, seedToMarkdown } from './html-to-markdown.js'
+import { htmlToMarkdown, markdownToDraftBody, seedToMarkdown } from './html-to-markdown.js'
 import { parseLine, renderLine } from './markdown-model.js'
 
 describe('htmlToMarkdown', () => {
@@ -84,6 +84,36 @@ describe('htmlToMarkdown', () => {
 
 	it('returns an empty string for empty input', () => {
 		expect(htmlToMarkdown('')).toBe('')
+	})
+})
+
+describe('markdown draft envelope', () => {
+	it('wraps markdown as escaped HTML that strips back to the source text', () => {
+		expect(markdownToDraftBody('# Hi\n**a** & b')).toBe(
+			'<pre data-ownmail-markdown="1"># Hi\n**a** &amp; b</pre>',
+		)
+	})
+
+	it('round-trips markdown exactly, including literal tag-looking text', () => {
+		for (const markdown of [
+			'use <br> here',
+			'a <b>literal</b> tag',
+			'# H\n- x\n\n<span>',
+			'1 < 2 && 3 > 2',
+		]) {
+			expect(seedToMarkdown(markdownToDraftBody(markdown))).toBe(markdown)
+		}
+	})
+
+	it('finds the envelope even when a provider rewraps the stored body', () => {
+		const stored = `<div>${markdownToDraftBody('**hi** <b>')}</div>`
+		expect(seedToMarkdown(stored)).toBe('**hi** <b>')
+	})
+
+	it('falls back to the heuristic when the marker only appears as text', () => {
+		expect(seedToMarkdown('mentioning data-ownmail-markdown in prose')).toBe(
+			'mentioning data-ownmail-markdown in prose',
+		)
 	})
 })
 
