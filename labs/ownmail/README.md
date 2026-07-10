@@ -10,13 +10,19 @@
 OwnMail deploys a mailbox and calendar app to your Cloudflare account, powered by
 [Nylas Agent Accounts](https://developer.nylas.com/docs/v3/agent-accounts/).
 
-From this repository:
+Until the CLI is published to npm, run it from a clean source checkout:
 
 ```bash
+git clone https://github.com/nylas/labs.git
+cd labs
+corepack enable
 pnpm install
-pnpm --filter ownmail build
+pnpm --filter ownmail... build
 node labs/ownmail/packages/cli/dist/index.js
 ```
+
+The trailing `...` builds OwnMail and its workspace dependencies. From an
+existing checkout, the last three commands are sufficient.
 
 After the CLI is published to npm, you can run the same setup flow with:
 

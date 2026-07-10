@@ -12,6 +12,7 @@
 		"lint:fix": "biome check --write .",
 		"test": "turbo test",
 		"typecheck": "turbo typecheck",
+		"smoke:ownmail-release": "node labs/ownmail/scripts/smoke-release.mjs",
 		"changeset": "changeset",
 		"release": "turbo build && changeset publish",
 		"create-lab": "node scripts/create-lab.mjs",

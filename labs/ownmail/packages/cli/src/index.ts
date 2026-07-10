@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module'
 import { defineCommand, runMain } from 'citty'
 import { runAppDomain } from './commands/app-domain.js'
 import { runCreate } from './commands/create.js'
@@ -10,6 +11,9 @@ import { runRotateKey } from './commands/rotate.js'
 import { runTopLevel } from './commands/shared.js'
 import { runStatus } from './commands/status.js'
 import { runUpdate } from './commands/update.js'
+
+const require = createRequire(import.meta.url)
+const { version } = require('../package.json') as { version: string }
 
 const nameArg = { type: 'string', description: 'Project name', required: false } as const
 
@@ -30,6 +34,7 @@ const create = defineCommand({
 const main = defineCommand({
 	meta: {
 		name: 'ownmail',
+		version,
 		description: 'Your inbox. Your domain. No per-seat fees. Powered by Nylas.',
 	},
 	subCommands: {
