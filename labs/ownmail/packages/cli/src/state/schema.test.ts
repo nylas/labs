@@ -60,6 +60,22 @@ describe('ProjectStateSchema', () => {
 		expect(parsed.pendingSecrets).toEqual({ apiKey: 'k' })
 	})
 
+	it('accepts keyring references for pending setup secrets', () => {
+		const parsed = ProjectStateSchema.parse({
+			slug: 'my-inbox',
+			createdAt: 1,
+			updatedAt: 1,
+			pendingSecrets: {
+				apiKey: { storage: 'keyring', service: 'ownmail', account: 'my-inbox:1:apiKey' },
+			},
+		})
+		expect(parsed.pendingSecrets.apiKey).toEqual({
+			storage: 'keyring',
+			service: 'ownmail',
+			account: 'my-inbox:1:apiKey',
+		})
+	})
+
 	it('rejects invalid enum, url and step values', () => {
 		expect(
 			ProjectStateSchema.safeParse({ slug: 's', createdAt: 1, updatedAt: 1, region: 'ap' }).success,

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
+import open from 'open'
 import { exportManualBundle, loadManifest, materialize } from '../deploy/materialize.js'
 import {
 	cloudflareApiTokenConfigured,
@@ -11,6 +12,7 @@ import {
 	wranglerLogin,
 } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl, resourceNameSuffix } from '../nylas-env.js'
+import { clearPendingSecrets, readPendingSecret } from '../state/pending-secrets.js'
 import { markStep, saveProject } from '../state/store.js'
 import { requireV3, type StepContext } from './context.js'
 import { CancelledError } from './provision.js'
@@ -150,6 +152,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	const applicationId = requireNylasClientId(ctx.project.applicationId)
 	const workerName = requireProjectValue(ctx.project.workerName, 'Cloudflare worker name')
 	const kvNamespaceId = requireProjectValue(ctx.project.kvNamespaceId, 'Cloudflare KV namespace')
+	const apiKey = requirePendingApiKey(ctx)
 	const runtimeApiBaseUrl = deployedApiBaseUrl(ctx.project.region)
 	const spinner = p.spinner()
 	spinner.start('Deploying your mailbox app to Cloudflare…')
@@ -176,9 +179,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	spinner.stop(`Deployed: ${url}`)
 
 	spinner.start('Locking in secrets…')
-	if (ctx.project.pendingSecrets.apiKey) {
-		await putSecret(workerName, 'NYLAS_API_KEY', ctx.project.pendingSecrets.apiKey)
-	}
+	await putSecret(workerName, 'NYLAS_API_KEY', apiKey)
 	await putSecret(workerName, 'SESSION_SECRET', randomBytes(32).toString('base64url'))
 	saveProject(ctx.project)
 	spinner.stop('Secrets stored in Cloudflare (never on disk).')
@@ -196,6 +197,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 			`${ctx.project.slug}-ownmail-manual-${new Date().toISOString().replace(/[:.]/g, '-')}`,
 		)
 
+	const apiKey = requirePendingApiKey(ctx)
 	const exported = exportManualBundle({
 		slug: ctx.project.slug,
 		region: ctx.project.region,
@@ -204,7 +206,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 		inboxEmail: ctx.project.inboxEmail ?? '',
 		templateVersion: manifest.templateVersion,
 		targetDir,
-		...(ctx.project.pendingSecrets.apiKey ? { apiKey: ctx.project.pendingSecrets.apiKey } : {}),
+		apiKey,
 		sessionSecret: randomBytes(32).toString('base64url'),
 	})
 	ctx.project.manualDeployDir = exported
@@ -217,7 +219,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 			'',
 			'Upload this bundle to your hosting provider.',
 			'Set the variables from .env.example; deployment-only secret values are in secrets.env.',
-			'Do not commit secrets.env.',
+			'Do not commit secrets.env. OwnMail clears matching keyring/local pending secrets after verification.',
 		].join('\n'),
 		'Manual Deploy',
 	)
@@ -315,8 +317,8 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 		p.log.warn(`Give it a minute, then visit ${url}. If it stays down, run: npx ownmail doctor`)
 	}
 
-	// One-time plaintexts are no longer needed once everything downstream ran.
-	ctx.project.pendingSecrets = {}
+	// One-time setup secrets are no longer needed once everything downstream ran.
+	clearPendingSecrets(ctx.project)
 	saveProject(ctx.project)
 
 	markStep(ctx.project, 'verify')
@@ -324,14 +326,27 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 		[
 			`Your mailbox app:  ${url}`,
 			`Your email:        ${ctx.project.inboxEmail}`,
+			'Password:          saved earlier (not shown again)',
 			'',
-			'Log in with your inbox email and the password shown earlier.',
+			'IMAP:              imap.nylas.email:993 (SSL)',
+			'SMTP:              smtp.nylas.email:465 (SSL) or 587 (STARTTLS)',
 			'',
+			'Reset password:    npx ownmail inbox reset-password',
 			'Update later:      npx ownmail update',
 			'Get the source:    npx ownmail eject',
+			'Cleanup pending:   npx ownmail cleanup-secrets',
 		].join('\n'),
 		'🎉 Done',
 	)
+
+	const shouldOpen = await p.confirm({ message: 'Open your mailbox app now?', initialValue: true })
+	if (!p.isCancel(shouldOpen) && shouldOpen) {
+		try {
+			await open(url)
+		} catch {
+			p.log.warn(`Could not open the browser automatically. Visit ${url} when you’re ready.`)
+		}
+	}
 }
 
 function appUrl(ctx: StepContext): string | undefined {
@@ -371,4 +386,14 @@ function requireProjectValue(value: string | undefined, label: string): string {
 		throw new Error(`${label} is missing. Re-run \`npx ownmail\` to finish setup before deploying.`)
 	}
 	return value.trim()
+}
+
+function requirePendingApiKey(ctx: StepContext): string {
+	const apiKey = readPendingSecret(ctx.project, 'apiKey')
+	if (!apiKey) {
+		throw new Error(
+			'Pending Nylas API key is missing from secure local storage. Re-run `npx ownmail` to mint a fresh deploy key.',
+		)
+	}
+	return apiKey
 }

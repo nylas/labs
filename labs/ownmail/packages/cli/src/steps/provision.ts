@@ -10,6 +10,13 @@ import {
 } from '@nylas-labs/cli-kit'
 import open from 'open'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
+import {
+	clearPendingSecret,
+	hasPendingSecret,
+	type PendingSecretStoreResult,
+	readPendingSecret,
+	storePendingSecret,
+} from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
 import { markStep, saveProject } from '../state/store.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
@@ -169,7 +176,6 @@ export async function stepApp(ctx: StepContext): Promise<void> {
 			branding: { name: brandName, description: 'Created by npx ownmail' },
 		})
 		ctx.project.applicationId = created.applicationId
-		ctx.project.pendingSecrets.clientSecret = created.clientSecret
 	}
 	saveProject(ctx.project)
 	markStep(ctx.project, 'app')
@@ -213,16 +219,18 @@ function appDisplayName(app: GatewayApplication): string {
 
 /** 04 — Mint an API key (re-mint on resume is safe; old keys stay valid until revoked). */
 export async function stepApiKey(ctx: StepContext): Promise<void> {
-	if (ctx.project.pendingSecrets.apiKey) {
-		ctx.v3 = new NylasV3Client(
-			ctx.project.pendingSecrets.apiKey,
-			ctx.project.region,
-			fetch,
-			apiBaseUrl(ctx.project.region),
-		)
+	const pendingApiKey = readPendingSecret(ctx.project, 'apiKey')
+	if (pendingApiKey) {
+		ctx.v3 = new NylasV3Client(pendingApiKey, ctx.project.region, fetch, apiBaseUrl(ctx.project.region))
 		markStep(ctx.project, 'api-key')
 		return
 	}
+	if (hasPendingSecret(ctx.project, 'apiKey')) {
+		clearPendingSecret(ctx.project, 'apiKey')
+		saveProject(ctx.project)
+		p.log.warn('Could not read the pending Nylas API key from local secure storage; minting a fresh one.')
+	}
+
 	const gateway = requireGateway(ctx)
 	const spinner = p.spinner()
 	spinner.start('Creating a Nylas API key…')
@@ -237,7 +245,8 @@ export async function stepApiKey(ctx: StepContext): Promise<void> {
 	}
 	spinner.stop('Nylas API key created.')
 	ctx.project.apiKeyId = created.id
-	ctx.project.pendingSecrets.apiKey = created.apiKey
+	const stored = storePendingSecret(ctx.project, 'apiKey', created.apiKey)
+	warnIfLocalPendingSecret(stored, 'Nylas API key')
 	ctx.v3 = new NylasV3Client(created.apiKey, ctx.project.region, fetch, apiBaseUrl(ctx.project.region))
 	saveProject(ctx.project)
 	markStep(ctx.project, 'api-key')
@@ -506,8 +515,15 @@ function isFullyVerified(d: { verifiedOwnership: boolean; verifiedMx: boolean })
 /** 06 — Create the Agent Account mailbox grant with an app password. */
 export async function stepGrant(ctx: StepContext): Promise<void> {
 	if (ctx.project.grantId) {
-		if (ctx.project.inboxEmail && ctx.project.pendingSecrets.appPassword) {
-			showInboxPassword(ctx.project.inboxEmail, ctx.project.pendingSecrets.appPassword)
+		const pendingAppPassword = readPendingSecret(ctx.project, 'appPassword')
+		if (ctx.project.inboxEmail && pendingAppPassword) {
+			await showInboxPassword(ctx.project.inboxEmail, pendingAppPassword)
+		} else if (hasPendingSecret(ctx.project, 'appPassword')) {
+			clearPendingSecret(ctx.project, 'appPassword')
+			saveProject(ctx.project)
+			p.log.warn(
+				'Could not read the pending inbox password from local secure storage. Continue setup, then run `npx ownmail inbox reset-password` if you did not save it.',
+			)
 		}
 		markStep(ctx.project, 'grant')
 		return
@@ -575,17 +591,30 @@ export async function stepGrant(ctx: StepContext): Promise<void> {
 
 	ctx.project.grantId = grant.id
 	ctx.project.inboxEmail = email
-	ctx.project.pendingSecrets.appPassword = appPassword
+	const stored = storePendingSecret(ctx.project, 'appPassword', appPassword)
+	warnIfLocalPendingSecret(stored, 'inbox password')
 	saveProject(ctx.project)
 
-	showInboxPassword(email, appPassword)
+	await showInboxPassword(email, appPassword)
 	markStep(ctx.project, 'grant')
 }
 
-function showInboxPassword(email: string, appPassword: string): void {
+async function showInboxPassword(email: string, appPassword: string): Promise<void> {
 	p.note(
-		`Email:    ${email}\nPassword: ${appPassword}\n\nThis password is shown while setup is pending and cannot be recovered after deploy — save it now.\nYou’ll use it to log into your mailbox app (and IMAP/SMTP clients).`,
+		`Email:    ${email}\nPassword: ${appPassword}\n\nThis password is shown while setup is pending and cannot be recovered after deploy.\nSave it in your password manager now. You’ll use it to log into the mailbox app and IMAP/SMTP clients.`,
 		'Your new inbox',
+	)
+	const saved = await p.confirm({
+		message: 'I saved this inbox password somewhere safe.',
+		initialValue: false,
+	})
+	if (p.isCancel(saved) || !saved) throw new CancelledError()
+}
+
+function warnIfLocalPendingSecret(result: PendingSecretStoreResult, label: string): void {
+	if (result.storage === 'keyring') return
+	p.log.warn(
+		`Could not use the OS keyring for the ${label}. OwnMail saved a temporary pending copy in the permission-restricted local project file and will clear it after verification. If you abandon setup, run \`npx ownmail cleanup-secrets\`.`,
 	)
 }
 

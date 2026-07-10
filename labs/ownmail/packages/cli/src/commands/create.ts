@@ -86,7 +86,7 @@ export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): 
 			'',
 			'You’ll need a Nylas sign-in and, for automated hosting, a Cloudflare account. A free nylas.email address needs no DNS changes; using your own email domain does.',
 			'',
-			'Your inbox password is shown once, so save it when prompted. Setup progress is saved locally and is safe to resume.',
+			'Your inbox password is shown once, so save it when prompted. Pending setup secrets use your OS keyring when available and are cleared after verification.',
 		].join('\n'),
 		'Before you start',
 	)

@@ -2,6 +2,7 @@ import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
 import { runWrangler } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
+import { clearPendingSecrets, pendingSecretLabels } from '../state/pending-secrets.js'
 import { clearAuth, newProject, saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
@@ -41,6 +42,37 @@ export async function runGrants(opts: { name?: string }): Promise<void> {
 		p.log.info(`${agents.length}/5 sandbox inboxes used.`)
 	}
 	p.outro('Done.')
+}
+
+/** Scrub one-time plaintexts retained only to resume an unfinished setup. */
+export async function runCleanupSecrets(opts: { name?: string }): Promise<void> {
+	p.intro('ownmail cleanup-secrets')
+	const project = await pickExistingProject(opts.name)
+	const labels = pendingSecretLabels(project)
+	if (labels.length === 0) {
+		p.log.info('No pending setup secrets are stored for this project.')
+		p.outro('Nothing to clean up.')
+		return
+	}
+
+	p.log.warn(
+		[
+			`This only clears pending setup secrets for "${project.slug}":`,
+			...labels.map((label) => `  - ${label}`),
+			'',
+			'It does NOT delete your Nylas app, API keys, inbox, domain, mail, Cloudflare worker, or sessions.',
+			'After cleanup, unfinished setup may need to mint a fresh API key or reset the inbox password.',
+		].join('\n'),
+	)
+	const typed = await p.text({ message: `Type the project name ("${project.slug}") to confirm` })
+	if (p.isCancel(typed) || typed !== project.slug) {
+		p.cancel('Cleanup cancelled — pending setup secrets were kept.')
+		return
+	}
+
+	clearPendingSecrets(project)
+	saveProject(project)
+	p.outro('Pending setup secrets cleared from local state/keyring. Remote resources and mail were untouched.')
 }
 
 /** Tear down the Cloudflare side of a project (Nylas resources are kept). */

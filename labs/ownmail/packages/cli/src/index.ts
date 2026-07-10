@@ -6,7 +6,7 @@ import { runCreate } from './commands/create.js'
 import { runDoctor } from './commands/doctor.js'
 import { runEject } from './commands/eject.js'
 import { runInboxAdd, runInboxResetPassword } from './commands/inbox.js'
-import { runDestroy, runGrants, runLogin } from './commands/misc.js'
+import { runCleanupSecrets, runDestroy, runGrants, runLogin } from './commands/misc.js'
 import { runRotateKey } from './commands/rotate.js'
 import { runTopLevel } from './commands/shared.js'
 import { runStatus } from './commands/status.js'
@@ -73,6 +73,15 @@ const main = defineCommand({
 			meta: { name: 'destroy', description: 'Delete the deployed app (keeps your inbox and mail)' },
 			args: { name: nameArg },
 			run: ({ args }) => runTopLevel(() => runDestroy(args.name ? { name: args.name } : {})),
+		}),
+		'cleanup-secrets': defineCommand({
+			meta: {
+				name: 'cleanup-secrets',
+				description: 'Clear local pending setup secrets without deleting remote mail data',
+			},
+			args: { name: nameArg },
+			run: ({ args }) =>
+				runTopLevel(() => runCleanupSecrets(typeof args.name === 'string' ? { name: args.name } : {})),
 		}),
 		status: defineCommand({
 			meta: { name: 'status', description: 'Show your projects and their state' },
