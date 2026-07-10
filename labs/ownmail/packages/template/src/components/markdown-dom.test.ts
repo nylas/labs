@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { linePointOf, readLineRange, writeLineRange } from './markdown-dom.js'
+import { rawLineHtml } from './markdown-model.js'
 
 function mount(html: string): HTMLElement {
 	const root = document.createElement('div')
@@ -113,6 +114,16 @@ describe('writeLineRange', () => {
 		const selection = document.getSelection() as Selection
 		expect(selection.anchorNode?.textContent).toBe('a')
 		expect(selection.anchorOffset).toBe(1)
+	})
+
+	it('raw line HTML concatenates to exactly the source text, so caret math stays identity', () => {
+		// resolvePoint places carets by walking text nodes; that is only sound if
+		// the raw line's visible text equals the source line character for character.
+		for (const line of ['**a** and `c`', '## H *i*', '- [x](https://x.dev) \\* done']) {
+			const probe = document.createElement('div')
+			probe.innerHTML = rawLineHtml(line)
+			expect(probe.textContent).toBe(line)
+		}
 	})
 
 	it('writes a range spanning two raw lines that reads back identically', () => {

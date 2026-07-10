@@ -172,11 +172,8 @@ describe('rawLineHtml', () => {
 		expect(rawLineHtml('')).toBe('<p class="md-raw"><br></p>')
 	})
 
-	it('concatenates to exactly the source text, so caret math stays identity', () => {
-		for (const line of ['**a** and `c`', '## H *i*', '- [x](https://x.dev) \\* done']) {
-			expect(rawLineHtml(line).replace(/<[^>]+>/g, '')).toBe(line)
-		}
-	})
+	// The "raw line text equals source text" identity property is asserted with
+	// real DOM textContent in markdown-dom.test.ts, where caret math relies on it.
 })
 
 describe('renderedToSource', () => {
