@@ -14,11 +14,14 @@ to try early ideas, inspect the code, and adapt the examples for their own use.
 
 ## Try OwnMail
 
-From this repository:
+Until the CLI is published to npm, run it from a clean source checkout:
 
 ```bash
+git clone https://github.com/nylas/labs.git
+cd labs
+corepack enable
 pnpm install
-pnpm --filter ownmail build
+pnpm --filter ownmail... build
 node labs/ownmail/packages/cli/dist/index.js
 ```
 

@@ -8,13 +8,19 @@
 
 ## Create your inbox + app
 
-From this repository:
+Until the CLI is published to npm, run it from a clean source checkout:
 
 ```bash
+git clone https://github.com/nylas/labs.git
+cd labs
+corepack enable
 pnpm install
-pnpm --filter ownmail build
+pnpm --filter ownmail... build
 node labs/ownmail/packages/cli/dist/index.js
 ```
+
+The trailing `...` builds OwnMail and its workspace dependencies. From an
+existing checkout, the last three commands are sufficient.
 
 If the CLI is installed from npm, run:
 
