@@ -533,37 +533,74 @@
 	outline: none;
 }
 
-/* The compose WYSIWYG surface. Tailwind's reset strips list and quote styling,
-   so the editor restores just enough to render its own block types legibly. */
-.rich-text-editor > :first-child {
+/* The compose live-markdown surface. Tailwind's reset strips list, heading
+   and quote styling, so the editor restores just enough to render its own
+   block types legibly. Raw (active) lines show markdown source verbatim. */
+.markdown-editor > :first-child {
 	margin-top: 0;
 }
-.rich-text-editor p {
+.markdown-editor p {
 	margin: 0 0 0.5rem;
 }
-.rich-text-editor ul,
-.rich-text-editor ol {
+.markdown-editor .md-raw {
+	white-space: pre-wrap;
+}
+/* Markdown syntax on the active line: visible but visually receding, so the
+   content formatting (bold, heading size, links) stays the star. */
+.markdown-editor .md-syn {
+	color: var(--color-muted-foreground);
+	opacity: 0.75;
+}
+.markdown-editor .md-link {
+	color: var(--color-primary);
+	text-decoration: underline;
+}
+.markdown-editor h1,
+.markdown-editor h2,
+.markdown-editor h3 {
+	margin: 0.5rem 0;
+	font-weight: 600;
+	line-height: 1.3;
+}
+.markdown-editor h1 {
+	font-size: 1.375rem;
+}
+.markdown-editor h2 {
+	font-size: 1.125rem;
+}
+.markdown-editor h3 {
+	font-size: 1rem;
+}
+.markdown-editor ul,
+.markdown-editor ol {
 	margin: 0 0 0.5rem;
 	padding-left: 1.5rem;
 }
-.rich-text-editor ul {
+.markdown-editor ul {
 	list-style: disc;
 }
-.rich-text-editor ol {
+.markdown-editor ol {
 	list-style: decimal;
 }
-.rich-text-editor li {
+.markdown-editor li {
 	margin: 0.125rem 0;
 }
-.rich-text-editor blockquote {
+.markdown-editor blockquote {
 	margin: 0 0 0.5rem;
 	border-left: 3px solid var(--color-border);
 	padding-left: 0.75rem;
 	color: var(--color-muted-foreground);
 }
-.rich-text-editor a {
+.markdown-editor a {
 	color: var(--color-primary);
 	text-decoration: underline;
+}
+.markdown-editor code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.8125rem;
+	background: var(--color-muted);
+	border-radius: 0.25rem;
+	padding: 0.0625rem 0.25rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

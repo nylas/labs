@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { markdownToEmailHtml } from '../components/markdown-model.js'
 
 // TanStack router/start are stubbed so the route module can be imported and its
 // loader/component exercised directly without a live router. `navigate` and
@@ -55,11 +56,11 @@ vi.mock('../components/RecipientInput.js', () => ({
 		/>
 	),
 }))
-// The rich-text editor is a unit of its own (see -RichTextEditor.render.test.tsx);
+// The markdown editor is a unit of its own (see MarkdownEditor.render.test.tsx);
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
-// minimize — are asserted on the body string the editor reports upward.
-vi.mock('../components/RichTextEditor.js', () => ({
-	RichTextEditor: ({ value, onChange, placeholder }: any) => (
+// minimize — are asserted on the markdown source the editor reports upward.
+vi.mock('../components/MarkdownEditor.js', () => ({
+	MarkdownEditor: ({ value, onChange, placeholder }: any) => (
 		<textarea
 			placeholder={placeholder ?? 'Write your message...'}
 			value={value}
@@ -752,17 +753,18 @@ describe('mail.compose attachments', () => {
 })
 
 describe('mail.compose send', () => {
-	it('sends the editor body verbatim (already HTML) and navigates to Sent on success', async () => {
-		// The composer now trusts the editor's canonical output and sends it as-is;
-		// the newline→<br> shim that plain text used to need is gone.
-		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: '<p>line one</p>' } } })
+	it('sends the markdown body as email-ready HTML and navigates to Sent on success', async () => {
+		// The composer state holds markdown source; only the outgoing message is
+		// serialised to inline-styled HTML that mail clients render consistently.
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'line **one**' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 
 		await waitFor(() =>
 			expect(sendMessage).toHaveBeenCalledWith({
-				data: { to: 'a@b.com', subject: 'Hi', body: '<p>line one</p>' },
+				data: { to: 'a@b.com', subject: 'Hi', body: markdownToEmailHtml('line **one**') },
 			}),
 		)
+		expect(sendMessage.mock.calls[0][0].data.body).toContain('<strong>one</strong>')
 		expect(navigate).toHaveBeenCalledWith({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 	})
 

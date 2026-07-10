@@ -2,8 +2,9 @@ import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import { Archive, Forward, Minus, Paperclip, Reply, ReplyAll, Send, Star, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MarkdownEditor } from '../components/MarkdownEditor.js'
+import { markdownToEmailHtml } from '../components/markdown-model.js'
 import { RecipientInput } from '../components/RecipientInput.js'
-import { RichTextEditor } from '../components/RichTextEditor.js'
 import { formatSize, ThreadConversation } from '../components/ThreadConversation.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import { Button } from '../components/ui/button.js'
@@ -307,7 +308,8 @@ function Compose() {
 				data: {
 					to,
 					subject,
-					body,
+					// The editor holds markdown; outgoing mail carries inline-styled HTML.
+					body: markdownToEmailHtml(body),
 					...(attachments.length ? { attachments } : {}),
 					...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
 				},
@@ -472,7 +474,7 @@ function Compose() {
 							</label>
 						</div>
 
-						<RichTextEditor id="compose-body" value={body} onChange={setBody} className="min-h-0 flex-1" />
+						<MarkdownEditor id="compose-body" value={body} onChange={setBody} className="min-h-0 flex-1" />
 
 						{attachments.length ? (
 							<div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
