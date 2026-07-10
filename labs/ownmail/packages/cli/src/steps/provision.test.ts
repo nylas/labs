@@ -744,6 +744,63 @@ describe('stepDomain', () => {
 		expect(validate(undefined)).toBeTruthy()
 	})
 
+	it('re-prompts when a planned branded subdomain is claimed before creation', async () => {
+		const conflict = Object.assign(new Error('domain taken'), { status: 409 })
+		const domainAvailability = vi.fn().mockResolvedValue({ available: true })
+		const createInboxDomain = vi
+			.fn()
+			.mockRejectedValueOnce(conflict)
+			.mockResolvedValueOnce({ id: 'dom-new', domainAddress: 'acme2.nylas.email' })
+		const ctx = baseCtx({
+			project: baseProject({
+				plannedDomainAddress: 'acme.nylas.email',
+				plannedDomainBranded: true,
+				completedSteps: ['domain-plan', 'plan-confirmed', 'app', 'api-key', 'connector'],
+			}),
+			dashboard: { domainAvailability, createInboxDomain } as never,
+		})
+		vi.mocked(p.text).mockResolvedValueOnce('acme2' as never)
+
+		await stepDomain(ctx)
+
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('acme.nylas.email was claimed'))
+		expect(domainAvailability).toHaveBeenCalledWith(expect.anything(), 'acme2.nylas.email')
+		expect(createInboxDomain).toHaveBeenNthCalledWith(
+			1,
+			expect.anything(),
+			expect.objectContaining({ domainAddress: 'acme.nylas.email' }),
+		)
+		expect(createInboxDomain).toHaveBeenNthCalledWith(
+			2,
+			expect.anything(),
+			expect.objectContaining({ domainAddress: 'acme2.nylas.email' }),
+		)
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain-plan')
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain')
+		expect(ctx.project.domainAddress).toBe('acme2.nylas.email')
+		expect(ctx.project.plannedDomainAddress).toBeUndefined()
+		expect(ctx.project.plannedDomainBranded).toBeUndefined()
+	})
+
+	it('keeps the planned branded subdomain when creation fails for a non-conflict error', async () => {
+		const createInboxDomain = vi.fn().mockRejectedValue(new Error('gateway down'))
+		const ctx = baseCtx({
+			project: baseProject({
+				plannedDomainAddress: 'acme.nylas.email',
+				plannedDomainBranded: true,
+				completedSteps: ['domain-plan'],
+			}),
+			dashboard: { createInboxDomain } as never,
+		})
+
+		await expect(stepDomain(ctx)).rejects.toThrow('gateway down')
+
+		expect(p.text).not.toHaveBeenCalled()
+		expect(ctx.project.plannedDomainAddress).toBe('acme.nylas.email')
+		expect(ctx.project.plannedDomainBranded).toBe(true)
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'domain')
+	})
+
 	it('throws CancelledError when the free-subdomain prompt is cancelled', async () => {
 		const listInboxDomains = vi.fn().mockResolvedValue([])
 		const ctx = baseCtx({ dashboard: { listInboxDomains } as never })

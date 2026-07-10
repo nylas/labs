@@ -365,12 +365,24 @@ export async function stepDomain(ctx: StepContext): Promise<void> {
 		markStep(ctx.project, 'domain')
 		return
 	}
-	const address = ctx.project.plannedDomainAddress
-	if (!address) throw new Error('Email domain plan is missing — re-run ownmail to choose a domain.')
-	if (ctx.project.plannedDomainBranded) {
-		await createBrandedDomain(ctx, address, ctx.project.region)
-	} else {
-		await createCustomDomain(ctx, address, ctx.project.region)
+	for (;;) {
+		const address = ctx.project.plannedDomainAddress
+		if (!address) throw new Error('Email domain plan is missing — re-run ownmail to choose a domain.')
+		if (ctx.project.plannedDomainBranded) {
+			try {
+				await createBrandedDomain(ctx, address, ctx.project.region)
+			} catch (err) {
+				if (!isDomainCreateConflict(err)) throw err
+				clearPlannedDomain(ctx)
+				p.log.warn(`${address} was claimed before setup could create it — pick another subdomain.`)
+				await planBrandedDomain(ctx)
+				markStep(ctx.project, 'domain-plan')
+				continue
+			}
+		} else {
+			await createCustomDomain(ctx, address, ctx.project.region)
+		}
+		break
 	}
 	delete ctx.project.plannedDomainAddress
 	delete ctx.project.plannedDomainBranded
@@ -386,11 +398,17 @@ async function createBrandedDomain(
 	const dashboard = requireDashboard(ctx)
 	const spinner = p.spinner()
 	spinner.start(`Claiming ${domainAddress}…`)
-	const created = await dashboard.createInboxDomain(tokens(ctx), {
-		name: domainAddress.slice(0, -'.nylas.email'.length),
-		domainAddress,
-		region,
-	})
+	let created: Awaited<ReturnType<typeof dashboard.createInboxDomain>>
+	try {
+		created = await dashboard.createInboxDomain(tokens(ctx), {
+			name: domainAddress.slice(0, -'.nylas.email'.length),
+			domainAddress,
+			region,
+		})
+	} catch (err) {
+		spinner.stop(`Could not claim ${domainAddress}.`)
+		throw err
+	}
 	spinner.stop(`${domainAddress} is yours — mail routing is live.`)
 	adoptDomain(ctx, created.id, created.domainAddress, true, true)
 }
@@ -454,6 +472,17 @@ async function verifyCustomDomain(ctx: StepContext, domainId: string, domain: st
 
 function hasDurableResources(project: ProjectState): boolean {
 	return Boolean(project.applicationId || project.domainId || project.grantId)
+}
+
+function clearPlannedDomain(ctx: StepContext): void {
+	delete ctx.project.plannedDomainAddress
+	delete ctx.project.plannedDomainBranded
+	ctx.project.completedSteps = ctx.project.completedSteps.filter((step) => step !== 'domain-plan')
+	saveProject(ctx.project)
+}
+
+function isDomainCreateConflict(err: unknown): boolean {
+	return (err as { status?: unknown } | null)?.status === 409
 }
 
 function adoptDomain(
