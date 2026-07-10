@@ -240,6 +240,13 @@ describe('ensureCloudflareAuth', () => {
 		vi.mocked(p.select).mockResolvedValueOnce('oauth')
 		vi.mocked(p.confirm).mockResolvedValueOnce(true)
 		await ensureCloudflareAuth()
+		const options = vi.mocked(p.select).mock.calls[0][0].options
+		expect(options[0]).toMatchObject({
+			value: 'oauth',
+			label: expect.stringContaining('recommended'),
+		})
+		expect(options[1]).toMatchObject({ value: 'token', label: expect.stringContaining('advanced') })
+		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('Recommended: Wrangler OAuth'))
 		expect(wranglerLogin).toHaveBeenCalledWith({ openBrowser: true })
 		expect(p.log.step).toHaveBeenCalledWith(expect.stringContaining('open a login URL'))
 	})
@@ -265,7 +272,7 @@ describe('ensureCloudflareAuth', () => {
 	it('throws when authentication still fails afterwards', async () => {
 		vi.mocked(wranglerLoggedIn).mockResolvedValueOnce(false).mockResolvedValueOnce(false)
 		vi.mocked(cloudflareApiTokenConfigured).mockReturnValue(true)
-		await expect(ensureCloudflareAuth()).rejects.toThrow(/authentication failed/)
+		await expect(ensureCloudflareAuth()).rejects.toThrow(/reconnect.*token permissions/)
 	})
 })
 
