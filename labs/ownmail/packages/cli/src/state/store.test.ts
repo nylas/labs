@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthState, ProjectState } from './schema.js'
 
@@ -13,6 +13,7 @@ vi.mock('env-paths', () => ({
 }))
 
 vi.mock('node:fs', () => ({
+	existsSync: vi.fn(),
 	readFileSync: vi.fn(),
 	writeFileSync: vi.fn(),
 	mkdirSync: vi.fn(),
@@ -24,6 +25,7 @@ import {
 	clearAuth,
 	configDir,
 	hasStep,
+	listProjectStateIssues,
 	listProjects,
 	loadAuth,
 	loadProject,
@@ -38,6 +40,7 @@ const mockWrite = vi.mocked(writeFileSync)
 const mockMkdir = vi.mocked(mkdirSync)
 const mockReaddir = vi.mocked(readdirSync)
 const mockUnlink = vi.mocked(unlinkSync)
+const mockExists = vi.mocked(existsSync)
 
 const validAuth: AuthState = {
 	userToken: 'tok',
@@ -59,6 +62,7 @@ function validProject(slug = 'inbox'): ProjectState {
 
 beforeEach(() => {
 	vi.clearAllMocks()
+	mockExists.mockReturnValue(true)
 })
 
 afterEach(() => {
@@ -135,6 +139,37 @@ describe('listProjects', () => {
 		const projects = listProjects()
 		expect(projects).toHaveLength(1)
 		expect(projects[0]?.slug).toBe('a')
+	})
+})
+
+describe('listProjectStateIssues', () => {
+	it('returns [] when the projects directory does not exist', () => {
+		mockReaddir.mockImplementation(() => {
+			throw new Error('ENOENT')
+		})
+		expect(listProjectStateIssues()).toEqual([])
+	})
+
+	it('reports invalid JSON and invalid schema files', () => {
+		mockReaddir.mockReturnValue(['bad-json.json', 'bad-schema.json', 'valid.json'] as never)
+		mockRead.mockImplementation((path) => {
+			if (String(path).endsWith('bad-json.json')) return '{'
+			if (String(path).endsWith('bad-schema.json')) return JSON.stringify({ slug: 42 })
+			return JSON.stringify(validProject('valid'))
+		})
+		expect(listProjectStateIssues()).toEqual([
+			{ file: 'bad-json.json', reason: 'invalid-json' },
+			{ file: 'bad-schema.json', reason: 'invalid-schema' },
+		])
+	})
+
+	it('checks a named project and ignores it when the file is absent', () => {
+		mockExists.mockReturnValueOnce(false)
+		expect(listProjectStateIssues('missing')).toEqual([])
+
+		mockExists.mockReturnValueOnce(true)
+		mockRead.mockReturnValueOnce(JSON.stringify({ slug: 42 }))
+		expect(listProjectStateIssues('broken')).toEqual([{ file: 'broken.json', reason: 'invalid-schema' }])
 	})
 })
 

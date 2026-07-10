@@ -39,8 +39,13 @@ vi.mock('./shared.js', () => ({
 	pickExistingProject: vi.fn(),
 }))
 
+vi.mock('../state/store.js', () => ({
+	listProjectStateIssues: vi.fn(() => []),
+}))
+
 import * as p from '@clack/prompts'
 import { wranglerLoggedIn } from '../deploy/wrangler.js'
+import { listProjectStateIssues } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
 
@@ -60,6 +65,7 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 const currentSession = vi.fn()
 const getInboxDomain = vi.fn()
 const createApiKey = vi.fn()
+const revokeApiKey = vi.fn()
 
 /** Collects the icon+message lines emitted for the report. */
 function messages(): string[] {
@@ -73,8 +79,10 @@ beforeEach(() => {
 	savedExitCode = process.exitCode
 	process.exitCode = undefined
 	vi.mocked(requireDashboard).mockReturnValue({ currentSession, getInboxDomain } as never)
-	vi.mocked(requireGateway).mockReturnValue({ createApiKey } as never)
-	createApiKey.mockResolvedValue({ apiKey: 'nyk_probe' })
+	vi.mocked(requireGateway).mockReturnValue({ createApiKey, revokeApiKey } as never)
+	vi.mocked(listProjectStateIssues).mockReturnValue([])
+	createApiKey.mockResolvedValue({ id: 'probe-key', apiKey: 'nyk_probe' })
+	revokeApiKey.mockResolvedValue(undefined)
 	vi.mocked(wranglerLoggedIn).mockResolvedValue(true)
 	hoisted.v3.listGrants.mockResolvedValue({ data: [] })
 	hoisted.v3.listRedirectUris.mockResolvedValue({ data: [] })
@@ -86,7 +94,7 @@ afterEach(() => {
 })
 
 describe('runDoctor — healthy project', () => {
-	it('passes every check and auto-fixes missing redirect URIs', async () => {
+	it('repairs missing redirect URIs with --fix and revokes the temporary API key', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({
 				applicationId: 'app_1',
@@ -111,24 +119,58 @@ describe('runDoctor — healthy project', () => {
 			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
 		)
 
-		await runDoctor({})
+		await runDoctor({ fix: true })
 
 		expect(createApiKey).toHaveBeenCalled()
 		expect(hoisted.v3.ensureRedirectUris).toHaveBeenCalledWith([
-			'https://acme.workers.dev/auth/callback',
 			'http://localhost:3000/auth/callback',
+			'https://acme.workers.dev/auth/callback',
 			'https://mail.acme.com/auth/callback',
 		])
+		expect(fetch).toHaveBeenCalledWith('https://mail.acme.com/healthz')
+		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app_1', 'probe-key')
 		const msgs = messages()
 		expect(msgs.some((m) => m.startsWith('✅') && m.includes('valid'))).toBe(true)
-		expect(msgs.some((m) => m.startsWith('🔧') && m.includes('re-registered'))).toBe(true)
+		expect(msgs.some((m) => m.startsWith('🔧') && m.includes('registered missing callbacks'))).toBe(true)
+		expect(msgs.some((m) => m.includes('Temporary API key') && m.includes('revoked'))).toBe(true)
 		expect(msgs.some((m) => m.includes('live (template 1.2.0)'))).toBe(true)
 		expect(p.outro).toHaveBeenCalledWith('All checks passed.')
 		expect(process.exitCode).toBeUndefined()
 	})
+
+	it('does not create temporary credentials or repair redirects by default', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				applicationId: 'app_1',
+				grantId: 'grant_1',
+				inboxEmail: 'contact@acme.com',
+				workersDevUrl: 'https://acme.workers.dev',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
+		)
+
+		await runDoctor({})
+
+		expect(createApiKey).not.toHaveBeenCalled()
+		expect(revokeApiKey).not.toHaveBeenCalled()
+		expect(hoisted.v3.ensureRedirectUris).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('read-only mode cannot create'))).toBe(true)
+		expect(p.outro).toHaveBeenCalledWith('All completed checks passed. 3 check(s) skipped.')
+	})
 })
 
 describe('runDoctor — failures and skips', () => {
+	it('rethrows project selection errors when local state is not malformed', async () => {
+		vi.mocked(pickExistingProject).mockRejectedValue(new Error('No projects yet'))
+
+		await expect(runDoctor({})).rejects.toThrow('No projects yet')
+	})
+
 	it('reports an expired session and unreachable worker; skips gated checks', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({
@@ -234,7 +276,7 @@ describe('runDoctor — failures and skips', () => {
 		expect(detail).not.toContain('dkim')
 	})
 
-	it('mints a probe client that fails, and reports the domain fetch error', async () => {
+	it('reports temporary API key creation failure and the domain fetch error under --fix', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({ applicationId: 'app_1', domainId: 'dom_1', workersDevUrl: 'https://acme.workers.dev' }),
 		)
@@ -247,11 +289,11 @@ describe('runDoctor — failures and skips', () => {
 			vi.fn(async () => ({ ok: true, json: async () => ({}) })),
 		)
 
-		await runDoctor({})
+		await runDoctor({ fix: true })
 
 		const msgs = messages()
+		expect(msgs.some((m) => m.includes('could not create a temporary API key'))).toBe(true)
 		expect(msgs.some((m) => m.includes('could not fetch domain state'))).toBe(true)
-		// No probe client → grant + redirect checks skipped.
 		expect(hoisted.v3.listGrants).not.toHaveBeenCalled()
 		expect(msgs.some((m) => m.includes('live (template ?)'))).toBe(true)
 	})
@@ -306,6 +348,99 @@ describe('runDoctor — failures and skips', () => {
 		const msgs = messages()
 		expect(msgs.some((m) => m.includes('API error: grants down'))).toBe(true)
 		expect(msgs.some((m) => m.includes('uris down'))).toBe(true)
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('reports malformed local state before project selection succeeds', async () => {
+		vi.mocked(listProjectStateIssues).mockReturnValue([{ file: 'broken.json', reason: 'invalid-json' }])
+		vi.mocked(pickExistingProject).mockRejectedValue(new Error('No projects yet'))
+
+		await runDoctor({})
+
+		expect(messages()[0]).toContain('malformed local state file(s): broken.json')
+		expect(p.outro).toHaveBeenCalledWith('1 check(s) need attention.')
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('reports malformed local state alongside checks when project selection succeeds', async () => {
+		vi.mocked(listProjectStateIssues).mockReturnValue([{ file: 'broken.json', reason: 'invalid-schema' }])
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject())
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({})
+
+		expect(messages().some((m) => m.includes('malformed local state file(s): broken.json'))).toBe(true)
+		expect(messages().some((m) => m.includes('Nylas session') && m.includes('valid'))).toBe(true)
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('reports missing redirect callbacks without repairing them in read-only mode', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ applicationId: 'app_1', workersDevUrl: 'https://acme.workers.dev' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		hoisted.v3.listRedirectUris.mockResolvedValue({ data: [] })
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+		)
+
+		await runDoctor({})
+
+		expect(hoisted.v3.ensureRedirectUris).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('missing callbacks') && m.includes('doctor --fix'))).toBe(true)
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('checks manual app health without requiring Cloudflare login', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'manual', manualAppUrl: 'https://manual.acme.com' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '9' }) })),
+		)
+
+		await runDoctor({})
+
+		expect(wranglerLoggedIn).not.toHaveBeenCalled()
+		expect(fetch).toHaveBeenCalledWith('https://manual.acme.com/healthz')
+		expect(process.exitCode).toBeUndefined()
+	})
+
+	it('reports a missing app URL when deploy is marked complete', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ completedSteps: ['deploy'] }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({})
+
+		expect(messages().some((m) => m.includes('App URL') && m.includes('missing from local state'))).toBe(true)
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('reports failure when a temporary API key cannot be revoked', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ applicationId: 'app_1', workersDevUrl: 'https://acme.workers.dev' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		revokeApiKey.mockRejectedValue(new Error('revoke down'))
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+		)
+
+		await runDoctor({ fix: true })
+
+		expect(messages().some((m) => m.includes('could not revoke temporary key'))).toBe(true)
+		expect(messages().some((m) => m.includes('probe-key'))).toBe(false)
 		expect(process.exitCode).toBe(1)
 	})
 })
