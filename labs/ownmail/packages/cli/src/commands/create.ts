@@ -19,6 +19,7 @@ import {
 	stepConnector,
 	stepDashboardAuth,
 	stepDomain,
+	stepDomainPlan,
 	stepGrant,
 	stepOrg,
 } from '../steps/provision.js'
@@ -44,6 +45,15 @@ const SETUP_PHASES: SetupPhase[] = [
 		],
 	},
 	{
+		name: 'Review your setup plan',
+		steps: [
+			{ id: 'hosting', run: stepHostingProvider },
+			{ id: 'cf-auth', run: stepCfAuth },
+			{ id: 'domain-plan', run: stepDomainPlan },
+			{ id: 'plan-confirmed', run: stepConfirmPlan },
+		],
+	},
+	{
 		name: 'Create your email address and inbox',
 		steps: [
 			{ id: 'app', run: stepApp },
@@ -51,13 +61,6 @@ const SETUP_PHASES: SetupPhase[] = [
 			{ id: 'connector', run: stepConnector },
 			{ id: 'domain', run: stepDomain },
 			{ id: 'grant', run: stepGrant },
-		],
-	},
-	{
-		name: 'Connect your hosting account',
-		steps: [
-			{ id: 'hosting', run: stepHostingProvider },
-			{ id: 'cf-auth', run: stepCfAuth },
 		],
 	},
 	{
@@ -113,6 +116,40 @@ export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): 
 		}
 	}
 	p.outro('Enjoy your inbox — powered by Nylas.')
+}
+
+async function stepConfirmPlan(ctx: StepContext): Promise<void> {
+	if (ctx.project.completedSteps.includes('plan-confirmed')) return
+	if (ctx.project.applicationId || ctx.project.grantId) {
+		markPlanConfirmed(ctx.project)
+		return
+	}
+	const hosting = ctx.project.hostingProvider === 'manual' ? 'Manual upload' : 'Cloudflare Workers'
+	const emailDomain = ctx.project.domainAddress ?? ctx.project.plannedDomainAddress
+	if (!emailDomain || !ctx.project.hostingProvider) {
+		throw new Error(
+			'Setup plan is incomplete — re-run ownmail to choose an email domain and hosting provider.',
+		)
+	}
+	p.note(
+		[
+			`Project:      ${ctx.project.slug}`,
+			`Region:       ${ctx.project.region.toUpperCase()}`,
+			`Email domain: ${emailDomain}`,
+			`Hosting:      ${hosting}`,
+			'',
+			'Continuing creates the Nylas app, API key, email domain, and inbox shown above.',
+		].join('\n'),
+		'Ready to create',
+	)
+	const confirmed = await p.confirm({ message: 'Create these OwnMail resources?', initialValue: true })
+	if (p.isCancel(confirmed) || !confirmed) throw new CancelledError()
+	markPlanConfirmed(ctx.project)
+}
+
+function markPlanConfirmed(project: ProjectState): void {
+	project.completedSteps.push('plan-confirmed')
+	saveProject(project)
 }
 
 function showResumePoint(project: ProjectState): void {
