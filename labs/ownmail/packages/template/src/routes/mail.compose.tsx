@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { Archive, Forward, Minus, Paperclip, Reply, ReplyAll, Send, Star, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '../components/RecipientInput.js'
+import { RichTextEditor } from '../components/RichTextEditor.js'
 import { formatSize, ThreadConversation } from '../components/ThreadConversation.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import { Button } from '../components/ui/button.js'
@@ -306,7 +307,7 @@ function Compose() {
 				data: {
 					to,
 					subject,
-					body: body.replaceAll('\n', '<br>'),
+					body,
 					...(attachments.length ? { attachments } : {}),
 					...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
 				},
@@ -471,12 +472,7 @@ function Compose() {
 							</label>
 						</div>
 
-						<textarea
-							value={body}
-							onChange={(event) => setBody(event.target.value)}
-							placeholder="Write your message..."
-							className="compose-field min-h-0 flex-1 resize-none bg-transparent px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
-						/>
+						<RichTextEditor id="compose-body" value={body} onChange={setBody} className="min-h-0 flex-1" />
 
 						{attachments.length ? (
 							<div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">

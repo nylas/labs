@@ -533,6 +533,39 @@
 	outline: none;
 }
 
+/* The compose WYSIWYG surface. Tailwind's reset strips list and quote styling,
+   so the editor restores just enough to render its own block types legibly. */
+.rich-text-editor > :first-child {
+	margin-top: 0;
+}
+.rich-text-editor p {
+	margin: 0 0 0.5rem;
+}
+.rich-text-editor ul,
+.rich-text-editor ol {
+	margin: 0 0 0.5rem;
+	padding-left: 1.5rem;
+}
+.rich-text-editor ul {
+	list-style: disc;
+}
+.rich-text-editor ol {
+	list-style: decimal;
+}
+.rich-text-editor li {
+	margin: 0.125rem 0;
+}
+.rich-text-editor blockquote {
+	margin: 0 0 0.5rem;
+	border-left: 3px solid var(--color-border);
+	padding-left: 0.75rem;
+	color: var(--color-muted-foreground);
+}
+.rich-text-editor a {
+	color: var(--color-primary);
+	text-decoration: underline;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
