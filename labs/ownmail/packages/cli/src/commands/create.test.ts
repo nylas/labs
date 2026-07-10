@@ -12,6 +12,7 @@ vi.mock('@clack/prompts', () => ({
 	log: { error: vi.fn(), info: vi.fn(), step: vi.fn() },
 	select: vi.fn(),
 	text: vi.fn(),
+	confirm: vi.fn(async () => true),
 	isCancel: vi.fn((v: unknown) => v === CANCEL),
 }))
 
@@ -28,11 +29,13 @@ vi.mock('../state/store.js', () => ({
 }))
 
 vi.mock('../steps/context.js', () => ({
-	createContext: vi.fn(async () => ({}) as never),
+	createContext: vi.fn(async (project: ProjectState) => ({ project }) as never),
 }))
 
 vi.mock('../steps/deploy.js', () => ({
-	stepHostingProvider: vi.fn(),
+	stepHostingProvider: vi.fn(async (ctx: { project: ProjectState }) => {
+		ctx.project.hostingProvider ??= 'cloudflare'
+	}),
 	stepCfAuth: vi.fn(),
 	stepCfResources: vi.fn(),
 	stepDeploy: vi.fn(),
@@ -56,6 +59,10 @@ vi.mock('../steps/provision.js', () => {
 		stepApiKey: vi.fn(),
 		stepConnector: vi.fn(),
 		stepDomain: vi.fn(),
+		stepDomainPlan: vi.fn(async (ctx: { project: ProjectState }) => {
+			ctx.project.plannedDomainAddress ??= 'acme.nylas.email'
+			ctx.project.plannedDomainBranded ??= true
+		}),
 		stepGrant: vi.fn(),
 	}
 })
@@ -63,7 +70,7 @@ vi.mock('../steps/provision.js', () => {
 import * as p from '@clack/prompts'
 import { ownmailNylasEnvironment } from '../nylas-env.js'
 import { listProjects, loadProject, newProject, saveProject } from '../state/store.js'
-import { CancelledError, stepDashboardAuth, stepGrant } from '../steps/provision.js'
+import { CancelledError, stepApp, stepDashboardAuth, stepDomainPlan, stepGrant } from '../steps/provision.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 	return {
@@ -212,7 +219,7 @@ describe('runCreate — normalizeProjectRegion', () => {
 
 		await runCreate({ name: 'acme', region: 'us' })
 
-		expect(saveProject).not.toHaveBeenCalled()
+		expect(proj.region).toBe('us')
 		expect(p.log.info).not.toHaveBeenCalledWith(expect.stringContaining('Using US'))
 	})
 
@@ -253,7 +260,6 @@ describe('runCreate — normalizeProjectRegion', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(proj.region).toBe('eu')
-		expect(saveProject).not.toHaveBeenCalled()
 	})
 
 	it('does not repair region outside staging (production, EU)', async () => {
@@ -264,7 +270,6 @@ describe('runCreate — normalizeProjectRegion', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(proj.region).toBe('eu')
-		expect(saveProject).not.toHaveBeenCalled()
 	})
 
 	it('does not repair a non-EU staging project', async () => {
@@ -275,7 +280,6 @@ describe('runCreate — normalizeProjectRegion', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(proj.region).toBe('us')
-		expect(saveProject).not.toHaveBeenCalled()
 	})
 
 	it('does not repair a staging EU project that already has resources', async () => {
@@ -286,7 +290,6 @@ describe('runCreate — normalizeProjectRegion', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(proj.region).toBe('eu')
-		expect(saveProject).not.toHaveBeenCalled()
 	})
 })
 
@@ -316,14 +319,119 @@ describe('runCreate — step machine', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(p.log.info).toHaveBeenCalledWith(
-			expect.stringContaining('Resuming “acme” at [3/5] Connect your hosting account'),
+			expect.stringContaining('Resuming “acme” at [2/5] Review your setup plan'),
 		)
+	})
+
+	it('does not create durable resources when the setup plan is declined', async () => {
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({
+				slug: 'acme',
+				hostingProvider: 'cloudflare',
+				plannedDomainAddress: 'acme.nylas.email',
+				plannedDomainBranded: true,
+			}),
+		)
+		vi.mocked(p.confirm).mockResolvedValueOnce(false)
+
+		await runCreate({ name: 'acme' })
+
+		expect(stepApp).not.toHaveBeenCalled()
+		expect(p.cancel).toHaveBeenCalledWith(expect.stringContaining('Paused'))
+	})
+
+	it('treats cancelling the confirmation as a clean pause', async () => {
+		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))
+		vi.mocked(p.confirm).mockResolvedValueOnce(CANCEL as never)
+
+		await runCreate({ name: 'acme' })
+
+		expect(stepApp).not.toHaveBeenCalled()
+		expect(p.cancel).toHaveBeenCalledWith(expect.stringContaining('Paused'))
+	})
+
+	it('fails closed when a setup plan is incomplete', async () => {
+		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))
+		vi.mocked(stepDomainPlan).mockImplementationOnce(async () => undefined)
+
+		await runCreate({ name: 'acme' })
+
+		expect(stepApp).not.toHaveBeenCalled()
+		expect(p.log.error).toHaveBeenCalledWith(expect.stringContaining('Setup plan is incomplete'))
+	})
+
+	it('describes manual hosting in the creation summary', async () => {
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({
+				slug: 'acme',
+				hostingProvider: 'manual',
+				domainAddress: 'existing.example.com',
+			}),
+		)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.note).toHaveBeenCalledWith(
+			expect.stringContaining('Hosting:      Manual upload'),
+			'Ready to create',
+		)
+	})
+
+	it('does not re-confirm legacy projects that already have durable resources', async () => {
+		const project = makeProject({
+			slug: 'acme',
+			applicationId: 'app-1',
+			hostingProvider: 'cloudflare',
+		})
+		vi.mocked(loadProject).mockReturnValue(project)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.confirm).not.toHaveBeenCalled()
+		expect(project.completedSteps).toContain('plan-confirmed')
+	})
+
+	it('reuses a previously confirmed plan without prompting or saving it again', async () => {
+		const project = makeProject({
+			slug: 'acme',
+			hostingProvider: 'cloudflare',
+			plannedDomainAddress: 'acme.nylas.email',
+			plannedDomainBranded: true,
+			completedSteps: ['plan-confirmed'],
+		})
+		vi.mocked(loadProject).mockReturnValue(project)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.confirm).not.toHaveBeenCalled()
+		expect(saveProject).not.toHaveBeenCalledWith(project)
+	})
+
+	it('still confirms when only a reusable email domain exists', async () => {
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({
+				slug: 'acme',
+				domainId: 'existing-domain',
+				domainAddress: 'acme.nylas.email',
+				domainBranded: true,
+				hostingProvider: 'cloudflare',
+			}),
+		)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.confirm).toHaveBeenCalledWith({
+			message: 'Create these OwnMail resources?',
+			initialValue: true,
+		})
 	})
 
 	it('reports a completed project without exposing internal step IDs', async () => {
 		const completedSteps = [
 			'dashboard-auth',
 			'org',
+			'domain-plan',
+			'plan-confirmed',
 			'app',
 			'api-key',
 			'connector',

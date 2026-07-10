@@ -10,6 +10,7 @@ import {
 } from '@nylas-labs/cli-kit'
 import open from 'open'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
+import type { ProjectState } from '../state/schema.js'
 import { markStep, saveProject } from '../state/store.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth, tokens } from './context.js'
@@ -260,12 +261,17 @@ export async function stepConnector(ctx: StepContext): Promise<void> {
 	markStep(ctx.project, 'connector')
 }
 
-/** 05 — Resolve or create the org's inbox domain. */
-export async function stepDomain(ctx: StepContext): Promise<void> {
-	if (ctx.project.domainAddress && ctx.project.domainVerified) {
-		markStep(ctx.project, 'domain')
+/** Gather the email-domain choice before creating any remote OwnMail resources. */
+export async function stepDomainPlan(ctx: StepContext): Promise<void> {
+	if (ctx.project.domainAddress || ctx.project.plannedDomainAddress || hasDurableResources(ctx.project)) {
+		markStep(ctx.project, 'domain-plan')
 		return
 	}
+	await planDomain(ctx)
+	markStep(ctx.project, 'domain-plan')
+}
+
+async function planDomain(ctx: StepContext): Promise<void> {
 	const dashboard = requireDashboard(ctx)
 	const region = ctx.project.region
 
@@ -274,7 +280,6 @@ export async function stepDomain(ctx: StepContext): Promise<void> {
 	if (branded) {
 		adoptDomain(ctx, branded.id, branded.domainAddress, true, isFullyVerified(branded))
 		p.log.info(`Using your organization’s existing domain: ${branded.domainAddress}`)
-		markStep(ctx.project, 'domain')
 		return
 	}
 
@@ -296,14 +301,24 @@ export async function stepDomain(ctx: StepContext): Promise<void> {
 	if (p.isCancel(choice)) throw new CancelledError()
 
 	if (choice === 'free') {
-		await createBrandedDomain(ctx, region)
+		await planBrandedDomain(ctx)
 	} else {
-		await createCustomDomain(ctx, region)
+		const domain = await p.text({
+			message: 'Your domain (you must control its DNS)',
+			placeholder: 'mail.your-company.com',
+			validate: (v) =>
+				/^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(v ?? '')
+					? undefined
+					: 'Enter a domain like mail.your-company.com',
+		})
+		if (p.isCancel(domain)) throw new CancelledError()
+		ctx.project.plannedDomainAddress = domain
+		ctx.project.plannedDomainBranded = false
+		saveProject(ctx.project)
 	}
-	markStep(ctx.project, 'domain')
 }
 
-async function createBrandedDomain(ctx: StepContext, region: 'us' | 'eu'): Promise<void> {
+async function planBrandedDomain(ctx: StepContext): Promise<void> {
 	const dashboard = requireDashboard(ctx)
 	for (;;) {
 		const sub = await p.text({
@@ -323,43 +338,100 @@ async function createBrandedDomain(ctx: StepContext, region: 'us' | 'eu'): Promi
 			p.log.warn(`${domainAddress} is taken — try ${sub}-hq, ${sub}-app, or get-${sub}.`)
 			continue
 		}
-		const spinner = p.spinner()
-		spinner.start(`Claiming ${domainAddress}…`)
-		const created = await dashboard.createInboxDomain(tokens(ctx), {
-			name: sub,
-			domainAddress,
-			region,
-		})
-		spinner.stop(`${domainAddress} is yours — mail routing is live.`)
-		adoptDomain(ctx, created.id, created.domainAddress, true, true)
+		ctx.project.plannedDomainAddress = domainAddress
+		ctx.project.plannedDomainBranded = true
+		saveProject(ctx.project)
 		return
 	}
 }
 
-async function createCustomDomain(ctx: StepContext, region: 'us' | 'eu'): Promise<void> {
-	const dashboard = requireDashboard(ctx)
-	const domain = await p.text({
-		message: 'Your domain (you must control its DNS)',
-		placeholder: 'mail.your-company.com',
-		validate: (v) =>
-			/^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(v ?? '')
-				? undefined
-				: 'Enter a domain like mail.your-company.com',
-	})
-	if (p.isCancel(domain)) throw new CancelledError()
+/** 05 — Create or resume the org's planned inbox domain. */
+export async function stepDomain(ctx: StepContext): Promise<void> {
+	if (ctx.project.domainAddress && ctx.project.domainVerified) {
+		markStep(ctx.project, 'domain')
+		return
+	}
+	if (ctx.project.domainId && ctx.project.domainAddress && ctx.project.domainBranded) {
+		markStep(ctx.project, 'domain')
+		return
+	}
+	if (ctx.project.domainId && ctx.project.domainAddress && !ctx.project.domainBranded) {
+		await verifyCustomDomain(ctx, ctx.project.domainId, ctx.project.domainAddress)
+		markStep(ctx.project, 'domain')
+		return
+	}
+	if (!ctx.project.plannedDomainAddress) await planDomain(ctx)
+	if (ctx.project.domainAddress) {
+		markStep(ctx.project, 'domain')
+		return
+	}
+	for (;;) {
+		const address = ctx.project.plannedDomainAddress
+		if (!address) throw new Error('Email domain plan is missing — re-run ownmail to choose a domain.')
+		if (ctx.project.plannedDomainBranded) {
+			try {
+				await createBrandedDomain(ctx, address, ctx.project.region)
+			} catch (err) {
+				if (!isDomainCreateConflict(err)) throw err
+				clearPlannedDomain(ctx)
+				p.log.warn(`${address} was claimed before setup could create it — pick another subdomain.`)
+				await planBrandedDomain(ctx)
+				markStep(ctx.project, 'domain-plan')
+				continue
+			}
+		} else {
+			await createCustomDomain(ctx, address, ctx.project.region)
+		}
+		break
+	}
+	delete ctx.project.plannedDomainAddress
+	delete ctx.project.plannedDomainBranded
+	saveProject(ctx.project)
+	markStep(ctx.project, 'domain')
+}
 
+async function createBrandedDomain(
+	ctx: StepContext,
+	domainAddress: string,
+	region: 'us' | 'eu',
+): Promise<void> {
+	const dashboard = requireDashboard(ctx)
+	const spinner = p.spinner()
+	spinner.start(`Claiming ${domainAddress}…`)
+	let created: Awaited<ReturnType<typeof dashboard.createInboxDomain>>
+	try {
+		created = await dashboard.createInboxDomain(tokens(ctx), {
+			name: domainAddress.slice(0, -'.nylas.email'.length),
+			domainAddress,
+			region,
+		})
+	} catch (err) {
+		spinner.stop(`Could not claim ${domainAddress}.`)
+		throw err
+	}
+	spinner.stop(`${domainAddress} is yours — mail routing is live.`)
+	adoptDomain(ctx, created.id, created.domainAddress, true, true)
+}
+
+async function createCustomDomain(ctx: StepContext, domain: string, region: 'us' | 'eu'): Promise<void> {
+	const dashboard = requireDashboard(ctx)
 	const created = await dashboard.createInboxDomain(tokens(ctx), {
 		name: domain,
 		domainAddress: domain,
 		region,
 	})
 	adoptDomain(ctx, created.id, created.domainAddress, false, false)
+	await verifyCustomDomain(ctx, created.id, domain)
+}
 
+async function verifyCustomDomain(ctx: StepContext, domainId: string, domain: string): Promise<void> {
+	const dashboard = requireDashboard(ctx)
+	const region = ctx.project.region
 	p.log.step('Publish these DNS records at your DNS provider:')
 	const checks = ['ownership', 'mx', 'spf', 'dkim', 'feedback'] as const
 	for (const type of checks) {
 		try {
-			const info = await dashboard.domainInfo(tokens(ctx), created.id, { region, type })
+			const info = await dashboard.domainInfo(tokens(ctx), domainId, { region, type })
 			const o = info.attempt?.options
 			if (o?.host && o.type && o.value) {
 				p.log.message(`  ${o.type.padEnd(6)} ${o.host}  →  ${o.value}`)
@@ -376,7 +448,7 @@ async function createCustomDomain(ctx: StepContext, region: 'us' | 'eu'): Promis
 	while (pending.size > 0 && Date.now() < deadline) {
 		for (const type of [...pending]) {
 			try {
-				const result = await dashboard.verifyDomain(tokens(ctx), created.id, { type }, region)
+				const result = await dashboard.verifyDomain(tokens(ctx), domainId, { type }, region)
 				if (/verified|success|ok/i.test(result.status)) pending.delete(type)
 			} catch {
 				// keep polling
@@ -396,6 +468,21 @@ async function createCustomDomain(ctx: StepContext, region: 'us' | 'eu'): Promis
 	spinner.stop(`${domain} verified — mail routing is live.`)
 	ctx.project.domainVerified = true
 	saveProject(ctx.project)
+}
+
+function hasDurableResources(project: ProjectState): boolean {
+	return Boolean(project.applicationId || project.domainId || project.grantId)
+}
+
+function clearPlannedDomain(ctx: StepContext): void {
+	delete ctx.project.plannedDomainAddress
+	delete ctx.project.plannedDomainBranded
+	ctx.project.completedSteps = ctx.project.completedSteps.filter((step) => step !== 'domain-plan')
+	saveProject(ctx.project)
+}
+
+function isDomainCreateConflict(err: unknown): boolean {
+	return (err as { status?: unknown } | null)?.status === 409
 }
 
 function adoptDomain(

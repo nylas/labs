@@ -14,6 +14,7 @@ import {
 	stepConnector,
 	stepDashboardAuth,
 	stepDomain,
+	stepDomainPlan,
 	stepGrant,
 	stepOrg,
 } from './provision.js'
@@ -575,6 +576,44 @@ describe('stepConnector', () => {
 	})
 })
 
+describe('stepDomainPlan', () => {
+	it.each([
+		{ domainAddress: 'existing.nylas.email' },
+		{ plannedDomainAddress: 'planned.nylas.email' },
+		{ applicationId: 'app-1' },
+		{ domainId: 'domain-1' },
+		{ grantId: 'grant-1' },
+	])('reuses existing plan or durable state without prompting: %o', async (project) => {
+		const listInboxDomains = vi.fn()
+		const ctx = baseCtx({
+			project: baseProject(project),
+			dashboard: { listInboxDomains } as never,
+		})
+
+		await stepDomainPlan(ctx)
+
+		expect(listInboxDomains).not.toHaveBeenCalled()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain-plan')
+	})
+
+	it('plans a new domain without creating it', async () => {
+		const listInboxDomains = vi.fn().mockResolvedValue([])
+		const domainAvailability = vi.fn().mockResolvedValue({ available: true })
+		const createInboxDomain = vi.fn()
+		const ctx = baseCtx({
+			dashboard: { listInboxDomains, domainAvailability, createInboxDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce('free' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('planned' as never)
+
+		await stepDomainPlan(ctx)
+
+		expect(ctx.project.plannedDomainAddress).toBe('planned.nylas.email')
+		expect(createInboxDomain).not.toHaveBeenCalled()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain-plan')
+	})
+})
+
 describe('stepDomain', () => {
 	it('short-circuits when a verified domain is already recorded', async () => {
 		const listInboxDomains = vi.fn()
@@ -630,6 +669,44 @@ describe('stepDomain', () => {
 		expect(ctx.project.domainVerified).toBe(false)
 	})
 
+	it('reuses a recorded branded domain while its verification settles', async () => {
+		const listInboxDomains = vi.fn()
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'branded-1',
+				domainAddress: 'ours.nylas.email',
+				domainBranded: true,
+				domainVerified: false,
+			}),
+			dashboard: { listInboxDomains } as never,
+		})
+
+		await stepDomain(ctx)
+
+		expect(listInboxDomains).not.toHaveBeenCalled()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain')
+	})
+
+	it('resumes verification for an existing custom domain', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'verified' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, verifyDomain } as never,
+		})
+
+		await stepDomain(ctx)
+
+		expect(verifyDomain).toHaveBeenCalledTimes(5)
+		expect(ctx.project.domainVerified).toBe(true)
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain')
+	})
+
 	it('throws CancelledError when the domain-choice picker is cancelled', async () => {
 		const listInboxDomains = vi.fn().mockResolvedValue([])
 		const ctx = baseCtx({ dashboard: { listInboxDomains } as never })
@@ -667,6 +744,63 @@ describe('stepDomain', () => {
 		expect(validate(undefined)).toBeTruthy()
 	})
 
+	it('re-prompts when a planned branded subdomain is claimed before creation', async () => {
+		const conflict = Object.assign(new Error('domain taken'), { status: 409 })
+		const domainAvailability = vi.fn().mockResolvedValue({ available: true })
+		const createInboxDomain = vi
+			.fn()
+			.mockRejectedValueOnce(conflict)
+			.mockResolvedValueOnce({ id: 'dom-new', domainAddress: 'acme2.nylas.email' })
+		const ctx = baseCtx({
+			project: baseProject({
+				plannedDomainAddress: 'acme.nylas.email',
+				plannedDomainBranded: true,
+				completedSteps: ['domain-plan', 'plan-confirmed', 'app', 'api-key', 'connector'],
+			}),
+			dashboard: { domainAvailability, createInboxDomain } as never,
+		})
+		vi.mocked(p.text).mockResolvedValueOnce('acme2' as never)
+
+		await stepDomain(ctx)
+
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('acme.nylas.email was claimed'))
+		expect(domainAvailability).toHaveBeenCalledWith(expect.anything(), 'acme2.nylas.email')
+		expect(createInboxDomain).toHaveBeenNthCalledWith(
+			1,
+			expect.anything(),
+			expect.objectContaining({ domainAddress: 'acme.nylas.email' }),
+		)
+		expect(createInboxDomain).toHaveBeenNthCalledWith(
+			2,
+			expect.anything(),
+			expect.objectContaining({ domainAddress: 'acme2.nylas.email' }),
+		)
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain-plan')
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain')
+		expect(ctx.project.domainAddress).toBe('acme2.nylas.email')
+		expect(ctx.project.plannedDomainAddress).toBeUndefined()
+		expect(ctx.project.plannedDomainBranded).toBeUndefined()
+	})
+
+	it('keeps the planned branded subdomain when creation fails for a non-conflict error', async () => {
+		const createInboxDomain = vi.fn().mockRejectedValue(new Error('gateway down'))
+		const ctx = baseCtx({
+			project: baseProject({
+				plannedDomainAddress: 'acme.nylas.email',
+				plannedDomainBranded: true,
+				completedSteps: ['domain-plan'],
+			}),
+			dashboard: { createInboxDomain } as never,
+		})
+
+		await expect(stepDomain(ctx)).rejects.toThrow('gateway down')
+
+		expect(p.text).not.toHaveBeenCalled()
+		expect(ctx.project.plannedDomainAddress).toBe('acme.nylas.email')
+		expect(ctx.project.plannedDomainBranded).toBe(true)
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'domain')
+	})
+
 	it('throws CancelledError when the free-subdomain prompt is cancelled', async () => {
 		const listInboxDomains = vi.fn().mockResolvedValue([])
 		const ctx = baseCtx({ dashboard: { listInboxDomains } as never })
@@ -683,6 +817,15 @@ describe('stepDomain', () => {
 		vi.mocked(p.text).mockResolvedValueOnce(CANCEL as never)
 
 		await expect(stepDomain(ctx)).rejects.toBeInstanceOf(CancelledError)
+	})
+
+	it('fails closed when domain planning returns an empty address', async () => {
+		const listInboxDomains = vi.fn().mockResolvedValue([])
+		const ctx = baseCtx({ dashboard: { listInboxDomains } as never })
+		vi.mocked(p.select).mockResolvedValueOnce('custom' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('' as never)
+
+		await expect(stepDomain(ctx)).rejects.toThrow(/domain plan is missing/)
 	})
 
 	it('sets up a custom domain, prints DNS records, and finishes when all checks verify', async () => {
