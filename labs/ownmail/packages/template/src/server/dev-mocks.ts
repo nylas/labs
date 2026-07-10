@@ -982,7 +982,13 @@ export function mockSaveDraft(input: {
 		id,
 		grant_id: GRANT_ID,
 		subject: input.subject,
-		snippet: input.body.slice(0, 140),
+		// Real providers derive the snippet from the body's text content; mirror
+		// that so markdown-envelope drafts list their source, not the markup.
+		snippet: stripHtml(input.body)
+			.replace(/&lt;/g, '<')
+			.replace(/&gt;/g, '>')
+			.replace(/&amp;/g, '&')
+			.slice(0, 140),
 		body: input.body,
 		to: splitEmails(input.to).map((email) => ({ email })),
 		...(input.attachments?.length
