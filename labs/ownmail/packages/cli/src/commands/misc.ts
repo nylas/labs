@@ -3,7 +3,8 @@ import { NylasV3Client } from '@nylas-labs/cli-kit'
 import { runWrangler } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
 import { clearPendingSecrets, pendingSecretLabels } from '../state/pending-secrets.js'
-import { clearAuth, newProject, saveProject } from '../state/store.js'
+import type { ProjectState } from '../state/schema.js'
+import { clearAuth, deleteProject, newProject, saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
 import { pickExistingProject } from './shared.js'
@@ -75,6 +76,56 @@ export async function runCleanupSecrets(opts: { name?: string }): Promise<void> 
 	p.outro('Pending setup secrets cleared from local state/keyring. Remote resources and mail were untouched.')
 }
 
+/** Delete the local project record, optionally deleting the hosted Cloudflare app first. */
+export async function runDeleteProject(opts: { name?: string; hosted?: boolean }): Promise<void> {
+	p.intro('ownmail delete')
+	const project = await pickExistingProject(opts.name)
+	const deleteHosted = opts.hosted === true
+
+	p.log.warn(
+		[
+			`This deletes the local OwnMail project "${project.slug}":`,
+			'  - local project state file',
+			'  - pending setup secrets from local state/keyring',
+			'',
+			deleteHosted
+				? 'Because --hosted was passed, OwnMail will also delete recorded Cloudflare hosted resources:'
+				: 'Remote hosted app content will be kept. Cancel and re-run with --hosted if you want OwnMail to delete recorded Cloudflare resources now.',
+			deleteHosted && project.workerName ? `  - Cloudflare worker ${project.workerName}` : null,
+			deleteHosted && project.kvNamespaceId ? '  - Cloudflare KV namespace (all sessions)' : null,
+			deleteHosted && !project.workerName && !project.kvNamespaceId
+				? '  - no Cloudflare worker or KV namespace is recorded for this project'
+				: null,
+			project.hostingProvider === 'manual'
+				? 'Manual hosting content is outside OwnMail state; delete it at that provider if needed.'
+				: null,
+			'',
+			`Your inbox (${project.inboxEmail ?? '—'}), domain, mail, and Nylas resources are NOT touched.`,
+		]
+			.filter((line): line is string => line !== null)
+			.join('\n'),
+	)
+	const typed = await p.text({ message: `Type the project name ("${project.slug}") to confirm` })
+	if (p.isCancel(typed) || typed !== project.slug) {
+		p.cancel('Delete cancelled — project state was kept.')
+		return
+	}
+
+	if (deleteHosted) {
+		await deleteHostedContent(project, { strictKv: true })
+	}
+	clearPendingSecrets(project)
+	const removed = deleteProject(project.slug)
+	if (!removed) {
+		p.log.warn(`Local project state for "${project.slug}" was already gone.`)
+	}
+	p.outro(
+		deleteHosted
+			? 'Project deleted locally. Recorded Cloudflare hosted resources were deleted first.'
+			: 'Project deleted locally. Remote hosted content and Nylas resources were left untouched.',
+	)
+}
+
 /** Tear down the Cloudflare side of a project (Nylas resources are kept). */
 export async function runDestroy(opts: { name?: string }): Promise<void> {
 	p.intro('ownmail destroy')
@@ -98,21 +149,7 @@ export async function runDestroy(opts: { name?: string }): Promise<void> {
 		return
 	}
 
-	if (project.workerName) {
-		const res = await runWrangler(['delete', '--name', project.workerName, '--force'])
-		if (res.code !== 0 && !/not found|does not exist/i.test(res.stderr + res.stdout)) {
-			throw new Error(`Failed to delete worker: ${res.stderr || res.stdout}`)
-		}
-		p.log.step(`Worker ${project.workerName} deleted.`)
-	}
-	if (project.kvNamespaceId) {
-		const res = await runWrangler(['kv', 'namespace', 'delete', '--namespace-id', project.kvNamespaceId])
-		if (res.code !== 0 && !/not found/i.test(res.stderr + res.stdout)) {
-			p.log.warn(`Could not delete KV namespace: ${res.stderr || res.stdout}`)
-		} else {
-			p.log.step('Session storage deleted.')
-		}
-	}
+	await deleteHostedContent(project)
 
 	// Reset deploy state but keep Nylas resource ids so re-create reuses them.
 	delete project.workersDevUrl
@@ -123,4 +160,30 @@ export async function runDestroy(opts: { name?: string }): Promise<void> {
 	)
 	saveProject(project)
 	p.outro('Destroyed. Run `npx ownmail` to redeploy any time.')
+}
+
+async function deleteHostedContent(project: ProjectState, opts: { strictKv?: boolean } = {}): Promise<void> {
+	let hadRecordedResource = false
+	if (project.workerName) {
+		hadRecordedResource = true
+		const res = await runWrangler(['delete', '--name', project.workerName, '--force'])
+		if (res.code !== 0 && !/not found|does not exist/i.test(res.stderr + res.stdout)) {
+			throw new Error(`Failed to delete worker: ${res.stderr || res.stdout}`)
+		}
+		p.log.step(`Worker ${project.workerName} deleted.`)
+	}
+	if (project.kvNamespaceId) {
+		hadRecordedResource = true
+		const res = await runWrangler(['kv', 'namespace', 'delete', '--namespace-id', project.kvNamespaceId])
+		if (res.code !== 0 && !/not found/i.test(res.stderr + res.stdout)) {
+			const message = `Could not delete KV namespace: ${res.stderr || res.stdout}`
+			if (opts.strictKv) throw new Error(message)
+			p.log.warn(message)
+		} else {
+			p.log.step('Session storage deleted.')
+		}
+	}
+	if (!hadRecordedResource) {
+		p.log.info('No Cloudflare hosted resources are recorded for this project.')
+	}
 }

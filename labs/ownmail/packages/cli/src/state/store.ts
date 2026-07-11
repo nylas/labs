@@ -98,6 +98,16 @@ export function loadProject(slug: string): ProjectState | null {
 	return parsed.success ? parsed.data : null
 }
 
+export function deleteProject(slug: string): boolean {
+	try {
+		unlinkSync(join(projectsDir(), `${slug}.json`))
+		return true
+	} catch (err) {
+		if ((err as { code?: unknown })?.code === 'ENOENT') return false
+		throw err
+	}
+}
+
 export function saveProject(state: ProjectState): void {
 	state.updatedAt = Date.now()
 	writeJson(join(projectsDir(), `${state.slug}.json`), state)

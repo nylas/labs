@@ -24,6 +24,7 @@ vi.mock('node:fs', () => ({
 import {
 	clearAuth,
 	configDir,
+	deleteProject,
 	hasStep,
 	listProjectStateIssues,
 	listProjects,
@@ -190,6 +191,31 @@ describe('loadProject', () => {
 		mockRead.mockReturnValue(JSON.stringify(validProject('inbox')))
 		expect(loadProject('inbox')?.slug).toBe('inbox')
 		expect(mockRead).toHaveBeenCalledWith('/virtual/config/projects/inbox.json', 'utf8')
+	})
+})
+
+describe('deleteProject', () => {
+	it('unlinks the slug-named project file', () => {
+		expect(deleteProject('inbox')).toBe(true)
+		expect(mockUnlink).toHaveBeenCalledWith('/virtual/config/projects/inbox.json')
+	})
+
+	it('returns false when the project file is already gone', () => {
+		mockUnlink.mockImplementation(() => {
+			const err = new Error('missing') as Error & { code: string }
+			err.code = 'ENOENT'
+			throw err
+		})
+		expect(deleteProject('missing')).toBe(false)
+	})
+
+	it('rethrows filesystem errors other than ENOENT', () => {
+		mockUnlink.mockImplementation(() => {
+			const err = new Error('permission denied') as Error & { code: string }
+			err.code = 'EACCES'
+			throw err
+		})
+		expect(() => deleteProject('inbox')).toThrow('permission denied')
 	})
 })
 

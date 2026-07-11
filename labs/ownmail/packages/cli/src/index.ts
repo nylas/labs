@@ -6,7 +6,7 @@ import { runCreate } from './commands/create.js'
 import { runDoctor } from './commands/doctor.js'
 import { runEject } from './commands/eject.js'
 import { runInboxAdd, runInboxResetPassword } from './commands/inbox.js'
-import { runCleanupSecrets, runDestroy, runGrants, runLogin } from './commands/misc.js'
+import { runCleanupSecrets, runDeleteProject, runDestroy, runGrants, runLogin } from './commands/misc.js'
 import { runRotateKey } from './commands/rotate.js'
 import { runTopLevel } from './commands/shared.js'
 import { runStatus } from './commands/status.js'
@@ -82,6 +82,26 @@ const main = defineCommand({
 			meta: { name: 'destroy', description: 'Delete the deployed app (keeps your inbox and mail)' },
 			args: { name: nameArg },
 			run: ({ args }) => runTopLevel(() => runDestroy(args.name ? { name: args.name } : {})),
+		}),
+		delete: defineCommand({
+			meta: {
+				name: 'delete',
+				description: 'Delete a local project record; use --hosted to delete hosted app content too',
+			},
+			args: {
+				name: nameArg,
+				hosted: {
+					type: 'boolean',
+					description: 'Also delete recorded Cloudflare hosted app content',
+				},
+			},
+			run: ({ args }) =>
+				runTopLevel(() =>
+					runDeleteProject({
+						...(typeof args.name === 'string' ? { name: args.name } : {}),
+						hosted: args.hosted === true,
+					}),
+				),
 		}),
 		'cleanup-secrets': defineCommand({
 			meta: {
