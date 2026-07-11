@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectState } from '../state/schema.js'
-import { runCleanupSecrets, runDestroy, runGrants, runLogin } from './misc.js'
+import { runCleanupSecrets, runDeleteProject, runDestroy, runGrants, runLogin } from './misc.js'
 
 const { listGrants } = vi.hoisted(() => ({ listGrants: vi.fn() }))
 
@@ -19,6 +19,7 @@ vi.mock('../deploy/wrangler.js', () => ({ runWrangler: vi.fn() }))
 vi.mock('../nylas-env.js', () => ({ apiBaseUrl: vi.fn(() => 'https://api.example.com') }))
 vi.mock('../state/store.js', () => ({
 	clearAuth: vi.fn(),
+	deleteProject: vi.fn(() => true),
 	newProject: vi.fn((slug: string, region: string) => ({ slug, region })),
 	saveProject: vi.fn(),
 }))
@@ -32,7 +33,7 @@ vi.mock('./shared.js', () => ({ pickExistingProject: vi.fn() }))
 
 import * as p from '@clack/prompts'
 import { runWrangler } from '../deploy/wrangler.js'
-import { clearAuth, saveProject } from '../state/store.js'
+import { clearAuth, deleteProject, saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
 import { pickExistingProject } from './shared.js'
@@ -180,6 +181,137 @@ describe('runCleanupSecrets', () => {
 		expect(p.outro).toHaveBeenCalledWith(
 			'Pending setup secrets cleared from local state/keyring. Remote resources and mail were untouched.',
 		)
+	})
+})
+
+describe('runDeleteProject', () => {
+	function ok() {
+		return { code: 0, stdout: '', stderr: '' }
+	}
+
+	it('deletes only local project state by default', async () => {
+		const proj = project({
+			hostingProvider: 'manual',
+			workerName: 'w1',
+			kvNamespaceId: 'kv1',
+			inboxEmail: 'hi@acme.com',
+			pendingSecrets: { apiKey: 'nyk_secret', appPassword: 'Sup3rSecret!!x' },
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+
+		await runDeleteProject({ name: 'acme' })
+
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('local OwnMail project "acme"')
+		expect(warning).toContain('Cancel and re-run with --hosted')
+		expect(warning).toContain('Manual hosting content is outside OwnMail state')
+		expect(warning).toContain('Your inbox (hi@acme.com), domain, mail, and Nylas resources are NOT touched')
+		expect(runWrangler).not.toHaveBeenCalled()
+		expect(proj.pendingSecrets).toEqual({})
+		expect(deleteProject).toHaveBeenCalledWith('acme')
+		expect(p.outro).toHaveBeenCalledWith(
+			'Project deleted locally. Remote hosted content and Nylas resources were left untouched.',
+		)
+	})
+
+	it('deletes recorded Cloudflare hosted content when --hosted is passed', async () => {
+		const proj = project({ workerName: 'w1', kvNamespaceId: 'kv1' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+		vi.mocked(runWrangler).mockResolvedValue(ok())
+
+		await runDeleteProject({ hosted: true })
+
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('Because --hosted was passed')
+		expect(warning).toContain('Cloudflare worker w1')
+		expect(warning).toContain('Cloudflare KV namespace')
+		expect(runWrangler).toHaveBeenCalledWith(['delete', '--name', 'w1', '--force'])
+		expect(runWrangler).toHaveBeenCalledWith(['kv', 'namespace', 'delete', '--namespace-id', 'kv1'])
+		expect(p.log.step).toHaveBeenCalledWith('Worker w1 deleted.')
+		expect(p.log.step).toHaveBeenCalledWith('Session storage deleted.')
+		expect(deleteProject).toHaveBeenCalledWith('acme')
+		expect(saveProject).not.toHaveBeenCalled()
+		expect(p.outro).toHaveBeenCalledWith(
+			'Project deleted locally. Recorded Cloudflare hosted resources were deleted first.',
+		)
+	})
+
+	it('handles --hosted when no Cloudflare resources are recorded', async () => {
+		const proj = project()
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+
+		await runDeleteProject({ hosted: true })
+
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('no Cloudflare worker or KV namespace is recorded')
+		expect(p.log.info).toHaveBeenCalledWith('No Cloudflare hosted resources are recorded for this project.')
+		expect(runWrangler).not.toHaveBeenCalled()
+		expect(deleteProject).toHaveBeenCalledWith('acme')
+	})
+
+	it('keeps local state when delete confirmation is cancelled', async () => {
+		const proj = project({ pendingSecrets: { apiKey: 'nyk_secret' } })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+
+		await runDeleteProject({})
+
+		expect(p.cancel).toHaveBeenCalledWith('Delete cancelled — project state was kept.')
+		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
+		expect(deleteProject).not.toHaveBeenCalled()
+		expect(runWrangler).not.toHaveBeenCalled()
+	})
+
+	it('keeps local state when the typed project name does not match', async () => {
+		const proj = project({ pendingSecrets: { apiKey: 'nyk_secret' } })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('wrong')
+
+		await runDeleteProject({})
+
+		expect(p.cancel).toHaveBeenCalledWith('Delete cancelled — project state was kept.')
+		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
+		expect(deleteProject).not.toHaveBeenCalled()
+	})
+
+	it('keeps local state when hosted worker deletion fails', async () => {
+		const proj = project({ workerName: 'w1', pendingSecrets: { apiKey: 'nyk_secret' } })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+		vi.mocked(runWrangler).mockResolvedValue({ code: 1, stdout: '', stderr: 'auth error' })
+
+		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/Failed to delete worker: auth error/)
+
+		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
+		expect(deleteProject).not.toHaveBeenCalled()
+	})
+
+	it('keeps local state when hosted KV deletion fails for a real reason', async () => {
+		const proj = project({ kvNamespaceId: 'kv1', pendingSecrets: { apiKey: 'nyk_secret' } })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+		vi.mocked(runWrangler).mockResolvedValue({ code: 1, stdout: 'denied', stderr: '' })
+
+		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/Could not delete KV namespace: denied/)
+
+		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
+		expect(deleteProject).not.toHaveBeenCalled()
+	})
+
+	it('warns when the local project file is already gone', async () => {
+		const proj = project()
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(p.text).mockResolvedValue('acme')
+		vi.mocked(deleteProject).mockReturnValueOnce(false)
+
+		await runDeleteProject({})
+
+		expect(p.log.warn).toHaveBeenCalledWith('Local project state for "acme" was already gone.')
+		expect(p.outro).toHaveBeenCalled()
 	})
 })
 
