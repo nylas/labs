@@ -523,6 +523,22 @@ describe('stepWebhook', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
+	it('normalizes the webhook callback URL before registering it', async () => {
+		const ensureWebhook = vi.fn().mockResolvedValue({})
+		const ctx = makeCtx(
+			makeProject({ workerName: 'worker', workersDevUrl: ' https://app.workers.dev/path/?debug=1#hash ' }),
+			{ ensureWebhook },
+		)
+
+		await stepWebhook(ctx)
+
+		expect(ensureWebhook).toHaveBeenCalledWith('https://app.workers.dev/path/api/webhooks/nylas', [
+			'message.created',
+			'message.updated',
+			'thread.replied',
+		])
+	})
+
 	it('registers the webhook without storing a secret when none is returned', async () => {
 		const ensureWebhook = vi.fn().mockResolvedValue({})
 		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'https://app.workers.dev' }), {
@@ -533,13 +549,66 @@ describe('stepWebhook', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
+	it('skips webhook setup locally when no app URL is recorded', async () => {
+		const ensureWebhook = vi.fn()
+		const ctx = makeCtx(makeProject({ workerName: 'worker' }), { ensureWebhook })
+
+		await stepWebhook(ctx)
+
+		expect(ensureWebhook).not.toHaveBeenCalled()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
+	it('skips webhook setup locally when the app URL is blank', async () => {
+		const ensureWebhook = vi.fn()
+		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: '   ' }), { ensureWebhook })
+
+		await stepWebhook(ctx)
+
+		expect(ensureWebhook).not.toHaveBeenCalled()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
+	it('skips webhook setup locally when the app URL is not HTTPS', async () => {
+		const ensureWebhook = vi.fn()
+		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'http://app.example.com' }), {
+			ensureWebhook,
+		})
+
+		await stepWebhook(ctx)
+
+		expect(ensureWebhook).not.toHaveBeenCalled()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
+	it('skips webhook setup locally when the app URL is malformed', async () => {
+		const ensureWebhook = vi.fn()
+		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'not a url' }), {
+			ensureWebhook,
+		})
+
+		await stepWebhook(ctx)
+
+		expect(ensureWebhook).not.toHaveBeenCalled()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
 	it('warns and continues when webhook setup fails with an Error', async () => {
-		const ensureWebhook = vi.fn().mockRejectedValue(new Error('boom'))
+		const ensureWebhook = vi
+			.fn()
+			.mockRejectedValue(new Error('unable.verify.webhook_url : input webhook url is empty'))
 		const ctx = makeCtx(makeProject({ workersDevUrl: 'https://app.workers.dev' }), {
 			ensureWebhook,
 		})
 		await stepWebhook(ctx)
-		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('boom'))
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('Couldn’t set up instant updates.')
+		expect(warning).toContain('npx ownmail doctor')
+		expect(warning).not.toContain('unable.verify.webhook_url')
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
@@ -549,7 +618,9 @@ describe('stepWebhook', () => {
 			ensureWebhook,
 		})
 		await stepWebhook(ctx)
-		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('string failure'))
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('Couldn’t set up instant updates.')
+		expect(warning).not.toContain('string failure')
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 })
