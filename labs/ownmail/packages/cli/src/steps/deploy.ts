@@ -255,8 +255,17 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 		return
 	}
 
+	const url = webhookBaseUrl(ctx)
+	if (!url) {
+		p.log.warn(
+			'Couldn’t set up instant updates because OwnMail does not have a public HTTPS app URL yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor` to inspect project state, then re-run `npx ownmail` to retry.',
+		)
+		markStep(ctx.project, 'webhook')
+		return
+	}
+
 	const v3 = requireV3(ctx)
-	const callbackUrl = `${appUrl(ctx)}/api/webhooks/nylas`
+	const callbackUrl = `${url}/api/webhooks/nylas`
 	try {
 		const webhook = await v3.ensureWebhook(callbackUrl, [
 			'message.created',
@@ -268,10 +277,10 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 			await putSecret(workerName, 'NYLAS_WEBHOOK_SECRET', webhook.webhook_secret)
 		}
 		markStep(ctx.project, 'webhook')
-	} catch (err) {
+	} catch {
 		// Realtime is an enhancement — the app falls back to slow polling.
 		p.log.warn(
-			`Couldn’t set up instant updates (${err instanceof Error ? err.message : err}). Your app still works; new mail may take a little longer to appear.`,
+			'Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor` to inspect project state, then re-run `npx ownmail` to retry.',
 		)
 		markStep(ctx.project, 'webhook')
 	}
@@ -352,6 +361,20 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 function appUrl(ctx: StepContext): string | undefined {
 	if (ctx.project.appDomain) return `https://${ctx.project.appDomain}`
 	return ctx.project.manualAppUrl ?? ctx.project.workersDevUrl
+}
+
+function webhookBaseUrl(ctx: StepContext): string | null {
+	const raw = appUrl(ctx)?.trim()
+	if (!raw) return null
+	try {
+		const url = new URL(raw)
+		if (url.protocol !== 'https:') return null
+		url.hash = ''
+		url.search = ''
+		return url.toString().replace(/\/$/, '')
+	} catch {
+		return null
+	}
 }
 
 function validateHttpsUrl(value: string | undefined): string | undefined {
