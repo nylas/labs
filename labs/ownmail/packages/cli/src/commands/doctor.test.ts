@@ -7,6 +7,7 @@ const hoisted = vi.hoisted(() => ({
 		listGrants: vi.fn(),
 		listRedirectUris: vi.fn(),
 		ensureRedirectUris: vi.fn(),
+		ensureWebhook: vi.fn(),
 	},
 }))
 
@@ -22,6 +23,7 @@ vi.mock('@nylas-labs/cli-kit', () => ({
 
 vi.mock('../deploy/wrangler.js', () => ({
 	wranglerLoggedIn: vi.fn(),
+	putSecret: vi.fn(),
 }))
 
 vi.mock('../nylas-env.js', () => ({
@@ -44,7 +46,7 @@ vi.mock('../state/store.js', () => ({
 }))
 
 import * as p from '@clack/prompts'
-import { wranglerLoggedIn } from '../deploy/wrangler.js'
+import { putSecret, wranglerLoggedIn } from '../deploy/wrangler.js'
 import { listProjectStateIssues } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
@@ -87,10 +89,12 @@ beforeEach(() => {
 	hoisted.v3.listGrants.mockResolvedValue({ data: [] })
 	hoisted.v3.listRedirectUris.mockResolvedValue({ data: [] })
 	hoisted.v3.ensureRedirectUris.mockResolvedValue(undefined)
+	hoisted.v3.ensureWebhook.mockResolvedValue({})
 })
 
 afterEach(() => {
 	process.exitCode = savedExitCode
+	vi.unstubAllGlobals()
 })
 
 describe('runDoctor — healthy project', () => {
@@ -127,11 +131,17 @@ describe('runDoctor — healthy project', () => {
 			'https://acme.workers.dev/auth/callback',
 			'https://mail.acme.com/auth/callback',
 		])
+		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith('https://mail.acme.com/api/webhooks/nylas', [
+			'message.created',
+			'message.updated',
+			'thread.replied',
+		])
 		expect(fetch).toHaveBeenCalledWith('https://mail.acme.com/healthz')
 		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app_1', 'probe-key')
 		const msgs = messages()
 		expect(msgs.some((m) => m.startsWith('✅') && m.includes('valid'))).toBe(true)
 		expect(msgs.some((m) => m.startsWith('🔧') && m.includes('registered missing callbacks'))).toBe(true)
+		expect(msgs.some((m) => m.startsWith('🔧') && m.includes('registered realtime webhook'))).toBe(true)
 		expect(msgs.some((m) => m.includes('Temporary API key') && m.includes('revoked'))).toBe(true)
 		expect(msgs.some((m) => m.includes('live (template 1.2.0)'))).toBe(true)
 		expect(p.outro).toHaveBeenCalledWith('All checks passed.')
@@ -159,8 +169,113 @@ describe('runDoctor — healthy project', () => {
 		expect(createApiKey).not.toHaveBeenCalled()
 		expect(revokeApiKey).not.toHaveBeenCalled()
 		expect(hoisted.v3.ensureRedirectUris).not.toHaveBeenCalled()
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
 		expect(messages().some((m) => m.includes('read-only mode cannot create'))).toBe(true)
 		expect(p.outro).toHaveBeenCalledWith('All completed checks passed. 3 check(s) skipped.')
+	})
+
+	it('repairs instant updates with --fix and stores a returned webhook secret', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				applicationId: 'app_1',
+				workerName: 'worker-1',
+				workersDevUrl: 'https://acme.workers.dev',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		hoisted.v3.ensureWebhook.mockResolvedValue({ webhook_secret: 'wh-secret' })
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
+		)
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith('https://acme.workers.dev/api/webhooks/nylas', [
+			'message.created',
+			'message.updated',
+			'thread.replied',
+		])
+		expect(putSecret).toHaveBeenCalledWith('worker-1', 'NYLAS_WEBHOOK_SECRET', 'wh-secret')
+		expect(messages().some((m) => m.startsWith('🔧') && m.includes('registered realtime webhook'))).toBe(true)
+	})
+
+	it('reports that manual hosting uses polling under --fix', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'manual', manualAppUrl: 'https://manual.acme.com' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
+		)
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('manual hosting uses polling'))).toBe(true)
+	})
+
+	it('reports missing app URL when instant updates cannot be repaired', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'cloudflare', applicationId: 'app_1', completedSteps: ['deploy'] }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('missing public HTTPS app URL'))).toBe(true)
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('skips instant updates repair until the app URL is healthy', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				hostingProvider: 'cloudflare',
+				applicationId: 'app_1',
+				workersDevUrl: 'https://acme.workers.dev',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: false, status: 503 })),
+		)
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('skipped until the app URL is healthy'))).toBe(true)
+	})
+
+	it('reports instant updates repair failures without provider details', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				hostingProvider: 'cloudflare',
+				applicationId: 'app_1',
+				workersDevUrl: 'https://acme.workers.dev',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		hoisted.v3.ensureWebhook.mockRejectedValue(new Error('unable.verify.webhook_url'))
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
+		)
+
+		await runDoctor({ fix: true })
+
+		const instant = messages().find((m) => m.includes('Instant updates'))
+		expect(instant).toContain('could not register realtime webhook')
+		expect(instant).not.toContain('unable.verify.webhook_url')
+		expect(process.exitCode).toBe(1)
 	})
 })
 

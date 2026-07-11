@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import open from 'open'
+import { checkAppHealth } from '../deploy/app-health.js'
 import { exportManualBundle, loadManifest, materialize } from '../deploy/materialize.js'
+import { projectAppUrl, setupRealtimeWebhook } from '../deploy/webhook.js'
 import {
 	cloudflareApiTokenConfigured,
 	deploy,
@@ -255,35 +257,23 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 		return
 	}
 
-	const url = webhookBaseUrl(ctx)
-	if (!url) {
-		p.log.warn(
-			'Couldn’t set up instant updates because OwnMail does not have a public HTTPS app URL yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor` to inspect project state, then re-run `npx ownmail` to retry.',
-		)
-		markStep(ctx.project, 'webhook')
-		return
-	}
-
 	const v3 = requireV3(ctx)
-	const callbackUrl = `${url}/api/webhooks/nylas`
-	try {
-		const webhook = await v3.ensureWebhook(callbackUrl, [
-			'message.created',
-			'message.updated',
-			'thread.replied',
-		])
-		if (webhook.webhook_secret) {
-			const workerName = requireProjectValue(ctx.project.workerName, 'Cloudflare worker name')
-			await putSecret(workerName, 'NYLAS_WEBHOOK_SECRET', webhook.webhook_secret)
-		}
-		markStep(ctx.project, 'webhook')
-	} catch {
-		// Realtime is an enhancement — the app falls back to slow polling.
+	const result = await setupRealtimeWebhook(ctx.project, v3)
+
+	if (result.status === 'skipped' && result.reason === 'missing-app-url') {
 		p.log.warn(
-			'Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor` to inspect project state, then re-run `npx ownmail` to retry.',
+			'Couldn’t set up instant updates because OwnMail does not have a public HTTPS app URL yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor` to inspect project state, then `npx ownmail doctor --fix` to retry.',
 		)
-		markStep(ctx.project, 'webhook')
+	} else if (result.status === 'skipped' && result.reason === 'unhealthy-app') {
+		p.log.warn(
+			'Couldn’t set up instant updates because the deployed app is not reachable yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor --fix` after the app is healthy to retry.',
+		)
+	} else if (result.status === 'failed') {
+		p.log.warn(
+			'Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor --fix` to retry.',
+		)
 	}
+	markStep(ctx.project, 'webhook')
 }
 
 /** 09 — Register redirect URIs for hosted auth. */
@@ -308,19 +298,7 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 	const url = requireProjectValue(appUrl(ctx), 'App URL')
 	const spinner = p.spinner()
 	spinner.start('Checking your app is alive…')
-	let healthy = false
-	for (let attempt = 0; attempt < 10; attempt++) {
-		try {
-			const res = await fetch(`${url}/healthz`)
-			if (res.ok) {
-				healthy = true
-				break
-			}
-		} catch {
-			// Workers propagate in a few seconds
-		}
-		await new Promise((r) => setTimeout(r, 3000))
-	}
+	const healthy = await checkAppHealth(url)
 	spinner.stop(healthy ? 'Your app is live!' : 'App deployed, but the health check hasn’t passed yet.')
 	if (!healthy) {
 		p.log.warn(`Give it a minute, then visit ${url}. If it stays down, run: npx ownmail doctor`)
@@ -359,22 +337,7 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 }
 
 function appUrl(ctx: StepContext): string | undefined {
-	if (ctx.project.appDomain) return `https://${ctx.project.appDomain}`
-	return ctx.project.manualAppUrl ?? ctx.project.workersDevUrl
-}
-
-function webhookBaseUrl(ctx: StepContext): string | null {
-	const raw = appUrl(ctx)?.trim()
-	if (!raw) return null
-	try {
-		const url = new URL(raw)
-		if (url.protocol !== 'https:') return null
-		url.hash = ''
-		url.search = ''
-		return url.toString().replace(/\/$/, '')
-	} catch {
-		return null
-	}
+	return projectAppUrl(ctx.project)
 }
 
 function validateHttpsUrl(value: string | undefined): string | undefined {
