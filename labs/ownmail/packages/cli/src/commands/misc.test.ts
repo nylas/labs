@@ -65,6 +65,7 @@ describe('runLogin', () => {
 		// Context auth is wiped so the dashboard-auth step re-authenticates.
 		expect(ctx.auth).toBeNull()
 		expect(stepDashboardAuth).toHaveBeenCalledWith(ctx)
+		expect(deleteProject).toHaveBeenCalledWith('__login__')
 		expect(p.outro).toHaveBeenCalledWith('Logged in.')
 	})
 })

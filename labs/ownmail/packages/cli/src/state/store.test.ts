@@ -141,6 +141,17 @@ describe('listProjects', () => {
 		expect(projects).toHaveLength(1)
 		expect(projects[0]?.slug).toBe('a')
 	})
+
+	it('hides reserved internal project slugs from project listings', () => {
+		mockReaddir.mockReturnValue(['__login__.json', 'a.json'] as never)
+		mockRead.mockImplementation((path) =>
+			String(path).endsWith('__login__.json')
+				? JSON.stringify(validProject('__login__'))
+				: JSON.stringify(validProject('a')),
+		)
+
+		expect(listProjects().map((project) => project.slug)).toEqual(['a'])
+	})
 })
 
 describe('listProjectStateIssues', () => {
@@ -162,6 +173,17 @@ describe('listProjectStateIssues', () => {
 			{ file: 'bad-json.json', reason: 'invalid-json' },
 			{ file: 'bad-schema.json', reason: 'invalid-schema' },
 		])
+	})
+
+	it('ignores reserved internal project files when reporting state issues', () => {
+		mockReaddir.mockReturnValue(['__login__.json', 'bad-json.json'] as never)
+		mockRead.mockImplementation((path) => {
+			if (String(path).endsWith('__login__.json')) return '{'
+			return '{'
+		})
+
+		expect(listProjectStateIssues()).toEqual([{ file: 'bad-json.json', reason: 'invalid-json' }])
+		expect(listProjectStateIssues('__login__')).toEqual([])
 	})
 
 	it('checks a named project and ignores it when the file is absent', () => {
@@ -191,6 +213,11 @@ describe('loadProject', () => {
 		mockRead.mockReturnValue(JSON.stringify(validProject('inbox')))
 		expect(loadProject('inbox')?.slug).toBe('inbox')
 		expect(mockRead).toHaveBeenCalledWith('/virtual/config/projects/inbox.json', 'utf8')
+	})
+
+	it('does not load reserved internal project slugs', () => {
+		expect(loadProject('__login__')).toBeNull()
+		expect(mockRead).not.toHaveBeenCalled()
 	})
 })
 
@@ -228,6 +255,14 @@ describe('saveProject', () => {
 		expect(mockWrite).toHaveBeenCalledWith('/virtual/config/projects/inbox.json', expect.any(String), {
 			mode: 0o600,
 		})
+	})
+
+	it('does not persist reserved internal project slugs', () => {
+		const project = validProject('__login__')
+
+		saveProject(project)
+
+		expect(mockWrite).not.toHaveBeenCalled()
 	})
 })
 

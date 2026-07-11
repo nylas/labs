@@ -9,13 +9,16 @@ import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
 import { pickExistingProject } from './shared.js'
 
+const LOGIN_PROJECT_SLUG = '__login__'
+
 /** Force a fresh dashboard login. */
 export async function runLogin(): Promise<void> {
 	p.intro('ownmail login')
 	clearAuth()
-	const ctx = await createContext(newProject('__login__', 'us'))
+	const ctx = await createContext(newProject(LOGIN_PROJECT_SLUG, 'us'))
 	ctx.auth = null
 	await stepDashboardAuth(ctx)
+	deleteProject(LOGIN_PROJECT_SLUG)
 	p.outro('Logged in.')
 }
 
