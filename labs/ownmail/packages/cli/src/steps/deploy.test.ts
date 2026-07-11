@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 import open from 'open'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exportManualBundle, loadManifest, materialize } from '../deploy/materialize.js'
 import {
 	cloudflareApiTokenConfigured,
@@ -146,6 +146,16 @@ beforeEach(() => {
 	vi.mocked(open).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof open>>)
 	delete process.env.CLOUDFLARE_API_TOKEN
 })
+
+afterEach(() => {
+	vi.unstubAllGlobals()
+})
+
+function stubHealthyApp() {
+	const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+	vi.stubGlobal('fetch', fetchMock)
+	return fetchMock
+}
 
 describe('stepHostingProvider', () => {
 	it('is idempotent when a provider is already chosen', async () => {
@@ -509,6 +519,7 @@ describe('stepWebhook', () => {
 	})
 
 	it('registers the webhook and stores its secret', async () => {
+		stubHealthyApp()
 		const ensureWebhook = vi.fn().mockResolvedValue({ webhook_secret: 'wh-secret' })
 		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'https://app.workers.dev' }), {
 			ensureWebhook,
@@ -524,6 +535,7 @@ describe('stepWebhook', () => {
 	})
 
 	it('normalizes the webhook callback URL before registering it', async () => {
+		stubHealthyApp()
 		const ensureWebhook = vi.fn().mockResolvedValue({})
 		const ctx = makeCtx(
 			makeProject({ workerName: 'worker', workersDevUrl: ' https://app.workers.dev/path/?debug=1#hash ' }),
@@ -540,12 +552,33 @@ describe('stepWebhook', () => {
 	})
 
 	it('registers the webhook without storing a secret when none is returned', async () => {
+		stubHealthyApp()
 		const ensureWebhook = vi.fn().mockResolvedValue({})
 		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'https://app.workers.dev' }), {
 			ensureWebhook,
 		})
 		await stepWebhook(ctx)
 		expect(putSecret).not.toHaveBeenCalled()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
+	it('skips webhook setup until the deployed app is healthy', async () => {
+		const ensureWebhook = vi.fn()
+		const fetchMock = vi.fn().mockResolvedValue({ ok: false })
+		vi.stubGlobal('fetch', fetchMock)
+		vi.stubGlobal('setTimeout', ((fn: () => void) => {
+			fn()
+			return 0
+		}) as unknown as typeof setTimeout)
+		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'https://app.workers.dev' }), {
+			ensureWebhook,
+		})
+
+		await stepWebhook(ctx)
+
+		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz')
+		expect(ensureWebhook).not.toHaveBeenCalled()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('not reachable yet'))
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
@@ -598,6 +631,7 @@ describe('stepWebhook', () => {
 	})
 
 	it('warns and continues when webhook setup fails with an Error', async () => {
+		stubHealthyApp()
 		const ensureWebhook = vi
 			.fn()
 			.mockRejectedValue(new Error('unable.verify.webhook_url : input webhook url is empty'))
@@ -612,7 +646,21 @@ describe('stepWebhook', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
+	it('warns and continues when a returned webhook secret cannot be stored', async () => {
+		stubHealthyApp()
+		const ensureWebhook = vi.fn().mockResolvedValue({ webhook_secret: 'wh-secret' })
+		const ctx = makeCtx(makeProject({ workersDevUrl: 'https://app.workers.dev' }), {
+			ensureWebhook,
+		})
+
+		await stepWebhook(ctx)
+
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Couldn’t set up instant updates.'))
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
 	it('warns and continues when webhook setup fails with a non-Error', async () => {
+		stubHealthyApp()
 		const ensureWebhook = vi.fn().mockRejectedValue('string failure')
 		const ctx = makeCtx(makeProject({ workersDevUrl: 'https://app.workers.dev' }), {
 			ensureWebhook,

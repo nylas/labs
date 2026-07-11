@@ -190,7 +190,8 @@ export type Event = {
 export type Webhook = {
 	id: string
 	trigger_types: string[]
-	callback_url: string
+	callback_url?: string
+	webhook_url?: string
 	status?: string
 	/** Returned once on create — used to verify X-Nylas-Signature. */
 	webhook_secret?: string
@@ -418,7 +419,7 @@ export class NylasV3Client {
 
 	async createWebhook(input: {
 		trigger_types: string[]
-		callback_url: string
+		webhook_url: string
 		description?: string
 	}): Promise<ItemResponse<Webhook>> {
 		return this.request('POST', '/v3/webhooks', input)
@@ -427,11 +428,11 @@ export class NylasV3Client {
 	/** Creates the webhook if no active one exists for this URL; returns it either way. */
 	async ensureWebhook(callbackUrl: string, triggerTypes: string[]): Promise<Webhook> {
 		const existing = await this.listWebhooks()
-		const found = listData(existing).find((w) => w.callback_url === callbackUrl && w.status !== 'failed')
+		const found = listData(existing).find((w) => webhookUrl(w) === callbackUrl && w.status !== 'failed')
 		if (found) return found
 		const created = await this.createWebhook({
 			trigger_types: triggerTypes,
-			callback_url: callbackUrl,
+			webhook_url: callbackUrl,
 			description: 'ownmail realtime',
 		})
 		return created.data
@@ -540,6 +541,10 @@ export class NylasV3Client {
 
 function listData<T>(response: { data?: T[] | null }): T[] {
 	return Array.isArray(response.data) ? response.data : []
+}
+
+function webhookUrl(webhook: Webhook): string | undefined {
+	return webhook.webhook_url ?? webhook.callback_url
 }
 
 function toQuery(query?: ListQuery): string {

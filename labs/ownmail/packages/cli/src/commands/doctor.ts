@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
+import { setupRealtimeWebhook } from '../deploy/webhook.js'
 import { wranglerLoggedIn } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
 import type { ProjectState } from '../state/schema.js'
@@ -194,12 +195,12 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			})
 		}
 		const url = activeAppUrl(project)
+		let appHealthy = false
 		if (url) {
-			let healthy = false
 			let detail = 'unreachable'
 			try {
 				const res = await fetch(`${url}/healthz`)
-				healthy = res.ok
+				appHealthy = res.ok
 				if (res.ok) {
 					const body = (await res.json()) as { templateVersion?: string }
 					detail = `live (template ${body.templateVersion ?? '?'})`
@@ -209,13 +210,28 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			} catch {
 				// unreachable
 			}
-			results.push({ name: `App ${url}`, status: healthy ? 'pass' : 'fail', detail })
+			results.push({ name: `App ${url}`, status: appHealthy ? 'pass' : 'fail', detail })
 		} else if (project.completedSteps.includes('deploy')) {
 			results.push({
 				name: 'App URL',
 				status: 'fail',
 				detail: 'missing from local state — run `npx ownmail` to repair deployment state',
 			})
+		}
+
+		if (opts.fix) {
+			if (project.hostingProvider === 'manual') {
+				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'manual-hosting' }))
+			} else if (!v3) {
+				results.push({
+					name: 'Instant updates',
+					status: 'skip',
+					detail: 'requires Nylas API access; rerun `npx ownmail doctor --fix` after API access is available',
+				})
+			} else {
+				const webhook = await setupRealtimeWebhook(project, v3, { attempts: 1, delayMs: 0 })
+				results.push(formatWebhookRepairResult(webhook))
+			}
 		}
 	} finally {
 		if (probeKeyId && project.applicationId) {
@@ -251,6 +267,43 @@ function outroMessage(failing: number, skipped: number): string {
 	if (failing === 0) return `All completed checks passed. ${skipped} check(s) skipped.`
 	if (skipped === 0) return `${failing} check(s) need attention.`
 	return `${failing} check(s) need attention. ${skipped} check(s) skipped.`
+}
+
+function formatWebhookRepairResult(result: Awaited<ReturnType<typeof setupRealtimeWebhook>>): CheckResult {
+	if (result.status === 'registered') {
+		return {
+			name: 'Instant updates',
+			status: 'pass',
+			detail: 'registered realtime webhook',
+			fixed: true,
+		}
+	}
+	if (result.status === 'skipped' && result.reason === 'missing-app-url') {
+		return {
+			name: 'Instant updates',
+			status: 'fail',
+			detail: 'missing public HTTPS app URL',
+		}
+	}
+	if (result.status === 'skipped' && result.reason === 'unhealthy-app') {
+		return {
+			name: 'Instant updates',
+			status: 'skip',
+			detail: 'skipped until the app URL is healthy',
+		}
+	}
+	if (result.status === 'skipped' && result.reason === 'manual-hosting') {
+		return {
+			name: 'Instant updates',
+			status: 'skip',
+			detail: 'manual hosting uses polling unless you configure webhooks yourself',
+		}
+	}
+	return {
+		name: 'Instant updates',
+		status: 'fail',
+		detail: 'could not register realtime webhook; the app will continue with polling',
+	}
 }
 
 function needsCloudflareLogin(project: ProjectState): boolean {

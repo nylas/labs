@@ -93,16 +93,18 @@ describe('NylasV3Client', () => {
 
 	it('creates a webhook when the list response has null data', async () => {
 		const requests: string[] = []
+		let createBody: unknown = null
 		const fetchImpl: typeof fetch = async (input, init) => {
 			requests.push(`${init?.method ?? 'GET'} ${String(input)}`)
 			if (String(input).endsWith('/v3/webhooks') && init?.method === 'GET') {
 				return Response.json({ request_id: 'req-list', data: null })
 			}
+			createBody = JSON.parse(String(init?.body))
 			return Response.json({
 				request_id: 'req-create',
 				data: {
 					id: 'webhook-123',
-					callback_url: 'https://mail.example.com/api/webhooks/nylas',
+					webhook_url: 'https://mail.example.com/api/webhooks/nylas',
 					status: 'active',
 				},
 			})
@@ -118,6 +120,38 @@ describe('NylasV3Client', () => {
 			'GET https://api.us.nylas.com/v3/webhooks',
 			'POST https://api.us.nylas.com/v3/webhooks',
 		])
+		expect(createBody).toEqual({
+			trigger_types: ['message.created'],
+			webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+			description: 'ownmail realtime',
+		})
+	})
+
+	it('reuses existing webhooks from either response URL field', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json({
+				request_id: 'req-list',
+				data: [
+					{
+						id: 'webhook-current',
+						webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+						status: 'active',
+					},
+					{
+						id: 'webhook-legacy',
+						callback_url: 'https://legacy.example.com/api/webhooks/nylas',
+						status: 'active',
+					},
+				],
+			})
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.ensureWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created']),
+		).resolves.toMatchObject({ id: 'webhook-current' })
+		await expect(
+			client.ensureWebhook('https://legacy.example.com/api/webhooks/nylas', ['message.created']),
+		).resolves.toMatchObject({ id: 'webhook-legacy' })
 	})
 
 	it('reads a draft directly by id', async () => {
