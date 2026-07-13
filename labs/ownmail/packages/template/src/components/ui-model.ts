@@ -632,6 +632,7 @@ function fallbackTone(index: number): EventTone {
 
 export function eventHour(event: Event): { startHour: number; endHour: number; allDay: boolean } {
 	const times = eventTimes(event)
+	if (!times) return { startHour: 0, endHour: 0, allDay: false }
 	return {
 		startHour: times.start.getHours() + times.start.getMinutes() / 60,
 		endHour: times.end.getHours() + times.end.getMinutes() / 60,

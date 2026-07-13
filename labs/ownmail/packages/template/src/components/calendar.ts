@@ -86,20 +86,59 @@ export function calendarKeyAction(key: string): CalendarKeyAction | null {
 	return null
 }
 
-export function eventTimes(event: Event): { start: Date; end: Date; allDay: boolean } {
+export type EventTimes = { start: Date; end: Date; allDay: boolean }
+
+type UnknownRecord = Record<string, unknown>
+
+function isRecord(value: unknown): value is UnknownRecord {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isUnixTimestamp(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function localDate(value: unknown): Date | null {
+	if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+	const date = new Date(`${value}T00:00:00`)
+	return Number.isNaN(date.getTime()) || ymd(date) !== value ? null : date
+}
+
+/** Returns parsed display times only for a complete, supported Nylas `when` value. */
+export function eventTimes(event: unknown): EventTimes | null {
+	if (!isRecord(event) || !isRecord(event.when)) return null
 	const when = event.when
-	if ('start_time' in when) {
-		return { start: new Date(when.start_time * 1000), end: new Date(when.end_time * 1000), allDay: false }
+
+	if (isUnixTimestamp(when.start_time) && isUnixTimestamp(when.end_time) && when.end_time > when.start_time) {
+		return {
+			start: new Date(when.start_time * 1000),
+			end: new Date(when.end_time * 1000),
+			allDay: false,
+		}
 	}
-	if ('date' in when) {
-		const start = new Date(`${when.date}T00:00:00`)
-		return { start, end: addDays(start, 1), allDay: true }
+	if (isUnixTimestamp(when.time)) {
+		const start = new Date(when.time * 1000)
+		return { start, end: new Date(start.getTime() + 60_000), allDay: false }
 	}
-	return {
-		start: new Date(`${when.start_date}T00:00:00`),
-		end: new Date(`${when.end_date}T00:00:00`),
-		allDay: true,
-	}
+	const date = localDate(when.date)
+	if (date) return { start: date, end: addDays(date, 1), allDay: true }
+
+	const start = localDate(when.start_date)
+	const end = localDate(when.end_date)
+	if (start && end && end > start) return { start, end, allDay: true }
+	return null
+}
+
+/** Runtime boundary guard for calendar data returned by external APIs. */
+export function isRenderableCalendarEvent(value: unknown): value is Event {
+	if (
+		!isRecord(value) ||
+		typeof value.id !== 'string' ||
+		!value.id ||
+		(value.calendar_id !== undefined && typeof value.calendar_id !== 'string')
+	)
+		return false
+	return eventTimes(value) !== null
 }
 
 export function eventsOnDay(events: Event[], day: Date): Event[] {
@@ -107,12 +146,16 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 	const dayEnd = dayStart + 24 * 60 * 60 * 1000
 	return events
 		.filter((e) => {
-			const { start, end } = eventTimes(e)
+			const times = eventTimes(e)
+			if (!times) return false
+			const { start, end } = times
 			return start.getTime() < dayEnd && end.getTime() > dayStart
 		})
 		.sort((a, b) => {
 			const aTimes = eventTimes(a)
 			const bTimes = eventTimes(b)
+			/* v8 ignore next -- this sort runs only after the preceding filter retained both valid events */
+			if (!aTimes || !bTimes) return 0
 			return Number(bTimes.allDay) - Number(aTimes.allDay) || aTimes.start.getTime() - bTimes.start.getTime()
 		})
 }
@@ -128,7 +171,7 @@ export type AllDayEventSegment = {
 export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEventSegment[] {
 	const segments = events
 		.map((event, index) => {
-			if (!eventTimes(event).allDay) return null
+			if (!eventTimes(event)?.allDay) return null
 
 			let firstDay = -1
 			let lastDay = -1
@@ -151,6 +194,8 @@ export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEve
 		.sort((a, b) => {
 			const aTimes = eventTimes(a.event)
 			const bTimes = eventTimes(b.event)
+			/* v8 ignore next -- segments are created only for events with parsed all-day times */
+			if (!aTimes || !bTimes) return 0
 			return (
 				a.startColumn - b.startColumn ||
 				b.span - a.span ||
@@ -170,12 +215,16 @@ export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEve
 }
 
 export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: ReadonlySet<string>): Event[] {
-	if (hiddenCalendarIds.size === 0) return events
-	return events.filter((event) => !event.calendar_id || !hiddenCalendarIds.has(event.calendar_id))
+	if (hiddenCalendarIds.size === 0 && events.every(isRenderableCalendarEvent)) return events
+	return events.filter(
+		(event) =>
+			isRenderableCalendarEvent(event) &&
+			(hiddenCalendarIds.size === 0 || !event.calendar_id || !hiddenCalendarIds.has(event.calendar_id)),
+	)
 }
 
 export function timedEventsOnDay(events: Event[], day: Date): Event[] {
-	return eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
+	return eventsOnDay(events, day).filter((event) => eventTimes(event)?.allDay === false)
 }
 
 export function timedEventLayout(
@@ -184,7 +233,7 @@ export function timedEventLayout(
 	options: { startHour: number; endHour: number; hourHeight: number },
 ): { top: number; height: number } | null {
 	const times = eventTimes(event)
-	if (times.allDay) return null
+	if (!times || times.allDay) return null
 
 	const visibleStart = dateWithHour(startOfDay(day), options.startHour)
 	const visibleEnd = dateWithHour(startOfDay(day), options.endHour)

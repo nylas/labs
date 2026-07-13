@@ -403,6 +403,21 @@ describe('week view time grid', () => {
 		expect(screen.queryByRole('button', { name: 'Night' })).toBeNull()
 	})
 
+	it('skips malformed loader events rather than crashing the calendar', () => {
+		const data = {
+			...richData(),
+			events: [
+				...richEvents(),
+				null,
+				{ id: 'bad-null-when', calendar_id: 'cal1', title: 'Malformed', when: null },
+			] as unknown as Event[],
+		}
+
+		expect(() => render(<CalendarRouteScreen view="week" data={data} />)).not.toThrow()
+		expect(screen.getByRole('button', { name: /Standup/ })).toBeInTheDocument()
+		expect(screen.queryByText('Malformed')).toBeNull()
+	})
+
 	it('opens the editor from a timed event with its calendar name resolved', () => {
 		renderWeek()
 		fireEvent.click(screen.getByRole('button', { name: /Standup/ }))

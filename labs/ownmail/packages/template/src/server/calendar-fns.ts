@@ -6,6 +6,7 @@ import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
+import { isRenderableCalendarEvent } from '../components/calendar.js'
 import { LOGIN_PATH } from '../components/route-paths.js'
 import {
 	type CreateEventInput,
@@ -66,7 +67,9 @@ export const getEvents = createServerFn({ method: 'GET' })
 				}),
 			),
 		)
-		const events = eventPages.flatMap((page) => page.data)
+		// `request<T>()` cannot validate live JSON at runtime. Drop malformed entries at
+		// this external-data boundary so a single provider record cannot crash the calendar.
+		const events = eventPages.flatMap((page) => page.data).filter(isRenderableCalendarEvent)
 		return { calendar, calendars, events }
 	})
 

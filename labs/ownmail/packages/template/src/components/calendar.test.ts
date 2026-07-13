@@ -7,8 +7,10 @@ import {
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	eventsOnDay,
+	eventTimes,
 	filterEventsByCalendars,
 	isCalView,
+	isRenderableCalendarEvent,
 	shiftAnchor,
 	startOfWeek,
 	timedEventLayout,
@@ -113,6 +115,48 @@ describe('calendar view helpers', () => {
 
 		// Empty hidden set is the common case (all calendars visible); it must not filter anything.
 		expect(filterEventsByCalendars(events, new Set())).toBe(events)
+	})
+
+	it('rejects malformed external events without disrupting valid calendar projections', () => {
+		const timed = timedEvent('valid-timed', 'work', '2026-07-08T10:00:00', '2026-07-08T11:00:00')
+		const allDay = allDayEvent('valid-all-day', 'work', '2026-07-08')
+		const malformed = [
+			null,
+			{ id: 'null-when', calendar_id: 'work', when: null },
+			{ id: 'missing-when', calendar_id: 'work' },
+			{ id: 'bad-timespan', calendar_id: 'work', when: { start_time: 10, end_time: 10 } },
+			{ id: 'bad-date', calendar_id: 'work', when: { date: '2026-02-30' } },
+			{ id: 'bad-datespan', calendar_id: 'work', when: { start_date: '2026-07-09', end_date: '2026-07-08' } },
+		] as unknown as Event[]
+		const events = [timed, allDay, ...malformed] as Event[]
+
+		expect(eventTimes(null)).toBeNull()
+		expect(isRenderableCalendarEvent(malformed[0])).toBe(false)
+		expect(filterEventsByCalendars(events, new Set()).map((event) => event.id)).toEqual([
+			'valid-timed',
+			'valid-all-day',
+		])
+		expect(eventsOnDay(events, new Date('2026-07-08T12:00:00')).map((event) => event.id)).toEqual([
+			'valid-all-day',
+			'valid-timed',
+		])
+		expect(timedEventsOnDay(events, new Date('2026-07-08T12:00:00')).map((event) => event.id)).toEqual([
+			'valid-timed',
+		])
+		expect(
+			allDayEventSegments(events, [new Date('2026-07-08T12:00:00')]).map((segment) => segment.event.id),
+		).toEqual(['valid-all-day'])
+	})
+
+	it('supports Nylas single-point `time` event values', () => {
+		const event = {
+			id: 'reminder',
+			calendar_id: 'work',
+			when: { object: 'time', time: Math.floor(new Date('2026-07-08T10:00:00').getTime() / 1000) },
+		} satisfies Event
+
+		expect(eventTimes(event)).toMatchObject({ allDay: false, start: new Date('2026-07-08T10:00:00') })
+		expect(eventsOnDay([event], new Date('2026-07-08T12:00:00')).map(({ id }) => id)).toEqual(['reminder'])
 	})
 
 	it('keeps events with no calendar id even when other calendars are hidden', () => {
