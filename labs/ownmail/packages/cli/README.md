@@ -9,6 +9,8 @@ powered by Nylas Agent Accounts.
 Start with the guided path. Eject to the source when you want the power-user
 path.
 
+![OwnMail's local mock inbox, with folders, message list, search, and compose controls](https://raw.githubusercontent.com/nylas/labs/main/labs/ownmail/assets/screenshots/ownmail-inbox.png)
+
 ## Put your inbox to work
 
 ```bash

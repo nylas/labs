@@ -24,6 +24,8 @@ Start from your terminal:
 npx ownmail
 ```
 
+<img src="./labs/ownmail/assets/screenshots/ownmail-inbox.png" alt="OwnMail's local mock inbox, with folders, message list, search, and compose controls" width="100%" />
+
 See the [OwnMail quickstart](./labs/ownmail/docs/quickstart.md) for the setup
 flow, commands, and the power-user `eject` path.
 

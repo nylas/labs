@@ -7,6 +7,8 @@ and is powered by Nylas Agent Accounts.
 This is the power-user half of OwnMail: a real app codebase for people who want
 their inbox to look, behave, and deploy their way.
 
+![OwnMail's local mock inbox, with folders, message list, search, and compose controls](https://raw.githubusercontent.com/nylas/labs/main/labs/ownmail/assets/screenshots/ownmail-inbox.png)
+
 Most people should start with the CLI:
 
 ```bash
