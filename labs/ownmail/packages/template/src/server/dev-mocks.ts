@@ -114,18 +114,29 @@ class DevMailbox {
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
+			...(body.reply_to_message_id ? { replyToMessageId: body.reply_to_message_id } : {}),
 			...(body.attachments ? { attachments: body.attachments } : {}),
 		})
 		return itemResponse(mockDraft(saved.draftId))
 	}
 
 	async updateDraft(draftId: string, body: SendMessageRequest): Promise<ItemResponse<Draft>> {
+		const previous = mockDraft(draftId) as StoredDraft
 		const saved = mockSaveDraft({
 			draftId,
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
-			...(body.attachments ? { attachments: body.attachments } : {}),
+			...(body.reply_to_message_id
+				? { replyToMessageId: body.reply_to_message_id }
+				: previous.reply_to_message_id
+					? { replyToMessageId: previous.reply_to_message_id }
+					: {}),
+			...(body.attachments
+				? { attachments: body.attachments }
+				: previous.outbound_attachments
+					? { attachments: previous.outbound_attachments }
+					: {}),
 		})
 		return itemResponse(mockDraft(saved.draftId))
 	}
@@ -973,6 +984,7 @@ export function mockSaveDraft(input: {
 	to: string
 	subject: string
 	body: string
+	replyToMessageId?: string
 	attachments?: SendMessageRequest['attachments']
 }): {
 	draftId: string
@@ -991,6 +1003,7 @@ export function mockSaveDraft(input: {
 			.slice(0, 140),
 		body: input.body,
 		to: splitEmails(input.to).map((email) => ({ email })),
+		...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
 		...(input.attachments?.length
 			? { attachments: mockAttachmentMetadata(input.attachments), outbound_attachments: input.attachments }
 			: {}),

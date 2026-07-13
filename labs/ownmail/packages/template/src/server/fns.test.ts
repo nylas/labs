@@ -392,6 +392,17 @@ describe('saveDraft', () => {
 		expect(data.toList).toEqual(['a@b.com'])
 	})
 
+	it('rejects an over-long reply reference', () => {
+		expect(() =>
+			fns.saveDraft.validator({
+				to: 'a@b.com',
+				subject: 's',
+				body: 'b',
+				replyToMessageId: 'x'.repeat(501),
+			}),
+		).toThrow('Invalid reply reference')
+	})
+
 	it('updates an existing draft', async () => {
 		resolveMailbox()
 		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd1' } })
@@ -400,6 +411,15 @@ describe('saveDraft', () => {
 		})
 		expect(mailbox.updateDraft).toHaveBeenCalled()
 		expect(res).toEqual({ draftId: 'd1' })
+	})
+
+	it('persists a reply reference with an autosaved draft', async () => {
+		resolveMailbox()
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd1' } })
+		await fns.saveDraft.handler({
+			data: { toList: ['a@b.com'], subject: 'Re: Hi', body: 'b', replyToMessageId: 'm9' },
+		})
+		expect(mailbox.createDraft).toHaveBeenCalledWith(expect.objectContaining({ reply_to_message_id: 'm9' }))
 	})
 
 	it('creates a new draft with attachments when there is no draft id', async () => {
@@ -458,6 +478,18 @@ describe('sendDraft', () => {
 		).toThrow('Message body too large')
 	})
 
+	it('rejects an over-long reply reference', () => {
+		expect(() =>
+			fns.sendDraft.validator({
+				draftId: 'd1',
+				to: 'a@b.com',
+				subject: 's',
+				body: 'b',
+				replyToMessageId: 'x'.repeat(501),
+			}),
+		).toThrow('Invalid reply reference')
+	})
+
 	it('updates and sends a draft', async () => {
 		resolveMailbox()
 		expect(
@@ -471,6 +503,23 @@ describe('sendDraft', () => {
 			body: '<p>b</p>',
 		})
 		expect(mailbox.sendDraft).toHaveBeenCalledWith('d1')
+	})
+
+	it('preserves a reply reference when updating and sending a draft', async () => {
+		resolveMailbox()
+		await fns.sendDraft.handler({
+			data: {
+				draftId: 'd1',
+				toList: ['a@b.com'],
+				subject: 'Re: Hi',
+				body: '<p>b</p>',
+				replyToMessageId: 'm9',
+			},
+		})
+		expect(mailbox.updateDraft).toHaveBeenCalledWith(
+			'd1',
+			expect.objectContaining({ reply_to_message_id: 'm9' }),
+		)
 	})
 
 	it('keeps newly attached files when updating the draft before sending it', async () => {

@@ -238,13 +238,19 @@ export const saveDraft = createServerFn({ method: 'POST' })
 			to: string
 			subject: string
 			body: string
+			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
-		}) => ({
-			...input,
-			...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
-			toList: parseRecipientEmails(input.to, { required: false }),
-			attachments: normalizeOutboundAttachments(input.attachments),
-		}),
+		}) => {
+			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+				throw new Error('Invalid reply reference')
+			}
+			return {
+				...input,
+				...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
+				toList: parseRecipientEmails(input.to, { required: false }),
+				attachments: normalizeOutboundAttachments(input.attachments),
+			}
+		},
 	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
@@ -254,6 +260,7 @@ export const saveDraft = createServerFn({ method: 'POST' })
 				subject: data.subject,
 				body: data.body,
 				...(data.attachments ? { attachments: data.attachments } : {}),
+				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			}
 			const saved = data.draftId
 				? await mailbox.updateDraft(data.draftId, payload)
@@ -285,10 +292,14 @@ export const sendDraft = createServerFn({ method: 'POST' })
 			to: string
 			subject: string
 			body: string
+			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
 		}) => {
 			const to = parseRecipientEmails(input.to, { required: true })
 			if (input.body.length > 500_000) throw new Error('Message body too large')
+			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+				throw new Error('Invalid reply reference')
+			}
 			return {
 				...input,
 				draftId: requireNylasProviderId(input.draftId, 'draft'),
@@ -305,6 +316,7 @@ export const sendDraft = createServerFn({ method: 'POST' })
 				subject: data.subject,
 				body: data.body,
 				...(data.attachments ? { attachments: data.attachments } : {}),
+				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
 			await mailbox.sendDraft(data.draftId)
 		} catch (err) {

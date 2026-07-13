@@ -107,7 +107,9 @@ function Compose() {
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
-	const [body, setBody] = useState(() => seedToMarkdown(draft?.body ?? reply?.body ?? ''))
+	const draftBody = draft?.body ?? reply?.body ?? ''
+	const replyToMessageId = reply?.replyToMessageId ?? draft?.reply_to_message_id
+	const [body, setBody] = useState(draftBody)
 	const [busy, setBusy] = useState(false)
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
@@ -119,6 +121,12 @@ function Compose() {
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
+
+	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
+	// only after hydration because the conversion uses browser DOM APIs.
+	useEffect(() => {
+		setBody(seedToMarkdown(draftBody))
+	}, [draftBody])
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const composeThreadSearch = (threadId: string) =>
@@ -257,6 +265,7 @@ function Compose() {
 						// Enveloped so reloading can tell markdown from legacy HTML drafts.
 						body: body ? markdownToDraftBody(body) : '',
 						...(attachments.length ? { attachments } : {}),
+						...(replyToMessageId ? { replyToMessageId } : {}),
 					},
 				})
 				setDraftId(saved.draftId)
@@ -267,7 +276,7 @@ function Compose() {
 			}
 		}, 3000)
 		return () => clearTimeout(timer)
-	}, [to, subject, body, draftId, attachments])
+	}, [to, subject, body, draftId, attachments, replyToMessageId])
 
 	useEffect(() => {
 		if (!saved) return
@@ -314,12 +323,15 @@ function Compose() {
 				body: markdownToEmailHtml(body),
 				...(attachments.length ? { attachments } : {}),
 			}
-			if (draftId) await sendDraft({ data: { draftId, ...payload } })
-			else
+			if (draftId) {
+				await sendDraft({
+					data: { draftId, ...payload, ...(replyToMessageId ? { replyToMessageId } : {}) },
+				})
+			} else
 				await sendMessage({
 					data: {
 						...payload,
-						...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
+						...(replyToMessageId ? { replyToMessageId } : {}),
 					},
 				})
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })

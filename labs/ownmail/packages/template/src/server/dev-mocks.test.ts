@@ -135,6 +135,39 @@ describe('dev mock reference identity', () => {
 		expect(sentDraft?.has_attachments).toBe(true)
 	})
 
+	it('preserves existing draft attachments when an update omits replacements', async () => {
+		const mailbox = createDevMailbox()
+		const attachment = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
+		const created = await mailbox.createDraft({
+			to: [{ email: 'grace@vercel.com' }],
+			attachments: [attachment],
+		})
+		await mailbox.updateDraft(created.data.id, { subject: 'Updated draft' })
+		expect((await mailbox.getDraft(created.data.id)).data.attachments?.[0]?.filename).toBe('notes.txt')
+	})
+
+	it('preserves draft reply context and accepts replacement attachments', async () => {
+		const mailbox = createDevMailbox()
+		const original = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
+		const replacement = { filename: 'updated.txt', content_type: 'text/plain', content: btoa('updated') }
+		const created = await mailbox.createDraft({
+			to: [{ email: 'grace@vercel.com' }],
+			reply_to_message_id: 'm1',
+			attachments: [original],
+		})
+
+		await mailbox.updateDraft(created.data.id, { attachments: [replacement] })
+		expect((await mailbox.getDraft(created.data.id)).data.reply_to_message_id).toBe('m1')
+		expect((await mailbox.getDraft(created.data.id)).data.attachments?.[0]?.filename).toBe('updated.txt')
+
+		await mailbox.updateDraft(created.data.id, { reply_to_message_id: 'm2' })
+		expect((await mailbox.getDraft(created.data.id)).data.reply_to_message_id).toBe('m2')
+
+		const plainDraft = await mailbox.createDraft({ to: [{ email: 'ada@lovelace.dev' }] })
+		await mailbox.updateDraft(plainDraft.data.id, { subject: 'No attachments' })
+		expect((await mailbox.getDraft(plainDraft.data.id)).data.attachments).toBeUndefined()
+	})
+
 	it('models starred as an account-wide thread query', () => {
 		const starred = mockThreads({ starred: true }).threads
 
