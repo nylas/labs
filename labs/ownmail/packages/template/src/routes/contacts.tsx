@@ -4,7 +4,6 @@ import { Plus, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
-import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import {
 	contactDisplayName,
 	contactIdFromPath,
@@ -12,6 +11,7 @@ import {
 	filterContacts,
 	sortContacts,
 } from '../components/contacts-model.js'
+import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS, cn, initials } from '../components/ui-model.js'
 import { getContacts, getMailboxInfo } from '../server/fns.js'
 
@@ -74,7 +74,6 @@ export function ContactsShell({
 	// extras and reset the cursor so we don't show stale or duplicated rows. The
 	// `contacts` dep is the trigger even though the body doesn't read it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when a new contacts page arrives
-	/* v8 ignore start -- list navigation is exercised through the shared pure helpers */
 	useEffect(() => {
 		setExtra([])
 		setNextCursor(initialCursor)
@@ -86,6 +85,7 @@ export function ContactsShell({
 	const linkSearch = query ? { q: query } : {}
 
 	// Contacts is an arrow-key list as well as a set of ordinary tab stops.
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers */
 	useEffect(() => {
 		setCursor(selectedId ? filtered.findIndex((contact) => contact.id === selectedId) : -1)
 	}, [filtered, selectedId])
@@ -95,7 +95,14 @@ export function ContactsShell({
 			const target = event.target as HTMLElement | null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-			if (isTyping || event.metaKey || event.ctrlKey || event.altKey || target?.closest?.('button, a, select')) return
+			if (
+				isTyping ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				target?.closest?.('button, a, select')
+			)
+				return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return

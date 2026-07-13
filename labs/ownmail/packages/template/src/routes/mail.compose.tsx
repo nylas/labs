@@ -268,7 +268,7 @@ function Compose() {
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [composeListSearch, navigate, selected])
 
-	function close() {
+	const close = useCallback(() => {
 		if (shouldUseBrowserBackForComposeClose(history.state)) {
 			history.back()
 			return
@@ -279,7 +279,7 @@ function Compose() {
 				params: { folderId, threadId: selected.thread.id },
 			})
 		} else navigate({ to: '/mail/f/$folderId', params: { folderId } })
-	}
+	}, [folderId, navigate, selected])
 
 	const persistDraft = useCallback(
 		async ({ to, subject, body, attachments, replyToMessageId }: DraftPersistenceInput) => {
@@ -381,7 +381,7 @@ function Compose() {
 		dirty.current = true
 	}
 
-	async function submit() {
+	const submit = useCallback(async () => {
 		submitting.current = true
 		setBusy(true)
 		setError(null)
@@ -405,9 +405,9 @@ function Compose() {
 			setBusy(false)
 			submitting.current = false
 		}
-	}
+	}, [attachments, body, navigate, queueDraftPersistence, replyToMessageId, subject, to])
 
-	async function saveNow() {
+	const saveNow = useCallback(async () => {
 		setBusy(true)
 		setError(null)
 		try {
@@ -417,7 +417,7 @@ function Compose() {
 		} finally {
 			setBusy(false)
 		}
-	}
+	}, [attachments, body, queueDraftPersistence, replyToMessageId, subject, to])
 
 	async function discard() {
 		discarding.current = true

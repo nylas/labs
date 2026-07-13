@@ -2,8 +2,8 @@ import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { ThreadConversation } from '../components/ThreadConversation.js'
 import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
+import { ThreadConversation } from '../components/ThreadConversation.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import {
 	cn,
@@ -67,7 +67,14 @@ function SearchResults() {
 			const target = event.target as HTMLElement | null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-			if (isTyping || event.metaKey || event.ctrlKey || event.altKey || target?.closest?.('button, a, select')) return
+			if (
+				isTyping ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				target?.closest?.('button, a, select')
+			)
+				return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return

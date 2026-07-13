@@ -507,6 +507,7 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 					</button>
 				</div>
 			</div>
+			{/* biome-ignore lint/a11y/useSemanticElements: The date picker uses ARIA grid keyboard navigation with roving tab stops. */}
 			<div className="grid grid-cols-7 gap-0.5 text-center" role="grid" aria-label="Date picker">
 				{[
 					['sun', 'S'],
@@ -592,12 +593,14 @@ function MonthGrid({
 					</div>
 				))}
 			</div>
+			{/* biome-ignore lint/a11y/useSemanticElements: The calendar uses ARIA grid keyboard navigation with roving tab stops. */}
 			<div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6" role="grid" aria-label="Month calendar">
 				{days.map((day) => {
 					const inMonth = day.getMonth() === anchor.getMonth()
 					const dayEvents = eventsOnDay(events, day)
 					const iso = ymd(day)
 					return (
+						/* biome-ignore lint/a11y/useSemanticElements: Each interactive date is an ARIA gridcell in the calendar grid. */
 						<div
 							key={day.toISOString()}
 							onClick={() => onPickDay(day)}
