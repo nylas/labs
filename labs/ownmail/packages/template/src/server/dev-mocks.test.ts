@@ -144,6 +144,9 @@ describe('dev mock reference identity', () => {
 		})
 		await mailbox.updateDraft(created.data.id, { subject: 'Updated draft' })
 		expect((await mailbox.getDraft(created.data.id)).data.attachments?.[0]?.filename).toBe('notes.txt')
+		const downloaded = await mailbox.downloadAttachment('att-outbound-0-notes.txt', created.data.id)
+		expect(await downloaded.text()).toBe('hello')
+		expect((await mailbox.downloadAttachment('missing', created.data.id)).status).toBe(404)
 	})
 
 	it('preserves draft reply context and accepts replacement attachments', async () => {

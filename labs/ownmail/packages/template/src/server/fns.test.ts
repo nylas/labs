@@ -55,6 +55,7 @@ function makeMailbox() {
 		updateDraft: vi.fn(),
 		createDraft: vi.fn(),
 		getDraft: vi.fn(),
+		downloadAttachment: vi.fn(),
 		sendDraft: vi.fn(),
 		listContacts: vi.fn(),
 		getContact: vi.fn(),
@@ -74,6 +75,7 @@ beforeEach(() => {
 	mailbox = makeMailbox()
 	getRequestMock.mockReset().mockReturnValue(new Request('http://ownmail.local/'))
 	mailboxFromRequestMock.mockReset()
+	mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
 	platformMock.mockReset().mockResolvedValue({ env: { APP_NAME: 'ownmail' } })
 })
 
@@ -529,6 +531,50 @@ describe('sendDraft', () => {
 			data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: '<p>b</p>', attachments },
 		})
 		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', expect.objectContaining({ attachments }))
+	})
+
+	it('rehydrates provider attachments before replacing a draft', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({
+			data: {
+				id: 'd1',
+				attachments: [
+					{ id: 'a1', filename: 'notes.txt', content_type: 'text/plain' },
+					{ id: 'a2', is_inline: true, content_id: 'inline-2' },
+				],
+			},
+		})
+		mailbox.downloadAttachment
+			.mockResolvedValueOnce(new Response('hello'))
+			.mockResolvedValueOnce(new Response('image'))
+		await fns.sendDraft.handler({
+			data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: '<p>b</p>' },
+		})
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'd1')
+		expect(mailbox.updateDraft).toHaveBeenCalledWith(
+			'd1',
+			expect.objectContaining({
+				attachments: [
+					{ filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') },
+					{
+						filename: 'attachment',
+						content_type: 'application/octet-stream',
+						content: btoa('image'),
+					},
+				],
+			}),
+		)
+	})
+
+	it('does not replace a draft when an existing attachment cannot be retrieved', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({ data: { id: 'd1', attachments: [{ id: 'a1' }] } })
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(
+			fns.sendDraft.handler({ data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: '<p>b</p>' } }),
+		).rejects.toThrow(/Something went wrong/)
+		expect(mailbox.updateDraft).not.toHaveBeenCalled()
+		expect(mailbox.sendDraft).not.toHaveBeenCalled()
 	})
 
 	it('maps failures to a friendly error', async () => {

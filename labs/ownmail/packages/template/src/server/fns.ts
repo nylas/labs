@@ -55,6 +55,40 @@ function friendly(err: unknown): Error {
 	return new Error('Something went wrong talking to your mailbox. Please try again.')
 }
 
+type AttachmentDownloader = {
+	downloadAttachment(attachmentId: string, messageId: string): Promise<Response>
+}
+
+/** Re-encode provider attachments because draft updates are full PUT replacements. */
+async function restoreDraftAttachments(
+	mailbox: AttachmentDownloader,
+	draft: Draft,
+): Promise<OutboundAttachment[]> {
+	const attachments = draft.attachments ?? []
+	const restored: OutboundAttachment[] = []
+	for (const attachment of attachments) {
+		const response = await mailbox.downloadAttachment(attachment.id, draft.id)
+		if (!response.ok) throw new Error('Unable to restore draft attachment')
+		const bytes = new Uint8Array(await response.arrayBuffer())
+		restored.push({
+			filename: attachment.filename ?? 'attachment',
+			content_type: attachment.content_type ?? 'application/octet-stream',
+			content: bytesToBase64(bytes),
+			...(attachment.is_inline ? { is_inline: true } : {}),
+			...(attachment.content_id ? { content_id: attachment.content_id } : {}),
+		})
+	}
+	return restored
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = ''
+	for (let index = 0; index < bytes.length; index += 0x8000) {
+		binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+	}
+	return btoa(binary)
+}
+
 function isNotFound(err: unknown): boolean {
 	return err instanceof NylasApiError
 		? err.status === 404
@@ -311,11 +345,14 @@ export const sendDraft = createServerFn({ method: 'POST' })
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
+			const draft = await mailbox.getDraft(data.draftId)
+			const restoredAttachments = await restoreDraftAttachments(mailbox, draft.data)
+			const attachments = normalizeOutboundAttachments([...restoredAttachments, ...(data.attachments ?? [])])
 			await mailbox.updateDraft(data.draftId, {
 				to: data.toList.map((email) => ({ email })),
 				subject: data.subject,
 				body: data.body,
-				...(data.attachments ? { attachments: data.attachments } : {}),
+				...(attachments ? { attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
 			await mailbox.sendDraft(data.draftId)

@@ -109,6 +109,17 @@ class DevMailbox {
 		return itemResponse(mockDraft(draftId))
 	}
 
+	async downloadAttachment(attachmentId: string, draftId: string): Promise<Response> {
+		const draft = mockDraft(draftId) as StoredDraft
+		const attachment = draft.outbound_attachments?.find(
+			(candidate, index) => `att-outbound-${index}-${candidate.filename}` === attachmentId,
+		)
+		if (!attachment) return new Response('Not found', { status: 404 })
+		return new Response(base64ToBytes(attachment.content).buffer as ArrayBuffer, {
+			headers: { 'Content-Type': attachment.content_type },
+		})
+	}
+
 	async createDraft(body: SendMessageRequest): Promise<ItemResponse<Draft>> {
 		const saved = mockSaveDraft({
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
@@ -1057,6 +1068,11 @@ function mockAttachmentMetadata(attachments: SendMessageRequest['attachments']):
 function base64DecodedBytes(value: string): number {
 	const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
 	return Math.floor((value.length * 3) / 4) - padding
+}
+
+function base64ToBytes(value: string): Uint8Array {
+	const binary = atob(value)
+	return Uint8Array.from(binary, (char) => char.charCodeAt(0))
 }
 
 const contacts = new Map<string, Contact>(
