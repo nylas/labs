@@ -172,7 +172,7 @@ export NYLAS_CLIENT_ID="..."
 export NYLAS_REGION="us"
 export APP_NAME="ownmail-local"
 export INBOX_EMAIL="you@example.com"
-export TEMPLATE_VERSION="0.1.1"
+export TEMPLATE_VERSION="0.1.2"
 pnpm --filter @ownmail/app dev:local
 ```
 
