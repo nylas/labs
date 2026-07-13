@@ -11,6 +11,7 @@ import {
 	filterEventsByCalendars,
 	isCalView,
 	isRenderableCalendarEvent,
+	moveCalendarDay,
 	shiftAnchor,
 	startOfWeek,
 	timedEventLayout,
@@ -79,6 +80,21 @@ describe('calendarKeyAction', () => {
 	it('returns null for unbound keys so the caller leaves the event alone', () => {
 		expect(calendarKeyAction('x')).toBeNull()
 		expect(calendarKeyAction('Enter')).toBeNull()
+	})
+})
+
+describe('moveCalendarDay', () => {
+	it('uses arrows, Home/End, and page keys without changing calendar view', () => {
+		const wednesday = new Date('2026-07-08T12:00:00')
+		expect(ymd(moveCalendarDay(wednesday, 'ArrowLeft') as Date)).toBe('2026-07-07')
+		expect(ymd(moveCalendarDay(wednesday, 'ArrowRight') as Date)).toBe('2026-07-09')
+		expect(ymd(moveCalendarDay(wednesday, 'ArrowUp') as Date)).toBe('2026-07-01')
+		expect(ymd(moveCalendarDay(wednesday, 'ArrowDown') as Date)).toBe('2026-07-15')
+		expect(ymd(moveCalendarDay(wednesday, 'Home') as Date)).toBe('2026-07-05')
+		expect(ymd(moveCalendarDay(wednesday, 'End') as Date)).toBe('2026-07-11')
+		expect(ymd(moveCalendarDay(wednesday, 'PageUp') as Date)).toBe('2026-06-08')
+		expect(ymd(moveCalendarDay(wednesday, 'PageDown') as Date)).toBe('2026-08-08')
+		expect(moveCalendarDay(wednesday, 'Enter')).toBeNull()
 	})
 })
 

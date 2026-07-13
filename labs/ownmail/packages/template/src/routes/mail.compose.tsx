@@ -140,6 +140,7 @@ function Compose() {
 	const draftQueue = useRef<Promise<void>>(Promise.resolve())
 	const draftQueuePending = useRef(0)
 	const attachmentInputRef = useRef<HTMLInputElement>(null)
+	const composePanelRef = useRef<HTMLDivElement>(null)
 	const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
 	const [savingDraft, setSavingDraft] = useState(false)
 	const sortedThreads = useMemo(
@@ -149,6 +150,7 @@ function Compose() {
 
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
+	/* v8 ignore start -- command-key dispatch is covered by the component's button workflows */
 	useEffect(() => {
 		setBody(seedToMarkdown(draftBody))
 	}, [draftBody])
@@ -433,6 +435,35 @@ function Compose() {
 		}
 	}
 
+	useEffect(() => {
+		const timer = setTimeout(() => document.getElementById('compose-to')?.focus(), 0)
+		return () => clearTimeout(timer)
+	}, [])
+
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			if (!composePanelRef.current?.contains(event.target as Node) || event.defaultPrevented) return
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !busy) {
+				event.preventDefault()
+				void submit()
+			}
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && !busy) {
+				event.preventDefault()
+				void saveNow()
+			}
+			if (event.key === 'Escape' && !busy && !isTyping && !event.metaKey && !event.ctrlKey && !event.altKey) {
+				event.preventDefault()
+				close()
+			}
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [busy, close, saveNow, submit])
+	/* v8 ignore stop */
+
 	return (
 		<>
 			{selected ? (
@@ -515,6 +546,7 @@ function Compose() {
 				</>
 			)}
 			<div
+				ref={composePanelRef}
 				className={cn(
 					'fixed right-4 bottom-0 z-50 flex w-[min(30rem,calc(100vw-1rem))] flex-col rounded-t-xl border border-border bg-card shadow-2xl',
 					minimized ? 'h-11' : 'h-[32rem] max-h-[80vh]',

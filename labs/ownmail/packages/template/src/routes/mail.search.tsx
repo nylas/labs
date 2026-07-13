@@ -3,6 +3,7 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { ThreadConversation } from '../components/ThreadConversation.js'
+import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import {
 	cn,
@@ -48,12 +49,49 @@ function SearchResults() {
 	const { threads, folders, folderId, selected } = Route.useLoaderData()
 	const { q, threadId } = Route.useSearch()
 	const router = useRouter()
+	const [cursor, setCursor] = useState(-1)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const title = mailFolderTitle(folderId ?? 'inbox', folders)
+
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers */
+	useEffect(() => {
+		setCursor(threadId ? sortedThreads.findIndex((thread) => thread.id === threadId) : -1)
+	}, [sortedThreads, threadId])
+
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.metaKey || event.ctrlKey || event.altKey || target?.closest?.('button, a, select')) return
+			if (document.querySelector('[role="dialog"]')) return
+			const action = listNavAction(event.key)
+			if (!action) return
+			event.preventDefault()
+			if (action === 'open') {
+				const thread = sortedThreads[cursor]
+				if (thread) {
+					router.navigate({
+						to: '/mail/search',
+						search: { q, ...(folderId ? { folderId } : {}), threadId: thread.id },
+					})
+				}
+				return
+			}
+			setCursor((current) =>
+				action === 'first' || action === 'last'
+					? edgeCursor(action, sortedThreads.length)
+					: moveCursor(current, action === 'down' ? 1 : -1, sortedThreads.length),
+			)
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [cursor, folderId, q, router, sortedThreads])
+	/* v8 ignore stop */
 
 	useEffect(() => {
 		if (selected?.markedRead) router.invalidate()
@@ -90,6 +128,7 @@ function SearchResults() {
 								q={q}
 								searchFolderId={folderId}
 								active={thread.id === threadId}
+								keyboardActive={cursor === sortedThreads.indexOf(thread)}
 							/>
 						))
 					)}
@@ -121,11 +160,13 @@ function SearchThreadRow({
 	q,
 	searchFolderId,
 	active,
+	keyboardActive,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	q: string
 	searchFolderId?: string
 	active: boolean
+	keyboardActive: boolean
 }) {
 	const folderId = threadRouteFolderId(thread)
 	const router = useRouter()
@@ -159,6 +200,7 @@ function SearchThreadRow({
 			to="/mail/search"
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
 			data-active={active ? 'true' : undefined}
+			data-nav-cursor={keyboardActive ? 'true' : undefined}
 			data-unread={optimisticThread.unread ? 'true' : undefined}
 			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
 		>

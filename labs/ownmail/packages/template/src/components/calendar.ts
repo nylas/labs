@@ -86,6 +86,23 @@ export function calendarKeyAction(key: string): CalendarKeyAction | null {
 	return null
 }
 
+/**
+ * Move a focused calendar day using the conventional grid keys. This is kept
+ * separate from view paging so arrow keys inside a calendar grid never page
+ * the whole calendar unexpectedly.
+ */
+export function moveCalendarDay(current: Date, key: string): Date | null {
+	if (key === 'ArrowLeft') return addDays(current, -1)
+	if (key === 'ArrowRight') return addDays(current, 1)
+	if (key === 'ArrowUp') return addDays(current, -7)
+	if (key === 'ArrowDown') return addDays(current, 7)
+	if (key === 'Home') return addDays(current, -current.getDay())
+	if (key === 'End') return addDays(current, 6 - current.getDay())
+	if (key === 'PageUp') return new Date(current.getFullYear(), current.getMonth() - 1, current.getDate())
+	if (key === 'PageDown') return new Date(current.getFullYear(), current.getMonth() + 1, current.getDate())
+	return null
+}
+
 export type EventTimes = { start: Date; end: Date; allDay: boolean }
 
 type UnknownRecord = Record<string, unknown>

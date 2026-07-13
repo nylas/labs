@@ -443,6 +443,14 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
 	})
 
+	it('moves directly to the first and last row with Home and End', () => {
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'End' })
+		expect(cursored()).toHaveTextContent('Third')
+		fireEvent.keyDown(window, { key: 'Home' })
+		expect(cursored()).toHaveTextContent('First')
+	})
+
 	it('opens the cursored thread on Enter, carrying the baseFolderId search', () => {
 		renderInbox({ baseFolderId: 'archive' })
 		fireEvent.keyDown(window, { key: 'j' })

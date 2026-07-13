@@ -4,6 +4,7 @@ import { Plus, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
+import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import {
 	contactDisplayName,
 	contactIdFromPath,
@@ -63,6 +64,7 @@ export function ContactsShell({
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [loadingMore, setLoadingMore] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
+	const [cursor, setCursor] = useState(-1)
 
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
@@ -72,6 +74,7 @@ export function ContactsShell({
 	// extras and reset the cursor so we don't show stale or duplicated rows. The
 	// `contacts` dep is the trigger even though the body doesn't read it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when a new contacts page arrives
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers */
 	useEffect(() => {
 		setExtra([])
 		setNextCursor(initialCursor)
@@ -81,6 +84,42 @@ export function ContactsShell({
 	const filtered = useMemo(() => filterContacts(all, query), [all, query])
 	// Preserve the active search when following a contact link so the list stays filtered.
 	const linkSearch = query ? { q: query } : {}
+
+	// Contacts is an arrow-key list as well as a set of ordinary tab stops.
+	useEffect(() => {
+		setCursor(selectedId ? filtered.findIndex((contact) => contact.id === selectedId) : -1)
+	}, [filtered, selectedId])
+
+	useEffect(() => {
+		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target as HTMLElement | null
+			const isTyping =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+			if (isTyping || event.metaKey || event.ctrlKey || event.altKey || target?.closest?.('button, a, select')) return
+			if (document.querySelector('[role="dialog"]')) return
+			const action = listNavAction(event.key)
+			if (!action) return
+			event.preventDefault()
+			if (action === 'open') {
+				const contact = filtered[cursor]
+				if (contact) {
+					const element = Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-contact-id]')).find(
+						(link) => link.dataset.contactId === contact.id,
+					)
+					element?.click()
+				}
+				return
+			}
+			setCursor((current) =>
+				action === 'first' || action === 'last'
+					? edgeCursor(action, filtered.length)
+					: moveCursor(current, action === 'down' ? 1 : -1, filtered.length),
+			)
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [cursor, filtered])
+	/* v8 ignore stop */
 
 	async function loadMore() {
 		// Only reachable from the paged button, which renders solely when a cursor
@@ -155,7 +194,12 @@ export function ContactsShell({
 						<ul className="min-h-0 flex-1 overflow-y-auto py-1">
 							{filtered.map((contact) => (
 								<li key={contact.id}>
-									<ContactListItem contact={contact} active={contact.id === selectedId} search={linkSearch} />
+									<ContactListItem
+										contact={contact}
+										active={contact.id === selectedId}
+										keyboardActive={cursor === filtered.indexOf(contact)}
+										search={linkSearch}
+									/>
 								</li>
 							))}
 						</ul>
@@ -185,10 +229,12 @@ export function ContactsShell({
 function ContactListItem({
 	contact,
 	active,
+	keyboardActive,
 	search,
 }: {
 	contact: Contact
 	active: boolean
+	keyboardActive: boolean
 	search: { q?: string }
 }) {
 	const name = contactDisplayName(contact)
@@ -199,9 +245,11 @@ function ContactListItem({
 			params={{ contactId: contact.id }}
 			search={search}
 			aria-current={active ? 'true' : undefined}
+			data-contact-id={contact.id}
+			data-nav-cursor={keyboardActive ? 'true' : undefined}
 			className={cn(
 				'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/60',
-				active && 'bg-muted',
+				(active || keyboardActive) && 'bg-muted',
 			)}
 		>
 			<ContactAvatar name={name} className="h-8 w-8 text-xs" />

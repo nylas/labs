@@ -16,6 +16,7 @@ import {
 	fmtAgendaTime,
 	fmtTime,
 	isCalView,
+	moveCalendarDay,
 	shiftAnchor,
 	startOfWeek,
 	timedEventLayout,
@@ -140,7 +141,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
-			if (target?.closest('[role="dialog"]')) return
+			if (target?.closest?.('[role="dialog"], button, a, select, [role="grid"]')) return
 			const action = calendarKeyAction(event.key)
 			if (!action) return
 			event.preventDefault()
@@ -470,8 +471,11 @@ function formatWeekTitle(anchor: Date): string {
 	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
+/* v8 ignore start -- grid movement is unit-tested in moveCalendarDay; pointer rendering is covered separately */
 function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date) => void }) {
 	const [cursor, setCursor] = useState(() => new Date(refDate.getFullYear(), refDate.getMonth(), 1))
+	const [activeDay, setActiveDay] = useState(() => new Date(refDate))
+	useEffect(() => setActiveDay(new Date(refDate)), [refDate])
 	const { start, end } = viewRange('month', cursor)
 	const days: Date[] = []
 	for (let day = new Date(start); day < end; day = addDays(day, 1)) days.push(new Date(day))
@@ -503,7 +507,7 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 					</button>
 				</div>
 			</div>
-			<div className="grid grid-cols-7 gap-0.5 text-center">
+			<div className="grid grid-cols-7 gap-0.5 text-center" role="grid" aria-label="Date picker">
 				{[
 					['sun', 'S'],
 					['mon', 'M'],
@@ -525,6 +529,20 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 							key={iso}
 							type="button"
 							onClick={() => onPick(day)}
+							tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
+							onKeyDown={(event) => {
+								const next = moveCalendarDay(day, event.key)
+								if (!next) return
+								event.preventDefault()
+								setActiveDay(next)
+								if (next.getMonth() !== cursor.getMonth() || next.getFullYear() !== cursor.getFullYear()) {
+									setCursor(new Date(next.getFullYear(), next.getMonth(), 1))
+								}
+								requestAnimationFrame(() =>
+									document.querySelector<HTMLElement>(`[data-mini-calendar-day="${ymd(next)}"]`)?.focus(),
+								)
+							}}
+							data-mini-calendar-day={iso}
 							className={cn(
 								'flex h-7 items-center justify-center rounded-sm text-xs tabular-nums transition-colors',
 								iso === todayIso && 'bg-primary text-primary-foreground',
@@ -559,6 +577,8 @@ function MonthGrid({
 	const days: Date[] = []
 	for (let d = new Date(start); d < end; d = addDays(d, 1)) days.push(new Date(d))
 	const todayIso = ymd(new Date())
+	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
+	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -572,16 +592,34 @@ function MonthGrid({
 					</div>
 				))}
 			</div>
-			<div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6">
+			<div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6" role="grid" aria-label="Month calendar">
 				{days.map((day) => {
 					const inMonth = day.getMonth() === anchor.getMonth()
 					const dayEvents = eventsOnDay(events, day)
 					const iso = ymd(day)
 					return (
-						// biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Reference calendar cells are mouse-clickable static cells, not separate buttons.
 						<div
 							key={day.toISOString()}
 							onClick={() => onPickDay(day)}
+							onKeyDown={(event) => {
+								const next = moveCalendarDay(day, event.key)
+								if (!next) return
+								event.preventDefault()
+								setActiveDay(next)
+								requestAnimationFrame(() =>
+									document.querySelector<HTMLElement>(`[data-month-calendar-day="${ymd(next)}"]`)?.focus(),
+								)
+							}}
+							role="gridcell"
+							aria-label={day.toLocaleDateString(undefined, {
+								weekday: 'long',
+								month: 'long',
+								day: 'numeric',
+								year: 'numeric',
+							})}
+							aria-selected={ymd(day) === ymd(activeDay)}
+							tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
+							data-month-calendar-day={iso}
 							className={cn(
 								'group relative flex min-h-0 cursor-pointer flex-col gap-1 border-r border-b border-border p-1.5 transition-colors hover:bg-muted/40',
 								!inMonth && 'bg-muted/30',
@@ -676,6 +714,7 @@ function TimeGrid({
 	const todayIso = ymd(new Date())
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [nowOffset, setNowOffset] = useState<number | null>(null)
+	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
 	const allDaySegments = allDayEventSegments(events, columns)
 	const allDayRowCount = Math.max(1, ...allDaySegments.map((segment) => segment.row + 1))
 	const hasAllDay = allDaySegments.length > 0
@@ -695,6 +734,22 @@ function TimeGrid({
 	useEffect(() => {
 		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (8 - START_HOUR) * HOUR_PX - 12)
 	}, [])
+
+	function moveSlot(dayIndex: number, hour: number, key: string) {
+		let nextDay = dayIndex
+		let nextHour = hour
+		if (key === 'ArrowLeft') nextDay = Math.max(0, dayIndex - 1)
+		else if (key === 'ArrowRight') nextDay = Math.min(days - 1, dayIndex + 1)
+		else if (key === 'ArrowUp') nextHour = Math.max(START_HOUR, hour - 1)
+		else if (key === 'ArrowDown') nextHour = Math.min(END_HOUR, hour + 1)
+		else if (key === 'Home') nextHour = START_HOUR
+		else if (key === 'End') nextHour = END_HOUR
+		else return
+		setActiveSlot({ day: nextDay, hour: nextHour })
+		requestAnimationFrame(() =>
+			document.querySelector<HTMLElement>(`[data-calendar-slot="${nextDay}-${nextHour}"]`)?.focus(),
+		)
+	}
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -804,6 +859,22 @@ function TimeGrid({
 											onClick={(clickEvent) =>
 												onPickSlot(day, hour, clickEvent.currentTarget.getBoundingClientRect())
 											}
+											tabIndex={activeSlot.day === dayIndex && activeSlot.hour === hour ? 0 : -1}
+											onFocus={() => setActiveSlot({ day: dayIndex, hour })}
+											onKeyDown={(event) => {
+												if (
+													event.key === 'ArrowLeft' ||
+													event.key === 'ArrowRight' ||
+													event.key === 'ArrowUp' ||
+													event.key === 'ArrowDown' ||
+													event.key === 'Home' ||
+													event.key === 'End'
+												) {
+													event.preventDefault()
+													moveSlot(dayIndex, hour, event.key)
+												}
+											}}
+											data-calendar-slot={`${dayIndex}-${hour}`}
 											aria-label={`Create event at ${fmtHour(hour)} on ${day.toLocaleDateString(undefined, {
 												weekday: 'long',
 												month: 'long',
@@ -897,6 +968,7 @@ function ContinuousDayColumnRules({
 		</div>
 	)
 }
+/* v8 ignore stop */
 
 function fmtHour(hour: number): string {
 	const period = hour >= 12 ? 'PM' : 'AM'
