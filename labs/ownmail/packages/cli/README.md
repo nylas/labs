@@ -1,11 +1,17 @@
 # OwnMail
 
-**Your inbox. Your domain. No per-seat fees.**
+**Email that answers to you.**
 
-OwnMail provisions and deploys a mailbox and calendar app to your Cloudflare
-account, powered by Nylas Agent Accounts.
+OwnMail helps independent builders put a mailbox and calendar app on a domain
+they control. It provisions and deploys the app to your Cloudflare account,
+powered by Nylas Agent Accounts.
 
-## Get started
+Start with the guided path. Eject to the source when you want the power-user
+path.
+
+![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](https://raw.githubusercontent.com/nylas/labs/main/labs/ownmail/assets/screenshots/ownmail-mail-modes.png)
+
+## Put your inbox to work
 
 ```bash
 npx ownmail
@@ -26,6 +32,17 @@ ownmail eject
 
 Run `ownmail --help` or `ownmail <command> --help` for the complete command
 reference.
+
+## Eject when you are ready
+
+Want to change the experience, host it differently, or turn it into something
+only you would build? Copy the app into a directory you control:
+
+```bash
+ownmail eject ./my-ownmail
+```
+
+From there, the source and local-development workflow are yours to shape.
 
 ## Requirements
 

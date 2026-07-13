@@ -2,15 +2,20 @@
 
 # OwnMail
 
-**Your inbox. Your domain. No per-seat fees.**
+**Email that answers to you.**
 
 > Experiment — try it, share feedback, and expect APIs or workflows to change
 > while the project develops.
 
-OwnMail deploys a mailbox and calendar app to your Cloudflare account, powered by
+OwnMail gives independent builders a mailbox and calendar app on a domain they
+control. It deploys to your Cloudflare account and is powered by
 [Nylas Agent Accounts](https://developer.nylas.com/docs/v3/agent-accounts/).
 
-Start the setup flow directly from npm:
+Start with a friendly setup wizard. Keep the deployment in your own account.
+When the defaults are no longer enough, eject the app source and make it
+entirely yours.
+
+## Start with one command
 
 ```bash
 npx ownmail
@@ -19,14 +24,43 @@ npx ownmail
 The setup wizard walks you through sign-in, inbox creation, domain setup, and
 deployment. You can re-run the CLI at any time; setup steps are resumable.
 
-## What You Need
+![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](./assets/screenshots/ownmail-mail-modes.png)
+
+## Beyond the inbox
+
+| Calendar | Contacts |
+|---|---|
+| ![OwnMail's week calendar view with scheduled events](./assets/screenshots/ownmail-calendar.png) | ![OwnMail's contacts view with contact list and create control](./assets/screenshots/ownmail-contacts.png) |
+
+## Built to be yours
+
+| You bring | OwnMail handles |
+|---|---|
+| A domain you control, or a `nylas.email` subdomain | Inbox creation, sign-in configuration, and deployment setup |
+| Your Cloudflare account | A deployed mailbox and calendar app in that account |
+| Your next idea | An ejected app codebase when you want to customize the experience |
+
+## Power-user move: eject
+
+OwnMail is deliberately easy to start and straightforward to outgrow. Copy the
+app source into a directory you control whenever you want to tune the UI, add a
+feature, or choose a different deployment path:
+
+```bash
+ownmail eject ./my-ownmail
+```
+
+The ejected project includes the deployable app and its local-development
+workflow. You stay in charge of the code from there.
+
+## What you need
 
 - Node.js 20+
 - A Nylas account
 - A Cloudflare account
 - A domain you control, or a free `nylas.email` subdomain created during setup
 
-## What Gets Created
+## What gets created
 
 1. A Nylas application and API key for your mailbox app
 2. A mailbox address, such as `contact@your-domain.com`
@@ -34,7 +68,7 @@ deployment. You can re-run the CLI at any time; setup steps are resumable.
 4. A Cloudflare Workers deployment for the web app
 5. The required callback and app configuration for sign-in
 
-## Commands
+## Keep building
 
 | Command | What it does |
 |---|---|
@@ -43,21 +77,21 @@ deployment. You can re-run the CLI at any time; setup steps are resumable.
 | `ownmail update` | Redeploy the latest app version |
 | `ownmail doctor` | Check configuration and repair common issues |
 | `ownmail grants` | List inboxes connected to your Nylas app |
-| `ownmail eject [dir]` | Copy the app source into a directory you control |
+| `ownmail eject [dir]` | Copy the app source into a directory you control and customize it freely |
 | `ownmail inbox add` | Add another address on your domain |
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key used by the app |
 | `ownmail app-domain mail.example.com` | Serve the app on your own domain |
 | `ownmail destroy` | Remove the deployed app without deleting mail data |
 
-## Packages
+## What is in the box
 
 | Package | What it contains |
 |---|---|
 | `packages/cli` (`ownmail`) | The command-line setup and deployment workflow |
 | `packages/app` (`@ownmail/app`) | The mailbox and calendar app deployed by the CLI |
 
-## Security And Data Handling
+## Security and data handling
 
 - OwnMail uses browser-based sign-in for Nylas. Cloudflare setup recommends
   browser OAuth, with a least-privilege API token available as an advanced option.
@@ -69,7 +103,7 @@ deployment. You can re-run the CLI at any time; setup steps are resumable.
 - Do not commit generated secrets, inbox passwords, `.env` files, or exported
   deployment credentials.
 
-## Deploying To Vercel
+## Deploying to Vercel
 
 The app package also includes a Vercel build target. From an ejected project:
 
@@ -81,7 +115,7 @@ vercel deploy --prebuilt
 Set the environment variables from `template.json` in your Vercel project. Add
 your deployed Vercel callback URL to your Nylas application before using sign-in.
 
-## Local Development
+## Local development
 
 ```bash
 pnpm install
@@ -92,7 +126,7 @@ pnpm lint
 
 Node.js 20+ and pnpm 10+ are required.
 
-### Develop The App UI Locally
+### Develop the app UI locally
 
 For fast UI work without Nylas credentials, Cloudflare, or a deploy:
 
@@ -102,6 +136,15 @@ pnpm --filter @ownmail/app dev:ui
 
 Open the printed localhost URL and go to `/mail`. This runs the TanStack Start
 app with local in-memory mail, draft, contact, and calendar data.
+
+### Refresh the README screenshots
+
+The checked-in product screenshots come from that same local mock UI. Regenerate
+the mail light/dark composite and the calendar and contacts captures with:
+
+```bash
+pnpm --filter @ownmail/app capture:readme
+```
 
 The local UI mock is intentionally limited to the same grant-scoped Nylas v3
 resources the app uses in production:
