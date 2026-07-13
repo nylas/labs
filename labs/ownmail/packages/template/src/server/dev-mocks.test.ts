@@ -135,6 +135,42 @@ describe('dev mock reference identity', () => {
 		expect(sentDraft?.has_attachments).toBe(true)
 	})
 
+	it('preserves existing draft attachments when an update omits replacements', async () => {
+		const mailbox = createDevMailbox()
+		const attachment = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
+		const created = await mailbox.createDraft({
+			to: [{ email: 'grace@vercel.com' }],
+			attachments: [attachment],
+		})
+		await mailbox.updateDraft(created.data.id, { subject: 'Updated draft' })
+		expect((await mailbox.getDraft(created.data.id)).data.attachments?.[0]?.filename).toBe('notes.txt')
+		const downloaded = await mailbox.downloadAttachment('att-outbound-0-notes.txt', created.data.id)
+		expect(await downloaded.text()).toBe('hello')
+		expect((await mailbox.downloadAttachment('missing', created.data.id)).status).toBe(404)
+	})
+
+	it('preserves draft reply context and accepts replacement attachments', async () => {
+		const mailbox = createDevMailbox()
+		const original = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
+		const replacement = { filename: 'updated.txt', content_type: 'text/plain', content: btoa('updated') }
+		const created = await mailbox.createDraft({
+			to: [{ email: 'grace@vercel.com' }],
+			reply_to_message_id: 'm1',
+			attachments: [original],
+		})
+
+		await mailbox.updateDraft(created.data.id, { attachments: [replacement] })
+		expect((await mailbox.getDraft(created.data.id)).data.reply_to_message_id).toBe('m1')
+		expect((await mailbox.getDraft(created.data.id)).data.attachments?.[0]?.filename).toBe('updated.txt')
+
+		await mailbox.updateDraft(created.data.id, { reply_to_message_id: 'm2' })
+		expect((await mailbox.getDraft(created.data.id)).data.reply_to_message_id).toBe('m2')
+
+		const plainDraft = await mailbox.createDraft({ to: [{ email: 'ada@lovelace.dev' }] })
+		await mailbox.updateDraft(plainDraft.data.id, { subject: 'No attachments' })
+		expect((await mailbox.getDraft(plainDraft.data.id)).data.attachments).toBeUndefined()
+	})
+
 	it('models starred as an account-wide thread query', () => {
 		const starred = mockThreads({ starred: true }).threads
 
@@ -190,6 +226,23 @@ describe('dev mock reference identity', () => {
 		expect(coffee?.title).toBe('Coffee with Katherine')
 		expect(coffee?.calendar_id).toBe('social')
 		expect(dentist?.title).toBe('Dentist — Dr. Reyes')
+	})
+
+	it('filters date-span and point-in-time events', () => {
+		const allDay = mockEvents({ start: 0, end: Number.MAX_SAFE_INTEGER }).events.find(
+			(event) => event.id === 'event-all-day',
+		)
+		if (!allDay) throw new Error('Expected the seeded all-day event')
+		const originalWhen = allDay.when
+		try {
+			allDay.when = { object: 'datespan', start_date: '2030-01-01', end_date: '2030-01-03' }
+			expect(mockEvents({ start: 1_893_456_000, end: 1_893_628_800 }).events).toContain(allDay)
+
+			allDay.when = { object: 'time', time: 1_893_456_000 }
+			expect(mockEvents({ start: 1_893_455_999, end: 1_893_456_001 }).events).toContain(allDay)
+		} finally {
+			allDay.when = originalWhen
+		}
 	})
 })
 

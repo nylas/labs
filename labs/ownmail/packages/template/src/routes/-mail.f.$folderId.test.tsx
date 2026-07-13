@@ -279,7 +279,7 @@ describe('MailFolderRouteScreen — drafts', () => {
 		expect(screen.getAllByText('date')).toHaveLength(1)
 	})
 
-	it('links drafts to their real thread URL without a mask', () => {
+	it('links drafts to the composer with the draft id', () => {
 		routerState = { location: { pathname: '/mail/f/drafts' }, matches: [] }
 		render(
 			<MailFolderRouteScreen
@@ -292,7 +292,8 @@ describe('MailFolderRouteScreen — drafts', () => {
 		)
 		const link = screen.getByRole('link')
 		expect(link).toHaveAttribute('data-mask', 'no')
-		expect(link).toHaveAttribute('href', '/mail/f/drafts/t/d1')
+		expect(link).toHaveAttribute('href', '/mail/compose')
+		expect(link).toHaveAttribute('data-search', JSON.stringify({ draft: 'd1', folderId: 'drafts' }))
 	})
 })
 
@@ -520,9 +521,8 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		fireEvent.keyDown(window, { key: 'j' })
 		fireEvent.keyDown(window, { key: 'Enter' })
 		expect(navigate).toHaveBeenCalledWith({
-			to: '/mail/f/$folderId/t/$threadId',
-			params: { folderId: 'drafts', threadId: 'd2' },
-			search: {},
+			to: '/mail/compose',
+			search: { draft: 'd2', folderId: 'drafts' },
 		})
 	})
 })

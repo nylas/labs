@@ -55,6 +55,40 @@ function friendly(err: unknown): Error {
 	return new Error('Something went wrong talking to your mailbox. Please try again.')
 }
 
+type AttachmentDownloader = {
+	downloadAttachment(attachmentId: string, messageId: string): Promise<Response>
+}
+
+/** Re-encode provider attachments because draft updates are full PUT replacements. */
+async function restoreDraftAttachments(
+	mailbox: AttachmentDownloader,
+	draft: Draft,
+): Promise<OutboundAttachment[]> {
+	const attachments = draft.attachments ?? []
+	const restored: OutboundAttachment[] = []
+	for (const attachment of attachments) {
+		const response = await mailbox.downloadAttachment(attachment.id, draft.id)
+		if (!response.ok) throw new Error('Unable to restore draft attachment')
+		const bytes = new Uint8Array(await response.arrayBuffer())
+		restored.push({
+			filename: attachment.filename ?? 'attachment',
+			content_type: attachment.content_type ?? 'application/octet-stream',
+			content: bytesToBase64(bytes),
+			...(attachment.is_inline ? { is_inline: true } : {}),
+			...(attachment.content_id ? { content_id: attachment.content_id } : {}),
+		})
+	}
+	return restored
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = ''
+	for (let index = 0; index < bytes.length; index += 0x8000) {
+		binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+	}
+	return btoa(binary)
+}
+
 function isNotFound(err: unknown): boolean {
 	return err instanceof NylasApiError
 		? err.status === 404
@@ -238,13 +272,19 @@ export const saveDraft = createServerFn({ method: 'POST' })
 			to: string
 			subject: string
 			body: string
+			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
-		}) => ({
-			...input,
-			...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
-			toList: parseRecipientEmails(input.to, { required: false }),
-			attachments: normalizeOutboundAttachments(input.attachments),
-		}),
+		}) => {
+			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+				throw new Error('Invalid reply reference')
+			}
+			return {
+				...input,
+				...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
+				toList: parseRecipientEmails(input.to, { required: false }),
+				attachments: normalizeOutboundAttachments(input.attachments),
+			}
+		},
 	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
@@ -254,6 +294,7 @@ export const saveDraft = createServerFn({ method: 'POST' })
 				subject: data.subject,
 				body: data.body,
 				...(data.attachments ? { attachments: data.attachments } : {}),
+				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			}
 			const saved = data.draftId
 				? await mailbox.updateDraft(data.draftId, payload)
@@ -279,12 +320,41 @@ export const getDraft = createServerFn({ method: 'GET' })
 	})
 
 export const sendDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId: string }) => ({
-		draftId: requireNylasProviderId(input.draftId, 'draft'),
-	}))
+	.validator(
+		(input: {
+			draftId: string
+			to: string
+			subject: string
+			body: string
+			replyToMessageId?: string
+			attachments?: OutboundAttachment[]
+		}) => {
+			const to = parseRecipientEmails(input.to, { required: true })
+			if (input.body.length > 500_000) throw new Error('Message body too large')
+			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
+				throw new Error('Invalid reply reference')
+			}
+			return {
+				...input,
+				draftId: requireNylasProviderId(input.draftId, 'draft'),
+				toList: to,
+				attachments: normalizeOutboundAttachments(input.attachments),
+			}
+		},
+	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
+			const draft = await mailbox.getDraft(data.draftId)
+			const restoredAttachments = await restoreDraftAttachments(mailbox, draft.data)
+			const attachments = normalizeOutboundAttachments([...restoredAttachments, ...(data.attachments ?? [])])
+			await mailbox.updateDraft(data.draftId, {
+				to: data.toList.map((email) => ({ email })),
+				subject: data.subject,
+				body: data.body,
+				...(attachments ? { attachments } : {}),
+				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
+			})
 			await mailbox.sendDraft(data.draftId)
 		} catch (err) {
 			throw friendly(err)

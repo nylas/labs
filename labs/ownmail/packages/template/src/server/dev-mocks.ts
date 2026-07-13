@@ -109,23 +109,45 @@ class DevMailbox {
 		return itemResponse(mockDraft(draftId))
 	}
 
+	async downloadAttachment(attachmentId: string, draftId: string): Promise<Response> {
+		const draft = mockDraft(draftId) as StoredDraft
+		const attachment = draft.outbound_attachments?.find(
+			(candidate, index) => `att-outbound-${index}-${candidate.filename}` === attachmentId,
+		)
+		if (!attachment) return new Response('Not found', { status: 404 })
+		return new Response(base64ToBytes(attachment.content).buffer as ArrayBuffer, {
+			headers: { 'Content-Type': attachment.content_type },
+		})
+	}
+
 	async createDraft(body: SendMessageRequest): Promise<ItemResponse<Draft>> {
 		const saved = mockSaveDraft({
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
+			...(body.reply_to_message_id ? { replyToMessageId: body.reply_to_message_id } : {}),
 			...(body.attachments ? { attachments: body.attachments } : {}),
 		})
 		return itemResponse(mockDraft(saved.draftId))
 	}
 
 	async updateDraft(draftId: string, body: SendMessageRequest): Promise<ItemResponse<Draft>> {
+		const previous = mockDraft(draftId) as StoredDraft
 		const saved = mockSaveDraft({
 			draftId,
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
-			...(body.attachments ? { attachments: body.attachments } : {}),
+			...(body.reply_to_message_id
+				? { replyToMessageId: body.reply_to_message_id }
+				: previous.reply_to_message_id
+					? { replyToMessageId: previous.reply_to_message_id }
+					: {}),
+			...(body.attachments
+				? { attachments: body.attachments }
+				: previous.outbound_attachments
+					? { attachments: previous.outbound_attachments }
+					: {}),
 		})
 		return itemResponse(mockDraft(saved.draftId))
 	}
@@ -973,6 +995,7 @@ export function mockSaveDraft(input: {
 	to: string
 	subject: string
 	body: string
+	replyToMessageId?: string
 	attachments?: SendMessageRequest['attachments']
 }): {
 	draftId: string
@@ -991,6 +1014,7 @@ export function mockSaveDraft(input: {
 			.slice(0, 140),
 		body: input.body,
 		to: splitEmails(input.to).map((email) => ({ email })),
+		...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
 		...(input.attachments?.length
 			? { attachments: mockAttachmentMetadata(input.attachments), outbound_attachments: input.attachments }
 			: {}),
@@ -1044,6 +1068,11 @@ function mockAttachmentMetadata(attachments: SendMessageRequest['attachments']):
 function base64DecodedBytes(value: string): number {
 	const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
 	return Math.floor((value.length * 3) / 4) - padding
+}
+
+function base64ToBytes(value: string): Uint8Array {
+	const binary = atob(value)
+	return Uint8Array.from(binary, (char) => char.charCodeAt(0))
 }
 
 const contacts = new Map<string, Contact>(
@@ -1252,13 +1281,15 @@ function ymd(date: Date): string {
 function eventRange(event: Event): { start: number; end: number } {
 	const when = event.when
 	if ('start_time' in when) return { start: when.start_time, end: when.end_time }
-	/* v8 ignore start -- dev mocks only ever seed `timespan` and `date` events; the implicit else of this `date` branch leads solely to the `datespan` arm, and no exported path creates a `datespan` event, so the fall-through and that arm are unreachable (the `date` result itself stays asserted by the event-all-day test) */
 	if ('date' in when) {
 		const start = Math.floor(new Date(`${when.date}T00:00:00`).getTime() / 1000)
 		return { start, end: start + 24 * 60 * 60 }
 	}
-	const start = Math.floor(new Date(`${when.start_date}T00:00:00`).getTime() / 1000)
-	const end = Math.floor(new Date(`${when.end_date}T00:00:00`).getTime() / 1000)
-	return { start, end }
+	if ('start_date' in when) {
+		const start = Math.floor(new Date(`${when.start_date}T00:00:00`).getTime() / 1000)
+		const end = Math.floor(new Date(`${when.end_date}T00:00:00`).getTime() / 1000)
+		return { start, end }
+	}
+	return { start: when.time, end: when.time }
 }
 /* v8 ignore stop */

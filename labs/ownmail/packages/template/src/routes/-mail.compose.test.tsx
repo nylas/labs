@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { markdownToDraftBody } from '../components/html-to-markdown.js'
 import { markdownToEmailHtml } from '../components/markdown-model.js'
@@ -31,6 +32,7 @@ const getFolders = vi.fn()
 const getThreads = vi.fn()
 const getThreadMessages = vi.fn()
 const saveDraft = vi.fn()
+const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
@@ -40,6 +42,7 @@ vi.mock('../server/fns.js', () => ({
 	getThreads: (a: any) => getThreads(a),
 	getThreadMessages: (a: any) => getThreadMessages(a),
 	saveDraft: (a: any) => saveDraft(a),
+	sendDraft: (a: any) => sendDraft(a),
 	sendMessage: (a: any) => sendMessage(a),
 	updateThreadState: (a: any) => updateThreadState(a),
 	deleteDraft: (a: any) => deleteDraft(a),
@@ -87,6 +90,7 @@ beforeEach(() => {
 	getDraft.mockResolvedValue(null)
 	getThreadMessages.mockResolvedValue(null)
 	saveDraft.mockResolvedValue({ draftId: 'new-draft' })
+	sendDraft.mockResolvedValue(undefined)
 	sendMessage.mockResolvedValue(undefined)
 	updateThreadState.mockResolvedValue(undefined)
 	deleteDraft.mockResolvedValue(undefined)
@@ -280,6 +284,34 @@ describe('mail.compose composer prefill', () => {
 		expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
 			'Draft body',
 		)
+	})
+
+	it('converts an enveloped markdown draft back to its source before prefilling the editor', () => {
+		renderCompose({
+			loader: { draft: { id: 'd0', body: markdownToDraftBody('**Draft body**') } },
+		})
+		expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
+			'**Draft body**',
+		)
+	})
+
+	it('does not decode a draft with browser DOM APIs while server-rendering', () => {
+		Route.useLoaderData = vi.fn(() => ({
+			draft: { id: 'd0', body: markdownToDraftBody('**Draft body**') },
+			folders: [],
+			threads: [],
+			selected: null,
+			folderId: 'drafts',
+			reply: null,
+		}))
+		Route.useSearch = vi.fn(() => ({}))
+		const original = Object.getOwnPropertyDescriptor(globalThis, 'DOMParser')
+		Object.defineProperty(globalThis, 'DOMParser', { value: undefined, configurable: true })
+		try {
+			expect(() => renderToString(<Route.options.component />)).not.toThrow()
+		} finally {
+			if (original) Object.defineProperty(globalThis, 'DOMParser', original)
+		}
 	})
 
 	it('prefills from a reply payload and shows the reply subject in the window title', () => {
@@ -787,6 +819,41 @@ describe('mail.compose send', () => {
 		expect(payload.attachments).toHaveLength(1)
 	})
 
+	it('updates and sends the existing draft instead of creating a second message', async () => {
+		renderCompose({
+			loader: { draft: { id: 'd0', to: [{ email: 'a@b.com' }], subject: 'Draft', body: 'body' } },
+		})
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+		await waitFor(() =>
+			expect(sendDraft).toHaveBeenCalledWith({
+				data: { draftId: 'd0', to: 'a@b.com', subject: 'Draft', body: markdownToEmailHtml('body') },
+			}),
+		)
+		expect(sendMessage).not.toHaveBeenCalled()
+	})
+
+	it('keeps the reply reference when an autosaved reply is sent as a draft', async () => {
+		renderCompose({
+			loader: {
+				draft: { id: 'd0', to: [{ email: 'a@b.com' }], subject: 'Re: Hi', body: 'body' },
+				reply: { to: 'a@b.com', subject: 'Re: Hi', body: 'body', replyToMessageId: 'm9' },
+			},
+		})
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() =>
+			expect(sendDraft).toHaveBeenCalledWith({
+				data: {
+					draftId: 'd0',
+					to: 'a@b.com',
+					subject: 'Re: Hi',
+					body: markdownToEmailHtml('body'),
+					replyToMessageId: 'm9',
+				},
+			}),
+		)
+	})
+
 	it('shows the error message and re-enables sending when the send fails', async () => {
 		sendMessage.mockRejectedValue(new Error('SMTP down'))
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
@@ -877,6 +944,27 @@ describe('mail.compose autosave', () => {
 			await vi.advanceTimersByTimeAsync(2500)
 		})
 		expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+	})
+
+	it('keeps the reply reference when autosaving a reply', async () => {
+		vi.useFakeTimers()
+		saveDraft.mockResolvedValue({ draftId: 'saved-1' })
+		renderCompose({
+			loader: { reply: { to: 'a@b.com', subject: 'Re: Hi', body: 'draft body', replyToMessageId: 'm9' } },
+		})
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+
+		expect(saveDraft).toHaveBeenCalledWith({
+			data: {
+				to: 'a@b.com',
+				subject: 'Re: Hi',
+				body: markdownToDraftBody('draft body'),
+				replyToMessageId: 'm9',
+			},
+		})
 	})
 
 	it('autosaves an existing draft with its id and any attachments', async () => {
