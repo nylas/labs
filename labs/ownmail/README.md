@@ -24,7 +24,13 @@ npx ownmail
 The setup wizard walks you through sign-in, inbox creation, domain setup, and
 deployment. You can re-run the CLI at any time; setup steps are resumable.
 
-![OwnMail's local mock inbox, with folders, message list, search, and compose controls](./assets/screenshots/ownmail-inbox.png)
+![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](./assets/screenshots/ownmail-mail-modes.png)
+
+## Beyond the inbox
+
+| Calendar | Contacts |
+|---|---|
+| ![OwnMail's week calendar view with scheduled events](./assets/screenshots/ownmail-calendar.png) | ![OwnMail's contacts view with contact list and create control](./assets/screenshots/ownmail-contacts.png) |
 
 ## Built to be yours
 
@@ -130,6 +136,15 @@ pnpm --filter @ownmail/app dev:ui
 
 Open the printed localhost URL and go to `/mail`. This runs the TanStack Start
 app with local in-memory mail, draft, contact, and calendar data.
+
+### Refresh the README screenshots
+
+The checked-in product screenshots come from that same local mock UI. Regenerate
+the mail light/dark composite and the calendar and contacts captures with:
+
+```bash
+pnpm --filter @ownmail/app capture:readme
+```
 
 The local UI mock is intentionally limited to the same grant-scoped Nylas v3
 resources the app uses in production:

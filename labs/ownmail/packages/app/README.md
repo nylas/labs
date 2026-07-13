@@ -7,7 +7,7 @@ and is powered by Nylas Agent Accounts.
 This is the power-user half of OwnMail: a real app codebase for people who want
 their inbox to look, behave, and deploy their way.
 
-![OwnMail's local mock inbox, with folders, message list, search, and compose controls](https://raw.githubusercontent.com/nylas/labs/main/labs/ownmail/assets/screenshots/ownmail-inbox.png)
+![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](https://raw.githubusercontent.com/nylas/labs/main/labs/ownmail/assets/screenshots/ownmail-mail-modes.png)
 
 Most people should start with the CLI:
 
@@ -25,12 +25,12 @@ or host an ejected OwnMail app yourself.
 ownmail eject ./my-ownmail
 cd my-ownmail
 pnpm install
-pnpm --filter @ownmail/app dev:ui
+pnpm dev
 ```
 
-That gives you a local mailbox and calendar UI with mock data, without Nylas
-credentials, Cloudflare, or a deployment. When you are ready to use real data,
-switch to the local integration flow below.
+That starts the ejected project's own development server. Configure the
+environment values in `.env.example` before exercising the real Nylas flow.
+The repository-only mock UI is available from the repository root below.
 
 ## Documentation
 
