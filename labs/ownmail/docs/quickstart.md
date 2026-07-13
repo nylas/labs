@@ -8,21 +8,7 @@
 
 ## Create your inbox + app
 
-Until the CLI is published to npm, run it from a clean source checkout:
-
-```bash
-git clone https://github.com/nylas/labs.git
-cd labs
-corepack enable
-pnpm install
-pnpm --filter ownmail... build
-node labs/ownmail/packages/cli/dist/index.js
-```
-
-The trailing `...` builds OwnMail and its workspace dependencies. From an
-existing checkout, the last three commands are sufficient.
-
-If the CLI is installed from npm, run:
+Run the setup wizard directly from npm:
 
 ```bash
 npx ownmail
@@ -58,9 +44,6 @@ Log in with your inbox email + password. That's it.
 | `ownmail app-domain mail.you.com` | Serve the app on your own domain (zone on your Cloudflare) |
 | `ownmail destroy` | Delete the deployed app (mail and inbox are kept) |
 
-When running from source, replace `ownmail` with
-`node labs/ownmail/packages/cli/dist/index.js`.
-
 ## Mail apps (IMAP/SMTP)
 
 Your inbox also works in Apple Mail, Outlook, or Thunderbird:
@@ -71,8 +54,8 @@ Your inbox also works in Apple Mail, Outlook, or Thunderbird:
 
 ## Deploying to Vercel instead
 
-The template ships a Vercel build target. From an ejected project (or the
-template source):
+The app package ships a Vercel build target. From an ejected project (or the
+app source):
 
 ```bash
 pnpm build:vercel          # produces .vercel/output (Build Output API v3)
@@ -92,7 +75,7 @@ application (`npx ownmail doctor` can do this once the URL exists).
 To work on the OwnMail UI without deploying or configuring real accounts:
 
 ```bash
-pnpm --filter @ownmail/template dev:ui
+pnpm --filter @ownmail/app dev:ui
 ```
 
 This starts the app locally with in-memory mock mail and calendar data.
@@ -109,7 +92,7 @@ For a local real-integration pass, export `SESSION_SECRET`, `NYLAS_API_KEY`,
 `TEMPLATE_VERSION`, then run:
 
 ```bash
-pnpm --filter @ownmail/template dev:local
+pnpm --filter @ownmail/app dev:local
 ```
 
 Add `http://localhost:5173/auth/callback` to the Nylas application's callback

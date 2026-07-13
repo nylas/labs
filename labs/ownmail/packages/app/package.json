@@ -1,7 +1,7 @@
 {
-	"name": "@ownmail/template",
+	"name": "@ownmail/app",
 	"version": "0.1.0",
-	"description": "The ownmail mailbox + calendar app template (TanStack Start on Cloudflare Workers)",
+	"description": "The OwnMail mailbox and calendar app (TanStack Start on Cloudflare Workers)",
 	"license": "MIT",
 	"type": "module",
 	"files": [
