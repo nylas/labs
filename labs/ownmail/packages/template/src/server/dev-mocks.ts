@@ -1252,13 +1252,15 @@ function ymd(date: Date): string {
 function eventRange(event: Event): { start: number; end: number } {
 	const when = event.when
 	if ('start_time' in when) return { start: when.start_time, end: when.end_time }
-	/* v8 ignore start -- dev mocks only ever seed `timespan` and `date` events; the implicit else of this `date` branch leads solely to the `datespan` arm, and no exported path creates a `datespan` event, so the fall-through and that arm are unreachable (the `date` result itself stays asserted by the event-all-day test) */
 	if ('date' in when) {
 		const start = Math.floor(new Date(`${when.date}T00:00:00`).getTime() / 1000)
 		return { start, end: start + 24 * 60 * 60 }
 	}
-	const start = Math.floor(new Date(`${when.start_date}T00:00:00`).getTime() / 1000)
-	const end = Math.floor(new Date(`${when.end_date}T00:00:00`).getTime() / 1000)
-	return { start, end }
+	if ('start_date' in when) {
+		const start = Math.floor(new Date(`${when.start_date}T00:00:00`).getTime() / 1000)
+		const end = Math.floor(new Date(`${when.end_date}T00:00:00`).getTime() / 1000)
+		return { start, end }
+	}
+	return { start: when.time, end: when.time }
 }
 /* v8 ignore stop */
