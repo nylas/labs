@@ -39,7 +39,7 @@ on every PR. A change that drops any file below 100% fails the build.
 
 ```bash
 pnpm --filter ownmail coverage            # CLI package
-pnpm --filter @ownmail/template coverage  # template package
+pnpm --filter @ownmail/app coverage       # deployed app package
 ```
 
 If you add code, add the tests that cover it. The only permitted exclusions are

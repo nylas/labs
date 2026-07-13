@@ -14,18 +14,7 @@ to try early ideas, inspect the code, and adapt the examples for their own use.
 
 ## Try OwnMail
 
-Until the CLI is published to npm, run it from a clean source checkout:
-
-```bash
-git clone https://github.com/nylas/labs.git
-cd labs
-corepack enable
-pnpm install
-pnpm --filter ownmail... build
-node labs/ownmail/packages/cli/dist/index.js
-```
-
-After the OwnMail CLI is published to npm, you can run the same setup flow with:
+Start the setup flow directly from npm:
 
 ```bash
 npx ownmail

@@ -10,21 +10,7 @@
 OwnMail deploys a mailbox and calendar app to your Cloudflare account, powered by
 [Nylas Agent Accounts](https://developer.nylas.com/docs/v3/agent-accounts/).
 
-Until the CLI is published to npm, run it from a clean source checkout:
-
-```bash
-git clone https://github.com/nylas/labs.git
-cd labs
-corepack enable
-pnpm install
-pnpm --filter ownmail... build
-node labs/ownmail/packages/cli/dist/index.js
-```
-
-The trailing `...` builds OwnMail and its workspace dependencies. From an
-existing checkout, the last three commands are sufficient.
-
-After the CLI is published to npm, you can run the same setup flow with:
+Start the setup flow directly from npm:
 
 ```bash
 npx ownmail
@@ -64,15 +50,12 @@ deployment. You can re-run the CLI at any time; setup steps are resumable.
 | `ownmail app-domain mail.example.com` | Serve the app on your own domain |
 | `ownmail destroy` | Remove the deployed app without deleting mail data |
 
-When running from source, replace `ownmail` with
-`node labs/ownmail/packages/cli/dist/index.js`.
-
 ## Packages
 
 | Package | What it contains |
 |---|---|
 | `packages/cli` (`ownmail`) | The command-line setup and deployment workflow |
-| `packages/template` (`@ownmail/template`) | The mailbox and calendar app deployed by the CLI |
+| `packages/app` (`@ownmail/app`) | The mailbox and calendar app deployed by the CLI |
 
 ## Security And Data Handling
 
@@ -88,7 +71,7 @@ When running from source, replace `ownmail` with
 
 ## Deploying To Vercel
 
-The app template also includes a Vercel build target. From an ejected project:
+The app package also includes a Vercel build target. From an ejected project:
 
 ```bash
 pnpm build:vercel
@@ -114,7 +97,7 @@ Node.js 20+ and pnpm 10+ are required.
 For fast UI work without Nylas credentials, Cloudflare, or a deploy:
 
 ```bash
-pnpm --filter @ownmail/template dev:ui
+pnpm --filter @ownmail/app dev:ui
 ```
 
 Open the printed localhost URL and go to `/mail`. This runs the TanStack Start
@@ -147,7 +130,7 @@ export NYLAS_REGION="us"
 export APP_NAME="ownmail-local"
 export INBOX_EMAIL="you@example.com"
 export TEMPLATE_VERSION="0.1.0"
-pnpm --filter @ownmail/template dev:local
+pnpm --filter @ownmail/app dev:local
 ```
 
 Register `http://localhost:5173/auth/callback` as a callback URI on the Nylas

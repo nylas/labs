@@ -14,7 +14,7 @@ process.on('exit', () => rmSync(tempRoot, { force: true, recursive: true }))
 mkdirSync(packsDir)
 mkdirSync(installDir)
 
-const packages = ['shared/nylas-cli-kit', 'labs/ownmail/packages/template', 'labs/ownmail/packages/cli']
+const packages = ['shared/nylas-cli-kit', 'labs/ownmail/packages/app', 'labs/ownmail/packages/cli']
 
 for (const packageDir of packages) {
 	runPnpm(['pack', '--pack-destination', packsDir], resolve(repoRoot, packageDir))

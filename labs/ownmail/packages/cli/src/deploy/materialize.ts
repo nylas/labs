@@ -15,7 +15,7 @@ export type TemplateManifest = {
 }
 
 export function templateRoot(): string {
-	return dirname(require.resolve('@ownmail/template/package.json'))
+	return dirname(require.resolve('@ownmail/app/package.json'))
 }
 
 export function loadManifest(): TemplateManifest {
