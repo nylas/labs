@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAuthorizeUrl, exchangeCodeForToken, NylasV3Client } from './v3.js'
+import { buildAuthorizeUrl, exchangeCodeForToken, NylasV3Client, nylasPkceS256Challenge } from './v3.js'
 
 describe('Hosted auth URLs', () => {
 	it('uses a custom API base URL for authorization requests', () => {
@@ -20,6 +20,12 @@ describe('Hosted auth URLs', () => {
 })
 
 describe('Hosted auth token exchange', () => {
+	it('uses Nylas’s documented S256 challenge encoding', async () => {
+		await expect(nylasPkceS256Challenge('nylas')).resolves.toBe(
+			'ZTk2YmY2Njg2YTNjMzUxMGU5ZTkyN2RiNzA2OWNiMWNiYTliOTliMDIyZjQ5NDgzYTZjZTMyNzA4MDllNjhhMg',
+		)
+	})
+
 	it('posts the documented authorization_code body to a custom API base URL', async () => {
 		let requestUrl = ''
 		let requestBody: unknown = null

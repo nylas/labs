@@ -43,11 +43,12 @@ vi.mock('./shared.js', () => ({
 
 vi.mock('../state/store.js', () => ({
 	listProjectStateIssues: vi.fn(() => []),
+	saveProject: vi.fn(),
 }))
 
 import * as p from '@clack/prompts'
 import { putSecret, wranglerLoggedIn } from '../deploy/wrangler.js'
-import { listProjectStateIssues } from '../state/store.js'
+import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
 
@@ -58,6 +59,7 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 		updatedAt: 0,
 		region: 'us',
 		ejected: false,
+		apiKeyId: 'key_1',
 		completedSteps: [],
 		pendingSecrets: {},
 		...overrides,
@@ -66,6 +68,7 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 
 const currentSession = vi.fn()
 const getInboxDomain = vi.fn()
+const listApiKeys = vi.fn()
 const createApiKey = vi.fn()
 const revokeApiKey = vi.fn()
 
@@ -81,10 +84,12 @@ beforeEach(() => {
 	savedExitCode = process.exitCode
 	process.exitCode = undefined
 	vi.mocked(requireDashboard).mockReturnValue({ currentSession, getInboxDomain } as never)
-	vi.mocked(requireGateway).mockReturnValue({ createApiKey, revokeApiKey } as never)
+	vi.mocked(requireGateway).mockReturnValue({ listApiKeys, createApiKey, revokeApiKey } as never)
 	vi.mocked(listProjectStateIssues).mockReturnValue([])
+	listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'active' }])
 	createApiKey.mockResolvedValue({ id: 'probe-key', apiKey: 'nyk_probe' })
 	revokeApiKey.mockResolvedValue(undefined)
+	vi.mocked(putSecret).mockResolvedValue(undefined)
 	vi.mocked(wranglerLoggedIn).mockResolvedValue(true)
 	hoisted.v3.listGrants.mockResolvedValue({ data: [] })
 	hoisted.v3.listRedirectUris.mockResolvedValue({ data: [] })
@@ -98,6 +103,212 @@ afterEach(() => {
 })
 
 describe('runDoctor — healthy project', () => {
+	it('reports a revoked API key and repairs it with --fix', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				applicationId: 'app_1',
+				workerName: 'worker-1',
+				hostingProvider: 'cloudflare',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		createApiKey.mockResolvedValue({
+			id: 'key_2',
+			apiKey: 'nyk_replacement',
+			status: 'active',
+			name: 'repair',
+		})
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({})
+
+		expect(messages().some((m) => m.includes('Nylas API key') && m.includes('revoked'))).toBe(true)
+		expect(messages().some((m) => m.includes('doctor --fix'))).toBe(true)
+		expect(process.exitCode).toBe(1)
+
+		process.exitCode = undefined
+		vi.mocked(p.log.message).mockClear()
+		vi.mocked(p.outro).mockClear()
+		await runDoctor({ fix: true })
+
+		expect(putSecret).toHaveBeenCalledWith('worker-1', 'NYLAS_API_KEY', 'nyk_replacement')
+		expect(saveProject).toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 'key_2' }))
+		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app_1', 'key_1')
+		expect(messages().some((m) => m.startsWith('🔧') && m.includes('rotated and stored in Cloudflare'))).toBe(
+			true,
+		)
+	})
+
+	it('reports an expired API key without exposing key material', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ applicationId: 'app_1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'active', expiresAt: 1 }])
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({})
+
+		expect(messages().some((m) => m.includes('Nylas API key') && m.includes('expired'))).toBe(true)
+		expect(messages().join('\n')).not.toContain('nyk_')
+	})
+
+	it('distinguishes missing, inactive, and still-valid millisecond-expiry API keys', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ applicationId: 'app_1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal('fetch', vi.fn())
+
+		listApiKeys.mockResolvedValue([{ id: 'another-key', status: 'active' }])
+		await runDoctor({})
+		expect(messages().some((m) => m.includes('not found in Nylas'))).toBe(true)
+
+		vi.mocked(p.log.message).mockClear()
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: '' }])
+		await runDoctor({})
+		expect(messages().some((m) => m.includes('inactive'))).toBe(true)
+
+		vi.mocked(p.log.message).mockClear()
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'active', expiresAt: Date.now() + 3_600_000 }])
+		await runDoctor({})
+		expect(messages().some((m) => m.includes('Nylas API key: active'))).toBe(true)
+	})
+
+	it('does not mint an API-key replacement until Cloudflare is authenticated', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				applicationId: 'app_1',
+				workerName: 'worker-1',
+				hostingProvider: 'cloudflare',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		vi.mocked(wranglerLoggedIn).mockResolvedValue(false)
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(createApiKey).not.toHaveBeenCalled()
+		expect(putSecret).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('authenticate Cloudflare'))).toBe(true)
+	})
+
+	it('reports missing local API-key tracking and repairs it without revoking another key', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				applicationId: 'app_1',
+				apiKeyId: undefined,
+				workerName: 'worker-1',
+				hostingProvider: 'cloudflare',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		createApiKey.mockResolvedValue({
+			id: 'key_2',
+			apiKey: 'nyk_replacement',
+			status: 'active',
+			name: 'repair',
+		})
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(putSecret).toHaveBeenCalledWith('worker-1', 'NYLAS_API_KEY', 'nyk_replacement')
+		expect(revokeApiKey).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('rotated and stored in Cloudflare'))).toBe(true)
+	})
+
+	it('reports API-key lookup failures without provider details', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ applicationId: 'app_1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockRejectedValue(new Error('sensitive provider error'))
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({})
+
+		const message = messages().find((m) => m.includes('could not check key status'))
+		expect(message).toBeDefined()
+		expect(message).not.toContain('sensitive provider error')
+	})
+
+	it('explains when a manual or incomplete deployment cannot install an API-key replacement', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ applicationId: 'app_1', hostingProvider: 'manual' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(messages().some((m) => m.includes('update NYLAS_API_KEY in your hosting provider'))).toBe(true)
+
+		vi.mocked(p.log.message).mockClear()
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ applicationId: 'app_1' }))
+		await runDoctor({ fix: true })
+		expect(messages().some((m) => m.includes('missing Cloudflare Worker name'))).toBe(true)
+	})
+
+	it('leaves the previous key in place when a replacement cannot be created or stored', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ applicationId: 'app_1', workerName: 'worker-1', hostingProvider: 'cloudflare' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		createApiKey.mockRejectedValue(new Error('forbidden'))
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+		expect(messages().some((m) => m.includes('could not create a replacement key'))).toBe(true)
+
+		vi.mocked(p.log.message).mockClear()
+		createApiKey.mockResolvedValue({
+			id: 'key_2',
+			apiKey: 'nyk_replacement',
+			status: 'active',
+			name: 'repair',
+		})
+		vi.mocked(putSecret).mockRejectedValue(new Error('Cloudflare failure'))
+		await runDoctor({ fix: true })
+
+		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app_1', 'key_2')
+		expect(messages().some((m) => m.includes('could not store a replacement in Cloudflare'))).toBe(true)
+		expect(saveProject).not.toHaveBeenCalled()
+
+		vi.mocked(p.log.message).mockClear()
+		revokeApiKey.mockRejectedValue(new Error('cleanup failed'))
+		await runDoctor({ fix: true })
+		expect(messages().some((m) => m.includes('could not store a replacement in Cloudflare'))).toBe(true)
+	})
+
+	it('flags a replacement whose previous API key cannot be revoked', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ applicationId: 'app_1', workerName: 'worker-1', hostingProvider: 'cloudflare' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		createApiKey.mockResolvedValue({
+			id: 'key_2',
+			apiKey: 'nyk_replacement',
+			status: 'active',
+			name: 'repair',
+		})
+		revokeApiKey.mockRejectedValue(new Error('cleanup failed'))
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(messages().some((m) => m.includes('previous key still needs to be revoked'))).toBe(true)
+	})
+
 	it('repairs missing redirect URIs with --fix and revokes the temporary API key', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({
@@ -199,6 +410,33 @@ describe('runDoctor — healthy project', () => {
 		])
 		expect(putSecret).toHaveBeenCalledWith('worker-1', 'NYLAS_WEBHOOK_SECRET', 'wh-secret')
 		expect(messages().some((m) => m.startsWith('🔧') && m.includes('registered realtime webhook'))).toBe(true)
+	})
+
+	it('does not repair instant updates until Cloudflare authentication succeeds', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				hostingProvider: 'cloudflare',
+				applicationId: 'app_1',
+				workerName: 'worker-1',
+				workersDevUrl: 'https://acme.workers.dev',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		vi.mocked(wranglerLoggedIn).mockResolvedValue(false)
+		hoisted.v3.ensureWebhook.mockResolvedValue({ webhook_secret: 'wh-secret' })
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
+		)
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(putSecret).not.toHaveBeenCalled()
+		expect(
+			messages().some((m) => m.includes('Cloudflare authentication before the webhook secret can be stored')),
+		).toBe(true)
 	})
 
 	it('reports that manual hosting uses polling under --fix', async () => {

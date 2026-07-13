@@ -36,7 +36,8 @@ export const Route = createFileRoute('/auth/callback')({
 					headers.append('Set-Cookie', await createSession(token.grant_id, token.email ?? env.INBOX_EMAIL))
 					if (pkce.clearCookie) headers.append('Set-Cookie', pkce.clearCookie)
 					return new Response(null, { status: 302, headers })
-				} catch {
+				} catch (err) {
+					reportTokenExchangeFailure(err)
 					// Never surface exchange internals to the browser.
 					return loginFailedResponse('sign-in failed — check your email and password')
 				}
@@ -44,6 +45,21 @@ export const Route = createFileRoute('/auth/callback')({
 		},
 	},
 })
+
+/**
+ * Records identifiers that let operators find a failed exchange in provider logs
+ * without logging the authorization code, API key, password, or response body.
+ */
+function reportTokenExchangeFailure(error: unknown): void {
+	if (!error || typeof error !== 'object' || (error as { name?: unknown }).name !== 'NylasApiError') return
+
+	const details = error as { status?: unknown; requestId?: unknown; type?: unknown }
+	console.error('OwnMail token exchange failed', {
+		...(typeof details.status === 'number' ? { status: details.status } : {}),
+		...(typeof details.requestId === 'string' ? { requestId: details.requestId } : {}),
+		...(typeof details.type === 'string' ? { type: details.type } : {}),
+	})
+}
 
 function loginFailedResponse(reason: string): Response {
 	const html = `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
