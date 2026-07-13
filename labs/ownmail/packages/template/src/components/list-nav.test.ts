@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listNavAction, moveCursor } from './list-nav.js'
+import { edgeCursor, listNavAction, moveCursor } from './list-nav.js'
 
 describe('listNavAction', () => {
 	it('maps j and ArrowDown to a downward move', () => {
@@ -17,9 +17,22 @@ describe('listNavAction', () => {
 		expect(listNavAction('o')).toBe('open')
 	})
 
+	it('maps Home and End to the list edges', () => {
+		expect(listNavAction('Home')).toBe('first')
+		expect(listNavAction('End')).toBe('last')
+	})
+
 	it('ignores unrelated keys so the caller leaves the event alone', () => {
 		expect(listNavAction('x')).toBeNull()
 		expect(listNavAction('/')).toBeNull()
+	})
+})
+
+describe('edgeCursor', () => {
+	it('selects the requested edge and keeps an empty list unselected', () => {
+		expect(edgeCursor('first', 3)).toBe(0)
+		expect(edgeCursor('last', 3)).toBe(2)
+		expect(edgeCursor('first', 0)).toBe(-1)
 	})
 })
 

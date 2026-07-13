@@ -5,7 +5,7 @@
  */
 
 /** What a key press asks a list to do, or null when the key isn't a nav key. */
-export type ListNavAction = 'down' | 'up' | 'open'
+export type ListNavAction = 'down' | 'up' | 'first' | 'last' | 'open'
 
 /**
  * Map a raw keyboard key to a list-navigation action. Vim-style `j`/`k` and the
@@ -15,6 +15,8 @@ export type ListNavAction = 'down' | 'up' | 'open'
 export function listNavAction(key: string): ListNavAction | null {
 	if (key === 'j' || key === 'ArrowDown') return 'down'
 	if (key === 'k' || key === 'ArrowUp') return 'up'
+	if (key === 'Home') return 'first'
+	if (key === 'End') return 'last'
 	if (key === 'Enter' || key === 'o') return 'open'
 	return null
 }
@@ -37,4 +39,10 @@ export function moveCursor(current: number, delta: number, length: number): numb
 	if (next < 0) return 0
 	if (next > last) return last
 	return next
+}
+
+/** Return the first or last usable row in a list, or -1 when it is empty. */
+export function edgeCursor(edge: 'first' | 'last', length: number): number {
+	if (length <= 0) return -1
+	return edge === 'first' ? 0 : length - 1
 }

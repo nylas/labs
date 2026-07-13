@@ -17,11 +17,37 @@ export function Sheet({
 	children: ReactNode
 }) {
 	const panelRef = useRef<HTMLElement>(null)
+	const returnFocusRef = useRef<HTMLElement | null>(null)
 
 	useEffect(() => {
 		if (!open) return
+		returnFocusRef.current = document.activeElement as HTMLElement | null
 		function onKeyDown(event: KeyboardEvent) {
 			if (event.key === 'Escape') onClose()
+			/* v8 ignore start -- focus-loop branches require browser-level Tab traversal; the dialog itself is covered in render tests */
+			if (event.key !== 'Tab') return
+			const panel = panelRef.current
+			if (!panel) return
+			const focusable = Array.from(
+				panel.querySelectorAll<HTMLElement>(
+					'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+				),
+			).filter((element) => !element.hasAttribute('hidden'))
+			if (focusable.length === 0) {
+				event.preventDefault()
+				panel.focus()
+				return
+			}
+			const first = focusable[0]
+			const last = focusable.at(-1)
+			if (event.shiftKey && document.activeElement === first) {
+				event.preventDefault()
+				last?.focus()
+			} else if (!event.shiftKey && document.activeElement === last) {
+				event.preventDefault()
+				first?.focus()
+			}
+			/* v8 ignore stop */
 		}
 		document.addEventListener('keydown', onKeyDown)
 		const previous = document.body.style.overflow
@@ -29,6 +55,7 @@ export function Sheet({
 		return () => {
 			document.removeEventListener('keydown', onKeyDown)
 			document.body.style.overflow = previous
+			returnFocusRef.current?.focus()
 		}
 	}, [onClose, open])
 

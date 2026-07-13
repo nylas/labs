@@ -3,7 +3,7 @@ import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState }
 import { Loader2, Reply, Star } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ClientListDate } from '../components/ClientTime.js'
-import { listNavAction, moveCursor } from '../components/list-nav.js'
+import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import { cn, draftRecipientName, mailFolderTitle, threadTimestamp } from '../components/ui-model.js'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
@@ -134,7 +134,11 @@ export function MailFolderRouteScreen({
 				openItem(cursor)
 				return
 			}
-			setCursor((current) => moveCursor(current, action === 'down' ? 1 : -1, navItems.length))
+			setCursor((current) =>
+				action === 'first' || action === 'last'
+					? edgeCursor(action, navItems.length)
+					: moveCursor(current, action === 'down' ? 1 : -1, navItems.length),
+			)
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
