@@ -74,6 +74,18 @@ describe('NylasV3Client', () => {
 		expect(requestUrl).toBe('https://api-staging.us.nylas.com/v3/grants')
 	})
 
+	it('drops null and scalar members from live list responses', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json({
+				data: [{ id: 'grant-123', provider: 'nylas' }, null, 'not-a-grant', 42],
+			})
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		const grants = await client.listGrants()
+
+		expect(grants.data).toEqual([{ id: 'grant-123', provider: 'nylas' }])
+	})
+
 	it('updates an agent account app password on the grant settings', async () => {
 		let requestUrl = ''
 		let requestMethod = ''

@@ -167,6 +167,7 @@ export type EventWhen =
 			start_timezone?: string
 			end_timezone?: string
 	  }
+	| { object?: 'time'; time: number; timezone?: string }
 	| { object?: 'date'; date: string }
 	| { object?: 'datespan'; start_date: string; end_date: string }
 
@@ -510,7 +511,7 @@ export class NylasV3Client {
 				parsed,
 			)
 		}
-		return parsed as T
+		return sanitizeListResponse(parsed) as T
 	}
 
 	async rawRequest(method: string, path: string, body?: unknown): Promise<Response> {
@@ -552,6 +553,19 @@ export class NylasV3Client {
 
 function listData<T>(response: { data?: T[] | null }): T[] {
 	return Array.isArray(response.data) ? response.data : []
+}
+
+/**
+ * List entries are external JSON. Keep only object records so one null or scalar
+ * item cannot cause a consumer to dereference a property during list rendering.
+ */
+function sanitizeListResponse(value: unknown): unknown {
+	if (!isRecord(value) || !Array.isArray(value.data)) return value
+	return { ...value, data: value.data.filter(isRecord) }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function webhookUrl(webhook: Webhook): string | undefined {

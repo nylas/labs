@@ -482,6 +482,12 @@ describe('ui-model calendar helpers', () => {
 		expect(hours.endHour - hours.startHour).toBe(1.5)
 		expect(hours.allDay).toBe(false)
 	})
+
+	it('uses safe default hours for a malformed event time', () => {
+		const event = { id: 'invalid', calendar_id: 'work', when: null } as unknown as Event
+
+		expect(eventHour(event)).toEqual({ startHour: 0, endHour: 0, allDay: false })
+	})
 })
 
 describe('ui-model sidebar and sender fallbacks', () => {

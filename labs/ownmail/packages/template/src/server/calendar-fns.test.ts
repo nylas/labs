@@ -1,3 +1,4 @@
+import type { Event } from '@nylas-labs/cli-kit/v3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LOGIN_PATH } from '../components/route-paths.js'
 
@@ -45,7 +46,13 @@ function makeMailbox(calendars: CalStub[], overrides: Record<string, unknown> = 
 	return {
 		listCalendars: vi.fn(async () => ({ data: calendars })),
 		listEvents: vi.fn(async (query: { calendar_id: string }) => ({
-			data: [{ id: `evt-${query.calendar_id}`, calendar_id: query.calendar_id }],
+			data: [
+				{
+					id: `evt-${query.calendar_id}`,
+					calendar_id: query.calendar_id,
+					when: { start_time: 1_800_000_000, end_time: 1_800_003_600 },
+				},
+			],
 		})),
 		createEvent: vi.fn(async () => ({ data: { id: 'evt-created' } })),
 		updateEvent: vi.fn(async () => ({ data: {} })),
@@ -80,6 +87,37 @@ describe('calendar server functions', () => {
 		expect(mailbox.listEvents).toHaveBeenCalledTimes(2)
 		expect(result.calendar.id).toBe('primary')
 		expect(result.events.map((event) => event.id)).toEqual(['evt-work', 'evt-primary'])
+	})
+
+	it('drops malformed live event records without dropping valid events from another calendar', async () => {
+		const mailbox = resolveMailbox(
+			[
+				{ id: 'work', is_primary: false, name: 'Work' },
+				{ id: 'primary', is_primary: true, name: 'Personal' },
+			],
+			{
+				listEvents: vi.fn(async (query: { calendar_id: string }) => ({
+					data: [
+						query.calendar_id === 'work'
+							? {
+									id: 'valid-work',
+									calendar_id: 'work',
+									when: { start_time: 1_800_000_000, end_time: 1_800_003_600 },
+								}
+							: { id: 'valid-primary', calendar_id: 'primary', when: { date: '2027-01-01' } },
+						null,
+						{ id: 'null-when', calendar_id: query.calendar_id, when: null },
+						{ id: 'bad-span', calendar_id: query.calendar_id, when: { start_time: 10, end_time: 10 } },
+						{ id: 'bad-date', calendar_id: query.calendar_id, when: { date: '2027-02-30' } },
+					] as unknown as Event[],
+				})),
+			},
+		)
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(2)
+		expect(result.events.map((event) => event.id)).toEqual(['valid-work', 'valid-primary'])
 	})
 
 	it('falls back to the first calendar when none is marked primary', async () => {

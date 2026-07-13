@@ -107,7 +107,13 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const agenda = useMemo(
 		() =>
 			timedEventsOnDay(visibleEvents, today)
-				.sort((a, b) => eventTimes(a).start.getTime() - eventTimes(b).start.getTime())
+				.sort((a, b) => {
+					const aTimes = eventTimes(a)
+					const bTimes = eventTimes(b)
+					/* v8 ignore next -- timedEventsOnDay only returns events with parsed times */
+					if (!aTimes || !bTimes) return 0
+					return aTimes.start.getTime() - bTimes.start.getTime()
+				})
 				.slice(0, 5),
 		[today, visibleEvents],
 	)
@@ -411,27 +417,30 @@ function CalendarSidebarPanel({
 					{agenda.length === 0 ? (
 						<p className="text-sm text-muted-foreground">Nothing left today.</p>
 					) : (
-						agenda.slice(0, 4).map((event, index) => (
-							<button
-								key={event.id}
-								type="button"
-								onClick={() => onPickEvent(event)}
-								className="flex items-start gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted"
-							>
-								<span
-									className={cn(
-										'mt-1 h-2 w-2 shrink-0 rounded-full',
-										eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
-									)}
-								/>
-								<span className="min-w-0">
-									<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
-									<span className="text-xs text-muted-foreground">
-										{fmtAgendaTime(eventTimes(event).start)}
+						agenda.slice(0, 4).map((event, index) => {
+							const times = eventTimes(event)
+							/* v8 ignore next -- visibleEvents only contains runtime-validated events */
+							if (!times) return null
+							return (
+								<button
+									key={event.id}
+									type="button"
+									onClick={() => onPickEvent(event)}
+									className="flex items-start gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted"
+								>
+									<span
+										className={cn(
+											'mt-1 h-2 w-2 shrink-0 rounded-full',
+											eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+										)}
+									/>
+									<span className="min-w-0">
+										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
+										<span className="text-xs text-muted-foreground">{fmtAgendaTime(times.start)}</span>
 									</span>
-								</span>
-							</button>
-						))
+								</button>
+							)
+						})
 					)}
 				</div>
 			</div>
@@ -592,8 +601,11 @@ function MonthGrid({
 							</div>
 							<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
 								{dayEvents.slice(0, 3).map((event, index) => {
+									const times = eventTimes(event)
+									/* v8 ignore next -- eventsOnDay excludes records without parsed times */
+									if (!times) return null
 									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
-									const allDay = eventTimes(event).allDay
+									const allDay = times.allDay
 									return (
 										<button
 											key={event.id}
@@ -612,7 +624,7 @@ function MonthGrid({
 											) : null}
 											{!allDay ? (
 												<span className="shrink-0 tabular-nums text-muted-foreground">
-													{fmtTime(eventTimes(event).start)}
+													{fmtTime(times.start)}
 												</span>
 											) : null}
 											<span
@@ -775,7 +787,9 @@ function TimeGrid({
 							))}
 						</div>
 						{columns.map((day, dayIndex) => {
-							const dayEvents = eventsOnDay(events, day).filter((event) => !eventTimes(event).allDay)
+							const dayEvents = eventsOnDay(events, day).filter(
+								(event) => eventTimes(event)?.allDay === false,
+							)
 							const isToday = ymd(day) === todayIso
 							return (
 								<div
@@ -810,7 +824,10 @@ function TimeGrid({
 										</div>
 									) : null}
 									{dayEvents.map((event, index) => {
-										const { start: s, end: e } = eventTimes(event)
+										const times = eventTimes(event)
+										/* v8 ignore next -- dayEvents excludes records without parsed times */
+										if (!times) return null
+										const { start: s, end: e } = times
 										const layout = timedEventLayout(event, day, {
 											startHour: START_HOUR,
 											endHour: GRID_END_HOUR,
