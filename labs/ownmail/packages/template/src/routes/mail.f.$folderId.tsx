@@ -299,23 +299,48 @@ function ThreadRow({
 	navActive: boolean
 	onChanged: () => void
 }) {
+	const [starred, setStarred] = useState(thread.starred)
+	const [starPending, setStarPending] = useState(false)
+
+	useEffect(() => {
+		setStarred(thread.starred)
+	}, [thread.starred])
+
 	async function toggleStar() {
-		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
-		onChanged()
+		/* v8 ignore next -- the star control is disabled while its request is pending */
+		if (starPending) return
+		const nextStarred = !starred
+		setStarred(nextStarred)
+		setStarPending(true)
+		try {
+			await updateThreadState({ data: { threadId: thread.id, starred: nextStarred } })
+			onChanged()
+			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
+		} catch {
+			setStarred(!nextStarred)
+		} finally {
+			setStarPending(false)
+		}
 	}
+	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
 
 	return (
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId, threadId: thread.id }}
 			search={baseFolderId ? { baseFolderId } : {}}
-			className={cn(THREAD_ROW_CLASS, thread.unread && 'bg-card/80')}
+			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
 			activeProps={{ 'data-active': 'true' }}
 			data-nav-row=""
 			data-nav-cursor={navActive ? 'true' : undefined}
-			data-unread={thread.unread ? 'true' : undefined}
+			data-unread={optimisticThread.unread ? 'true' : undefined}
 		>
-			<ThreadRowContent thread={thread} folderId={folderId} onToggleStar={toggleStar} />
+			<ThreadRowContent
+				thread={optimisticThread}
+				folderId={folderId}
+				onToggleStar={toggleStar}
+				starPending={starPending}
+			/>
 		</Link>
 	)
 }

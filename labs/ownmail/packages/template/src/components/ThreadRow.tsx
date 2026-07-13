@@ -24,10 +24,12 @@ export function ThreadRowContent({
 	thread,
 	folderId,
 	onToggleStar,
+	starPending = false,
 }: {
 	thread: Thread
 	folderId: string
 	onToggleStar: () => void
+	starPending?: boolean
 }) {
 	const labels = threadLabels(thread)
 	return (
@@ -35,13 +37,17 @@ export function ThreadRowContent({
 			<div className="flex items-center gap-2">
 				<button
 					type="button"
+					disabled={starPending}
 					onClick={(event) => {
 						event.preventDefault()
 						event.stopPropagation()
 						onToggleStar()
 					}}
 					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					className={cn('shrink-0 text-muted-foreground transition-colors', STAR_HOVER_CLASS)}
+					className={cn(
+						'shrink-0 text-muted-foreground transition-colors disabled:cursor-wait disabled:opacity-50',
+						STAR_HOVER_CLASS,
+					)}
 				>
 					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
 				</button>
