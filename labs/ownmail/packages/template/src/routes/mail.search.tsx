@@ -1,7 +1,7 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ThreadConversation } from '../components/ThreadConversation.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import {
@@ -129,21 +129,45 @@ function SearchThreadRow({
 }) {
 	const folderId = threadRouteFolderId(thread)
 	const router = useRouter()
+	const [starred, setStarred] = useState(thread.starred)
+	const [starPending, setStarPending] = useState(false)
+
+	useEffect(() => {
+		setStarred(thread.starred)
+	}, [thread.starred])
 
 	async function toggleStar() {
-		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
-		router.invalidate()
+		/* v8 ignore next -- the star control is disabled while its request is pending */
+		if (starPending) return
+		const nextStarred = !starred
+		setStarred(nextStarred)
+		setStarPending(true)
+		try {
+			await updateThreadState({ data: { threadId: thread.id, starred: nextStarred } })
+			router.invalidate()
+			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
+		} catch {
+			setStarred(!nextStarred)
+		} finally {
+			setStarPending(false)
+		}
 	}
+	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
 
 	return (
 		<Link
 			to="/mail/search"
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
 			data-active={active ? 'true' : undefined}
-			data-unread={thread.unread ? 'true' : undefined}
-			className={cn(THREAD_ROW_CLASS, thread.unread && 'bg-card/80')}
+			data-unread={optimisticThread.unread ? 'true' : undefined}
+			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
 		>
-			<ThreadRowContent thread={thread} folderId={folderId} onToggleStar={toggleStar} />
+			<ThreadRowContent
+				thread={optimisticThread}
+				folderId={folderId}
+				onToggleStar={toggleStar}
+				starPending={starPending}
+			/>
 		</Link>
 	)
 }

@@ -213,7 +213,7 @@ export function EventModal({
 			<Dialog
 				open
 				onOpenChange={(next) => {
-					if (!next) onClose(false)
+					if (!next && !busy) onClose(false)
 				}}
 			>
 				<DialogContent className={EVENT_DIALOG_PANEL_CLASS}>
@@ -232,6 +232,7 @@ export function EventModal({
 						<button
 							type="button"
 							onClick={() => onClose(false)}
+							disabled={busy}
 							aria-label="Close"
 							className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
 						>
@@ -271,6 +272,7 @@ export function EventModal({
 								<button
 									type="button"
 									onClick={() => setEditing(false)}
+									disabled={busy}
 									className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
 								>
 									Cancel
@@ -356,6 +358,7 @@ export function EventModal({
 								<button
 									type="button"
 									onClick={() => onClose(false)}
+									disabled={busy}
 									className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
 								>
 									Done
@@ -387,6 +390,7 @@ export function EventModal({
 				<button
 					type="button"
 					onClick={() => onClose(false)}
+					disabled={busy}
 					aria-label="Close"
 					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
 				>
@@ -453,6 +457,7 @@ export function EventModal({
 				<button
 					type="button"
 					onClick={() => onClose(false)}
+					disabled={busy}
 					className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
 				>
 					Cancel

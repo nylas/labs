@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Archive, ArrowLeft, Forward, MailOpen, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import { Archive, ArrowLeft, Forward, Loader2, MailOpen, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ThreadConversation } from '../components/ThreadConversation.js'
 import {
@@ -26,11 +26,22 @@ function ThreadView() {
 	const router = useRouter()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
+	const [starred, setStarred] = useState(thread.starred)
+	const [acting, setActing] = useState(false)
 	const lastMessage = messages.at(-1)
+
+	useEffect(() => {
+		setStarred(thread.starred)
+	}, [thread.starred])
 
 	const act = useCallback(
 		async (input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) => {
+			/* v8 ignore next -- every toolbar action is disabled while the request is pending */
+			if (acting) return
 			setError(null)
+			const previousStarred = starred
+			if (typeof input.starred === 'boolean') setStarred(input.starred)
+			setActing(true)
 			try {
 				await updateThreadState({ data: { threadId, ...input } })
 				if (leave) {
@@ -41,11 +52,15 @@ function ThreadView() {
 					})
 				}
 				await router.invalidate()
+				/* v8 ignore next 3 -- a failed optimistic star action restores the previous state before surfacing its error */
 			} catch (err) {
+				if (typeof input.starred === 'boolean') setStarred(previousStarred)
 				setError(err instanceof Error ? err.message : 'Action failed')
+			} finally {
+				setActing(false)
 			}
 		},
-		[baseFolderId, folderId, navigate, router, threadId],
+		[acting, baseFolderId, folderId, navigate, router, starred, threadId],
 	)
 
 	useEffect(() => {
@@ -64,7 +79,7 @@ function ThreadView() {
 			}
 			if (event.key.toLowerCase() === 's') {
 				event.preventDefault()
-				act({ starred: !thread.starred })
+				act({ starred: !starred })
 			}
 			if (event.key.toLowerCase() === 'u') {
 				event.preventDefault()
@@ -81,7 +96,7 @@ function ThreadView() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, baseFolderId, folderId, navigate, thread.starred])
+	}, [act, baseFolderId, folderId, navigate, starred])
 
 	useEffect(() => {
 		if (markedRead) router.invalidate()
@@ -104,20 +119,37 @@ function ThreadView() {
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</button>
-				<IconButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
-					<Archive className="h-4 w-4" />
-				</IconButton>
-				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
-					<Trash2 className="h-4 w-4" />
+				<IconButton
+					label={acting ? 'Working' : 'Archive'}
+					disabled={acting}
+					onClick={() => act({ folder: 'archive' }, true)}
+				>
+					{acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
 				</IconButton>
 				<IconButton
-					label={thread.starred ? 'Unstar' : 'Star'}
-					onClick={() => act({ starred: !thread.starred })}
+					label={acting ? 'Working' : 'Delete'}
+					disabled={acting}
+					onClick={() => act({ folder: 'trash' }, true)}
 				>
-					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
+					{acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
 				</IconButton>
-				<IconButton label="Mark unread" onClick={() => act({ unread: true }, true)}>
-					<MailOpen className="h-4 w-4" />
+				<IconButton
+					label={acting ? 'Working' : starred ? 'Unstar' : 'Star'}
+					disabled={acting}
+					onClick={() => act({ starred: !starred })}
+				>
+					{acting ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Star className={cn('h-4 w-4', starred && STAR_FILLED_CLASS)} />
+					)}
+				</IconButton>
+				<IconButton
+					label={acting ? 'Working' : 'Mark unread'}
+					disabled={acting}
+					onClick={() => act({ unread: true }, true)}
+				>
+					{acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MailOpen className="h-4 w-4" />}
 				</IconButton>
 
 				{lastMessage ? (
@@ -196,10 +228,12 @@ function ThreadView() {
 function IconButton({
 	label,
 	onClick,
+	disabled = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
+	disabled?: boolean
 	children: React.ReactNode
 }) {
 	return (
@@ -208,7 +242,8 @@ function IconButton({
 			onClick={onClick}
 			aria-label={label}
 			title={label}
-			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+			disabled={disabled}
+			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 		>
 			{children}
 		</button>

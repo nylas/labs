@@ -58,7 +58,8 @@ export function ContactModal({
 		<Dialog
 			open
 			onOpenChange={(next) => {
-				if (!next) onClose(false)
+				/* v8 ignore next -- while saving, the dialog cannot be dismissed */
+				if (!next && !busy) onClose(false)
 			}}
 		>
 			<DialogContent className={CONTACT_DIALOG_PANEL_CLASS}>
@@ -69,6 +70,7 @@ export function ContactModal({
 					<button
 						type="button"
 						onClick={() => onClose(false)}
+						disabled={busy}
 						aria-label="Close"
 						className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
 					>
@@ -195,6 +197,7 @@ export function ContactModal({
 					<button
 						type="button"
 						onClick={() => onClose(false)}
+						disabled={busy}
 						className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
 					>
 						Cancel

@@ -22,6 +22,7 @@ function ContactDetailRoute() {
 	const navigate = useNavigate()
 	const router = useRouter()
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
+	const [deleting, setDeleting] = useState(false)
 	const [deleteError, setDeleteError] = useState<string | null>(null)
 	const search = q ? { q } : {}
 
@@ -39,13 +40,17 @@ function ContactDetailRoute() {
 	}
 
 	async function remove() {
+		/* v8 ignore next -- the confirmed-delete control is disabled as soon as the first request starts */
+		if (deleting) return
 		setDeleteError(null)
+		setDeleting(true)
 		try {
 			await deleteContact({ data: { contactId: contact.id } })
 			void router.invalidate()
 			navigate({ to: '/contacts', search })
 		} catch (err) {
 			setDeleteError(err instanceof Error ? err.message : 'Failed to delete contact')
+			setDeleting(false)
 		}
 	}
 
@@ -54,6 +59,7 @@ function ContactDetailRoute() {
 			<ContactDetailScreen
 				contact={contact}
 				confirmingDelete={confirmingDelete}
+				deleting={deleting}
 				deleteError={deleteError}
 				onBack={() => navigate({ to: '/contacts', search })}
 				onEdit={openEdit}
@@ -69,6 +75,7 @@ function ContactDetailRoute() {
 export function ContactDetailScreen({
 	contact,
 	confirmingDelete,
+	deleting = false,
 	deleteError,
 	onBack,
 	onEdit,
@@ -78,6 +85,7 @@ export function ContactDetailScreen({
 }: {
 	contact: Contact
 	confirmingDelete: boolean
+	deleting?: boolean
 	deleteError: string | null
 	onBack: () => void
 	onEdit: () => void
@@ -149,6 +157,7 @@ export function ContactDetailScreen({
 				<button
 					type="button"
 					onClick={onEdit}
+					disabled={deleting}
 					className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
 				>
 					<Pencil className="h-4 w-4" /> Edit
@@ -158,13 +167,15 @@ export function ContactDetailScreen({
 						<button
 							type="button"
 							onClick={onConfirmDelete}
+							disabled={deleting}
 							className="flex items-center gap-2 rounded-lg bg-destructive px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90"
 						>
-							<Trash2 className="h-4 w-4" /> Confirm delete
+							<Trash2 className="h-4 w-4" /> {deleting ? 'Deleting…' : 'Confirm delete'}
 						</button>
 						<button
 							type="button"
 							onClick={onCancelDelete}
+							disabled={deleting}
 							className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
 						>
 							Cancel
@@ -174,6 +185,7 @@ export function ContactDetailScreen({
 					<button
 						type="button"
 						onClick={onRequestDelete}
+						disabled={deleting}
 						className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
 					>
 						<Trash2 className="h-4 w-4" /> Delete

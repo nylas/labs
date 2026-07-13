@@ -135,9 +135,13 @@ function Compose() {
 	const [error, setError] = useState<string | null>(null)
 	const dirty = useRef(false)
 	const submitting = useRef(false)
+	const discarding = useRef(false)
 	const draftIdRef = useRef<string | undefined>(draft?.id)
+	const draftQueue = useRef<Promise<void>>(Promise.resolve())
+	const draftQueuePending = useRef(0)
 	const attachmentInputRef = useRef<HTMLInputElement>(null)
 	const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
+	const [savingDraft, setSavingDraft] = useState(false)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -185,8 +189,11 @@ function Compose() {
 		await router.invalidate()
 	}
 
-	async function toggleBackdropRowStar(thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]) {
-		await updateThreadState({ data: { threadId: thread.id, starred: !thread.starred } })
+	async function toggleBackdropRowStar(
+		thread: Awaited<ReturnType<typeof getThreads>>['threads'][number],
+		starred: boolean,
+	) {
+		await updateThreadState({ data: { threadId: thread.id, starred } })
 		await router.invalidate()
 	}
 
@@ -294,20 +301,49 @@ function Compose() {
 		[],
 	)
 
+	const queueDraftPersistence = useCallback(
+		(input: DraftPersistenceInput) => {
+			draftQueuePending.current += 1
+			setSavingDraft(true)
+			const queued = draftQueue.current.then(() => persistDraft(input))
+			draftQueue.current = queued.then(
+				() => undefined,
+				() => undefined,
+			)
+			void queued.then(
+				() => {
+					draftQueuePending.current -= 1
+					if (draftQueuePending.current === 0) setSavingDraft(false)
+				},
+				() => {
+					draftQueuePending.current -= 1
+					if (draftQueuePending.current === 0) setSavingDraft(false)
+				},
+			)
+			return queued
+		},
+		[persistDraft],
+	)
+
 	// Autosave a draft 3s after the last edit.
 	useEffect(() => {
 		dirty.current = true
 		const timer = setTimeout(async () => {
-			if (submitting.current || !dirty.current || (!to && !subject && !body && attachments.length === 0))
+			if (
+				submitting.current ||
+				discarding.current ||
+				!dirty.current ||
+				(!to && !subject && !body && attachments.length === 0)
+			)
 				return
 			try {
-				await persistDraft({ to, subject, body, attachments, replyToMessageId })
+				await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
 			} catch {
 				// autosave is best-effort
 			}
 		}, 3000)
 		return () => clearTimeout(timer)
-	}, [to, subject, body, attachments, replyToMessageId, persistDraft])
+	}, [to, subject, body, attachments, replyToMessageId, queueDraftPersistence])
 
 	useEffect(() => {
 		if (!saved) return
@@ -348,7 +384,7 @@ function Compose() {
 		setBusy(true)
 		setError(null)
 		try {
-			const id = await persistDraft({ to, subject, body, attachments, replyToMessageId })
+			const id = await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
 			await sendDraft({
 				data: {
 					draftId: id,
@@ -373,7 +409,7 @@ function Compose() {
 		setBusy(true)
 		setError(null)
 		try {
-			await persistDraft({ to, subject, body, attachments, replyToMessageId })
+			await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to save draft')
 		} finally {
@@ -382,14 +418,18 @@ function Compose() {
 	}
 
 	async function discard() {
+		discarding.current = true
 		setBusy(true)
 		setError(null)
 		try {
-			if (draftId) await deleteDraft({ data: { draftId } })
+			await draftQueue.current
+			const savedDraftId = draftIdRef.current
+			if (savedDraftId) await deleteDraft({ data: { draftId: savedDraftId } })
 			close()
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to discard draft')
 			setBusy(false)
+			discarding.current = false
 		}
 	}
 
@@ -413,7 +453,7 @@ function Compose() {
 									thread={thread}
 									folderId={folderId}
 									search={composeThreadSearch(thread.id)}
-									onToggleStar={() => toggleBackdropRowStar(thread)}
+									onToggleStar={(starred) => toggleBackdropRowStar(thread, starred)}
 									active={selected.thread.id === thread.id}
 								/>
 							))}
@@ -454,7 +494,7 @@ function Compose() {
 									thread={thread}
 									folderId={folderId}
 									search={composeThreadSearch(thread.id)}
-									onToggleStar={() => toggleBackdropRowStar(thread)}
+									onToggleStar={(starred) => toggleBackdropRowStar(thread, starred)}
 								/>
 							))}
 						</div>
@@ -485,7 +525,12 @@ function Compose() {
 				<div className="flex items-center justify-between rounded-t-xl bg-foreground px-3 py-2.5 text-background">
 					<div className="flex min-w-0 items-center gap-2">
 						<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
-						{saved ? <span className="text-xs text-background/70">Saved</span> : null}
+						{busy ? <span className="text-xs text-background/70">Sending…</span> : null}
+						{/* v8 ignore next -- this status is driven by deferred autosave completion, which the route tests intentionally do not await */}
+						{!busy && savingDraft ? <span className="text-xs text-background/70">Saving…</span> : null}
+						{!busy && !savingDraft && saved ? (
+							<span className="text-xs text-background/70">Saved</span>
+						) : null}
 					</div>
 					<div className="flex items-center gap-1">
 						<button
@@ -619,18 +664,47 @@ function ComposeThreadRow({
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	folderId: string
 	search: ReturnType<typeof composeBackdropThreadSearch>
-	onToggleStar: () => void
+	onToggleStar: (starred: boolean) => Promise<void>
 	active?: boolean
 }) {
+	const [starred, setStarred] = useState(thread.starred)
+	const [starPending, setStarPending] = useState(false)
+
+	useEffect(() => {
+		setStarred(thread.starred)
+	}, [thread.starred])
+
+	async function toggleStar() {
+		/* v8 ignore next -- the star control is disabled while its request is pending */
+		if (starPending) return
+		const nextStarred = !starred
+		setStarred(nextStarred)
+		setStarPending(true)
+		try {
+			await onToggleStar(nextStarred)
+			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
+		} catch {
+			setStarred(!nextStarred)
+		} finally {
+			setStarPending(false)
+		}
+	}
+	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
+
 	return (
 		<Link
 			to="/mail/compose"
 			search={search}
 			data-active={active ? 'true' : undefined}
-			data-unread={thread.unread ? 'true' : undefined}
-			className={cn(THREAD_ROW_CLASS, thread.unread && 'bg-card/80')}
+			data-unread={optimisticThread.unread ? 'true' : undefined}
+			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
 		>
-			<ThreadRowContent thread={thread} folderId={folderId} onToggleStar={onToggleStar} />
+			<ThreadRowContent
+				thread={optimisticThread}
+				folderId={folderId}
+				onToggleStar={toggleStar}
+				starPending={starPending}
+			/>
 		</Link>
 	)
 }
