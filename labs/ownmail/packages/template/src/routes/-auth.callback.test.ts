@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
@@ -22,6 +22,7 @@ vi.mock('../server/session.js', () => ({
 import { Route } from './auth.callback.js'
 
 const GET = Route.options.server.handlers.GET
+let consoleError: ReturnType<typeof vi.spyOn>
 
 function callbackRequest(query: string) {
 	return new Request(`https://ownmail.local/auth/callback${query}`)
@@ -29,6 +30,7 @@ function callbackRequest(query: string) {
 
 beforeEach(() => {
 	vi.clearAllMocks()
+	consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 	platform.mockResolvedValue({
 		env: {
 			NYLAS_REGION: 'us',
@@ -37,6 +39,10 @@ beforeEach(() => {
 			INBOX_EMAIL: 'fallback@ownmail.com',
 		},
 	})
+})
+
+afterEach(() => {
+	consoleError.mockRestore()
 })
 
 describe('/auth/callback', () => {
@@ -104,5 +110,42 @@ describe('/auth/callback', () => {
 		const body = await response.text()
 		expect(body).toContain('sign-in failed')
 		expect(body).not.toContain('client_secret')
+		expect(consoleError).not.toHaveBeenCalled()
+	})
+
+	it('logs only safe Nylas exchange identifiers for operators', async () => {
+		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: null })
+		exchangeCodeForToken.mockRejectedValue(
+			Object.assign(new Error('provider response included a secret'), {
+				name: 'NylasApiError',
+				status: 400,
+				requestId: 'req-123',
+				type: 'api.invalid_request',
+			}),
+		)
+
+		await GET({ request: callbackRequest('?code=abc&state=xyz') })
+
+		expect(consoleError).toHaveBeenCalledWith('OwnMail token exchange failed', {
+			status: 400,
+			requestId: 'req-123',
+			type: 'api.invalid_request',
+		})
+	})
+
+	it('omits malformed Nylas exchange identifiers from operator logs', async () => {
+		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: null })
+		exchangeCodeForToken.mockRejectedValue(
+			Object.assign(new Error('provider response included a secret'), {
+				name: 'NylasApiError',
+				status: '400',
+				requestId: 123,
+				type: null,
+			}),
+		)
+
+		await GET({ request: callbackRequest('?code=abc&state=xyz') })
+
+		expect(consoleError).toHaveBeenCalledWith('OwnMail token exchange failed', {})
 	})
 })

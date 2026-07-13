@@ -1,10 +1,10 @@
 import * as p from '@clack/prompts'
-import { NylasV3Client } from '@nylas-labs/cli-kit'
+import { type GatewayApiKey, NylasV3Client } from '@nylas-labs/cli-kit'
 import { setupRealtimeWebhook } from '../deploy/webhook.js'
-import { wranglerLoggedIn } from '../deploy/wrangler.js'
+import { putSecret, wranglerLoggedIn } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
 import type { ProjectState } from '../state/schema.js'
-import { listProjectStateIssues } from '../state/store.js'
+import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
 import { activeAppUrl, redirectCallbackUrls } from './project-summary.js'
 import { pickExistingProject } from './shared.js'
@@ -14,6 +14,12 @@ type CheckResult = {
 	status: 'pass' | 'fail' | 'skip'
 	detail: string
 	fixed?: boolean
+}
+
+type ApiKeyIssue = {
+	/** The key ID that was previously installed on the app, if any. */
+	oldKeyId?: string
+	detail: string
 }
 
 /** Re-checks every external dependency of a project; repairs only with --fix. */
@@ -99,8 +105,44 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		}
 	}
 
+	// 3. Deployed API-key status. This is deliberately a dashboard query rather
+	// than an API request: an invalid key cannot authenticate an API request.
+	// Defer any repair until after Cloudflare auth is confirmed, so we never mint
+	// a replacement that cannot be installed on the Worker.
+	let apiKeyIssue: ApiKeyIssue | null = null
+	if (sessionOk && project.applicationId) {
+		if (!project.apiKeyId) {
+			apiKeyIssue = { detail: 'not tracked locally' }
+		} else {
+			try {
+				const apiKeys = await requireGateway(ctx).listApiKeys(
+					tokens(ctx),
+					project.region,
+					project.applicationId,
+				)
+				const key = apiKeys.find((candidate) => candidate.id === project.apiKeyId)
+				apiKeyIssue = apiKeyIssueFor(key, project.apiKeyId)
+			} catch {
+				results.push({
+					name: 'Nylas API key',
+					status: 'fail',
+					detail: 'could not check key status — verify your Nylas session and try again',
+				})
+			}
+		}
+		if (!apiKeyIssue) {
+			results.push({ name: 'Nylas API key', status: 'pass', detail: 'active' })
+		} else if (!opts.fix) {
+			results.push({
+				name: 'Nylas API key',
+				status: 'fail',
+				detail: `${apiKeyIssue.detail} — run \`npx ownmail doctor --fix\` to rotate it`,
+			})
+		}
+	}
+
 	try {
-		// 3. Domain verification
+		// 4. Domain verification
 		if (project.domainId && sessionOk) {
 			try {
 				const domain = await requireDashboard(ctx).getInboxDomain(
@@ -128,7 +170,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			}
 		}
 
-		// 4. Grant exists
+		// 5. Grant exists
 		if (project.grantId) {
 			if (v3) {
 				try {
@@ -151,7 +193,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			}
 		}
 
-		// 5. Redirect URIs. Missing URIs are repaired only in --fix mode.
+		// 6. Redirect URIs. Missing URIs are repaired only in --fix mode.
 		const wanted = redirectCallbackUrls(project)
 		if (wanted.length > 1) {
 			if (v3) {
@@ -185,14 +227,19 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			}
 		}
 
-		// 6. Hosting + app health
-		if (needsCloudflareLogin(project)) {
-			const cloudflareOk = await wranglerLoggedIn()
+		// 7. Hosting + app health
+		const cloudflareLoginRequired = needsCloudflareLogin(project)
+		let cloudflareOk = !cloudflareLoginRequired
+		if (cloudflareLoginRequired) {
+			cloudflareOk = await wranglerLoggedIn()
 			results.push({
 				name: 'Cloudflare login',
 				status: cloudflareOk ? 'pass' : 'fail',
 				detail: cloudflareOk ? 'authenticated' : 'run any ownmail deploy command to log in',
 			})
+		}
+		if (apiKeyIssue && opts.fix) {
+			results.push(await repairApiKey(project, ctx, cloudflareOk, apiKeyIssue))
 		}
 		const url = activeAppUrl(project)
 		let appHealthy = false
@@ -222,6 +269,12 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		if (opts.fix) {
 			if (project.hostingProvider === 'manual') {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'manual-hosting' }))
+			} else if (!cloudflareOk) {
+				results.push({
+					name: 'Instant updates',
+					status: 'skip',
+					detail: 'requires Cloudflare authentication before the webhook secret can be stored',
+				})
 			} else if (!v3) {
 				results.push({
 					name: 'Instant updates',
@@ -249,6 +302,102 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	}
 
 	reportResults(results)
+}
+
+function apiKeyIssueFor(key: GatewayApiKey | undefined, keyId: string): ApiKeyIssue | null {
+	if (!key) return { oldKeyId: keyId, detail: 'not found in Nylas' }
+	if (isExpired(key)) return { oldKeyId: keyId, detail: 'expired' }
+	if (key.status.trim().toLowerCase() !== 'active') {
+		return { oldKeyId: keyId, detail: key.status.trim() ? key.status.trim().toLowerCase() : 'inactive' }
+	}
+	return null
+}
+
+function isExpired(key: GatewayApiKey): boolean {
+	if (typeof key.expiresAt !== 'number' || !Number.isFinite(key.expiresAt)) return false
+	// Dashboard APIs may serialize epoch timestamps in seconds or milliseconds.
+	const expiresAtMs = key.expiresAt < 1_000_000_000_000 ? key.expiresAt * 1_000 : key.expiresAt
+	return expiresAtMs <= Date.now()
+}
+
+async function repairApiKey(
+	project: ProjectState,
+	ctx: Awaited<ReturnType<typeof createContext>>,
+	cloudflareOk: boolean,
+	issue: ApiKeyIssue,
+): Promise<CheckResult> {
+	// runDoctor only calls this helper after confirming applicationId exists.
+	const applicationId = project.applicationId!
+	if (project.hostingProvider === 'manual') {
+		return {
+			name: 'Nylas API key',
+			status: 'fail',
+			detail: `${issue.detail} — create a replacement API key and update NYLAS_API_KEY in your hosting provider`,
+		}
+	}
+	if (!project.workerName) {
+		return {
+			name: 'Nylas API key',
+			status: 'fail',
+			detail: `${issue.detail} — missing Cloudflare Worker name; rerun ownmail setup`,
+		}
+	}
+	if (!cloudflareOk) {
+		return {
+			name: 'Nylas API key',
+			status: 'fail',
+			detail: `${issue.detail} — authenticate Cloudflare, then rerun \`npx ownmail doctor --fix\``,
+		}
+	}
+	let created: GatewayApiKey & { apiKey: string }
+	try {
+		created = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, applicationId, {
+			name: `ownmail ${project.slug} (doctor repair ${new Date().toISOString().slice(0, 10)})`,
+		})
+	} catch {
+		return {
+			name: 'Nylas API key',
+			status: 'fail',
+			detail: `${issue.detail} — could not create a replacement key; try \`npx ownmail login\``,
+		}
+	}
+
+	try {
+		await putSecret(project.workerName, 'NYLAS_API_KEY', created.apiKey)
+	} catch {
+		// The replacement was never installed, so revoke it instead of leaving an
+		// untracked active credential behind. The previously installed key remains.
+		try {
+			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, created.id)
+		} catch {
+			// The operator gets the generic repair failure below; never print secrets.
+		}
+		return {
+			name: 'Nylas API key',
+			status: 'fail',
+			detail: `${issue.detail} — could not store a replacement in Cloudflare`,
+		}
+	}
+
+	project.apiKeyId = created.id
+	saveProject(project)
+	if (issue.oldKeyId && issue.oldKeyId !== created.id) {
+		try {
+			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, issue.oldKeyId)
+		} catch {
+			return {
+				name: 'Nylas API key',
+				status: 'fail',
+				detail: 'replacement installed, but the previous key still needs to be revoked in Nylas',
+			}
+		}
+	}
+	return {
+		name: 'Nylas API key',
+		status: 'pass',
+		detail: 'rotated and stored in Cloudflare',
+		fixed: true,
+	}
 }
 
 function reportResults(results: CheckResult[]): void {

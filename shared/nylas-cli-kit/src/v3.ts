@@ -317,8 +317,19 @@ export async function exchangeCodeForToken(
 export async function generatePkcePair(): Promise<{ verifier: string; challenge: string }> {
 	const random = crypto.getRandomValues(new Uint8Array(32))
 	const verifier = base64url(random)
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
-	return { verifier, challenge: base64url(digest) }
+	return { verifier, challenge: await nylasPkceS256Challenge(verifier) }
+}
+
+/**
+ * Nylas Hosted Auth encodes the lowercase SHA-256 hex text before Base64URL
+ * encoding it. This intentionally differs from RFC 7636's raw-digest form;
+ * keep it aligned with Nylas's documented PKCE challenge example.
+ */
+export async function nylasPkceS256Challenge(verifier: string): Promise<string> {
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
+	let hex = ''
+	for (const byte of digest) hex += byte.toString(16).padStart(2, '0')
+	return base64url(new TextEncoder().encode(hex))
 }
 
 function base64url(data: ArrayBuffer | Uint8Array): string {
