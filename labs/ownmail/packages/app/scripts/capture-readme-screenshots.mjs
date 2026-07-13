@@ -32,7 +32,7 @@ async function withDevUi() {
 		NYLAS_REGION: 'us',
 		APP_NAME: 'ownmail-dev',
 		INBOX_EMAIL: 'ada@ownmail.com',
-		TEMPLATE_VERSION: '0.1.1',
+		TEMPLATE_VERSION: '0.1.2',
 	})
 	const server = await createServer({
 		root: packageRoot,
