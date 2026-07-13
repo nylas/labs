@@ -77,7 +77,7 @@ export function MailFolderRouteScreen({
 	// order matches render order and Enter opens the right conversation.
 	const navItems = useMemo(() => {
 		if (folderId === 'drafts') {
-			return drafts.map((draft) => ({ folderId: 'drafts', threadId: draft.id, search: {} }))
+			return drafts.map((draft) => ({ draftId: draft.id }))
 		}
 		const search = baseFolderId ? { baseFolderId } : {}
 		return sortedThreads.map((thread) => ({ folderId, threadId: thread.id, search }))
@@ -87,6 +87,10 @@ export function MailFolderRouteScreen({
 		(index: number) => {
 			const item = navItems[index]
 			if (!item) return
+			if ('draftId' in item) {
+				navigate({ to: '/mail/compose', search: { draft: item.draftId, folderId: 'drafts' } })
+				return
+			}
 			navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId: item.folderId, threadId: item.threadId },
@@ -258,8 +262,8 @@ function DraftRow({ draft, navActive }: { draft: Draft; navActive: boolean }) {
 	const recipient = draftRecipientName(draft)
 	return (
 		<Link
-			to="/mail/f/$folderId/t/$threadId"
-			params={{ folderId: 'drafts', threadId: draft.id }}
+			to="/mail/compose"
+			search={{ draft: draft.id, folderId: 'drafts' }}
 			data-nav-row=""
 			data-nav-cursor={navActive ? 'true' : undefined}
 			className="thread-row group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent"

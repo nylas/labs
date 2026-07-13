@@ -31,6 +31,7 @@ const getFolders = vi.fn()
 const getThreads = vi.fn()
 const getThreadMessages = vi.fn()
 const saveDraft = vi.fn()
+const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
@@ -40,6 +41,7 @@ vi.mock('../server/fns.js', () => ({
 	getThreads: (a: any) => getThreads(a),
 	getThreadMessages: (a: any) => getThreadMessages(a),
 	saveDraft: (a: any) => saveDraft(a),
+	sendDraft: (a: any) => sendDraft(a),
 	sendMessage: (a: any) => sendMessage(a),
 	updateThreadState: (a: any) => updateThreadState(a),
 	deleteDraft: (a: any) => deleteDraft(a),
@@ -87,6 +89,7 @@ beforeEach(() => {
 	getDraft.mockResolvedValue(null)
 	getThreadMessages.mockResolvedValue(null)
 	saveDraft.mockResolvedValue({ draftId: 'new-draft' })
+	sendDraft.mockResolvedValue(undefined)
 	sendMessage.mockResolvedValue(undefined)
 	updateThreadState.mockResolvedValue(undefined)
 	deleteDraft.mockResolvedValue(undefined)
@@ -279,6 +282,15 @@ describe('mail.compose composer prefill', () => {
 		expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toBe('Draft subject')
 		expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
 			'Draft body',
+		)
+	})
+
+	it('converts an enveloped markdown draft back to its source before prefilling the editor', () => {
+		renderCompose({
+			loader: { draft: { id: 'd0', body: markdownToDraftBody('**Draft body**') } },
+		})
+		expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
+			'**Draft body**',
 		)
 	})
 
@@ -785,6 +797,20 @@ describe('mail.compose send', () => {
 		const payload = sendMessage.mock.calls[0][0].data
 		expect(payload.replyToMessageId).toBe('m9')
 		expect(payload.attachments).toHaveLength(1)
+	})
+
+	it('updates and sends the existing draft instead of creating a second message', async () => {
+		renderCompose({
+			loader: { draft: { id: 'd0', to: [{ email: 'a@b.com' }], subject: 'Draft', body: 'body' } },
+		})
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+
+		await waitFor(() =>
+			expect(sendDraft).toHaveBeenCalledWith({
+				data: { draftId: 'd0', to: 'a@b.com', subject: 'Draft', body: markdownToEmailHtml('body') },
+			}),
+		)
+		expect(sendMessage).not.toHaveBeenCalled()
 	})
 
 	it('shows the error message and re-enables sending when the send fails', async () => {

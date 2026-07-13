@@ -279,12 +279,33 @@ export const getDraft = createServerFn({ method: 'GET' })
 	})
 
 export const sendDraft = createServerFn({ method: 'POST' })
-	.validator((input: { draftId: string }) => ({
-		draftId: requireNylasProviderId(input.draftId, 'draft'),
-	}))
+	.validator(
+		(input: {
+			draftId: string
+			to: string
+			subject: string
+			body: string
+			attachments?: OutboundAttachment[]
+		}) => {
+			const to = parseRecipientEmails(input.to, { required: true })
+			if (input.body.length > 500_000) throw new Error('Message body too large')
+			return {
+				...input,
+				draftId: requireNylasProviderId(input.draftId, 'draft'),
+				toList: to,
+				attachments: normalizeOutboundAttachments(input.attachments),
+			}
+		},
+	)
 	.handler(async ({ data }) => {
 		const { mailbox } = await requireMailbox()
 		try {
+			await mailbox.updateDraft(data.draftId, {
+				to: data.toList.map((email) => ({ email })),
+				subject: data.subject,
+				body: data.body,
+				...(data.attachments ? { attachments: data.attachments } : {}),
+			})
 			await mailbox.sendDraft(data.draftId)
 		} catch (err) {
 			throw friendly(err)

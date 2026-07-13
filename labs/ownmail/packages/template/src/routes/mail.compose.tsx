@@ -2,7 +2,7 @@ import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import { Archive, Forward, Minus, Paperclip, Reply, ReplyAll, Send, Star, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { markdownToDraftBody } from '../components/html-to-markdown.js'
+import { markdownToDraftBody, seedToMarkdown } from '../components/html-to-markdown.js'
 import { MarkdownEditor } from '../components/MarkdownEditor.js'
 import { markdownToEmailHtml } from '../components/markdown-model.js'
 import { RecipientInput } from '../components/RecipientInput.js'
@@ -28,6 +28,7 @@ import {
 	getThreadMessages,
 	getThreads,
 	saveDraft,
+	sendDraft,
 	sendMessage,
 	updateThreadState,
 } from '../server/fns.js'
@@ -106,7 +107,7 @@ function Compose() {
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
-	const [body, setBody] = useState(draft?.body ?? reply?.body ?? '')
+	const [body, setBody] = useState(() => seedToMarkdown(draft?.body ?? reply?.body ?? ''))
 	const [busy, setBusy] = useState(false)
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
@@ -306,16 +307,21 @@ function Compose() {
 		setBusy(true)
 		setError(null)
 		try {
-			await sendMessage({
-				data: {
-					to,
-					subject,
-					// The editor holds markdown; outgoing mail carries inline-styled HTML.
-					body: markdownToEmailHtml(body),
-					...(attachments.length ? { attachments } : {}),
-					...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
-				},
-			})
+			const payload = {
+				to,
+				subject,
+				// The editor holds markdown; outgoing mail carries inline-styled HTML.
+				body: markdownToEmailHtml(body),
+				...(attachments.length ? { attachments } : {}),
+			}
+			if (draftId) await sendDraft({ data: { draftId, ...payload } })
+			else
+				await sendMessage({
+					data: {
+						...payload,
+						...(reply?.replyToMessageId ? { replyToMessageId: reply.replyToMessageId } : {}),
+					},
+				})
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to send')

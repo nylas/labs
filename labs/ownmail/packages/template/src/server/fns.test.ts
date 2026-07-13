@@ -446,18 +446,48 @@ describe('getDraft', () => {
 
 describe('sendDraft', () => {
 	it('validates the draft id', () => {
-		expect(fns.sendDraft.validator({ draftId: 'd1' })).toEqual({ draftId: 'd1' })
+		expect(fns.sendDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b' })).toMatchObject({
+			draftId: 'd1',
+			toList: ['a@b.com'],
+		})
 	})
 
-	it('sends a draft', async () => {
+	it('rejects an oversized draft body before updating or sending it', () => {
+		expect(() =>
+			fns.sendDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'x'.repeat(500_001) }),
+		).toThrow('Message body too large')
+	})
+
+	it('updates and sends a draft', async () => {
 		resolveMailbox()
-		expect(await fns.sendDraft.handler({ data: { draftId: 'd1' } })).toEqual({ ok: true })
+		expect(
+			await fns.sendDraft.handler({
+				data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: '<p>b</p>' },
+			}),
+		).toEqual({ ok: true })
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', {
+			to: [{ email: 'a@b.com' }],
+			subject: 's',
+			body: '<p>b</p>',
+		})
+		expect(mailbox.sendDraft).toHaveBeenCalledWith('d1')
+	})
+
+	it('keeps newly attached files when updating the draft before sending it', async () => {
+		resolveMailbox()
+		const attachments = [{ filename: 'f.txt', content_type: 'text/plain', content: 'AAAA' }]
+		await fns.sendDraft.handler({
+			data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: '<p>b</p>', attachments },
+		})
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', expect.objectContaining({ attachments }))
 	})
 
 	it('maps failures to a friendly error', async () => {
 		resolveMailbox()
 		mailbox.sendDraft.mockRejectedValue(new Error('x'))
-		await expect(fns.sendDraft.handler({ data: { draftId: 'd1' } })).rejects.toThrow(/Something went wrong/)
+		await expect(
+			fns.sendDraft.handler({ data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: 'b' } }),
+		).rejects.toThrow(/Something went wrong/)
 	})
 })
 
