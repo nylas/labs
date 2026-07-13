@@ -786,18 +786,27 @@ describe('mail.compose attachments', () => {
 })
 
 describe('mail.compose send', () => {
-	it('sends the markdown body as email-ready HTML and navigates to Sent on success', async () => {
-		// The composer state holds markdown source; only the outgoing message is
-		// serialised to inline-styled HTML that mail clients render consistently.
+	it('saves then sends the same provider draft as email-ready HTML', async () => {
+		// The composer state holds markdown source; the backing draft is updated
+		// to inline-styled HTML before the provider sends that exact draft.
+		saveDraft.mockResolvedValue({ draftId: 'draft-1' })
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'line **one**' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 
 		await waitFor(() =>
-			expect(sendMessage).toHaveBeenCalledWith({
-				data: { to: 'a@b.com', subject: 'Hi', body: markdownToEmailHtml('line **one**') },
+			expect(sendDraft).toHaveBeenCalledWith({
+				data: {
+					draftId: 'draft-1',
+					to: 'a@b.com',
+					subject: 'Hi',
+					body: markdownToEmailHtml('line **one**'),
+				},
 			}),
 		)
-		expect(sendMessage.mock.calls[0][0].data.body).toContain('<strong>one</strong>')
+		expect(sendDraft.mock.calls[0][0].data.body).toContain('<strong>one</strong>')
+		expect(saveDraft).toHaveBeenCalledWith({
+			data: { to: 'a@b.com', subject: 'Hi', body: markdownToDraftBody('line **one**') },
+		})
 		expect(navigate).toHaveBeenCalledWith({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 	})
 
@@ -813,13 +822,17 @@ describe('mail.compose send', () => {
 		await screen.findByText('note.txt')
 
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
-		await waitFor(() => expect(sendMessage).toHaveBeenCalled())
-		const payload = sendMessage.mock.calls[0][0].data
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		const payload = sendDraft.mock.calls[0][0].data
 		expect(payload.replyToMessageId).toBe('m9')
-		expect(payload.attachments).toHaveLength(1)
+		// Send uses the draft just saved above, so the server restores its
+		// attachments instead of appending the same file a second time.
+		expect(payload).not.toHaveProperty('attachments')
+		expect(saveDraft.mock.calls[0][0].data.attachments).toHaveLength(1)
 	})
 
 	it('updates and sends the existing draft instead of creating a second message', async () => {
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
 		renderCompose({
 			loader: { draft: { id: 'd0', to: [{ email: 'a@b.com' }], subject: 'Draft', body: 'body' } },
 		})
@@ -830,10 +843,10 @@ describe('mail.compose send', () => {
 				data: { draftId: 'd0', to: 'a@b.com', subject: 'Draft', body: markdownToEmailHtml('body') },
 			}),
 		)
-		expect(sendMessage).not.toHaveBeenCalled()
 	})
 
 	it('keeps the reply reference when an autosaved reply is sent as a draft', async () => {
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
 		renderCompose({
 			loader: {
 				draft: { id: 'd0', to: [{ email: 'a@b.com' }], subject: 'Re: Hi', body: 'body' },
@@ -855,7 +868,7 @@ describe('mail.compose send', () => {
 	})
 
 	it('shows the error message and re-enables sending when the send fails', async () => {
-		sendMessage.mockRejectedValue(new Error('SMTP down'))
+		sendDraft.mockRejectedValue(new Error('SMTP down'))
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 		expect(await screen.findByRole('alert')).toHaveTextContent('SMTP down')
@@ -863,10 +876,38 @@ describe('mail.compose send', () => {
 	})
 
 	it('shows a generic error when the send rejects with a non-Error', async () => {
-		sendMessage.mockRejectedValue('boom')
+		sendDraft.mockRejectedValue('boom')
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
 		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to send')
+	})
+})
+
+describe('mail.compose save draft', () => {
+	it('saves immediately when Save draft is clicked', async () => {
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+		await waitFor(() =>
+			expect(saveDraft).toHaveBeenCalledWith({
+				data: { to: 'a@b.com', subject: 'Hi', body: markdownToDraftBody('draft body') },
+			}),
+		)
+		expect(screen.getByText('Saved')).toBeInTheDocument()
+	})
+
+	it('shows the save error returned by the server', async () => {
+		saveDraft.mockRejectedValue(new Error('Mailbox unavailable'))
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Mailbox unavailable')
+	})
+
+	it('shows a generic error when manual saving rejects with a non-Error', async () => {
+		saveDraft.mockRejectedValue('offline')
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to save draft')
 	})
 })
 
