@@ -2,26 +2,30 @@
 
 # Nylas Labs
 
-Nylas Labs contains experimental, open-source projects built on Nylas APIs.
-Projects in this repository are intended for developers and customers who want
-to try early ideas, inspect the code, and adapt the examples for their own use.
+Open-source experiments for developers who would rather build the next thing
+than wait for the perfect starting point. Each lab is built on Nylas APIs,
+ready to inspect, adapt, and take somewhere interesting.
 
 ## Current Projects
 
 | Project | Description | Stage |
 |---|---|---|
-| [OwnMail](./labs/ownmail) | Deploy a mailbox and calendar app on your own domain, powered by Nylas Agent Accounts | Experiment |
+| [OwnMail](./labs/ownmail) | Put a mailbox and calendar on your own domain, then make it your own | Experiment |
 
-## Try OwnMail
+## Give your inbox a home
 
-Start the setup flow directly from npm:
+OwnMail is a self-hosted mailbox and calendar app for independent builders.
+Start with a guided deployment, use your own domain, and eject the source when
+you are ready to customize every last detail.
+
+Start from your terminal:
 
 ```bash
 npx ownmail
 ```
 
-See the [OwnMail quickstart](./labs/ownmail/docs/quickstart.md) for the full
-setup flow and command reference.
+See the [OwnMail quickstart](./labs/ownmail/docs/quickstart.md) for the setup
+flow, commands, and the power-user `eject` path.
 
 ## Repository Layout
 
