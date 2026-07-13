@@ -1,6 +1,6 @@
 ---
 'ownmail': minor
-'@ownmail/template': minor
+'@ownmail/app': minor
 '@nylas-labs/cli-kit': minor
 ---
 
