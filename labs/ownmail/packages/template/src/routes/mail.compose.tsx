@@ -1,6 +1,18 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
-import { Archive, Forward, Minus, Paperclip, Reply, ReplyAll, Send, Star, Trash2, X } from 'lucide-react'
+import {
+	Archive,
+	Forward,
+	Minus,
+	Paperclip,
+	Reply,
+	ReplyAll,
+	Save,
+	Send,
+	Star,
+	Trash2,
+	X,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { markdownToDraftBody, seedToMarkdown } from '../components/html-to-markdown.js'
 import { MarkdownEditor } from '../components/MarkdownEditor.js'
@@ -29,7 +41,6 @@ import {
 	getThreads,
 	saveDraft,
 	sendDraft,
-	sendMessage,
 	updateThreadState,
 } from '../server/fns.js'
 import type { OutboundAttachment } from '../server/outbound-attachments.js'
@@ -39,6 +50,14 @@ const MAX_COMPOSE_ATTACHMENTS = 10
 const MAX_COMPOSE_ATTACHMENT_BYTES = 2 * 1024 * 1024
 
 type ComposeAttachment = OutboundAttachment & { clientId: string }
+
+type DraftPersistenceInput = {
+	to: string
+	subject: string
+	body: string
+	attachments: ComposeAttachment[]
+	replyToMessageId?: string
+}
 
 export const Route = createFileRoute('/mail/compose')({
 	validateSearch: (
@@ -115,6 +134,8 @@ function Compose() {
 	const [saved, setSaved] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const dirty = useRef(false)
+	const submitting = useRef(false)
+	const draftIdRef = useRef<string | undefined>(draft?.id)
 	const attachmentInputRef = useRef<HTMLInputElement>(null)
 	const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
 	const sortedThreads = useMemo(
@@ -251,32 +272,42 @@ function Compose() {
 		} else navigate({ to: '/mail/f/$folderId', params: { folderId } })
 	}
 
+	const persistDraft = useCallback(
+		async ({ to, subject, body, attachments, replyToMessageId }: DraftPersistenceInput) => {
+			const savedDraft = await saveDraft({
+				data: {
+					...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
+					to,
+					subject,
+					// Enveloped so reloading can tell markdown from legacy HTML drafts.
+					body: body ? markdownToDraftBody(body) : '',
+					...(attachments.length ? { attachments } : {}),
+					...(replyToMessageId ? { replyToMessageId } : {}),
+				},
+			})
+			draftIdRef.current = savedDraft.draftId
+			setDraftId(savedDraft.draftId)
+			dirty.current = false
+			setSaved(true)
+			return savedDraft.draftId
+		},
+		[],
+	)
+
 	// Autosave a draft 3s after the last edit.
 	useEffect(() => {
 		dirty.current = true
 		const timer = setTimeout(async () => {
-			if (!dirty.current || (!to && !subject && !body && attachments.length === 0)) return
+			if (submitting.current || !dirty.current || (!to && !subject && !body && attachments.length === 0))
+				return
 			try {
-				const saved = await saveDraft({
-					data: {
-						...(draftId ? { draftId } : {}),
-						to,
-						subject,
-						// Enveloped so reloading can tell markdown from legacy HTML drafts.
-						body: body ? markdownToDraftBody(body) : '',
-						...(attachments.length ? { attachments } : {}),
-						...(replyToMessageId ? { replyToMessageId } : {}),
-					},
-				})
-				setDraftId(saved.draftId)
-				dirty.current = false
-				setSaved(true)
+				await persistDraft({ to, subject, body, attachments, replyToMessageId })
 			} catch {
 				// autosave is best-effort
 			}
 		}, 3000)
 		return () => clearTimeout(timer)
-	}, [to, subject, body, draftId, attachments, replyToMessageId])
+	}, [to, subject, body, attachments, replyToMessageId, persistDraft])
 
 	useEffect(() => {
 		if (!saved) return
@@ -313,30 +344,39 @@ function Compose() {
 	}
 
 	async function submit() {
+		submitting.current = true
 		setBusy(true)
 		setError(null)
 		try {
-			const payload = {
-				to,
-				subject,
-				// The editor holds markdown; outgoing mail carries inline-styled HTML.
-				body: markdownToEmailHtml(body),
-				...(attachments.length ? { attachments } : {}),
-			}
-			if (draftId) {
-				await sendDraft({
-					data: { draftId, ...payload, ...(replyToMessageId ? { replyToMessageId } : {}) },
-				})
-			} else
-				await sendMessage({
-					data: {
-						...payload,
-						...(replyToMessageId ? { replyToMessageId } : {}),
-					},
-				})
+			const id = await persistDraft({ to, subject, body, attachments, replyToMessageId })
+			await sendDraft({
+				data: {
+					draftId: id,
+					to,
+					subject,
+					// The editor holds markdown; outgoing mail carries inline-styled HTML.
+					body: markdownToEmailHtml(body),
+					// The provider draft was just saved with the current attachments.
+					// sendDraft restores them server-side, avoiding duplicate files.
+					...(replyToMessageId ? { replyToMessageId } : {}),
+				},
+			})
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to send')
+			setBusy(false)
+			submitting.current = false
+		}
+	}
+
+	async function saveNow() {
+		setBusy(true)
+		setError(null)
+		try {
+			await persistDraft({ to, subject, body, attachments, replyToMessageId })
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to save draft')
+		} finally {
 			setBusy(false)
 		}
 	}
@@ -524,6 +564,9 @@ function Compose() {
 						<div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
 							<Button type="button" disabled={busy} onClick={submit} className="font-semibold">
 								<Send className="h-4 w-4" /> {busy ? 'Sending...' : 'Send'}
+							</Button>
+							<Button type="button" variant="ghost" disabled={busy} onClick={saveNow}>
+								<Save className="h-4 w-4" /> Save draft
 							</Button>
 							<Button
 								type="button"
