@@ -286,4 +286,66 @@ describe('RecipientInput', () => {
 		await flushDebounce()
 		expect(mockSearch).toHaveBeenLastCalledWith({ data: { q: 'jor' } })
 	})
+
+	it('keeps newer suggestions when an earlier lookup resolves late', async () => {
+		let resolveFirst: (value: { email: string; name?: string }[]) => void = () => {}
+		let resolveSecond: (value: { email: string; name?: string }[]) => void = () => {}
+		mockSearch
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveFirst = resolve
+					}),
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveSecond = resolve
+					}),
+			)
+
+		render(<Harness />)
+		const input = field()
+		fireEvent.change(input, { target: { value: 'jo' } })
+		await flushDebounce()
+		fireEvent.change(input, { target: { value: 'jordan' } })
+		await flushDebounce()
+
+		await act(async () => resolveSecond([{ email: 'jordan@acme.com', name: 'Jordan' }]))
+		expect(screen.getByText('jordan@acme.com')).toBeInTheDocument()
+
+		await act(async () => resolveFirst([{ email: 'jo@old-example.com', name: 'Old result' }]))
+		expect(screen.getByText('jordan@acme.com')).toBeInTheDocument()
+		expect(screen.queryByText('jo@old-example.com')).toBeNull()
+	})
+
+	it('ignores a late lookup failure after the draft has changed', async () => {
+		let rejectFirst: (reason?: unknown) => void = () => {}
+		let resolveSecond: (value: { email: string; name?: string }[]) => void = () => {}
+		mockSearch
+			.mockImplementationOnce(
+				() =>
+					new Promise((_, reject) => {
+						rejectFirst = reject
+					}),
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveSecond = resolve
+					}),
+			)
+
+		render(<Harness />)
+		const input = field()
+		fireEvent.change(input, { target: { value: 'jo' } })
+		await flushDebounce()
+		fireEvent.change(input, { target: { value: 'jordan' } })
+		await flushDebounce()
+
+		await act(async () => resolveSecond([{ email: 'jordan@acme.com', name: 'Jordan' }]))
+		await act(async () => rejectFirst(new Error('offline')))
+
+		expect(screen.getByText('jordan@acme.com')).toBeInTheDocument()
+	})
 })

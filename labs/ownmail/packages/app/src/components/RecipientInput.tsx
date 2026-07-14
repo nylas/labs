@@ -32,6 +32,10 @@ export function RecipientInput({
 	const [open, setOpen] = useState(false)
 	const [highlight, setHighlight] = useState(0)
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+	// Contact lookups can finish out of order. Keep a monotonically increasing
+	// request id so a slow response for an earlier draft cannot replace the
+	// suggestions for what the user is currently typing.
+	const searchRequestId = useRef(0)
 	// Mirror the draft so the debounced blur handler reads the latest value,
 	// not the stale one captured when blur fired (a pick clears it in between).
 	const draftRef = useRef('')
@@ -44,6 +48,7 @@ export function RecipientInput({
 	}
 
 	useEffect(() => {
+		const requestId = ++searchRequestId.current
 		if (timer.current) clearTimeout(timer.current)
 		if (query.length < 2) {
 			setSuggestions([])
@@ -53,10 +58,12 @@ export function RecipientInput({
 		timer.current = setTimeout(async () => {
 			try {
 				const found = await searchContacts({ data: { q: query } })
+				if (requestId !== searchRequestId.current) return
 				setSuggestions(found)
 				setOpen(found.length > 0)
 				setHighlight(0)
 			} catch {
+				if (requestId !== searchRequestId.current) return
 				setSuggestions([]) // autocomplete is best-effort
 			}
 		}, 250)
