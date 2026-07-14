@@ -109,6 +109,28 @@ describe('runRotateKey', () => {
 		expect(gw.revokeApiKey).not.toHaveBeenCalled()
 	})
 
+	it('preserves the new key when the Cloudflare key swap cannot be confirmed', async () => {
+		const proj = project({ workerName: 'w1', applicationId: 'app-1' })
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		vi.mocked(putSecret).mockRejectedValueOnce(new Error('timeout'))
+		await expect(runRotateKey({})).rejects.toThrow(/left active because Cloudflare may already be using it/)
+		expect(gw.revokeApiKey).not.toHaveBeenCalled()
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
+	it('explains how to reconcile an unconfirmed Cloudflare key swap', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1', applicationId: 'app-1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		vi.mocked(putSecret).mockRejectedValueOnce(new Error('timeout'))
+		await expect(runRotateKey({})).rejects.toThrow(/check your Cloudflare Worker and the Nylas dashboard/)
+		expect(gw.revokeApiKey).not.toHaveBeenCalled()
+	})
+
 	it('warns with the gateway detail when revocation fails (GatewayError)', async () => {
 		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'old-key' })
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)

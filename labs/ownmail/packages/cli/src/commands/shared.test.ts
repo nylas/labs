@@ -119,19 +119,81 @@ describe('runTopLevel', () => {
 		expect(process.exitCode).toBe(1)
 	})
 
-	it('logs an Error message and sets a failing exit code', async () => {
+	it('gives a safe recovery path for an unexpected error', async () => {
 		await runTopLevel(async () => {
 			throw new Error('boom')
 		})
-		expect(p.log.error).toHaveBeenCalledWith('boom')
+		expect(p.log.error).toHaveBeenCalledWith(
+			'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+		)
 		expect(process.exitCode).toBe(1)
 	})
 
-	it('stringifies non-Error throws', async () => {
+	it('explains how to recover from an invalid gateway session', async () => {
+		await runTopLevel(async () => {
+			throw new Error('gateway V3_ApiKeys errors: INVALID SESSION')
+		})
+		expect(p.log.error).toHaveBeenCalledWith(
+			'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail login`, then retry your command.',
+		)
+		expect(process.exitCode).toBe(1)
+	})
+
+	it('preserves safe Cloudflare recovery guidance', async () => {
+		await runTopLevel(async () => {
+			throw new Error('Cloudflare could not deploy. Retry this OwnMail command.')
+		})
+		expect(p.log.error).toHaveBeenCalledWith('Cloudflare could not deploy. Retry this OwnMail command.')
+	})
+
+	it('preserves Cloudflare unknown-state reconciliation guidance', async () => {
+		const guidance =
+			'Cloudflare may have created session storage named "ownmail-acme", but OwnMail could not confirm its ID. Do not start a new project. Run `npx wrangler kv namespace list` to find it, then re-run `npx ownmail`; it will safely resume.'
+		await runTopLevel(async () => {
+			throw new Error(guidance)
+		})
+		expect(p.log.error).toHaveBeenCalledWith(guidance)
+	})
+
+	it('preserves the deployment precondition and its remedy', async () => {
+		await runTopLevel(async () => {
+			throw new Error('This project hasn’t deployed yet — run `npx ownmail` first.')
+		})
+		expect(p.log.error).toHaveBeenCalledWith('This project hasn’t deployed yet — run `npx ownmail` first.')
+	})
+
+	it('preserves the safe custom-domain validation message', async () => {
+		await runTopLevel(async () => {
+			throw new Error('Enter a domain like mail.your-company.com')
+		})
+		expect(p.log.error).toHaveBeenCalledWith('Enter a domain like mail.your-company.com')
+	})
+
+	it('explains how to recover when no local project is available', async () => {
+		await runTopLevel(async () => {
+			throw new Error('No projects yet. Run `npx ownmail` first.')
+		})
+		expect(p.log.error).toHaveBeenCalledWith(
+			'Your local OwnMail project is incomplete or unavailable.\n\nHow to fix: Run `npx ownmail status` to find your project, or run `npx ownmail` to create or resume one.',
+		)
+	})
+
+	it('explains how to recover from a connectivity failure', async () => {
+		await runTopLevel(async () => {
+			throw new Error('gateway V3_ApiKeys timed out after 30s')
+		})
+		expect(p.log.error).toHaveBeenCalledWith(
+			'OwnMail could not reach a required service.\n\nHow to fix: Check your internet connection, then retry the command.',
+		)
+	})
+
+	it('gives a safe recovery path for non-Error throws', async () => {
 		await runTopLevel(async () => {
 			throw 'plain string'
 		})
-		expect(p.log.error).toHaveBeenCalledWith('plain string')
+		expect(p.log.error).toHaveBeenCalledWith(
+			'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+		)
 		expect(process.exitCode).toBe(1)
 	})
 })

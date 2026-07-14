@@ -666,6 +666,12 @@ describe('getContacts', () => {
 		expect(res).toEqual({ contacts: [] })
 	})
 
+	it('normalizes an absent contacts list to an empty list', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockResolvedValue({ data: null } as never)
+		expect(await fns.getContacts.handler({ data: {} })).toEqual({ contacts: [] })
+	})
+
 	it('maps API failures to a user-safe error', async () => {
 		resolveMailbox()
 		mailbox.listContacts.mockRejectedValue(new Error('down'))

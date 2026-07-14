@@ -88,10 +88,14 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 			).ensureRedirectUris([`https://${domain}/auth/callback`])
 			p.log.step('Login redirect registered for the new domain.')
 		} catch {
-			p.log.warn('Could not register the login redirect — run `npx ownmail doctor` after logging in.')
+			p.log.warn(
+				'Could not register the login redirect — run `npx ownmail login`, then `npx ownmail doctor --fix`.',
+			)
 		}
 	} else {
-		p.log.warn('Not logged into Nylas — run `npx ownmail doctor` to register the login redirect.')
+		p.log.warn(
+			'Not logged into Nylas — run `npx ownmail login`, then `npx ownmail doctor --fix` to register the login redirect.',
+		)
 	}
 	p.outro(`Done. Your app: https://${domain} (workers.dev URL keeps working too).`)
 }
