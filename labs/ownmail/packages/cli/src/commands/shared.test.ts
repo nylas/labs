@@ -146,6 +146,20 @@ describe('runTopLevel', () => {
 		expect(p.log.error).toHaveBeenCalledWith('Cloudflare could not deploy. Retry this OwnMail command.')
 	})
 
+	it('preserves the deployment precondition and its remedy', async () => {
+		await runTopLevel(async () => {
+			throw new Error('This project hasn’t deployed yet — run `npx ownmail` first.')
+		})
+		expect(p.log.error).toHaveBeenCalledWith('This project hasn’t deployed yet — run `npx ownmail` first.')
+	})
+
+	it('preserves the safe custom-domain validation message', async () => {
+		await runTopLevel(async () => {
+			throw new Error('Enter a domain like mail.your-company.com')
+		})
+		expect(p.log.error).toHaveBeenCalledWith('Enter a domain like mail.your-company.com')
+	})
+
 	it('explains how to recover when no local project is available', async () => {
 		await runTopLevel(async () => {
 			throw new Error('No projects yet. Run `npx ownmail` first.')
