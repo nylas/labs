@@ -146,6 +146,15 @@ describe('runTopLevel', () => {
 		expect(p.log.error).toHaveBeenCalledWith('Cloudflare could not deploy. Retry this OwnMail command.')
 	})
 
+	it('preserves Cloudflare unknown-state reconciliation guidance', async () => {
+		const guidance =
+			'Cloudflare may have created session storage named "ownmail-acme", but OwnMail could not confirm its ID. Do not start a new project. Run `npx wrangler kv namespace list` to find it, then re-run `npx ownmail`; it will safely resume.'
+		await runTopLevel(async () => {
+			throw new Error(guidance)
+		})
+		expect(p.log.error).toHaveBeenCalledWith(guidance)
+	})
+
 	it('preserves the deployment precondition and its remedy', async () => {
 		await runTopLevel(async () => {
 			throw new Error('This project hasn’t deployed yet — run `npx ownmail` first.')

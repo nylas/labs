@@ -39,7 +39,12 @@ export function runTopLevel(fn: () => Promise<void>): Promise<void> {
 
 function formatTopLevelError(err: unknown): string {
 	const message = err instanceof Error ? err.message : ''
-	if (/^(Cloudflare|OwnMail) could not /i.test(message) || /\bHow to fix:/i.test(message)) return message
+	if (
+		/^(?:Cloudflare (?:could not|may have)|OwnMail could not) /i.test(message) ||
+		/\bHow to fix:/i.test(message)
+	) {
+		return message
+	}
 	if (
 		message === 'This project hasn’t deployed yet — run `npx ownmail` first.' ||
 		message === 'Enter a domain like mail.your-company.com'
