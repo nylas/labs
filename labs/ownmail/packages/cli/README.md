@@ -55,6 +55,7 @@ From there, the source and local-development workflow are yours to shape.
 
 - [Quickstart](https://github.com/nylas/labs/tree/main/labs/ownmail/docs/quickstart.md)
 - [Source repository](https://github.com/nylas/labs/tree/main/labs/ownmail)
+- [Changelog](https://github.com/nylas/labs/blob/main/labs/ownmail/packages/cli/CHANGELOG.md)
 
 Do not commit generated passwords, API keys, session secrets, or deployment
 credentials. OwnMail stores deployed app secrets in Cloudflare Worker secrets.
