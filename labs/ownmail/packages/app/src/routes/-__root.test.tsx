@@ -25,6 +25,7 @@ describe('root route', () => {
 		const head = Route.options.head()
 		expect(head.meta).toContainEqual({ charSet: 'utf-8' })
 		expect(head.meta).toContainEqual({ name: 'color-scheme', content: 'light dark' })
+		expect(head.meta).toContainEqual({ name: 'mobile-web-app-capable', content: 'yes' })
 		expect(head.links).toContainEqual({ rel: 'manifest', href: '/manifest.webmanifest' })
 		// The stylesheet link resolves through the bundler's ?url import.
 		expect(head.links.some((l: any) => l.rel === 'stylesheet')).toBe(true)

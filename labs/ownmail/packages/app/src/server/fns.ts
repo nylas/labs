@@ -421,7 +421,10 @@ export const getContacts = createServerFn({ method: 'GET' })
 				limit: 50,
 				...(data.pageToken ? { page_token: data.pageToken } : {}),
 			})
-			return { contacts: res.data, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
+			// The contacts API may omit `data` for an empty account. Normalize the
+			// untrusted response at this boundary so the UI always receives a list.
+			const contacts = Array.isArray(res.data) ? res.data : []
+			return { contacts, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
 		} catch (err) {
 			throw friendly(err)
 		}
