@@ -26,9 +26,15 @@ pnpm typecheck
 ```
 
 - Node ≥ 20, pnpm 10.
-- Commits: `[TICKET] type(scope): message` if you have a JIRA ticket; plain
-  `type(scope): message` is fine for community PRs.
-- Every published-package change needs a changeset: `pnpm changeset`.
+- Before making a change, create a new JIRA ticket in the `DEV` project and
+  associate it with an Epic. Each change requires its own ticket; do not reuse
+  an existing ticket.
+- Every commit must use Conventional Commits with its JIRA ticket ID prefix:
+  `[DEV-123] type(scope): short description`. The scope identifies the affected
+  service or package where one exists. For example:
+  `[DEV-100] feat(@ownmail/app): add dashboard overview page`.
+- Every change requires a changeset entry: run `pnpm changeset`, select the
+  affected package(s), and commit the generated file with the change.
 
 ### Test coverage (ownmail)
 
