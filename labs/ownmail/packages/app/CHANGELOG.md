@@ -1,5 +1,14 @@
 # @ownmail/app
 
+## 0.2.1
+
+### Patch Changes
+
+- 3456e01: Improve sign-in error handling in the OwnMail app and provisioning flow.
+- 3456e01: Prevent stale recipient autocomplete suggestions in OwnMail.
+- 3456e01: Harden OwnMail security and input validation boundaries.
+- 3456e01: Restore keyboard navigation in OwnMail mail threads.
+
 ## 0.2.0
 
 ### Minor Changes
