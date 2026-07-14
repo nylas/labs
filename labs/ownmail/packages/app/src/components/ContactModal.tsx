@@ -48,8 +48,8 @@ export function ContactModal({
 				const created = await createContact({ data: fields })
 				onClose(true, created.contactId)
 			}
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to save contact')
+		} catch {
+			setError('Failed to save contact')
 			setBusy(false)
 		}
 	}

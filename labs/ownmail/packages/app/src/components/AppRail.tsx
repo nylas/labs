@@ -110,7 +110,7 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 				<RailButton onClick={onOpenCommandPalette} ariaLabel="Open command palette" title="⌘K">
 					<Search className="h-[17px] w-[17px]" />
 				</RailButton>
-				<form action="/logout" method="get" className="contents">
+				<form action="/logout" method="post" className="contents">
 					<RailButton type="submit" ariaLabel="Sign out">
 						<LogOut className="h-[17px] w-[17px]" />
 					</RailButton>

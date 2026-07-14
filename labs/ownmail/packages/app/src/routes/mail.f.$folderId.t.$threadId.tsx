@@ -53,9 +53,9 @@ function ThreadView() {
 				}
 				await router.invalidate()
 				/* v8 ignore next 3 -- a failed optimistic star action restores the previous state before surfacing its error */
-			} catch (err) {
+			} catch {
 				if (typeof input.starred === 'boolean') setStarred(previousStarred)
-				setError(err instanceof Error ? err.message : 'Action failed')
+				setError('Action failed')
 			} finally {
 				setActing(false)
 			}

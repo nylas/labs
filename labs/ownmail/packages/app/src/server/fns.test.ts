@@ -263,6 +263,24 @@ describe('getThreadMessages', () => {
 })
 
 describe('sendMessage', () => {
+	it('rejects malformed message fields with a controlled validation error', () => {
+		expect(() => fns.sendMessage.validator({ to: 'a@b.com', subject: 123, body: 'b' } as never)).toThrow(
+			'Invalid message',
+		)
+		expect(() => fns.sendMessage.validator({ to: 'a@b.com', subject: 's', body: null } as never)).toThrow(
+			'Invalid message',
+		)
+	})
+
+	it('rejects an over-long subject and unsafe reply reference', () => {
+		expect(() => fns.sendMessage.validator({ to: 'a@b.com', subject: 's'.repeat(501), body: 'b' })).toThrow(
+			'Message subject too large',
+		)
+		expect(() =>
+			fns.sendMessage.validator({ to: 'a@b.com', subject: 's', body: 'b', replyToMessageId: 'id\nnext' }),
+		).toThrow('Invalid reply reference')
+	})
+
 	it('rejects an over-large body', () => {
 		expect(() =>
 			fns.sendMessage.validator({ to: 'a@b.com', subject: 's', body: 'x'.repeat(500_001) }),
@@ -382,6 +400,15 @@ describe('updateThreadState', () => {
 })
 
 describe('saveDraft', () => {
+	it('applies the same message bounds before storing a draft', () => {
+		expect(() => fns.saveDraft.validator({ to: 'a@b.com', subject: 's', body: 'x'.repeat(500_001) })).toThrow(
+			'Message body too large',
+		)
+		expect(() => fns.saveDraft.validator({ to: 123, subject: 's', body: 'b' } as never)).toThrow(
+			'Invalid message',
+		)
+	})
+
 	it('validates and normalizes with a draft id', () => {
 		const data = fns.saveDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b' })
 		expect(data.draftId).toBe('d1')

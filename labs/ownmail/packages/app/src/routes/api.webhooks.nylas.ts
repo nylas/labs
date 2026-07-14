@@ -1,5 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { validNylasProviderId } from '../server/ids.js'
 import { platform } from '../server/platform.js'
+
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
+const MAX_GRANTS_PER_WEBHOOK = 100
 
 /**
  * Nylas webhook receiver. `message.created` (and friends) bump a per-grant
@@ -19,13 +23,20 @@ export const Route = createFileRoute('/api/webhooks/nylas')({
 				const { env, kv } = await platform()
 				const secret = env.NYLAS_WEBHOOK_SECRET
 				if (!secret) return new Response('webhook secret not configured', { status: 401 })
-				if (!kv) return new Response('ok', { status: 200 }) // nowhere to record; ack
+				const contentLength = Number(request.headers.get('content-length'))
+				if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BODY_BYTES) {
+					return new Response('payload too large', { status: 413 })
+				}
 
 				const signature = request.headers.get('x-nylas-signature') ?? ''
 				const body = await request.text()
+				if (new TextEncoder().encode(body).byteLength > MAX_WEBHOOK_BODY_BYTES) {
+					return new Response('payload too large', { status: 413 })
+				}
 				if (!(await verifySignature(secret, body, signature))) {
 					return new Response('invalid signature', { status: 401 })
 				}
+				if (!kv) return new Response('ok', { status: 200 }) // nowhere to record; authenticated ack
 
 				try {
 					const payload = JSON.parse(body) as {
@@ -34,10 +45,11 @@ export const Route = createFileRoute('/api/webhooks/nylas')({
 					}
 					const grantIds = new Set<string>()
 					const fromData = payload.data?.object?.grant_id
-					if (fromData) grantIds.add(fromData)
+					if (validNylasProviderId(fromData)) grantIds.add(fromData)
 					for (const delta of payload.deltas ?? []) {
-						if (delta.object_data?.grant_id) grantIds.add(delta.object_data.grant_id)
+						if (validNylasProviderId(delta.object_data?.grant_id)) grantIds.add(delta.object_data.grant_id)
 					}
+					if (grantIds.size > MAX_GRANTS_PER_WEBHOOK) return new Response('too many grants', { status: 400 })
 					await Promise.all(
 						[...grantIds].map(async (grantId) => {
 							const key = `version:${grantId}`

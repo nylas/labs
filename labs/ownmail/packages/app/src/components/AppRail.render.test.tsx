@@ -88,5 +88,6 @@ describe('AppRailNav', () => {
 		const signOut = screen.getByRole('button', { name: 'Sign out' })
 		expect(signOut).toHaveAttribute('type', 'submit')
 		expect(signOut.closest('form')).toHaveAttribute('action', '/logout')
+		expect(signOut.closest('form')).toHaveAttribute('method', 'post')
 	})
 })

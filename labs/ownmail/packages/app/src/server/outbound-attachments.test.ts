@@ -64,6 +64,15 @@ describe('outbound attachment validation', () => {
 		expect(() => normalizeOutboundAttachments(['not-an-object'])).toThrow('Invalid attachment')
 	})
 
+	it('rejects non-string attachment fields instead of coercing them', () => {
+		expect(() =>
+			normalizeOutboundAttachments([{ filename: 123, content_type: 'text/plain', content: btoa('x') }]),
+		).toThrow('Invalid attachment')
+		expect(() =>
+			normalizeOutboundAttachments([{ filename: 'x.txt', content_type: 'text/plain', content: 123 }]),
+		).toThrow('Invalid attachment')
+	})
+
 	it('rejects an entry whose filename is missing', () => {
 		// Missing filename normalizes to '' and must be rejected, not silently sent unnamed.
 		expect(() => normalizeOutboundAttachments([{ content_type: 'text/plain', content: btoa('x') }])).toThrow(

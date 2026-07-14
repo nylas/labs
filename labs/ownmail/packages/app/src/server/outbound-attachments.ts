@@ -14,9 +14,16 @@ export function normalizeOutboundAttachments(input: unknown): OutboundAttachment
 	const attachments = input.map((item) => {
 		if (!item || typeof item !== 'object') throw new Error('Invalid attachment')
 		const attachment = item as Record<string, unknown>
-		const filename = String(attachment.filename ?? '').trim()
-		const contentType = String(attachment.content_type ?? '').trim() || 'application/octet-stream'
-		const content = String(attachment.content ?? '').trim()
+		if (
+			(attachment.filename !== undefined && typeof attachment.filename !== 'string') ||
+			(attachment.content_type !== undefined && typeof attachment.content_type !== 'string') ||
+			(attachment.content !== undefined && typeof attachment.content !== 'string')
+		) {
+			throw new Error('Invalid attachment')
+		}
+		const filename = (attachment.filename ?? '').trim()
+		const contentType = (attachment.content_type ?? '').trim() || 'application/octet-stream'
+		const content = (attachment.content ?? '').trim()
 		if (!filename || filename.length > 255 || hasUnsafeFilenameChar(filename)) {
 			throw new Error('Invalid attachment filename')
 		}

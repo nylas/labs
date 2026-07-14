@@ -81,13 +81,47 @@ describe('/api/webhooks/nylas POST', () => {
 		expect(await response.text()).toBe('webhook secret not configured')
 	})
 
-	it('acknowledges without recording when there is no KV to bump', async () => {
+	it('rejects an oversized payload from its Content-Length before reading its body', async () => {
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv: makeKv() })
+		const text = vi.fn()
+
+		const response = await POST({
+			request: {
+				headers: new Headers({ 'content-length': String(1024 * 1024 + 1) }),
+				text,
+			} as unknown as Request,
+		})
+
+		expect(response.status).toBe(413)
+		expect(text).not.toHaveBeenCalled()
+	})
+
+	it('rejects an oversized payload when Content-Length is unavailable or untrusted', async () => {
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv: makeKv() })
+		const body = 'x'.repeat(1024 * 1024 + 1)
+
+		const response = await post(body, await sign(SECRET, body))
+
+		expect(response.status).toBe(413)
+		expect(await response.text()).toBe('payload too large')
+	})
+
+	it('requires a valid signature before acknowledging when there is no KV to bump', async () => {
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv: null })
+		const body = '{}'
+
+		const response = await post(body, await sign(SECRET, body))
+
+		expect(response.status).toBe(200)
+		expect(await response.text()).toBe('ok')
+	})
+
+	it('rejects unsigned notifications even when there is no KV binding', async () => {
 		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv: null })
 
 		const response = await post('{}', 'deadbeef')
 
-		expect(response.status).toBe(200)
-		expect(await response.text()).toBe('ok')
+		expect(response.status).toBe(401)
 	})
 
 	it('rejects a well-formed but incorrectly-signed payload', async () => {
@@ -147,6 +181,20 @@ describe('/api/webhooks/nylas POST', () => {
 		expect(await response.text()).toBe('ok')
 		expect(kv.store.get('version:g1')).toBe('6')
 		expect(kv.store.get('version:g2')).toBe('1')
+	})
+
+	it('rejects a validly-signed payload that targets too many grants', async () => {
+		const kv = makeKv()
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })
+		const body = JSON.stringify({
+			deltas: Array.from({ length: 101 }, (_, index) => ({ object_data: { grant_id: `g${index}` } })),
+		})
+
+		const response = await post(body, await sign(SECRET, body))
+
+		expect(response.status).toBe(400)
+		expect(await response.text()).toBe('too many grants')
+		expect(kv.store.size).toBe(0)
 	})
 
 	it('acknowledges a validly-signed but malformed payload so Nylas stops retrying', async () => {

@@ -90,7 +90,7 @@ describe('ContactModal — create', () => {
 		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
 
-		expect(await screen.findByText('QUOTA: too many contacts')).toBeInTheDocument()
+		expect(await screen.findByText('Failed to save contact')).toBeInTheDocument()
 		expect(onClose).not.toHaveBeenCalled()
 	})
 

@@ -32,6 +32,38 @@ import { threadSearchParams } from './search.js'
 import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
 import { normalizeThreadStateInput } from './thread-state.js'
 
+const MAX_MESSAGE_BODY_LENGTH = 500_000
+const MAX_MESSAGE_SUBJECT_LENGTH = 500
+
+type MessageFieldsInput = {
+	to: string
+	subject: string
+	body: string
+	replyToMessageId?: string
+}
+
+function normalizeMessageFields(input: MessageFieldsInput): MessageFieldsInput {
+	if (
+		!input ||
+		typeof input.to !== 'string' ||
+		typeof input.subject !== 'string' ||
+		typeof input.body !== 'string'
+	) {
+		throw new Error('Invalid message')
+	}
+	if (input.subject.length > MAX_MESSAGE_SUBJECT_LENGTH) throw new Error('Message subject too large')
+	if (input.body.length > MAX_MESSAGE_BODY_LENGTH) throw new Error('Message body too large')
+	if (
+		input.replyToMessageId !== undefined &&
+		(typeof input.replyToMessageId !== 'string' ||
+			input.replyToMessageId.length > 500 ||
+			/[\r\n]/.test(input.replyToMessageId))
+	) {
+		throw new Error('Invalid reply reference')
+	}
+	return input
+}
+
 async function requireMailbox() {
 	const request = getRequest()
 	const resolved = await mailboxFromRequest(request)
@@ -210,12 +242,9 @@ export const sendMessage = createServerFn({ method: 'POST' })
 			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
 		}) => {
-			const to = parseRecipientEmails(input.to, { required: true })
-			if (input.body.length > 500_000) throw new Error('Message body too large')
-			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
-				throw new Error('Invalid reply reference')
-			}
-			return { ...input, toList: to, attachments: normalizeOutboundAttachments(input.attachments) }
+			const message = normalizeMessageFields(input)
+			const to = parseRecipientEmails(message.to, { required: true })
+			return { ...message, toList: to, attachments: normalizeOutboundAttachments(input.attachments) }
 		},
 	)
 	.handler(async ({ data }) => {
@@ -275,13 +304,11 @@ export const saveDraft = createServerFn({ method: 'POST' })
 			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
 		}) => {
-			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
-				throw new Error('Invalid reply reference')
-			}
+			const message = normalizeMessageFields(input)
 			return {
-				...input,
+				...message,
 				...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
-				toList: parseRecipientEmails(input.to, { required: false }),
+				toList: parseRecipientEmails(message.to, { required: false }),
 				attachments: normalizeOutboundAttachments(input.attachments),
 			}
 		},
@@ -329,13 +356,10 @@ export const sendDraft = createServerFn({ method: 'POST' })
 			replyToMessageId?: string
 			attachments?: OutboundAttachment[]
 		}) => {
-			const to = parseRecipientEmails(input.to, { required: true })
-			if (input.body.length > 500_000) throw new Error('Message body too large')
-			if (input.replyToMessageId !== undefined && input.replyToMessageId.length > 500) {
-				throw new Error('Invalid reply reference')
-			}
+			const message = normalizeMessageFields(input)
+			const to = parseRecipientEmails(message.to, { required: true })
 			return {
-				...input,
+				...message,
 				draftId: requireNylasProviderId(input.draftId, 'draft'),
 				toList: to,
 				attachments: normalizeOutboundAttachments(input.attachments),
