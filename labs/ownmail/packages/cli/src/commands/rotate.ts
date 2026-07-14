@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 import { GatewayError } from '@nylas-labs/cli-kit'
-import { putSecret } from '../deploy/wrangler.js'
+import { CloudflareNoChangeError, putSecret } from '../deploy/wrangler.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
@@ -30,8 +30,18 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 	try {
 		await putSecret(project.workerName, 'NYLAS_API_KEY', created.apiKey)
 		spinner.stop('App now uses the new key.')
-	} catch {
+	} catch (err) {
 		spinner.stop('The key swap could not be confirmed.')
+		if (err instanceof CloudflareNoChangeError) {
+			try {
+				await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, created.id)
+			} catch {
+				p.log.warn(
+					'Cloudflare made no changes, but OwnMail could not revoke the unused new Nylas key. Revoke that key in the Nylas dashboard before retrying.',
+				)
+			}
+			throw err
+		}
 		throw new Error(
 			'OwnMail could not confirm the Cloudflare key swap. The new Nylas key was left active because Cloudflare may already be using it. Do not retry immediately: check your Cloudflare Worker and the Nylas dashboard to identify the key in use, then revoke only the unused key before retrying `npx ownmail rotate-key`.',
 		)

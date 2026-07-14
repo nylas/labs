@@ -16,7 +16,10 @@ vi.mock('@nylas-labs/cli-kit', () => ({
 		}
 	},
 }))
-vi.mock('../deploy/wrangler.js', () => ({ putSecret: vi.fn() }))
+vi.mock('../deploy/wrangler.js', () => ({
+	CloudflareNoChangeError: class CloudflareNoChangeError extends Error {},
+	putSecret: vi.fn(),
+}))
 vi.mock('../state/store.js', () => ({ saveProject: vi.fn() }))
 vi.mock('../steps/context.js', () => ({
 	createContext: vi.fn(),
@@ -27,7 +30,7 @@ vi.mock('./shared.js', () => ({ pickExistingProject: vi.fn() }))
 
 import * as p from '@clack/prompts'
 import { GatewayError } from '@nylas-labs/cli-kit'
-import { putSecret } from '../deploy/wrangler.js'
+import { CloudflareNoChangeError, putSecret } from '../deploy/wrangler.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
@@ -129,6 +132,36 @@ describe('runRotateKey', () => {
 		vi.mocked(putSecret).mockRejectedValueOnce(new Error('timeout'))
 		await expect(runRotateKey({})).rejects.toThrow(/check your Cloudflare Worker and the Nylas dashboard/)
 		expect(gw.revokeApiKey).not.toHaveBeenCalled()
+	})
+
+	it('preserves the no-change recovery and revokes the unused new key', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1', applicationId: 'app-1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		const error = new CloudflareNoChangeError(
+			'OwnMail could not start its bundled Cloudflare deployment helper. Reinstall or update OwnMail, then retry the same OwnMail command. No Cloudflare changes were made.',
+		)
+		vi.mocked(putSecret).mockRejectedValueOnce(error)
+
+		await expect(runRotateKey({})).rejects.toThrow(error.message)
+		expect(gw.revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app-1', 'new-key')
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
+	it('warns if it cannot reclaim a key after a confirmed no-change failure', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1', applicationId: 'app-1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway({ revokeApiKey: vi.fn().mockRejectedValue(new Error('network down')) })
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		vi.mocked(putSecret).mockRejectedValueOnce(
+			new CloudflareNoChangeError('Reinstall OwnMail. No Cloudflare changes were made.'),
+		)
+
+		await expect(runRotateKey({})).rejects.toThrow(/No Cloudflare changes were made/)
+		expect(p.log.warn).toHaveBeenCalledWith(
+			expect.stringContaining('could not revoke the unused new Nylas key'),
+		)
 	})
 
 	it('warns with the gateway detail when revocation fails (GatewayError)', async () => {
