@@ -351,7 +351,7 @@ describe('stepDashboardAuth', () => {
 		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/MFA/)
 	})
 
-	it('throws a generic message for any other non-complete status', async () => {
+	it('explains how to create an account when the selected SSO identity is denied', async () => {
 		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
 		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
 		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
@@ -363,7 +363,22 @@ describe('stepDashboardAuth', () => {
 			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
 		)
 
-		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/access_denied/)
+		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/choose “No — create one \(free\)”/)
+	})
+
+	it('explains when the device sign-in link expires', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
+		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
+			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
+			return { status: 'expired_token' }
+		})
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(
+			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
+		)
+
+		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/sign-in link expired/)
 	})
 })
 

@@ -97,15 +97,17 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 			spinner.start('Waiting for you to finish in the browser…')
 		},
 	)
-	spinner.stop('Browser sign-in complete')
-
 	if (result.status !== 'complete') {
+		spinner.stop('Browser sign-in did not complete')
 		throw new Error(
 			result.status === 'mfa_required'
 				? 'This account requires MFA, which ownmail doesn’t support yet. Log in once at dashboard-v3.nylas.com and retry.'
-				: `Sign-in did not complete (${result.status}). Please re-run ownmail.`,
+				: result.status === 'access_denied'
+					? 'Sign-in was denied. If this Google, Microsoft, or GitHub email does not have a Nylas dashboard account, re-run ownmail and choose “No — create one (free)”.'
+					: 'The sign-in link expired before it was confirmed. Re-run ownmail to start a new sign-in.',
 		)
 	}
+	spinner.stop('Browser sign-in complete')
 
 	setAuth(ctx, {
 		userToken: result.userToken,
