@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const commitSubject = run('git', ['log', '-1', '--format=%s']).trim()
-if (!commitSubject.includes('chore(release): version packages')) {
+const isManualRetry = process.env.STAGE_RELEASE_RETRY === 'true'
+if (!isManualRetry && !commitSubject.includes('chore(release): version packages')) {
 	console.log('Skipping staging because this push did not merge a version-packages release PR.')
 	process.exit(0)
 }
+
+if (isManualRetry) console.log('Staging unpublished packages from an explicit manual retry.')
 
 const packages = JSON.parse(run('pnpm', ['-r', 'list', '--depth', '-1', '--json'])).filter(
 	(workspace) => !workspace.private,
