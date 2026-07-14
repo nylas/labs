@@ -11,6 +11,7 @@
 	"type": "module",
 	"files": [
 		"README.md",
+		"CHANGELOG.md",
 		"dist",
 		"src",
 		"public",

@@ -36,6 +36,7 @@ The repository-only mock UI is available from the repository root below.
 
 - [OwnMail quickstart](https://github.com/nylas/labs/tree/main/labs/ownmail/docs/quickstart.md)
 - [Source and local-development guidance](https://github.com/nylas/labs/tree/main/labs/ownmail#local-development)
+- [Changelog](https://github.com/nylas/labs/blob/main/labs/ownmail/packages/app/CHANGELOG.md)
 
 ## Local development
 
