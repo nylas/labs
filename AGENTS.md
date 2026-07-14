@@ -2,10 +2,11 @@
 
 Follow this workflow for every code or configuration change in this repository.
 
-1. Before making changes, create a new JIRA ticket in the `DEV` project and
-   associate it with an existing Epic. Do not reuse an existing ticket. If you
-   cannot create or associate the ticket, stop and ask for the required access
-   or Epic; do not make the change.
+1. Before making changes, find an open JIRA ticket in the `TW` project that is
+   associated with the `TW-5882` Epic and directly covers the work. If none
+   applies, create a new `TW` ticket and associate it with `TW-5882`. Do not
+   reuse an unrelated ticket. If you cannot create or associate the ticket,
+   stop and ask for the required access or Epic; do not make the change.
 2. Create a changeset entry with `pnpm changeset` only when a change alters
    customer-facing behavior in a published package, such as its public API,
    CLI, configuration, or user-visible behavior. Select the affected package(s)
@@ -14,18 +15,21 @@ Follow this workflow for every code or configuration change in this repository.
    internal refactors unless they directly change customer-facing package
    behavior.
 3. Use Conventional Commits for every commit, with the JIRA ticket ID prefix:
-   `[DEV-123] type(scope): short description`.
+   `[TW-123] type(scope): short description`.
 
 Allowed Conventional Commit types include `feat`, `fix`, `docs`, `refactor`,
 `test`, `chore`, `build`, `ci`, `perf`, `style`, and `revert`. The scope must
 identify the affected service or package where one exists. For example:
 
 ```text
-[DEV-100] feat(@ownmail/app): add dashboard overview page
+[TW-100] feat(@ownmail/app): add dashboard overview page
 ```
 
 Before committing, when a changeset is required, verify that it is included in
-the commit and that the commit subject matches the required format.
+the commit and run `pnpm commit:check -- .git/COMMIT_EDITMSG`. A tracked
+`commit-msg` hook and CI run the same check; do not bypass either safeguard.
+Pull-request titles must use the same Conventional Commit format and ticket
+prefix as the commits they contain.
 
 4. Before every commit, run `pnpm lint` from the repository root. Do not commit
    if it exits non-zero. If the command reports warnings, record their count in

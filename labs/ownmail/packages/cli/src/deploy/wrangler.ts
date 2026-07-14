@@ -14,6 +14,17 @@ function wranglerBin(): string {
 
 export type WranglerResult = { code: number; stdout: string; stderr: string }
 
+/**
+ * A failure that happened before Wrangler could issue a Cloudflare mutation.
+ * Callers may safely undo local work while preserving the recovery guidance.
+ */
+export class CloudflareNoChangeError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = 'CloudflareNoChangeError'
+	}
+}
+
 const TOKEN_PERMISSIONS =
 	'Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read; User: User Details Read, Memberships Read'
 
@@ -61,8 +72,8 @@ export function cloudflareFailure(
 	)
 }
 
-function wranglerUnavailable(): Error {
-	return new Error(
+function wranglerUnavailable(): CloudflareNoChangeError {
+	return new CloudflareNoChangeError(
 		'OwnMail could not start its bundled Cloudflare deployment helper. Reinstall or update OwnMail, then retry the same OwnMail command. No Cloudflare changes were made.',
 	)
 }

@@ -13,11 +13,13 @@
 		"test": "turbo test",
 		"typecheck": "turbo typecheck",
 		"smoke:ownmail-release": "node labs/ownmail/scripts/smoke-release.mjs",
+		"commit:check": "node scripts/check-commit-message.mjs",
 		"changeset": "changeset",
 		"release": "turbo build && changeset publish",
 		"stage-release": "turbo build && node scripts/stage-release.mjs",
 		"create-lab": "node scripts/create-lab.mjs",
-		"banner": "node scripts/create-banner.mjs"
+		"banner": "node scripts/create-banner.mjs",
+		"prepare": "node scripts/install-git-hooks.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.1.0",
