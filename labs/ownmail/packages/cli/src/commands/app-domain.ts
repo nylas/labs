@@ -9,6 +9,12 @@ import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { CancelledError } from '../steps/provision.js'
 import { pickExistingProject } from './shared.js'
 
+const APP_DOMAIN_PATTERN = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/
+
+function isAppDomain(value: string): boolean {
+	return APP_DOMAIN_PATTERN.test(value)
+}
+
 /**
  * Serves the app on the user's own domain (e.g. mail.acme.com) via a
  * Cloudflare custom-domain route. The domain's zone must already be on the
@@ -27,13 +33,13 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 		const typed = await p.text({
 			message: 'Domain for your app (its DNS zone must be on your Cloudflare account)',
 			placeholder: 'mail.your-company.com',
-			validate: (v) =>
-				/^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(v ?? '')
-					? undefined
-					: 'Enter a domain like mail.your-company.com',
+			validate: (v) => (isAppDomain(v ?? '') ? undefined : 'Enter a domain like mail.your-company.com'),
 		})
 		if (p.isCancel(typed)) throw new CancelledError()
 		domain = typed
+	}
+	if (!domain || !isAppDomain(domain)) {
+		throw new Error('Enter a domain like mail.your-company.com')
 	}
 
 	await ensureCloudflareAuth()

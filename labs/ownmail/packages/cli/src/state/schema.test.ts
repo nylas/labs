@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AuthStateSchema, ProjectStateSchema, StepIdSchema } from './schema.js'
+import { AuthStateSchema, ProjectSlugSchema, ProjectStateSchema, StepIdSchema } from './schema.js'
 
 /**
  * The schemas are the single source of truth for what persists to disk. If a
@@ -100,5 +100,10 @@ describe('ProjectStateSchema', () => {
 
 	it('requires slug', () => {
 		expect(ProjectStateSchema.safeParse({ createdAt: 1, updatedAt: 1 }).success).toBe(false)
+	})
+
+	it('rejects slugs that could escape the project state directory', () => {
+		expect(ProjectSlugSchema.safeParse('../auth').success).toBe(false)
+		expect(ProjectStateSchema.safeParse({ slug: '../auth', createdAt: 1, updatedAt: 1 }).success).toBe(false)
 	})
 })

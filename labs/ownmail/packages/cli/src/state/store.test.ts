@@ -194,6 +194,12 @@ describe('listProjectStateIssues', () => {
 		mockRead.mockReturnValueOnce(JSON.stringify({ slug: 42 }))
 		expect(listProjectStateIssues('broken')).toEqual([{ file: 'broken.json', reason: 'invalid-schema' }])
 	})
+
+	it('does not inspect a path-shaped project name', () => {
+		expect(listProjectStateIssues('../auth')).toEqual([])
+		expect(mockExists).not.toHaveBeenCalled()
+		expect(mockRead).not.toHaveBeenCalled()
+	})
 })
 
 describe('loadProject', () => {
@@ -217,6 +223,11 @@ describe('loadProject', () => {
 
 	it('does not load reserved internal project slugs', () => {
 		expect(loadProject('__login__')).toBeNull()
+		expect(mockRead).not.toHaveBeenCalled()
+	})
+
+	it('does not load path-shaped project names', () => {
+		expect(loadProject('../auth')).toBeNull()
 		expect(mockRead).not.toHaveBeenCalled()
 	})
 })
@@ -244,6 +255,11 @@ describe('deleteProject', () => {
 		})
 		expect(() => deleteProject('inbox')).toThrow('permission denied')
 	})
+
+	it('does not unlink path-shaped project names', () => {
+		expect(deleteProject('../auth')).toBe(false)
+		expect(mockUnlink).not.toHaveBeenCalled()
+	})
 })
 
 describe('saveProject', () => {
@@ -264,6 +280,12 @@ describe('saveProject', () => {
 
 		expect(mockWrite).not.toHaveBeenCalled()
 	})
+
+	it('does not persist path-shaped project names', () => {
+		saveProject(validProject('../auth'))
+
+		expect(mockWrite).not.toHaveBeenCalled()
+	})
 })
 
 describe('newProject', () => {
@@ -273,6 +295,10 @@ describe('newProject', () => {
 		expect(project.region).toBe('eu')
 		expect(project.completedSteps).toEqual([])
 		expect(project.ejected).toBe(false)
+	})
+
+	it('rejects path-shaped project names', () => {
+		expect(() => newProject('../auth', 'us')).toThrow('Project names must use')
 	})
 })
 

@@ -8,6 +8,9 @@ export default defineConfig({
 	test: {
 		environment: 'node',
 		globals: false,
+		// V8 coverage writes shared intermediate files. Parallel test files can
+		// race while cleaning that directory, intermittently failing a green run.
+		fileParallelism: false,
 		include: ['src/**/*.test.ts'],
 		coverage: {
 			provider: 'v8',

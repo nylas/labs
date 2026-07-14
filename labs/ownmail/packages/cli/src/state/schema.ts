@@ -1,6 +1,20 @@
 import { z } from 'zod'
 
 /**
+ * Project slugs are used as filenames under the OwnMail state directory and
+ * as parts of Cloudflare resource names. Keep that boundary deliberately
+ * narrower than an arbitrary string so CLI flags can never escape the state
+ * directory. `__login__` is an in-memory internal sentinel and is never
+ * persisted as a project.
+ */
+export const ProjectSlugSchema = z
+	.string()
+	.regex(
+		/^(?:[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?|__login__)$/,
+		'Project names must use 3-40 lowercase letters, digits, and hyphens.',
+	)
+
+/**
  * Persistent CLI state. Two files under ~/.config/ownmail (0600):
  * - auth.json: dashboard session + DPoP private key
  * - projects/<slug>.json: one deployed project
@@ -55,7 +69,7 @@ export const PendingSecretNameSchema = z.enum(['apiKey', 'clientSecret', 'appPas
 export type PendingSecretName = z.infer<typeof PendingSecretNameSchema>
 
 export const ProjectStateSchema = z.object({
-	slug: z.string(),
+	slug: ProjectSlugSchema,
 	createdAt: z.number(),
 	updatedAt: z.number(),
 

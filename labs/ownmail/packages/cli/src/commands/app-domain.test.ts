@@ -94,6 +94,17 @@ describe('runAppDomain', () => {
 		await expect(runAppDomain({})).rejects.toThrow(/hasn.t deployed yet/)
 	})
 
+	it('rejects an invalid supplied domain before changing Cloudflare resources', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project())
+
+		await expect(runAppDomain({ domain: 'mail.acme.com/route' })).rejects.toThrow(
+			'Enter a domain like mail.your-company.com',
+		)
+
+		expect(ensureCloudflareAuth).not.toHaveBeenCalled()
+		expect(materialize).not.toHaveBeenCalled()
+	})
+
 	it('stops the spinner and preserves the project when Cloudflare rejects domain setup', async () => {
 		const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() }
 		vi.mocked(p.spinner).mockReturnValueOnce(spinner as unknown as ReturnType<typeof p.spinner>)
