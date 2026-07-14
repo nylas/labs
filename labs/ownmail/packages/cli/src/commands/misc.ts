@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
-import { runWrangler } from '../deploy/wrangler.js'
+import { cloudflareFailure, runWrangler } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
 import { clearPendingSecrets, pendingSecretLabels } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
@@ -171,7 +171,7 @@ async function deleteHostedContent(project: ProjectState, opts: { strictKv?: boo
 		hadRecordedResource = true
 		const res = await runWrangler(['delete', '--name', project.workerName, '--force'])
 		if (res.code !== 0 && !/not found|does not exist/i.test(res.stderr + res.stdout)) {
-			throw new Error(`Failed to delete worker: ${res.stderr || res.stdout}`)
+			throw cloudflareFailure('delete the mailbox app', res, { mayHaveChanged: true })
 		}
 		p.log.step(`Worker ${project.workerName} deleted.`)
 	}
@@ -179,9 +179,9 @@ async function deleteHostedContent(project: ProjectState, opts: { strictKv?: boo
 		hadRecordedResource = true
 		const res = await runWrangler(['kv', 'namespace', 'delete', '--namespace-id', project.kvNamespaceId])
 		if (res.code !== 0 && !/not found/i.test(res.stderr + res.stdout)) {
-			const message = `Could not delete KV namespace: ${res.stderr || res.stdout}`
-			if (opts.strictKv) throw new Error(message)
-			p.log.warn(message)
+			const error = cloudflareFailure('delete session storage', res, { mayHaveChanged: true })
+			if (opts.strictKv) throw error
+			p.log.warn(error.message)
 		} else {
 			p.log.step('Session storage deleted.')
 		}

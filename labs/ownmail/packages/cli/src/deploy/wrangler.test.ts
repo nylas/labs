@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // './bin/wrangler.js' fallback used when a wrangler build omits it.
 const modCtl = vi.hoisted(() => ({
 	pkg: { bin: { wrangler: './bin/wrangler.js' } } as { bin: Record<string, string> },
+	resolveError: null as Error | null,
 }))
 
 vi.mock('node:module', () => {
@@ -20,6 +21,7 @@ vi.mock('node:module', () => {
 		throw new Error(`unexpected require: ${id}`)
 	}) as unknown as { resolve: (id: string) => string } & ((id: string) => unknown)
 	req.resolve = (id: string) => {
+		if (modCtl.resolveError) throw modCtl.resolveError
 		if (id === 'wrangler/package.json') return '/fake/node_modules/wrangler/package.json'
 		throw new Error(`unexpected resolve: ${id}`)
 	}
@@ -112,6 +114,7 @@ beforeEach(() => {
 	spawnCtl.queue.length = 0
 	spawnCtl.calls.length = 0
 	modCtl.pkg = { bin: { wrangler: './bin/wrangler.js' } }
+	modCtl.resolveError = null
 })
 
 afterEach(() => {
@@ -139,9 +142,15 @@ describe('runWrangler', () => {
 		expect(res.code).toBe(1)
 	})
 
-	it('rejects when the process emits an error', async () => {
+	it('explains how to recover when the bundled helper cannot start', async () => {
 		spawnCtl.queue.push({ error: new Error('spawn ENOENT') })
-		await expect(runWrangler(['x'])).rejects.toThrow('spawn ENOENT')
+		await expect(runWrangler(['x'])).rejects.toThrow(/Reinstall or update OwnMail/)
+	})
+
+	it('explains how to recover when the bundled helper is missing', async () => {
+		modCtl.resolveError = new Error('MODULE_NOT_FOUND')
+		await expect(runWrangler(['x'])).rejects.toThrow(/No Cloudflare changes were made/)
+		expect(spawnCtl.calls).toHaveLength(0)
 	})
 
 	it('uses inherited stdio and no pipes when interactive', async () => {
@@ -191,11 +200,16 @@ describe('wranglerLogin', () => {
 		expect(args).toContain('--browser=true')
 	})
 
-	it('throws when login fails (openBrowser=false default)', async () => {
-		spawnCtl.queue.push({ code: 1, noStreams: true })
-		await expect(wranglerLogin()).rejects.toThrow('Cloudflare login failed')
+	it('gives credential recovery guidance when login fails (openBrowser=false default)', async () => {
+		spawnCtl.queue.push({ code: 1, stderr: 'authentication failed', noStreams: true })
+		await expect(wranglerLogin()).rejects.toThrow(/choose Wrangler OAuth/)
 		const args = spawnCtl.calls[0]?.args as string[]
 		expect(args).toContain('--browser=false')
+	})
+
+	it('classifies a captured login error without showing its raw output', async () => {
+		spawnCtl.queue.push({ code: 1, stderr: 'authentication failed' })
+		await expect(wranglerLogin()).rejects.toThrow(/current credentials were rejected/)
 	})
 })
 
@@ -210,28 +224,46 @@ describe('ensureKvNamespace', () => {
 		expect(await ensureKvNamespace('mykv')).toBe(HEX32)
 	})
 
-	it('creates a namespace and parses the id from output when list is unparseable', async () => {
-		spawnCtl.queue.push({ code: 0, stdout: 'not json' }) // list -> JSON.parse throws
+	it('returns the ID Cloudflare reports after creating session storage', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '[]' })
 		spawnCtl.queue.push({ code: 0, stdout: `Created namespace with id: "${HEX32}"` })
 		expect(await ensureKvNamespace('mykv')).toBe(HEX32)
 	})
 
-	it('creates a namespace when the list call itself fails', async () => {
-		spawnCtl.queue.push({ code: 1, stderr: 'list failed' }) // list skipped
-		spawnCtl.queue.push({ code: 0, stdout: `id = ${HEX32}` })
-		expect(await ensureKvNamespace('mykv')).toBe(HEX32)
+	it('fails closed when the namespace inventory is unparseable', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: 'not json' })
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/did not create anything/)
+		expect(spawnCtl.calls).toHaveLength(1)
 	})
 
-	it('throws when creation fails, surfacing stderr', async () => {
+	it('fails closed when Cloudflare rejects the namespace inventory request', async () => {
+		spawnCtl.queue.push({ code: 1, stderr: 'permission denied' })
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/current credentials were rejected/)
+		expect(spawnCtl.calls).toHaveLength(1)
+	})
+
+	it('gives recovery guidance when creation fails', async () => {
 		spawnCtl.queue.push({ code: 0, stdout: '[]' }) // list ok, none found
 		spawnCtl.queue.push({ code: 1, stderr: 'create denied' })
-		await expect(ensureKvNamespace('mykv')).rejects.toThrow('create denied')
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/could not create session storage/)
 	})
 
-	it('falls back to stdout in the create-failure message when stderr is empty', async () => {
+	it('gives limit recovery guidance when creation reaches quota', async () => {
 		spawnCtl.queue.push({ code: 0, stdout: '[]' }) // list ok, none found
 		spawnCtl.queue.push({ code: 1, stdout: 'quota exceeded' }) // no stderr
-		await expect(ensureKvNamespace('mykv')).rejects.toThrow('quota exceeded')
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/reached a service limit/)
+	})
+
+	it('gives conflict recovery guidance when storage already exists', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '[]' })
+		spawnCtl.queue.push({ code: 1, stderr: 'resource conflict' })
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/resource conflicts/)
+	})
+
+	it('gives network recovery guidance when Cloudflare is unavailable', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '[]' })
+		spawnCtl.queue.push({ code: 1, stderr: 'network timeout' })
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/service or network connection was unavailable/)
 	})
 
 	it('matches a relisted namespace by suffix when the create output has no id', async () => {
@@ -252,7 +284,21 @@ describe('ensureKvNamespace', () => {
 		spawnCtl.queue.push({ code: 0, stdout: '[]' }) // list none
 		spawnCtl.queue.push({ code: 0, stdout: 'created, but no id here' }) // create no id
 		spawnCtl.queue.push({ code: 0, stdout: '[]' }) // relist none
-		await expect(ensureKvNamespace('mykv')).rejects.toThrow('id could not be determined')
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/may have created session storage/)
+	})
+
+	it('gives the same safe recovery guidance when the relist is unreadable', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '[]' })
+		spawnCtl.queue.push({ code: 0, stdout: 'created, but no id here' })
+		spawnCtl.queue.push({ code: 0, stdout: 'not json' })
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/may have created session storage/)
+	})
+
+	it('explains the result is unknown when Cloudflare cannot confirm new storage', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '[]' })
+		spawnCtl.queue.push({ code: 0, stdout: 'created, but no id here' })
+		spawnCtl.queue.push({ code: 1, stderr: 'network timeout' })
+		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/result may be unknown/)
 	})
 })
 
@@ -264,14 +310,16 @@ describe('putSecret', () => {
 		expect(spawnCtl.calls[0]?.child._stdinEnded).toBe(true)
 	})
 
-	it('throws when the secret write fails', async () => {
+	it('gives safe recovery guidance when the secret write fails', async () => {
 		spawnCtl.queue.push({ code: 1, stderr: 'nope' })
-		await expect(putSecret('worker', 'API_KEY', 'sekret')).rejects.toThrow('Failed to set secret API_KEY')
+		await expect(putSecret('worker', 'API_KEY', 'sekret')).rejects.toThrow(
+			/could not store deployment secrets/,
+		)
 	})
 
-	it('falls back to stdout in the failure message when stderr is empty', async () => {
+	it('does not expose Wrangler output when a secret write reaches quota', async () => {
 		spawnCtl.queue.push({ code: 1, stdout: 'quota exceeded' })
-		await expect(putSecret('worker', 'API_KEY', 'sekret')).rejects.toThrow('quota exceeded')
+		await expect(putSecret('worker', 'API_KEY', 'sekret')).rejects.toThrow(/reached a service limit/)
 	})
 })
 
@@ -284,19 +332,19 @@ describe('deploy', () => {
 		expect(await deploy('/cfg')).toBe('https://my-app.workers.dev')
 	})
 
-	it('throws when deploy succeeds but prints no URL', async () => {
+	it('explains safe recovery when deploy succeeds but prints no URL', async () => {
 		spawnCtl.queue.push({ code: 0, stdout: 'Published, somewhere.' })
-		await expect(deploy('/cfg')).rejects.toThrow('no workers.dev URL')
+		await expect(deploy('/cfg')).rejects.toThrow(/may have deployed/)
 	})
 
-	it('throws when deploy fails', async () => {
+	it('gives safe recovery guidance when deploy fails', async () => {
 		spawnCtl.queue.push({ code: 1, stderr: 'deploy error' })
-		await expect(deploy('/cfg')).rejects.toThrow('wrangler deploy failed')
+		await expect(deploy('/cfg')).rejects.toThrow(/could not deploy the mailbox app/)
 	})
 
-	it('falls back to stdout in the failure message when stderr is empty', async () => {
+	it('classifies expired credentials without exposing Wrangler output', async () => {
 		spawnCtl.queue.push({ code: 1, stdout: 'auth expired' })
-		await expect(deploy('/cfg')).rejects.toThrow('auth expired')
+		await expect(deploy('/cfg')).rejects.toThrow(/current credentials were rejected/)
 	})
 })
 

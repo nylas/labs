@@ -57,10 +57,15 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 			TEMPLATE_VERSION: manifest.templateVersion,
 		},
 	})
-	await deploy(configPath)
-	project.templateVersion = manifest.templateVersion
-	saveProject(project)
-	spinner.stop(`App attached to https://${domain} (certificate provisions in a few minutes).`)
+	try {
+		await deploy(configPath)
+		project.templateVersion = manifest.templateVersion
+		saveProject(project)
+		spinner.stop(`App attached to https://${domain} (certificate provisions in a few minutes).`)
+	} catch (err) {
+		spinner.stop('Cloudflare domain setup needs attention; retry `npx ownmail app-domain` when ready.')
+		throw err
+	}
 
 	// Hosted-auth must accept the new callback URL.
 	const ctx = await createContext(project)

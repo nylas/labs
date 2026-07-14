@@ -15,7 +15,10 @@ vi.mock('@clack/prompts', () => ({
 vi.mock('@nylas-labs/cli-kit', () => ({
 	NylasV3Client: vi.fn().mockImplementation(() => ({ listGrants })),
 }))
-vi.mock('../deploy/wrangler.js', () => ({ runWrangler: vi.fn() }))
+vi.mock('../deploy/wrangler.js', () => ({
+	runWrangler: vi.fn(),
+	cloudflareFailure: vi.fn(() => new Error('Safe Cloudflare recovery')),
+}))
 vi.mock('../nylas-env.js', () => ({ apiBaseUrl: vi.fn(() => 'https://api.example.com') }))
 vi.mock('../state/store.js', () => ({
 	clearAuth: vi.fn(),
@@ -32,7 +35,7 @@ vi.mock('../steps/provision.js', () => ({ stepDashboardAuth: vi.fn() }))
 vi.mock('./shared.js', () => ({ pickExistingProject: vi.fn() }))
 
 import * as p from '@clack/prompts'
-import { runWrangler } from '../deploy/wrangler.js'
+import { cloudflareFailure, runWrangler } from '../deploy/wrangler.js'
 import { clearAuth, deleteProject, saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
@@ -285,7 +288,12 @@ describe('runDeleteProject', () => {
 		vi.mocked(p.text).mockResolvedValue('acme')
 		vi.mocked(runWrangler).mockResolvedValue({ code: 1, stdout: '', stderr: 'auth error' })
 
-		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/Failed to delete worker: auth error/)
+		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/Safe Cloudflare recovery/)
+		expect(cloudflareFailure).toHaveBeenCalledWith(
+			'delete the mailbox app',
+			{ code: 1, stdout: '', stderr: 'auth error' },
+			{ mayHaveChanged: true },
+		)
 
 		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
 		expect(deleteProject).not.toHaveBeenCalled()
@@ -297,7 +305,7 @@ describe('runDeleteProject', () => {
 		vi.mocked(p.text).mockResolvedValue('acme')
 		vi.mocked(runWrangler).mockResolvedValue({ code: 1, stdout: 'denied', stderr: '' })
 
-		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/Could not delete KV namespace: denied/)
+		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/Safe Cloudflare recovery/)
 
 		expect(proj.pendingSecrets).toEqual({ apiKey: 'nyk_secret' })
 		expect(deleteProject).not.toHaveBeenCalled()
@@ -398,17 +406,17 @@ describe('runDestroy', () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1' }))
 		vi.mocked(p.text).mockResolvedValue('acme')
 		vi.mocked(runWrangler).mockResolvedValue({ code: 1, stdout: '', stderr: 'auth error' })
-		await expect(runDestroy({})).rejects.toThrow(/Failed to delete worker: auth error/)
+		await expect(runDestroy({})).rejects.toThrow(/Safe Cloudflare recovery/)
 	})
 
-	it('falls back to stdout in the worker failure message', async () => {
+	it('uses safe recovery guidance for worker deletion errors', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1' }))
 		vi.mocked(p.text).mockResolvedValue('acme')
 		vi.mocked(runWrangler).mockResolvedValue({ code: 1, stdout: 'stdout error', stderr: '' })
-		await expect(runDestroy({})).rejects.toThrow(/Failed to delete worker: stdout error/)
+		await expect(runDestroy({})).rejects.toThrow(/Safe Cloudflare recovery/)
 	})
 
-	it('falls back to stdout in the KV failure warning', async () => {
+	it('uses safe recovery guidance in the KV failure warning', async () => {
 		const proj = project({ workerName: 'w1', kvNamespaceId: 'kv1' })
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)
 		vi.mocked(p.text).mockResolvedValue('acme')
@@ -418,9 +426,7 @@ describe('runDestroy', () => {
 				: { code: 1, stdout: 'stdout denied', stderr: '' },
 		)
 		await runDestroy({})
-		expect(p.log.warn).toHaveBeenCalledWith(
-			expect.stringContaining('Could not delete KV namespace: stdout denied'),
-		)
+		expect(p.log.warn).toHaveBeenCalledWith('Safe Cloudflare recovery')
 	})
 
 	it('warns but continues when KV deletion fails for a real reason', async () => {
@@ -433,9 +439,7 @@ describe('runDestroy', () => {
 				: { code: 1, stdout: '', stderr: 'permission denied' },
 		)
 		await runDestroy({})
-		expect(p.log.warn).toHaveBeenCalledWith(
-			expect.stringContaining('Could not delete KV namespace: permission denied'),
-		)
+		expect(p.log.warn).toHaveBeenCalledWith('Safe Cloudflare recovery')
 		expect(saveProject).toHaveBeenCalledWith(proj)
 	})
 })

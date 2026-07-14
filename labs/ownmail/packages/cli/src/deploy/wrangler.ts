@@ -14,6 +14,59 @@ function wranglerBin(): string {
 
 export type WranglerResult = { code: number; stdout: string; stderr: string }
 
+const TOKEN_PERMISSIONS =
+	'Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read; User: User Details Read, Memberships Read'
+
+/**
+ * Cloudflare can return detailed CLI output that is useful for debugging, but
+ * it can also include account and request details. Keep that output out of the
+ * CLI's user-facing errors and turn known failure classes into safe next steps.
+ */
+export function cloudflareFailure(
+	action: string,
+	result: WranglerResult,
+	opts: { mayHaveChanged?: boolean } = {},
+): Error {
+	const output = `${result.stdout}\n${result.stderr}`.toLowerCase()
+	const retry = opts.mayHaveChanged
+		? 'The result may be unknown, so do not create a second project. Retry the same OwnMail command once; it safely resumes the recorded project.'
+		: 'No local project state was changed. Fix this, then retry the same OwnMail command.'
+
+	if (
+		/not authenticated|\bauth(?:entication)?(?:\s+(?:failed|expired))?|api token|unauthorized|forbidden|\b401\b|\b403\b|permission|access denied/.test(
+			output,
+		)
+	) {
+		return new Error(
+			`Cloudflare could not ${action} because the current credentials were rejected or lack permission. Retry this OwnMail command and connect with Wrangler OAuth, or replace \`CLOUDFLARE_API_TOKEN\` with a token that has ${TOKEN_PERMISSIONS}. ${retry}`,
+		)
+	}
+	if (/quota|limit exceeded|too many requests|\b429\b/.test(output)) {
+		return new Error(
+			`Cloudflare could not ${action} because the account reached a service limit. Check Cloudflare account limits, wait before retrying, then retry this OwnMail command. ${retry}`,
+		)
+	}
+	if (/timeout|timed out|network|econn|enotfound|temporar|\b5\d\d\b/.test(output)) {
+		return new Error(
+			`Cloudflare could not ${action} because its service or network connection was unavailable. Check your connection and Cloudflare status, then retry this OwnMail command. ${retry}`,
+		)
+	}
+	if (/already exists|conflict|\b409\b/.test(output)) {
+		return new Error(
+			`Cloudflare could not ${action} because a resource conflicts with this setup. Check the Cloudflare Workers dashboard for this project's recorded resources, then retry this OwnMail command; it reuses recorded state. ${retry}`,
+		)
+	}
+	return new Error(
+		`Cloudflare could not ${action}. Check your Cloudflare account, then retry this OwnMail command. ${retry}`,
+	)
+}
+
+function wranglerUnavailable(): Error {
+	return new Error(
+		'OwnMail could not start its bundled Cloudflare deployment helper. Reinstall or update OwnMail, then retry the same OwnMail command. No Cloudflare changes were made.',
+	)
+}
+
 /**
  * Runs a wrangler command. `interactive` inherits stdio (browser OAuth login);
  * otherwise output is captured. `stdin` feeds `wrangler secret put`.
@@ -23,7 +76,14 @@ export async function runWrangler(
 	opts: { cwd?: string; interactive?: boolean; stdin?: string; env?: Record<string, string> } = {},
 ): Promise<WranglerResult> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(process.execPath, [wranglerBin(), ...args], {
+		let bin: string
+		try {
+			bin = wranglerBin()
+		} catch {
+			reject(wranglerUnavailable())
+			return
+		}
+		const child = spawn(process.execPath, [bin, ...args], {
 			cwd: opts.cwd ?? process.cwd(),
 			env: { ...process.env, ...opts.env },
 			stdio: opts.interactive ? 'inherit' : ['pipe', 'pipe', 'pipe'],
@@ -40,7 +100,7 @@ export async function runWrangler(
 			child.stdin.write(opts.stdin)
 			child.stdin.end()
 		}
-		child.on('error', reject)
+		child.on('error', () => reject(wranglerUnavailable()))
 		child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
 	})
 }
@@ -58,39 +118,58 @@ export async function wranglerLogin(opts: { openBrowser?: boolean } = {}): Promi
 	const res = await runWrangler(['login', `--browser=${opts.openBrowser ? 'true' : 'false'}`], {
 		interactive: true,
 	})
-	if (res.code !== 0) throw new Error('Cloudflare login failed — re-run ownmail to try again.')
+	if (res.code !== 0) {
+		if (!(res.stdout + res.stderr).trim()) {
+			throw new Error(
+				'Cloudflare sign-in did not complete. Re-run `npx ownmail`, choose Wrangler OAuth, and finish the browser flow. No Cloudflare resources were changed.',
+			)
+		}
+		throw cloudflareFailure('sign in', res)
+	}
 }
 
 /** Creates (or finds) a KV namespace and returns its id. */
 export async function ensureKvNamespace(title: string): Promise<string> {
 	const list = await runWrangler(['kv', 'namespace', 'list'])
-	if (list.code === 0) {
-		try {
-			const namespaces = JSON.parse(list.stdout) as { id: string; title: string }[]
-			const found = namespaces.find((n) => n.title === title || n.title.endsWith(`-${title}`))
-			if (found) return found.id
-		} catch {
-			// fall through to create
-		}
+	if (list.code !== 0) throw cloudflareFailure('inspect session storage', list)
+
+	let namespaces: { id: string; title: string }[]
+	try {
+		namespaces = JSON.parse(list.stdout) as { id: string; title: string }[]
+	} catch {
+		throw new Error(
+			'Cloudflare returned an unreadable session-storage inventory. OwnMail did not create anything. Update OwnMail and re-run `npx ownmail`; if this continues, inspect Cloudflare with `npx wrangler kv namespace list`.',
+		)
 	}
+	const found = namespaces.find((n) => n.title === title || n.title.endsWith(`-${title}`))
+	if (found) return found.id
+
 	const created = await runWrangler(['kv', 'namespace', 'create', title])
 	if (created.code !== 0) {
-		throw new Error(`Failed to create KV namespace: ${created.stderr || created.stdout}`)
+		throw cloudflareFailure('create session storage', created)
 	}
 	const match = (created.stdout + created.stderr).match(/id\s*[:=]\s*"?([0-9a-f]{32})"?/i)
 	if (match?.[1]) return match[1]
 	// Fallback: list again
 	const relist = await runWrangler(['kv', 'namespace', 'list'])
-	const namespaces = JSON.parse(relist.stdout) as { id: string; title: string }[]
-	const found = namespaces.find((n) => n.title === title || n.title.endsWith(`-${title}`))
-	if (!found) throw new Error('KV namespace created but id could not be determined')
-	return found.id
+	if (relist.code !== 0)
+		throw cloudflareFailure('confirm the new session storage', relist, { mayHaveChanged: true })
+	try {
+		const relisted = JSON.parse(relist.stdout) as { id: string; title: string }[]
+		const foundAfterCreate = relisted.find((n) => n.title === title || n.title.endsWith(`-${title}`))
+		if (foundAfterCreate) return foundAfterCreate.id
+	} catch {
+		// The recovery message below is the same for a missing or unreadable listing.
+	}
+	throw new Error(
+		`Cloudflare may have created session storage named "${title}", but OwnMail could not confirm its ID. Do not start a new project. Run \`npx wrangler kv namespace list\` to find it, then re-run \`npx ownmail\`; it will safely resume.`,
+	)
 }
 
 export async function putSecret(workerName: string, name: string, value: string): Promise<void> {
 	const res = await runWrangler(['secret', 'put', name, '--name', workerName], { stdin: value })
 	if (res.code !== 0) {
-		throw new Error(`Failed to set secret ${name}: ${res.stderr || res.stdout}`)
+		throw cloudflareFailure('store deployment secrets', res, { mayHaveChanged: true })
 	}
 }
 
@@ -98,9 +177,13 @@ export async function putSecret(workerName: string, name: string, value: string)
 export async function deploy(configPath: string): Promise<string> {
 	const res = await runWrangler(['deploy', '-c', configPath])
 	if (res.code !== 0) {
-		throw new Error(`wrangler deploy failed:\n${res.stderr || res.stdout}`)
+		throw cloudflareFailure('deploy the mailbox app', res, { mayHaveChanged: true })
 	}
 	const match = res.stdout.match(/https:\/\/[\w.-]+\.workers\.dev/)
-	if (!match) throw new Error(`Deploy succeeded but no workers.dev URL found in output:\n${res.stdout}`)
+	if (!match) {
+		throw new Error(
+			'Cloudflare may have deployed the mailbox app, but OwnMail could not confirm its workers.dev URL. Do not create a second project. Retry the same OwnMail command once to safely resume, or check the Cloudflare Workers dashboard for the deployed worker.',
+		)
+	}
 	return match[0]
 }

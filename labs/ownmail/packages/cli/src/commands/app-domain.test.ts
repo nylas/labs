@@ -94,6 +94,21 @@ describe('runAppDomain', () => {
 		await expect(runAppDomain({})).rejects.toThrow(/hasn.t deployed yet/)
 	})
 
+	it('stops the spinner and preserves the project when Cloudflare rejects domain setup', async () => {
+		const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() }
+		vi.mocked(p.spinner).mockReturnValueOnce(spinner as unknown as ReturnType<typeof p.spinner>)
+		const proj = project()
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(deploy).mockRejectedValueOnce(new Error('Cloudflare could not deploy the mailbox app.'))
+
+		await expect(runAppDomain({ domain: 'mail.acme.com' })).rejects.toThrow(/could not deploy/)
+
+		expect(spinner.stop).toHaveBeenCalledWith(
+			'Cloudflare domain setup needs attention; retry `npx ownmail app-domain` when ready.',
+		)
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
 	it('attaches a supplied domain, includes runtime base url + inbox, and registers redirect', async () => {
 		const proj = project({ inboxEmail: 'hi@acme.com' })
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)

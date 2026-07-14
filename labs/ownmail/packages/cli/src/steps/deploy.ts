@@ -114,8 +114,11 @@ export async function ensureCloudflareAuth(): Promise<void> {
 	}
 
 	if (!(await wranglerLoggedIn())) {
+		const recovery = cloudflareApiTokenConfigured()
+			? 'Cloudflare rejected the configured API token or it lacks permission. Replace `CLOUDFLARE_API_TOKEN` with a new token that has Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read; User: User Details Read, Memberships Read. Add Zone: Workers Routes Edit for a custom app domain.'
+			: 'Cloudflare sign-in did not complete. Re-run `npx ownmail` and connect with Wrangler OAuth, then finish the browser flow.'
 		throw new Error(
-			'Cloudflare authentication failed. Re-run ownmail to reconnect, or verify your API token permissions.',
+			`${recovery} No Cloudflare resources were changed, and setup can safely resume after you reconnect.`,
 		)
 	}
 }
@@ -130,10 +133,15 @@ export async function stepCfResources(ctx: StepContext): Promise<void> {
 	if (!ctx.project.kvNamespaceId) {
 		const spinner = p.spinner()
 		spinner.start('Creating session storage…')
-		ctx.project.kvNamespaceId = await ensureKvNamespace(
-			`ownmail-${ctx.project.slug}-sessions${resourceNameSuffix()}`,
-		)
-		spinner.stop('Session storage ready.')
+		try {
+			ctx.project.kvNamespaceId = await ensureKvNamespace(
+				`ownmail-${ctx.project.slug}-sessions${resourceNameSuffix()}`,
+			)
+			spinner.stop('Session storage ready.')
+		} catch (err) {
+			spinner.stop('Cloudflare session storage needs attention; your project can be resumed.')
+			throw err
+		}
 	}
 	if (!ctx.project.workerName) {
 		const sub = ctx.project.domainAddress?.split('.')[0] ?? ctx.project.slug
@@ -174,17 +182,28 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 		},
 	})
 
-	const url = await deploy(configPath)
-	ctx.project.workersDevUrl = url
-	ctx.project.templateVersion = manifest.templateVersion
-	saveProject(ctx.project)
-	spinner.stop(`Deployed: ${url}`)
+	let url: string
+	try {
+		url = await deploy(configPath)
+		ctx.project.workersDevUrl = url
+		ctx.project.templateVersion = manifest.templateVersion
+		saveProject(ctx.project)
+		spinner.stop(`Deployed: ${url}`)
+	} catch (err) {
+		spinner.stop('Cloudflare deployment needs attention; your project can be resumed.')
+		throw err
+	}
 
 	spinner.start('Locking in secrets…')
-	await putSecret(workerName, 'NYLAS_API_KEY', apiKey)
-	await putSecret(workerName, 'SESSION_SECRET', randomBytes(32).toString('base64url'))
-	saveProject(ctx.project)
-	spinner.stop('Secrets stored in Cloudflare (never on disk).')
+	try {
+		await putSecret(workerName, 'NYLAS_API_KEY', apiKey)
+		await putSecret(workerName, 'SESSION_SECRET', randomBytes(32).toString('base64url'))
+		saveProject(ctx.project)
+		spinner.stop('Secrets stored in Cloudflare (never on disk).')
+	} catch (err) {
+		spinner.stop('Cloudflare could not finish secret setup; your project can be resumed.')
+		throw err
+	}
 	markStep(ctx.project, 'deploy')
 }
 
