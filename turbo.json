@@ -1,5 +1,6 @@
 {
 	"$schema": "https://turbo.build/schema.json",
+	"globalPassThroughEnv": ["STAGE_RELEASE_RETRY"],
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
