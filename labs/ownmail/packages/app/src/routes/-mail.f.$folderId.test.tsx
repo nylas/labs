@@ -472,6 +472,21 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		)
 	})
 
+	it('continues navigation from a focused thread row', () => {
+		renderInbox()
+		const firstRow = screen.getByRole('link', { name: /First/ })
+		firstRow.focus()
+		fireEvent.keyDown(firstRow, { key: 'ArrowDown' })
+		expect(cursored()).toHaveTextContent('Second')
+		expect(document.activeElement).toHaveTextContent('Second')
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' })
+		expect(cursored()).toHaveTextContent('Third')
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't3' } }),
+		)
+	})
+
 	it('does nothing when Enter is pressed with no row cursored', () => {
 		renderInbox()
 		fireEvent.keyDown(window, { key: 'Enter' })
@@ -489,7 +504,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		field.remove()
 	})
 
-	it('does not hijack keys aimed at a focused control (button / link / select)', () => {
+	it('does not hijack keys aimed at a focused nested control', () => {
 		renderInbox()
 		// Enter/j while a real control is focused must reach the control, not the list.
 		const button = document.createElement('button')

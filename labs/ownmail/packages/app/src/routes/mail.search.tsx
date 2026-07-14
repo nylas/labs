@@ -1,7 +1,7 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import { ThreadConversation } from '../components/ThreadConversation.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
@@ -50,6 +50,8 @@ function SearchResults() {
 	const { q, threadId } = Route.useSearch()
 	const router = useRouter()
 	const [cursor, setCursor] = useState(-1)
+	const listScrollRef = useRef<HTMLDivElement>(null)
+	const moveFocusToCursorRef = useRef(false)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -63,24 +65,34 @@ function SearchResults() {
 	}, [sortedThreads, threadId])
 
 	useEffect(() => {
+		if (cursor < 0) return
+		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
+		rows?.[cursor]?.scrollIntoView?.({ block: 'nearest' })
+		if (moveFocusToCursorRef.current) {
+			rows?.[cursor]?.focus()
+			moveFocusToCursorRef.current = false
+		}
+	}, [cursor])
+
+	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
-			const target = event.target as HTMLElement | null
+			const target = event.target instanceof HTMLElement ? event.target : null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-			if (
-				isTyping ||
-				event.metaKey ||
-				event.ctrlKey ||
-				event.altKey ||
-				target?.closest?.('button, a, select')
-			)
-				return
+			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
+			const focusedRow = target?.closest?.('[data-nav-row]') as HTMLElement | null | undefined
+			const focusedRowIndex = focusedRow
+				? Array.from(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? []).indexOf(
+						focusedRow,
+					)
+				: -1
+			if (target?.closest?.('button, select') || (target?.closest?.('a') && focusedRowIndex < 0)) return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return
 			event.preventDefault()
 			if (action === 'open') {
-				const thread = sortedThreads[cursor]
+				const thread = sortedThreads[focusedRowIndex >= 0 ? focusedRowIndex : cursor]
 				if (thread) {
 					router.navigate({
 						to: '/mail/search',
@@ -89,10 +101,15 @@ function SearchResults() {
 				}
 				return
 			}
+			if (focusedRowIndex >= 0) moveFocusToCursorRef.current = true
 			setCursor((current) =>
 				action === 'first' || action === 'last'
 					? edgeCursor(action, sortedThreads.length)
-					: moveCursor(current, action === 'down' ? 1 : -1, sortedThreads.length),
+					: moveCursor(
+							focusedRowIndex >= 0 ? focusedRowIndex : current,
+							action === 'down' ? 1 : -1,
+							sortedThreads.length,
+						),
 			)
 		}
 		window.addEventListener('keydown', onKeyDown)
@@ -121,7 +138,7 @@ function SearchResults() {
 					) : null}
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto">
+				<div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
 					{sortedThreads.length === 0 ? (
 						<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
 							<p className="font-display text-sm font-semibold text-foreground">Nothing here</p>
@@ -206,6 +223,7 @@ function SearchThreadRow({
 		<Link
 			to="/mail/search"
 			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
+			data-nav-row=""
 			data-active={active ? 'true' : undefined}
 			data-nav-cursor={keyboardActive ? 'true' : undefined}
 			data-unread={optimisticThread.unread ? 'true' : undefined}

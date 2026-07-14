@@ -60,6 +60,7 @@ export function MailFolderRouteScreen({
 	const [loadingMore, setLoadingMore] = useState(false)
 	const [cursor, setCursor] = useState(-1)
 	const listScrollRef = useRef<HTMLDivElement>(null)
+	const moveFocusToCursorRef = useRef(false)
 	const hasThread = useRouterState({
 		select: (state) =>
 			state.location.pathname.includes('/t/') ||
@@ -112,6 +113,10 @@ export function MailFolderRouteScreen({
 		if (cursor < 0) return
 		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
 		rows?.[cursor]?.scrollIntoView({ block: 'nearest' })
+		if (moveFocusToCursorRef.current) {
+			rows?.[cursor]?.focus()
+			moveFocusToCursorRef.current = false
+		}
 	}, [cursor])
 
 	// Global list navigation: j/k or arrows move the cursor, Enter/o opens it.
@@ -119,25 +124,36 @@ export function MailFolderRouteScreen({
 	// or when a modifier is held so app/browser shortcuts keep working.
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
-			const target = event.target as HTMLElement | null
+			const target = event.target instanceof HTMLElement ? event.target : null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
-			// Don't hijack keys aimed at a focused control (a row link, the star
-			// button, Load more, …) — let Enter/Space activate what the user picked.
-			if (target?.closest?.('button, a, select')) return
+			const focusedRow = target?.closest<HTMLElement>('[data-nav-row]')
+			const focusedRowIndex = focusedRow
+				? Array.from(listScrollRef.current!.querySelectorAll<HTMLElement>('[data-nav-row]')).indexOf(
+						focusedRow,
+					)
+				: -1
+			// Keep nested row actions and unrelated links in control of their keys,
+			// but let a focused thread row continue list navigation.
+			if (target?.closest?.('button, select') || (target?.closest?.('a') && focusedRowIndex < 0)) return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return
 			event.preventDefault()
 			if (action === 'open') {
-				openItem(cursor)
+				openItem(focusedRowIndex >= 0 ? focusedRowIndex : cursor)
 				return
 			}
+			if (focusedRowIndex >= 0) moveFocusToCursorRef.current = true
 			setCursor((current) =>
 				action === 'first' || action === 'last'
 					? edgeCursor(action, navItems.length)
-					: moveCursor(current, action === 'down' ? 1 : -1, navItems.length),
+					: moveCursor(
+							focusedRowIndex >= 0 ? focusedRowIndex : current,
+							action === 'down' ? 1 : -1,
+							navItems.length,
+						),
 			)
 		}
 		window.addEventListener('keydown', onKeyDown)
