@@ -7,7 +7,7 @@ and is powered by Nylas Agent Accounts.
 This is the power-user half of OwnMail: a real app codebase for people who want
 their inbox to look, behave, and deploy their way.
 
-![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](https://raw.githubusercontent.com/nylas/labs/main/labs/ownmail/assets/screenshots/ownmail-mail-modes.png)
+![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](https://cdn.jsdelivr.net/npm/ownmail@0.2.0/assets/screenshots/ownmail-mail-modes.png)
 
 Most people should start with the CLI:
 

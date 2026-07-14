@@ -26,6 +26,11 @@ const tarballs = packages.map((packageDir) => {
 	return resolve(packsDir, filename)
 })
 
+const cliPackageFiles = execFileSync('tar', ['-tzf', tarballs[2]], { encoding: 'utf8' })
+if (!cliPackageFiles.includes('package/assets/screenshots/ownmail-mail-modes.png\n')) {
+	throw new Error('Packed OwnMail CLI did not include the README screenshot asset.')
+}
+
 const rootPackage = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'))
 const localPackages = Object.fromEntries(
 	packages.map((packageDir, index) => {
