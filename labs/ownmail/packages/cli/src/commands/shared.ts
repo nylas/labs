@@ -31,8 +31,22 @@ export function runTopLevel(fn: () => Promise<void>): Promise<void> {
 		if (err instanceof CancelledError) {
 			p.cancel('Cancelled.')
 		} else {
-			p.log.error(err instanceof Error ? err.message : String(err))
+			p.log.error(formatTopLevelError(err))
 		}
 		process.exitCode = 1
 	})
+}
+
+function formatTopLevelError(err: unknown): string {
+	const message = err instanceof Error ? err.message : ''
+	if (/\b(invalid session|not logged in|unauthorized|forbidden)\b/i.test(message)) {
+		return 'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail login`, then retry your command.'
+	}
+	if (/\bno project(?:s)?\b|no Nylas application|no domain yet/i.test(message)) {
+		return 'Your local OwnMail project is incomplete or unavailable.\n\nHow to fix: Run `npx ownmail status` to find your project, or run `npx ownmail` to create or resume one.'
+	}
+	if (/\b(timed out|network|fetch failed|econn|enotfound)\b/i.test(message)) {
+		return 'OwnMail could not reach a required service.\n\nHow to fix: Check your internet connection, then retry the command.'
+	}
+	return 'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.'
 }
