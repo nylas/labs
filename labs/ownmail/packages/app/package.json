@@ -3,6 +3,11 @@
 	"version": "0.2.0",
 	"description": "The OwnMail mailbox and calendar app (TanStack Start on Cloudflare Workers)",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nylas/labs.git",
+		"directory": "labs/ownmail/packages/app"
+	},
 	"type": "module",
 	"files": [
 		"README.md",
