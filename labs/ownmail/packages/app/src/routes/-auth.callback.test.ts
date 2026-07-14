@@ -46,21 +46,28 @@ afterEach(() => {
 })
 
 describe('/auth/callback', () => {
-	it('renders an HTML-escaped error page without reflecting a hostile provider error verbatim', async () => {
+	it('does not reflect a hostile provider error verbatim', async () => {
 		const response = await GET({ request: callbackRequest('?error=%3Cscript%3E%26%22%27') })
 
 		expect(response.status).toBe(401)
 		const body = await response.text()
-		expect(body).toContain('&lt;script&gt;&amp;&quot;&#39;')
+		expect(body).toContain('We couldn’t complete your sign-in. Please try again.')
+		expect(body).not.toContain('&lt;script&gt;&amp;&quot;&#39;')
 		expect(body).not.toContain('<script>')
 		expect(consumePkce).not.toHaveBeenCalled()
+	})
+
+	it('explains when the provider denies the sign-in', async () => {
+		const response = await GET({ request: callbackRequest('?error=access_denied') })
+
+		expect(await response.text()).toContain('Sign-in was cancelled or denied')
 	})
 
 	it('rejects a callback missing the authorization code', async () => {
 		const response = await GET({ request: callbackRequest('?state=abc') })
 
 		expect(response.status).toBe(401)
-		expect(await response.text()).toContain('missing code')
+		expect(await response.text()).toContain('We couldn’t complete your sign-in. Please try again.')
 	})
 
 	it('rejects a callback whose PKCE state cannot be found (expired attempt)', async () => {
@@ -108,9 +115,43 @@ describe('/auth/callback', () => {
 
 		expect(response.status).toBe(401)
 		const body = await response.text()
-		expect(body).toContain('sign-in failed')
+		expect(body).toContain('We couldn’t complete your sign-in. Please try again.')
 		expect(body).not.toContain('client_secret')
 		expect(consoleError).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		400, 401, 403,
+	])('gives an actionable message for rejected inbox credentials (%i)', async (status) => {
+		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: null })
+		exchangeCodeForToken.mockRejectedValue(
+			Object.assign(new Error('provider response included a secret'), {
+				name: 'NylasApiError',
+				status,
+			}),
+		)
+
+		const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
+
+		expect(await response.text()).toContain('That email or password was not accepted')
+	})
+
+	it('asks the user to wait after a rate-limited token exchange', async () => {
+		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: null })
+		exchangeCodeForToken.mockRejectedValue(Object.assign(new Error('rate limited'), { status: 429 }))
+
+		const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
+
+		expect(await response.text()).toContain('Too many sign-in attempts')
+	})
+
+	it('uses a safe retry message for unexpected token exchange failures', async () => {
+		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: null })
+		exchangeCodeForToken.mockRejectedValue(null)
+
+		const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
+
+		expect(await response.text()).toContain('We couldn’t complete your sign-in. Please try again.')
 	})
 
 	it('logs only safe Nylas exchange identifiers for operators', async () => {
