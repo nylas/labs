@@ -23,6 +23,11 @@ export function isCalView(value: string): value is CalView {
 	return value === 'month' || value === 'week' || value === 'day'
 }
 
+/** True only for a real local calendar date in `YYYY-MM-DD` form. */
+export function isCalendarDate(value: unknown): value is string {
+	return localDate(value) !== null
+}
+
 /** [start, end) of the visible range for a view, in local time. */
 export function viewRange(view: CalView, anchor: Date): { start: Date; end: Date } {
 	if (view === 'day') {

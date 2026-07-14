@@ -280,12 +280,12 @@ describe('toolbar actions', () => {
 // --- error handling -----------------------------------------------------
 
 describe('action errors', () => {
-	it('surfaces an Error message when the action fails', async () => {
+	it('shows a generic message when an action fails', async () => {
 		const user = userEvent.setup()
 		updateThreadState.mockRejectedValueOnce(new Error('boom'))
 		renderThread()
 		await user.click(screen.getByRole('button', { name: 'Archive' }))
-		expect(await screen.findByText('boom')).toBeInTheDocument()
+		expect(await screen.findByText('Action failed')).toBeInTheDocument()
 		expect(navigate).not.toHaveBeenCalled()
 	})
 

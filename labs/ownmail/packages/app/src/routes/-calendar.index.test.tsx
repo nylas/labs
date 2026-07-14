@@ -33,6 +33,10 @@ describe('/calendar index search validation', () => {
 		expect(Route.options.validateSearch({ date: '01/02/2024' })).toEqual({})
 	})
 
+	it('drops an impossible ISO-shaped date rather than redirecting with it', () => {
+		expect(Route.options.validateSearch({ date: '2024-02-30' })).toEqual({})
+	})
+
 	it('drops a non-string date value', () => {
 		expect(Route.options.validateSearch({ date: 20240102 })).toEqual({})
 	})

@@ -48,8 +48,8 @@ function ContactDetailRoute() {
 			await deleteContact({ data: { contactId: contact.id } })
 			void router.invalidate()
 			navigate({ to: '/contacts', search })
-		} catch (err) {
-			setDeleteError(err instanceof Error ? err.message : 'Failed to delete contact')
+		} catch {
+			setDeleteError('Failed to delete contact')
 			setDeleting(false)
 		}
 	}

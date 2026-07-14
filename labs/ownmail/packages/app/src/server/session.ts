@@ -111,7 +111,8 @@ export async function getSession(request: Request): Promise<Session | null> {
 		const raw = await kv.get(`session:${first}`)
 		if (!raw) return null
 		try {
-			return JSON.parse(raw) as Session
+			const parsed = JSON.parse(raw) as Partial<Session>
+			return validSession(parsed) ? parsed : null
 		} catch {
 			return null
 		}
@@ -119,8 +120,15 @@ export async function getSession(request: Request): Promise<Session | null> {
 	const decoded = fromBase64url(first)
 	if (!decoded) return null
 	try {
-		const parsed = JSON.parse(decoded) as { g: string; e: string; exp: number }
-		if (parsed.exp * 1000 < Date.now()) return null
+		const parsed = JSON.parse(decoded) as { g?: unknown; e?: unknown; exp?: unknown }
+		if (
+			typeof parsed.g !== 'string' ||
+			typeof parsed.e !== 'string' ||
+			typeof parsed.exp !== 'number' ||
+			!Number.isSafeInteger(parsed.exp) ||
+			parsed.exp * 1000 < Date.now()
+		)
+			return null
 		return { grantId: parsed.g, email: parsed.e, createdAt: 0 }
 	} catch {
 		return null
@@ -148,7 +156,9 @@ export async function storePkce(state: string, verifier: string): Promise<string
 		await kv.put(`pkce:${state}`, verifier, { expirationTtl: 600 })
 		return null
 	}
-	const payload = base64url(encoder.encode(JSON.stringify({ s: state, v: verifier })))
+	const payload = base64url(
+		encoder.encode(JSON.stringify({ s: state, v: verifier, exp: Math.floor(Date.now() / 1000) + 600 })),
+	)
 	return setCookie(PKCE_COOKIE, `${payload}.${await hmac(payload)}`, 600)
 }
 
@@ -172,10 +182,32 @@ export async function consumePkce(
 	const decoded = fromBase64url(payload)
 	if (!decoded) return null
 	try {
-		const parsed = JSON.parse(decoded) as { s: string; v: string }
-		if (parsed.s !== state) return null
+		const parsed = JSON.parse(decoded) as { s?: unknown; v?: unknown; exp?: unknown }
+		if (
+			typeof parsed.s !== 'string' ||
+			typeof parsed.v !== 'string' ||
+			typeof parsed.exp !== 'number' ||
+			!Number.isSafeInteger(parsed.exp) ||
+			parsed.exp * 1000 < Date.now() ||
+			parsed.s !== state
+		)
+			return null
 		return { verifier: parsed.v, clearCookie: setCookie(PKCE_COOKIE, '', 0) }
 	} catch {
 		return null
 	}
+}
+
+function validSession(value: Partial<Session>): value is Session {
+	return (
+		typeof value.grantId === 'string' &&
+		value.grantId.length > 0 &&
+		value.grantId.length <= 1000 &&
+		!/\r|\n/.test(value.grantId) &&
+		typeof value.email === 'string' &&
+		value.email.length > 0 &&
+		value.email.length <= 320 &&
+		typeof value.createdAt === 'number' &&
+		Number.isFinite(value.createdAt)
+	)
 }

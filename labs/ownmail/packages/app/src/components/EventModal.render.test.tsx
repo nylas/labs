@@ -215,7 +215,7 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
-		expect(await screen.findByText('server exploded')).toBeInTheDocument()
+		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled()
 	})
 
@@ -516,7 +516,7 @@ describe('EventModal — existing event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: '✓ Yes' }))
-		expect(await screen.findByText('rsvp blew up')).toBeInTheDocument()
+		expect(await screen.findByText('RSVP failed')).toBeInTheDocument()
 		expect(onClose).not.toHaveBeenCalled()
 	})
 
@@ -574,7 +574,7 @@ describe('EventModal — existing event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: /Delete/ }))
-		expect(await screen.findByText('delete blew up')).toBeInTheDocument()
+		expect(await screen.findByText('Failed to delete')).toBeInTheDocument()
 	})
 
 	it('surfaces a generic RSVP failure when a non-Error is thrown', async () => {
@@ -710,7 +710,7 @@ describe('EventModal — editing an existing event', () => {
 		renderEdit()
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
 		await user.click(screen.getByRole('button', { name: 'Save changes' }))
-		expect(await screen.findByText('update failed')).toBeInTheDocument()
+		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled()
 	})
 

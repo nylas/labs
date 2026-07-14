@@ -15,6 +15,7 @@ import {
 	filterEventsByCalendars,
 	fmtAgendaTime,
 	fmtTime,
+	isCalendarDate,
 	isCalView,
 	moveCalendarDay,
 	shiftAnchor,
@@ -51,8 +52,7 @@ export const Route = createFileRoute('/calendar/$view')({
 			return { view: params.view as CalView }
 		},
 	},
-	validateSearch: (search): { date?: string } =>
-		typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? { date: search.date } : {},
+	validateSearch: (search): { date?: string } => (isCalendarDate(search.date) ? { date: search.date } : {}),
 	loaderDeps: ({ search }) => ({ date: search.date }),
 	loader: async ({ params, deps }) => loadCalendarRouteData(params.view, deps.date),
 	component: CalendarViewRoutePage,

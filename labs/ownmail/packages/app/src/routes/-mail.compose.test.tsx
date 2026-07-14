@@ -748,7 +748,7 @@ describe('mail.compose attachments', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent('Attachments must be under 2 MB total.')
 	})
 
-	it('surfaces an Error thrown while reading a file', async () => {
+	it('shows a generic message when reading a file fails', async () => {
 		const { container } = renderCompose()
 		const broken = new File([new Uint8Array(4)], 'broken.txt')
 		Object.defineProperty(broken, 'arrayBuffer', {
@@ -756,7 +756,7 @@ describe('mail.compose attachments', () => {
 			configurable: true,
 		})
 		fireEvent.change(fileInput(container), { target: { files: [broken] } })
-		expect(await screen.findByRole('alert')).toHaveTextContent('read failed')
+		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to attach file')
 	})
 
 	it('shows a generic message when a non-Error is thrown while reading a file', async () => {
@@ -867,11 +867,11 @@ describe('mail.compose send', () => {
 		)
 	})
 
-	it('shows the error message and re-enables sending when the send fails', async () => {
+	it('shows a generic error and re-enables sending when the send fails', async () => {
 		sendDraft.mockRejectedValue(new Error('SMTP down'))
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('SMTP down')
+		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to send')
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
@@ -896,11 +896,11 @@ describe('mail.compose save draft', () => {
 		expect(screen.getByText('Saved')).toBeInTheDocument()
 	})
 
-	it('shows the save error returned by the server', async () => {
+	it('shows a generic save error returned by the server', async () => {
 		saveDraft.mockRejectedValue(new Error('Mailbox unavailable'))
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Mailbox unavailable')
+		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to save draft')
 	})
 
 	it('shows a generic error when manual saving rejects with a non-Error', async () => {
@@ -939,11 +939,11 @@ describe('mail.compose discard', () => {
 		expect(deleteDraft).not.toHaveBeenCalled()
 	})
 
-	it('surfaces an error and stays open when deleting the draft fails', async () => {
+	it('shows a generic error and stays open when deleting the draft fails', async () => {
 		deleteDraft.mockRejectedValue(new Error('delete failed'))
 		renderCompose({ loader: { draft: { id: 'd0' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('delete failed')
+		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to discard draft')
 		expect(navigate).not.toHaveBeenCalled()
 	})
 

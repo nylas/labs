@@ -114,6 +114,17 @@ describe('KV-backed sessions', () => {
 		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
 	})
 
+	it('rejects a signed session id whose KV record has an invalid shape', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const setCookie = await createSession('g', 'e@x.com')
+		const cookieValue = setCookie.slice('ownmail_session='.length, setCookie.indexOf(';'))
+		const id = cookieValue.split('.')[0]
+		kv.store.set(`session:${id}`, JSON.stringify({ grantId: 123, email: 'e@x.com', createdAt: Date.now() }))
+
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
+	})
+
 	it('deletes the server-side record on destroy so the session cannot be replayed', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
@@ -247,6 +258,16 @@ describe('stateless sessions (no KV)', () => {
 		const stored = (await storePkce('state-other', 'verifier-x')) as string
 		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
 		expect(await consumePkce(req(`ownmail_pkce=${value}`), 'state-x')).toBeNull()
+	})
+
+	it('rejects a signed PKCE cookie after its server-enforced expiry', async () => {
+		const { signRaw } = await buildStatelessSession()
+		const raw = b64url(
+			JSON.stringify({ s: 'state-x', v: 'verifier-x', exp: Math.floor(Date.now() / 1000) - 1 }),
+		)
+		const cookie = `${raw}.${await signRaw(raw)}`
+
+		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-x')).toBeNull()
 	})
 
 	it('rejects a PKCE cookie whose payload is valid base64 but not JSON', async () => {

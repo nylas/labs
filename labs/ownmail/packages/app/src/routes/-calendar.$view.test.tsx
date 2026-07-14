@@ -216,6 +216,10 @@ describe('/calendar/$view route config', () => {
 		expect(Route.options.validateSearch({ date: '15/06/2024' })).toEqual({})
 	})
 
+	it('drops an impossible ISO-shaped date before it reaches the calendar loader', () => {
+		expect(Route.options.validateSearch({ date: '2024-02-30' })).toEqual({})
+	})
+
 	it('drops a non-string date value', () => {
 		expect(Route.options.validateSearch({ date: 20240615 })).toEqual({})
 	})

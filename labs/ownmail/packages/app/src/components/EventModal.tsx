@@ -139,8 +139,8 @@ export function EventModal({
 				},
 			})
 			onClose(true)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to save')
+		} catch {
+			setError('Failed to save')
 			setBusy(false)
 		}
 	}
@@ -167,8 +167,8 @@ export function EventModal({
 				},
 			})
 			onClose(true)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to save')
+		} catch {
+			setError('Failed to save')
 			setBusy(false)
 		}
 	}
@@ -180,8 +180,8 @@ export function EventModal({
 		try {
 			await deleteEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId } })
 			onClose(true)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to delete')
+		} catch {
+			setError('Failed to delete')
 			setBusy(false)
 		}
 	}
@@ -193,8 +193,8 @@ export function EventModal({
 		try {
 			await rsvpEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId, status } })
 			onClose(true)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'RSVP failed')
+		} catch {
+			setError('RSVP failed')
 			setBusy(false)
 		}
 	}

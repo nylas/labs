@@ -198,12 +198,12 @@ describe('ContactDetailRoute wrapper', () => {
 		expect(screen.queryByRole('button', { name: 'Confirm delete' })).not.toBeInTheDocument()
 	})
 
-	it('surfaces a delete failure without navigating away', async () => {
+	it('shows a generic delete failure without navigating away', async () => {
 		h.deleteContact.mockRejectedValue(new Error('server said no'))
 		renderRoute()
 		fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
-		expect(await screen.findByText('server said no')).toBeInTheDocument()
+		expect(await screen.findByText('Failed to delete contact')).toBeInTheDocument()
 		expect(h.navigate).not.toHaveBeenCalled()
 	})
 

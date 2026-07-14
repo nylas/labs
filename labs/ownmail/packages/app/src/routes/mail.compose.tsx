@@ -371,8 +371,8 @@ function Compose() {
 			setAttachments((current) => [...current, ...nextAttachments])
 			dirty.current = true
 			setError(null)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to attach file')
+		} catch {
+			setError('Failed to attach file')
 		}
 	}
 
@@ -400,8 +400,8 @@ function Compose() {
 				},
 			})
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to send')
+		} catch {
+			setError('Failed to send')
 			setBusy(false)
 			submitting.current = false
 		}
@@ -412,8 +412,8 @@ function Compose() {
 		setError(null)
 		try {
 			await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to save draft')
+		} catch {
+			setError('Failed to save draft')
 		} finally {
 			setBusy(false)
 		}
@@ -428,8 +428,8 @@ function Compose() {
 			const savedDraftId = draftIdRef.current
 			if (savedDraftId) await deleteDraft({ data: { draftId: savedDraftId } })
 			close()
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to discard draft')
+		} catch {
+			setError('Failed to discard draft')
 			setBusy(false)
 			discarding.current = false
 		}
