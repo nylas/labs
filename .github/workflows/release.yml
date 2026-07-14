@@ -37,7 +37,7 @@ jobs:
         with:
           version: pnpm changeset version
           publish: pnpm stage-release
-          commit: "[DEV-65] chore(release): version packages"
+          commit: "chore(release): version packages"
           title: "chore(release): version packages"
           createGithubReleases: false
         env:

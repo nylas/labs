@@ -22,3 +22,7 @@ identify the affected service or package where one exists. For example:
 
 Before committing, verify that the new changeset file is included in the
 commit and that the commit subject matches the required format.
+
+Automated Changesets version commits created by `.github/workflows/release.yml`
+are exempt from the new-ticket and JIRA-prefix requirements. They must use the
+subject `chore(release): version packages`.
