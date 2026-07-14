@@ -1,5 +1,19 @@
 # ownmail
 
+## 0.2.1
+
+### Patch Changes
+
+- 3456e01: Make Cloudflare deployment failures safe to recover from in OwnMail.
+- 3456e01: Improve sign-in error handling in the OwnMail app and provisioning flow.
+- 3456e01: Validate OwnMail CLI project-state boundaries before using saved state.
+- 3456e01: Harden OwnMail security and input validation boundaries.
+- Updated dependencies [3456e01]
+- Updated dependencies [3456e01]
+- Updated dependencies [3456e01]
+- Updated dependencies [3456e01]
+  - @ownmail/app@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

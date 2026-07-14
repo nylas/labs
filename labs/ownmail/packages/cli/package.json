@@ -1,6 +1,6 @@
 {
 	"name": "ownmail",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Your inbox. Your domain. No per-seat fees. Deploy a full mailbox + calendar app in one command. Powered by Nylas.",
 	"license": "MIT",
 	"homepage": "https://github.com/nylas/labs/tree/main/labs/ownmail#readme",
