@@ -27,7 +27,11 @@ identify the affected service or package where one exists. For example:
 Before committing, when a changeset is required, verify that it is included in
 the commit and that the commit subject matches the required format.
 
-4. Keep delivery moving visibly. Do not leave an interactive command (for
+4. Before every commit, run `pnpm lint` from the repository root. Do not commit
+   if it exits non-zero. If the command reports warnings, record their count in
+   the handoff and do not describe them as lint errors unless they fail the
+   command. Re-run `pnpm lint` after any lint fix before committing.
+5. Keep delivery moving visibly. Do not leave an interactive command (for
    example, `pnpm changeset`) awaiting input across turns: complete it, cancel
    it safely, or immediately report the precise blocker. For multi-part work,
    ship each coherent, validated increment promptly rather than waiting for all
