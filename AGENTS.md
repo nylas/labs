@@ -14,19 +14,21 @@ Follow this workflow for every code or configuration change in this repository.
    CI, tooling, repository configuration, tests, policy, release automation, or
    internal refactors unless they directly change customer-facing package
    behavior.
-3. Use Conventional Commits for every commit, with the JIRA ticket ID prefix:
-   `[TW-123] type(scope): short description`.
+3. Use canonical Conventional Commits for every commit, with the JIRA ticket
+   ID as a suffix: `type(scope): short description [TW-123]`. Do not prefix a
+   commit subject with the ticket ID.
 
 Allowed Conventional Commit types include `feat`, `fix`, `docs`, `refactor`,
 `test`, `chore`, `build`, `ci`, `perf`, `style`, and `revert`. The scope must
 identify the affected service or package where one exists. For example:
 
 ```text
-[TW-100] feat(@ownmail/app): add dashboard overview page
+feat(@ownmail/app): add dashboard overview page [TW-100]
 ```
 
 Before committing, when a changeset is required, verify that it is included in
-the commit and that the commit subject matches the required format.
+the commit and run `pnpm commit:check -- .git/COMMIT_EDITMSG`. A tracked
+`commit-msg` hook and CI run the same check; do not bypass either safeguard.
 
 4. Before every commit, run `pnpm lint` from the repository root. Do not commit
    if it exits non-zero. If the command reports warnings, record their count in
