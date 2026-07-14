@@ -27,8 +27,18 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 	spinner.stop('New key minted.')
 
 	spinner.start('Swapping the key on your app…')
-	await putSecret(project.workerName, 'NYLAS_API_KEY', created.apiKey)
-	spinner.stop('App now uses the new key.')
+	try {
+		await putSecret(project.workerName, 'NYLAS_API_KEY', created.apiKey)
+		spinner.stop('App now uses the new key.')
+	} catch {
+		spinner.stop('The key swap could not be confirmed.')
+		try {
+			await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, created.id)
+		} catch {
+			// The provider may have accepted the new key; retain only the safe recovery instruction.
+		}
+		throw new Error('OwnMail could not confirm the Cloudflare key swap. Do not retry immediately: check the Nylas dashboard for the newly created key, revoke it if unused, then retry `npx ownmail rotate-key`.')
+	}
 
 	const oldKeyId = project.apiKeyId
 	project.apiKeyId = created.id

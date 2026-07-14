@@ -354,10 +354,9 @@ describe('runCreate — step machine', () => {
 		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))
 		vi.mocked(stepDomainPlan).mockImplementationOnce(async () => undefined)
 
-		await runCreate({ name: 'acme' })
+		await expect(runCreate({ name: 'acme' })).rejects.toThrow('Setup plan is incomplete')
 
 		expect(stepApp).not.toHaveBeenCalled()
-		expect(p.log.error).toHaveBeenCalledWith(expect.stringContaining('Setup plan is incomplete'))
 	})
 
 	it('describes manual hosting in the creation summary', async () => {
@@ -467,20 +466,13 @@ describe('runCreate — step machine', () => {
 		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))
 		vi.mocked(stepGrant).mockRejectedValueOnce(new Error('boom'))
 
-		await runCreate({ name: 'acme' })
-
-		expect(p.log.error).toHaveBeenCalledWith('boom')
-		expect(p.cancel).toHaveBeenCalledWith(expect.stringContaining('Something went wrong'))
-		expect(process.exitCode).toBe(1)
+		await expect(runCreate({ name: 'acme' })).rejects.toThrow('boom')
 	})
 
 	it('stringifies a non-Error thrown by a step', async () => {
 		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))
 		vi.mocked(stepGrant).mockRejectedValueOnce('plain string failure')
 
-		await runCreate({ name: 'acme' })
-
-		expect(p.log.error).toHaveBeenCalledWith('plain string failure')
-		expect(process.exitCode).toBe(1)
+		await expect(runCreate({ name: 'acme' })).rejects.toBe('plain string failure')
 	})
 })

@@ -139,6 +139,13 @@ describe('runTopLevel', () => {
 		expect(process.exitCode).toBe(1)
 	})
 
+	it('preserves safe Cloudflare recovery guidance', async () => {
+		await runTopLevel(async () => {
+			throw new Error('Cloudflare could not deploy. Retry this OwnMail command.')
+		})
+		expect(p.log.error).toHaveBeenCalledWith('Cloudflare could not deploy. Retry this OwnMail command.')
+	})
+
 	it('explains how to recover when no local project is available', async () => {
 		await runTopLevel(async () => {
 			throw new Error('No projects yet. Run `npx ownmail` first.')

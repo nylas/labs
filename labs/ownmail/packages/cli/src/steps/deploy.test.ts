@@ -648,7 +648,7 @@ describe('stepWebhook', () => {
 
 		await stepWebhook(ctx)
 
-		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz')
+		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz', expect.any(Object))
 		expect(ensureWebhook).not.toHaveBeenCalled()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('not reachable yet'))
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
@@ -793,7 +793,7 @@ describe('stepVerify', () => {
 			}),
 		)
 		await stepVerify(ctx)
-		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz')
+		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz', expect.any(Object))
 		expect(fetchMock).toHaveBeenCalledTimes(1)
 		expect(clearPendingSecrets).toHaveBeenCalledWith(ctx.project)
 		expect(ctx.project.pendingSecrets).toEqual({})
@@ -879,7 +879,7 @@ describe('stepVerify', () => {
 			}),
 		)
 		await stepVerify(ctx)
-		expect(fetchMock).toHaveBeenCalledWith('https://manual.example.com/healthz')
+		expect(fetchMock).toHaveBeenCalledWith('https://manual.example.com/healthz', expect.any(Object))
 		vi.unstubAllGlobals()
 	})
 })

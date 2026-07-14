@@ -39,6 +39,7 @@ export function runTopLevel(fn: () => Promise<void>): Promise<void> {
 
 function formatTopLevelError(err: unknown): string {
 	const message = err instanceof Error ? err.message : ''
+	if (/^(Cloudflare|OwnMail) could not /i.test(message) || /\bHow to fix:/i.test(message)) return message
 	if (/\b(invalid session|not logged in|unauthorized|forbidden)\b/i.test(message)) {
 		return 'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail login`, then retry your command.'
 	}

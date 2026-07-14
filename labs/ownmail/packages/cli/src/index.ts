@@ -24,10 +24,12 @@ const create = defineCommand({
 		region: { type: 'string', description: 'Nylas region (us or eu)', default: 'us' },
 	},
 	async run({ args }) {
-		await runCreate({
-			...(args.name ? { name: args.name } : {}),
-			region: args.region === 'eu' ? 'eu' : 'us',
-		})
+		await runTopLevel(() =>
+			runCreate({
+				...(args.name ? { name: args.name } : {}),
+				region: args.region === 'eu' ? 'eu' : 'us',
+			}),
+		)
 	},
 })
 
@@ -172,10 +174,12 @@ const main = defineCommand({
 	async run({ args, rawArgs }) {
 		// Default command: bare `npx ownmail` runs create/resume.
 		if (rawArgs.length === 0 || rawArgs[0]?.startsWith('-')) {
-			await runCreate({
-				...(args.name ? { name: args.name as string } : {}),
-				region: args.region === 'eu' ? 'eu' : 'us',
-			})
+			await runTopLevel(() =>
+				runCreate({
+					...(args.name ? { name: args.name as string } : {}),
+					region: args.region === 'eu' ? 'eu' : 'us',
+				}),
+			)
 		}
 	},
 })

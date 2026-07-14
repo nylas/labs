@@ -106,12 +106,7 @@ export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): 
 					process.exitCode = 1
 					return
 				}
-				p.log.error(err instanceof Error ? err.message : String(err))
-				p.cancel(
-					'Something went wrong. Fix the issue above and re-run `npx ownmail` — completed steps are skipped.',
-				)
-				process.exitCode = 1
-				return
+				throw err
 			}
 		}
 	}
