@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { join } from 'node:path'
 import envPaths from 'env-paths'
 import { ownmailStateName } from '../nylas-env.js'
-import { type AuthState, AuthStateSchema, type ProjectState, ProjectStateSchema } from './schema.js'
+import {
+	type AuthState,
+	AuthStateSchema,
+	ProjectSlugSchema,
+	type ProjectState,
+	ProjectStateSchema,
+} from './schema.js'
 
 const paths = envPaths(ownmailStateName(), { suffix: '' })
 const RESERVED_PROJECT_SLUGS = new Set(['__login__'])
@@ -72,7 +78,7 @@ export function listProjects(): ProjectState[] {
 export type ProjectStateIssue = { file: string; reason: 'invalid-json' | 'invalid-schema' }
 
 export function listProjectStateIssues(slug?: string): ProjectStateIssue[] {
-	if (slug && isReservedProjectSlug(slug)) return []
+	if (slug && !isUserProjectSlug(slug)) return []
 	const dir = projectsDir()
 	const files = slug
 		? [`${slug}.json`]
@@ -96,7 +102,7 @@ export function listProjectStateIssues(slug?: string): ProjectStateIssue[] {
 }
 
 export function loadProject(slug: string): ProjectState | null {
-	if (isReservedProjectSlug(slug)) return null
+	if (!isUserProjectSlug(slug)) return null
 	const raw = readJson<unknown>(join(projectsDir(), `${slug}.json`))
 	if (!raw) return null
 	const parsed = ProjectStateSchema.safeParse(raw)
@@ -104,6 +110,7 @@ export function loadProject(slug: string): ProjectState | null {
 }
 
 export function deleteProject(slug: string): boolean {
+	if (!isUserProjectSlug(slug)) return false
 	try {
 		unlinkSync(join(projectsDir(), `${slug}.json`))
 		return true
@@ -114,12 +121,15 @@ export function deleteProject(slug: string): boolean {
 }
 
 export function saveProject(state: ProjectState): void {
-	if (isReservedProjectSlug(state.slug)) return
+	if (!isUserProjectSlug(state.slug)) return
 	state.updatedAt = Date.now()
 	writeJson(join(projectsDir(), `${state.slug}.json`), state)
 }
 
 export function newProject(slug: string, region: 'us' | 'eu'): ProjectState {
+	if (!isSafeProjectSlug(slug)) {
+		throw new Error('Project names must use 3-40 lowercase letters, digits, and hyphens.')
+	}
 	return ProjectStateSchema.parse({
 		slug,
 		region,
@@ -151,4 +161,12 @@ function isReservedProjectFile(file: string): boolean {
 
 function isReservedProjectSlug(slug: string): boolean {
 	return RESERVED_PROJECT_SLUGS.has(slug)
+}
+
+function isSafeProjectSlug(slug: string): boolean {
+	return ProjectSlugSchema.safeParse(slug).success
+}
+
+function isUserProjectSlug(slug: string): boolean {
+	return isSafeProjectSlug(slug) && !isReservedProjectSlug(slug)
 }
