@@ -109,25 +109,26 @@ describe('runRotateKey', () => {
 		expect(gw.revokeApiKey).not.toHaveBeenCalled()
 	})
 
-	it('stops and cleans up when the Cloudflare key swap cannot be confirmed', async () => {
+	it('preserves the new key when the Cloudflare key swap cannot be confirmed', async () => {
 		const proj = project({ workerName: 'w1', applicationId: 'app-1' })
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
 		const gw = gateway()
 		vi.mocked(requireGateway).mockReturnValue(gw as never)
 		vi.mocked(putSecret).mockRejectedValueOnce(new Error('timeout'))
-		await expect(runRotateKey({})).rejects.toThrow(/Do not retry immediately/)
-		expect(gw.revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app-1', 'new-key')
+		await expect(runRotateKey({})).rejects.toThrow(/left active because Cloudflare may already be using it/)
+		expect(gw.revokeApiKey).not.toHaveBeenCalled()
 		expect(saveProject).not.toHaveBeenCalled()
 	})
 
-	it('still gives the reconciliation guidance when cleanup cannot reach Nylas', async () => {
+	it('explains how to reconcile an unconfirmed Cloudflare key swap', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1', applicationId: 'app-1' }))
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
-		const gw = gateway({ revokeApiKey: vi.fn().mockRejectedValue(new Error('offline')) })
+		const gw = gateway()
 		vi.mocked(requireGateway).mockReturnValue(gw as never)
 		vi.mocked(putSecret).mockRejectedValueOnce(new Error('timeout'))
-		await expect(runRotateKey({})).rejects.toThrow(/Do not retry immediately/)
+		await expect(runRotateKey({})).rejects.toThrow(/check your Cloudflare Worker and the Nylas dashboard/)
+		expect(gw.revokeApiKey).not.toHaveBeenCalled()
 	})
 
 	it('warns with the gateway detail when revocation fails (GatewayError)', async () => {
