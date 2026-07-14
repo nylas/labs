@@ -24,6 +24,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm commit:check -- --range ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+      - env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: pnpm commit:check -- --title "$PR_TITLE"
 
   changes:
     runs-on: ubuntu-latest

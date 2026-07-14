@@ -3,7 +3,7 @@ import { readFileSync as readFile } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const SUBJECT =
-	/^(?:feat|fix|docs|refactor|test|chore|build|ci|perf|style|revert)\([a-z0-9@][a-z0-9@/_-]*\): \S.* \[TW-\d+\]$/
+	/^\[TW-\d+\] (?:feat|fix|docs|refactor|test|chore|build|ci|perf|style|revert)\([a-z0-9@][a-z0-9@/_-]*\): (?!.* \[TW-\d+\]$)\S.*$/
 const RELEASE_SUBJECT = 'chore(release): version packages'
 
 export function isValidCommitSubject(subject) {
@@ -18,7 +18,7 @@ function fail(message) {
 function checkSubject(subject, label) {
 	if (isValidCommitSubject(subject)) return true
 	fail(
-		`${label} must use Conventional Commits with a trailing TW ticket: \`fix(ownmail): preserve safe rotation recovery [TW-5954]\`. Do not prefix the subject with a ticket.`,
+		`${label} must begin with its TW ticket and use Conventional Commits: \`[TW-5954] fix(ownmail): preserve safe rotation recovery\`.`,
 	)
 	return false
 }
@@ -48,6 +48,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	if (mode === '--range') {
 		if (args.length !== 2) fail('Usage: pnpm commit:check -- --range <base> <head>')
 		else checkRange(args[0], args[1])
+	} else if (mode === '--title') {
+		if (args.length !== 1) fail('Usage: pnpm commit:check -- --title <pull-request-title>')
+		else checkSubject(args[0], 'Pull request title')
 	} else if (mode) {
 		checkMessageFile(mode)
 	} else {

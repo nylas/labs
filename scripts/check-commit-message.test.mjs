@@ -2,15 +2,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { isValidCommitSubject } from './check-commit-message.mjs'
 
-test('accepts canonical Conventional Commit subjects with TW ticket suffixes', () => {
-	assert.equal(isValidCommitSubject('fix(ownmail): preserve safe rotation recovery [TW-5954]'), true)
-	assert.equal(isValidCommitSubject('docs(workflow): require TW ticket suffixes [TW-5961]'), true)
+test('accepts Conventional Commit subjects prefixed with TW tickets', () => {
+	assert.equal(isValidCommitSubject('[TW-5954] fix(ownmail): preserve safe rotation recovery'), true)
+	assert.equal(isValidCommitSubject('[TW-5961] docs(workflow): require TW ticket prefixes'), true)
 })
 
-test('rejects ticket-prefixed and malformed commit subjects', () => {
-	assert.equal(isValidCommitSubject('[TW-5954] fix(ownmail): preserve safe rotation recovery'), false)
+test('rejects ticket-suffixed and malformed commit subjects', () => {
+	assert.equal(isValidCommitSubject('fix(ownmail): preserve safe rotation recovery [TW-5954]'), false)
 	assert.equal(isValidCommitSubject('fix: preserve safe rotation recovery [TW-5954]'), false)
-	assert.equal(isValidCommitSubject('fix(ownmail): preserve safe rotation recovery'), false)
+	assert.equal(
+		isValidCommitSubject('[TW-5954] fix(ownmail): preserve safe rotation recovery [TW-5954]'),
+		false,
+	)
 })
 
 test('allows the automated changeset release exemption', () => {
