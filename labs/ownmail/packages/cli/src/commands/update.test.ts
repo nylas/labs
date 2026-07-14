@@ -148,6 +148,21 @@ describe('runUpdate — guard clauses', () => {
 })
 
 describe('runUpdate — redeploy', () => {
+	it('stops the spinner and preserves the project when Cloudflare rejects an update', async () => {
+		const spinner = { start: vi.fn(), stop: vi.fn() }
+		vi.mocked(p.spinner).mockReturnValueOnce(spinner as unknown as ReturnType<typeof p.spinner>)
+		const project = fullDeployProject()
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		vi.mocked(deploy).mockRejectedValueOnce(new Error('Cloudflare could not deploy the mailbox app.'))
+
+		await expect(runUpdate({})).rejects.toThrow(/could not deploy/)
+
+		expect(spinner.stop).toHaveBeenCalledWith(
+			'Cloudflare update needs attention; retry `npx ownmail update` when ready.',
+		)
+		expect(saveProject).not.toHaveBeenCalled()
+	})
+
 	it('redeploys and refreshes config when already on the latest template', async () => {
 		const project = fullDeployProject({ templateVersion: '1.2.0' })
 		vi.mocked(pickExistingProject).mockResolvedValue(project)

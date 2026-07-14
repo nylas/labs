@@ -298,7 +298,14 @@ describe('ensureCloudflareAuth', () => {
 	it('throws when authentication still fails afterwards', async () => {
 		vi.mocked(wranglerLoggedIn).mockResolvedValueOnce(false).mockResolvedValueOnce(false)
 		vi.mocked(cloudflareApiTokenConfigured).mockReturnValue(true)
-		await expect(ensureCloudflareAuth()).rejects.toThrow(/reconnect.*token permissions/)
+		await expect(ensureCloudflareAuth()).rejects.toThrow(/Replace `CLOUDFLARE_API_TOKEN`/)
+	})
+
+	it('explains how to retry OAuth when sign-in does not persist', async () => {
+		vi.mocked(wranglerLoggedIn).mockResolvedValueOnce(false).mockResolvedValueOnce(false)
+		vi.mocked(p.select).mockResolvedValueOnce('oauth')
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
+		await expect(ensureCloudflareAuth()).rejects.toThrow(/connect with Wrangler OAuth/)
 	})
 })
 
@@ -332,6 +339,22 @@ describe('stepCfResources', () => {
 		await stepCfResources(ctx)
 		expect(ensureKvNamespace).not.toHaveBeenCalled()
 		expect(ctx.project.workerName).toBe('existing-worker')
+	})
+
+	it('stops the storage spinner and leaves setup resumable when Cloudflare rejects storage creation', async () => {
+		const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() }
+		vi.mocked(p.spinner)
+			.mockReset()
+			.mockReturnValueOnce(spinner as unknown as ReturnType<typeof p.spinner>)
+		vi.mocked(ensureKvNamespace).mockRejectedValueOnce(
+			new Error('Cloudflare could not create session storage.'),
+		)
+		const ctx = makeCtx(makeProject())
+		await expect(stepCfResources(ctx)).rejects.toThrow(/could not create session storage/)
+		expect(spinner.stop).toHaveBeenCalledWith(
+			'Cloudflare session storage needs attention; your project can be resumed.',
+		)
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'cf-resources')
 	})
 })
 
@@ -398,6 +421,55 @@ describe('stepDeploy (cloudflare)', () => {
 	it('throws when the worker name is missing', async () => {
 		const ctx = makeCtx(makeProject({ applicationId: 'client-id', kvNamespaceId: 'kv' }))
 		await expect(stepDeploy(ctx)).rejects.toThrow(/Cloudflare worker name is missing/)
+	})
+
+	it('stops the deployment spinner and leaves setup resumable when deployment fails', async () => {
+		const deploymentSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() }
+		vi.mocked(p.spinner)
+			.mockReset()
+			.mockReturnValueOnce(deploymentSpinner as unknown as ReturnType<typeof p.spinner>)
+		vi.mocked(deploy)
+			.mockReset()
+			.mockRejectedValueOnce(new Error('Cloudflare could not deploy the mailbox app.'))
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				workerName: 'worker',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		await expect(stepDeploy(ctx)).rejects.toThrow(/could not deploy/)
+		expect(deploymentSpinner.stop).toHaveBeenCalledWith(
+			'Cloudflare deployment needs attention; your project can be resumed.',
+		)
+		expect(putSecret).not.toHaveBeenCalled()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('stops secret setup and leaves setup resumable when a secret write fails', async () => {
+		const deploymentSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() }
+		vi.mocked(p.spinner)
+			.mockReset()
+			.mockReturnValueOnce(deploymentSpinner as unknown as ReturnType<typeof p.spinner>)
+		vi.mocked(deploy).mockReset().mockResolvedValueOnce('https://plain.workers.dev')
+		vi.mocked(putSecret)
+			.mockReset()
+			.mockRejectedValueOnce(new Error('Cloudflare could not store deployment secrets.'))
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				workerName: 'worker',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		await expect(stepDeploy(ctx)).rejects.toThrow(/could not store deployment secrets/)
+		expect(deploymentSpinner.stop).toHaveBeenCalledWith(
+			'Cloudflare could not finish secret setup; your project can be resumed.',
+		)
+		expect(ctx.project.workersDevUrl).toBe('https://plain.workers.dev')
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
 	})
 })
 

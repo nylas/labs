@@ -76,11 +76,16 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 			TEMPLATE_VERSION: manifest.templateVersion,
 		},
 	})
-	const url = await deploy(configPath)
-	project.workersDevUrl = url
-	project.templateVersion = manifest.templateVersion
-	saveProject(project)
-	spinner.stop(`Updated: ${url} (template ${manifest.templateVersion})`)
+	try {
+		const url = await deploy(configPath)
+		project.workersDevUrl = url
+		project.templateVersion = manifest.templateVersion
+		saveProject(project)
+		spinner.stop(`Updated: ${url} (template ${manifest.templateVersion})`)
+	} catch (err) {
+		spinner.stop('Cloudflare update needs attention; retry `npx ownmail update` when ready.')
+		throw err
+	}
 	p.outro('Secrets and sessions were untouched.')
 }
 
