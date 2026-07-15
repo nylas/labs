@@ -298,6 +298,30 @@ describe('calendar view helpers', () => {
 		).toBeNull()
 	})
 
+	it('lays out early-morning events when the time grid starts at midnight', () => {
+		const early = timedEvent('early', 'work', '2026-07-08T06:00:00Z', '2026-07-08T07:00:00Z')
+		expect(
+			timedEventLayout(early, new Date('2026-07-08T00:00:00'), {
+				startHour: 0,
+				endHour: 25,
+				hourHeight: 52,
+				timeZone: 'America/Toronto',
+			}),
+		).toEqual({ top: 104, height: 50 })
+	})
+
+	it('omits an event when its selected-timezone range is fully clipped', () => {
+		const late = timedEvent('late', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:00:00Z')
+		expect(
+			timedEventLayout(late, new Date('2026-07-08T00:00:00'), {
+				startHour: 0,
+				endHour: 23,
+				hourHeight: 52,
+				timeZone: 'UTC',
+			}),
+		).toBeNull()
+	})
+
 	it('clamps overnight Nylas events to the visible part of the rendered day', () => {
 		const event = timedEvent('deploy', 'work', '2026-07-08T22:30:00', '2026-07-09T01:00:00')
 

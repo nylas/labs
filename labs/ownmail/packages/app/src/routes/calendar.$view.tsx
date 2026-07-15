@@ -739,7 +739,9 @@ function TimeGrid({
 	onPickSlot: (date: Date, hour: number, rect: Rect) => void
 }) {
 	const HOUR_PX = 52
-	const START_HOUR = 7
+	// Render the full day so selections made in the event composer always
+	// remain visible after the calendar refreshes.
+	const START_HOUR = 0
 	// Keep the final two evening rows available so 11 PM and midnight can be
 	// viewed and selected. GRID_END_HOUR is the boundary after the last row.
 	const END_HOUR = 24
@@ -759,7 +761,7 @@ function TimeGrid({
 		function updateNowOffset() {
 			const current = new Date()
 			const hour = current.getHours() + current.getMinutes() / 60
-			setNowOffset(hour < START_HOUR || hour > END_HOUR ? null : (hour - START_HOUR) * HOUR_PX)
+			setNowOffset((hour - START_HOUR) * HOUR_PX)
 		}
 		updateNowOffset()
 		const id = setInterval(updateNowOffset, 60_000)

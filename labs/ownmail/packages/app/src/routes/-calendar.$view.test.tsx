@@ -422,7 +422,7 @@ describe('week view time grid', () => {
 		expect(reference).toHaveTextContent('Secondary time (below) Europe/London')
 	})
 
-	it('hides an event that falls entirely before the visible day window', () => {
+	it('hides an event that falls outside the selected calendar day', () => {
 		renderWeek()
 		expect(screen.queryByRole('button', { name: 'Night' })).toBeNull()
 	})
@@ -485,10 +485,10 @@ describe('week view time grid', () => {
 describe('day view time grid', () => {
 	it('renders a single day column with all-day events and no inter-day rules', () => {
 		const { container } = render(<CalendarRouteScreen view="day" data={richData()} />)
-		// Eighteen hour slots: 7 AM through midnight, inclusive.
-		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(18)
+		// Twenty-five hour slots: midnight through the following midnight, inclusive.
+		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(25)
+		expect(screen.getAllByRole('button', { name: /Create event at 12 AM/ })).toHaveLength(2)
 		expect(screen.getByRole('button', { name: /Create event at 11 PM/ })).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: /Create event at 12 AM/ })).toBeInTheDocument()
 		expect(screen.getByText('All day')).toBeInTheDocument()
 		expect(container.querySelectorAll('.border-l')).toHaveLength(0)
 	})
@@ -581,11 +581,11 @@ describe('current-time indicator', () => {
 		expect(container.querySelector('.bg-destructive')).not.toBeNull()
 	})
 
-	it('hides the now line when the current hour is outside the visible window', () => {
+	it('draws the now line for an early-morning hour', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T05:00:00'))
 		const { container } = render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
-		expect(container.querySelector('.bg-destructive')).toBeNull()
+		expect(container.querySelector('.bg-destructive')).not.toBeNull()
 	})
 })
 
