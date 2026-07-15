@@ -19,6 +19,23 @@ vi.mock('../server/fns.js', () => ({
 vi.mock('../components/AppRail.js', () => ({
 	AppRailLogo: ({ appName }: { appName: string }) => <div>{appName}</div>,
 	AppRailNav: () => <nav aria-label="App navigation" />,
+	AppRailMobileNav: ({ onNavigate }: { onNavigate: () => void }) => (
+		<button type="button" onClick={onNavigate}>
+			close-mobile-navigation
+		</button>
+	),
+}))
+
+vi.mock('../components/Sheet.js', () => ({
+	Sheet: (props: any) =>
+		props.open ? (
+			<div data-testid="sheet">
+				<button type="button" onClick={props.onClose}>
+					close-sheet
+				</button>
+				{props.children}
+			</div>
+		) : null,
 }))
 
 import { Route } from './settings.js'
@@ -48,6 +65,17 @@ describe('/settings', () => {
 			info,
 			capabilities: { passwordResetEnabled: false },
 		})
+	})
+
+	it('opens the app navigation as a temporary sheet', () => {
+		renderSettings()
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		expect(screen.getByTestId('sheet')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'close-mobile-navigation' }))
+		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(screen.getByRole('button', { name: 'close-sheet' }))
+		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
 	})
 
 	it('saves local profile, compose, and timezone preferences', async () => {

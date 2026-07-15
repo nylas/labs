@@ -52,6 +52,13 @@ vi.mock('../components/AppRail.js', () => ({
 			</button>
 		</div>
 	),
+	AppRailMobileNav: (props: any) => (
+		<div data-testid="mobile-railnav">
+			<button type="button" onClick={props.onNavigate}>
+				mobile-nav-close
+			</button>
+		</div>
+	),
 }))
 
 const paletteShortcut = vi.fn()
@@ -195,19 +202,22 @@ describe('MailRouteScreen — layout wiring', () => {
 		expect(document.activeElement).toBe(searchInput())
 	})
 
-	it('opens the folder sheet from the menu button and closes it via sidebar navigation', () => {
+	it('opens the navigation sheet from the menu button and closes it via mobile navigation', () => {
 		renderScreen()
 		expect(screen.queryByTestId('sheet')).toBeNull()
-		fireEvent.click(screen.getByRole('button', { name: 'Open folders' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		expect(screen.getByTestId('sheet')).toBeInTheDocument()
-		// Navigating within the sheet's sidebar closes the sheet.
+		expect(screen.getByTestId('mobile-railnav')).toBeInTheDocument()
+		fireEvent.click(screen.getByText('mobile-nav-close'))
+		expect(screen.queryByTestId('sheet')).toBeNull()
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		fireEvent.click(screen.getAllByText('sidebar-nav')[1])
 		expect(screen.queryByTestId('sheet')).toBeNull()
 	})
 
 	it('closes the sheet via its own close control', () => {
 		renderScreen()
-		fireEvent.click(screen.getByRole('button', { name: 'Open folders' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		fireEvent.click(screen.getByText('close-sheet'))
 		expect(screen.queryByTestId('sheet')).toBeNull()
 	})

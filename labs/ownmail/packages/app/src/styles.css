@@ -249,6 +249,22 @@
 	box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 82%);
 }
 
+/*
+ * iOS Safari zooms the viewport when an editable control has text smaller
+ * than 16px. Keep every native or rich-text editing surface at that minimum
+ * on touch-first devices; larger viewports retain their compact desktop type.
+ * This unlayered rule deliberately overrides Tailwind's layered text utilities.
+ */
+@media (hover: none) and (pointer: coarse) {
+	input,
+	textarea,
+	select,
+	[contenteditable="true"],
+	.app-input {
+		font-size: 1rem;
+	}
+}
+
 .command-row {
 	color: var(--foreground);
 	transition:

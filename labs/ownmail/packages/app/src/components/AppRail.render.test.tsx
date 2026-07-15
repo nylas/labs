@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AppRailLogo, AppRailNav } from './AppRail.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from './AppRail.js'
 import { THEME_STORAGE_KEY } from './theme.js'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -99,5 +99,62 @@ describe('AppRailNav', () => {
 		expect(signOut).toHaveAttribute('type', 'submit')
 		expect(signOut.closest('form')).toHaveAttribute('action', '/logout')
 		expect(signOut.closest('form')).toHaveAttribute('method', 'post')
+	})
+})
+
+describe('AppRailMobileNav', () => {
+	it('uses labelled links in the temporary navigation panel and closes it after navigation', () => {
+		const onNavigate = vi.fn()
+		render(<AppRailMobileNav email="ada@ownmail.com" active="calendar" onNavigate={onNavigate} />)
+
+		const calendar = screen.getByRole('link', { name: 'Calendar' })
+		expect(calendar).toHaveAttribute('href', '/calendar')
+		expect(calendar).toHaveAttribute('aria-current', 'page')
+		fireEvent.click(screen.getByRole('link', { name: 'Mail' }))
+		expect(onNavigate).toHaveBeenCalledTimes(1)
+	})
+
+	it('closes the panel before opening the command palette', () => {
+		const onNavigate = vi.fn()
+		const onOpen = vi.fn()
+		render(
+			<AppRailMobileNav
+				email="ada@ownmail.com"
+				active="mail"
+				onNavigate={onNavigate}
+				onOpenCommandPalette={onOpen}
+			/>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
+		expect(onNavigate).toHaveBeenCalledTimes(1)
+		expect(onOpen).toHaveBeenCalledTimes(1)
+	})
+
+	it('toggles the theme from the mobile navigation panel', () => {
+		render(<AppRailMobileNav email="ada@ownmail.com" active="mail" onNavigate={vi.fn()} />)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Switch to dark mode' }))
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+		fireEvent.click(screen.getByRole('button', { name: 'Switch to light mode' }))
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
+	})
+
+	it('marks settings active and keeps the command control safe when no handler is supplied', () => {
+		const onNavigate = vi.fn()
+		render(
+			<AppRailMobileNav
+				email="ada@ownmail.com"
+				displayName="Ada Lovelace"
+				active="settings"
+				onNavigate={onNavigate}
+			/>,
+		)
+
+		expect(
+			screen.getByRole('link', { name: 'Account settings for Ada Lovelace · ada@ownmail.com' }),
+		).toHaveAttribute('aria-current', 'page')
+		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
+		expect(onNavigate).toHaveBeenCalledTimes(1)
 	})
 })

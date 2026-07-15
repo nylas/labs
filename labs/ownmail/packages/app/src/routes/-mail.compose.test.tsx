@@ -655,6 +655,14 @@ describe('mail.compose keyboard escape', () => {
 })
 
 describe('mail.compose window controls', () => {
+	it('keeps the compose panel inside a narrow viewport and limits it to the dynamic viewport height', () => {
+		renderCompose()
+		const panel = screen.getByRole('dialog', { name: 'Compose message' })
+		expect(panel).toHaveClass('inset-x-2')
+		expect(panel).toHaveClass('sm:inset-x-auto')
+		expect(panel).toHaveClass('h-[min(32rem,calc(100dvh-1rem))]')
+	})
+
 	it('minimizes and restores the composer body', () => {
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: '', body: '' } } })
 		expect(screen.getByPlaceholderText('Write your message...')).toBeInTheDocument()

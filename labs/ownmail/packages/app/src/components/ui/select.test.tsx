@@ -46,6 +46,8 @@ describe('Select', () => {
 		const trigger = screen.getByRole('combobox', { name: 'Start time' })
 		expect(trigger).toHaveAttribute('data-slot', 'select-trigger')
 		expect(trigger).toHaveTextContent('8 AM')
+		expect(trigger.className).toContain('text-base')
+		expect(trigger.className).toContain('sm:text-sm')
 
 		await user.click(trigger)
 		// Opening renders the portalled content + items (with the checked indicator).

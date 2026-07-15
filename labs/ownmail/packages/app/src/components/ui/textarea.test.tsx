@@ -12,5 +12,7 @@ describe('Textarea', () => {
 		expect(textarea.tagName).toBe('TEXTAREA')
 		expect(textarea).toHaveAttribute('data-slot', 'textarea')
 		expect(textarea.className).toContain('min-h-40')
+		expect(textarea.className).toContain('text-base')
+		expect(textarea.className).toContain('sm:text-sm')
 	})
 })
