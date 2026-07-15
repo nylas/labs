@@ -181,6 +181,9 @@ describe('calendar input validation', () => {
 	})
 
 	it('rejects malformed all-day dates, timezones, and recurrence rules', () => {
+		expect(() => normalizeCreateEventInput({ title: 'Holiday', allDayDate: 42 as never })).toThrow(
+			'Invalid all-day date',
+		)
 		expect(() => normalizeCreateEventInput({ title: 'Holiday', allDayDate: '2027-02-30' })).toThrow(
 			'Invalid all-day date',
 		)
@@ -190,6 +193,14 @@ describe('calendar input validation', () => {
 				startTime: 1_800_000_000,
 				endTime: 1_800_003_600,
 				timezone: 'Not/A-Timezone',
+			}),
+		).toThrow('Invalid timezone')
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				timezone: '',
 			}),
 		).toThrow('Invalid timezone')
 		expect(() =>
@@ -209,6 +220,46 @@ describe('calendar input validation', () => {
 				recurrence: { frequency: 'weekly', interval: 1, weekdays: ['MO', 'MO'] },
 			}),
 		).toThrow('Invalid recurrence')
+	})
+
+	it('requires one complete time representation', () => {
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Holiday',
+				allDayDate: '2027-12-25',
+				startTime: 1_800_000_000,
+			}),
+		).toThrow('Choose either an all-day date or a time range')
+		expect(() => normalizeCreateEventInput({ title: 'Planning', startTime: 1_800_000_000 })).toThrow(
+			'Start and end time are required',
+		)
+		expect(() => normalizeCreateEventInput({ title: 'Planning', endTime: 1_800_003_600 })).toThrow(
+			'Start and end time are required',
+		)
+	})
+
+	it('rejects every invalid recurrence shape before sending it to the provider', () => {
+		const timedInput = (recurrence: unknown) => ({
+			title: 'Planning',
+			startTime: 1_800_000_000,
+			endTime: 1_800_003_600,
+			timezone: 'UTC',
+			recurrence: recurrence as never,
+		})
+
+		for (const recurrence of [
+			null,
+			[],
+			{ frequency: 'monthly', interval: 1, weekdays: ['MO'] },
+			{ frequency: 'weekly', interval: 3, weekdays: ['MO'] },
+			{ frequency: 'yearly', interval: 2 },
+			{ frequency: 'yearly', interval: 1, weekdays: ['MO'] },
+			{ frequency: 'weekly', interval: 1, weekdays: [] },
+			{ frequency: 'weekly', interval: 1, weekdays: ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU', 'MO'] },
+			{ frequency: 'weekly', interval: 1, weekdays: ['XX'] },
+		]) {
+			expect(() => normalizeCreateEventInput(timedInput(recurrence))).toThrow('Invalid recurrence')
+		}
 	})
 
 	it('rejects an update whose title is only whitespace', () => {

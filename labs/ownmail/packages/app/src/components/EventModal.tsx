@@ -40,6 +40,7 @@ const WEEKDAYS = [
 	['SU', 'Sun'],
 ] as const
 type Weekday = (typeof WEEKDAYS)[number][0]
+const WEEKDAY_BY_DAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const satisfies readonly Weekday[]
 type RepeatOption = 'none' | 'weekly' | 'biweekly' | 'yearly'
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
@@ -338,7 +339,7 @@ export function EventModal({
 									startHour={startHour}
 									endHour={endHour}
 									allDay={false}
-									onAllDay={() => {}}
+									onAllDay={setAllDay}
 									showAllDay={false}
 									onStartHour={setStartHour}
 									onEndHour={setEndHour}
@@ -741,7 +742,7 @@ function recurrenceFromForm(repeat: RepeatOption, weekdays: Weekday[]) {
 }
 
 function defaultWeekday(date: Date): Weekday {
-	return WEEKDAYS[date.getDay() === 0 ? 6 : date.getDay() - 1]?.[0] ?? 'MO'
+	return WEEKDAY_BY_DAY[date.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6]
 }
 
 function isDateInput(value: string): boolean {
@@ -756,6 +757,7 @@ function dateFromInput(value: string): Date {
 
 function countConflicts(candidate: Event, events: Event[]): number {
 	const candidateTimes = eventTimes(candidate)
+	/* v8 ignore next -- preview events are constructed only from a valid date and complete time range. */
 	if (!candidateTimes) return 0
 	return events.filter((event) => {
 		const times = eventTimes(event)

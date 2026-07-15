@@ -415,6 +415,13 @@ describe('dev mock Nylas client surface', () => {
 		)
 		expect(bare.data.description).toBeUndefined()
 
+		const allDay = await mailbox.createEvent(
+			{ title: 'All day', when: { object: 'date', date: '2030-01-02' }, recurrence: ['RRULE:FREQ=YEARLY'] },
+			'work',
+		)
+		expect(allDay.data.when).toEqual({ object: 'date', date: '2030-01-02' })
+		expect(allDay.data.recurrence).toEqual(['RRULE:FREQ=YEARLY'])
+
 		await expect(mailbox.createEvent({ title: 'No time' }, 'work')).rejects.toThrow('Invalid event time')
 	})
 
@@ -520,6 +527,19 @@ describe('dev mock optional-field defaults', () => {
 		const { events } = mockEvents({ start: now - 3600, end: now + 7200 })
 		const event = events.find((candidate) => candidate.id === created.eventId)
 		expect(event?.calendar_id).toBe('primary')
+	})
+
+	it('stores date-only events without inventing a timed range', () => {
+		const created = mockCreateEvent({
+			title: 'Holiday',
+			allDayDate: '2030-12-25',
+			recurrence: ['RRULE:FREQ=YEARLY'],
+		})
+		const event = mockEvents({ start: 0, end: Number.MAX_SAFE_INTEGER }).events.find(
+			(candidate) => candidate.id === created.eventId,
+		)
+		expect(event?.when).toEqual({ object: 'date', date: '2030-12-25' })
+		expect(event?.recurrence).toEqual(['RRULE:FREQ=YEARLY'])
 	})
 
 	it('defaults the created event title to an empty string through the client', async () => {

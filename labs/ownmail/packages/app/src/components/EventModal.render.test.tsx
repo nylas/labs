@@ -272,6 +272,63 @@ describe('EventModal — new event', () => {
 		})
 	})
 
+	it('requires a weekday before saving a weekly recurrence', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'weekly')
+		await user.click(screen.getByRole('button', { name: 'Wed' }))
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+
+		expect(screen.getByText('Choose at least one weekday for a repeating event.')).toBeInTheDocument()
+		expect(createEvent).not.toHaveBeenCalled()
+	})
+
+	it('uses Sunday as the default weekday for a Sunday recurring event', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={new Date(2026, 6, 12, 10, 0, 0)}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'weekly')
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({ weekdays: ['SU'] })
+	})
+
+	it('requires a valid event date before saving', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+
+		expect(screen.getByText('Choose a valid event date.')).toBeInTheDocument()
+		expect(createEvent).not.toHaveBeenCalled()
+	})
+
 	it('creates a yearly recurrence and hides weekday controls', async () => {
 		const user = userEvent.setup()
 		render(
@@ -293,6 +350,35 @@ describe('EventModal — new event', () => {
 	})
 
 	it('warns when the event draft overlaps an existing event', () => {
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				events={[
+					{ id: 'invalid', when: {} } as Event,
+					timedEvent({
+						id: '__new-event-preview__',
+						when: { start_time: timedStart - 30 * 60, end_time: timedStart + 30 * 60 },
+					}),
+					timedEvent({
+						id: 'overlap-one',
+						when: { start_time: timedStart - 30 * 60, end_time: timedStart + 30 * 60 },
+					}),
+					timedEvent({
+						id: 'overlap-two',
+						when: { start_time: timedStart - 15 * 60, end_time: timedStart + 45 * 60 },
+					}),
+				]}
+				onClose={vi.fn()}
+			/>,
+		)
+		expect(screen.getByText('May conflict with 2 existing events.')).toBeInTheDocument()
+	})
+
+	it('uses singular conflict copy for one overlapping event', () => {
 		render(
 			<EventModal
 				event={null}
