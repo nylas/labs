@@ -80,7 +80,7 @@ export function ScrollArea({
 		<ScrollAreaPrimitive.Root
 			data-slot="scroll-area"
 			aria-describedby={describedBy}
-			className={cn('group relative overflow-hidden', className)}
+			className={cn('group relative w-full min-w-0 overflow-hidden', className)}
 			type={type}
 			{...props}
 		>
@@ -88,7 +88,10 @@ export function ScrollArea({
 				ref={setViewportRef}
 				data-slot="scroll-area-viewport"
 				tabIndex={0}
-				className={cn('size-full rounded-[inherit] focus-visible:outline-none', viewportClassName)}
+				className={cn(
+					'size-full min-w-0 overflow-x-hidden rounded-[inherit] focus-visible:outline-none',
+					viewportClassName,
+				)}
 			>
 				{children}
 			</ScrollAreaPrimitive.Viewport>

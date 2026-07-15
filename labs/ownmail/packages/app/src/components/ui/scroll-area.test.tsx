@@ -14,7 +14,12 @@ describe('ScrollArea', () => {
 		)
 
 		expect(screen.getByLabelText('Thread conversation')).toHaveAttribute('data-slot', 'scroll-area')
+		expect(screen.getByLabelText('Thread conversation')).toHaveClass('w-full', 'min-w-0')
 		expect(document.querySelector('[data-slot="scroll-area-viewport"]')).toHaveAttribute('tabindex', '0')
+		expect(document.querySelector('[data-slot="scroll-area-viewport"]')).toHaveClass(
+			'min-w-0',
+			'overflow-x-hidden',
+		)
 		expect(screen.getByText(/Scrollable content/)).toHaveClass('sr-only')
 	})
 
