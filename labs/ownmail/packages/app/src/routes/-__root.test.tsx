@@ -14,6 +14,10 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }))
 
+vi.mock('@tanstack/react-start', () => ({
+	createServerFn: () => ({ handler: (fn: () => unknown) => fn }),
+}))
+
 vi.mock('../styles.css?url', () => ({ default: '/assets/styles.css' }))
 
 const platform = vi.fn()

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '../components/app-meta.js'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
@@ -8,11 +9,13 @@ import { platform } from '../server/platform.js'
 import { DEFAULT_SITE_NAME, siteNameFromEnv } from '../server/site-config.js'
 import appCss from '../styles.css?url'
 
+const rootState = createServerFn({ method: 'GET' }).handler(async () => {
+	const { env } = await platform()
+	return { siteName: siteNameFromEnv(env) }
+})
+
 export const Route = createRootRoute({
-	loader: async () => {
-		const { env } = await platform()
-		return { siteName: siteNameFromEnv(env) }
-	},
+	loader: async () => rootState(),
 	head: (context) => {
 		const siteName = context?.loaderData?.siteName ?? DEFAULT_SITE_NAME
 		const { title, description } = appMeta(siteName)
