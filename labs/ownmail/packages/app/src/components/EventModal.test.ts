@@ -26,6 +26,10 @@ describe('EventModal helpers', () => {
 		})
 	})
 
+	it('keeps an 11 PM slot and offers midnight as its end boundary', () => {
+		expect(eventInitialHours(new Date('2026-07-08T23:00:00'))).toEqual({ startHour: 23, endHour: 24 })
+	})
+
 	it('keeps the reference event-colored outline on the selected calendar choice', () => {
 		const className = eventCalendarChoiceClass(true, 'teal')
 

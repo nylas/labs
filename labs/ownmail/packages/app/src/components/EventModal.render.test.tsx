@@ -172,16 +172,16 @@ describe('EventModal — new event', () => {
 				onClose={vi.fn()}
 			/>,
 		)
-		// Pick 8 AM as the start and 11 AM as the end via the Radix listboxes.
+		// Pick 11 PM as the start and midnight as the end via the Radix listboxes.
 		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
-		await user.click(await screen.findByRole('option', { name: '8 AM' }))
+		await user.click(await screen.findByRole('option', { name: '11 PM' }))
 		await user.click(screen.getByRole('combobox', { name: 'End time' }))
-		await user.click(await screen.findByRole('option', { name: '11 AM' }))
+		await user.click(await screen.findByRole('option', { name: '12 AM' }))
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
 		await waitFor(() => expect(createEvent).toHaveBeenCalled())
 		const { startTime, endTime } = createEvent.mock.calls[0][0].data
-		// 8 AM start, 11 AM end -> 3 hours apart.
-		expect(endTime - startTime).toBe(3 * 60 * 60)
+		// 11 PM start, midnight end -> one hour across the date boundary.
+		expect(endTime - startTime).toBe(60 * 60)
 	})
 
 	it('falls back to the passed calendarId when there are no calendars', async () => {

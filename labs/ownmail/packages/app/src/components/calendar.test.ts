@@ -3,12 +3,16 @@ import { describe, expect, it } from 'vitest'
 import {
 	addDays,
 	allDayEventSegments,
+	calendarDateInTimeZone,
 	calendarKeyAction,
+	calendarSlotTime,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
+	fmtAgendaTime,
+	fmtTime,
 	isCalView,
 	isRenderableCalendarEvent,
 	moveCalendarDay,
@@ -265,6 +269,33 @@ describe('calendar view helpers', () => {
 				hourHeight: 52,
 			}),
 		).toEqual({ top: 130, height: 76 })
+	})
+
+	it('uses the selected timezone consistently for days, times, and grid placement', () => {
+		const event = timedEvent('late-toronto', 'work', '2026-07-09T02:30:00Z', '2026-07-09T03:30:00Z')
+		const toronto = 'America/Toronto'
+		const previousDay = new Date('2026-07-08T12:00:00')
+		expect(calendarDateInTimeZone(previousDay)).toEqual(new Date('2026-07-08T00:00:00'))
+		expect(calendarDateInTimeZone(new Date('2026-07-09T02:30:00Z'), toronto)).toEqual(
+			new Date('2026-07-08T00:00:00'),
+		)
+		expect(eventsOnDay([event], previousDay, toronto).map(({ id }) => id)).toEqual(['late-toronto'])
+		expect(fmtTime(new Date('2026-07-09T02:30:00Z'), toronto)).toBe('10:30 PM')
+		expect(fmtAgendaTime(new Date('2026-07-09T02:30:00Z'), toronto)).toBe('22:30')
+		expect(
+			timedEventLayout(event, previousDay, { startHour: 7, endHour: 25, hourHeight: 52, timeZone: toronto }),
+		).toEqual({ top: 806, height: 50 })
+		expect(fmtTime(calendarSlotTime(previousDay, 9, toronto), 'Europe/London')).toBe('2 PM')
+	})
+
+	it('excludes an event at its exact selected-timezone end boundary', () => {
+		const midnight = timedEvent('midnight', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:00:00Z')
+		const thirtyPast = timedEvent('thirty-past', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:30:00Z')
+		const nextDay = new Date('2026-07-09T12:00:00')
+		expect(eventsOnDay([midnight, thirtyPast], nextDay, 'UTC').map(({ id }) => id)).toEqual(['thirty-past'])
+		expect(
+			timedEventLayout(midnight, nextDay, { startHour: 0, endHour: 24, hourHeight: 52, timeZone: 'UTC' }),
+		).toBeNull()
 	})
 
 	it('clamps overnight Nylas events to the visible part of the rendered day', () => {

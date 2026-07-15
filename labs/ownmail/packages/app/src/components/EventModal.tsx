@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea.js'
 import { calendarTone, cn, type EventTone, eventColorClass, eventTone, labelBadgeClass } from './ui-model.js'
 
-const TIME_OPTIONS = Array.from({ length: 32 }, (_, i) => 7 + i * 0.5).filter((hour) => hour <= 22)
+const TIME_OPTIONS = Array.from({ length: 35 }, (_, i) => 7 + i * 0.5)
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
@@ -562,8 +562,8 @@ function decimalHour(date: Date): number {
 
 export function eventInitialHours(start: Date): { startHour: number; endHour: number } {
 	const startHour = decimalHour(start)
-	const normalizedStartHour = startHour >= 7 && startHour <= 22 ? nearestHalfHour(startHour) : 9
-	return { startHour: normalizedStartHour, endHour: Math.min(22, normalizedStartHour + 1) }
+	const normalizedStartHour = startHour >= 7 && startHour < 24 ? nearestHalfHour(startHour) : 9
+	return { startHour: normalizedStartHour, endHour: Math.min(24, normalizedStartHour + 1) }
 }
 
 function nearestHalfHour(hour: number): number {
@@ -571,6 +571,7 @@ function nearestHalfHour(hour: number): number {
 }
 
 function formatDecimalHour(hour: number): string {
+	if (hour === 24) return '12 AM'
 	const wholeHour = Math.floor(hour)
 	const minute = Math.round((hour - wholeHour) * 60)
 	const period = wholeHour >= 12 ? 'PM' : 'AM'

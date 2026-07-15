@@ -592,7 +592,8 @@ export const saveComposeRecipients = createServerFn({ method: 'POST' })
 			if (email === mailboxEmail.toLowerCase()) continue
 			try {
 				const existing = await mailbox.listContacts({ limit: 10, email })
-				const alreadySaved = existing.data.some((contact) =>
+				const contacts = Array.isArray(existing.data) ? existing.data : []
+				const alreadySaved = contacts.some((contact) =>
 					contact.emails?.some((candidate) => candidate.email.toLowerCase() === email),
 				)
 				if (!alreadySaved) await mailbox.createContact({ emails: [{ email }] })

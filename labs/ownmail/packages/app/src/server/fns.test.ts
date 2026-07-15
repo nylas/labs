@@ -895,6 +895,15 @@ describe('saveComposeRecipients', () => {
 		expect(mailbox.createContact).toHaveBeenCalledWith({ emails: [{ email: 'new@x.com' }] })
 		expect(mailbox.createContact).toHaveBeenCalledTimes(1)
 	})
+
+	it('saves a recipient when the provider returns no contacts data', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockResolvedValue({ data: null } as never)
+		await expect(fns.saveComposeRecipients.handler({ data: { emails: ['new@x.com'] } })).resolves.toEqual({
+			ok: true,
+		})
+		expect(mailbox.createContact).toHaveBeenCalledWith({ emails: [{ email: 'new@x.com' }] })
+	})
 })
 
 describe('searchContacts', () => {

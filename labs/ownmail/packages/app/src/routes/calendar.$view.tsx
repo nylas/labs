@@ -8,7 +8,9 @@ import {
 	addDays,
 	allDayEventSegments,
 	type CalView,
+	calendarDateInTimeZone,
 	calendarKeyAction,
+	calendarSlotTime,
 	dateWithHour,
 	eventsOnDay,
 	eventTimes,
@@ -42,6 +44,7 @@ import {
 	eventColorClass,
 	eventTone,
 } from '../components/ui-model.js'
+import { useUserPreferences } from '../components/user-preferences.js'
 import { getEvents } from '../server/calendar-fns.js'
 import { getMailboxInfo } from '../server/fns.js'
 
@@ -89,7 +92,10 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
-	const today = useMemo(() => new Date(), [])
+	const [preferences] = useUserPreferences()
+	const primaryTimezone = preferences.primaryTimezone
+	const secondaryTimezone = preferences.secondaryTimezone
+	const today = useMemo(() => calendarDateInTimeZone(new Date(), primaryTimezone), [primaryTimezone])
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	useCommandPaletteShortcut(openPalette)
@@ -107,7 +113,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars])
 	const agenda = useMemo(
 		() =>
-			timedEventsOnDay(visibleEvents, today)
+			timedEventsOnDay(visibleEvents, today, primaryTimezone)
 				.sort((a, b) => {
 					const aTimes = eventTimes(a)
 					const bTimes = eventTimes(b)
@@ -116,7 +122,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					return aTimes.start.getTime() - bTimes.start.getTime()
 				})
 				.slice(0, 5),
-		[today, visibleEvents],
+		[today, visibleEvents, primaryTimezone],
 	)
 
 	const toggleCalendar = useCallback((calendarId: string) => {
@@ -147,7 +153,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 			event.preventDefault()
 			if (action.kind === 'view') go(action.view, anchor)
 			else if (action.kind === 'shift') go(currentView, shiftAnchor(currentView, anchor, action.direction))
-			else if (action.kind === 'today') go(currentView, new Date())
+			else if (action.kind === 'today') go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))
 			else {
 				setNewStart(null)
 				setComposerAnchor(null)
@@ -156,7 +162,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [anchor, currentView, go])
+	}, [anchor, currentView, go, primaryTimezone])
 
 	const title =
 		currentView === 'month'
@@ -204,7 +210,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							<button
 								type="button"
 								className="flex shrink-0 items-center border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
-								onClick={() => go(currentView, new Date())}
+								onClick={() => go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))}
 							>
 								Today
 							</button>
@@ -284,6 +290,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						calendarById={calendarById}
 						hiddenCalendarIds={hiddenCalendarIds}
 						agenda={agenda}
+						timeZone={primaryTimezone}
 						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={setEditing}
@@ -297,6 +304,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							calendarById={calendarById}
 							onPickDay={(d) => go('day', d)}
 							onPickEvent={setEditing}
+							timeZone={primaryTimezone}
 						/>
 					) : (
 						<TimeGrid
@@ -305,6 +313,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							events={visibleEvents}
 							calendarById={calendarById}
 							onPickEvent={setEditing}
+							timeZone={primaryTimezone}
+							secondaryTimezone={secondaryTimezone}
 							onPickSlot={(date, hour, rect) => {
 								setNewStart(dateWithHour(date, hour))
 								setComposerAnchor(rect)
@@ -341,6 +351,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					calendarById={calendarById}
 					hiddenCalendarIds={hiddenCalendarIds}
 					agenda={agenda}
+					timeZone={primaryTimezone}
 					onPickDate={(date) => {
 						go(currentView === 'month' ? 'day' : currentView, date)
 						setSidebarOpen(false)
@@ -364,6 +375,7 @@ function CalendarSidebarPanel({
 	calendarById,
 	hiddenCalendarIds,
 	agenda,
+	timeZone,
 	onPickDate,
 	onToggleCalendar,
 	onPickEvent,
@@ -373,6 +385,7 @@ function CalendarSidebarPanel({
 	calendarById: Map<string, Calendar>
 	hiddenCalendarIds: Set<string>
 	agenda: Event[]
+	timeZone: string
 	onPickDate: (date: Date) => void
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
@@ -437,7 +450,9 @@ function CalendarSidebarPanel({
 									/>
 									<span className="min-w-0">
 										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
-										<span className="text-xs text-muted-foreground">{fmtAgendaTime(times.start)}</span>
+										<span className="text-xs text-muted-foreground">
+											{fmtAgendaTime(times.start, timeZone)}
+										</span>
 									</span>
 								</button>
 							)
@@ -565,19 +580,21 @@ function MonthGrid({
 	anchor,
 	events,
 	calendarById,
+	timeZone,
 	onPickDay,
 	onPickEvent,
 }: {
 	anchor: Date
 	events: Event[]
 	calendarById: Map<string, Calendar>
+	timeZone: string
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
 }) {
 	const { start, end } = viewRange('month', anchor)
 	const days: Date[] = []
 	for (let d = new Date(start); d < end; d = addDays(d, 1)) days.push(new Date(d))
-	const todayIso = ymd(new Date())
+	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
 	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
@@ -597,7 +614,7 @@ function MonthGrid({
 			<div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6" role="grid" aria-label="Month calendar">
 				{days.map((day) => {
 					const inMonth = day.getMonth() === anchor.getMonth()
-					const dayEvents = eventsOnDay(events, day)
+					const dayEvents = eventsOnDay(events, day, timeZone)
 					const iso = ymd(day)
 					return (
 						/* biome-ignore lint/a11y/useSemanticElements: Each interactive date is an ARIA gridcell in the calendar grid. */
@@ -665,7 +682,7 @@ function MonthGrid({
 											) : null}
 											{!allDay ? (
 												<span className="shrink-0 tabular-nums text-muted-foreground">
-													{fmtTime(times.start)}
+													{fmtTime(times.start, timeZone)}
 												</span>
 											) : null}
 											<span
@@ -698,6 +715,8 @@ function TimeGrid({
 	start,
 	events,
 	calendarById,
+	timeZone,
+	secondaryTimezone,
 	onPickEvent,
 	onPickSlot,
 }: {
@@ -705,6 +724,8 @@ function TimeGrid({
 	start: Date
 	events: Event[]
 	calendarById: Map<string, Calendar>
+	timeZone: string
+	secondaryTimezone: string
 	onPickEvent: (e: Event) => void
 	onPickSlot: (date: Date, hour: number, rect: Rect) => void
 }) {
@@ -716,7 +737,7 @@ function TimeGrid({
 	const GRID_END_HOUR = END_HOUR + 1
 	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
-	const todayIso = ymd(new Date())
+	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [nowOffset, setNowOffset] = useState<number | null>(null)
 	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
@@ -843,11 +864,16 @@ function TimeGrid({
 									<span className="absolute -top-2 right-2 text-[11px] tabular-nums text-muted-foreground">
 										{hour === START_HOUR ? '' : fmtHour(hour)}
 									</span>
+									{secondaryTimezone && hour !== START_HOUR ? (
+										<span className="absolute top-2 right-2 text-[9px] tabular-nums text-muted-foreground/70">
+											{fmtTime(calendarSlotTime(columns[0] ?? start, hour, timeZone), secondaryTimezone)}
+										</span>
+									) : null}
 								</div>
 							))}
 						</div>
 						{columns.map((day, dayIndex) => {
-							const dayEvents = eventsOnDay(events, day).filter(
+							const dayEvents = eventsOnDay(events, day, timeZone).filter(
 								(event) => eventTimes(event)?.allDay === false,
 							)
 							const isToday = ymd(day) === todayIso
@@ -908,6 +934,7 @@ function TimeGrid({
 											startHour: START_HOUR,
 											endHour: GRID_END_HOUR,
 											hourHeight: HOUR_PX,
+											timeZone,
 										})
 										if (!layout) return null
 										return (
@@ -929,7 +956,7 @@ function TimeGrid({
 												</span>
 												{layout.height > 30 ? (
 													<span className="truncate text-[10px] opacity-80">
-														{fmtTime(s)} – {fmtTime(e)}
+														{fmtTime(s, timeZone)} – {fmtTime(e, timeZone)}
 													</span>
 												) : null}
 											</button>
