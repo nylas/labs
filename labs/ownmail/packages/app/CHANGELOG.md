@@ -1,5 +1,16 @@
 # @ownmail/app
 
+## 0.3.0
+
+### Minor Changes
+
+- c6ba659: Add flexible event scheduling, all-day events, live calendar previews, conflict warnings, and recurring events.
+- c6ba659: Add configurable deployment branding for document titles, navigation, and sign-in.
+
+### Patch Changes
+
+- c6ba659: Add account settings, timezone preferences, and compose and mail interaction fixes.
+
 ## 0.2.2
 
 ### Patch Changes
