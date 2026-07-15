@@ -184,6 +184,156 @@ describe('EventModal — new event', () => {
 		expect(endTime - startTime).toBe(60 * 60)
 	})
 
+	it('uses the selected event date when saving a timed event', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-07-11' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		const { startTime, endTime } = createEvent.mock.calls[0][0].data
+		expect(startTime).toBe(Math.floor(new Date(2026, 6, 11, 9, 0, 0).getTime() / 1000))
+		expect(endTime).toBe(Math.floor(new Date(2026, 6, 11, 10, 0, 0).getTime() / 1000))
+	})
+
+	it('saves an all-day event with its selected date instead of a timed payload', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.click(screen.getByRole('checkbox', { name: 'All day' }))
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-08-12' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		const payload = createEvent.mock.calls[0][0].data
+		expect(payload).toMatchObject({ allDayDate: '2026-08-12' })
+		expect(payload).not.toHaveProperty('startTime')
+		expect(payload).not.toHaveProperty('endTime')
+	})
+
+	it('creates weekly and biweekly recurrences from the repeat controls', async () => {
+		const user = userEvent.setup()
+		const { unmount } = render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'weekly')
+		expect(screen.getByRole('button', { name: 'Mon' })).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Mon' }))
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({
+			frequency: 'weekly',
+			interval: 1,
+			weekdays: expect.arrayContaining(['MO']),
+		})
+
+		createEvent.mockClear()
+		unmount()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={new Date(2026, 6, 8, 10, 0, 0)}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'biweekly')
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({
+			frequency: 'weekly',
+			interval: 2,
+		})
+	})
+
+	it('creates a yearly recurrence and hides weekday controls', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'yearly')
+		expect(screen.queryByRole('button', { name: 'Mon' })).toBeNull()
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data.recurrence).toEqual({ frequency: 'yearly', interval: 1 })
+	})
+
+	it('warns when the event draft overlaps an existing event', () => {
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				events={[
+					timedEvent({
+						id: 'overlap',
+						when: { start_time: timedStart - 30 * 60, end_time: timedStart + 30 * 60 },
+					}),
+				]}
+				onClose={vi.fn()}
+			/>,
+		)
+		expect(screen.getByText('May conflict with 1 existing event.')).toBeInTheDocument()
+	})
+
+	it('publishes the new-event draft and clears it on unmount', async () => {
+		const onDraftChange = vi.fn()
+		const { unmount } = render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onDraftChange={onDraftChange}
+				onClose={vi.fn()}
+			/>,
+		)
+		await waitFor(() => expect(onDraftChange).toHaveBeenCalled())
+		expect(onDraftChange.mock.calls.at(-1)?.[0]).toMatchObject({ title: 'Untitled event' })
+
+		fireEvent.change(screen.getByPlaceholderText('Add title'), { target: { value: 'Draft title' } })
+		await waitFor(() => expect(onDraftChange.mock.calls.at(-1)?.[0]).toMatchObject({ title: 'Draft title' }))
+		unmount()
+		expect(onDraftChange.mock.calls.at(-1)).toEqual([null])
+	})
+
 	it('falls back to the passed calendarId when there are no calendars', async () => {
 		const user = userEvent.setup()
 		render(

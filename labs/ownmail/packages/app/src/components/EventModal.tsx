@@ -1,8 +1,19 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { AlignLeft, CalendarDays, Clock, GripVertical, MapPin, Pencil, Trash2, Users, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import {
+	AlertTriangle,
+	AlignLeft,
+	CalendarDays,
+	Clock,
+	GripVertical,
+	MapPin,
+	Pencil,
+	Trash2,
+	Users,
+	X,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent, updateEvent } from '../server/calendar-fns.js'
-import { dateWithHour, eventTimes, fmtCompactTime, formatFullDate } from './calendar.js'
+import { dateWithHour, eventTimes, fmtCompactTime, formatFullDate, ymd } from './calendar.js'
 import { valueToTokens } from './contact-token.js'
 import {
 	clampPointToViewport,
@@ -19,6 +30,17 @@ import { calendarTone, cn, type EventTone, eventColorClass, eventTone, labelBadg
 
 const START_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => i * 0.5)
 const END_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => (i + 1) * 0.5)
+const WEEKDAYS = [
+	['MO', 'Mon'],
+	['TU', 'Tue'],
+	['WE', 'Wed'],
+	['TH', 'Thu'],
+	['FR', 'Fri'],
+	['SA', 'Sat'],
+	['SU', 'Sun'],
+] as const
+type Weekday = (typeof WEEKDAYS)[number][0]
+type RepeatOption = 'none' | 'weekly' | 'biweekly' | 'yearly'
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
@@ -43,6 +65,8 @@ export function EventModal({
 	calendars,
 	anchorRect,
 	preserveDefaultStartTime = false,
+	events = [],
+	onDraftChange,
 	onClose,
 }: {
 	event: Event | null
@@ -52,6 +76,8 @@ export function EventModal({
 	calendars: Calendar[]
 	anchorRect?: Rect | null
 	preserveDefaultStartTime?: boolean
+	events?: Event[]
+	onDraftChange?: (event: Event | null) => void
 	onClose: (changed: boolean) => void
 }) {
 	const times = event ? eventTimes(event) : null
@@ -64,6 +90,10 @@ export function EventModal({
 	const [guests, setGuests] = useState('')
 	const [startHour, setStartHour] = useState(initialHours.startHour)
 	const [endHour, setEndHour] = useState(initialHours.endHour)
+	const [eventDate, setEventDate] = useState(() => ymd(initialStart))
+	const [allDay, setAllDay] = useState(false)
+	const [repeat, setRepeat] = useState<RepeatOption>('none')
+	const [weekdays, setWeekdays] = useState<Weekday[]>(() => [defaultWeekday(initialStart)])
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
 	const [editing, setEditing] = useState(false)
 	const [busy, setBusy] = useState(false)
@@ -120,16 +150,63 @@ export function EventModal({
 	const tone = event ? eventTone(event, 0, eventCalendar) : 'blue'
 	const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId) ?? calendars[0]
 	const selectedCalendarTone = selectedCalendar ? calendarTone(selectedCalendar) : 'blue'
+	const previewEvent = useMemo(() => {
+		if (event || !isDateInput(eventDate)) return null
+		const selectedId = selectedCalendar?.id ?? calendarId
+		const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
+		const when = allDay
+			? { object: 'date' as const, date: eventDate }
+			: {
+					object: 'timespan' as const,
+					start_time: Math.floor(dateWithHour(dateFromInput(eventDate), startHour).getTime() / 1000),
+					end_time: Math.floor(
+						dateWithHour(dateFromInput(eventDate), Math.max(endHour, startHour + 0.5)).getTime() / 1000,
+					),
+				}
+		return {
+			id: '__new-event-preview__',
+			calendar_id: selectedId,
+			title: title.trim() || 'Untitled event',
+			when,
+			...(recurrence ? { recurrence: [recurrence] } : {}),
+		} as Event
+	}, [
+		allDay,
+		calendarId,
+		endHour,
+		event,
+		eventDate,
+		repeat,
+		selectedCalendar?.id,
+		startHour,
+		title,
+		weekdays,
+	])
+	const conflictCount = previewEvent ? countConflicts(previewEvent, events) : 0
+
+	useEffect(() => {
+		onDraftChange?.(previewEvent)
+	}, [onDraftChange, previewEvent])
+	useEffect(() => () => onDraftChange?.(null), [onDraftChange])
 
 	async function save() {
+		if (!isDateInput(eventDate)) {
+			setError('Choose a valid event date.')
+			return
+		}
+		if ((repeat === 'weekly' || repeat === 'biweekly') && weekdays.length === 0) {
+			setError('Choose at least one weekday for a repeating event.')
+			return
+		}
 		setBusy(true)
 		setError(null)
 		try {
-			const startTime = Math.floor(dateWithHour(defaultStart, startHour).getTime() / 1000)
+			const startTime = Math.floor(dateWithHour(dateFromInput(eventDate), startHour).getTime() / 1000)
 			const endTime = Math.floor(
-				dateWithHour(defaultStart, Math.max(endHour, startHour + 0.5)).getTime() / 1000,
+				dateWithHour(dateFromInput(eventDate), Math.max(endHour, startHour + 0.5)).getTime() / 1000,
 			)
 			const participants = valueToTokens(guests)
+			const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
 			await createEvent({
 				data: {
 					calendarId: selectedCalendar?.id ?? calendarId,
@@ -137,8 +214,8 @@ export function EventModal({
 					...(location ? { location } : {}),
 					...(description.trim() ? { description } : {}),
 					...(participants.length ? { participants } : {}),
-					startTime,
-					endTime,
+					...(allDay ? { allDayDate: eventDate } : { startTime, endTime }),
+					...(recurrence ? { recurrence, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {}),
 				},
 			})
 			onClose(true)
@@ -260,6 +337,9 @@ export function EventModal({
 								<EventFields
 									startHour={startHour}
 									endHour={endHour}
+									allDay={false}
+									onAllDay={() => {}}
+									showAllDay={false}
 									onStartHour={setStartHour}
 									onEndHour={setEndHour}
 									location={location}
@@ -411,11 +491,27 @@ export function EventModal({
 				/>
 				<div className="flex items-center gap-3 text-sm">
 					<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-					<span>{formatFullDate(defaultStart)}</span>
+					<label className="sr-only" htmlFor="event-date">
+						Event date
+					</label>
+					<input
+						id="event-date"
+						aria-label="Event date"
+						type="date"
+						value={eventDate}
+						onChange={(changeEvent) => setEventDate(changeEvent.target.value)}
+						className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+					/>
+					<span className="hidden text-muted-foreground sm:inline">
+						{formatFullDate(dateFromInput(eventDate))}
+					</span>
 				</div>
 				<EventFields
 					startHour={startHour}
 					endHour={endHour}
+					allDay={allDay}
+					onAllDay={setAllDay}
+					showAllDay
 					onStartHour={setStartHour}
 					onEndHour={setEndHour}
 					location={location}
@@ -423,6 +519,13 @@ export function EventModal({
 					description={description}
 					onDescription={setDescription}
 				/>
+				<RecurrenceFields repeat={repeat} onRepeat={setRepeat} weekdays={weekdays} onWeekdays={setWeekdays} />
+				{conflictCount > 0 ? (
+					<p className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+						<AlertTriangle className="h-4 w-4 shrink-0" />
+						May conflict with {conflictCount} existing {conflictCount === 1 ? 'event' : 'events'}.
+					</p>
+				) : null}
 				<div className="flex items-start gap-3 text-sm">
 					<Users className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
 					<RecipientInput
@@ -482,6 +585,9 @@ export function EventModal({
 function EventFields({
 	startHour,
 	endHour,
+	allDay,
+	onAllDay,
+	showAllDay = true,
 	onStartHour,
 	onEndHour,
 	location,
@@ -491,6 +597,9 @@ function EventFields({
 }: {
 	startHour: number
 	endHour: number
+	allDay: boolean
+	onAllDay: (allDay: boolean) => void
+	showAllDay?: boolean
 	onStartHour: (hour: number) => void
 	onEndHour: (hour: number) => void
 	location: string
@@ -500,34 +609,42 @@ function EventFields({
 }) {
 	return (
 		<>
-			<div className="flex items-center gap-3 text-sm">
-				<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-				<Select value={String(startHour)} onValueChange={(value) => onStartHour(Number(value))}>
-					<SelectTrigger aria-label="Start time" className="w-32">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{START_TIME_OPTIONS.map((hour) => (
-							<SelectItem key={hour} value={String(hour)}>
-								{formatDecimalHour(hour)}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				<span className="text-muted-foreground">to</span>
-				<Select value={String(endHour)} onValueChange={(value) => onEndHour(Number(value))}>
-					<SelectTrigger aria-label="End time" className="w-32">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{END_TIME_OPTIONS.map((hour) => (
-							<SelectItem key={hour} value={String(hour)}>
-								{formatDecimalHour(hour)}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-			</div>
+			{showAllDay ? (
+				<label className="flex items-center gap-2 pl-7 text-sm font-medium">
+					<input type="checkbox" checked={allDay} onChange={(event) => onAllDay(event.target.checked)} />
+					All day
+				</label>
+			) : null}
+			{allDay ? null : (
+				<div className="flex items-center gap-3 text-sm">
+					<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+					<Select value={String(startHour)} onValueChange={(value) => onStartHour(Number(value))}>
+						<SelectTrigger aria-label="Start time" className="w-32">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{START_TIME_OPTIONS.map((hour) => (
+								<SelectItem key={hour} value={String(hour)}>
+									{formatDecimalHour(hour)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<span className="text-muted-foreground">to</span>
+					<Select value={String(endHour)} onValueChange={(value) => onEndHour(Number(value))}>
+						<SelectTrigger aria-label="End time" className="w-32">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{END_TIME_OPTIONS.map((hour) => (
+								<SelectItem key={hour} value={String(hour)}>
+									{formatDecimalHour(hour)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+			)}
 			<label className="flex items-center gap-3 text-sm">
 				<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
 				<input
@@ -550,6 +667,101 @@ function EventFields({
 			</div>
 		</>
 	)
+}
+
+function RecurrenceFields({
+	repeat,
+	onRepeat,
+	weekdays,
+	onWeekdays,
+}: {
+	repeat: RepeatOption
+	onRepeat: (repeat: RepeatOption) => void
+	weekdays: Weekday[]
+	onWeekdays: (weekdays: Weekday[]) => void
+}) {
+	return (
+		<div className="space-y-2 pl-7 text-sm">
+			<label className="flex items-center gap-3">
+				<span className="text-muted-foreground">Repeat</span>
+				<select
+					aria-label="Repeat"
+					value={repeat}
+					onChange={(event) => onRepeat(event.target.value as RepeatOption)}
+					className="rounded-md border border-input bg-background px-2 py-1"
+				>
+					<option value="none">Does not repeat</option>
+					<option value="weekly">Weekly</option>
+					<option value="biweekly">Every 2 weeks</option>
+					<option value="yearly">Yearly</option>
+				</select>
+			</label>
+			{repeat === 'weekly' || repeat === 'biweekly' ? (
+				<fieldset className="flex flex-wrap gap-1">
+					<legend className="sr-only">Repeat on</legend>
+					{WEEKDAYS.map(([weekday, label]) => {
+						const selected = weekdays.includes(weekday)
+						return (
+							<button
+								key={weekday}
+								type="button"
+								aria-pressed={selected}
+								onClick={() =>
+									onWeekdays(
+										selected ? weekdays.filter((value) => value !== weekday) : [...weekdays, weekday],
+									)
+								}
+								className={cn(
+									'rounded-full border px-2 py-1 text-xs',
+									selected
+										? 'border-primary bg-primary text-primary-foreground'
+										: 'border-border hover:bg-muted',
+								)}
+							>
+								{label}
+							</button>
+						)
+					})}
+				</fieldset>
+			) : null}
+		</div>
+	)
+}
+
+function recurrenceFromForm(repeat: RepeatOption, weekdays: Weekday[]) {
+	if (repeat === 'yearly') return { frequency: 'yearly' as const, interval: 1 as const }
+	if ((repeat === 'weekly' || repeat === 'biweekly') && weekdays.length) {
+		return {
+			frequency: 'weekly' as const,
+			interval: repeat === 'weekly' ? (1 as const) : (2 as const),
+			weekdays,
+		}
+	}
+	return undefined
+}
+
+function defaultWeekday(date: Date): Weekday {
+	return WEEKDAYS[date.getDay() === 0 ? 6 : date.getDay() - 1]?.[0] ?? 'MO'
+}
+
+function isDateInput(value: string): boolean {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+	const date = new Date(`${value}T00:00:00`)
+	return !Number.isNaN(date.getTime()) && ymd(date) === value
+}
+
+function dateFromInput(value: string): Date {
+	return isDateInput(value) ? new Date(`${value}T00:00:00`) : new Date()
+}
+
+function countConflicts(candidate: Event, events: Event[]): number {
+	const candidateTimes = eventTimes(candidate)
+	if (!candidateTimes) return 0
+	return events.filter((event) => {
+		const times = eventTimes(event)
+		if (!times || event.id === candidate.id) return false
+		return candidateTimes.start < times.end && candidateTimes.end > times.start
+	}).length
 }
 
 export function eventCalendarChoiceClass(active: boolean, tone: EventTone): string {
@@ -578,9 +790,9 @@ function nearestHalfHour(hour: number): number {
 }
 
 function formatDecimalHour(hour: number): string {
-	if (hour === 24) return '12 AM'
-	const wholeHour = Math.floor(hour)
-	const minute = Math.round((hour - wholeHour) * 60)
+	const rawWholeHour = Math.floor(hour)
+	const wholeHour = rawWholeHour % 24
+	const minute = Math.round((hour - rawWholeHour) * 60)
 	const period = wholeHour >= 12 ? 'PM' : 'AM'
 	const displayHour = wholeHour % 12 === 0 ? 12 : wholeHour % 12
 	return minute === 0
