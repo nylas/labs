@@ -95,18 +95,32 @@ export const createEvent = createServerFn({ method: 'POST' })
 	.validator((input: CreateEventInput) => normalizeCreateEventInput(input))
 	.handler(async ({ data }) => {
 		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
+		const when =
+			data.allDayDate !== undefined
+				? { date: data.allDayDate }
+				: {
+						start_time: data.startTime as number,
+						end_time: data.endTime as number,
+						...(data.recurrence ? { start_timezone: data.timezone, end_timezone: data.timezone } : {}),
+					}
 		const created = await mailbox.createEvent(
 			{
 				title: data.title,
 				...(data.description ? { description: data.description } : {}),
 				...(data.location ? { location: data.location } : {}),
-				when: { start_time: data.startTime, end_time: data.endTime },
+				when,
+				...(data.recurrence ? { recurrence: recurrenceRules(data.recurrence) } : {}),
 				...(data.participants?.length ? { participants: data.participants.map((email) => ({ email })) } : {}),
 			},
 			calendar.id,
 		)
 		return { eventId: created.data.id }
 	})
+
+function recurrenceRules(recurrence: NonNullable<CreateEventInput['recurrence']>): string[] {
+	if (recurrence.frequency === 'yearly') return ['RRULE:FREQ=YEARLY']
+	return [`RRULE:FREQ=WEEKLY;INTERVAL=${recurrence.interval};BYDAY=${(recurrence.weekdays ?? []).join(',')}`]
+}
 
 export const updateEvent = createServerFn({ method: 'POST' })
 	.validator((input: UpdateEventInput) => normalizeUpdateEventInput(input))

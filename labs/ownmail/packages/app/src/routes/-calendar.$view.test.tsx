@@ -70,6 +70,22 @@ vi.mock('../components/EventModal.js', () => ({
 			data-calendar-name={props.calendarName}
 			data-default-start={props.defaultStart?.toISOString?.()}
 		>
+			<button
+				type="button"
+				onClick={() =>
+					props.onDraftChange?.({
+						id: '__new-event-preview__',
+						calendar_id: 'cal1',
+						title: 'Live draft',
+						when: {
+							start_time: Math.floor(new Date('2024-06-15T09:30:00').getTime() / 1000),
+							end_time: Math.floor(new Date('2024-06-15T10:30:00').getTime() / 1000),
+						},
+					})
+				}
+			>
+				show-live-preview
+			</button>
 			<button type="button" onClick={() => props.onClose(true)}>
 				close-changed
 			</button>
@@ -688,6 +704,17 @@ describe('event editor', () => {
 		const modal = screen.getByTestId('event-modal')
 		expect(modal.dataset.event).toBe('new')
 		expect(modal.dataset.calendarName).toBe('Primary Cal')
+	})
+
+	it('renders a live composer draft alongside saved events with preview styling', () => {
+		renderWeek()
+		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(screen.getByRole('button', { name: 'show-live-preview' }))
+
+		const preview = screen.getByRole('button', { name: /Live draft/ })
+		const saved = screen.getByRole('button', { name: /Standup/ })
+		expect(preview).toHaveClass('border-dashed')
+		expect(saved).not.toHaveClass('border-dashed')
 	})
 
 	it('falls back to the primary calendar name for an event on an unknown calendar', () => {

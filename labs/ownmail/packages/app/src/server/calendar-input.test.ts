@@ -96,6 +96,34 @@ describe('calendar input validation', () => {
 		})
 	})
 
+	it('normalizes valid all-day and recurring create inputs', () => {
+		expect(normalizeCreateEventInput({ title: 'Holiday', allDayDate: '2027-12-25' })).toEqual({
+			title: 'Holiday',
+			allDayDate: '2027-12-25',
+		})
+		expect(
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				timezone: 'America/Toronto',
+				recurrence: { frequency: 'weekly', interval: 2, weekdays: ['FR', 'MO'] },
+			}),
+		).toMatchObject({
+			timezone: 'America/Toronto',
+			recurrence: { frequency: 'weekly', interval: 2, weekdays: ['MO', 'FR'] },
+		})
+		expect(
+			normalizeCreateEventInput({
+				title: 'Birthday',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				timezone: 'UTC',
+				recurrence: { frequency: 'yearly', interval: 1 },
+			}),
+		).toMatchObject({ recurrence: { frequency: 'yearly', interval: 1 } })
+	})
+
 	it('normalizes update event input with only bounded text fields', () => {
 		expect(
 			normalizeUpdateEventInput({
@@ -150,6 +178,37 @@ describe('calendar input validation', () => {
 				participants: [42 as unknown as string],
 			}),
 		).toThrow('Invalid participant')
+	})
+
+	it('rejects malformed all-day dates, timezones, and recurrence rules', () => {
+		expect(() => normalizeCreateEventInput({ title: 'Holiday', allDayDate: '2027-02-30' })).toThrow(
+			'Invalid all-day date',
+		)
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				timezone: 'Not/A-Timezone',
+			}),
+		).toThrow('Invalid timezone')
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				recurrence: { frequency: 'weekly', interval: 1, weekdays: ['MO'] },
+			}),
+		).toThrow('Timezone is required for recurring events')
+		expect(() =>
+			normalizeCreateEventInput({
+				title: 'Planning',
+				startTime: 1_800_000_000,
+				endTime: 1_800_003_600,
+				timezone: 'UTC',
+				recurrence: { frequency: 'weekly', interval: 1, weekdays: ['MO', 'MO'] },
+			}),
+		).toThrow('Invalid recurrence')
 	})
 
 	it('rejects an update whose title is only whitespace', () => {
