@@ -154,6 +154,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 		render(
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
 		)
+		expect(screen.getByLabelText('Inbox thread list')).toHaveAttribute('data-slot', 'scroll-area')
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
 		expect(screen.getByText('Select a conversation')).toBeInTheDocument()
 	})
