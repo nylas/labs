@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.2.1
+
+### Patch Changes
+
+- bb1eecb: Add secure Nylas email/password and authenticator-code login to OwnMail.
+
 ## 0.2.0
 
 ### Minor Changes

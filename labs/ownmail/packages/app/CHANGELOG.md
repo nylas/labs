@@ -1,5 +1,13 @@
 # @ownmail/app
 
+## 0.3.3
+
+### Patch Changes
+
+- b3b0f23: Show contextual scroll indicators in thread lists and reveal the scrollbar while scrolling.
+- Updated dependencies [bb1eecb]
+  - @nylas-labs/cli-kit@0.2.1
+
 ## 0.3.2
 
 ### Patch Changes

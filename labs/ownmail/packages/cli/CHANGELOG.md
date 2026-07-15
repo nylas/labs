@@ -1,5 +1,15 @@
 # ownmail
 
+## 0.3.3
+
+### Patch Changes
+
+- bb1eecb: Add secure Nylas email/password and authenticator-code login to OwnMail.
+- Updated dependencies [b3b0f23]
+- Updated dependencies [bb1eecb]
+  - @ownmail/app@0.3.3
+  - @nylas-labs/cli-kit@0.2.1
+
 ## 0.3.2
 
 ### Patch Changes
