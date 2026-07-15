@@ -1,4 +1,4 @@
-import type { Event } from '@nylas-labs/cli-kit/v3'
+import { type Event, NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LOGIN_PATH } from '../components/route-paths.js'
 
@@ -135,6 +135,36 @@ describe('calendar server functions', () => {
 		resolveMailbox([])
 
 		await expect(getEvents({ data: RANGE })).rejects.toThrow('No calendar found on this account.')
+	})
+
+	it('treats a malformed calendar list as empty instead of crashing the calendar view', async () => {
+		resolveMailbox([], { listCalendars: vi.fn(async () => ({ data: undefined })) })
+
+		await expect(getEvents({ data: RANGE })).rejects.toThrow('No calendar found on this account.')
+	})
+
+	it.each([
+		[new NylasApiError('expired', 401), 'Your mailbox session expired. Sign in again and retry.'],
+		[new NylasApiError('forbidden', 403), 'Your mailbox session expired. Sign in again and retry.'],
+		[new NylasApiError('limited', 429), 'Your mailbox is temporarily rate limited. Try again shortly.'],
+		[
+			new Error('offline'),
+			'Something went wrong talking to your calendar. Check your connection and try again.',
+		],
+	])('maps calendar-list failures to a safe recovery message', async (error, message) => {
+		resolveMailbox([], { listCalendars: vi.fn().mockRejectedValue(error) })
+
+		await expect(getEvents({ data: RANGE })).rejects.toThrow(message)
+	})
+
+	it('maps event-list failures to a safe recovery message', async () => {
+		resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], {
+			listEvents: vi.fn().mockRejectedValue(new Error('offline')),
+		})
+
+		await expect(getEvents({ data: RANGE })).rejects.toThrow(
+			'Something went wrong talking to your calendar. Check your connection and try again.',
+		)
 	})
 
 	it('redirects unauthenticated callers to the login page instead of leaking a grant', async () => {

@@ -109,6 +109,17 @@ describe('getFolders', () => {
 		mailbox.listFolders.mockResolvedValue({ data: [{ id: 'inbox' }] })
 		expect(await fns.getFolders.handler({})).toEqual([{ id: 'inbox' }])
 	})
+
+	it('normalizes malformed provider lists and maps fetch failures to recovery guidance', async () => {
+		resolveMailbox()
+		mailbox.listFolders.mockResolvedValueOnce({ data: undefined })
+		expect(await fns.getFolders.handler({})).toEqual([])
+
+		mailbox.listFolders.mockRejectedValueOnce(new NylasApiError('expired', 401))
+		await expect(fns.getFolders.handler({})).rejects.toThrow(
+			'Your mailbox session expired. Sign in again and retry.',
+		)
+	})
 })
 
 describe('getThreads', () => {
@@ -146,6 +157,15 @@ describe('getThreads', () => {
 		const res = await fns.getThreads.handler({ data: {} })
 		expect(mailbox.listThreads).toHaveBeenCalledWith({ limit: 30 })
 		expect(res).toEqual({ threads: [] })
+	})
+
+	it('maps provider fetch failures to recovery guidance', async () => {
+		resolveMailbox()
+		mailbox.listThreads.mockRejectedValue(new Error('offline'))
+
+		await expect(fns.getThreads.handler({ data: {} })).rejects.toThrow(
+			'Something went wrong talking to your mailbox. Check your connection and try again.',
+		)
 	})
 })
 
@@ -635,6 +655,15 @@ describe('listDrafts', () => {
 		resolveMailbox()
 		mailbox.listDrafts.mockResolvedValue({ data: [{ id: 'd1' }] })
 		expect(await fns.listDrafts.handler({})).toEqual([{ id: 'd1' }])
+	})
+
+	it('maps provider failures to recovery guidance', async () => {
+		resolveMailbox()
+		mailbox.listDrafts.mockRejectedValue(new Error('offline'))
+
+		await expect(fns.listDrafts.handler({})).rejects.toThrow(
+			'Something went wrong talking to your mailbox. Check your connection and try again.',
+		)
 	})
 })
 

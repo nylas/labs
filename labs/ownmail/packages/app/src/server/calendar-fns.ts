@@ -3,6 +3,7 @@
  * from the session, never the client.
  */
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
+import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
@@ -28,16 +29,31 @@ async function requireMailbox() {
 	return resolved
 }
 
+function friendly(err: unknown): Error {
+	if (err instanceof NylasApiError && (err.status === 401 || err.status === 403))
+		return new Error('Your mailbox session expired. Sign in again and retry.')
+	if (err instanceof NylasApiError && err.status === 429)
+		return new Error('Your mailbox is temporarily rate limited. Try again shortly.')
+	return new Error('Something went wrong talking to your calendar. Check your connection and try again.')
+}
+
+function listData<T>(value: unknown): T[] {
+	return Array.isArray(value) ? (value as T[]) : []
+}
+
 async function primaryCalendar(): Promise<{
 	calendar: Calendar
 	calendars: Calendar[]
 	mailbox: Awaited<ReturnType<typeof requireMailbox>>['mailbox']
 }> {
 	const { mailbox } = await requireMailbox()
-	const calendars = await mailbox.listCalendars({ limit: 20 })
-	const calendar = calendars.data.find((c) => c.is_primary) ?? calendars.data[0]
+	const response = await mailbox.listCalendars({ limit: 20 }).catch((err: unknown) => {
+		throw friendly(err)
+	})
+	const calendars = listData<Calendar>(response.data)
+	const calendar = calendars.find((c) => c.is_primary) ?? calendars[0]
 	if (!calendar) throw new Error('No calendar found on this account.')
-	return { calendar, calendars: calendars.data, mailbox }
+	return { calendar, calendars, mailbox }
 }
 
 async function authorizedCalendar(calendarId?: string): Promise<{
@@ -66,10 +82,12 @@ export const getEvents = createServerFn({ method: 'GET' })
 					expand_recurring: true,
 				}),
 			),
-		)
+		).catch((err: unknown) => {
+			throw friendly(err)
+		})
 		// `request<T>()` cannot validate live JSON at runtime. Drop malformed entries at
 		// this external-data boundary so a single provider record cannot crash the calendar.
-		const events = eventPages.flatMap((page) => page.data).filter(isRenderableCalendarEvent)
+		const events = eventPages.flatMap((page) => listData<Event>(page.data)).filter(isRenderableCalendarEvent)
 		return { calendar, calendars, events }
 	})
 

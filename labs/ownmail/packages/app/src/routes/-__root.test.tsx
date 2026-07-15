@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -47,5 +47,15 @@ describe('root route', () => {
 		expect(getByText('Page not found')).toBeTruthy()
 		// The recovery link points at the canonical mail home rather than a broken URL.
 		expect(getByRole('link', { name: 'Back to mail' }).getAttribute('href')).toBe('/')
+	})
+
+	it('renders actionable recovery choices when a route fails', () => {
+		const AppError = Route.options.errorComponent
+		const { getByRole, getByText } = render(<AppError />)
+
+		expect(getByText('We couldn’t load this page.')).toBeTruthy()
+		expect(getByText('Check your connection and try again. If it persists, sign in again.')).toBeTruthy()
+		expect(getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login')
+		expect(() => fireEvent.click(getByRole('button', { name: 'Retry' }))).not.toThrow()
 	})
 })

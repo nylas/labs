@@ -756,7 +756,9 @@ describe('mail.compose attachments', () => {
 			configurable: true,
 		})
 		fireEvent.change(fileInput(container), { target: { files: [broken] } })
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to attach file')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not attach the file. Check the file and try again.',
+		)
 	})
 
 	it('shows a generic message when a non-Error is thrown while reading a file', async () => {
@@ -767,7 +769,9 @@ describe('mail.compose attachments', () => {
 			configurable: true,
 		})
 		fireEvent.change(fileInput(container), { target: { files: [broken] } })
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to attach file')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not attach the file. Check the file and try again.',
+		)
 	})
 
 	it('generates a client id without crypto.randomUUID when it is unavailable', async () => {
@@ -871,7 +875,9 @@ describe('mail.compose send', () => {
 		sendDraft.mockRejectedValue(new Error('SMTP down'))
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to send')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not send your message. Check your connection, then try again.',
+		)
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
@@ -879,7 +885,9 @@ describe('mail.compose send', () => {
 		sendDraft.mockRejectedValue('boom')
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
 		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to send')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not send your message. Check your connection, then try again.',
+		)
 	})
 })
 
@@ -900,14 +908,18 @@ describe('mail.compose save draft', () => {
 		saveDraft.mockRejectedValue(new Error('Mailbox unavailable'))
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to save draft')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not save the draft. Your changes are still here; check your connection and try again.',
+		)
 	})
 
 	it('shows a generic error when manual saving rejects with a non-Error', async () => {
 		saveDraft.mockRejectedValue('offline')
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to save draft')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not save the draft. Your changes are still here; check your connection and try again.',
+		)
 	})
 })
 
@@ -943,7 +955,9 @@ describe('mail.compose discard', () => {
 		deleteDraft.mockRejectedValue(new Error('delete failed'))
 		renderCompose({ loader: { draft: { id: 'd0' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to discard draft')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not discard the draft. Check your connection, then try again.',
+		)
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
@@ -951,7 +965,9 @@ describe('mail.compose discard', () => {
 		deleteDraft.mockRejectedValue('kaboom')
 		renderCompose({ loader: { draft: { id: 'd0' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Failed to discard draft')
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not discard the draft. Check your connection, then try again.',
+		)
 	})
 })
 

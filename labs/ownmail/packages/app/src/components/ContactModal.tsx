@@ -49,7 +49,7 @@ export function ContactModal({
 				onClose(true, created.contactId)
 			}
 		} catch {
-			setError('Failed to save contact')
+			setError('Could not save contact. Check your connection, then try again.')
 			setBusy(false)
 		}
 	}

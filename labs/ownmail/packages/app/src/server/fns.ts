@@ -77,6 +77,8 @@ async function requireMailbox() {
  */
 function friendly(err: unknown): Error {
 	if (err instanceof NylasApiError) {
+		if (err.status === 401 || err.status === 403)
+			return new Error('Your mailbox session expired. Sign in again and retry.')
 		if (err.status === 429 || /quota|limit exceeded/i.test(err.message)) {
 			return new Error(
 				'QUOTA: You’ve hit a plan limit (free inboxes can send 200 messages/day). Try again later.',
@@ -84,7 +86,11 @@ function friendly(err: unknown): Error {
 		}
 		if (err.status === 404) return new Error('Not found — it may have been deleted.')
 	}
-	return new Error('Something went wrong talking to your mailbox. Please try again.')
+	return new Error('Something went wrong talking to your mailbox. Check your connection and try again.')
+}
+
+function listData<T>(value: unknown): T[] {
+	return Array.isArray(value) ? (value as T[]) : []
 }
 
 type AttachmentDownloader = {
@@ -175,8 +181,12 @@ export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async ()
 
 export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Promise<Folder[]> => {
 	const { mailbox } = await requireMailbox()
-	const res = await mailbox.listFolders()
-	return res.data
+	try {
+		const res = await mailbox.listFolders()
+		return listData<Folder>(res.data)
+	} catch (err) {
+		throw friendly(err)
+	}
 })
 
 export const getThreads = createServerFn({ method: 'GET' })
@@ -184,14 +194,21 @@ export const getThreads = createServerFn({ method: 'GET' })
 	.handler(async ({ data }): Promise<{ threads: Thread[]; nextCursor?: string }> => {
 		const { mailbox } = await requireMailbox()
 		const search = threadSearchParams(data.q)
-		const res = await mailbox.listThreads({
-			limit: 30,
-			...(data.folderId ? { in: data.folderId } : {}),
-			...(data.pageToken ? { page_token: data.pageToken } : {}),
-			...search,
-			...(data.starred !== undefined ? { starred: data.starred } : {}),
-		})
-		return { threads: res.data, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
+		try {
+			const res = await mailbox.listThreads({
+				limit: 30,
+				...(data.folderId ? { in: data.folderId } : {}),
+				...(data.pageToken ? { page_token: data.pageToken } : {}),
+				...search,
+				...(data.starred !== undefined ? { starred: data.starred } : {}),
+			})
+			return {
+				threads: listData<Thread>(res.data),
+				...(res.next_cursor ? { nextCursor: res.next_cursor } : {}),
+			}
+		} catch (err) {
+			throw friendly(err)
+		}
 	})
 
 export const getThreadMessages = createServerFn({ method: 'GET' })
@@ -402,8 +419,12 @@ export const deleteDraft = createServerFn({ method: 'POST' })
 
 export const listDrafts = createServerFn({ method: 'GET' }).handler(async () => {
 	const { mailbox } = await requireMailbox()
-	const res = await mailbox.listDrafts({ limit: 50 })
-	return res.data
+	try {
+		const res = await mailbox.listDrafts({ limit: 50 })
+		return listData<Draft>(res.data)
+	} catch (err) {
+		throw friendly(err)
+	}
 })
 
 // ---- Contacts -------------------------------------------------------------------
@@ -423,7 +444,7 @@ export const getContacts = createServerFn({ method: 'GET' })
 			})
 			// The contacts API may omit `data` for an empty account. Normalize the
 			// untrusted response at this boundary so the UI always receives a list.
-			const contacts = Array.isArray(res.data) ? res.data : []
+			const contacts = listData<Contact>(res.data)
 			return { contacts, ...(res.next_cursor ? { nextCursor: res.next_cursor } : {}) }
 		} catch (err) {
 			throw friendly(err)
