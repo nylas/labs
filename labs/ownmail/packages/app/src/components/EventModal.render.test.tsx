@@ -310,6 +310,46 @@ describe('EventModal — new event', () => {
 		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({ weekdays: ['SU'] })
 	})
 
+	it('updates an untouched default recurrence weekday when the event date changes', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-07-10' } })
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'weekly')
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({ weekdays: ['FR'] })
+	})
+
+	it('preserves explicitly selected recurrence weekdays when the event date changes', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.selectOptions(screen.getByLabelText('Repeat'), 'weekly')
+		await user.click(screen.getByRole('button', { name: 'Wed' }))
+		await user.click(screen.getByRole('button', { name: 'Mon' }))
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-07-10' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({ weekdays: ['MO'] })
+	})
+
 	it('requires a valid event date before saving', async () => {
 		const user = userEvent.setup()
 		render(
@@ -946,6 +986,21 @@ describe('EventModal — editing an existing event', () => {
 		await user.click(screen.getByRole('button', { name: 'Save changes' }))
 		await waitFor(() => expect(updateEvent).toHaveBeenCalled())
 		expect(updateEvent.mock.calls[0][0].data.calendarId).toBe('cal-default')
+	})
+
+	it('preserves an all-day event when saving its metadata', async () => {
+		const user = userEvent.setup()
+		renderEdit({ when: { date: '2026-07-09' } as never })
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		expect(screen.queryByRole('combobox', { name: 'Start time' })).toBeNull()
+		await user.clear(screen.getByLabelText('Title'))
+		await user.type(screen.getByLabelText('Title'), 'Day off')
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		await waitFor(() => expect(updateEvent).toHaveBeenCalled())
+		const payload = updateEvent.mock.calls[0][0].data
+		expect(payload).toMatchObject({ eventId: 'evt1', title: 'Day off' })
+		expect(payload).not.toHaveProperty('startTime')
+		expect(payload).not.toHaveProperty('endTime')
 	})
 
 	it('surfaces an update failure from a thrown Error and re-enables the form', async () => {
