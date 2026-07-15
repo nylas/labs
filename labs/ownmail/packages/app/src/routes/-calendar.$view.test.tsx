@@ -69,6 +69,7 @@ vi.mock('../components/EventModal.js', () => ({
 			data-calendar-id={props.calendarId}
 			data-calendar-name={props.calendarName}
 			data-default-start={props.defaultStart?.toISOString?.()}
+			data-preserve-default-start-time={String(props.preserveDefaultStartTime)}
 		>
 			<button type="button" onClick={() => props.onClose(true)}>
 				close-changed
@@ -241,12 +242,14 @@ describe('/calendar/$view route config', () => {
 })
 
 describe('loadCalendarRouteData', () => {
-	it('anchors on the requested date and fetches that view range', async () => {
+	it('anchors on the requested date and buffers the fetched range for display timezone boundaries', async () => {
 		const data = await loadCalendarRouteData('week', '2024-06-15')
 		expect(data.anchorIso).toBe('2024-06-15')
 		const arg = h.getEvents.mock.calls[0][0]
-		expect(typeof arg.data.start).toBe('number')
-		expect(arg.data.end).toBeGreaterThan(arg.data.start)
+		expect(arg.data).toEqual({
+			start: Math.floor(new Date('2024-06-08T00:00:00').getTime() / 1000),
+			end: Math.floor(new Date('2024-06-17T00:00:00').getTime() / 1000),
+		})
 	})
 
 	it('falls back to today when no date is supplied', async () => {
@@ -461,6 +464,7 @@ describe('week view time grid', () => {
 		expect(modal.dataset.event).toBe('new')
 		// Slot click seeds a concrete start time rather than falling back to the anchor.
 		expect(modal.dataset.defaultStart).toBeTruthy()
+		expect(modal.dataset.preserveDefaultStartTime).toBe('true')
 	})
 
 	it('draws inter-day column rules across a multi-day week', () => {

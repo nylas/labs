@@ -17,7 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea.js'
 import { calendarTone, cn, type EventTone, eventColorClass, eventTone, labelBadgeClass } from './ui-model.js'
 
-const TIME_OPTIONS = Array.from({ length: 35 }, (_, i) => 7 + i * 0.5)
+const START_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => i * 0.5)
+const END_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => (i + 1) * 0.5)
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
@@ -41,6 +42,7 @@ export function EventModal({
 	calendarName,
 	calendars,
 	anchorRect,
+	preserveDefaultStartTime = false,
 	onClose,
 }: {
 	event: Event | null
@@ -49,11 +51,12 @@ export function EventModal({
 	calendarName: string
 	calendars: Calendar[]
 	anchorRect?: Rect | null
+	preserveDefaultStartTime?: boolean
 	onClose: (changed: boolean) => void
 }) {
 	const times = event ? eventTimes(event) : null
 	const initialStart = times?.start ?? new Date(defaultStart.getTime())
-	const initialHours = eventInitialHours(initialStart)
+	const initialHours = eventInitialHours(initialStart, Boolean(event) || preserveDefaultStartTime)
 
 	const [title, setTitle] = useState(event?.title ?? '')
 	const [location, setLocation] = useState(event?.location ?? '')
@@ -504,7 +507,7 @@ function EventFields({
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{TIME_OPTIONS.map((hour) => (
+						{START_TIME_OPTIONS.map((hour) => (
 							<SelectItem key={hour} value={String(hour)}>
 								{formatDecimalHour(hour)}
 							</SelectItem>
@@ -517,7 +520,7 @@ function EventFields({
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{TIME_OPTIONS.map((hour) => (
+						{END_TIME_OPTIONS.map((hour) => (
 							<SelectItem key={hour} value={String(hour)}>
 								{formatDecimalHour(hour)}
 							</SelectItem>
@@ -560,9 +563,13 @@ function decimalHour(date: Date): number {
 	return date.getHours() + date.getMinutes() / 60
 }
 
-export function eventInitialHours(start: Date): { startHour: number; endHour: number } {
+export function eventInitialHours(
+	start: Date,
+	preserveStartTime = false,
+): { startHour: number; endHour: number } {
 	const startHour = decimalHour(start)
-	const normalizedStartHour = startHour >= 7 && startHour < 24 ? nearestHalfHour(startHour) : 9
+	const normalizedStartHour =
+		(preserveStartTime ? startHour >= 0 : startHour >= 7) && startHour < 24 ? nearestHalfHour(startHour) : 9
 	return { startHour: normalizedStartHour, endHour: Math.min(24, normalizedStartHour + 1) }
 }
 

@@ -11,7 +11,6 @@ import {
 	calendarDateInTimeZone,
 	calendarKeyAction,
 	calendarSlotTime,
-	dateWithHour,
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
@@ -63,7 +62,12 @@ export const Route = createFileRoute('/calendar/$view')({
 
 export async function loadCalendarRouteData(view: CalView, date?: string) {
 	const anchor = date ? new Date(`${date}T00:00:00`) : new Date()
-	const { start, end } = viewRange(view, anchor)
+	const visibleRange = viewRange(view, anchor)
+	// Preferences are intentionally client-side, so the server cannot know the
+	// selected display zone. Fetch a day on either side of the visible range to
+	// retain events that cross a date boundary in any supported timezone.
+	const start = addDays(visibleRange.start, -1)
+	const end = addDays(visibleRange.end, 1)
 	const [info, res] = await Promise.all([
 		getMailboxInfo(),
 		getEvents({
@@ -88,6 +92,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const router = useRouter()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const [newStartIsSlot, setNewStartIsSlot] = useState(false)
 	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -156,6 +161,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 			else if (action.kind === 'today') go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))
 			else {
 				setNewStart(null)
+				setNewStartIsSlot(false)
 				setComposerAnchor(null)
 				setEditing('new')
 			}
@@ -199,6 +205,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								type="button"
 								onClick={() => {
 									setNewStart(anchor)
+									setNewStartIsSlot(false)
 									setComposerAnchor(null)
 									setEditing('new')
 								}}
@@ -316,7 +323,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							timeZone={primaryTimezone}
 							secondaryTimezone={secondaryTimezone}
 							onPickSlot={(date, hour, rect) => {
-								setNewStart(dateWithHour(date, hour))
+								setNewStart(calendarSlotTime(date, hour, primaryTimezone))
+								setNewStartIsSlot(true)
 								setComposerAnchor(rect)
 								setEditing('new')
 							}}
@@ -337,6 +345,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					}
 					calendars={calendars}
 					anchorRect={editing === 'new' ? composerAnchor : null}
+					preserveDefaultStartTime={editing === 'new' && newStartIsSlot}
 					onClose={(changed) => {
 						setEditing(null)
 						if (changed) router.invalidate()
