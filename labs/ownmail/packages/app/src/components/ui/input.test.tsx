@@ -12,5 +12,7 @@ describe('Input', () => {
 		expect(input).toHaveAttribute('data-slot', 'input')
 		expect(input).toHaveAttribute('type', 'email')
 		expect(input.className).toContain('mt-2')
+		expect(input.className).toContain('text-base')
+		expect(input.className).toContain('sm:text-sm')
 	})
 })

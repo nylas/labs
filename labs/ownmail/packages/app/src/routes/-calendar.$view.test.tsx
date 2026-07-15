@@ -34,6 +34,13 @@ vi.mock('../components/AppRail.js', () => ({
 			</button>
 		</div>
 	),
+	AppRailMobileNav: (props: any) => (
+		<div data-testid="app-rail-mobile-nav">
+			<button type="button" onClick={props.onNavigate}>
+				close-mobile-navigation
+			</button>
+		</div>
+	),
 }))
 
 vi.mock('../components/CommandPalette.js', () => ({
@@ -296,6 +303,20 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Jun')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'false')
+	})
+
+	it('keeps every calendar action available in the 320px mobile header', () => {
+		renderWeek()
+
+		const controls = screen.getByTestId('calendar-header-controls')
+		expect(controls).toHaveClass('min-w-0')
+		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('w-10', 'sm:w-auto')
+		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('w-10', 'sm:w-auto')
+		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('w-8', 'sm:w-11')
+		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('w-8', 'sm:w-11')
+		for (const view of ['day', 'week', 'month']) {
+			expect(screen.getByRole('button', { name: view })).toHaveClass('w-9', 'sm:w-auto')
+		}
 	})
 
 	it('jumps to today keeping the current view', async () => {
@@ -756,13 +777,20 @@ describe('event editor', () => {
 // ---- mobile sheet ---------------------------------------------------------
 
 describe('mobile calendar sheet', () => {
+	it('closes the sheet when mobile primary navigation is chosen', () => {
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(screen.getByRole('button', { name: 'close-mobile-navigation' }))
+		expect(screen.queryByTestId('sheet')).toBeNull()
+	})
+
 	afterEach(() => {
 		vi.useRealTimers()
 	})
 
 	it('opens the sheet and re-anchors the grid when a sheet date is picked', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
 		fireEvent.click(within(sheet).getByRole('button', { name: '10' }))
 		expect(h.navigate).toHaveBeenCalledWith({
@@ -776,7 +804,7 @@ describe('mobile calendar sheet', () => {
 
 	it('drills from a month-view sheet date straight into that day', () => {
 		render(<CalendarRouteScreen view="month" data={monthData()} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
 		fireEvent.click(within(sheet).getByRole('button', { name: '12' }))
 		expect(h.navigate).toHaveBeenCalledWith({
@@ -788,7 +816,7 @@ describe('mobile calendar sheet', () => {
 
 	it('dismisses the sheet via its own close control', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
 		fireEvent.click(within(sheet).getByRole('button', { name: 'close-sheet' }))
 		expect(screen.queryByTestId('sheet')).toBeNull()
@@ -798,7 +826,7 @@ describe('mobile calendar sheet', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
 		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Open calendar sidebar' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
 		// The agenda lists the day's timed events; open the first one.
 		fireEvent.click(within(sheet).getByRole('button', { name: /Standup/ }))

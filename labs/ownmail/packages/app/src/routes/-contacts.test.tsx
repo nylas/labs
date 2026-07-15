@@ -37,6 +37,25 @@ vi.mock('../components/AppRail.js', () => ({
 			</button>
 		</div>
 	),
+	AppRailMobileNav: (props: any) => (
+		<div data-testid="mobile-nav">
+			<button type="button" onClick={props.onNavigate}>
+				close-mobile-navigation
+			</button>
+		</div>
+	),
+}))
+
+vi.mock('../components/Sheet.js', () => ({
+	Sheet: (props: any) =>
+		props.open ? (
+			<div data-testid="sheet">
+				<button type="button" onClick={props.onClose}>
+					close-sheet
+				</button>
+				{props.children}
+			</div>
+		) : null,
 }))
 
 vi.mock('../components/CommandPalette.js', () => ({
@@ -148,6 +167,17 @@ describe('ContactsShell', () => {
 		expect(screen.getByTestId('palette')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'close-palette' }))
 		expect(screen.queryByTestId('palette')).not.toBeInTheDocument()
+	})
+
+	it('opens the app navigation as a temporary sheet', () => {
+		shell()
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		expect(screen.getByTestId('sheet')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'close-mobile-navigation' }))
+		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(screen.getByRole('button', { name: 'close-sheet' }))
+		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
 	})
 })
 

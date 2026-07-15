@@ -2,12 +2,11 @@ import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil, Search, X } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import { MailSidebar } from '../components/MailSidebar.js'
 import { Sheet } from '../components/Sheet.js'
 import {
-	APP_RAIL_WIDTH_CLASS,
 	activeMailSidebarFolderId,
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
@@ -190,7 +189,7 @@ export function MailRouteScreen({
 	return (
 		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
-				<AppRailLogo appName={info.appName} />
+				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
@@ -201,10 +200,9 @@ export function MailRouteScreen({
 						type="button"
 						onClick={() => setSidebarOpen(true)}
 						className={cn(
-							'flex shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:hidden',
-							APP_RAIL_WIDTH_CLASS,
+							'flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:hidden',
 						)}
-						aria-label="Open folders"
+						aria-label="Open navigation"
 					>
 						<Menu className="h-4 w-4" />
 					</button>
@@ -279,8 +277,11 @@ export function MailRouteScreen({
 				</div>
 			</div>
 
-			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Mail">
-				<MailSidebar {...sidebarProps} />
+			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
+				<AppRailMobileNav {...railNavProps} onNavigate={() => setSidebarOpen(false)} />
+				<div className="border-t border-border">
+					<MailSidebar {...sidebarProps} />
+				</div>
 			</Sheet>
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} onFocusSearch={focusSearch} />

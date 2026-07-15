@@ -1,8 +1,8 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Plus, Search } from 'lucide-react'
+import { Menu, Plus, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import {
 	contactDisplayName,
@@ -12,6 +12,7 @@ import {
 	sortContacts,
 } from '../components/contacts-model.js'
 import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
+import { Sheet } from '../components/Sheet.js'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS, cn, initials } from '../components/ui-model.js'
 import { getContacts, getMailboxInfo } from '../server/fns.js'
 
@@ -64,6 +65,7 @@ export function ContactsShell({
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [loadingMore, setLoadingMore] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
+	const [navigationOpen, setNavigationOpen] = useState(false)
 	const [cursor, setCursor] = useState(-1)
 
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
@@ -153,13 +155,21 @@ export function ContactsShell({
 	return (
 		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
-				<AppRailLogo appName={info.appName} />
+				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
 						CHROME_ROW_CLASS,
 					)}
 				>
+					<button
+						type="button"
+						onClick={() => setNavigationOpen(true)}
+						className="flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:hidden"
+						aria-label="Open navigation"
+					>
+						<Menu className="h-4 w-4" />
+					</button>
 					<div className="relative flex min-w-0 flex-1 items-center px-3">
 						<Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
 						<input
@@ -229,6 +239,10 @@ export function ContactsShell({
 			</div>
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} />
+
+			<Sheet open={navigationOpen} onClose={() => setNavigationOpen(false)} title="Navigation">
+				<AppRailMobileNav {...railNavProps} onNavigate={() => setNavigationOpen(false)} />
+			</Sheet>
 		</div>
 	)
 }

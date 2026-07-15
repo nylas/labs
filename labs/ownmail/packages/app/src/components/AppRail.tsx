@@ -19,6 +19,10 @@ type AppRailNavProps = {
 	onOpenCommandPalette?: () => void
 }
 
+type AppRailMobileNavProps = AppRailNavProps & {
+	onNavigate: () => void
+}
+
 function formatOrgLabel(appName: string): string {
 	return appName
 		.split(/[-_\s]+/)
@@ -79,7 +83,7 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 		<nav
 			aria-label="Primary"
 			className={cn(
-				'app-rail flex h-full shrink-0 flex-col border-r border-border bg-background',
+				'app-rail hidden h-full shrink-0 flex-col border-r border-border bg-background md:flex',
 				APP_RAIL_WIDTH_CLASS,
 			)}
 		>
@@ -137,6 +141,102 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 	)
 }
 
+/**
+ * The mobile counterpart to the persistent desktop rail. It is intended for a
+ * temporary navigation sheet, so it uses labelled, touch-sized rows instead of
+ * reserving a narrow column in the app viewport.
+ */
+export function AppRailMobileNav({
+	email,
+	displayName,
+	active,
+	onOpenCommandPalette,
+	onNavigate,
+}: AppRailMobileNavProps) {
+	const [isDark, setIsDark] = useState(false)
+	const [mounted, setMounted] = useState(false)
+	const [preferences] = useUserPreferences()
+
+	useEffect(() => {
+		const saved = localStorage.getItem(THEME_STORAGE_KEY)
+		const nextDark = initialThemeIsDark(saved)
+		applyThemeClass(nextDark)
+		setIsDark(nextDark)
+		setMounted(true)
+	}, [])
+
+	function toggleTheme() {
+		const nextDark = !isDark
+		applyThemeClass(nextDark)
+		localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
+		setIsDark(nextDark)
+	}
+
+	const effectiveDisplayName = preferences.displayName || displayName
+	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
+
+	return (
+		<nav aria-label="Primary" className="flex shrink-0 flex-col py-2">
+			<div className="space-y-1 px-2">
+				<MobileNavLink to={MAIL_HOME_PATH} label="Mail" isActive={active === 'mail'} onNavigate={onNavigate}>
+					<Mail className="h-5 w-5" aria-hidden="true" />
+				</MobileNavLink>
+				<MobileNavLink
+					to={CALENDAR_HOME_PATH}
+					label="Calendar"
+					isActive={active === 'calendar'}
+					onNavigate={onNavigate}
+				>
+					<Calendar className="h-5 w-5" aria-hidden="true" />
+				</MobileNavLink>
+				<MobileNavLink
+					to={CONTACTS_HOME_PATH}
+					label="Contacts"
+					isActive={active === 'contacts'}
+					onNavigate={onNavigate}
+				>
+					<Users className="h-5 w-5" aria-hidden="true" />
+				</MobileNavLink>
+			</div>
+
+			<div className="mt-3 space-y-1 border-t border-border px-2 pt-3">
+				<MobileNavButton
+					label={themeToggleLabel(mounted, isDark)}
+					onClick={toggleTheme}
+					icon={mounted && isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+				/>
+				<MobileNavButton
+					label="Open command palette"
+					onClick={() => {
+						onNavigate()
+						onOpenCommandPalette?.()
+					}}
+					icon={<Search className="h-5 w-5" />}
+				/>
+				<form action="/logout" method="post">
+					<MobileNavButton label="Sign out" type="submit" icon={<LogOut className="h-5 w-5" />} />
+				</form>
+				<Link
+					to={SETTINGS_PATH}
+					onClick={onNavigate}
+					aria-label={`Account settings for ${accountLabel}`}
+					aria-current={active === 'settings' ? 'page' : undefined}
+					className={cn(
+						'flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors hover:bg-muted',
+						active === 'settings' && 'bg-muted text-foreground',
+					)}
+				>
+					<span className="app-rail-account-inner shrink-0" aria-hidden="true">
+						<span className="app-rail-account-initials">{initials(effectiveDisplayName ?? email)}</span>
+					</span>
+					<span className="truncate">Account settings</span>
+					<span className="sr-only"> for {accountLabel}</span>
+				</Link>
+			</div>
+		</nav>
+	)
+}
+
 function RailLink({
 	to,
 	label,
@@ -186,6 +286,58 @@ function RailButton({
 			title={title}
 		>
 			{children}
+		</button>
+	)
+}
+
+function MobileNavLink({
+	to,
+	label,
+	isActive,
+	onNavigate,
+	children,
+}: {
+	to: string
+	label: string
+	isActive: boolean
+	onNavigate: () => void
+	children: ReactNode
+}) {
+	return (
+		<Link
+			to={to}
+			onClick={onNavigate}
+			aria-current={isActive ? 'page' : undefined}
+			className={cn(
+				'flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+				isActive && 'bg-muted text-foreground',
+			)}
+		>
+			{children}
+			<span>{label}</span>
+		</Link>
+	)
+}
+
+function MobileNavButton({
+	label,
+	icon,
+	onClick,
+	type = 'button',
+}: {
+	label: string
+	icon: ReactNode
+	onClick?: () => void
+	type?: 'button' | 'submit'
+}) {
+	return (
+		<button
+			type={type}
+			onClick={onClick}
+			className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+		>
+			<span aria-hidden="true">{icon}</span>
+			<span>{label}</span>
 		</button>
 	)
 }

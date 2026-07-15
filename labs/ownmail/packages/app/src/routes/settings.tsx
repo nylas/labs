@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Check, KeyRound, Settings as SettingsIcon, UserRound } from 'lucide-react'
+import { Check, KeyRound, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
+import { Sheet } from '../components/Sheet.js'
 import { Button } from '../components/ui/button.js'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS, cn } from '../components/ui-model.js'
 import {
@@ -29,6 +30,7 @@ function SettingsPage() {
 	const [confirmPassword, setConfirmPassword] = useState('')
 	const [passwordStatus, setPasswordStatus] = useState<string | null>(null)
 	const [resettingPassword, setResettingPassword] = useState(false)
+	const [navigationOpen, setNavigationOpen] = useState(false)
 	const timezones = useMemo(availableTimezones, [])
 
 	useEffect(() => setDraft(preferences), [preferences])
@@ -88,13 +90,21 @@ function SettingsPage() {
 	return (
 		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
-				<AppRailLogo appName={info.appName} />
+				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-center border-b border-border bg-background px-4',
 						CHROME_ROW_CLASS,
 					)}
 				>
+					<button
+						type="button"
+						onClick={() => setNavigationOpen(true)}
+						className="flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:hidden"
+						aria-label="Open navigation"
+					>
+						<Menu className="h-4 w-4" />
+					</button>
 					<h1 className="font-display text-base font-semibold">Settings</h1>
 				</header>
 			</div>
@@ -215,6 +225,15 @@ function SettingsPage() {
 					</div>
 				</main>
 			</div>
+
+			<Sheet open={navigationOpen} onClose={() => setNavigationOpen(false)} title="Navigation">
+				<AppRailMobileNav
+					email={info.email}
+					displayName={info.displayName}
+					active="settings"
+					onNavigate={() => setNavigationOpen(false)}
+				/>
+			</Sheet>
 		</div>
 	)
 }

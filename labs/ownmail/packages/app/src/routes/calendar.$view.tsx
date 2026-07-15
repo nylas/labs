@@ -1,8 +1,8 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Check, ChevronLeft, ChevronRight, PanelLeft, Plus } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Menu, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppRailLogo, AppRailNav } from '../components/AppRail.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import {
 	addDays,
@@ -34,7 +34,6 @@ import { Sheet } from '../components/Sheet.js'
 import { ScrollArea } from '../components/ui/scroll-area.js'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip.js'
 import {
-	APP_RAIL_WIDTH_CLASS,
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
 	CHROME_ROW_CLASS,
@@ -185,7 +184,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	return (
 		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
-				<AppRailLogo appName={info.appName} />
+				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
@@ -196,16 +195,15 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						type="button"
 						onClick={() => setSidebarOpen(true)}
 						className={cn(
-							'flex shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:hidden',
-							APP_RAIL_WIDTH_CLASS,
+							'flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:hidden',
 						)}
-						aria-label="Open calendar sidebar"
+						aria-label="Open navigation"
 					>
-						<PanelLeft className="h-4 w-4" />
+						<Menu className="h-4 w-4" />
 					</button>
 					<div className={cn('min-w-0 flex-1', CALENDAR_HEADER_GRID_CLASS)}>
 						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
-						<div className="flex min-w-0 items-stretch">
+						<div className="flex min-w-0 items-stretch" data-testid="calendar-header-controls">
 							<button
 								type="button"
 								onClick={() => {
@@ -214,14 +212,15 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 									setComposerAnchor(null)
 									setEditing('new')
 								}}
-								className="flex shrink-0 items-center gap-1.5 border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+								className="flex h-11 w-10 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:justify-start sm:px-3"
+								aria-label="Create"
 							>
 								<Plus className="h-4 w-4" strokeWidth={2} />
 								<span className="hidden sm:inline">Create</span>
 							</button>
 							<button
 								type="button"
-								className="flex shrink-0 items-center border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+								className="flex h-11 w-10 shrink-0 items-center justify-center border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:px-3"
 								onClick={() => go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))}
 							>
 								Today
@@ -230,7 +229,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+										className="flex h-11 w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:w-11"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
 										aria-label="Previous"
 									>
@@ -243,7 +242,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="flex w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+										className="flex h-11 w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:w-11"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
 										aria-label="Next"
 									>
@@ -252,7 +251,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								</TooltipTrigger>
 								<TooltipContent>Next {currentView}</TooltipContent>
 							</Tooltip>
-							<div className="flex min-w-0 flex-1 items-center border-r border-border px-3">
+							<div className="hidden min-w-0 flex-1 items-center border-r border-border px-3 sm:flex">
 								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">
 									{title}
 								</h1>
@@ -268,7 +267,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 										onClick={() => go(v, anchor)}
 										aria-pressed={v === currentView}
 										className={cn(
-											'flex items-center border-r border-border px-3 text-sm font-medium capitalize transition-colors last:border-r-0',
+											'flex h-11 w-9 items-center justify-center border-r border-border px-0 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
 											v === currentView
 												? 'bg-muted text-foreground'
 												: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -362,24 +361,33 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				/>
 			) : null}
 
-			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Calendar">
-				<CalendarSidebarPanel
-					anchor={anchor}
-					calendars={calendars}
-					calendarById={calendarById}
-					hiddenCalendarIds={hiddenCalendarIds}
-					agenda={agenda}
-					timeZone={primaryTimezone}
-					onPickDate={(date) => {
-						go(currentView === 'month' ? 'day' : currentView, date)
-						setSidebarOpen(false)
-					}}
-					onToggleCalendar={toggleCalendar}
-					onPickEvent={(event) => {
-						setEditing(event)
-						setSidebarOpen(false)
-					}}
+			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
+				<AppRailMobileNav
+					email={info.email}
+					displayName={info.displayName}
+					active="calendar"
+					onOpenCommandPalette={openPalette}
+					onNavigate={() => setSidebarOpen(false)}
 				/>
+				<div className="border-t border-border px-3 pt-2">
+					<CalendarSidebarPanel
+						anchor={anchor}
+						calendars={calendars}
+						calendarById={calendarById}
+						hiddenCalendarIds={hiddenCalendarIds}
+						agenda={agenda}
+						timeZone={primaryTimezone}
+						onPickDate={(date) => {
+							go(currentView === 'month' ? 'day' : currentView, date)
+							setSidebarOpen(false)
+						}}
+						onToggleCalendar={toggleCalendar}
+						onPickEvent={(event) => {
+							setEditing(event)
+							setSidebarOpen(false)
+						}}
+					/>
+				</div>
 			</Sheet>
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} />

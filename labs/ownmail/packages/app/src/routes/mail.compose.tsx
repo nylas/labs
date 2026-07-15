@@ -592,8 +592,8 @@ function Compose() {
 			<div
 				ref={composePanelRef}
 				className={cn(
-					'fixed right-4 bottom-0 z-50 flex w-[min(30rem,calc(100vw-1rem))] flex-col rounded-t-xl border border-border bg-card shadow-2xl',
-					minimized ? 'h-11' : 'h-[32rem] max-h-[80vh]',
+					'fixed inset-x-2 bottom-0 z-50 flex flex-col rounded-t-xl border border-border bg-card shadow-2xl sm:inset-x-auto sm:right-4 sm:w-[min(30rem,calc(100vw-2rem))]',
+					minimized ? 'h-11' : 'h-[min(32rem,calc(100dvh-1rem))]',
 				)}
 				role="dialog"
 				aria-label="Compose message"
