@@ -109,7 +109,7 @@ function SettingsPage() {
 								<h2 className="font-display text-lg font-semibold">Profile</h2>
 							</div>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Customize how your name appears in OwnMail on this device.
+								Customize how your name appears in {info.appName} on this device.
 							</p>
 							<label className="mt-4 block text-sm font-medium" htmlFor="settings-display-name">
 								Display name
