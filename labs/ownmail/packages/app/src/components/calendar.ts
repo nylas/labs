@@ -110,6 +110,11 @@ export function moveCalendarDay(current: Date, key: string): Date | null {
 
 export type EventTimes = { start: Date; end: Date; allDay: boolean }
 export type CalendarTimeZone = string | undefined
+export const NEW_EVENT_PREVIEW_ID = '__new-event-preview__'
+
+export function isNewEventPreview(event: Event): boolean {
+	return event.id === NEW_EVENT_PREVIEW_ID
+}
 
 type UnknownRecord = Record<string, unknown>
 

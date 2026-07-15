@@ -210,6 +210,49 @@ describe('calendar server functions', () => {
 		)
 	})
 
+	it('creates an all-day event with Nylas date-only payload semantics', async () => {
+		const mailbox = resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }])
+
+		await createEvent({ data: { title: 'Holiday', allDayDate: '2027-12-25' } })
+
+		expect(mailbox.createEvent).toHaveBeenCalledWith(
+			{ title: 'Holiday', when: { date: '2027-12-25' } },
+			'primary',
+		)
+	})
+
+	it.each([
+		[
+			{ frequency: 'weekly' as const, interval: 2 as const, weekdays: ['MO', 'FR'] as const },
+			['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR'],
+		],
+		[{ frequency: 'yearly' as const, interval: 1 as const }, ['RRULE:FREQ=YEARLY']],
+	])('creates recurring events with timezone-aware Nylas payloads', async (recurrence, expectedRule) => {
+		const mailbox = resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }])
+
+		await createEvent({
+			data: {
+				...CREATE,
+				timezone: 'America/Toronto',
+				recurrence,
+			},
+		})
+
+		expect(mailbox.createEvent).toHaveBeenCalledWith(
+			{
+				title: 'Planning',
+				when: {
+					start_time: 1_800_000_000,
+					end_time: 1_800_003_600,
+					start_timezone: 'America/Toronto',
+					end_timezone: 'America/Toronto',
+				},
+				recurrence: expectedRule,
+			},
+			'primary',
+		)
+	})
+
 	it('rejects a create request that names an unknown calendar', async () => {
 		resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }])
 

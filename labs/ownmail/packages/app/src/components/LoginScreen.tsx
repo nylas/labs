@@ -2,7 +2,7 @@ import { ArrowRight, Calendar, Loader2, Mail, ShieldCheck } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Button } from './ui/button.js'
 
-export function LoginScreen({ signInHref }: { signInHref: string }) {
+export function LoginScreen({ signInHref, siteName }: { signInHref: string; siteName: string }) {
 	const [connecting, setConnecting] = useState(false)
 
 	function handleSignIn() {
@@ -23,10 +23,12 @@ export function LoginScreen({ signInHref }: { signInHref: string }) {
 			<div className="relative z-10 w-full max-w-md">
 				<div className="mb-8 flex flex-col items-center text-center">
 					<div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg">
-						<span className="font-display text-2xl leading-none font-extrabold">o</span>
+						<span className="font-display text-2xl leading-none font-extrabold">
+							{siteName.charAt(0).toLowerCase()}
+						</span>
 					</div>
 					<h1 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-foreground text-balance">
-						Welcome to ownmail
+						Welcome to {siteName}
 					</h1>
 					<p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
 						Your inbox and calendar in one focused workspace.

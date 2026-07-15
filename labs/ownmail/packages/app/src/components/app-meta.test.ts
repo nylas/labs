@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { APP_DESCRIPTION, APP_TITLE, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from './app-meta.js'
+import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from './app-meta.js'
 
 describe('app metadata', () => {
 	it('matches the reference document identity', () => {
-		expect(APP_TITLE).toBe('ownmail — Mail & Calendar')
-		expect(APP_DESCRIPTION).toBe(
+		expect(appMeta('ownmail').title).toBe('ownmail — Mail & Calendar')
+		expect(appMeta('Acme Mail').description).toBe(
+			'Acme Mail is a calm, powerful mail and calendar client. Your inbox and your schedule, in one focused workspace.',
+		)
+		expect(appMeta('ownmail').description).toBe(
 			'ownmail is a calm, powerful mail and calendar client. Your inbox and your schedule, in one focused workspace.',
 		)
 		expect(LIGHT_THEME_COLOR).toBe('#ffffff')
@@ -27,7 +30,7 @@ describe('app metadata', () => {
 
 		expect(manifest.name).toBe('ownmail')
 		expect(manifest.short_name).toBe('ownmail')
-		expect(manifest.description).toBe(APP_DESCRIPTION)
+		expect(manifest.description).toBe(appMeta('ownmail').description)
 		expect(manifest.id).toBe('/')
 		expect(manifest.start_url).toBe('/')
 		expect(manifest.theme_color).toBe(LIGHT_THEME_COLOR)

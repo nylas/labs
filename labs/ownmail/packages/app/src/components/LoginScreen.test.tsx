@@ -20,7 +20,9 @@ function stubAssign() {
 
 describe('LoginScreen', () => {
 	it('offers the sign-in call to action and lists the product highlights', () => {
-		render(<LoginScreen signInHref="/auth/start" />)
+		render(<LoginScreen signInHref="/auth/start" siteName="Acme Mail" />)
+		expect(screen.getByRole('heading', { name: 'Welcome to Acme Mail' })).toBeInTheDocument()
+		expect(screen.getByText('a')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: /sign in to continue/i })).toBeEnabled()
 		expect(screen.getByText('Unified mail with fast search')).toBeInTheDocument()
 		expect(screen.getByText('Calendar and events, side by side')).toBeInTheDocument()
@@ -30,7 +32,7 @@ describe('LoginScreen', () => {
 	it('shows a connecting state and redirects to the provider after the delay', () => {
 		vi.useFakeTimers()
 		const assign = stubAssign()
-		render(<LoginScreen signInHref="/auth/start" />)
+		render(<LoginScreen signInHref="/auth/start" siteName="ownmail" />)
 
 		fireEvent.click(screen.getByRole('button', { name: /sign in to continue/i }))
 
@@ -46,7 +48,7 @@ describe('LoginScreen', () => {
 	it('ignores repeat clicks while a redirect is already in flight', () => {
 		vi.useFakeTimers()
 		const assign = stubAssign()
-		render(<LoginScreen signInHref="/auth/start" />)
+		render(<LoginScreen signInHref="/auth/start" siteName="ownmail" />)
 
 		const button = screen.getByRole('button', { name: /sign in to continue/i })
 		fireEvent.click(button)

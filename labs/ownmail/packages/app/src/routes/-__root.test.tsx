@@ -14,13 +14,25 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }))
 
+vi.mock('@tanstack/react-start', () => ({
+	createServerFn: () => ({ handler: (fn: () => unknown) => fn }),
+}))
+
 vi.mock('../styles.css?url', () => ({ default: '/assets/styles.css' }))
+
+const platform = vi.fn()
+vi.mock('../server/platform.js', () => ({ platform: () => platform() }))
 
 import { Route } from './__root.js'
 
 afterEach(cleanup)
 
 describe('root route', () => {
+	it('loads the validated deployment site name for document metadata', async () => {
+		platform.mockResolvedValue({ env: { OWNMAIL_SITE_NAME: 'Acme Mail' } })
+		expect(await Route.options.loader()).toEqual({ siteName: 'Acme Mail' })
+	})
+
 	it('declares document metadata so every page ships consistent SEO and PWA head tags', () => {
 		const head = Route.options.head()
 		expect(head.meta).toContainEqual({ charSet: 'utf-8' })
@@ -29,6 +41,12 @@ describe('root route', () => {
 		expect(head.links).toContainEqual({ rel: 'manifest', href: '/manifest.webmanifest' })
 		// The stylesheet link resolves through the bundler's ?url import.
 		expect(head.links.some((l: any) => l.rel === 'stylesheet')).toBe(true)
+	})
+
+	it('uses the configured site name in document and installed-app titles', () => {
+		const head = Route.options.head({ loaderData: { siteName: 'Acme Mail' } })
+		expect(head.meta).toContainEqual({ title: 'Acme Mail — Mail & Calendar' })
+		expect(head.meta).toContainEqual({ name: 'apple-mobile-web-app-title', content: 'Acme Mail' })
 	})
 
 	it('renders the html shell with the anti-flash theme bootstrap so dark mode applies before hydration', () => {

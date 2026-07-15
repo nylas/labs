@@ -18,6 +18,7 @@ import {
 	fmtTime,
 	isCalendarDate,
 	isCalView,
+	isNewEventPreview,
 	moveCalendarDay,
 	shiftAnchor,
 	startOfWeek,
@@ -94,6 +95,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const [newStart, setNewStart] = useState<Date | null>(null)
 	const [newStartIsSlot, setNewStartIsSlot] = useState(false)
 	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
+	const [eventPreview, setEventPreview] = useState<Event | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
@@ -108,8 +110,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const currentAnchorIso = anchorIso
 	const anchor = useMemo(() => new Date(`${currentAnchorIso}T00:00:00`), [currentAnchorIso])
 	const visibleEvents = useMemo(
-		() => filterEventsByCalendars(events, hiddenCalendarIds),
-		[events, hiddenCalendarIds],
+		() => filterEventsByCalendars(eventPreview ? [...events, eventPreview] : events, hiddenCalendarIds),
+		[events, eventPreview, hiddenCalendarIds],
 	)
 	const calendarNameById = useMemo(
 		() => new Map(calendars.map((cal) => [cal.id, cal.name || 'Calendar'])),
@@ -119,6 +121,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const agenda = useMemo(
 		() =>
 			timedEventsOnDay(visibleEvents, today, primaryTimezone)
+				.filter((event) => !isNewEventPreview(event))
 				.sort((a, b) => {
 					const aTimes = eventTimes(a)
 					const bTimes = eventTimes(b)
@@ -346,7 +349,10 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					calendars={calendars}
 					anchorRect={editing === 'new' ? composerAnchor : null}
 					preserveDefaultStartTime={editing === 'new' && newStartIsSlot}
+					events={events}
+					onDraftChange={setEventPreview}
 					onClose={(changed) => {
+						setEventPreview(null)
 						setEditing(null)
 						if (changed) router.invalidate()
 					}}
@@ -673,17 +679,20 @@ function MonthGrid({
 									if (!times) return null
 									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 									const allDay = times.allDay
+									const preview = isNewEventPreview(event)
 									return (
 										<button
 											key={event.id}
 											type="button"
 											onClick={(clickEvent) => {
 												clickEvent.stopPropagation()
-												onPickEvent(event)
+												if (!preview) onPickEvent(event)
 											}}
+											disabled={preview}
 											className={cn(
 												'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
 												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
+												preview && 'border border-dashed border-primary/70 opacity-70',
 											)}
 										>
 											{!allDay ? (
@@ -858,11 +867,15 @@ function TimeGrid({
 							{allDaySegments.map((segment) => {
 								const { event } = segment
 								const tone = eventTone(event, segment.index, calendarById.get(event.calendar_id))
+								const preview = isNewEventPreview(event)
 								return (
 									<button
 										key={event.id}
 										type="button"
-										onClick={() => onPickEvent(event)}
+										onClick={() => {
+											if (!preview) onPickEvent(event)
+										}}
+										disabled={preview}
 										style={{
 											gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
 											gridRow: segment.row + 1,
@@ -870,6 +883,7 @@ function TimeGrid({
 										className={cn(
 											'z-10 mx-1 min-w-0 self-center truncate rounded-sm px-2 py-1 text-left text-xs font-medium text-primary-foreground',
 											eventBarClass(tone),
+											preview && 'border border-dashed border-primary-foreground/80 opacity-70',
 										)}
 									>
 										{event.title || '(untitled)'}
@@ -954,6 +968,7 @@ function TimeGrid({
 										/* v8 ignore next -- dayEvents excludes records without parsed times */
 										if (!times) return null
 										const { start: s, end: e } = times
+										const preview = isNewEventPreview(event)
 										const layout = timedEventLayout(event, day, {
 											startHour: START_HOUR,
 											endHour: GRID_END_HOUR,
@@ -965,7 +980,10 @@ function TimeGrid({
 											<button
 												key={event.id}
 												type="button"
-												onClick={() => onPickEvent(event)}
+												onClick={() => {
+													if (!preview) onPickEvent(event)
+												}}
+												disabled={preview}
 												style={{
 													top: layout.top,
 													height: layout.height,
@@ -973,6 +991,7 @@ function TimeGrid({
 												className={cn(
 													'absolute right-1 left-1 z-10 flex min-w-0 flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
 													eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+													preview && 'border border-dashed border-primary/70 opacity-70',
 												)}
 											>
 												<span className="truncate text-xs leading-tight font-semibold">
