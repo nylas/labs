@@ -779,6 +779,19 @@ function TimeGrid({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
+			<section
+				className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground"
+				aria-label="Calendar timezone reference"
+			>
+				<span>
+					<span className="font-medium text-foreground">Primary time (top)</span> {timeZone}
+				</span>
+				{secondaryTimezone ? (
+					<span>
+						<span className="font-medium text-foreground">Secondary time (below)</span> {secondaryTimezone}
+					</span>
+				) : null}
+			</section>
 			<div ref={scrollRef} className="isolate relative min-h-0 flex-1 overflow-y-auto">
 				<div className="sticky top-0 z-30 bg-background">
 					<div

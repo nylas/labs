@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ymd } from '../components/calendar.js'
@@ -190,6 +190,7 @@ const monthData = () => ({
 afterEach(() => {
 	cleanup()
 	vi.clearAllMocks()
+	localStorage.clear()
 })
 beforeEach(() => {
 	vi.clearAllMocks()
@@ -400,6 +401,22 @@ describe('week view time grid', () => {
 		// The 5-minute event is too short to show a time range and has no title.
 		const untitled = screen.getByRole('button', { name: '(untitled)' })
 		expect(untitled.textContent).not.toContain('–')
+	})
+
+	it('names the primary and secondary timezones used by the stacked time labels', async () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({
+				displayName: '',
+				autoSaveContacts: true,
+				primaryTimezone: 'America/Toronto',
+				secondaryTimezone: 'Europe/London',
+			}),
+		)
+		renderWeek()
+		const reference = screen.getByLabelText('Calendar timezone reference')
+		await waitFor(() => expect(reference).toHaveTextContent('Primary time (top) America/Toronto'))
+		expect(reference).toHaveTextContent('Secondary time (below) Europe/London')
 	})
 
 	it('hides an event that falls entirely before the visible day window', () => {

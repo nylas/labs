@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun, Users } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Search, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH, SETTINGS_PATH } from './route-paths.js'
 import {
@@ -95,9 +95,6 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 				>
 					<Calendar className="h-[18px] w-[18px]" strokeWidth={active === 'calendar' ? 2.25 : 1.75} />
 				</RailLink>
-				<RailLink to={SETTINGS_PATH} label="Settings" isActive={active === 'settings'} ariaLabel="Settings">
-					<Settings className="h-[18px] w-[18px]" strokeWidth={active === 'settings' ? 2.25 : 1.75} />
-				</RailLink>
 				<RailLink
 					to={CONTACTS_HOME_PATH}
 					label="Contacts"
@@ -121,11 +118,20 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 						<LogOut className="h-[17px] w-[17px]" />
 					</RailButton>
 				</form>
-				<div className="app-rail-account mt-1" role="img" title={accountLabel} aria-label={accountLabel}>
+				<Link
+					to={SETTINGS_PATH}
+					className={cn(
+						'app-rail-account mt-1',
+						active === 'settings' && 'ring-2 ring-primary ring-offset-2',
+					)}
+					title={`Account settings · ${accountLabel}`}
+					aria-label={`Account settings for ${accountLabel}`}
+					aria-current={active === 'settings' ? 'page' : undefined}
+				>
 					<span className="app-rail-account-inner">
 						<span className="app-rail-account-initials">{initials(effectiveDisplayName ?? email)}</span>
 					</span>
-				</div>
+				</Link>
 			</div>
 		</nav>
 	)
