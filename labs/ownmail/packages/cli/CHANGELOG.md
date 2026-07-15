@@ -1,5 +1,15 @@
 # ownmail
 
+## 0.3.0
+
+### Patch Changes
+
+- c6ba659: Show actionable recovery guidance when a local project is missing its organization state, and use a compact setup header that remains readable in narrow terminals.
+- Updated dependencies [c6ba659]
+- Updated dependencies [c6ba659]
+- Updated dependencies [c6ba659]
+  - @ownmail/app@0.3.0
+
 ## 0.2.2
 
 ### Patch Changes
