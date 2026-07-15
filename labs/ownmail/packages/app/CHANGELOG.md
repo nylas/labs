@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.3.2
+
+### Patch Changes
+
+- eba0543: Fix mobile calendar controls, navigation, and input layouts.
+
 ## 0.3.1
 
 ## 0.3.0
