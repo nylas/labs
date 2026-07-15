@@ -14,12 +14,9 @@ describe('ScrollArea', () => {
 		)
 
 		expect(screen.getByLabelText('Thread conversation')).toHaveAttribute('data-slot', 'scroll-area')
-		expect(screen.getByLabelText('Thread conversation')).toHaveClass('w-full', 'min-w-0')
-		expect(document.querySelector('[data-slot="scroll-area-viewport"]')).toHaveAttribute('tabindex', '0')
-		expect(document.querySelector('[data-slot="scroll-area-viewport"]')).toHaveClass(
-			'min-w-0',
-			'overflow-x-hidden',
-		)
+		expect(screen.getByLabelText('Thread conversation')).toHaveClass('size-full', 'min-w-0')
+		expect(screen.getByLabelText('Thread conversation')).toHaveAttribute('tabindex', '0')
+		expect(screen.getByLabelText('Thread conversation')).toHaveClass('overflow-x-hidden', 'overflow-y-auto')
 		expect(screen.getByText(/Scrollable content/)).toHaveClass('sr-only')
 	})
 
@@ -30,7 +27,7 @@ describe('ScrollArea', () => {
 			</ScrollArea>,
 		)
 
-		const viewport = document.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]')
+		const viewport = screen.getByLabelText<HTMLElement>('Thread list')
 		expect(viewport).not.toBeNull()
 		if (!viewport) throw new Error('Scroll area viewport was not rendered')
 
@@ -53,7 +50,7 @@ describe('ScrollArea', () => {
 	})
 
 	it('forwards its viewport ref and observes size changes when supported', () => {
-		const viewportRef = { current: null as HTMLDivElement | null }
+		const viewportRef = { current: null as HTMLElement | null }
 		const observe = vi.fn()
 		const disconnect = vi.fn()
 		class ResizeObserverStub {
@@ -69,7 +66,7 @@ describe('ScrollArea', () => {
 			</ScrollArea>,
 		)
 
-		expect(viewportRef.current).toHaveAttribute('data-slot', 'scroll-area-viewport')
+		expect(viewportRef.current).toHaveAttribute('data-slot', 'scroll-area')
 		expect(observe).toHaveBeenCalled()
 		cleanup()
 		expect(disconnect).toHaveBeenCalled()
@@ -87,7 +84,7 @@ describe('ScrollArea', () => {
 			</ScrollArea>,
 		)
 
-		expect(viewportRef).toHaveBeenCalledWith(expect.any(HTMLDivElement))
+		expect(viewportRef).toHaveBeenCalledWith(expect.any(HTMLElement))
 		vi.unstubAllGlobals()
 	})
 })

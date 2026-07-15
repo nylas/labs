@@ -1,11 +1,10 @@
-import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
 import type * as React from 'react'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { cn } from '../../lib/utils.js'
 
-type ScrollAreaProps = React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+type ScrollAreaProps = React.ComponentProps<'section'> & {
 	viewportClassName?: string
-	viewportRef?: React.Ref<HTMLDivElement>
+	viewportRef?: React.Ref<HTMLElement>
 }
 
 type OverflowState = {
@@ -14,25 +13,23 @@ type OverflowState = {
 }
 
 /**
- * shadcn-style scroll container that keeps the browser scrollbar out of the
- * resting UI while retaining keyboard access and a visible affordance.
+ * A native shadcn-style scrolling region with directional overflow affordances.
  */
 export function ScrollArea({
 	className,
 	viewportClassName,
 	viewportRef,
 	children,
-	type = 'hover',
 	'aria-describedby': ariaDescribedBy,
 	...props
 }: ScrollAreaProps) {
 	const descriptionId = useId()
 	const describedBy = [ariaDescribedBy, descriptionId].filter(Boolean).join(' ')
-	const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
+	const [viewport, setViewport] = useState<HTMLElement | null>(null)
 	const [overflow, setOverflow] = useState<OverflowState>({ top: false, bottom: false })
 
 	const setViewportRef = useCallback(
-		(node: HTMLDivElement | null) => {
+		(node: HTMLElement | null) => {
 			setViewport(node)
 			if (typeof viewportRef === 'function') {
 				viewportRef(node)
@@ -77,24 +74,20 @@ export function ScrollArea({
 	}, [viewport])
 
 	return (
-		<ScrollAreaPrimitive.Root
+		<section
 			data-slot="scroll-area"
 			aria-describedby={describedBy}
-			className={cn('group relative w-full min-w-0 overflow-hidden', className)}
-			type={type}
+			ref={setViewportRef}
+			// biome-ignore lint/a11y/noNoninteractiveTabindex: Native scroll regions must be keyboard focusable.
+			tabIndex={0}
+			className={cn(
+				'group relative size-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[inherit] focus-visible:outline-none',
+				className,
+				viewportClassName,
+			)}
 			{...props}
 		>
-			<ScrollAreaPrimitive.Viewport
-				ref={setViewportRef}
-				data-slot="scroll-area-viewport"
-				tabIndex={0}
-				className={cn(
-					'size-full min-w-0 overflow-x-hidden rounded-[inherit] focus-visible:outline-none',
-					viewportClassName,
-				)}
-			>
-				{children}
-			</ScrollAreaPrimitive.Viewport>
+			{children}
 			<div
 				aria-hidden="true"
 				data-overflow-top={overflow.top ? '' : undefined}
@@ -114,13 +107,6 @@ export function ScrollArea({
 			<span id={descriptionId} className="sr-only">
 				Scrollable content. Use the mouse wheel, trackpad, Page Up, or Page Down to see more.
 			</span>
-			<ScrollAreaPrimitive.Scrollbar
-				data-slot="scroll-area-scrollbar"
-				orientation="vertical"
-				className="z-30 flex w-2.5 touch-none p-0.5 opacity-0 transition-opacity data-[state=visible]:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-			>
-				<ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
-			</ScrollAreaPrimitive.Scrollbar>
-		</ScrollAreaPrimitive.Root>
+		</section>
 	)
 }
