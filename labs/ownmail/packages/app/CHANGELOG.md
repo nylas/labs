@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.2.2
+
+### Patch Changes
+
+- 70c64e2: Fix contacts empty state and PWA metadata.
+- b6933fc: Add actionable OwnMail app recovery messages and prevent malformed provider lists from crashing views.
+
 ## 0.2.1
 
 ### Patch Changes

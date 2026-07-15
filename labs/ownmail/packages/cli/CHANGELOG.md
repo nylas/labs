@@ -1,5 +1,19 @@
 # ownmail
 
+## 0.2.2
+
+### Patch Changes
+
+- 70c64e2: Improve recovery guidance for OwnMail CLI errors.
+- 70c64e2: Keep Cloudflare unknown-state recovery guidance visible in CLI errors.
+- 70c64e2: Improve actionable CLI error recovery and deployment safety.
+- 70c64e2: Preserve a newly created API key when Cloudflare cannot confirm a key rotation, and provide safe reconciliation guidance.
+- 70c64e2: Keep actionable deployment and custom-domain validation guidance in CLI errors.
+- 626fadd: Preserve actionable no-change Cloudflare recovery during API-key rotation and clean up the unused new key.
+- Updated dependencies [70c64e2]
+- Updated dependencies [b6933fc]
+  - @ownmail/app@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes
