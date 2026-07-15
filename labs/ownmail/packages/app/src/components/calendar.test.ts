@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest'
 import {
 	addDays,
 	allDayEventSegments,
+	calendarDateInTimeZone,
 	calendarKeyAction,
+	calendarSlotTime,
+	calendarWallClockHour,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
+	fmtAgendaTime,
+	fmtTime,
 	isCalView,
 	isRenderableCalendarEvent,
 	moveCalendarDay,
@@ -267,6 +272,74 @@ describe('calendar view helpers', () => {
 		).toEqual({ top: 130, height: 76 })
 	})
 
+	it('uses the selected timezone consistently for days, times, and grid placement', () => {
+		const event = timedEvent('late-toronto', 'work', '2026-07-09T02:30:00Z', '2026-07-09T03:30:00Z')
+		const toronto = 'America/Toronto'
+		const previousDay = new Date('2026-07-08T12:00:00')
+		expect(calendarDateInTimeZone(previousDay)).toEqual(new Date('2026-07-08T00:00:00'))
+		expect(calendarDateInTimeZone(new Date('2026-07-09T02:30:00Z'), toronto)).toEqual(
+			new Date('2026-07-08T00:00:00'),
+		)
+		expect(eventsOnDay([event], previousDay, toronto).map(({ id }) => id)).toEqual(['late-toronto'])
+		expect(fmtTime(new Date('2026-07-09T02:30:00Z'), toronto)).toBe('10:30 PM')
+		expect(fmtAgendaTime(new Date('2026-07-09T02:30:00Z'), toronto)).toBe('22:30')
+		expect(
+			timedEventLayout(event, previousDay, { startHour: 7, endHour: 25, hourHeight: 52, timeZone: toronto }),
+		).toEqual({ top: 806, height: 50 })
+		expect(fmtTime(calendarSlotTime(previousDay, 9, toronto), 'Europe/London')).toBe('2 PM')
+	})
+
+	it('converts fractional wall-clock slots and current hours in the selected timezone', () => {
+		const toronto = 'America/Toronto'
+		const instant = calendarSlotTime(new Date('2026-07-08T00:00:00'), 9.5, toronto)
+		expect(instant.toISOString()).toBe('2026-07-08T13:30:00.000Z')
+		expect(calendarWallClockHour(instant, toronto)).toBe(9.5)
+	})
+
+	it('normalizes a nonexistent spring-forward slot to the first valid local time', () => {
+		const newYork = 'America/New_York'
+		const instant = calendarSlotTime(new Date(2026, 2, 8), 2, newYork)
+		const laterGapSlot = calendarSlotTime(new Date(2026, 2, 8), 2.5, newYork)
+
+		expect(instant.toISOString()).toBe('2026-03-08T07:00:00.000Z')
+		expect(calendarWallClockHour(instant, newYork)).toBe(3)
+		expect(laterGapSlot.toISOString()).toBe('2026-03-08T07:00:00.000Z')
+	})
+
+	it('excludes an event at its exact selected-timezone end boundary', () => {
+		const midnight = timedEvent('midnight', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:00:00Z')
+		const thirtyPast = timedEvent('thirty-past', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:30:00Z')
+		const nextDay = new Date('2026-07-09T12:00:00')
+		expect(eventsOnDay([midnight, thirtyPast], nextDay, 'UTC').map(({ id }) => id)).toEqual(['thirty-past'])
+		expect(
+			timedEventLayout(midnight, nextDay, { startHour: 0, endHour: 24, hourHeight: 52, timeZone: 'UTC' }),
+		).toBeNull()
+	})
+
+	it('lays out early-morning events when the time grid starts at midnight', () => {
+		const early = timedEvent('early', 'work', '2026-07-08T06:00:00Z', '2026-07-08T07:00:00Z')
+		expect(
+			timedEventLayout(early, new Date('2026-07-08T00:00:00'), {
+				startHour: 0,
+				endHour: 25,
+				hourHeight: 52,
+				timeZone: 'America/Toronto',
+			}),
+		).toEqual({ top: 104, height: 50 })
+	})
+
+	it('omits an event when its selected-timezone range is fully clipped', () => {
+		const late = timedEvent('late', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:00:00Z')
+		expect(
+			timedEventLayout(late, new Date('2026-07-08T00:00:00'), {
+				startHour: 0,
+				endHour: 23,
+				hourHeight: 52,
+				timeZone: 'UTC',
+			}),
+		).toBeNull()
+	})
+
 	it('clamps overnight Nylas events to the visible part of the rendered day', () => {
 		const event = timedEvent('deploy', 'work', '2026-07-08T22:30:00', '2026-07-09T01:00:00')
 
@@ -284,6 +357,18 @@ describe('calendar view helpers', () => {
 				hourHeight: 52,
 			}),
 		).toBeNull()
+	})
+
+	it('lays out an event ending at midnight in the late-night calendar rows', () => {
+		const event = timedEvent('late', 'work', '2026-07-08T23:00:00', '2026-07-09T00:00:00')
+
+		expect(
+			timedEventLayout(event, new Date('2026-07-08T12:00:00'), {
+				startHour: 7,
+				endHour: 25,
+				hourHeight: 52,
+			}),
+		).toEqual({ top: 832, height: 50 })
 	})
 
 	it('has no time-grid layout for all-day events', () => {

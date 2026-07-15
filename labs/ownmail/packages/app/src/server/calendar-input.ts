@@ -6,8 +6,16 @@ const MAX_LOCATION_LENGTH = 1000
 const MAX_DESCRIPTION_LENGTH = 100_000
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const RSVP_STATUSES = ['yes', 'no', 'maybe'] as const
+const RECURRENCE_FREQUENCIES = ['weekly', 'yearly'] as const
+const RECURRENCE_WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const
 
 type RsvpStatus = (typeof RSVP_STATUSES)[number]
+export type RecurrenceWeekday = (typeof RECURRENCE_WEEKDAYS)[number]
+export type EventRecurrence = {
+	frequency: (typeof RECURRENCE_FREQUENCIES)[number]
+	interval: 1 | 2
+	weekdays?: RecurrenceWeekday[]
+}
 
 export type EventRangeInput = {
 	start: number
@@ -18,8 +26,11 @@ export type CreateEventInput = {
 	title: string
 	description?: string
 	location?: string
-	startTime: number
-	endTime: number
+	startTime?: number
+	endTime?: number
+	allDayDate?: string
+	timezone?: string
+	recurrence?: EventRecurrence
 	participants?: string[]
 	calendarId?: string
 }
@@ -54,15 +65,29 @@ export function normalizeEventRangeInput(input: EventRangeInput): EventRangeInpu
 export function normalizeCreateEventInput(input: CreateEventInput): CreateEventInput {
 	const title = requireBoundedString(input.title, 'title', MAX_TITLE_LENGTH).trim()
 	if (!title) throw new Error('Title is required')
-	const startTime = requireEpochSeconds(input.startTime, 'start time')
-	const endTime = requireEpochSeconds(input.endTime, 'end time')
-	requireValidRange(startTime, endTime)
+	const allDayDate = input.allDayDate === undefined ? undefined : requireCalendarDate(input.allDayDate)
+	if (allDayDate !== undefined && (input.startTime !== undefined || input.endTime !== undefined)) {
+		throw new Error('Choose either an all-day date or a time range')
+	}
+	if (allDayDate === undefined && (input.startTime === undefined || input.endTime === undefined)) {
+		throw new Error('Start and end time are required')
+	}
+	const startTime =
+		input.startTime === undefined ? undefined : requireEpochSeconds(input.startTime, 'start time')
+	const endTime = input.endTime === undefined ? undefined : requireEpochSeconds(input.endTime, 'end time')
+	if (startTime !== undefined && endTime !== undefined) requireValidRange(startTime, endTime)
+	const recurrence = input.recurrence === undefined ? undefined : normalizeRecurrence(input.recurrence)
+	const timezone = input.timezone === undefined ? undefined : requireTimeZone(input.timezone)
+	if (recurrence && !allDayDate && !timezone) throw new Error('Timezone is required for recurring events')
 	const participants = normalizeParticipants(input.participants)
 
 	return {
 		title,
-		startTime,
-		endTime,
+		...(startTime !== undefined ? { startTime } : {}),
+		...(endTime !== undefined ? { endTime } : {}),
+		...(allDayDate !== undefined ? { allDayDate } : {}),
+		...(timezone !== undefined ? { timezone } : {}),
+		...(recurrence !== undefined ? { recurrence } : {}),
 		...(input.description !== undefined
 			? { description: requireBoundedString(input.description, 'description', MAX_DESCRIPTION_LENGTH) }
 			: {}),
@@ -74,6 +99,28 @@ export function normalizeCreateEventInput(input: CreateEventInput): CreateEventI
 			? { calendarId: requireNylasProviderId(input.calendarId, 'calendar') }
 			: {}),
 	}
+}
+
+function normalizeRecurrence(value: EventRecurrence): EventRecurrence {
+	if (value === null || typeof value !== 'object' || Array.isArray(value))
+		throw new Error('Invalid recurrence')
+	if (!RECURRENCE_FREQUENCIES.includes(value.frequency)) throw new Error('Invalid recurrence')
+	if (value.interval !== 1 && value.interval !== 2) throw new Error('Invalid recurrence')
+	if (value.frequency === 'yearly') {
+		if (value.interval !== 1 || value.weekdays !== undefined) throw new Error('Invalid recurrence')
+		return { frequency: 'yearly', interval: 1 }
+	}
+	if (!Array.isArray(value.weekdays) || value.weekdays.length === 0 || value.weekdays.length > 7) {
+		throw new Error('Invalid recurrence')
+	}
+	if (
+		!value.weekdays.every((weekday): weekday is RecurrenceWeekday => RECURRENCE_WEEKDAYS.includes(weekday))
+	) {
+		throw new Error('Invalid recurrence')
+	}
+	const weekdays = RECURRENCE_WEEKDAYS.filter((weekday) => value.weekdays?.includes(weekday))
+	if (weekdays.length !== value.weekdays.length) throw new Error('Invalid recurrence')
+	return { frequency: 'weekly', interval: value.interval, weekdays }
 }
 
 export function normalizeUpdateEventInput(input: UpdateEventInput): UpdateEventInput {
@@ -149,6 +196,27 @@ function requireValidRange(start: number, end: number) {
 function requireBoundedString(value: string, label: string, maxLength: number): string {
 	if (typeof value !== 'string' || value.length > maxLength) throw new Error(`Invalid ${label}`)
 	return value
+}
+
+function requireCalendarDate(value: string): string {
+	if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Invalid all-day date')
+	const date = new Date(`${value}T00:00:00`)
+	if (Number.isNaN(date.getTime()) || formatDate(date) !== value) throw new Error('Invalid all-day date')
+	return value
+}
+
+function formatDate(date: Date): string {
+	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function requireTimeZone(value: string): string {
+	if (typeof value !== 'string' || value.length < 1 || value.length > 100) throw new Error('Invalid timezone')
+	try {
+		Intl.DateTimeFormat(undefined, { timeZone: value })
+		return value
+	} catch {
+		throw new Error('Invalid timezone')
+	}
 }
 
 function normalizeParticipants(participants: string[] | undefined): string[] {

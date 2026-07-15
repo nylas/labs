@@ -299,6 +299,7 @@ describe('runCreate — step machine', () => {
 
 		await runCreate({ name: 'acme' })
 
+		expect(p.intro).toHaveBeenCalledWith('ownmail')
 		expect(p.outro).toHaveBeenCalledWith('Enjoy your inbox — powered by Nylas.')
 		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('Nylas email address'), 'Before you start')
 		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('Starting “acme” at [1/5]'))

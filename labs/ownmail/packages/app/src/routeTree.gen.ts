@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as LoginRouteImport } from './routes/login'
@@ -32,6 +33,11 @@ import { Route as MailFFolderIdRouteImport } from './routes/mail.f.$folderId'
 import { Route as ApiWebhooksNylasRouteImport } from './routes/api.webhooks.nylas'
 import { Route as MailFFolderIdTThreadIdRouteImport } from './routes/mail.f.$folderId.t.$threadId'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MailRoute = MailRouteImport.update({
   id: '/mail',
   path: '/mail',
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/healthz': typeof HealthzRoute
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
+  '/settings': typeof SettingsRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/mail'
+    | '/settings'
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
@@ -245,6 +255,7 @@ export interface FileRouteTypes {
     | '/healthz'
     | '/login'
     | '/logout'
+    | '/settings'
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/mail'
+    | '/settings'
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
@@ -294,6 +306,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   LogoutRoute: typeof LogoutRoute
   MailRoute: typeof MailRouteWithChildren
+  SettingsRoute: typeof SettingsRoute
   ApiVersionRoute: typeof ApiVersionRoute
   AttachmentsAttachmentIdRoute: typeof AttachmentsAttachmentIdRoute
   ApiWebhooksNylasRoute: typeof ApiWebhooksNylasRoute
@@ -301,6 +314,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mail': {
       id: '/mail'
       path: '/mail'
@@ -535,6 +555,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   LogoutRoute: LogoutRoute,
   MailRoute: MailRouteWithChildren,
+  SettingsRoute: SettingsRoute,
   ApiVersionRoute: ApiVersionRoute,
   AttachmentsAttachmentIdRoute: AttachmentsAttachmentIdRoute,
   ApiWebhooksNylasRoute: ApiWebhooksNylasRoute,

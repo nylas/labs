@@ -33,10 +33,15 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 const mailboxFromRequestMock = vi.fn()
-vi.mock('./nylas.js', () => ({ mailboxFromRequest: (r: Request) => mailboxFromRequestMock(r) }))
+const nylasMock = vi.fn()
+vi.mock('./nylas.js', () => ({
+	mailboxFromRequest: (r: Request) => mailboxFromRequestMock(r),
+	nylas: () => nylasMock(),
+}))
 
 const platformMock = vi.fn()
-vi.mock('./platform.js', () => ({ platform: () => platformMock() }))
+const usingDevMocksMock = vi.fn()
+vi.mock('./platform.js', () => ({ platform: () => platformMock(), usingDevMocks: () => usingDevMocksMock() }))
 
 import { LOGIN_PATH } from '../components/route-paths.js'
 import * as fns from './fns.js'
@@ -68,15 +73,64 @@ function makeMailbox() {
 let mailbox: ReturnType<typeof makeMailbox>
 
 function resolveMailbox(extra: Record<string, unknown> = {}) {
-	mailboxFromRequestMock.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', ...extra })
+	mailboxFromRequestMock.mockResolvedValue({
+		mailbox,
+		grantId: 'grant-123',
+		email: 'ada@ownmail.com',
+		...extra,
+	})
 }
 
 beforeEach(() => {
 	mailbox = makeMailbox()
 	getRequestMock.mockReset().mockReturnValue(new Request('http://ownmail.local/'))
 	mailboxFromRequestMock.mockReset()
+	nylasMock.mockReset()
+	usingDevMocksMock.mockReset().mockResolvedValue(false)
 	mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
 	platformMock.mockReset().mockResolvedValue({ env: { APP_NAME: 'ownmail' } })
+})
+
+describe('account settings security', () => {
+	it('keeps password changes disabled unless the administrator explicitly enables them', async () => {
+		resolveMailbox()
+		platformMock.mockResolvedValue({ env: { APP_NAME: 'ownmail', OWNMAIL_ALLOW_PASSWORD_RESET: 'false' } })
+		expect(await fns.getAccountCapabilities.handler({})).toEqual({ passwordResetEnabled: false })
+		await expect(
+			fns.resetMailboxPassword.handler({ data: { password: 'ValidPassword123!More' } }),
+		).rejects.toThrow('Password changes are unavailable')
+		expect(nylasMock).not.toHaveBeenCalled()
+	})
+
+	it('validates password strength and updates only the session grant when enabled', async () => {
+		expect(() => fns.resetMailboxPassword.validator(null)).toThrow('Invalid password')
+		expect(() => fns.resetMailboxPassword.validator({ password: 'short' })).toThrow('required security rules')
+		const updateGrant = vi.fn().mockResolvedValue({ data: {} })
+		nylasMock.mockResolvedValue({ updateGrant })
+		resolveMailbox({ grantId: 'grant-from-session' })
+		platformMock.mockResolvedValue({ env: { APP_NAME: 'ownmail', OWNMAIL_ALLOW_PASSWORD_RESET: 'true' } })
+		const data = fns.resetMailboxPassword.validator({ password: 'ValidPassword123!More' })
+		expect(await fns.resetMailboxPassword.handler({ data })).toEqual({ ok: true })
+		expect(updateGrant).toHaveBeenCalledWith('grant-from-session', {
+			settings: { email: 'ada@ownmail.com', app_password: 'ValidPassword123!More' },
+		})
+	})
+
+	it('does not expose a provider failure or update development mailboxes', async () => {
+		resolveMailbox()
+		platformMock.mockResolvedValue({ env: { APP_NAME: 'ownmail', OWNMAIL_ALLOW_PASSWORD_RESET: 'true' } })
+		const updateGrant = vi.fn().mockRejectedValue(new Error('provider detail'))
+		nylasMock.mockResolvedValue({ updateGrant })
+		await expect(
+			fns.resetMailboxPassword.handler({ data: { password: 'ValidPassword123!More' } }),
+		).rejects.toThrow('Something went wrong')
+
+		usingDevMocksMock.mockResolvedValue(true)
+		await expect(
+			fns.resetMailboxPassword.handler({ data: { password: 'ValidPassword123!More' } }),
+		).resolves.toEqual({ ok: true })
+		expect(updateGrant).toHaveBeenCalledTimes(1)
+	})
 })
 
 describe('requireMailbox (auth gate)', () => {
@@ -94,6 +148,12 @@ describe('getMailboxInfo', () => {
 			displayName: 'Ada Lovelace',
 			appName: 'ownmail',
 		})
+	})
+
+	it('returns the configured site name instead of the worker project identifier', async () => {
+		resolveMailbox()
+		platformMock.mockResolvedValue({ env: { APP_NAME: 'mail-worker-42', OWNMAIL_SITE_NAME: 'Acme Mail' } })
+		expect(await fns.getMailboxInfo.handler({})).toMatchObject({ appName: 'Acme Mail' })
 	})
 
 	it('omits displayName when the mailbox has none', async () => {
@@ -808,6 +868,47 @@ describe('deleteContact', () => {
 		await expect(fns.deleteContact.handler({ data: { contactId: 'contact-1' } })).rejects.toThrow(
 			'Something went wrong',
 		)
+	})
+})
+
+describe('saveComposeRecipients', () => {
+	it('validates addresses, deduplicates them, and saves only new external contacts', async () => {
+		expect(() => fns.saveComposeRecipients.validator(null)).toThrow('Invalid recipients')
+		expect(() => fns.saveComposeRecipients.validator({ emails: Array(21).fill('a@x.com') })).toThrow(
+			'Invalid recipients',
+		)
+		expect(() => fns.saveComposeRecipients.validator({ emails: [123] })).toThrow('Invalid recipients')
+		expect(() => fns.saveComposeRecipients.validator({ emails: ['not-an-email'] })).toThrow(
+			'Invalid recipient',
+		)
+		expect(() => fns.saveComposeRecipients.validator({ emails: [`${'a'.repeat(315)}@x.com`] })).toThrow(
+			'Invalid recipients',
+		)
+		expect(fns.saveComposeRecipients.validator({ emails: ['ADA@x.com', 'ada@x.com'] })).toEqual({
+			emails: ['ada@x.com'],
+		})
+
+		resolveMailbox()
+		mailbox.listContacts
+			.mockResolvedValueOnce({ data: [] })
+			.mockResolvedValueOnce({ data: [{ emails: [{ email: 'already@x.com' }] }] })
+			.mockRejectedValueOnce(new Error('optional contact failure'))
+		await expect(
+			fns.saveComposeRecipients.handler({
+				data: { emails: ['new@x.com', 'already@x.com', 'ada@ownmail.com', 'skip@x.com'] },
+			}),
+		).resolves.toEqual({ ok: true })
+		expect(mailbox.createContact).toHaveBeenCalledWith({ emails: [{ email: 'new@x.com' }] })
+		expect(mailbox.createContact).toHaveBeenCalledTimes(1)
+	})
+
+	it('saves a recipient when the provider returns no contacts data', async () => {
+		resolveMailbox()
+		mailbox.listContacts.mockResolvedValue({ data: null } as never)
+		await expect(fns.saveComposeRecipients.handler({ data: { emails: ['new@x.com'] } })).resolves.toEqual({
+			ok: true,
+		})
+		expect(mailbox.createContact).toHaveBeenCalledWith({ emails: [{ email: 'new@x.com' }] })
 	})
 })
 

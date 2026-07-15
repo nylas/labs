@@ -98,6 +98,10 @@ pnpm --filter @ownmail/app dev:local
 Add `http://localhost:5173/auth/callback` to the Nylas application's callback
 URIs first.
 
+Set `OWNMAIL_SITE_NAME` to customize the user-facing name shown in the browser
+title, sign-in screen, and app navigation. It is optional and defaults to
+`ownmail`; `APP_NAME` remains the deployment/project identifier.
+
 ## Free plan limits
 
 200 sends/day per inbox, 3 GB storage per organization, 50 MB per message,

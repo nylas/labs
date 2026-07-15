@@ -26,6 +26,25 @@ describe('EventModal helpers', () => {
 		})
 	})
 
+	it('keeps an 11 PM slot and offers midnight as its end boundary', () => {
+		expect(eventInitialHours(new Date('2026-07-08T23:00:00'))).toEqual({ startHour: 23, endHour: 24 })
+	})
+
+	it('keeps a midnight slot instead of replacing it with the daytime default', () => {
+		expect(eventInitialHours(new Date('2026-07-08T00:00:00'), true)).toEqual({ startHour: 0, endHour: 1 })
+	})
+
+	it('derives modal hours in the selected calendar timezone and keeps late starts selectable', () => {
+		expect(eventInitialHours(new Date('2026-07-08T13:00:00Z'), true, 'America/Toronto')).toEqual({
+			startHour: 9,
+			endHour: 10,
+		})
+		expect(eventInitialHours(new Date('2026-07-08T23:45:00'), true)).toEqual({
+			startHour: 23.5,
+			endHour: 24,
+		})
+	})
+
 	it('keeps the reference event-colored outline on the selected calendar choice', () => {
 		const className = eventCalendarChoiceClass(true, 'teal')
 

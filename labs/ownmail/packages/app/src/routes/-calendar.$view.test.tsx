@@ -69,7 +69,24 @@ vi.mock('../components/EventModal.js', () => ({
 			data-calendar-id={props.calendarId}
 			data-calendar-name={props.calendarName}
 			data-default-start={props.defaultStart?.toISOString?.()}
+			data-preserve-default-start-time={String(props.preserveDefaultStartTime)}
 		>
+			<button
+				type="button"
+				onClick={() =>
+					props.onDraftChange?.({
+						id: '__new-event-preview__',
+						calendar_id: 'cal1',
+						title: 'Live draft',
+						when: {
+							start_time: Math.floor(new Date('2024-06-15T09:30:00').getTime() / 1000),
+							end_time: Math.floor(new Date('2024-06-15T10:30:00').getTime() / 1000),
+						},
+					})
+				}
+			>
+				show-live-preview
+			</button>
 			<button type="button" onClick={() => props.onClose(true)}>
 				close-changed
 			</button>
@@ -190,6 +207,7 @@ const monthData = () => ({
 afterEach(() => {
 	cleanup()
 	vi.clearAllMocks()
+	localStorage.clear()
 })
 beforeEach(() => {
 	vi.clearAllMocks()
@@ -240,12 +258,14 @@ describe('/calendar/$view route config', () => {
 })
 
 describe('loadCalendarRouteData', () => {
-	it('anchors on the requested date and fetches that view range', async () => {
+	it('anchors on the requested date and buffers the fetched range for display timezone boundaries', async () => {
 		const data = await loadCalendarRouteData('week', '2024-06-15')
 		expect(data.anchorIso).toBe('2024-06-15')
 		const arg = h.getEvents.mock.calls[0][0]
-		expect(typeof arg.data.start).toBe('number')
-		expect(arg.data.end).toBeGreaterThan(arg.data.start)
+		expect(arg.data).toEqual({
+			start: Math.floor(new Date('2024-06-08T00:00:00').getTime() / 1000),
+			end: Math.floor(new Date('2024-06-17T00:00:00').getTime() / 1000),
+		})
 	})
 
 	it('falls back to today when no date is supplied', async () => {
@@ -402,7 +422,23 @@ describe('week view time grid', () => {
 		expect(untitled.textContent).not.toContain('–')
 	})
 
-	it('hides an event that falls entirely before the visible day window', () => {
+	it('labels the primary and secondary time scales directly in the time ruler', async () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({
+				displayName: '',
+				autoSaveContacts: true,
+				primaryTimezone: 'America/Toronto',
+				secondaryTimezone: 'Europe/London',
+			}),
+		)
+		renderWeek()
+		const ruler = await screen.findByLabelText('Time ruler: Toronto primary time, London secondary time')
+		expect(ruler).toHaveTextContent('Toronto')
+		expect(ruler).toHaveTextContent('London')
+	})
+
+	it('hides an event that falls outside the selected calendar day', () => {
 		renderWeek()
 		expect(screen.queryByRole('button', { name: 'Night' })).toBeNull()
 	})
@@ -444,6 +480,7 @@ describe('week view time grid', () => {
 		expect(modal.dataset.event).toBe('new')
 		// Slot click seeds a concrete start time rather than falling back to the anchor.
 		expect(modal.dataset.defaultStart).toBeTruthy()
+		expect(modal.dataset.preserveDefaultStartTime).toBe('true')
 	})
 
 	it('draws inter-day column rules across a multi-day week', () => {
@@ -464,8 +501,10 @@ describe('week view time grid', () => {
 describe('day view time grid', () => {
 	it('renders a single day column with all-day events and no inter-day rules', () => {
 		const { container } = render(<CalendarRouteScreen view="day" data={richData()} />)
-		// Only 16 hour slots for a single day column (7:00 through 22:00 inclusive).
-		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(16)
+		// A day has one midnight row (at the top) and runs through 11 PM.
+		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(24)
+		expect(screen.getAllByRole('button', { name: /Create event at 12 AM/ })).toHaveLength(1)
+		expect(screen.getByRole('button', { name: /Create event at 11 PM/ })).toBeInTheDocument()
 		expect(screen.getByText('All day')).toBeInTheDocument()
 		expect(container.querySelectorAll('.border-l')).toHaveLength(0)
 	})
@@ -558,11 +597,11 @@ describe('current-time indicator', () => {
 		expect(container.querySelector('.bg-destructive')).not.toBeNull()
 	})
 
-	it('hides the now line when the current hour is outside the visible window', () => {
+	it('draws the now line for an early-morning hour', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T05:00:00'))
 		const { container } = render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
-		expect(container.querySelector('.bg-destructive')).toBeNull()
+		expect(container.querySelector('.bg-destructive')).not.toBeNull()
 	})
 })
 
@@ -669,6 +708,20 @@ describe('event editor', () => {
 		const modal = screen.getByTestId('event-modal')
 		expect(modal.dataset.event).toBe('new')
 		expect(modal.dataset.calendarName).toBe('Primary Cal')
+	})
+
+	it('renders a live composer draft alongside saved events with preview styling', () => {
+		renderWeek()
+		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(screen.getByRole('button', { name: 'show-live-preview' }))
+
+		const preview = screen.getByRole('button', { name: /Live draft/ })
+		const saved = screen.getByRole('button', { name: /Standup/ })
+		expect(preview).toHaveClass('border-dashed')
+		expect(preview).toBeDisabled()
+		expect(saved).not.toHaveClass('border-dashed')
+		fireEvent.click(preview)
+		expect(screen.getByTestId('event-modal').dataset.event).toBe('new')
 	})
 
 	it('falls back to the primary calendar name for an event on an unknown calendar', () => {

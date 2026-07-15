@@ -109,6 +109,12 @@ export function moveCalendarDay(current: Date, key: string): Date | null {
 }
 
 export type EventTimes = { start: Date; end: Date; allDay: boolean }
+export type CalendarTimeZone = string | undefined
+export const NEW_EVENT_PREVIEW_ID = '__new-event-preview__'
+
+export function isNewEventPreview(event: Event): boolean {
+	return event.id === NEW_EVENT_PREVIEW_ID
+}
 
 type UnknownRecord = Record<string, unknown>
 
@@ -163,7 +169,134 @@ export function isRenderableCalendarEvent(value: unknown): value is Event {
 	return eventTimes(value) !== null
 }
 
-export function eventsOnDay(events: Event[], day: Date): Event[] {
+type ZonedDateTime = { year: number; month: number; day: number; hour: number; minute: number }
+
+function zonedDateTime(date: Date, timeZone: string): ZonedDateTime {
+	const values = new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		hourCycle: 'h23',
+	}).formatToParts(date)
+	const part = (type: Intl.DateTimeFormatPartTypes) =>
+		Number(values.find((value) => value.type === type)?.value)
+	return {
+		year: part('year'),
+		month: part('month'),
+		day: part('day'),
+		hour: part('hour'),
+		minute: part('minute'),
+	}
+}
+
+function zonedYmd(date: Date, timeZone: string): string {
+	const zoned = zonedDateTime(date, timeZone)
+	return `${zoned.year}-${String(zoned.month).padStart(2, '0')}-${String(zoned.day).padStart(2, '0')}`
+}
+
+/** A plain calendar date for an instant in the selected display timezone. */
+export function calendarDateInTimeZone(date: Date, timeZone?: CalendarTimeZone): Date {
+	if (!timeZone) return startOfDay(date)
+	const zoned = zonedDateTime(date, timeZone)
+	return new Date(zoned.year, zoned.month - 1, zoned.day)
+}
+
+/** Returns the wall-clock hour (including minutes) for an instant in the selected timezone. */
+export function calendarWallClockHour(date: Date, timeZone?: CalendarTimeZone): number {
+	if (!timeZone) return date.getHours() + date.getMinutes() / 60
+	const zoned = zonedDateTime(date, timeZone)
+	return zoned.hour + zoned.minute / 60
+}
+
+function zonedTimeValue(date: Date, timeZone: string): number {
+	const zoned = zonedDateTime(date, timeZone)
+	return Date.UTC(zoned.year, zoned.month - 1, zoned.day, zoned.hour, zoned.minute)
+}
+
+/**
+ * Finds the transition boundary following a nonexistent wall-clock time.
+ *
+ * Local time increases monotonically across a spring-forward transition, but
+ * jumps over the missing interval. `before` and `after` bracket that jump,
+ * so a minute-precision binary search finds the first valid local minute.
+ */
+function firstValidTimeAfterGap(target: number, timeZone: string, before: number, after: number): Date {
+	let lower = before
+	let upper = after
+	while (upper - lower > 60_000) {
+		const middle = lower + Math.floor((upper - lower) / 120_000) * 60_000
+		if (zonedTimeValue(new Date(middle), timeZone) > target) upper = middle
+		else lower = middle
+	}
+	return new Date(upper)
+}
+
+/** Converts a display-zone wall-clock slot into an instant for timezone reference labels. */
+export function calendarSlotTime(day: Date, hour: number, timeZone: string): Date {
+	const wholeHour = Math.floor(hour)
+	const minute = Math.round((hour - wholeHour) * 60)
+	const target = Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), wholeHour, minute)
+
+	// The offset immediately before and after a DST transition can differ. Try
+	// each nearby offset so normal times and both sides of a fall-back overlap
+	// map exactly, without relying on a fixed-point adjustment that oscillates
+	// for spring-forward gaps.
+	const offsets = new Set<number>()
+	for (const daysFromTarget of [-2, -1, 0, 1, 2]) {
+		const sample = target + daysFromTarget * 24 * 60 * 60 * 1000
+		offsets.add(zonedTimeValue(new Date(sample), timeZone) - sample)
+	}
+	const candidates = [...offsets].map((offset) => target - offset)
+	const resolved = candidates.map((instant) => ({
+		instant,
+		localTime: zonedTimeValue(new Date(instant), timeZone),
+	}))
+	const exact = resolved
+		.filter(({ localTime }) => localTime === target)
+		.sort((a, b) => a.instant - b.instant)[0]
+	if (exact) return new Date(exact.instant)
+
+	// A nonexistent local time lies between the old-offset candidate (before the
+	// requested wall time) and new-offset candidate (after it). Normalize it to
+	// the first valid local minute after the gap instead of returning either side.
+	const gaps = resolved.flatMap((lower) =>
+		resolved
+			.filter(
+				(upper) => lower.localTime < target && upper.localTime > target && lower.instant < upper.instant,
+			)
+			.map((upper) => ({ before: lower.instant, after: upper.instant })),
+	)
+	// With no exact candidate, the before/after samples above bound a gap in the
+	// current IANA timezone rules.
+	const gap = gaps.sort((a, b) => a.after - a.before - (b.after - b.before))[0] as (typeof gaps)[number]
+	return firstValidTimeAfterGap(target, timeZone, gap.before, gap.after)
+}
+
+function compareYmd(a: string, b: string): number {
+	return a.localeCompare(b)
+}
+
+function dayOffset(from: string, to: string): number {
+	const [fromYear = 0, fromMonth = 0, fromDay = 0] = from.split('-').map(Number)
+	const [toYear = 0, toMonth = 0, toDay = 0] = to.split('-').map(Number)
+	return (Date.UTC(toYear, toMonth - 1, toDay) - Date.UTC(fromYear, fromMonth - 1, fromDay)) / 86_400_000
+}
+
+function timedEventOnDay(times: EventTimes, day: Date, timeZone: string): boolean {
+	const dayIso = ymd(day)
+	const end = zonedDateTime(times.end, timeZone)
+	const startIso = zonedYmd(times.start, timeZone)
+	const endIso = zonedYmd(times.end, timeZone)
+	return (
+		compareYmd(startIso, dayIso) <= 0 &&
+		(compareYmd(endIso, dayIso) > 0 || (endIso === dayIso && (end.hour > 0 || end.minute > 0)))
+	)
+}
+
+export function eventsOnDay(events: Event[], day: Date, timeZone?: CalendarTimeZone): Event[] {
 	const dayStart = startOfDay(day).getTime()
 	const dayEnd = dayStart + 24 * 60 * 60 * 1000
 	return events
@@ -171,6 +304,7 @@ export function eventsOnDay(events: Event[], day: Date): Event[] {
 			const times = eventTimes(e)
 			if (!times) return false
 			const { start, end } = times
+			if (timeZone && !times.allDay) return timedEventOnDay(times, day, timeZone)
 			return start.getTime() < dayEnd && end.getTime() > dayStart
 		})
 		.sort((a, b) => {
@@ -245,17 +379,34 @@ export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: Read
 	)
 }
 
-export function timedEventsOnDay(events: Event[], day: Date): Event[] {
-	return eventsOnDay(events, day).filter((event) => eventTimes(event)?.allDay === false)
+export function timedEventsOnDay(events: Event[], day: Date, timeZone?: CalendarTimeZone): Event[] {
+	return eventsOnDay(events, day, timeZone).filter((event) => eventTimes(event)?.allDay === false)
 }
 
 export function timedEventLayout(
 	event: Event,
 	day: Date,
-	options: { startHour: number; endHour: number; hourHeight: number },
+	options: { startHour: number; endHour: number; hourHeight: number; timeZone?: CalendarTimeZone },
 ): { top: number; height: number } | null {
 	const times = eventTimes(event)
 	if (!times || times.allDay) return null
+	if (options.timeZone) {
+		if (!timedEventOnDay(times, day, options.timeZone)) return null
+		const dayIso = ymd(day)
+		const relativeDecimalHour = (date: Date) => {
+			const zoned = zonedDateTime(date, options.timeZone as string)
+			return (
+				dayOffset(dayIso, zonedYmd(date, options.timeZone as string)) * 24 + zoned.hour + zoned.minute / 60
+			)
+		}
+		const startDecimal = Math.max(relativeDecimalHour(times.start), options.startHour)
+		const endDecimal = Math.min(relativeDecimalHour(times.end), options.endHour)
+		if (endDecimal <= startDecimal) return null
+		return {
+			top: (startDecimal - options.startHour) * options.hourHeight,
+			height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),
+		}
+	}
 
 	const visibleStart = dateWithHour(startOfDay(day), options.startHour)
 	const visibleEnd = dateWithHour(startOfDay(day), options.endHour)
@@ -263,25 +414,39 @@ export function timedEventLayout(
 	const end = new Date(Math.min(times.end.getTime(), visibleEnd.getTime()))
 	if (end <= start) return null
 
-	const startDecimal = start.getHours() + start.getMinutes() / 60
-	const endDecimal = end.getHours() + end.getMinutes() / 60
+	const dayStart = startOfDay(day)
+	const relativeDecimalHour = (date: Date) => {
+		const calendarDayOffset = Math.round(
+			(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) -
+				Date.UTC(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate())) /
+				86_400_000,
+		)
+		return calendarDayOffset * 24 + date.getHours() + date.getMinutes() / 60
+	}
+	const startDecimal = relativeDecimalHour(start)
+	const endDecimal = relativeDecimalHour(end)
 	return {
 		top: (startDecimal - options.startHour) * options.hourHeight,
 		height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),
 	}
 }
 
-export function fmtTime(d: Date): string {
-	return fmtCompactTime(d)
+export function fmtTime(d: Date, timeZone?: CalendarTimeZone): string {
+	return fmtCompactTime(d, timeZone)
 }
 
-export function fmtAgendaTime(d: Date): string {
+export function fmtAgendaTime(d: Date, timeZone?: CalendarTimeZone): string {
+	if (timeZone) {
+		const zoned = zonedDateTime(d, timeZone)
+		return `${zoned.hour}:${String(zoned.minute).padStart(2, '0')}`
+	}
 	return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export function fmtCompactTime(d: Date): string {
-	const hour = d.getHours()
-	const minute = d.getMinutes()
+export function fmtCompactTime(d: Date, timeZone?: CalendarTimeZone): string {
+	const zoned = timeZone ? zonedDateTime(d, timeZone) : null
+	const hour = zoned?.hour ?? d.getHours()
+	const minute = zoned?.minute ?? d.getMinutes()
 	const period = hour >= 12 ? 'PM' : 'AM'
 	const displayHour = hour % 12 === 0 ? 12 : hour % 12
 	return minute === 0

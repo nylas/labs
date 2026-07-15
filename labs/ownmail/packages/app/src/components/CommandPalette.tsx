@@ -27,6 +27,7 @@ export function CommandPalette({
 	const [query, setQuery] = useState('')
 	const [activeIndex, setActiveIndex] = useState(0)
 	const inputRef = useRef<HTMLInputElement>(null)
+	const listRef = useRef<HTMLDivElement>(null)
 
 	const go = useCallback(
 		(run: () => void) => {
@@ -128,6 +129,14 @@ export function CommandPalette({
 		return () => document.removeEventListener('keydown', onKeyDown)
 	}, [activeIndex, filtered, go, open])
 
+	useEffect(() => {
+		if (!open) return
+		const selectedCommand = filtered[activeIndex]
+		if (!selectedCommand) return
+		const activeElement = listRef.current?.querySelector<HTMLElement>('[aria-current="true"]')
+		activeElement?.scrollIntoView?.({ block: 'nearest' })
+	}, [activeIndex, filtered, open])
+
 	return (
 		<Dialog
 			open={open}
@@ -161,7 +170,7 @@ export function CommandPalette({
 					/>
 					<kbd className="kbd hidden sm:inline-flex">esc</kbd>
 				</div>
-				<div className="max-h-[min(24rem,50vh)] overflow-y-auto p-2">
+				<div ref={listRef} className="max-h-[min(24rem,50vh)] overflow-y-auto p-2">
 					{filtered.length === 0 ? (
 						<p className="px-3 py-6 text-center text-sm text-muted-foreground">No matching commands</p>
 					) : (

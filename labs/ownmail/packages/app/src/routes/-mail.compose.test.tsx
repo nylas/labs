@@ -32,6 +32,7 @@ const getFolders = vi.fn()
 const getThreads = vi.fn()
 const getThreadMessages = vi.fn()
 const saveDraft = vi.fn()
+const saveComposeRecipients = vi.fn()
 const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
@@ -42,6 +43,7 @@ vi.mock('../server/fns.js', () => ({
 	getThreads: (a: any) => getThreads(a),
 	getThreadMessages: (a: any) => getThreadMessages(a),
 	saveDraft: (a: any) => saveDraft(a),
+	saveComposeRecipients: (a: any) => saveComposeRecipients(a),
 	sendDraft: (a: any) => sendDraft(a),
 	sendMessage: (a: any) => sendMessage(a),
 	updateThreadState: (a: any) => updateThreadState(a),
@@ -85,11 +87,13 @@ afterEach(() => {
 })
 beforeEach(() => {
 	vi.clearAllMocks()
+	window.localStorage.removeItem('ownmail:user-preferences:v1')
 	getThreads.mockResolvedValue({ threads: [] })
 	getFolders.mockResolvedValue([])
 	getDraft.mockResolvedValue(null)
 	getThreadMessages.mockResolvedValue(null)
 	saveDraft.mockResolvedValue({ draftId: 'new-draft' })
+	saveComposeRecipients.mockResolvedValue({ ok: true })
 	sendDraft.mockResolvedValue(undefined)
 	sendMessage.mockResolvedValue(undefined)
 	updateThreadState.mockResolvedValue(undefined)
@@ -460,6 +464,14 @@ describe('mail.compose selected backdrop', () => {
 		expect(invalidate).toHaveBeenCalled()
 	})
 
+	it('returns an archived selected thread to the inbox', async () => {
+		renderCompose({ loader: selectedLoader({ thread: { folders: ['archive'] } }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Return to inbox' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'inbox' } }),
+		)
+	})
+
 	it('deletes the selected thread by moving it to trash', async () => {
 		renderCompose({ loader: selectedLoader() })
 		fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -811,6 +823,7 @@ describe('mail.compose send', () => {
 		expect(saveDraft).toHaveBeenCalledWith({
 			data: { to: 'a@b.com', subject: 'Hi', body: markdownToDraftBody('line **one**') },
 		})
+		expect(saveComposeRecipients).toHaveBeenCalledWith({ data: { emails: ['a@b.com'] } })
 		expect(navigate).toHaveBeenCalledWith({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 	})
 
@@ -879,6 +892,7 @@ describe('mail.compose send', () => {
 			'Could not send your message. Check your connection, then try again.',
 		)
 		expect(navigate).not.toHaveBeenCalled()
+		expect(saveComposeRecipients).not.toHaveBeenCalled()
 	})
 
 	it('shows a generic error when the send rejects with a non-Error', async () => {
@@ -888,6 +902,23 @@ describe('mail.compose send', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'Could not send your message. Check your connection, then try again.',
 		)
+	})
+
+	it('does not save recipients when contact autosave is disabled in preferences', async () => {
+		window.localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({
+				displayName: '',
+				autoSaveContacts: false,
+				primaryTimezone: 'UTC',
+				secondaryTimezone: '',
+			}),
+		)
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'x' } } })
+		await act(async () => {})
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(saveComposeRecipients).not.toHaveBeenCalled()
 	})
 })
 
@@ -919,6 +950,15 @@ describe('mail.compose save draft', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'Could not save the draft. Your changes are still here; check your connection and try again.',
+		)
+	})
+
+	it('explains when a draft recipient needs correction', async () => {
+		saveDraft.mockRejectedValue(new Error('Invalid recipient: not-an-email'))
+		renderCompose({ loader: { reply: { to: 'not-an-email', subject: 'Hi', body: 'draft body' } } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Enter a valid email address for each recipient before saving.',
 		)
 	})
 })

@@ -8,8 +8,10 @@ import {
 	addDays,
 	allDayEventSegments,
 	type CalView,
+	calendarDateInTimeZone,
 	calendarKeyAction,
-	dateWithHour,
+	calendarSlotTime,
+	calendarWallClockHour,
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
@@ -17,6 +19,7 @@ import {
 	fmtTime,
 	isCalendarDate,
 	isCalView,
+	isNewEventPreview,
 	moveCalendarDay,
 	shiftAnchor,
 	startOfWeek,
@@ -28,6 +31,7 @@ import {
 import { EventModal } from '../components/EventModal.js'
 import type { Rect } from '../components/modal-position.js'
 import { Sheet } from '../components/Sheet.js'
+import { ScrollArea } from '../components/ui/scroll-area.js'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip.js'
 import {
 	APP_RAIL_WIDTH_CLASS,
@@ -42,6 +46,7 @@ import {
 	eventColorClass,
 	eventTone,
 } from '../components/ui-model.js'
+import { useUserPreferences } from '../components/user-preferences.js'
 import { getEvents } from '../server/calendar-fns.js'
 import { getMailboxInfo } from '../server/fns.js'
 
@@ -60,7 +65,12 @@ export const Route = createFileRoute('/calendar/$view')({
 
 export async function loadCalendarRouteData(view: CalView, date?: string) {
 	const anchor = date ? new Date(`${date}T00:00:00`) : new Date()
-	const { start, end } = viewRange(view, anchor)
+	const visibleRange = viewRange(view, anchor)
+	// Preferences are intentionally client-side, so the server cannot know the
+	// selected display zone. Fetch a day on either side of the visible range to
+	// retain events that cross a date boundary in any supported timezone.
+	const start = addDays(visibleRange.start, -1)
+	const end = addDays(visibleRange.end, 1)
 	const [info, res] = await Promise.all([
 		getMailboxInfo(),
 		getEvents({
@@ -85,11 +95,16 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const router = useRouter()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
+	const [newStartIsSlot, setNewStartIsSlot] = useState(false)
 	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
+	const [eventPreview, setEventPreview] = useState<Event | null>(null)
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
-	const today = useMemo(() => new Date(), [])
+	const [preferences] = useUserPreferences()
+	const primaryTimezone = preferences.primaryTimezone
+	const secondaryTimezone = preferences.secondaryTimezone
+	const today = useMemo(() => calendarDateInTimeZone(new Date(), primaryTimezone), [primaryTimezone])
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	useCommandPaletteShortcut(openPalette)
@@ -97,8 +112,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const currentAnchorIso = anchorIso
 	const anchor = useMemo(() => new Date(`${currentAnchorIso}T00:00:00`), [currentAnchorIso])
 	const visibleEvents = useMemo(
-		() => filterEventsByCalendars(events, hiddenCalendarIds),
-		[events, hiddenCalendarIds],
+		() => filterEventsByCalendars(eventPreview ? [...events, eventPreview] : events, hiddenCalendarIds),
+		[events, eventPreview, hiddenCalendarIds],
 	)
 	const calendarNameById = useMemo(
 		() => new Map(calendars.map((cal) => [cal.id, cal.name || 'Calendar'])),
@@ -107,7 +122,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars])
 	const agenda = useMemo(
 		() =>
-			timedEventsOnDay(visibleEvents, today)
+			timedEventsOnDay(visibleEvents, today, primaryTimezone)
+				.filter((event) => !isNewEventPreview(event))
 				.sort((a, b) => {
 					const aTimes = eventTimes(a)
 					const bTimes = eventTimes(b)
@@ -116,7 +132,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					return aTimes.start.getTime() - bTimes.start.getTime()
 				})
 				.slice(0, 5),
-		[today, visibleEvents],
+		[today, visibleEvents, primaryTimezone],
 	)
 
 	const toggleCalendar = useCallback((calendarId: string) => {
@@ -147,16 +163,17 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 			event.preventDefault()
 			if (action.kind === 'view') go(action.view, anchor)
 			else if (action.kind === 'shift') go(currentView, shiftAnchor(currentView, anchor, action.direction))
-			else if (action.kind === 'today') go(currentView, new Date())
+			else if (action.kind === 'today') go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))
 			else {
 				setNewStart(null)
+				setNewStartIsSlot(false)
 				setComposerAnchor(null)
 				setEditing('new')
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [anchor, currentView, go])
+	}, [anchor, currentView, go, primaryTimezone])
 
 	const title =
 		currentView === 'month'
@@ -193,6 +210,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								type="button"
 								onClick={() => {
 									setNewStart(anchor)
+									setNewStartIsSlot(false)
 									setComposerAnchor(null)
 									setEditing('new')
 								}}
@@ -204,7 +222,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							<button
 								type="button"
 								className="flex shrink-0 items-center border-r border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
-								onClick={() => go(currentView, new Date())}
+								onClick={() => go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))}
 							>
 								Today
 							</button>
@@ -284,6 +302,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						calendarById={calendarById}
 						hiddenCalendarIds={hiddenCalendarIds}
 						agenda={agenda}
+						timeZone={primaryTimezone}
 						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={setEditing}
@@ -297,6 +316,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							calendarById={calendarById}
 							onPickDay={(d) => go('day', d)}
 							onPickEvent={setEditing}
+							timeZone={primaryTimezone}
 						/>
 					) : (
 						<TimeGrid
@@ -305,8 +325,11 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							events={visibleEvents}
 							calendarById={calendarById}
 							onPickEvent={setEditing}
+							timeZone={primaryTimezone}
+							secondaryTimezone={secondaryTimezone}
 							onPickSlot={(date, hour, rect) => {
-								setNewStart(dateWithHour(date, hour))
+								setNewStart(calendarSlotTime(date, hour, primaryTimezone))
+								setNewStartIsSlot(true)
 								setComposerAnchor(rect)
 								setEditing('new')
 							}}
@@ -327,7 +350,12 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					}
 					calendars={calendars}
 					anchorRect={editing === 'new' ? composerAnchor : null}
+					timeZone={primaryTimezone}
+					preserveDefaultStartTime={editing === 'new' && newStartIsSlot}
+					events={events}
+					onDraftChange={setEventPreview}
 					onClose={(changed) => {
+						setEventPreview(null)
 						setEditing(null)
 						if (changed) router.invalidate()
 					}}
@@ -341,6 +369,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					calendarById={calendarById}
 					hiddenCalendarIds={hiddenCalendarIds}
 					agenda={agenda}
+					timeZone={primaryTimezone}
 					onPickDate={(date) => {
 						go(currentView === 'month' ? 'day' : currentView, date)
 						setSidebarOpen(false)
@@ -364,6 +393,7 @@ function CalendarSidebarPanel({
 	calendarById,
 	hiddenCalendarIds,
 	agenda,
+	timeZone,
 	onPickDate,
 	onToggleCalendar,
 	onPickEvent,
@@ -373,6 +403,7 @@ function CalendarSidebarPanel({
 	calendarById: Map<string, Calendar>
 	hiddenCalendarIds: Set<string>
 	agenda: Event[]
+	timeZone: string
 	onPickDate: (date: Date) => void
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
@@ -437,7 +468,9 @@ function CalendarSidebarPanel({
 									/>
 									<span className="min-w-0">
 										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
-										<span className="text-xs text-muted-foreground">{fmtAgendaTime(times.start)}</span>
+										<span className="text-xs text-muted-foreground">
+											{fmtAgendaTime(times.start, timeZone)}
+										</span>
 									</span>
 								</button>
 							)
@@ -565,19 +598,21 @@ function MonthGrid({
 	anchor,
 	events,
 	calendarById,
+	timeZone,
 	onPickDay,
 	onPickEvent,
 }: {
 	anchor: Date
 	events: Event[]
 	calendarById: Map<string, Calendar>
+	timeZone: string
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
 }) {
 	const { start, end } = viewRange('month', anchor)
 	const days: Date[] = []
 	for (let d = new Date(start); d < end; d = addDays(d, 1)) days.push(new Date(d))
-	const todayIso = ymd(new Date())
+	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
 	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
@@ -597,7 +632,7 @@ function MonthGrid({
 			<div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6" role="grid" aria-label="Month calendar">
 				{days.map((day) => {
 					const inMonth = day.getMonth() === anchor.getMonth()
-					const dayEvents = eventsOnDay(events, day)
+					const dayEvents = eventsOnDay(events, day, timeZone)
 					const iso = ymd(day)
 					return (
 						/* biome-ignore lint/a11y/useSemanticElements: Each interactive date is an ARIA gridcell in the calendar grid. */
@@ -647,17 +682,20 @@ function MonthGrid({
 									if (!times) return null
 									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 									const allDay = times.allDay
+									const preview = isNewEventPreview(event)
 									return (
 										<button
 											key={event.id}
 											type="button"
 											onClick={(clickEvent) => {
 												clickEvent.stopPropagation()
-												onPickEvent(event)
+												if (!preview) onPickEvent(event)
 											}}
+											disabled={preview}
 											className={cn(
 												'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
 												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
+												preview && 'border border-dashed border-primary/70 opacity-70',
 											)}
 										>
 											{!allDay ? (
@@ -665,7 +703,7 @@ function MonthGrid({
 											) : null}
 											{!allDay ? (
 												<span className="shrink-0 tabular-nums text-muted-foreground">
-													{fmtTime(times.start)}
+													{fmtTime(times.start, timeZone)}
 												</span>
 											) : null}
 											<span
@@ -698,6 +736,8 @@ function TimeGrid({
 	start,
 	events,
 	calendarById,
+	timeZone,
+	secondaryTimezone,
 	onPickEvent,
 	onPickSlot,
 }: {
@@ -705,16 +745,23 @@ function TimeGrid({
 	start: Date
 	events: Event[]
 	calendarById: Map<string, Calendar>
+	timeZone: string
+	secondaryTimezone: string
 	onPickEvent: (e: Event) => void
 	onPickSlot: (date: Date, hour: number, rect: Rect) => void
 }) {
 	const HOUR_PX = 52
-	const START_HOUR = 7
-	const END_HOUR = 22
-	const GRID_END_HOUR = END_HOUR + 1
-	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
+	// Render the full day so selections made in the event composer always
+	// remain visible after the calendar refreshes.
+	const START_HOUR = 0
+	// Midnight belongs at the top of each calendar day; 24:00 remains only as
+	// the end boundary for layouts that run through the end of the day.
+	const END_HOUR = 24
+	const LAST_SLOT_HOUR = END_HOUR - 1
+	const GRID_END_HOUR = END_HOUR
+	const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
-	const todayIso = ymd(new Date())
+	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [nowOffset, setNowOffset] = useState<number | null>(null)
 	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
@@ -726,13 +773,13 @@ function TimeGrid({
 	useEffect(() => {
 		function updateNowOffset() {
 			const current = new Date()
-			const hour = current.getHours() + current.getMinutes() / 60
-			setNowOffset(hour < START_HOUR || hour > END_HOUR ? null : (hour - START_HOUR) * HOUR_PX)
+			const hour = calendarWallClockHour(current, timeZone)
+			setNowOffset((hour - START_HOUR) * HOUR_PX)
 		}
 		updateNowOffset()
 		const id = setInterval(updateNowOffset, 60_000)
 		return () => clearInterval(id)
-	}, [])
+	}, [timeZone])
 
 	useEffect(() => {
 		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (8 - START_HOUR) * HOUR_PX - 12)
@@ -744,9 +791,9 @@ function TimeGrid({
 		if (key === 'ArrowLeft') nextDay = Math.max(0, dayIndex - 1)
 		else if (key === 'ArrowRight') nextDay = Math.min(days - 1, dayIndex + 1)
 		else if (key === 'ArrowUp') nextHour = Math.max(START_HOUR, hour - 1)
-		else if (key === 'ArrowDown') nextHour = Math.min(END_HOUR, hour + 1)
+		else if (key === 'ArrowDown') nextHour = Math.min(LAST_SLOT_HOUR, hour + 1)
 		else if (key === 'Home') nextHour = START_HOUR
-		else if (key === 'End') nextHour = END_HOUR
+		else if (key === 'End') nextHour = LAST_SLOT_HOUR
 		else return
 		setActiveSlot({ day: nextDay, hour: nextHour })
 		requestAnimationFrame(() =>
@@ -756,13 +803,36 @@ function TimeGrid({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div ref={scrollRef} className="isolate relative min-h-0 flex-1 overflow-y-auto">
+			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
 				<div className="sticky top-0 z-30 bg-background">
 					<div
 						className="grid border-b border-border pr-3"
 						style={{ gridTemplateColumns: dayGridTemplateColumns }}
 					>
-						<div aria-hidden="true" style={{ gridColumn: 1, gridRow: 1 }} />
+						<section
+							className="flex min-w-0 flex-col justify-end gap-0.5 px-1 py-2 text-right"
+							style={{ gridColumn: 1, gridRow: 1 }}
+							aria-label={
+								secondaryTimezone
+									? `Time ruler: ${timezoneCity(timeZone)} primary time, ${timezoneCity(secondaryTimezone)} secondary time`
+									: `Time ruler: ${timezoneCity(timeZone)} primary time`
+							}
+						>
+							<span
+								title={timezoneCity(timeZone)}
+								className="truncate text-[10px] font-semibold text-foreground"
+							>
+								{timezoneShortLabel(timeZone)}
+							</span>
+							{secondaryTimezone ? (
+								<span
+									title={timezoneCity(secondaryTimezone)}
+									className="truncate text-[9px] text-muted-foreground"
+								>
+									{timezoneShortLabel(secondaryTimezone)}
+								</span>
+							) : null}
+						</section>
 						{columns.map((day, dayIndex) => (
 							<div
 								key={day.toISOString()}
@@ -811,11 +881,15 @@ function TimeGrid({
 							{allDaySegments.map((segment) => {
 								const { event } = segment
 								const tone = eventTone(event, segment.index, calendarById.get(event.calendar_id))
+								const preview = isNewEventPreview(event)
 								return (
 									<button
 										key={event.id}
 										type="button"
-										onClick={() => onPickEvent(event)}
+										onClick={() => {
+											if (!preview) onPickEvent(event)
+										}}
+										disabled={preview}
 										style={{
 											gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
 											gridRow: segment.row + 1,
@@ -823,6 +897,7 @@ function TimeGrid({
 										className={cn(
 											'z-10 mx-1 min-w-0 self-center truncate rounded-sm px-2 py-1 text-left text-xs font-medium text-primary-foreground',
 											eventBarClass(tone),
+											preview && 'border border-dashed border-primary-foreground/80 opacity-70',
 										)}
 									>
 										{event.title || '(untitled)'}
@@ -841,11 +916,16 @@ function TimeGrid({
 									<span className="absolute -top-2 right-2 text-[11px] tabular-nums text-muted-foreground">
 										{hour === START_HOUR ? '' : fmtHour(hour)}
 									</span>
+									{secondaryTimezone && hour !== START_HOUR ? (
+										<span className="absolute top-2 right-2 text-[9px] tabular-nums text-muted-foreground/70">
+											{fmtTime(calendarSlotTime(columns[0] ?? start, hour, timeZone), secondaryTimezone)}
+										</span>
+									) : null}
 								</div>
 							))}
 						</div>
 						{columns.map((day, dayIndex) => {
-							const dayEvents = eventsOnDay(events, day).filter(
+							const dayEvents = eventsOnDay(events, day, timeZone).filter(
 								(event) => eventTimes(event)?.allDay === false,
 							)
 							const isToday = ymd(day) === todayIso
@@ -902,17 +982,22 @@ function TimeGrid({
 										/* v8 ignore next -- dayEvents excludes records without parsed times */
 										if (!times) return null
 										const { start: s, end: e } = times
+										const preview = isNewEventPreview(event)
 										const layout = timedEventLayout(event, day, {
 											startHour: START_HOUR,
 											endHour: GRID_END_HOUR,
 											hourHeight: HOUR_PX,
+											timeZone,
 										})
 										if (!layout) return null
 										return (
 											<button
 												key={event.id}
 												type="button"
-												onClick={() => onPickEvent(event)}
+												onClick={() => {
+													if (!preview) onPickEvent(event)
+												}}
+												disabled={preview}
 												style={{
 													top: layout.top,
 													height: layout.height,
@@ -920,6 +1005,7 @@ function TimeGrid({
 												className={cn(
 													'absolute right-1 left-1 z-10 flex min-w-0 flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
 													eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+													preview && 'border border-dashed border-primary/70 opacity-70',
 												)}
 											>
 												<span className="truncate text-xs leading-tight font-semibold">
@@ -927,7 +1013,7 @@ function TimeGrid({
 												</span>
 												{layout.height > 30 ? (
 													<span className="truncate text-[10px] opacity-80">
-														{fmtTime(s)} – {fmtTime(e)}
+														{fmtTime(s, timeZone)} – {fmtTime(e, timeZone)}
 													</span>
 												) : null}
 											</button>
@@ -938,7 +1024,7 @@ function TimeGrid({
 						})}
 					</div>
 				</div>
-			</div>
+			</ScrollArea>
 		</div>
 	)
 }
@@ -974,7 +1060,16 @@ function ContinuousDayColumnRules({
 /* v8 ignore stop */
 
 function fmtHour(hour: number): string {
-	const period = hour >= 12 ? 'PM' : 'AM'
-	const displayHour = hour % 12 === 0 ? 12 : hour % 12
+	const normalizedHour = hour % 24
+	const period = normalizedHour >= 12 ? 'PM' : 'AM'
+	const displayHour = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12
 	return `${displayHour} ${period}`
+}
+
+function timezoneCity(timeZone: string): string {
+	return timeZone.replace(/^.*\//, '').replaceAll('_', ' ')
+}
+
+function timezoneShortLabel(timeZone: string): string {
+	return timezoneCity(timeZone).replace(/ .*/, '')
 }

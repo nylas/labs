@@ -70,6 +70,21 @@ describe('CommandPalette', () => {
 		expect(list[list.length - 1]).toHaveAttribute('aria-current', 'true')
 	})
 
+	it('scrolls the active command into view when navigating with arrow keys', () => {
+		const originalScrollIntoView = Element.prototype.scrollIntoView
+		const scrollIntoView = vi.fn()
+		Element.prototype.scrollIntoView = scrollIntoView
+		try {
+			render(<CommandPalette open={true} onClose={vi.fn()} />)
+
+			fireEvent.keyDown(document, { key: 'ArrowDown' })
+
+			expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+		} finally {
+			Element.prototype.scrollIntoView = originalScrollIntoView
+		}
+	})
+
 	it('runs the active command on Enter and closes the palette', () => {
 		const onClose = vi.fn()
 		render(<CommandPalette open={true} onClose={onClose} />)

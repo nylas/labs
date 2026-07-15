@@ -1,6 +1,6 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import { Archive, ArrowLeft, Forward, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import { Archive, ArrowLeft, Forward, Inbox, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import { ThreadConversation } from '../components/ThreadConversation.js'
@@ -252,6 +252,7 @@ function SearchThreadDetail({
 	const routeFolderId = threadRouteFolderId(selected.thread)
 	const lastMessage = selected.messages.at(-1)
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
+	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
@@ -293,8 +294,11 @@ function SearchThreadDetail({
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</Link>
-				<IconButton label="Archive" onClick={() => act({ folder: 'archive' }, true)}>
-					<Archive className="h-4 w-4" />
+				<IconButton
+					label={isArchived ? 'Return to inbox' : 'Archive'}
+					onClick={() => act({ folder: isArchived ? 'inbox' : 'archive' }, true)}
+				>
+					{isArchived ? <Inbox className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
 				</IconButton>
 				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
 					<Trash2 className="h-4 w-4" />

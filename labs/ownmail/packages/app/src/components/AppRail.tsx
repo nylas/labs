@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Search, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
-import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH, SETTINGS_PATH } from './route-paths.js'
 import {
 	initialThemeIsDark,
 	ROOT_BACKGROUND_CLASS,
@@ -10,11 +10,12 @@ import {
 	themeToggleLabel,
 } from './theme.js'
 import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS, cn, initials } from './ui-model.js'
+import { useUserPreferences } from './user-preferences.js'
 
 type AppRailNavProps = {
 	email: string
 	displayName?: string
-	active: 'mail' | 'calendar' | 'contacts'
+	active: 'mail' | 'calendar' | 'contacts' | 'settings'
 	onOpenCommandPalette?: () => void
 }
 
@@ -54,6 +55,7 @@ export function AppRailLogo({ appName, className }: { appName: string; className
 export function AppRailNav({ email, displayName, active, onOpenCommandPalette }: AppRailNavProps) {
 	const [isDark, setIsDark] = useState(false)
 	const [mounted, setMounted] = useState(false)
+	const [preferences] = useUserPreferences()
 
 	useEffect(() => {
 		const saved = localStorage.getItem(THEME_STORAGE_KEY)
@@ -70,7 +72,8 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 		setIsDark(nextDark)
 	}
 
-	const accountLabel = displayName ? `${displayName} · ${email}` : email
+	const effectiveDisplayName = preferences.displayName || displayName
+	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
 
 	return (
 		<nav
@@ -115,11 +118,20 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 						<LogOut className="h-[17px] w-[17px]" />
 					</RailButton>
 				</form>
-				<div className="app-rail-account mt-1" role="img" title={accountLabel} aria-label={accountLabel}>
+				<Link
+					to={SETTINGS_PATH}
+					className={cn(
+						'app-rail-account mt-1',
+						active === 'settings' && 'ring-2 ring-primary ring-offset-2',
+					)}
+					title={`Account settings · ${accountLabel}`}
+					aria-label={`Account settings for ${accountLabel}`}
+					aria-current={active === 'settings' ? 'page' : undefined}
+				>
 					<span className="app-rail-account-inner">
-						<span className="app-rail-account-initials">{initials(displayName ?? email)}</span>
+						<span className="app-rail-account-initials">{initials(effectiveDisplayName ?? email)}</span>
 					</span>
-				</div>
+				</Link>
 			</div>
 		</nav>
 	)

@@ -77,6 +77,7 @@ describe('mailboxFromRequest()', () => {
 		const result = await mailboxFromRequest(req())
 		expect(result).toEqual({
 			mailbox: devMailbox,
+			grantId: 'dev-grant',
 			email: 'resolved:ada@ownmail.com',
 			displayName: 'Ada Lovelace',
 		})
@@ -111,6 +112,6 @@ describe('mailboxFromRequest()', () => {
 
 		const result = await mailboxFromRequest(req())
 		expect(forGrant).toHaveBeenCalledWith('grant-xyz')
-		expect(result).toEqual({ mailbox: scoped, email: 'user@ownmail.com' })
+		expect(result).toEqual({ mailbox: scoped, grantId: 'grant-xyz', email: 'user@ownmail.com' })
 	})
 })

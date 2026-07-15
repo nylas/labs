@@ -204,14 +204,16 @@ class DevMailbox {
 	}
 
 	async createEvent(body: Partial<Event>, calendarId: string): Promise<ItemResponse<Event>> {
-		const when = body.when && 'start_time' in body.when ? body.when : null
-		if (!when) throw new Error('Invalid event time')
+		const when = body.when
+		if (!when || (!('start_time' in when) && !('date' in when))) throw new Error('Invalid event time')
 		const created = mockCreateEvent({
 			title: body.title ?? '',
 			...(body.description ? { description: body.description } : {}),
 			...(body.location ? { location: body.location } : {}),
-			startTime: when.start_time,
-			endTime: when.end_time,
+			...('date' in when
+				? { allDayDate: when.date }
+				: { startTime: when.start_time, endTime: when.end_time }),
+			...(body.recurrence ? { recurrence: body.recurrence } : {}),
 			participants: body.participants?.map((participant) => participant.email),
 			calendarId,
 		})
@@ -1175,8 +1177,10 @@ export function mockCreateEvent(input: {
 	title: string
 	description?: string
 	location?: string
-	startTime: number
-	endTime: number
+	startTime?: number
+	endTime?: number
+	allDayDate?: string
+	recurrence?: string[]
 	participants?: string[]
 	calendarId?: string
 }): { eventId: string } {
@@ -1189,7 +1193,11 @@ export function mockCreateEvent(input: {
 		title: input.title,
 		...(input.description ? { description: input.description } : {}),
 		...(input.location ? { location: input.location } : {}),
-		when: { object: 'timespan', start_time: input.startTime, end_time: input.endTime },
+		when:
+			input.allDayDate !== undefined
+				? { object: 'date', date: input.allDayDate }
+				: { object: 'timespan', start_time: input.startTime as number, end_time: input.endTime as number },
+		...(input.recurrence?.length ? { recurrence: input.recurrence } : {}),
 		...(input.participants?.length
 			? { participants: input.participants.map((email) => ({ email, status: 'noreply' as const })) }
 			: {}),

@@ -44,6 +44,14 @@ describe('AppRailNav', () => {
 		expect(screen.getByRole('link', { name: 'Mail' })).not.toHaveAttribute('aria-current')
 	})
 
+	it('uses the account avatar as the settings link and marks it active', () => {
+		render(<AppRailNav email="ada@ownmail.com" active="settings" />)
+		const account = screen.getByRole('link', { name: 'Account settings for ada@ownmail.com' })
+		expect(account).toHaveAttribute('href', '/settings')
+		expect(account).toHaveAttribute('aria-current', 'page')
+		expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull()
+	})
+
 	it('shows the moon (offer dark mode) when the saved theme is light and toggles to dark', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="calendar" />)
 		// No saved theme -> mounts light -> toggle button offers switching to dark mode.
@@ -73,14 +81,16 @@ describe('AppRailNav', () => {
 		expect(onOpen).toHaveBeenCalledTimes(1)
 	})
 
-	it('combines display name and email into the account label when a name is provided', () => {
+	it('combines display name and email into the account settings label when a name is provided', () => {
 		render(<AppRailNav email="ada@ownmail.com" displayName="Ada Lovelace" active="mail" />)
-		expect(screen.getByRole('img', { name: 'Ada Lovelace · ada@ownmail.com' })).toBeInTheDocument()
+		expect(
+			screen.getByRole('link', { name: 'Account settings for Ada Lovelace · ada@ownmail.com' }),
+		).toBeInTheDocument()
 	})
 
-	it('falls back to the bare email for the account label without a display name', () => {
+	it('falls back to the bare email for the account settings label without a display name', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
-		expect(screen.getByRole('img', { name: 'ada@ownmail.com' })).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: 'Account settings for ada@ownmail.com' })).toBeInTheDocument()
 	})
 
 	it('exposes a sign-out submit control inside a logout form', () => {

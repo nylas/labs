@@ -1,7 +1,19 @@
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Archive, ArrowLeft, Forward, Loader2, MailOpen, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import {
+	Archive,
+	ArrowLeft,
+	Forward,
+	Inbox,
+	Loader2,
+	MailOpen,
+	Reply,
+	ReplyAll,
+	Star,
+	Trash2,
+} from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ThreadConversation } from '../components/ThreadConversation.js'
+import { ScrollArea } from '../components/ui/scroll-area.js'
 import {
 	cn,
 	forwardDraftSearch,
@@ -29,6 +41,7 @@ function ThreadView() {
 	const [starred, setStarred] = useState(thread.starred)
 	const [acting, setActing] = useState(false)
 	const lastMessage = messages.at(-1)
+	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 
 	useEffect(() => {
 		setStarred(thread.starred)
@@ -71,7 +84,7 @@ function ThreadView() {
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			if (event.key.toLowerCase() === 'e') {
 				event.preventDefault()
-				act({ folder: 'archive' }, true)
+				act({ folder: isArchived ? 'inbox' : 'archive' }, true)
 			}
 			if (event.key === '#') {
 				event.preventDefault()
@@ -96,7 +109,7 @@ function ThreadView() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, baseFolderId, folderId, navigate, starred])
+	}, [act, baseFolderId, folderId, isArchived, navigate, starred])
 
 	useEffect(() => {
 		if (markedRead) router.invalidate()
@@ -120,11 +133,17 @@ function ThreadView() {
 					<ArrowLeft className="h-5 w-5" />
 				</button>
 				<IconButton
-					label={acting ? 'Working' : 'Archive'}
+					label={acting ? 'Working' : isArchived ? 'Return to inbox' : 'Archive'}
 					disabled={acting}
-					onClick={() => act({ folder: 'archive' }, true)}
+					onClick={() => act({ folder: isArchived ? 'inbox' : 'archive' }, true)}
 				>
-					{acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+					{acting ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : isArchived ? (
+						<Inbox className="h-4 w-4" />
+					) : (
+						<Archive className="h-4 w-4" />
+					)}
 				</IconButton>
 				<IconButton
 					label={acting ? 'Working' : 'Delete'}
@@ -196,9 +215,9 @@ function ThreadView() {
 			</div>
 			{error ? <ErrorBanner message={error} /> : null}
 
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			<ScrollArea aria-label="Thread conversation" className="min-h-0 flex-1">
 				<ThreadConversation thread={thread} messages={messages} />
-			</div>
+			</ScrollArea>
 
 			{lastMessage ? (
 				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
