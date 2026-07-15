@@ -803,26 +803,36 @@ function TimeGrid({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<section
-				className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground"
-				aria-label="Calendar timezone reference"
-			>
-				<span>
-					<span className="font-medium text-foreground">Primary time (top)</span> {timeZone}
-				</span>
-				{secondaryTimezone ? (
-					<span>
-						<span className="font-medium text-foreground">Secondary time (below)</span> {secondaryTimezone}
-					</span>
-				) : null}
-			</section>
 			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
 				<div className="sticky top-0 z-30 bg-background">
 					<div
 						className="grid border-b border-border pr-3"
 						style={{ gridTemplateColumns: dayGridTemplateColumns }}
 					>
-						<div aria-hidden="true" style={{ gridColumn: 1, gridRow: 1 }} />
+						<section
+							className="flex min-w-0 flex-col justify-end gap-0.5 px-1 py-2 text-right"
+							style={{ gridColumn: 1, gridRow: 1 }}
+							aria-label={
+								secondaryTimezone
+									? `Time ruler: ${timezoneCity(timeZone)} primary time, ${timezoneCity(secondaryTimezone)} secondary time`
+									: `Time ruler: ${timezoneCity(timeZone)} primary time`
+							}
+						>
+							<span
+								title={timezoneCity(timeZone)}
+								className="truncate text-[10px] font-semibold text-foreground"
+							>
+								{timezoneShortLabel(timeZone)}
+							</span>
+							{secondaryTimezone ? (
+								<span
+									title={timezoneCity(secondaryTimezone)}
+									className="truncate text-[9px] text-muted-foreground"
+								>
+									{timezoneShortLabel(secondaryTimezone)}
+								</span>
+							) : null}
+						</section>
 						{columns.map((day, dayIndex) => (
 							<div
 								key={day.toISOString()}
@@ -1054,4 +1064,12 @@ function fmtHour(hour: number): string {
 	const period = normalizedHour >= 12 ? 'PM' : 'AM'
 	const displayHour = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12
 	return `${displayHour} ${period}`
+}
+
+function timezoneCity(timeZone: string): string {
+	return timeZone.replace(/^.*\//, '').replaceAll('_', ' ')
+}
+
+function timezoneShortLabel(timeZone: string): string {
+	return timezoneCity(timeZone).replace(/ .*/, '')
 }

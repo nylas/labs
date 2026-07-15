@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ymd } from '../components/calendar.js'
@@ -422,7 +422,7 @@ describe('week view time grid', () => {
 		expect(untitled.textContent).not.toContain('–')
 	})
 
-	it('names the primary and secondary timezones used by the stacked time labels', async () => {
+	it('labels the primary and secondary time scales directly in the time ruler', async () => {
 		localStorage.setItem(
 			'ownmail:user-preferences:v1',
 			JSON.stringify({
@@ -433,9 +433,9 @@ describe('week view time grid', () => {
 			}),
 		)
 		renderWeek()
-		const reference = screen.getByLabelText('Calendar timezone reference')
-		await waitFor(() => expect(reference).toHaveTextContent('Primary time (top) America/Toronto'))
-		expect(reference).toHaveTextContent('Secondary time (below) Europe/London')
+		const ruler = await screen.findByLabelText('Time ruler: Toronto primary time, London secondary time')
+		expect(ruler).toHaveTextContent('Toronto')
+		expect(ruler).toHaveTextContent('London')
 	})
 
 	it('hides an event that falls outside the selected calendar day', () => {
