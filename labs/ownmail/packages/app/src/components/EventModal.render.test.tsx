@@ -85,6 +85,26 @@ describe('EventModal — new event', () => {
 		await waitFor(() => expect(screen.getByPlaceholderText('Add title')).toHaveFocus())
 	})
 
+	it('groups the creation flow into clearly labelled, keyboard-accessible sections', () => {
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+
+		expect(screen.getByLabelText('Title')).toBeInTheDocument()
+		expect(screen.getByRole('heading', { name: 'When' })).toBeInTheDocument()
+		expect(screen.getByRole('checkbox', { name: 'All day' })).toBeInTheDocument()
+		expect(screen.getByRole('heading', { name: 'Details' })).toBeInTheDocument()
+		expect(screen.getByRole('heading', { name: 'Guests' })).toBeInTheDocument()
+		expect(screen.getByRole('heading', { name: 'Calendar' })).toBeInTheDocument()
+	})
+
 	it('saves a new event with the chosen calendar, title, and location', async () => {
 		const user = userEvent.setup()
 		const onClose = vi.fn()
@@ -632,15 +652,16 @@ describe('EventModal — new event', () => {
 		// Grab the header (the heading bubbles the pointerdown to the draggable row).
 		fireEvent.pointerDown(screen.getByRole('heading', { name: 'New event' }), { clientX: 200, clientY: 200 })
 		fireEvent.pointerMove(window, { clientX: 240, clientY: 230 })
-		// Started at 122,100; moved by (+40, +30).
+		// Started at 122,100; moved by (+40, +30), with the taller composer
+		// clamped to the viewport's bottom margin.
 		expect(dialog.style.left).toBe('162px')
-		expect(dialog.style.top).toBe('130px')
+		expect(dialog.style.top).toBe('120px')
 
 		fireEvent.pointerUp(window)
 		// After release the move listeners are detached, so further motion is ignored.
 		fireEvent.pointerMove(window, { clientX: 900, clientY: 900 })
 		expect(dialog.style.left).toBe('162px')
-		expect(dialog.style.top).toBe('130px')
+		expect(dialog.style.top).toBe('120px')
 	})
 
 	it('tears down an in-flight drag when the composer unmounts', () => {

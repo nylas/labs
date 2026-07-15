@@ -14,7 +14,7 @@ export type Rect = { top: number; left: number; width: number; height: number }
  * enough to keep the panel on screen — the exact pixel size doesn't matter for
  * a soft clamp.
  */
-export const ESTIMATED_PANEL_SIZE: Size = { width: 448, height: 460 }
+export const ESTIMATED_PANEL_SIZE: Size = { width: 448, height: 640 }
 
 function clamp(value: number, min: number, max: number): number {
 	if (max < min) return min

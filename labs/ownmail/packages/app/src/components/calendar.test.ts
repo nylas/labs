@@ -296,6 +296,16 @@ describe('calendar view helpers', () => {
 		expect(calendarWallClockHour(instant, toronto)).toBe(9.5)
 	})
 
+	it('normalizes a nonexistent spring-forward slot to the first valid local time', () => {
+		const newYork = 'America/New_York'
+		const instant = calendarSlotTime(new Date(2026, 2, 8), 2, newYork)
+		const laterGapSlot = calendarSlotTime(new Date(2026, 2, 8), 2.5, newYork)
+
+		expect(instant.toISOString()).toBe('2026-03-08T07:00:00.000Z')
+		expect(calendarWallClockHour(instant, newYork)).toBe(3)
+		expect(laterGapSlot.toISOString()).toBe('2026-03-08T07:00:00.000Z')
+	})
+
 	it('excludes an event at its exact selected-timezone end boundary', () => {
 		const midnight = timedEvent('midnight', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:00:00Z')
 		const thirtyPast = timedEvent('thirty-past', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:30:00Z')

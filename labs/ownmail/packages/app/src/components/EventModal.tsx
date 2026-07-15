@@ -55,7 +55,7 @@ export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
 /** Floating, draggable composer panel — no backdrop, positioned beside the slot. */
 export const EVENT_COMPOSER_PANEL_CLASS =
-	'fixed z-50 w-[27rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl'
+	'fixed z-50 flex max-h-[calc(100vh-1rem)] w-[28rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl'
 
 function eventBarClass(tone: EventTone): string {
 	return eventColorClass(tone, 'bg')
@@ -368,8 +368,6 @@ export function EventModal({
 									startHour={startHour}
 									endHour={endHour}
 									allDay={allDay}
-									onAllDay={setAllDay}
-									showAllDay={false}
 									onStartHour={setStartHour}
 									onEndHour={setEndHour}
 									location={location}
@@ -491,69 +489,120 @@ export function EventModal({
 			className={EVENT_COMPOSER_PANEL_CLASS}
 			style={{ left: panelPos.x, top: panelPos.y }}
 		>
-			<div className={cn('h-px w-full opacity-50', eventBarClass(selectedCalendarTone))} />
+			<div className={cn('h-1 w-full shrink-0', eventBarClass(selectedCalendarTone))} />
 			<div
 				onPointerDown={startPanelDrag}
-				className="flex touch-none items-center justify-between gap-2 px-5 pt-4 pb-1 select-none"
+				className="flex touch-none items-center justify-between gap-3 border-b border-border px-5 py-3 select-none"
 			>
-				<div className="flex min-w-0 cursor-grab items-center gap-1.5 active:cursor-grabbing">
+				<div className="flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
 					<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-					<h2 className="text-lg font-semibold">New event</h2>
+					<div>
+						<h2 className="font-display text-lg font-semibold">New event</h2>
+						<p className="text-xs text-muted-foreground">Add the essentials, then save.</p>
+					</div>
 				</div>
 				<button
 					type="button"
 					onClick={() => onClose(false)}
 					disabled={busy}
 					aria-label="Close"
-					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+					className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
 				>
-					<X className="h-4 w-4" />
+					<X className="h-5 w-5" />
 				</button>
 			</div>
 
-			<div className="space-y-4 px-5 py-4">
-				<input
-					ref={titleInputRef}
-					value={title}
-					onChange={(e) => setTitle(e.target.value)}
-					placeholder="Add title"
-					className="event-dialog-field w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary"
-				/>
-				<div className="flex items-center gap-3 text-sm">
-					<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-					<label className="sr-only" htmlFor="event-date">
-						Event date
-					</label>
+			<div className="min-h-0 space-y-5 overflow-y-auto px-5 py-5">
+				<label className="block space-y-1.5" htmlFor="event-title">
+					<span className="text-sm font-medium">Title</span>
 					<input
-						id="event-date"
-						aria-label="Event date"
-						type="date"
-						value={eventDate}
-						onChange={(changeEvent) => {
-							const nextDate = changeEvent.target.value
-							setEventDate(nextDate)
-							if (!weekdaysTouched && isDateInput(nextDate))
-								setWeekdays([defaultWeekday(dateFromInput(nextDate))])
-						}}
-						className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+						id="event-title"
+						ref={titleInputRef}
+						value={title}
+						onChange={(e) => setTitle(e.target.value)}
+						placeholder="Add title"
+						className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-base font-medium outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 					/>
-					<span className="hidden text-muted-foreground sm:inline">
-						{formatFullDate(dateFromInput(eventDate))}
-					</span>
-				</div>
-				<EventFields
-					startHour={startHour}
-					endHour={endHour}
-					allDay={allDay}
-					onAllDay={setAllDay}
-					showAllDay
-					onStartHour={setStartHour}
-					onEndHour={setEndHour}
+				</label>
+
+				<section
+					aria-labelledby="event-when-heading"
+					className="space-y-4 rounded-xl border border-border bg-muted/20 p-4"
+				>
+					<div className="flex items-center justify-between gap-4">
+						<div>
+							<h3 id="event-when-heading" className="text-sm font-semibold">
+								When
+							</h3>
+							<p className="text-xs text-muted-foreground">{formatFullDate(dateFromInput(eventDate))}</p>
+						</div>
+						<label className="flex items-center gap-2 text-sm font-medium">
+							<span>All day</span>
+							<input
+								type="checkbox"
+								checked={allDay}
+								onChange={(changeEvent) => setAllDay(changeEvent.target.checked)}
+								className="peer sr-only"
+							/>
+							<span
+								aria-hidden="true"
+								className="relative h-6 w-10 rounded-full bg-muted-foreground/35 transition-colors before:absolute before:top-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-background before:shadow-sm before:transition-transform peer-checked:bg-primary peer-checked:before:translate-x-4 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/40"
+							/>
+						</label>
+					</div>
+					<label className="block space-y-1.5" htmlFor="event-date">
+						<span className="text-xs font-medium text-muted-foreground">Date</span>
+						<input
+							id="event-date"
+							aria-label="Event date"
+							type="date"
+							value={eventDate}
+							onChange={(changeEvent) => {
+								const nextDate = changeEvent.target.value
+								setEventDate(nextDate)
+								if (!weekdaysTouched && isDateInput(nextDate))
+									setWeekdays([defaultWeekday(dateFromInput(nextDate))])
+							}}
+							className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+						/>
+					</label>
+					<EventTimeFields
+						startHour={startHour}
+						endHour={endHour}
+						allDay={allDay}
+						onStartHour={setStartHour}
+						onEndHour={setEndHour}
+					/>
+				</section>
+
+				{conflictCount > 0 ? (
+					<p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-100">
+						<AlertTriangle className="h-4 w-4 shrink-0" />
+						May conflict with {conflictCount} existing {conflictCount === 1 ? 'event' : 'events'}.
+					</p>
+				) : null}
+
+				<EventDetailsFields
 					location={location}
 					onLocation={setLocation}
 					description={description}
 					onDescription={setDescription}
 				/>
+
+				<section className="space-y-1.5">
+					<h3 className="text-sm font-medium">Guests</h3>
+					<div className="rounded-lg border border-input bg-background px-3 py-1.5 transition-colors hover:bg-muted/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/40">
+						<RecipientInput
+							id="event-guests"
+							label="Guests"
+							value={guests}
+							onChange={setGuests}
+							placeholder="Add people by name or email"
+							className="w-full"
+						/>
+					</div>
+				</section>
+
 				<RecurrenceFields
 					repeat={repeat}
 					onRepeat={setRepeat}
@@ -563,51 +612,38 @@ export function EventModal({
 						setWeekdays(nextWeekdays)
 					}}
 				/>
-				{conflictCount > 0 ? (
-					<p className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-						<AlertTriangle className="h-4 w-4 shrink-0" />
-						May conflict with {conflictCount} existing {conflictCount === 1 ? 'event' : 'events'}.
-					</p>
-				) : null}
-				<div className="flex items-start gap-3 text-sm">
-					<Users className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-					<RecipientInput
-						id="event-guests"
-						label="Guests"
-						value={guests}
-						onChange={setGuests}
-						placeholder="Add guests"
-						className="flex-1"
-					/>
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					{calendars.map((calendar, index) => {
-						const active = calendar.id === selectedCalendarId
-						const tone = calendarTone(calendar, index)
-						return (
-							<button
-								key={calendar.id}
-								type="button"
-								onClick={() => setSelectedCalendarId(calendar.id)}
-								className={eventCalendarChoiceClass(active, tone)}
-							>
-								<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
-								{calendar.name || 'Calendar'}
-							</button>
-						)
-					})}
-				</div>
+
+				<section className="space-y-2">
+					<h3 className="text-sm font-medium">Calendar</h3>
+					<div className="flex flex-wrap gap-2">
+						{calendars.map((calendar, index) => {
+							const active = calendar.id === selectedCalendarId
+							const tone = calendarTone(calendar, index)
+							return (
+								<button
+									key={calendar.id}
+									type="button"
+									onClick={() => setSelectedCalendarId(calendar.id)}
+									className={eventCalendarChoiceClass(active, tone)}
+								>
+									<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
+									{calendar.name || 'Calendar'}
+								</button>
+							)
+						})}
+					</div>
+				</section>
 				{error ? (
-					<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+					<p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
 				) : null}
 			</div>
 
-			<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+			<div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
 				<button
 					type="button"
 					onClick={() => onClose(false)}
 					disabled={busy}
-					className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+					className="h-11 rounded-lg px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					Cancel
 				</button>
@@ -615,7 +651,7 @@ export function EventModal({
 					type="button"
 					disabled={busy}
 					onClick={save}
-					className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+					className="h-11 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					{busy ? 'Saving...' : 'Save event'}
 				</button>
@@ -624,13 +660,102 @@ export function EventModal({
 	)
 }
 
+function EventTimeFields({
+	startHour,
+	endHour,
+	allDay,
+	onStartHour,
+	onEndHour,
+}: {
+	startHour: number
+	endHour: number
+	allDay: boolean
+	onStartHour: (hour: number) => void
+	onEndHour: (hour: number) => void
+}) {
+	if (allDay)
+		return <p className="text-sm text-muted-foreground">This event will appear across the full day.</p>
+	return (
+		<div className="grid grid-cols-2 gap-3">
+			<div className="space-y-1.5">
+				<span className="text-xs font-medium text-muted-foreground">Starts</span>
+				<Select value={String(startHour)} onValueChange={(value) => onStartHour(Number(value))}>
+					<SelectTrigger aria-label="Start time" className="h-11 w-full bg-background">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{START_TIME_OPTIONS.map((hour) => (
+							<SelectItem key={hour} value={String(hour)}>
+								{formatDecimalHour(hour)}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			</div>
+			<div className="space-y-1.5">
+				<span className="text-xs font-medium text-muted-foreground">Ends</span>
+				<Select value={String(endHour)} onValueChange={(value) => onEndHour(Number(value))}>
+					<SelectTrigger aria-label="End time" className="h-11 w-full bg-background">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{END_TIME_OPTIONS.map((hour) => (
+							<SelectItem key={hour} value={String(hour)}>
+								{formatDecimalHour(hour)}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			</div>
+		</div>
+	)
+}
+
+function EventDetailsFields({
+	location,
+	onLocation,
+	description,
+	onDescription,
+}: {
+	location: string
+	onLocation: (value: string) => void
+	description: string
+	onDescription: (value: string) => void
+}) {
+	return (
+		<section className="space-y-4">
+			<h3 className="text-sm font-medium">Details</h3>
+			<label className="block space-y-1.5" htmlFor="event-location">
+				<span className="text-xs font-medium text-muted-foreground">Location</span>
+				<input
+					id="event-location"
+					aria-label="Location"
+					value={location}
+					onChange={(event) => onLocation(event.target.value)}
+					placeholder="Add location"
+					className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				/>
+			</label>
+			<label className="block space-y-1.5" htmlFor="event-description">
+				<span className="text-xs font-medium text-muted-foreground">Notes</span>
+				<Textarea
+					id="event-description"
+					aria-label="Description"
+					value={description}
+					onChange={(event) => onDescription(event.target.value)}
+					placeholder="Add description"
+					className="min-h-24 resize-y border-input bg-background shadow-none hover:bg-muted/30"
+				/>
+			</label>
+		</section>
+	)
+}
+
 /** Editable time / location / description fields shared by create and edit. */
 function EventFields({
 	startHour,
 	endHour,
 	allDay,
-	onAllDay,
-	showAllDay = true,
 	onStartHour,
 	onEndHour,
 	location,
@@ -641,8 +766,6 @@ function EventFields({
 	startHour: number
 	endHour: number
 	allDay: boolean
-	onAllDay: (allDay: boolean) => void
-	showAllDay?: boolean
 	onStartHour: (hour: number) => void
 	onEndHour: (hour: number) => void
 	location: string
@@ -652,62 +775,19 @@ function EventFields({
 }) {
 	return (
 		<>
-			{showAllDay ? (
-				<label className="flex items-center gap-2 pl-7 text-sm font-medium">
-					<input type="checkbox" checked={allDay} onChange={(event) => onAllDay(event.target.checked)} />
-					All day
-				</label>
-			) : null}
-			{allDay ? null : (
-				<div className="flex items-center gap-3 text-sm">
-					<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-					<Select value={String(startHour)} onValueChange={(value) => onStartHour(Number(value))}>
-						<SelectTrigger aria-label="Start time" className="w-32">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{START_TIME_OPTIONS.map((hour) => (
-								<SelectItem key={hour} value={String(hour)}>
-									{formatDecimalHour(hour)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					<span className="text-muted-foreground">to</span>
-					<Select value={String(endHour)} onValueChange={(value) => onEndHour(Number(value))}>
-						<SelectTrigger aria-label="End time" className="w-32">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{END_TIME_OPTIONS.map((hour) => (
-								<SelectItem key={hour} value={String(hour)}>
-									{formatDecimalHour(hour)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-			)}
-			<label className="flex items-center gap-3 text-sm">
-				<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-				<input
-					aria-label="Location"
-					value={location}
-					onChange={(e) => onLocation(e.target.value)}
-					placeholder="Add location"
-					className="event-dialog-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-				/>
-			</label>
-			<div className="flex items-start gap-3 text-sm">
-				<AlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-				<Textarea
-					aria-label="Description"
-					value={description}
-					onChange={(e) => onDescription(e.target.value)}
-					placeholder="Add description"
-					className="min-h-16 flex-1 resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
-				/>
-			</div>
+			<EventTimeFields
+				startHour={startHour}
+				endHour={endHour}
+				allDay={allDay}
+				onStartHour={onStartHour}
+				onEndHour={onEndHour}
+			/>
+			<EventDetailsFields
+				location={location}
+				onLocation={onLocation}
+				description={description}
+				onDescription={onDescription}
+			/>
 		</>
 	)
 }
@@ -724,14 +804,13 @@ function RecurrenceFields({
 	onWeekdays: (weekdays: Weekday[]) => void
 }) {
 	return (
-		<div className="space-y-2 pl-7 text-sm">
-			<label className="flex items-center gap-3">
-				<span className="text-muted-foreground">Repeat</span>
+		<section className="space-y-2">
+			<label className="block space-y-1.5">
+				<span className="text-sm font-medium">Repeat</span>
 				<select
-					aria-label="Repeat"
 					value={repeat}
 					onChange={(event) => onRepeat(event.target.value as RepeatOption)}
-					className="rounded-md border border-input bg-background px-2 py-1"
+					className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 				>
 					<option value="none">Does not repeat</option>
 					<option value="weekly">Weekly</option>
@@ -740,8 +819,8 @@ function RecurrenceFields({
 				</select>
 			</label>
 			{repeat === 'weekly' || repeat === 'biweekly' ? (
-				<fieldset className="flex flex-wrap gap-1">
-					<legend className="sr-only">Repeat on</legend>
+				<fieldset className="flex flex-wrap gap-1.5">
+					<legend className="mb-1 text-xs font-medium text-muted-foreground">Repeat on</legend>
 					{WEEKDAYS.map(([weekday, label]) => {
 						const selected = weekdays.includes(weekday)
 						return (
@@ -755,10 +834,10 @@ function RecurrenceFields({
 									)
 								}
 								className={cn(
-									'rounded-full border px-2 py-1 text-xs',
+									'h-8 rounded-full border px-3 text-xs font-medium transition-colors',
 									selected
 										? 'border-primary bg-primary text-primary-foreground'
-										: 'border-border hover:bg-muted',
+										: 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
 								)}
 							>
 								{label}
@@ -767,7 +846,7 @@ function RecurrenceFields({
 					})}
 				</fieldset>
 			) : null}
-		</div>
+		</section>
 	)
 }
 

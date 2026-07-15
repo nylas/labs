@@ -211,18 +211,68 @@ export function calendarWallClockHour(date: Date, timeZone?: CalendarTimeZone): 
 	return zoned.hour + zoned.minute / 60
 }
 
+function zonedTimeValue(date: Date, timeZone: string): number {
+	const zoned = zonedDateTime(date, timeZone)
+	return Date.UTC(zoned.year, zoned.month - 1, zoned.day, zoned.hour, zoned.minute)
+}
+
+/**
+ * Finds the transition boundary following a nonexistent wall-clock time.
+ *
+ * Local time increases monotonically across a spring-forward transition, but
+ * jumps over the missing interval. `before` and `after` bracket that jump,
+ * so a minute-precision binary search finds the first valid local minute.
+ */
+function firstValidTimeAfterGap(target: number, timeZone: string, before: number, after: number): Date {
+	let lower = before
+	let upper = after
+	while (upper - lower > 60_000) {
+		const middle = lower + Math.floor((upper - lower) / 120_000) * 60_000
+		if (zonedTimeValue(new Date(middle), timeZone) > target) upper = middle
+		else lower = middle
+	}
+	return new Date(upper)
+}
+
 /** Converts a display-zone wall-clock slot into an instant for timezone reference labels. */
 export function calendarSlotTime(day: Date, hour: number, timeZone: string): Date {
 	const wholeHour = Math.floor(hour)
 	const minute = Math.round((hour - wholeHour) * 60)
 	const target = Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), wholeHour, minute)
-	let instant = target
-	for (let attempt = 0; attempt < 2; attempt += 1) {
-		const actual = zonedDateTime(new Date(instant), timeZone)
-		const actualTime = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute)
-		instant += target - actualTime
+
+	// The offset immediately before and after a DST transition can differ. Try
+	// each nearby offset so normal times and both sides of a fall-back overlap
+	// map exactly, without relying on a fixed-point adjustment that oscillates
+	// for spring-forward gaps.
+	const offsets = new Set<number>()
+	for (const daysFromTarget of [-2, -1, 0, 1, 2]) {
+		const sample = target + daysFromTarget * 24 * 60 * 60 * 1000
+		offsets.add(zonedTimeValue(new Date(sample), timeZone) - sample)
 	}
-	return new Date(instant)
+	const candidates = [...offsets].map((offset) => target - offset)
+	const resolved = candidates.map((instant) => ({
+		instant,
+		localTime: zonedTimeValue(new Date(instant), timeZone),
+	}))
+	const exact = resolved
+		.filter(({ localTime }) => localTime === target)
+		.sort((a, b) => a.instant - b.instant)[0]
+	if (exact) return new Date(exact.instant)
+
+	// A nonexistent local time lies between the old-offset candidate (before the
+	// requested wall time) and new-offset candidate (after it). Normalize it to
+	// the first valid local minute after the gap instead of returning either side.
+	const gaps = resolved.flatMap((lower) =>
+		resolved
+			.filter(
+				(upper) => lower.localTime < target && upper.localTime > target && lower.instant < upper.instant,
+			)
+			.map((upper) => ({ before: lower.instant, after: upper.instant })),
+	)
+	// With no exact candidate, the before/after samples above bound a gap in the
+	// current IANA timezone rules.
+	const gap = gaps.sort((a, b) => a.after - a.before - (b.after - b.before))[0] as (typeof gaps)[number]
+	return firstValidTimeAfterGap(target, timeZone, gap.before, gap.after)
 }
 
 function compareYmd(a: string, b: string): number {
