@@ -1,5 +1,12 @@
 # ownmail
 
+## 0.3.1
+
+### Patch Changes
+
+- b5cec5d: Show actionable recovery guidance when a local project is missing its organization state, and use a compact setup header that remains readable in narrow terminals.
+  - @ownmail/app@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes
