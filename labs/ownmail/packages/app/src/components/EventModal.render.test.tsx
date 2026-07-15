@@ -215,7 +215,9 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
-		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not save the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled()
 	})
 
@@ -233,7 +235,9 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
-		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not save the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
 	})
 
 	it('shows a busy label while the save is in flight', async () => {
@@ -556,7 +560,9 @@ describe('EventModal — existing event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: /Delete/ }))
-		expect(await screen.findByText('Failed to delete')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not delete the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
 		expect(onClose).not.toHaveBeenCalled()
 	})
 
@@ -574,7 +580,9 @@ describe('EventModal — existing event', () => {
 			/>,
 		)
 		await user.click(screen.getByRole('button', { name: /Delete/ }))
-		expect(await screen.findByText('Failed to delete')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not delete the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
 	})
 
 	it('surfaces a generic RSVP failure when a non-Error is thrown', async () => {
@@ -710,7 +718,9 @@ describe('EventModal — editing an existing event', () => {
 		renderEdit()
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
 		await user.click(screen.getByRole('button', { name: 'Save changes' }))
-		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not save the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled()
 	})
 
@@ -720,7 +730,9 @@ describe('EventModal — editing an existing event', () => {
 		renderEdit()
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
 		await user.click(screen.getByRole('button', { name: 'Save changes' }))
-		expect(await screen.findByText('Failed to save')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not save the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
 	})
 
 	it('shows a busy label while the update is in flight', async () => {

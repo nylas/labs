@@ -372,7 +372,7 @@ function Compose() {
 			dirty.current = true
 			setError(null)
 		} catch {
-			setError('Failed to attach file')
+			setError('Could not attach the file. Check the file and try again.')
 		}
 	}
 
@@ -401,7 +401,7 @@ function Compose() {
 			})
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 		} catch {
-			setError('Failed to send')
+			setError('Could not send your message. Check your connection, then try again.')
 			setBusy(false)
 			submitting.current = false
 		}
@@ -413,7 +413,7 @@ function Compose() {
 		try {
 			await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
 		} catch {
-			setError('Failed to save draft')
+			setError('Could not save the draft. Your changes are still here; check your connection and try again.')
 		} finally {
 			setBusy(false)
 		}
@@ -429,7 +429,7 @@ function Compose() {
 			if (savedDraftId) await deleteDraft({ data: { draftId: savedDraftId } })
 			close()
 		} catch {
-			setError('Failed to discard draft')
+			setError('Could not discard the draft. Check your connection, then try again.')
 			setBusy(false)
 			discarding.current = false
 		}

@@ -137,7 +137,7 @@ export function ContactsShell({
 			setExtra((prev) => [...prev, ...res.contacts])
 			setNextCursor(res.nextCursor)
 		} catch {
-			// best-effort; the button stays for a retry
+			// The button remains available for a retry.
 		} finally {
 			setLoadingMore(false)
 		}

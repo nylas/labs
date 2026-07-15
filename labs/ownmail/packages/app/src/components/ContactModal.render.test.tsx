@@ -90,7 +90,9 @@ describe('ContactModal — create', () => {
 		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
 
-		expect(await screen.findByText('Failed to save contact')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not save contact. Check your connection, then try again.'),
+		).toBeInTheDocument()
 		expect(onClose).not.toHaveBeenCalled()
 	})
 
@@ -99,7 +101,9 @@ describe('ContactModal — create', () => {
 		render(<ContactModal contact={null} onClose={vi.fn()} />)
 		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
-		expect(await screen.findByText('Failed to save contact')).toBeInTheDocument()
+		expect(
+			await screen.findByText('Could not save contact. Check your connection, then try again.'),
+		).toBeInTheDocument()
 	})
 
 	it('shows a busy label while the save is in flight', async () => {

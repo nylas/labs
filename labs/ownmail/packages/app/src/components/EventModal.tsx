@@ -140,7 +140,7 @@ export function EventModal({
 			})
 			onClose(true)
 		} catch {
-			setError('Failed to save')
+			setError('Could not save the event. Check your connection, then try again.')
 			setBusy(false)
 		}
 	}
@@ -168,7 +168,7 @@ export function EventModal({
 			})
 			onClose(true)
 		} catch {
-			setError('Failed to save')
+			setError('Could not save the event. Check your connection, then try again.')
 			setBusy(false)
 		}
 	}
@@ -181,7 +181,7 @@ export function EventModal({
 			await deleteEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId } })
 			onClose(true)
 		} catch {
-			setError('Failed to delete')
+			setError('Could not delete the event. Check your connection, then try again.')
 			setBusy(false)
 		}
 	}

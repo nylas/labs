@@ -26,8 +26,34 @@ export const Route = createRootRoute({
 		],
 	}),
 	component: RootComponent,
+	errorComponent: AppError,
 	notFoundComponent: NotFoundComponent,
 })
+
+function AppError() {
+	return (
+		<div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+			<div>
+				<p className="font-display text-sm font-semibold text-foreground">We couldn’t load this page.</p>
+				<p className="mt-1 text-sm text-muted-foreground">
+					Check your connection and try again. If it persists, sign in again.
+				</p>
+			</div>
+			<div className="flex gap-3">
+				<button
+					type="button"
+					onClick={() => window.location.reload()}
+					className="rounded-lg border border-border px-4 py-2 text-sm font-medium"
+				>
+					Retry
+				</button>
+				<Link to="/login" className="rounded-lg border border-border px-4 py-2 text-sm font-medium">
+					Sign in
+				</Link>
+			</div>
+		</div>
+	)
+}
 
 function NotFoundComponent() {
 	return (
