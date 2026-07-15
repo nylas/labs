@@ -48,7 +48,9 @@ describe('user preferences', () => {
 		})
 		expect(saved.displayName).toBe('')
 		expect(saved.primaryTimezone).toBe(defaultUserPreferences().primaryTimezone)
-		expect(saved.secondaryTimezone).toBe('UTC')
+		// CI commonly uses UTC as the browser timezone. In that case the
+		// normalizer correctly removes the duplicate secondary timezone.
+		expect(saved.secondaryTimezone).toBe(saved.primaryTimezone === 'UTC' ? '' : 'UTC')
 	})
 
 	it('uses UTC when the runtime cannot provide a timezone list or browser timezone', () => {
