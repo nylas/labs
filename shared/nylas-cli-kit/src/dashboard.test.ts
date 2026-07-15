@@ -10,6 +10,123 @@ async function clientWithResponse(payload: unknown): Promise<DashboardAccountCli
 	return new DashboardAccountClient(dpop, 'https://dashboard-account.test', fetchImpl)
 }
 
+async function clientAndFetchWithResponse(payload: unknown): Promise<{
+	client: DashboardAccountClient
+	fetchImpl: ReturnType<typeof vi.fn>
+}> {
+	const dpop = await DpopKey.generate()
+	const fetchImpl = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }))
+	return {
+		client: new DashboardAccountClient(
+			dpop,
+			'https://dashboard-account.test',
+			fetchImpl as unknown as typeof fetch,
+		),
+		fetchImpl,
+	}
+}
+
+describe('DashboardAccountClient email/password login', () => {
+	it('logs in with email/password and validates the token response', async () => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({
+			request_id: 'req-password',
+			success: true,
+			data: {
+				userToken: 'user-token',
+				orgToken: 'org-token',
+				user: { publicId: 'user-public-id', emailAddress: 'user@example.test' },
+				organizations: [{ publicId: 'org-public-id', name: 'Acme' }],
+			},
+		})
+
+		await expect(
+			client.loginWithPassword({
+				email: 'user@example.test',
+				password: 'correct horse battery staple',
+				orgPublicId: 'org-public-id',
+			}),
+		).resolves.toMatchObject({
+			status: 'complete',
+			userToken: 'user-token',
+			orgToken: 'org-token',
+			user: { publicId: 'user-public-id' },
+		})
+
+		const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+		expect(init.headers).toMatchObject({ 'Content-Type': 'application/json' })
+		expect(JSON.parse(String(init.body))).toEqual({
+			email: 'user@example.test',
+			password: 'correct horse battery staple',
+			orgPublicId: 'org-public-id',
+		})
+	})
+
+	it('normalizes an MFA challenge without retaining factor details', async () => {
+		const client = await clientWithResponse({
+			request_id: 'req-mfa',
+			success: true,
+			data: {
+				user: { publicId: 'user-public-id' },
+				organizations: [{ publicId: 'org-public-id' }],
+				totpFactor: { factorSid: 'sensitive-factor-id' },
+			},
+		})
+
+		await expect(
+			client.loginWithPassword({ email: 'user@example.test', password: 'password' }),
+		).resolves.toEqual({
+			status: 'mfa_required',
+			user: { publicId: 'user-public-id' },
+			organizations: [{ publicId: 'org-public-id' }],
+		})
+	})
+
+	it('completes MFA login and sends only the required fields', async () => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({
+			request_id: 'req-mfa-complete',
+			success: true,
+			data: {
+				userToken: 'user-token',
+				orgToken: 'org-token',
+				user: { publicId: 'user-public-id' },
+				organizations: [],
+			},
+		})
+
+		await expect(
+			client.completeMfaLogin({
+				userPublicId: 'user-public-id',
+				code: '123456',
+				orgPublicId: 'org-public-id',
+			}),
+		).resolves.toMatchObject({ userToken: 'user-token', orgToken: 'org-token' })
+
+		const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+		expect(url).toBe('https://dashboard-account.test/auth/cli/login/mfa')
+		expect(JSON.parse(String(init.body))).toEqual({
+			userPublicId: 'user-public-id',
+			code: '123456',
+			orgPublicId: 'org-public-id',
+		})
+	})
+
+	it('rejects malformed MFA challenges', async () => {
+		const client = await clientWithResponse({
+			request_id: 'req-bad-mfa',
+			success: true,
+			data: {
+				user: { publicId: 'user-public-id' },
+				organizations: [],
+				totpFactor: 'unexpected',
+			},
+		})
+
+		await expect(
+			client.loginWithPassword({ email: 'user@example.test', password: 'password' }),
+		).rejects.toThrow('malformed response')
+	})
+})
+
 describe('DashboardAccountClient SSO', () => {
 	it('unwraps and validates the SSO start envelope', async () => {
 		const client = await clientWithResponse({

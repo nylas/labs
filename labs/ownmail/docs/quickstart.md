@@ -3,7 +3,7 @@
 ## What you need
 
 - Node.js 20+ (`node -v`)
-- A Google, Microsoft, or GitHub account (to create your free Nylas account)
+- A Nylas account, or a Google, Microsoft, or GitHub account to create one
 - A Cloudflare account (you can create one during browser sign-in)
 
 ## Create your inbox + app
@@ -16,8 +16,9 @@ npx ownmail
 
 The wizard walks you through everything:
 
-1. **Sign in to Nylas** — your browser opens; approve and come back. New here?
-   Pick "create one (free)".
+1. **Sign in to Nylas** — use your existing Nylas email/password or approve a
+   Google, Microsoft, or GitHub browser sign-in. Authenticator-code MFA is
+   supported. New here? Pick "create one (free)" and use the browser flow.
 2. **Pick your address** — a free `you.nylas.email` subdomain (instant), or
    your own domain (you'll add a few DNS records; the wizard waits and verifies).
 3. **Name your inbox** — e.g. `contact@you.nylas.email`, and save the

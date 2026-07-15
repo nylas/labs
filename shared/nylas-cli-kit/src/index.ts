@@ -10,6 +10,7 @@ export {
 	type DomainVerificationResult,
 	type InboxDomain,
 	type OrgSwitchResponse,
+	type PasswordLoginResponse,
 	type SessionResponse,
 	type SsoLoginType,
 	type SsoMode,
