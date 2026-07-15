@@ -30,6 +30,7 @@ import { normalizeOutboundAttachments, type OutboundAttachment } from './outboun
 import { platform, usingDevMocks } from './platform.js'
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
+import { siteNameFromEnv } from './site-config.js'
 import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
 import { normalizeThreadStateInput } from './thread-state.js'
 
@@ -177,7 +178,7 @@ export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async ()
 	const { platform } = await import('./platform.js')
 	const { env } = await platform()
 	const { email, displayName } = await requireMailbox()
-	return { email, ...(displayName ? { displayName } : {}), appName: env.APP_NAME }
+	return { email, ...(displayName ? { displayName } : {}), appName: siteNameFromEnv(env) }
 })
 
 /** Deliberately fail closed: administrators must explicitly opt in to web password changes. */

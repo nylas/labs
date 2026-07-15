@@ -150,6 +150,12 @@ describe('getMailboxInfo', () => {
 		})
 	})
 
+	it('returns the configured site name instead of the worker project identifier', async () => {
+		resolveMailbox()
+		platformMock.mockResolvedValue({ env: { APP_NAME: 'mail-worker-42', OWNMAIL_SITE_NAME: 'Acme Mail' } })
+		expect(await fns.getMailboxInfo.handler({})).toMatchObject({ appName: 'Acme Mail' })
+	})
+
 	it('omits displayName when the mailbox has none', async () => {
 		resolveMailbox()
 		const info = await fns.getMailboxInfo.handler({})

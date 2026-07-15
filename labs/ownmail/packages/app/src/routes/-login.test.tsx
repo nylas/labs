@@ -18,7 +18,8 @@ vi.mock('@tanstack/react-start/server', () => ({
 }))
 
 const usingDevMocks = vi.fn()
-vi.mock('../server/platform.js', () => ({ usingDevMocks: () => usingDevMocks() }))
+const platform = vi.fn()
+vi.mock('../server/platform.js', () => ({ platform: () => platform(), usingDevMocks: () => usingDevMocks() }))
 
 const getSession = vi.fn()
 const hasReferenceDevSessionCookie = vi.fn()
@@ -28,7 +29,11 @@ vi.mock('../server/session.js', () => ({
 }))
 
 vi.mock('../components/LoginScreen.js', () => ({
-	LoginScreen: (props: any) => <div data-testid="login-screen">{props.signInHref}</div>,
+	LoginScreen: (props: any) => (
+		<div data-testid="login-screen" data-site-name={props.siteName}>
+			{props.signInHref}
+		</div>
+	),
 }))
 
 import { Route } from './login.js'
@@ -36,6 +41,7 @@ import { Route } from './login.js'
 afterEach(cleanup)
 beforeEach(() => {
 	vi.clearAllMocks()
+	platform.mockResolvedValue({ env: {} })
 })
 
 describe('login route loader', () => {
@@ -45,7 +51,7 @@ describe('login route loader', () => {
 
 		const state = await Route.options.loader()
 
-		expect(state).toEqual({ authenticated: false, signInHref: '/auth' })
+		expect(state).toEqual({ authenticated: false, signInHref: '/auth', siteName: 'ownmail' })
 	})
 
 	it('bounces an already-authenticated user to their mailbox rather than re-prompting login', async () => {
@@ -61,7 +67,7 @@ describe('login route loader', () => {
 
 		const state = await Route.options.loader()
 
-		expect(state).toEqual({ authenticated: false, signInHref: '/auth' })
+		expect(state).toEqual({ authenticated: false, signInHref: '/auth', siteName: 'ownmail' })
 		expect(getSession).not.toHaveBeenCalled()
 	})
 
@@ -75,9 +81,10 @@ describe('login route loader', () => {
 
 describe('login route component', () => {
 	it('passes the resolved sign-in href through to the login screen', () => {
-		Route.useLoaderData = vi.fn(() => ({ authenticated: false, signInHref: '/auth' }))
+		Route.useLoaderData = vi.fn(() => ({ authenticated: false, signInHref: '/auth', siteName: 'Acme Mail' }))
 		const Login = Route.options.component
 		render(<Login />)
 		expect(screen.getByTestId('login-screen').textContent).toBe('/auth')
+		expect(screen.getByTestId('login-screen')).toHaveAttribute('data-site-name', 'Acme Mail')
 	})
 })

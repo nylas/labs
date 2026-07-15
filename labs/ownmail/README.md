@@ -171,6 +171,7 @@ export NYLAS_API_KEY="..."
 export NYLAS_CLIENT_ID="..."
 export NYLAS_REGION="us"
 export APP_NAME="ownmail-local"
+export OWNMAIL_SITE_NAME="My Mail"
 export INBOX_EMAIL="you@example.com"
 export TEMPLATE_VERSION="0.1.2"
 pnpm --filter @ownmail/app dev:local

@@ -1,30 +1,43 @@
 /// <reference types="vite/client" />
 import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
-import { APP_DESCRIPTION, APP_TITLE, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '../components/app-meta.js'
+import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '../components/app-meta.js'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { INITIAL_ROOT_CLASS_NAME } from '../components/theme.js'
+import { platform } from '../server/platform.js'
+import { DEFAULT_SITE_NAME, siteNameFromEnv } from '../server/site-config.js'
 import appCss from '../styles.css?url'
 
+const rootState = createServerFn({ method: 'GET' }).handler(async () => {
+	const { env } = await platform()
+	return { siteName: siteNameFromEnv(env) }
+})
+
 export const Route = createRootRoute({
-	head: () => ({
-		meta: [
-			{ charSet: 'utf-8' },
-			{ name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
-			{ name: 'description', content: APP_DESCRIPTION },
-			{ name: 'color-scheme', content: 'light dark' },
-			{ name: 'mobile-web-app-capable', content: 'yes' },
-			{ name: 'apple-mobile-web-app-capable', content: 'yes' },
-			{ name: 'apple-mobile-web-app-title', content: 'OwnMail' },
-			{ name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
-			{ title: APP_TITLE },
-		],
-		links: [
-			{ rel: 'stylesheet', href: appCss },
-			{ rel: 'manifest', href: '/manifest.webmanifest' },
-			{ rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
-		],
-	}),
+	loader: async () => rootState(),
+	head: (context) => {
+		const siteName = context?.loaderData?.siteName ?? DEFAULT_SITE_NAME
+		const { title, description } = appMeta(siteName)
+		return {
+			meta: [
+				{ charSet: 'utf-8' },
+				{ name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+				{ name: 'description', content: description },
+				{ name: 'color-scheme', content: 'light dark' },
+				{ name: 'mobile-web-app-capable', content: 'yes' },
+				{ name: 'apple-mobile-web-app-capable', content: 'yes' },
+				{ name: 'apple-mobile-web-app-title', content: siteName },
+				{ name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
+				{ title },
+			],
+			links: [
+				{ rel: 'stylesheet', href: appCss },
+				{ rel: 'manifest', href: '/manifest.webmanifest' },
+				{ rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+			],
+		}
+	},
 	component: RootComponent,
 	errorComponent: AppError,
 	notFoundComponent: NotFoundComponent,
