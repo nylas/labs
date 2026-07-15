@@ -93,8 +93,11 @@ workflow. You stay in charge of the code from there.
 
 ## Security and data handling
 
-- OwnMail uses browser-based sign-in for Nylas. Cloudflare setup recommends
-  browser OAuth, with a least-privilege API token available as an advanced option.
+- OwnMail supports existing Nylas accounts that use email/password (including
+  authenticator-code MFA) and browser-based Google, Microsoft, or GitHub sign-in.
+  New Nylas accounts are created through the browser flow. Cloudflare setup
+  recommends browser OAuth, with a least-privilege API token available as an
+  advanced option.
 - App secrets, including the Nylas API key and session secret, are stored as
   Cloudflare Worker secrets.
 - The deployed app resolves the active inbox from the server-side session,

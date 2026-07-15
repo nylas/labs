@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts'
 import {
+	type AuthResponse,
 	DashboardAccountClient,
 	DpopKey,
 	type GatewayApplication,
@@ -9,6 +10,7 @@ import {
 	type SsoLoginType,
 } from '@nylas-labs/cli-kit'
 import open from 'open'
+import { z } from 'zod'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import {
 	clearPendingSecret,
@@ -25,8 +27,11 @@ import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth,
 const APP_BRANDING_PREFIX = 'ownmail:'
 const SANDBOX_GRANT_CAP = 5
 const APPLICATION_REGIONS: Region[] = ['us', 'eu']
+const DASHBOARD_EMAIL_SCHEMA = z.string().trim().max(254).email()
+const DASHBOARD_PASSWORD_SCHEMA = z.string().min(1).max(1024)
+const DASHBOARD_MFA_CODE_SCHEMA = z.string().regex(/^[0-9]{6}$/)
 
-/** 01 — Dashboard SSO device flow (login or register). */
+/** 01 — Dashboard email/password or SSO flow (login or register). */
 export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	if (ctx.auth) {
 		// Session may be stale — probe and refresh instead of re-prompting.
@@ -61,11 +66,19 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 
 	const loginType = await p.select({
 		message: 'Sign in with',
-		options: [
-			{ value: 'google_SSO' as const, label: 'Google' },
-			{ value: 'microsoft_SSO' as const, label: 'Microsoft' },
-			{ value: 'github_SSO' as const, label: 'GitHub' },
-		],
+		options:
+			mode === 'login'
+				? [
+						{ value: 'email_password' as const, label: 'Nylas email and password' },
+						{ value: 'google_SSO' as const, label: 'Google' },
+						{ value: 'microsoft_SSO' as const, label: 'Microsoft' },
+						{ value: 'github_SSO' as const, label: 'GitHub' },
+					]
+				: [
+						{ value: 'google_SSO' as const, label: 'Google' },
+						{ value: 'microsoft_SSO' as const, label: 'Microsoft' },
+						{ value: 'github_SSO' as const, label: 'GitHub' },
+					],
 	})
 	if (p.isCancel(loginType)) throw new CancelledError()
 
@@ -75,39 +88,51 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	ctx.dashboard = dashboard
 	ctx.gateway = new GatewayClient(dpop, gatewayUrls())
 
-	const spinner = p.spinner()
-	const result = await dashboard.ssoAuthorize(
-		{ loginType: loginType as SsoLoginType, mode },
-		async (started) => {
-			const url = started.verificationUriComplete ?? started.verificationUri
-			p.note(
-				`Visit this URL to finish signing in:\n\n  ${url}\n\nCode: ${started.userCode}`,
-				'Confirm in browser',
-			)
-			const shouldOpen = await p.confirm({
-				message: 'Open this URL in your browser?',
-				initialValue: true,
-			})
-			if (p.isCancel(shouldOpen)) throw new CancelledError()
-			if (shouldOpen) {
-				await open(url).catch(() => {
-					p.log.warn('Could not open your browser automatically. Use the URL above.')
+	let result: AuthResponse
+	if (loginType === 'email_password') {
+		result = await authorizeWithPassword(dashboard)
+	} else {
+		const spinner = p.spinner()
+		const ssoResult = await dashboard.ssoAuthorize(
+			{ loginType: loginType as SsoLoginType, mode },
+			async (started) => {
+				const url = started.verificationUriComplete ?? started.verificationUri
+				p.note(
+					`Visit this URL to finish signing in:\n\n  ${url}\n\nCode: ${started.userCode}`,
+					'Confirm in browser',
+				)
+				const shouldOpen = await p.confirm({
+					message: 'Open this URL in your browser?',
+					initialValue: true,
 				})
-			}
-			spinner.start('Waiting for you to finish in the browser…')
-		},
-	)
-	if (result.status !== 'complete') {
-		spinner.stop('Browser sign-in did not complete')
-		throw new Error(
-			result.status === 'mfa_required'
-				? 'This account requires MFA, which ownmail doesn’t support yet. Log in once at dashboard-v3.nylas.com and retry.'
-				: result.status === 'access_denied'
+				if (p.isCancel(shouldOpen)) throw new CancelledError()
+				if (shouldOpen) {
+					await open(url).catch(() => {
+						p.log.warn('Could not open your browser automatically. Use the URL above.')
+					})
+				}
+				spinner.start('Waiting for you to finish in the browser…')
+			},
+		)
+		if (ssoResult.status === 'mfa_required') {
+			spinner.stop('Browser sign-in complete — MFA required')
+			result = await completeDashboardMfa(
+				dashboard,
+				ssoResult.user.publicId,
+				ssoResult.organizations[0]?.publicId,
+			)
+		} else if (ssoResult.status !== 'complete') {
+			spinner.stop('Browser sign-in did not complete')
+			throw new Error(
+				ssoResult.status === 'access_denied'
 					? 'Sign-in was denied. If this Google, Microsoft, or GitHub email does not have a Nylas dashboard account, re-run ownmail and choose “No — create one (free)”.'
 					: 'The sign-in link expired before it was confirmed. Re-run ownmail to start a new sign-in.',
-		)
+			)
+		} else {
+			spinner.stop('Browser sign-in complete')
+			result = ssoResult
+		}
 	}
-	spinner.stop('Browser sign-in complete')
 
 	setAuth(ctx, {
 		userToken: result.userToken,
@@ -118,6 +143,78 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 		updatedAt: Date.now(),
 	})
 	markStep(ctx.project, 'dashboard-auth')
+}
+
+async function authorizeWithPassword(dashboard: DashboardAccountClient): Promise<AuthResponse> {
+	const emailInput = await p.text({
+		message: 'Nylas account email',
+		placeholder: 'you@example.com',
+		validate: (value) =>
+			DASHBOARD_EMAIL_SCHEMA.safeParse(value).success ? undefined : 'Enter a valid email address.',
+	})
+	if (p.isCancel(emailInput)) throw new CancelledError()
+	const email = DASHBOARD_EMAIL_SCHEMA.parse(emailInput).toLowerCase()
+
+	let password = await p.password({
+		message: 'Nylas account password',
+		validate: (value) =>
+			DASHBOARD_PASSWORD_SCHEMA.safeParse(value).success
+				? undefined
+				: 'Enter a password between 1 and 1024 characters.',
+	})
+	if (p.isCancel(password)) throw new CancelledError()
+
+	const spinner = p.spinner()
+	spinner.start('Signing in to Nylas…')
+	let loginResult: Awaited<ReturnType<DashboardAccountClient['loginWithPassword']>>
+	try {
+		loginResult = await dashboard.loginWithPassword({ email, password })
+	} catch {
+		spinner.stop('Nylas sign-in failed')
+		throw new Error(
+			'Email/password sign-in failed. Check your credentials and confirm this account uses Nylas email/password login.',
+		)
+	} finally {
+		password = ''
+	}
+
+	if (loginResult.status === 'complete') {
+		spinner.stop('Nylas sign-in complete')
+		return loginResult
+	}
+
+	spinner.stop('Password accepted — MFA required')
+	return completeDashboardMfa(dashboard, loginResult.user.publicId, loginResult.organizations[0]?.publicId)
+}
+
+async function completeDashboardMfa(
+	dashboard: DashboardAccountClient,
+	userPublicId: string,
+	orgPublicId?: string,
+): Promise<AuthResponse> {
+	let code = await p.password({
+		message: 'Six-digit authenticator code',
+		validate: (value) =>
+			DASHBOARD_MFA_CODE_SCHEMA.safeParse(value).success ? undefined : 'Enter a six-digit code.',
+	})
+	if (p.isCancel(code)) throw new CancelledError()
+
+	const spinner = p.spinner()
+	spinner.start('Verifying authenticator code…')
+	try {
+		const result = await dashboard.completeMfaLogin({
+			userPublicId,
+			code,
+			...(orgPublicId ? { orgPublicId } : {}),
+		})
+		code = ''
+		spinner.stop('MFA verification complete')
+		return result
+	} catch {
+		code = ''
+		spinner.stop('MFA verification failed')
+		throw new Error('MFA verification failed. Check the six-digit code and try again.')
+	}
 }
 
 /** 02 — Resolve the active organization (picker when the user has several). */

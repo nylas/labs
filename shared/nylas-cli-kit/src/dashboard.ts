@@ -1,6 +1,6 @@
 /**
  * Client for the Nylas dashboard-account service:
- * - CLI SSO device-authorization flow (login/register)
+ * - CLI email/password and SSO device-authorization flows
  * - session management (current, switch-org, refresh, logout)
  * - inbox domains REST (/orgs/inbox/domains/*)
  *
@@ -49,6 +49,14 @@ export type AuthResponse = {
 	user: DashboardUser
 	organizations: DashboardOrganization[]
 }
+
+export type PasswordLoginResponse =
+	| ({ status: 'complete' } & AuthResponse)
+	| {
+			status: 'mfa_required'
+			user: DashboardUser
+			organizations: DashboardOrganization[]
+	  }
 
 export type OrgSwitchResponse = {
 	orgToken: string
@@ -125,6 +133,36 @@ export class DashboardAccountClient {
 		private readonly baseUrl: string = DEFAULT_DASHBOARD_ACCOUNT_URL,
 		private readonly fetchImpl: typeof fetch = fetch,
 	) {}
+
+	// ---- CLI email/password flow ---------------------------------------------
+
+	async loginWithPassword(input: {
+		email: string
+		password: string
+		orgPublicId?: string
+	}): Promise<PasswordLoginResponse> {
+		const body: Record<string, unknown> = {
+			email: input.email,
+			password: input.password,
+		}
+		if (input.orgPublicId) body.orgPublicId = input.orgPublicId
+		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/login', { body })
+		return parsePasswordLoginResponse(data, '/auth/cli/login')
+	}
+
+	async completeMfaLogin(input: {
+		userPublicId: string
+		code: string
+		orgPublicId?: string
+	}): Promise<AuthResponse> {
+		const body: Record<string, unknown> = {
+			userPublicId: input.userPublicId,
+			code: input.code,
+		}
+		if (input.orgPublicId) body.orgPublicId = input.orgPublicId
+		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/login/mfa', { body })
+		return parseAuthResponse(data, '/auth/cli/login/mfa')
+	}
 
 	// ---- CLI SSO device flow -------------------------------------------------
 
@@ -373,6 +411,21 @@ function parseSsoPollResponse(value: unknown, path: string): SsoPollResponse {
 	}
 
 	throw new Error(`dashboard-account ${path} returned an unknown SSO status`)
+}
+
+function parsePasswordLoginResponse(value: unknown, path: string): PasswordLoginResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	if ('totpFactor' in value) {
+		if (!isRecord(value.totpFactor)) {
+			throw new Error(`dashboard-account ${path} returned a malformed response`)
+		}
+		return {
+			status: 'mfa_required',
+			user: parseDashboardUser(value.user, path),
+			organizations: parseOrganizations(value.organizations, path),
+		}
+	}
+	return { status: 'complete', ...parseAuthResponse(value, path) }
 }
 
 function parseAuthResponse(value: unknown, path: string): AuthResponse {

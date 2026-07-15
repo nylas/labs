@@ -19,6 +19,9 @@ npx ownmail
 
 The setup wizard signs you in, creates an inbox, configures a domain, and
 deploys the app. You can safely re-run it to resume an incomplete setup.
+Existing Nylas users can sign in with their Nylas email/password (including
+authenticator-code MFA) or with Google, Microsoft, or GitHub. Account creation
+continues through the browser-based provider flow.
 
 ## Common commands
 

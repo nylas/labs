@@ -236,6 +236,146 @@ describe('stepDashboardAuth', () => {
 		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
 	})
 
+	it('logs in with a Nylas email and password without exposing the password', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce(' User@Example.com ')
+		vi.mocked(p.password).mockResolvedValueOnce('secret-password')
+		const loginWithPassword = vi.fn().mockResolvedValue({
+			status: 'complete',
+			userToken: 'ut',
+			orgToken: 'ot',
+			user: { publicId: 'user-pub' },
+			organizations: [{ publicId: 'org-pub' }],
+		})
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(
+			() => ({ loginWithPassword }) as unknown as DashboardAccountClient,
+		)
+
+		await stepDashboardAuth(ctx)
+
+		expect(loginWithPassword).toHaveBeenCalledWith({
+			email: 'user@example.com',
+			password: 'secret-password',
+		})
+		expect(p.password).toHaveBeenCalledWith(expect.objectContaining({ message: 'Nylas account password' }))
+		expect(ctx.auth?.userToken).toBe('ut')
+		const emailPrompt = vi.mocked(p.text).mock.calls[0]?.[0]
+		expect(emailPrompt?.validate?.('invalid')).toBe('Enter a valid email address.')
+		expect(emailPrompt?.validate?.('valid@example.com')).toBeUndefined()
+		const passwordPrompt = vi.mocked(p.password).mock.calls[0]?.[0]
+		expect(passwordPrompt?.validate?.('')).toMatch(/between 1 and 1024/)
+		expect(passwordPrompt?.validate?.('valid')).toBeUndefined()
+	})
+
+	it('keeps invalid email/password failures generic', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
+		vi.mocked(p.password).mockResolvedValueOnce('wrong-password')
+		const loginWithPassword = vi.fn().mockRejectedValue(new Error('internal auth detail'))
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(
+			() => ({ loginWithPassword }) as unknown as DashboardAccountClient,
+		)
+
+		const failure = stepDashboardAuth(ctx)
+		await expect(failure).rejects.toThrow(/Email\/password sign-in failed/)
+		await expect(failure).rejects.not.toThrow(/internal auth detail/)
+	})
+
+	it('completes password login MFA and validates the hidden code prompt', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
+		vi.mocked(p.password).mockResolvedValueOnce('password').mockResolvedValueOnce('123456')
+		const loginWithPassword = vi.fn().mockResolvedValue({
+			status: 'mfa_required',
+			user: { publicId: 'user-pub' },
+			organizations: [{ publicId: 'org-pub' }],
+		})
+		const completeMfaLogin = vi.fn().mockResolvedValue({
+			userToken: 'ut',
+			orgToken: 'ot',
+			user: { publicId: 'user-pub' },
+			organizations: [],
+		})
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(
+			() => ({ loginWithPassword, completeMfaLogin }) as unknown as DashboardAccountClient,
+		)
+
+		await stepDashboardAuth(ctx)
+
+		expect(completeMfaLogin).toHaveBeenCalledWith({
+			userPublicId: 'user-pub',
+			code: '123456',
+			orgPublicId: 'org-pub',
+		})
+		const mfaPrompt = vi.mocked(p.password).mock.calls[1]?.[0]
+		expect(mfaPrompt?.validate?.('12345')).toBe('Enter a six-digit code.')
+		expect(mfaPrompt?.validate?.('123456')).toBeUndefined()
+		expect(ctx.auth?.userToken).toBe('ut')
+	})
+
+	it('keeps MFA failures generic', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
+		vi.mocked(p.password).mockResolvedValueOnce('password').mockResolvedValueOnce('123456')
+		const loginWithPassword = vi.fn().mockResolvedValue({
+			status: 'mfa_required',
+			user: { publicId: 'user-pub' },
+			organizations: [],
+		})
+		const completeMfaLogin = vi.fn().mockRejectedValue(new Error('sensitive factor detail'))
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(
+			() => ({ loginWithPassword, completeMfaLogin }) as unknown as DashboardAccountClient,
+		)
+
+		const failure = stepDashboardAuth(ctx)
+		await expect(failure).rejects.toThrow('MFA verification failed')
+		await expect(failure).rejects.not.toThrow(/sensitive factor detail/)
+	})
+
+	it('allows cancellation at each email/password secret prompt', async () => {
+		const emailCtx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce(CANCEL as never)
+		await expect(stepDashboardAuth(emailCtx)).rejects.toBeInstanceOf(CancelledError)
+
+		vi.clearAllMocks()
+		setDefaults()
+		const passwordCtx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
+		vi.mocked(p.password).mockResolvedValueOnce(CANCEL as never)
+		await expect(stepDashboardAuth(passwordCtx)).rejects.toBeInstanceOf(CancelledError)
+
+		vi.clearAllMocks()
+		setDefaults()
+		const mfaCtx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
+		vi.mocked(p.password)
+			.mockResolvedValueOnce('password')
+			.mockResolvedValueOnce(CANCEL as never)
+		const loginWithPassword = vi.fn().mockResolvedValue({
+			status: 'mfa_required',
+			user: { publicId: 'user-pub' },
+			organizations: [],
+		})
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(
+			() => ({ loginWithPassword }) as unknown as DashboardAccountClient,
+		)
+		await expect(stepDashboardAuth(mfaCtx)).rejects.toBeInstanceOf(CancelledError)
+	})
+
 	it('completes a fresh login, reusing an existing DPoP key and opening the browser', async () => {
 		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
 		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
@@ -336,19 +476,37 @@ describe('stepDashboardAuth', () => {
 		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
 	})
 
-	it('surfaces a clear MFA message when the flow reports mfa_required', async () => {
+	it('completes MFA when the browser flow reports mfa_required', async () => {
 		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
 		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
 		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
+		vi.mocked(p.password).mockResolvedValueOnce('123456')
 		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
 			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return { status: 'mfa_required', user: { publicId: 'u' }, organizations: [] }
+			return {
+				status: 'mfa_required',
+				user: { publicId: 'u' },
+				organizations: [{ publicId: 'o' }],
+			}
+		})
+		const completeMfaLogin = vi.fn().mockResolvedValue({
+			userToken: 'ut',
+			orgToken: 'ot',
+			user: { publicId: 'u' },
+			organizations: [{ publicId: 'o' }],
 		})
 		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
+			() => ({ ssoAuthorize, completeMfaLogin }) as unknown as DashboardAccountClient,
 		)
 
-		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/MFA/)
+		await stepDashboardAuth(ctx)
+
+		expect(completeMfaLogin).toHaveBeenCalledWith({
+			userPublicId: 'u',
+			code: '123456',
+			orgPublicId: 'o',
+		})
+		expect(ctx.auth?.userToken).toBe('ut')
 	})
 
 	it('explains how to create an account when the selected SSO identity is denied', async () => {
