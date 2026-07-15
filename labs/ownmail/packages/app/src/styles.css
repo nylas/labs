@@ -224,6 +224,15 @@
 	}
 }
 
+[data-slot="scroll-area-viewport"] {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+[data-slot="scroll-area-viewport"]::-webkit-scrollbar {
+	display: none;
+}
+
 .app-input {
 	min-height: 2.25rem;
 	width: 100%;

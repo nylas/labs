@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ClientListDate } from '../components/ClientTime.js'
 import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
+import { ScrollArea } from '../components/ui/scroll-area.js'
 import { cn, draftRecipientName, mailFolderTitle, threadTimestamp } from '../components/ui-model.js'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
 
@@ -200,7 +201,11 @@ export function MailFolderRouteScreen({
 					) : null}
 				</div>
 
-				<div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+				<ScrollArea
+					aria-label={`${folderTitle} thread list`}
+					viewportRef={listScrollRef}
+					className="min-h-0 flex-1"
+				>
 					{folderId === 'drafts' ? (
 						drafts.length === 0 ? (
 							<EmptyState />
@@ -243,7 +248,7 @@ export function MailFolderRouteScreen({
 							) : null}
 						</>
 					)}
-				</div>
+				</ScrollArea>
 			</section>
 			<section className={cn('min-w-0 flex-1 flex-col bg-background', hasThread ? 'flex' : 'hidden md:flex')}>
 				{hasThread ? (
