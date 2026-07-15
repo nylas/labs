@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Sun, Users } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Search, Settings, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
-import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH } from './route-paths.js'
+import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH, SETTINGS_PATH } from './route-paths.js'
 import {
 	initialThemeIsDark,
 	ROOT_BACKGROUND_CLASS,
@@ -10,11 +10,12 @@ import {
 	themeToggleLabel,
 } from './theme.js'
 import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS, cn, initials } from './ui-model.js'
+import { useUserPreferences } from './user-preferences.js'
 
 type AppRailNavProps = {
 	email: string
 	displayName?: string
-	active: 'mail' | 'calendar' | 'contacts'
+	active: 'mail' | 'calendar' | 'contacts' | 'settings'
 	onOpenCommandPalette?: () => void
 }
 
@@ -54,6 +55,7 @@ export function AppRailLogo({ appName, className }: { appName: string; className
 export function AppRailNav({ email, displayName, active, onOpenCommandPalette }: AppRailNavProps) {
 	const [isDark, setIsDark] = useState(false)
 	const [mounted, setMounted] = useState(false)
+	const [preferences] = useUserPreferences()
 
 	useEffect(() => {
 		const saved = localStorage.getItem(THEME_STORAGE_KEY)
@@ -70,7 +72,8 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 		setIsDark(nextDark)
 	}
 
-	const accountLabel = displayName ? `${displayName} · ${email}` : email
+	const effectiveDisplayName = preferences.displayName || displayName
+	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
 
 	return (
 		<nav
@@ -91,6 +94,9 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 					ariaLabel="Calendar"
 				>
 					<Calendar className="h-[18px] w-[18px]" strokeWidth={active === 'calendar' ? 2.25 : 1.75} />
+				</RailLink>
+				<RailLink to={SETTINGS_PATH} label="Settings" isActive={active === 'settings'} ariaLabel="Settings">
+					<Settings className="h-[18px] w-[18px]" strokeWidth={active === 'settings' ? 2.25 : 1.75} />
 				</RailLink>
 				<RailLink
 					to={CONTACTS_HOME_PATH}
@@ -117,7 +123,7 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 				</form>
 				<div className="app-rail-account mt-1" role="img" title={accountLabel} aria-label={accountLabel}>
 					<span className="app-rail-account-inner">
-						<span className="app-rail-account-initials">{initials(displayName ?? email)}</span>
+						<span className="app-rail-account-initials">{initials(effectiveDisplayName ?? email)}</span>
 					</span>
 				</div>
 			</div>

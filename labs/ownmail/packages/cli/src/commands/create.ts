@@ -79,7 +79,9 @@ const SETUP_PHASES: SetupPhase[] = [
 ]
 
 export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): Promise<void> {
-	p.intro('ownmail — your inbox, your domain, no per-seat fees')
+	// Keep the Clack title short: it is rendered inside a bordered line and a
+	// tagline can wrap into that border in narrow terminals.
+	p.intro('ownmail')
 	p.note(
 		[
 			'OwnMail creates a Nylas email address and inbox, then deploys a private mailbox + calendar web app to your hosting account.',

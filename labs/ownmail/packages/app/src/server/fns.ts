@@ -25,8 +25,9 @@ import {
 } from './contact-input.js'
 import { requireNylasProviderId } from './ids.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
-import { mailboxFromRequest } from './nylas.js'
+import { mailboxFromRequest, nylas } from './nylas.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
+import { platform, usingDevMocks } from './platform.js'
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
 import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
@@ -178,6 +179,51 @@ export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async ()
 	const { email, displayName } = await requireMailbox()
 	return { email, ...(displayName ? { displayName } : {}), appName: env.APP_NAME }
 })
+
+/** Deliberately fail closed: administrators must explicitly opt in to web password changes. */
+export const getAccountCapabilities = createServerFn({ method: 'GET' }).handler(async () => {
+	const { env } = await platform()
+	await requireMailbox()
+	return { passwordResetEnabled: env.OWNMAIL_ALLOW_PASSWORD_RESET === 'true' }
+})
+
+function normalizePasswordResetInput(input: unknown): { password: string } {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid password')
+	const password = (input as { password?: unknown }).password
+	if (
+		typeof password !== 'string' ||
+		password.length < 18 ||
+		password.length > 40 ||
+		/\s/.test(password) ||
+		!/[a-z]/.test(password) ||
+		!/[A-Z]/.test(password) ||
+		!/[0-9]/.test(password) ||
+		!/[^A-Za-z0-9]/.test(password)
+	) {
+		throw new Error('Password does not meet the required security rules')
+	}
+	return { password }
+}
+
+/**
+ * Changes only the authenticated session's own Agent Account password. The
+ * grant id is resolved server-side, so a client cannot target another mailbox.
+ */
+export const resetMailboxPassword = createServerFn({ method: 'POST' })
+	.validator(normalizePasswordResetInput)
+	.handler(async ({ data }) => {
+		const { env } = await platform()
+		if (env.OWNMAIL_ALLOW_PASSWORD_RESET !== 'true') throw new Error('Password changes are unavailable')
+		const { grantId, email } = await requireMailbox()
+		try {
+			if (!(await usingDevMocks())) {
+				await (await nylas()).updateGrant(grantId, { settings: { email, app_password: data.password } })
+			}
+		} catch (err) {
+			throw friendly(err)
+		}
+		return { ok: true }
+	})
 
 export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Promise<Folder[]> => {
 	const { mailbox } = await requireMailbox()
@@ -524,4 +570,35 @@ export const searchContacts = createServerFn({ method: 'GET' })
 		} catch {
 			return [] // autocomplete is best-effort
 		}
+	})
+
+/** Best-effort contact creation for recipients sent from the compose window. */
+export const saveComposeRecipients = createServerFn({ method: 'POST' })
+	.validator((input: unknown): { emails: string[] } => {
+		if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid recipients')
+		const emails = (input as { emails?: unknown }).emails
+		if (!Array.isArray(emails) || emails.length > 20 || emails.some((email) => typeof email !== 'string')) {
+			throw new Error('Invalid recipients')
+		}
+		const normalized = parseRecipientEmails(emails.join(','), { required: false })
+		if (normalized.length !== emails.length || normalized.some((email) => email.length > 320)) {
+			throw new Error('Invalid recipients')
+		}
+		return { emails: [...new Set(normalized.map((email) => email.toLowerCase()))] }
+	})
+	.handler(async ({ data }) => {
+		const { mailbox, email: mailboxEmail } = await requireMailbox()
+		for (const email of data.emails) {
+			if (email === mailboxEmail.toLowerCase()) continue
+			try {
+				const existing = await mailbox.listContacts({ limit: 10, email })
+				const alreadySaved = existing.data.some((contact) =>
+					contact.emails?.some((candidate) => candidate.email.toLowerCase() === email),
+				)
+				if (!alreadySaved) await mailbox.createContact({ emails: [{ email }] })
+			} catch {
+				// Contact suggestions are an enhancement; a provider-side failure must not block sending mail.
+			}
+		}
+		return { ok: true }
 	})

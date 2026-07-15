@@ -222,7 +222,7 @@ export function MailRouteScreen({
 								<Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
 								<input
 									id="mail-search"
-									type="search"
+									type="text"
 									value={query}
 									onChange={(event) => updateSearch(event.target.value)}
 									placeholder="Search mail"

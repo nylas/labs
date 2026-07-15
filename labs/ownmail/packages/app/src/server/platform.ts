@@ -14,6 +14,8 @@ export type AppEnv = {
 	NYLAS_REGION: 'us' | 'eu'
 	NYLAS_API_BASE_URL?: string
 	OWNMAIL_DEV_MOCKS?: string
+	/** Explicit opt-in for authenticated mailbox password changes in the web UI. */
+	OWNMAIL_ALLOW_PASSWORD_RESET?: string
 	APP_NAME: string
 	INBOX_EMAIL: string
 	TEMPLATE_VERSION: string

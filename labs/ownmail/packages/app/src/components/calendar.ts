@@ -263,8 +263,17 @@ export function timedEventLayout(
 	const end = new Date(Math.min(times.end.getTime(), visibleEnd.getTime()))
 	if (end <= start) return null
 
-	const startDecimal = start.getHours() + start.getMinutes() / 60
-	const endDecimal = end.getHours() + end.getMinutes() / 60
+	const dayStart = startOfDay(day)
+	const relativeDecimalHour = (date: Date) => {
+		const calendarDayOffset = Math.round(
+			(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) -
+				Date.UTC(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate())) /
+				86_400_000,
+		)
+		return calendarDayOffset * 24 + date.getHours() + date.getMinutes() / 60
+	}
+	const startDecimal = relativeDecimalHour(start)
+	const endDecimal = relativeDecimalHour(end)
 	return {
 		top: (startDecimal - options.startHour) * options.hourHeight,
 		height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),

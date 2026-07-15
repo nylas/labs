@@ -203,6 +203,16 @@ describe('toolbar actions', () => {
 		expect(invalidate).toHaveBeenCalled()
 	})
 
+	it('returns archived threads to the inbox instead of archiving them again', async () => {
+		const user = userEvent.setup()
+		renderThread(loaderData({ thread: { id: 't1', subject: 'Hello', starred: false, folders: ['archive'] } }))
+		await user.click(screen.getByRole('button', { name: 'Return to inbox' }))
+
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'inbox' } }),
+		)
+	})
+
 	it('deletes the thread by moving it to trash and leaving', async () => {
 		const user = userEvent.setup()
 		renderThread()

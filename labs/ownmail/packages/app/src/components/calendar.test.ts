@@ -286,6 +286,18 @@ describe('calendar view helpers', () => {
 		).toBeNull()
 	})
 
+	it('lays out an event ending at midnight in the late-night calendar rows', () => {
+		const event = timedEvent('late', 'work', '2026-07-08T23:00:00', '2026-07-09T00:00:00')
+
+		expect(
+			timedEventLayout(event, new Date('2026-07-08T12:00:00'), {
+				startHour: 7,
+				endHour: 25,
+				hourHeight: 52,
+			}),
+		).toEqual({ top: 832, height: 50 })
+	})
+
 	it('has no time-grid layout for all-day events', () => {
 		// All-day events render in the all-day rail, never the timed grid, so layout is null.
 		expect(

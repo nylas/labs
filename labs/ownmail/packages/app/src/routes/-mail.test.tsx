@@ -153,6 +153,9 @@ describe('MailRouteScreen — layout wiring', () => {
 		renderScreen()
 		expect(screen.getAllByTestId('sidebar')[0]).toHaveAttribute('data-folder', 'inbox')
 		expect(screen.getByTestId('outlet')).toBeInTheDocument()
+		// The custom clear button is the only clear affordance; a native search
+		// input would render an additional browser-provided cancel button.
+		expect(screen.getByLabelText('Search mail')).toHaveAttribute('type', 'text')
 		// No query -> the "/" shortcut hint is visible, no clear button.
 		expect(screen.getByText('/')).toBeInTheDocument()
 		expect(screen.queryByLabelText('Clear search')).toBeNull()

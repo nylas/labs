@@ -16,6 +16,7 @@ export async function nylas(): Promise<NylasV3Client> {
 /** Resolves the caller's mailbox from the session cookie — the only path to a grant id. */
 export async function mailboxFromRequest(request: Request): Promise<{
 	mailbox: GrantScopedClient | ReturnType<typeof createDevMailbox>
+	grantId: string
 	email: string
 	displayName?: string
 } | null> {
@@ -24,11 +25,16 @@ export async function mailboxFromRequest(request: Request): Promise<{
 		const displayName = devMailboxName(env.INBOX_EMAIL)
 		return {
 			mailbox: createDevMailbox(),
+			grantId: 'dev-grant',
 			email: devMailboxEmail(env.INBOX_EMAIL),
 			...(displayName ? { displayName } : {}),
 		}
 	}
 	const session = await getSession(request)
 	if (!session) return null
-	return { mailbox: (await nylas()).forGrant(session.grantId), email: session.email }
+	return {
+		mailbox: (await nylas()).forGrant(session.grantId),
+		grantId: session.grantId,
+		email: session.email,
+	}
 }

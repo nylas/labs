@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import {
 	Archive,
 	Forward,
+	Inbox,
 	Minus,
 	Paperclip,
 	Reply,
@@ -33,12 +34,14 @@ import {
 	shouldUseBrowserBackForComposeClose,
 	threadTimestamp,
 } from '../components/ui-model.js'
+import { useUserPreferences } from '../components/user-preferences.js'
 import {
 	deleteDraft,
 	getDraft,
 	getFolders,
 	getThreadMessages,
 	getThreads,
+	saveComposeRecipients,
 	saveDraft,
 	sendDraft,
 	updateThreadState,
@@ -48,6 +51,16 @@ import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 const MAX_COMPOSE_ATTACHMENTS = 10
 const MAX_COMPOSE_ATTACHMENT_BYTES = 2 * 1024 * 1024
+
+function draftSaveErrorMessage(error: unknown): string {
+	const message =
+		typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+			? error.message
+			: ''
+	if (message.startsWith('Invalid recipient:'))
+		return 'Enter a valid email address for each recipient before saving.'
+	return 'Could not save the draft. Your changes are still here; check your connection and try again.'
+}
 
 type ComposeAttachment = OutboundAttachment & { clientId: string }
 
@@ -143,6 +156,9 @@ function Compose() {
 	const composePanelRef = useRef<HTMLDivElement>(null)
 	const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
 	const [savingDraft, setSavingDraft] = useState(false)
+	const [preferences] = useUserPreferences()
+	const selectedThreadIsArchived =
+		folderId === 'archive' || selected?.thread.folders?.includes('archive') === true
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -399,21 +415,40 @@ function Compose() {
 					...(replyToMessageId ? { replyToMessageId } : {}),
 				},
 			})
+			if (preferences.autoSaveContacts) {
+				void saveComposeRecipients({
+					data: {
+						emails: to
+							.split(',')
+							.map((email) => email.trim())
+							.filter(Boolean),
+					},
+				}).catch(() => undefined)
+			}
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 		} catch {
 			setError('Could not send your message. Check your connection, then try again.')
 			setBusy(false)
 			submitting.current = false
 		}
-	}, [attachments, body, navigate, queueDraftPersistence, replyToMessageId, subject, to])
+	}, [
+		attachments,
+		body,
+		navigate,
+		preferences.autoSaveContacts,
+		queueDraftPersistence,
+		replyToMessageId,
+		subject,
+		to,
+	])
 
 	const saveNow = useCallback(async () => {
 		setBusy(true)
 		setError(null)
 		try {
 			await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
-		} catch {
-			setError('Could not save the draft. Your changes are still here; check your connection and try again.')
+		} catch (error) {
+			setError(draftSaveErrorMessage(error))
 		} finally {
 			setBusy(false)
 		}
@@ -494,7 +529,16 @@ function Compose() {
 						<ComposeThreadBackdrop
 							thread={selected.thread}
 							messages={selected.messages}
-							onArchive={() => actOnBackdropThread(selected.thread.id, { folder: 'archive' }, true)}
+							isArchived={selectedThreadIsArchived}
+							onArchive={() =>
+								actOnBackdropThread(
+									selected.thread.id,
+									{
+										folder: selectedThreadIsArchived ? 'inbox' : 'archive',
+									},
+									true,
+								)
+							}
 							onDelete={() => actOnBackdropThread(selected.thread.id, { folder: 'trash' }, true)}
 							onToggleStar={() =>
 								actOnBackdropThread(selected.thread.id, { starred: !selected.thread.starred })
@@ -744,6 +788,7 @@ function ComposeThreadRow({
 function ComposeThreadBackdrop({
 	thread,
 	messages,
+	isArchived,
 	onArchive,
 	onDelete,
 	onToggleStar,
@@ -753,6 +798,7 @@ function ComposeThreadBackdrop({
 }: {
 	thread: Thread
 	messages: Message[]
+	isArchived: boolean
 	onArchive: () => void
 	onDelete: () => void
 	onToggleStar: () => void
@@ -763,8 +809,8 @@ function ComposeThreadBackdrop({
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
 			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
-				<BackdropIcon label="Archive" onClick={onArchive}>
-					<Archive className="h-4 w-4" />
+				<BackdropIcon label={isArchived ? 'Return to inbox' : 'Archive'} onClick={onArchive}>
+					{isArchived ? <Inbox className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
 				</BackdropIcon>
 				<BackdropIcon label="Delete" onClick={onDelete}>
 					<Trash2 className="h-4 w-4" />

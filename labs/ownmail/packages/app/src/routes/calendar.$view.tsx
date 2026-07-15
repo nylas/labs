@@ -710,7 +710,9 @@ function TimeGrid({
 }) {
 	const HOUR_PX = 52
 	const START_HOUR = 7
-	const END_HOUR = 22
+	// Keep the final two evening rows available so 11 PM and midnight can be
+	// viewed and selected. GRID_END_HOUR is the boundary after the last row.
+	const END_HOUR = 24
 	const GRID_END_HOUR = END_HOUR + 1
 	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
@@ -974,7 +976,8 @@ function ContinuousDayColumnRules({
 /* v8 ignore stop */
 
 function fmtHour(hour: number): string {
-	const period = hour >= 12 ? 'PM' : 'AM'
-	const displayHour = hour % 12 === 0 ? 12 : hour % 12
+	const normalizedHour = hour % 24
+	const period = normalizedHour >= 12 ? 'PM' : 'AM'
+	const displayHour = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12
 	return `${displayHour} ${period}`
 }

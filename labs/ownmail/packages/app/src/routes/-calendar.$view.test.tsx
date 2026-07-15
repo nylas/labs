@@ -464,8 +464,10 @@ describe('week view time grid', () => {
 describe('day view time grid', () => {
 	it('renders a single day column with all-day events and no inter-day rules', () => {
 		const { container } = render(<CalendarRouteScreen view="day" data={richData()} />)
-		// Only 16 hour slots for a single day column (7:00 through 22:00 inclusive).
-		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(16)
+		// Eighteen hour slots: 7 AM through midnight, inclusive.
+		expect(screen.getAllByRole('button', { name: /Create event at/ })).toHaveLength(18)
+		expect(screen.getByRole('button', { name: /Create event at 11 PM/ })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /Create event at 12 AM/ })).toBeInTheDocument()
 		expect(screen.getByText('All day')).toBeInTheDocument()
 		expect(container.querySelectorAll('.border-l')).toHaveLength(0)
 	})
