@@ -129,11 +129,8 @@ export function MailFolderRouteScreen({
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
 			const focusedRow = target?.closest<HTMLElement>('[data-nav-row]')
-			const focusedRowIndex = focusedRow
-				? Array.from(listScrollRef.current!.querySelectorAll<HTMLElement>('[data-nav-row]')).indexOf(
-						focusedRow,
-					)
-				: -1
+			const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
+			const focusedRowIndex = focusedRow && rows ? Array.from(rows).indexOf(focusedRow) : -1
 			// Keep nested row actions and unrelated links in control of their keys,
 			// but let a focused thread row continue list navigation.
 			if (target?.closest?.('button, select') || (target?.closest?.('a') && focusedRowIndex < 0)) return

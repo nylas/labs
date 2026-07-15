@@ -479,6 +479,12 @@ describe('stepApp', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'app')
 	})
 
+	it('fails safely when the prior organization step did not persist an organization', async () => {
+		const ctx = baseCtx({ gateway: {} as never })
+
+		await expect(stepApp(ctx)).rejects.toThrow(/Organization unavailable/)
+	})
+
 	it('reuses a sandbox app matched by branding name', async () => {
 		const app = {
 			applicationId: 'app-1',
@@ -541,6 +547,12 @@ describe('stepApp', () => {
 })
 
 describe('stepApiKey', () => {
+	it('fails safely when the prior application step did not persist an application', async () => {
+		const ctx = baseCtx({ gateway: {} as never })
+
+		await expect(stepApiKey(ctx)).rejects.toThrow(/Nylas application unavailable/)
+	})
+
 	it('rebuilds the v3 client from a pending key on resume without minting a new one', async () => {
 		const createApiKey = vi.fn()
 		const ctx = baseCtx({
@@ -994,6 +1006,12 @@ describe('stepDomain', () => {
 })
 
 describe('stepGrant', () => {
+	it('fails safely when the prior domain step did not persist a domain', async () => {
+		const ctx = baseCtx({ v3: {} as never })
+
+		await expect(stepGrant(ctx)).rejects.toThrow(/Domain unavailable/)
+	})
+
 	it('re-shows the saved inbox password on resume', async () => {
 		const ctx = baseCtx({
 			project: baseProject({
