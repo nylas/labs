@@ -392,6 +392,28 @@ describe('/mail/search thread detail', () => {
 		expect(h.navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
 	})
 
+	it('returns archived search results to the inbox instead of archiving them again', async () => {
+		const user = userEvent.setup()
+		seedDetail({
+			thread: {
+				id: 'th-archive',
+				subject: 'Archived',
+				starred: false,
+				has_attachments: false,
+				folders: ['archive'],
+			},
+			messages,
+		})
+
+		renderRoute()
+		await user.click(screen.getByLabelText('Return to inbox'))
+		await waitFor(() =>
+			expect(fns.updateThreadState).toHaveBeenCalledWith({
+				data: { threadId: 'th-archive', folder: 'inbox' },
+			}),
+		)
+	})
+
 	it('hides all reply actions and refreshes on a marked-read thread with no messages', async () => {
 		const user = userEvent.setup()
 		seedDetail({

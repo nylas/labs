@@ -435,6 +435,16 @@ describe('keyboard shortcuts', () => {
 		)
 	})
 
+	it('returns an archived thread to the inbox on "e"', async () => {
+		renderThread(loaderData({ thread: { id: 't1', subject: 'Hi', starred: false, folders: ['archive'] } }))
+		await act(async () => {
+			fireEvent.keyDown(document.body, { key: 'e' })
+		})
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'inbox' } }),
+		)
+	})
+
 	it('trashes on "#"', async () => {
 		renderThread()
 		await act(async () => {

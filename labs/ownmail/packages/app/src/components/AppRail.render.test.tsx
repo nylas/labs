@@ -44,6 +44,11 @@ describe('AppRailNav', () => {
 		expect(screen.getByRole('link', { name: 'Mail' })).not.toHaveAttribute('aria-current')
 	})
 
+	it('marks settings as active when the user is managing preferences', () => {
+		render(<AppRailNav email="ada@ownmail.com" active="settings" />)
+		expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page')
+	})
+
 	it('shows the moon (offer dark mode) when the saved theme is light and toggles to dark', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="calendar" />)
 		// No saved theme -> mounts light -> toggle button offers switching to dark mode.

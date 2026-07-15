@@ -464,6 +464,14 @@ describe('mail.compose selected backdrop', () => {
 		expect(invalidate).toHaveBeenCalled()
 	})
 
+	it('returns an archived selected thread to the inbox', async () => {
+		renderCompose({ loader: selectedLoader({ thread: { folders: ['archive'] } }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Return to inbox' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'inbox' } }),
+		)
+	})
+
 	it('deletes the selected thread by moving it to trash', async () => {
 		renderCompose({ loader: selectedLoader() })
 		fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
