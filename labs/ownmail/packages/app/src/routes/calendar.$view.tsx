@@ -116,6 +116,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const agenda = useMemo(
 		() =>
 			timedEventsOnDay(visibleEvents, today, primaryTimezone)
+				.filter((event) => !isNewEventPreview(event))
 				.sort((a, b) => {
 					const aTimes = eventTimes(a)
 					const bTimes = eventTimes(b)
@@ -676,8 +677,9 @@ function MonthGrid({
 											type="button"
 											onClick={(clickEvent) => {
 												clickEvent.stopPropagation()
-												onPickEvent(event)
+												if (!preview) onPickEvent(event)
 											}}
+											disabled={preview}
 											className={cn(
 												'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
 												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
@@ -859,7 +861,10 @@ function TimeGrid({
 									<button
 										key={event.id}
 										type="button"
-										onClick={() => onPickEvent(event)}
+										onClick={() => {
+											if (!preview) onPickEvent(event)
+										}}
+										disabled={preview}
 										style={{
 											gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
 											gridRow: segment.row + 1,
@@ -964,7 +969,10 @@ function TimeGrid({
 											<button
 												key={event.id}
 												type="button"
-												onClick={() => onPickEvent(event)}
+												onClick={() => {
+													if (!preview) onPickEvent(event)
+												}}
+												disabled={preview}
 												style={{
 													top: layout.top,
 													height: layout.height,

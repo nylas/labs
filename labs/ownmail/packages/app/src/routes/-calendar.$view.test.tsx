@@ -714,7 +714,10 @@ describe('event editor', () => {
 		const preview = screen.getByRole('button', { name: /Live draft/ })
 		const saved = screen.getByRole('button', { name: /Standup/ })
 		expect(preview).toHaveClass('border-dashed')
+		expect(preview).toBeDisabled()
 		expect(saved).not.toHaveClass('border-dashed')
+		fireEvent.click(preview)
+		expect(screen.getByTestId('event-modal').dataset.event).toBe('new')
 	})
 
 	it('falls back to the primary calendar name for an event on an unknown calendar', () => {

@@ -90,9 +90,10 @@ export function EventModal({
 	const [startHour, setStartHour] = useState(initialHours.startHour)
 	const [endHour, setEndHour] = useState(initialHours.endHour)
 	const [eventDate, setEventDate] = useState(() => ymd(initialStart))
-	const [allDay, setAllDay] = useState(false)
+	const [allDay, setAllDay] = useState(times?.allDay ?? false)
 	const [repeat, setRepeat] = useState<RepeatOption>('none')
 	const [weekdays, setWeekdays] = useState<Weekday[]>(() => [defaultWeekday(initialStart)])
+	const [weekdaysTouched, setWeekdaysTouched] = useState(false)
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
 	const [editing, setEditing] = useState(false)
 	const [busy, setBusy] = useState(false)
@@ -241,8 +242,7 @@ export function EventModal({
 					title: title.trim() || 'Untitled event',
 					location,
 					description,
-					startTime,
-					endTime,
+					...(allDay ? {} : { startTime, endTime }),
 				},
 			})
 			onClose(true)
@@ -336,7 +336,7 @@ export function EventModal({
 								<EventFields
 									startHour={startHour}
 									endHour={endHour}
-									allDay={false}
+									allDay={allDay}
 									onAllDay={setAllDay}
 									showAllDay={false}
 									onStartHour={setStartHour}
@@ -498,7 +498,12 @@ export function EventModal({
 						aria-label="Event date"
 						type="date"
 						value={eventDate}
-						onChange={(changeEvent) => setEventDate(changeEvent.target.value)}
+						onChange={(changeEvent) => {
+							const nextDate = changeEvent.target.value
+							setEventDate(nextDate)
+							if (!weekdaysTouched && isDateInput(nextDate))
+								setWeekdays([defaultWeekday(dateFromInput(nextDate))])
+						}}
 						className="rounded-md border border-input bg-background px-2 py-1 text-sm"
 					/>
 					<span className="hidden text-muted-foreground sm:inline">
@@ -518,7 +523,15 @@ export function EventModal({
 					description={description}
 					onDescription={setDescription}
 				/>
-				<RecurrenceFields repeat={repeat} onRepeat={setRepeat} weekdays={weekdays} onWeekdays={setWeekdays} />
+				<RecurrenceFields
+					repeat={repeat}
+					onRepeat={setRepeat}
+					weekdays={weekdays}
+					onWeekdays={(nextWeekdays) => {
+						setWeekdaysTouched(true)
+						setWeekdays(nextWeekdays)
+					}}
+				/>
 				{conflictCount > 0 ? (
 					<p className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
 						<AlertTriangle className="h-4 w-4 shrink-0" />
