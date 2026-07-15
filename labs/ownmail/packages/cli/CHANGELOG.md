@@ -1,5 +1,12 @@
 # ownmail
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [eba0543]
+  - @ownmail/app@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
