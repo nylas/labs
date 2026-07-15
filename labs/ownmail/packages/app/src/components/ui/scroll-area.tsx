@@ -33,6 +33,7 @@ export function ScrollArea({
 			<ScrollAreaPrimitive.Viewport
 				ref={viewportRef}
 				data-slot="scroll-area-viewport"
+				tabIndex={0}
 				className={cn('size-full rounded-[inherit] focus-visible:outline-none', viewportClassName)}
 			>
 				{children}
