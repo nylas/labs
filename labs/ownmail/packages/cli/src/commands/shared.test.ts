@@ -69,6 +69,12 @@ describe('pickExistingProject', () => {
 		expect(p.select).not.toHaveBeenCalled()
 	})
 
+	it('fails safely if project storage returns a sparse project list', async () => {
+		vi.mocked(listProjects).mockReturnValue(new Array<ProjectState>(1))
+
+		await expect(pickExistingProject()).rejects.toThrow(/Could not load the project/)
+	})
+
 	it('prompts to choose among multiple projects and loads the pick', async () => {
 		const a = project({ slug: 'a', inboxEmail: 'a@x.com' })
 		const b = project({ slug: 'b' })
@@ -90,6 +96,14 @@ describe('pickExistingProject', () => {
 		vi.mocked(p.select).mockResolvedValue('a')
 		vi.mocked(p.isCancel).mockReturnValue(true)
 		await expect(pickExistingProject()).rejects.toBeInstanceOf(CancelledError)
+	})
+
+	it('reports a project removed while the picker was open', async () => {
+		vi.mocked(listProjects).mockReturnValue([project({ slug: 'a' }), project({ slug: 'b' })])
+		vi.mocked(p.select).mockResolvedValue('b')
+		vi.mocked(loadProject).mockReturnValue(null)
+
+		await expect(pickExistingProject()).rejects.toThrow(/selected project no longer exists/)
 	})
 })
 

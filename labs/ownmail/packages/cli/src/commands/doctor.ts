@@ -326,8 +326,16 @@ async function repairApiKey(
 	cloudflareOk: boolean,
 	issue: ApiKeyIssue,
 ): Promise<CheckResult> {
-	// runDoctor only calls this helper after confirming applicationId exists.
-	const applicationId = project.applicationId!
+	const applicationId = project.applicationId
+	/* v8 ignore start -- repairApiKey is only invoked after runDoctor verifies applicationId. */
+	if (!applicationId) {
+		return {
+			name: 'Nylas API key',
+			status: 'fail',
+			detail: `${issue.detail} — missing Nylas application; rerun ownmail setup`,
+		}
+	}
+	/* v8 ignore stop */
 	if (project.hostingProvider === 'manual') {
 		return {
 			name: 'Nylas API key',

@@ -14,7 +14,11 @@ export async function pickExistingProject(name?: string): Promise<ProjectState> 
 	if (projects.length === 0) {
 		throw new Error('No projects yet. Run `npx ownmail` first.')
 	}
-	if (projects.length === 1) return projects[0]!
+	if (projects.length === 1) {
+		const [project] = projects
+		if (project) return project
+		throw new Error('Could not load the project. Run `npx ownmail status` and retry.')
+	}
 	const picked = await p.select({
 		message: 'Which project?',
 		options: projects.map((proj) => ({
@@ -23,7 +27,9 @@ export async function pickExistingProject(name?: string): Promise<ProjectState> 
 		})),
 	})
 	if (p.isCancel(picked)) throw new CancelledError()
-	return loadProject(picked)!
+	const project = loadProject(picked)
+	if (!project) throw new Error('The selected project no longer exists. Run `npx ownmail status` and retry.')
+	return project
 }
 
 export function runTopLevel(fn: () => Promise<void>): Promise<void> {

@@ -32,5 +32,17 @@
 				"noUndeclaredDependencies": "error"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["labs/ownmail/**/*.test.ts", "labs/ownmail/**/*.test.tsx"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noExplicitAny": "off"
+					}
+				}
+			}
+		}
+	]
 }

@@ -136,8 +136,11 @@ export async function stepOrg(ctx: StepContext): Promise<void> {
 		if (p.isCancel(picked)) throw new CancelledError()
 		if (picked !== session.organization?.publicId) {
 			const switched = await dashboard.switchOrg(tokens(ctx), picked)
+			const auth = ctx.auth
+			/* v8 ignore next -- tokens(ctx) above throws when auth is absent. */
+			if (!auth) throw new Error('Not logged in — dashboard auth step must run first')
 			setAuth(ctx, {
-				...ctx.auth!,
+				...auth,
 				orgToken: switched.orgToken,
 				orgPublicId: picked,
 				updatedAt: Date.now(),
@@ -163,7 +166,8 @@ export async function stepApp(ctx: StepContext): Promise<void> {
 		return
 	}
 	const gateway = requireGateway(ctx)
-	const orgPublicId = ctx.project.orgPublicId!
+	const orgPublicId = ctx.project.orgPublicId
+	if (!orgPublicId) throw new Error('Organization unavailable — rerun ownmail setup')
 	const brandName = `${APP_BRANDING_PREFIX}${ctx.project.slug}`
 
 	const existing = await findReusableSandboxApplication(ctx, gateway, orgPublicId, brandName)
@@ -234,11 +238,13 @@ export async function stepApiKey(ctx: StepContext): Promise<void> {
 	}
 
 	const gateway = requireGateway(ctx)
+	const applicationId = ctx.project.applicationId
+	if (!applicationId) throw new Error('Nylas application unavailable — rerun ownmail setup')
 	const spinner = p.spinner()
 	spinner.start('Creating a Nylas API key…')
 	let created: Awaited<ReturnType<typeof gateway.createApiKey>>
 	try {
-		created = await gateway.createApiKey(tokens(ctx), ctx.project.region, ctx.project.applicationId!, {
+		created = await gateway.createApiKey(tokens(ctx), ctx.project.region, applicationId, {
 			name: `ownmail ${ctx.project.slug} ${apiKeyNameSuffix()}`,
 		})
 	} catch (err) {
@@ -531,11 +537,15 @@ export async function stepGrant(ctx: StepContext): Promise<void> {
 		return
 	}
 	const v3 = requireV3(ctx)
-	const domain = ctx.project.domainAddress!
+	const domain = ctx.project.domainAddress
+	if (!domain) throw new Error('Domain unavailable — rerun ownmail setup')
 
 	const existing = await v3.listGrants({ limit: 50 })
 	const nylasGrants = existing.data.filter((g) => g.provider === 'nylas')
-	const onOurDomain = nylasGrants.find((g) => g.email?.endsWith(`@${domain}`))
+	const onOurDomain = nylasGrants.find(
+		(g): g is (typeof nylasGrants)[number] & { email: string } =>
+			typeof g.email === 'string' && g.email.endsWith(`@${domain}`),
+	)
 	if (onOurDomain) {
 		const reuse = await p.confirm({
 			message: `Found an existing inbox ${onOurDomain.email} on this app — use it? (Its password stays whatever you set before.)`,
@@ -543,7 +553,7 @@ export async function stepGrant(ctx: StepContext): Promise<void> {
 		if (p.isCancel(reuse)) throw new CancelledError()
 		if (reuse) {
 			ctx.project.grantId = onOurDomain.id
-			ctx.project.inboxEmail = onOurDomain.email!
+			ctx.project.inboxEmail = onOurDomain.email
 			saveProject(ctx.project)
 			markStep(ctx.project, 'grant')
 			return

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The route hooks and Link/Outlet are stubbed so we can exercise the loader and the
 // screen component in isolation without a live router.
