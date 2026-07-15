@@ -200,6 +200,13 @@ export function EventModal({
 			setError('Choose at least one weekday for a repeating event.')
 			return
 		}
+		if (
+			(repeat === 'weekly' || repeat === 'biweekly') &&
+			!weekdays.includes(defaultWeekday(dateFromInput(eventDate)))
+		) {
+			setError('Include the event date weekday in the repeating schedule.')
+			return
+		}
 		setBusy(true)
 		setError(null)
 		try {

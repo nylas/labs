@@ -329,7 +329,7 @@ describe('EventModal — new event', () => {
 		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({ weekdays: ['FR'] })
 	})
 
-	it('preserves explicitly selected recurrence weekdays when the event date changes', async () => {
+	it('requires an explicitly selected recurrence schedule to include the event date weekday', async () => {
 		const user = userEvent.setup()
 		render(
 			<EventModal
@@ -346,8 +346,8 @@ describe('EventModal — new event', () => {
 		await user.click(screen.getByRole('button', { name: 'Mon' }))
 		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-07-10' } })
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
-		await waitFor(() => expect(createEvent).toHaveBeenCalled())
-		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({ weekdays: ['MO'] })
+		expect(screen.getByText('Include the event date weekday in the repeating schedule.')).toBeInTheDocument()
+		expect(createEvent).not.toHaveBeenCalled()
 	})
 
 	it('requires a valid event date before saving', async () => {
