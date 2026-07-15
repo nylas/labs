@@ -6,6 +6,7 @@ import {
 	calendarDateInTimeZone,
 	calendarKeyAction,
 	calendarSlotTime,
+	calendarWallClockHour,
 	DEFAULT_CALENDAR_VIEW,
 	dateWithHour,
 	eventsOnDay,
@@ -286,6 +287,13 @@ describe('calendar view helpers', () => {
 			timedEventLayout(event, previousDay, { startHour: 7, endHour: 25, hourHeight: 52, timeZone: toronto }),
 		).toEqual({ top: 806, height: 50 })
 		expect(fmtTime(calendarSlotTime(previousDay, 9, toronto), 'Europe/London')).toBe('2 PM')
+	})
+
+	it('converts fractional wall-clock slots and current hours in the selected timezone', () => {
+		const toronto = 'America/Toronto'
+		const instant = calendarSlotTime(new Date('2026-07-08T00:00:00'), 9.5, toronto)
+		expect(instant.toISOString()).toBe('2026-07-08T13:30:00.000Z')
+		expect(calendarWallClockHour(instant, toronto)).toBe(9.5)
 	})
 
 	it('excludes an event at its exact selected-timezone end boundary', () => {

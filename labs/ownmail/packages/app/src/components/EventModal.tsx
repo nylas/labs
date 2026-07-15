@@ -13,7 +13,15 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createEvent, deleteEvent, rsvpEvent, updateEvent } from '../server/calendar-fns.js'
-import { dateWithHour, eventTimes, fmtCompactTime, formatFullDate, ymd } from './calendar.js'
+import {
+	calendarDateInTimeZone,
+	calendarSlotTime,
+	calendarWallClockHour,
+	eventTimes,
+	fmtCompactTime,
+	formatFullDate,
+	ymd,
+} from './calendar.js'
 import { valueToTokens } from './contact-token.js'
 import {
 	clampPointToViewport,
@@ -65,6 +73,7 @@ export function EventModal({
 	calendarName,
 	calendars,
 	anchorRect,
+	timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
 	preserveDefaultStartTime = false,
 	events = [],
 	onDraftChange,
@@ -76,6 +85,7 @@ export function EventModal({
 	calendarName: string
 	calendars: Calendar[]
 	anchorRect?: Rect | null
+	timeZone?: string
 	preserveDefaultStartTime?: boolean
 	events?: Event[]
 	onDraftChange?: (event: Event | null) => void
@@ -83,7 +93,8 @@ export function EventModal({
 }) {
 	const times = event ? eventTimes(event) : null
 	const initialStart = times?.start ?? new Date(defaultStart.getTime())
-	const initialHours = eventInitialHours(initialStart, Boolean(event) || preserveDefaultStartTime)
+	const initialDate = times?.allDay ? initialStart : calendarDateInTimeZone(initialStart, timeZone)
+	const initialHours = eventInitialHours(initialStart, Boolean(event) || preserveDefaultStartTime, timeZone)
 
 	const [title, setTitle] = useState(event?.title ?? '')
 	const [location, setLocation] = useState(event?.location ?? '')
@@ -91,10 +102,10 @@ export function EventModal({
 	const [guests, setGuests] = useState('')
 	const [startHour, setStartHour] = useState(initialHours.startHour)
 	const [endHour, setEndHour] = useState(initialHours.endHour)
-	const [eventDate, setEventDate] = useState(() => ymd(initialStart))
+	const [eventDate, setEventDate] = useState(() => ymd(initialDate))
 	const [allDay, setAllDay] = useState(times?.allDay ?? false)
 	const [repeat, setRepeat] = useState<RepeatOption>('none')
-	const [weekdays, setWeekdays] = useState<Weekday[]>(() => [defaultWeekday(initialStart)])
+	const [weekdays, setWeekdays] = useState<Weekday[]>(() => [defaultWeekday(initialDate)])
 	const [weekdaysTouched, setWeekdaysTouched] = useState(false)
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
 	const [editing, setEditing] = useState(false)
@@ -160,9 +171,15 @@ export function EventModal({
 			? { object: 'date' as const, date: eventDate }
 			: {
 					object: 'timespan' as const,
-					start_time: Math.floor(dateWithHour(dateFromInput(eventDate), startHour).getTime() / 1000),
+					start_time: Math.floor(
+						calendarSlotTime(dateFromInput(eventDate), startHour, timeZone).getTime() / 1000,
+					),
 					end_time: Math.floor(
-						dateWithHour(dateFromInput(eventDate), Math.max(endHour, startHour + 0.5)).getTime() / 1000,
+						calendarSlotTime(
+							dateFromInput(eventDate),
+							Math.max(endHour, startHour + 0.5),
+							timeZone,
+						).getTime() / 1000,
 					),
 				}
 		return {
@@ -182,6 +199,7 @@ export function EventModal({
 		selectedCalendar?.id,
 		startHour,
 		title,
+		timeZone,
 		weekdays,
 	])
 	const conflictCount = previewEvent ? countConflicts(previewEvent, events) : 0
@@ -210,9 +228,12 @@ export function EventModal({
 		setBusy(true)
 		setError(null)
 		try {
-			const startTime = Math.floor(dateWithHour(dateFromInput(eventDate), startHour).getTime() / 1000)
+			const startTime = Math.floor(
+				calendarSlotTime(dateFromInput(eventDate), startHour, timeZone).getTime() / 1000,
+			)
 			const endTime = Math.floor(
-				dateWithHour(dateFromInput(eventDate), Math.max(endHour, startHour + 0.5)).getTime() / 1000,
+				calendarSlotTime(dateFromInput(eventDate), Math.max(endHour, startHour + 0.5), timeZone).getTime() /
+					1000,
 			)
 			const participants = valueToTokens(guests)
 			const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
@@ -224,7 +245,7 @@ export function EventModal({
 					...(description.trim() ? { description } : {}),
 					...(participants.length ? { participants } : {}),
 					...(allDay ? { allDayDate: eventDate } : { startTime, endTime }),
-					...(recurrence ? { recurrence, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {}),
+					...(recurrence ? { recurrence, timezone: timeZone } : {}),
 				},
 			})
 			onClose(true)
@@ -240,9 +261,10 @@ export function EventModal({
 		setBusy(true)
 		setError(null)
 		try {
-			const startTime = Math.floor(dateWithHour(initialStart, startHour).getTime() / 1000)
+			const eventDay = calendarDateInTimeZone(initialStart, timeZone)
+			const startTime = Math.floor(calendarSlotTime(eventDay, startHour, timeZone).getTime() / 1000)
 			const endTime = Math.floor(
-				dateWithHour(initialStart, Math.max(endHour, startHour + 0.5)).getTime() / 1000,
+				calendarSlotTime(eventDay, Math.max(endHour, startHour + 0.5), timeZone).getTime() / 1000,
 			)
 			await updateEvent({
 				data: {
@@ -793,22 +815,23 @@ export function eventCalendarChoiceClass(active: boolean, tone: EventTone): stri
 	)
 }
 
-function decimalHour(date: Date): number {
-	return date.getHours() + date.getMinutes() / 60
+function decimalHour(date: Date, timeZone?: string): number {
+	return calendarWallClockHour(date, timeZone)
 }
 
 export function eventInitialHours(
 	start: Date,
 	preserveStartTime = false,
+	timeZone?: string,
 ): { startHour: number; endHour: number } {
-	const startHour = decimalHour(start)
+	const startHour = decimalHour(start, timeZone)
 	const normalizedStartHour =
 		(preserveStartTime ? startHour >= 0 : startHour >= 7) && startHour < 24 ? nearestHalfHour(startHour) : 9
 	return { startHour: normalizedStartHour, endHour: Math.min(24, normalizedStartHour + 1) }
 }
 
 function nearestHalfHour(hour: number): number {
-	return Math.round(hour * 2) / 2
+	return Math.min(23.5, Math.round(hour * 2) / 2)
 }
 
 function formatDecimalHour(hour: number): string {

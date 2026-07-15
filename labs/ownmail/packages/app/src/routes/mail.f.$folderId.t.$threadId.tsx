@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ThreadConversation } from '../components/ThreadConversation.js'
+import { ScrollArea } from '../components/ui/scroll-area.js'
 import {
 	cn,
 	forwardDraftSearch,
@@ -214,9 +215,9 @@ function ThreadView() {
 			</div>
 			{error ? <ErrorBanner message={error} /> : null}
 
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			<ScrollArea aria-label="Thread conversation" className="min-h-0 flex-1">
 				<ThreadConversation thread={thread} messages={messages} />
-			</div>
+			</ScrollArea>
 
 			{lastMessage ? (
 				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">

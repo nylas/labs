@@ -204,9 +204,18 @@ export function calendarDateInTimeZone(date: Date, timeZone?: CalendarTimeZone):
 	return new Date(zoned.year, zoned.month - 1, zoned.day)
 }
 
+/** Returns the wall-clock hour (including minutes) for an instant in the selected timezone. */
+export function calendarWallClockHour(date: Date, timeZone?: CalendarTimeZone): number {
+	if (!timeZone) return date.getHours() + date.getMinutes() / 60
+	const zoned = zonedDateTime(date, timeZone)
+	return zoned.hour + zoned.minute / 60
+}
+
 /** Converts a display-zone wall-clock slot into an instant for timezone reference labels. */
 export function calendarSlotTime(day: Date, hour: number, timeZone: string): Date {
-	const target = Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), hour)
+	const wholeHour = Math.floor(hour)
+	const minute = Math.round((hour - wholeHour) * 60)
+	const target = Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), wholeHour, minute)
 	let instant = target
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const actual = zonedDateTime(new Date(instant), timeZone)

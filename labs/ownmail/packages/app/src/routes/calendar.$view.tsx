@@ -11,6 +11,7 @@ import {
 	calendarDateInTimeZone,
 	calendarKeyAction,
 	calendarSlotTime,
+	calendarWallClockHour,
 	eventsOnDay,
 	eventTimes,
 	filterEventsByCalendars,
@@ -30,6 +31,7 @@ import {
 import { EventModal } from '../components/EventModal.js'
 import type { Rect } from '../components/modal-position.js'
 import { Sheet } from '../components/Sheet.js'
+import { ScrollArea } from '../components/ui/scroll-area.js'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip.js'
 import {
 	APP_RAIL_WIDTH_CLASS,
@@ -348,6 +350,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					}
 					calendars={calendars}
 					anchorRect={editing === 'new' ? composerAnchor : null}
+					timeZone={primaryTimezone}
 					preserveDefaultStartTime={editing === 'new' && newStartIsSlot}
 					events={events}
 					onDraftChange={setEventPreview}
@@ -751,11 +754,12 @@ function TimeGrid({
 	// Render the full day so selections made in the event composer always
 	// remain visible after the calendar refreshes.
 	const START_HOUR = 0
-	// Keep the final two evening rows available so 11 PM and midnight can be
-	// viewed and selected. GRID_END_HOUR is the boundary after the last row.
+	// Midnight belongs at the top of each calendar day; 24:00 remains only as
+	// the end boundary for layouts that run through the end of the day.
 	const END_HOUR = 24
-	const GRID_END_HOUR = END_HOUR + 1
-	const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i)
+	const LAST_SLOT_HOUR = END_HOUR - 1
+	const GRID_END_HOUR = END_HOUR
+	const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
 	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const scrollRef = useRef<HTMLDivElement>(null)
@@ -769,13 +773,13 @@ function TimeGrid({
 	useEffect(() => {
 		function updateNowOffset() {
 			const current = new Date()
-			const hour = current.getHours() + current.getMinutes() / 60
+			const hour = calendarWallClockHour(current, timeZone)
 			setNowOffset((hour - START_HOUR) * HOUR_PX)
 		}
 		updateNowOffset()
 		const id = setInterval(updateNowOffset, 60_000)
 		return () => clearInterval(id)
-	}, [])
+	}, [timeZone])
 
 	useEffect(() => {
 		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (8 - START_HOUR) * HOUR_PX - 12)
@@ -787,9 +791,9 @@ function TimeGrid({
 		if (key === 'ArrowLeft') nextDay = Math.max(0, dayIndex - 1)
 		else if (key === 'ArrowRight') nextDay = Math.min(days - 1, dayIndex + 1)
 		else if (key === 'ArrowUp') nextHour = Math.max(START_HOUR, hour - 1)
-		else if (key === 'ArrowDown') nextHour = Math.min(END_HOUR, hour + 1)
+		else if (key === 'ArrowDown') nextHour = Math.min(LAST_SLOT_HOUR, hour + 1)
 		else if (key === 'Home') nextHour = START_HOUR
-		else if (key === 'End') nextHour = END_HOUR
+		else if (key === 'End') nextHour = LAST_SLOT_HOUR
 		else return
 		setActiveSlot({ day: nextDay, hour: nextHour })
 		requestAnimationFrame(() =>
@@ -812,7 +816,7 @@ function TimeGrid({
 					</span>
 				) : null}
 			</section>
-			<div ref={scrollRef} className="isolate relative min-h-0 flex-1 overflow-y-auto">
+			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
 				<div className="sticky top-0 z-30 bg-background">
 					<div
 						className="grid border-b border-border pr-3"
@@ -1010,7 +1014,7 @@ function TimeGrid({
 						})}
 					</div>
 				</div>
-			</div>
+			</ScrollArea>
 		</div>
 	)
 }
