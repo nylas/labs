@@ -31,6 +31,14 @@ type Step = {
 
 type SetupPhase = { name: string; steps: Step[] }
 
+type TerminalDimensions = {
+	columns?: number
+	rows?: number
+}
+
+const COMPACT_TERMINAL_COLUMNS = 72
+const COMPACT_TERMINAL_ROWS = 24
+
 /**
  * The step machine. Every step is lookup-first/idempotent; a re-run resumes
  * wherever the previous run stopped. Note redirect-uris runs after deploy —
@@ -79,19 +87,7 @@ const SETUP_PHASES: SetupPhase[] = [
 ]
 
 export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): Promise<void> {
-	// Keep the Clack title short: it is rendered inside a bordered line and a
-	// tagline can wrap into that border in narrow terminals.
-	p.intro('ownmail')
-	p.note(
-		[
-			'OwnMail creates a Nylas email address and inbox, then deploys a private mailbox + calendar web app to your hosting account.',
-			'',
-			'You’ll need a Nylas sign-in and an account for Cloudflare, Vercel, or Netlify if you choose hosted deployment. Local hosting needs no provider account. A free nylas.email address needs no DNS changes; using your own email domain does.',
-			'',
-			'Your inbox password is shown once, so save it when prompted. Pending setup secrets use your OS keyring when available and are cleared after verification.',
-		].join('\n'),
-		'Before you start',
-	)
+	showSetupHeader()
 
 	const project = await resolveProject(opts)
 	showResumePoint(project)
@@ -113,6 +109,35 @@ export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): 
 		}
 	}
 	p.outro('Enjoy your inbox — powered by Nylas.')
+}
+
+export function showSetupHeader(dimensions: TerminalDimensions = process.stdout): void {
+	// Keep the Clack title short: it is rendered inside a bordered line.
+	p.intro('ownmail')
+	if (isCompactTerminal(dimensions)) {
+		p.log.info('Your inbox. Your domain. We’ll guide you through setup.')
+		return
+	}
+	p.note(
+		[
+			'Create a Nylas inbox and deploy a private mailbox + calendar app.',
+			'You’ll connect Nylas and choose hosting; we’ll guide each step.',
+			'Free nylas.email addresses need no DNS changes.',
+			'Save the inbox password when prompted — it’s shown once.',
+		].join('\n'),
+		'Your inbox. Your domain.',
+	)
+}
+
+function isCompactTerminal({ columns, rows }: TerminalDimensions): boolean {
+	const width = validTerminalDimension(columns) ?? 80
+	const height = validTerminalDimension(rows) ?? 24
+	return width < COMPACT_TERMINAL_COLUMNS || height < COMPACT_TERMINAL_ROWS
+}
+
+function validTerminalDimension(value: number | undefined): number | undefined {
+	if (typeof value !== 'number') return undefined
+	return Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
 async function stepConfirmPlan(ctx: StepContext): Promise<void> {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectState } from '../state/schema.js'
-import { runCreate } from './create.js'
+import { runCreate, showSetupHeader } from './create.js'
 
 const CANCEL = Symbol('cancel')
 
@@ -294,6 +294,37 @@ describe('runCreate — normalizeProjectRegion', () => {
 })
 
 describe('runCreate — step machine', () => {
+	it('renders a concise setup note in a full-size terminal', () => {
+		showSetupHeader({ columns: 80, rows: 24 })
+
+		expect(p.intro).toHaveBeenCalledWith('ownmail')
+		expect(p.note).toHaveBeenCalledWith(
+			expect.stringContaining('Create a Nylas inbox'),
+			'Your inbox. Your domain.',
+		)
+		expect(p.log.info).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		{ columns: 71, rows: 24, constraint: 'narrow' },
+		{ columns: 80, rows: 23, constraint: 'short' },
+	])('renders a compact setup header in a $constraint terminal', ({ columns, rows }) => {
+		showSetupHeader({ columns, rows })
+
+		expect(p.intro).toHaveBeenCalledWith('ownmail')
+		expect(p.log.info).toHaveBeenCalledWith('Your inbox. Your domain. We’ll guide you through setup.')
+		expect(p.note).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		{ columns: 0, rows: Number.NaN },
+		{},
+	])('renders the full setup note when terminal dimensions are unavailable or invalid', (dimensions) => {
+		showSetupHeader(dimensions)
+
+		expect(p.note).toHaveBeenCalledWith(expect.any(String), 'Your inbox. Your domain.')
+	})
+
 	it('runs every step and shows the success outro', async () => {
 		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))
 
@@ -301,7 +332,10 @@ describe('runCreate — step machine', () => {
 
 		expect(p.intro).toHaveBeenCalledWith('ownmail')
 		expect(p.outro).toHaveBeenCalledWith('Enjoy your inbox — powered by Nylas.')
-		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('Nylas email address'), 'Before you start')
+		expect(p.note).toHaveBeenCalledWith(
+			expect.stringContaining('Create a Nylas inbox'),
+			'Your inbox. Your domain.',
+		)
 		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('Starting “acme” at [1/5]'))
 		expect(p.log.step).toHaveBeenCalledTimes(5)
 		expect(p.log.step).toHaveBeenNthCalledWith(1, '[1/5] Connect your Nylas account')
