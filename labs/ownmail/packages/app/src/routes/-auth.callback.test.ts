@@ -92,7 +92,12 @@ describe('/auth/callback', () => {
 		expect(createSession).toHaveBeenCalledWith('grant-1', 'ada@ownmail.com')
 		expect(response.headers.getSetCookie()).toEqual(['ownmail_session=abc', 'ownmail_pkce=; Max-Age=0'])
 		expect(exchangeCodeForToken).toHaveBeenCalledWith(
-			expect.objectContaining({ code: 'abc', codeVerifier: 'v', clientSecret: 'secret' }),
+			expect.objectContaining({
+				code: 'abc',
+				codeVerifier: 'v',
+				clientSecret: 'secret',
+				userAgent: 'ownmail',
+			}),
 		)
 	})
 

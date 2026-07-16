@@ -6,6 +6,7 @@ import { apiBaseUrl } from '../nylas-env.js'
 import type { ProjectState } from '../state/schema.js'
 import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { activeAppUrl, redirectCallbackUrls } from './project-summary.js'
 import { pickExistingProject } from './shared.js'
 
@@ -82,7 +83,13 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					},
 				)
 				probeKeyId = key.id
-				v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
+				v3 = new NylasV3Client(
+					key.apiKey,
+					project.region,
+					fetch,
+					apiBaseUrl(project.region),
+					OWNMAIL_USER_AGENT,
+				)
 				results.push({
 					name: 'Temporary API access',
 					status: 'pass',

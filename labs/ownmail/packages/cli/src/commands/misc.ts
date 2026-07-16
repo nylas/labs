@@ -7,6 +7,7 @@ import type { ProjectState } from '../state/schema.js'
 import { clearAuth, deleteProject, newProject, saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { stepDashboardAuth } from '../steps/provision.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { pickExistingProject } from './shared.js'
 
 const LOGIN_PROJECT_SLUG = '__login__'
@@ -33,7 +34,13 @@ export async function runGrants(opts: { name?: string }): Promise<void> {
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail grants ${Date.now()}`,
 	})
-	const v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
+	const v3 = new NylasV3Client(
+		key.apiKey,
+		project.region,
+		fetch,
+		apiBaseUrl(project.region),
+		OWNMAIL_USER_AGENT,
+	)
 	const grants = await v3.listGrants({ limit: 200 })
 	const agents = grants.data.filter((g) => g.provider === 'nylas')
 	if (agents.length === 0) {

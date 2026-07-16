@@ -7,6 +7,7 @@ import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { CancelledError } from '../steps/provision.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { pickExistingProject } from './shared.js'
 
 const APP_DOMAIN_PATTERN = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/
@@ -85,6 +86,7 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 				project.region,
 				fetch,
 				apiBaseUrl(project.region),
+				OWNMAIL_USER_AGENT,
 			).ensureRedirectUris([`https://${domain}/auth/callback`])
 			p.log.step('Login redirect registered for the new domain.')
 		} catch {

@@ -29,9 +29,11 @@ describe('Hosted auth token exchange', () => {
 	it('posts the documented authorization_code body to a custom API base URL', async () => {
 		let requestUrl = ''
 		let requestBody: unknown = null
+		let requestHeaders: HeadersInit | undefined
 		const fetchImpl: typeof fetch = async (input, init) => {
 			requestUrl = String(input)
 			requestBody = JSON.parse(String(init?.body))
+			requestHeaders = init?.headers
 			return Response.json({ grant_id: 'grant-123', access_token: 'token' })
 		}
 
@@ -44,11 +46,13 @@ describe('Hosted auth token exchange', () => {
 				redirectUri: 'https://mail.example.com/auth/callback',
 				code: 'code-123',
 				codeVerifier: 'verifier-123',
+				userAgent: 'ownmail',
 			},
 			fetchImpl,
 		)
 
 		expect(requestUrl).toBe('https://api-staging.us.nylas.com/v3/connect/token')
+		expect(requestHeaders).toMatchObject({ 'Content-Type': 'application/json', 'User-Agent': 'ownmail' })
 		expect(requestBody).toMatchObject({
 			client_id: 'app-123',
 			client_secret: 'api-key-123',
@@ -63,15 +67,24 @@ describe('Hosted auth token exchange', () => {
 describe('NylasV3Client', () => {
 	it('uses a custom API base URL for requests', async () => {
 		let requestUrl = ''
-		const fetchImpl: typeof fetch = async (input) => {
+		let requestHeaders: HeadersInit | undefined
+		const fetchImpl: typeof fetch = async (input, init) => {
 			requestUrl = String(input)
+			requestHeaders = init?.headers
 			return Response.json({ data: [] })
 		}
-		const client = new NylasV3Client('api-key-123', 'us', fetchImpl, 'https://api-staging.us.nylas.com/')
+		const client = new NylasV3Client(
+			'api-key-123',
+			'us',
+			fetchImpl,
+			'https://api-staging.us.nylas.com/',
+			'ownmail',
+		)
 
 		await client.listGrants()
 
 		expect(requestUrl).toBe('https://api-staging.us.nylas.com/v3/grants')
+		expect(requestHeaders).toMatchObject({ 'User-Agent': 'ownmail' })
 	})
 
 	it('drops null and scalar members from live list responses', async () => {
@@ -198,17 +211,20 @@ describe('NylasV3Client', () => {
 
 	it('downloads attachments as a raw response', async () => {
 		let requestUrl = ''
-		const fetchImpl: typeof fetch = async (input) => {
+		let requestHeaders: HeadersInit | undefined
+		const fetchImpl: typeof fetch = async (input, init) => {
 			requestUrl = String(input)
+			requestHeaders = init?.headers
 			return new Response('pdf-bytes', { headers: { 'Content-Type': 'application/pdf' } })
 		}
-		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl, undefined, 'ownmail')
 
 		const response = await client.forGrant('grant-123').downloadAttachment('att#1', 'msg=1')
 
 		expect(requestUrl).toBe(
 			'https://api.us.nylas.com/v3/grants/grant-123/attachments/att%231/download?message_id=msg%3D1',
 		)
+		expect(requestHeaders).toMatchObject({ 'User-Agent': 'ownmail' })
 		expect(response.headers.get('Content-Type')).toBe('application/pdf')
 		expect(await response.text()).toBe('pdf-bytes')
 	})

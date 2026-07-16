@@ -721,7 +721,13 @@ describe('stepApiKey', () => {
 		await stepApiKey(ctx)
 
 		expect(createApiKey).not.toHaveBeenCalled()
-		expect(NylasV3Client).toHaveBeenCalledWith('existing-key', 'us', fetch, 'https://api.test.nylas.com')
+		expect(NylasV3Client).toHaveBeenCalledWith(
+			'existing-key',
+			'us',
+			fetch,
+			'https://api.test.nylas.com',
+			'ownmail',
+		)
 		expect(ctx.v3).not.toBeNull()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'api-key')
 	})
@@ -742,7 +748,13 @@ describe('stepApiKey', () => {
 			service: 'ownmail',
 			account: 'acme:0:apiKey',
 		})
-		expect(NylasV3Client).toHaveBeenCalledWith('nyk_secret', 'us', fetch, 'https://api.test.nylas.com')
+		expect(NylasV3Client).toHaveBeenCalledWith(
+			'nyk_secret',
+			'us',
+			fetch,
+			'https://api.test.nylas.com',
+			'ownmail',
+		)
 		expect(saveProject).toHaveBeenCalled()
 	})
 

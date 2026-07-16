@@ -10,6 +10,7 @@
 
 import type { DashboardTokens } from './dashboard.js'
 import type { DpopKey } from './dpop.js'
+import { userAgentHeader } from './http.js'
 
 export const GATEWAY_URLS = {
 	us: 'https://dashboard-api-gateway.us.nylas.com/graphql',
@@ -56,11 +57,16 @@ type GraphqlError = {
 }
 
 export class GatewayClient {
+	private readonly attributionHeaders: Record<string, string>
+
 	constructor(
 		private readonly dpop: DpopKey,
 		private readonly urls: Record<Region, string> = GATEWAY_URLS,
 		private readonly fetchImpl: typeof fetch = fetch,
-	) {}
+		userAgent?: string,
+	) {
+		this.attributionHeaders = userAgentHeader(userAgent)
+	}
 
 	async listApplications(tokens: DashboardTokens, region: Region, orgPublicId: string) {
 		const data = await this.query<{
@@ -156,6 +162,7 @@ export class GatewayClient {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
+					...this.attributionHeaders,
 					Authorization: `Bearer ${tokens.userToken}`,
 					...(tokens.orgToken ? { 'X-Nylas-Org': tokens.orgToken } : {}),
 					DPoP: await this.dpop.proof('POST', url, tokens.userToken),

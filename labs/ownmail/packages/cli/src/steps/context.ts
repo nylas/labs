@@ -9,6 +9,7 @@ import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
 import type { AuthState, ProjectState } from '../state/schema.js'
 import { loadAuth, saveAuth } from '../state/store.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 
 /** Mutable bag threaded through every step of one CLI run. */
 export type StepContext = {
@@ -33,13 +34,15 @@ export async function createContext(project: ProjectState): Promise<StepContext>
 		project,
 		auth,
 		dpop,
-		dashboard: dpop ? new DashboardAccountClient(dpop, dashboardAccountUrl()) : null,
-		gateway: dpop ? new GatewayClient(dpop, gatewayUrls()) : null,
+		dashboard: dpop
+			? new DashboardAccountClient(dpop, dashboardAccountUrl(), fetch, OWNMAIL_USER_AGENT)
+			: null,
+		gateway: dpop ? new GatewayClient(dpop, gatewayUrls(), fetch, OWNMAIL_USER_AGENT) : null,
 		v3: null,
 	}
 	const apiKey = readPendingSecret(project, 'apiKey')
 	if (apiKey) {
-		ctx.v3 = new NylasV3Client(apiKey, project.region, fetch, apiBaseUrl(project.region))
+		ctx.v3 = new NylasV3Client(apiKey, project.region, fetch, apiBaseUrl(project.region), OWNMAIL_USER_AGENT)
 	}
 	return ctx
 }
