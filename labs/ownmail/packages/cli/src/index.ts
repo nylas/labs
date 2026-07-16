@@ -15,7 +15,11 @@ import { runUpdate } from './commands/update.js'
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
 
-const nameArg = { type: 'string', description: 'Project name', required: false } as const
+const nameArg = {
+	type: 'string',
+	description: 'Project name (prompted if omitted)',
+	required: false,
+} as const
 
 const create = defineCommand({
 	meta: { name: 'create', description: 'Create (or resume creating) your mailbox app' },

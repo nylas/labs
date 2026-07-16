@@ -306,7 +306,7 @@ describe('runUpdate — Node providers', () => {
 		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
 		await runUpdate({})
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'acme-ownmail', {
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'acme-ownmail', 'team_1', {
 			projectId: 'prj_1',
 			orgId: 'team_1',
 		})

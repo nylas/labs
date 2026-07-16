@@ -15,6 +15,7 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	listVercelScopes,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
@@ -76,6 +77,7 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	deployVercel: vi.fn(),
 	ensureNetlifySite: vi.fn(),
 	ensureVercelProject: vi.fn(),
+	listVercelScopes: vi.fn(),
 	setNetlifyEnvironment: vi.fn(),
 	setVercelEnvironment: vi.fn(),
 }))
@@ -188,6 +190,11 @@ beforeEach(() => {
 	vi.mocked(materializeNetlify).mockReturnValue({ dir: '/tmp/netlify' })
 	vi.mocked(materializeLocal).mockReturnValue({ dir: '/config/runtimes/my-inbox' })
 	vi.mocked(ensureVercelProject).mockResolvedValue({ projectId: 'prj_1', orgId: 'team_1' })
+	vi.mocked(listVercelScopes).mockResolvedValue([
+		{ id: 'user_1', slug: 'aaron', name: 'aaron', current: true },
+		{ id: 'team_1', slug: 'acme', name: 'Acme Team', current: false },
+	])
+	vi.mocked(p.select).mockResolvedValue('team_1')
 	vi.mocked(ensureNetlifySite).mockResolvedValue({ siteId: '123e4567-e89b-42d3-a456-426614174000' })
 	vi.mocked(deployVercel).mockResolvedValue('https://my-inbox.vercel.app')
 	vi.mocked(deployNetlify).mockResolvedValue('https://my-inbox.netlify.app')
@@ -538,7 +545,16 @@ describe('stepDeploy (additional providers)', () => {
 		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
 		await stepDeploy(ctx)
 
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', undefined)
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Which Vercel account should own this deployment?',
+				options: expect.arrayContaining([
+					expect.objectContaining({ value: 'user_1', hint: 'current account' }),
+					expect.objectContaining({ value: 'team_1', label: 'Acme Team (acme)' }),
+				]),
+			}),
+		)
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_1', undefined)
 		expect(setVercelEnvironment).toHaveBeenCalledWith(
 			'/tmp/vercel',
 			expect.objectContaining({
@@ -564,7 +580,8 @@ describe('stepDeploy (additional providers)', () => {
 			}),
 		)
 		await stepDeploy(ctx)
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', {
+		expect(listVercelScopes).not.toHaveBeenCalled()
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_existing', {
 			projectId: 'prj_existing',
 			orgId: 'team_existing',
 		})
@@ -573,7 +590,35 @@ describe('stepDeploy (additional providers)', () => {
 	it('does not reuse a partial Vercel identifier pair', async () => {
 		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel', vercelProjectId: 'prj_partial' }))
 		await stepDeploy(ctx)
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', undefined)
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_1', undefined)
+	})
+
+	it('preselects a recorded Vercel account while repairing a partial link', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel', vercelOrgId: 'team_1' }))
+
+		await stepDeploy(ctx)
+
+		expect(p.select).toHaveBeenCalledWith(expect.objectContaining({ initialValue: 'team_1' }))
+	})
+
+	it('cancels before materializing when Vercel account selection is cancelled', async () => {
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(materializeVercel).not.toHaveBeenCalled()
+		expect(ensureVercelProject).not.toHaveBeenCalled()
+	})
+
+	it('rejects a Vercel account value that was not returned by the provider', async () => {
+		vi.mocked(p.select).mockResolvedValueOnce('team_attacker')
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/Choose one of the Vercel accounts/)
+
+		expect(saveProject).not.toHaveBeenCalledWith(expect.objectContaining({ vercelOrgId: 'team_attacker' }))
+		expect(ensureVercelProject).not.toHaveBeenCalled()
 	})
 
 	it('creates, configures, and deploys a Netlify project', async () => {

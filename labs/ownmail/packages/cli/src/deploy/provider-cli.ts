@@ -13,26 +13,60 @@ type CliResult = { code: number; stdout: string; stderr: string }
 type RuntimeEnvironment = Record<string, string>
 
 export type VercelProject = { projectId: string; orgId: string }
+export type VercelScope = { id: string; slug: string; name: string; current: boolean }
 export type NetlifySite = { siteId: string }
+
+export async function listVercelScopes(): Promise<VercelScope[]> {
+	await ensureProviderLogin('vercel')
+	const result = await runProviderCli('vercel', [
+		'teams',
+		'list',
+		'--format',
+		'json',
+		'--limit',
+		'100',
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code !== 0) throw providerFailure('vercel', 'list deployment accounts', result, false)
+	const raw = parseJsonOutput(result.stdout)
+	if (!isRecord(raw) || !Array.isArray(raw.teams)) {
+		throw new Error(
+			'Vercel returned an invalid account list. Re-run this command; OwnMail will not select an unverified deployment account.',
+		)
+	}
+	const scopes = raw.teams.map(parseVercelScope)
+	if (scopes.some((scope) => !scope) || scopes.length === 0) {
+		throw new Error(
+			'Vercel returned invalid deployment account details. Re-run this command; OwnMail will not deploy to an unverified account.',
+		)
+	}
+	return scopes as VercelScope[]
+}
 
 export async function ensureVercelProject(
 	dir: string,
 	projectName: string,
+	scope: string,
 	existing?: VercelProject,
 ): Promise<VercelProject> {
 	if (existing) {
 		writeVercelProject(dir, existing)
 		return existing
 	}
+	const selectedScope = requireVercelScope(scope)
 	await ensureProviderLogin('vercel')
 	const linked = await runProviderCli('vercel', [
 		'link',
 		'--yes',
 		'--project',
 		projectName,
+		'--scope',
+		selectedScope,
 		'--cwd',
 		dir,
 		'--no-color',
+		'--non-interactive',
 	])
 	if (linked.code !== 0) throw providerFailure('vercel', 'link the project', linked, true)
 	let raw: unknown
@@ -67,10 +101,12 @@ export async function setVercelEnvironment(
 				name,
 				'production',
 				'--force',
+				'--yes',
 				...(secretNames.has(name) ? ['--sensitive'] : []),
 				'--cwd',
 				dir,
 				'--no-color',
+				'--non-interactive',
 			],
 			{ stdin: `${value}\n` },
 		)
@@ -87,9 +123,12 @@ export async function deployVercel(dir: string): Promise<string> {
 		'--cwd',
 		dir,
 		'--no-color',
+		'--non-interactive',
+		'--format',
+		'json',
 	])
 	if (result.code !== 0) throw providerFailure('vercel', 'deploy the mailbox app', result, true)
-	return requireProviderUrl(result.stdout, 'vercel.app', 'Vercel')
+	return requireVercelDeploymentUrl(result.stdout)
 }
 
 export async function ensureNetlifySite(
@@ -190,7 +229,8 @@ function writeVercelProject(dir: string, project: VercelProject): void {
 }
 
 async function ensureProviderLogin(provider: Provider): Promise<void> {
-	const checkArgs = provider === 'vercel' ? ['whoami', '--no-color'] : ['sites:list', '--json']
+	const checkArgs =
+		provider === 'vercel' ? ['whoami', '--no-color', '--non-interactive'] : ['sites:list', '--json']
 	const checked = await runProviderCli(provider, checkArgs)
 	if (checked.code === 0) return
 	const login = await runProviderCli(provider, ['login'], { interactive: true })
@@ -229,7 +269,7 @@ function runProviderCli(
 		child.stderr?.on('data', (chunk: Buffer) => {
 			stderr = append(stderr, chunk)
 		})
-		if (opts.stdin !== undefined && child.stdin) child.stdin.end(opts.stdin)
+		if (child.stdin) child.stdin.end(opts.stdin)
 		child.on('error', () => reject(new Error(`${providerName(provider)} deployment helper failed to start.`)))
 		child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
 	})
@@ -290,6 +330,26 @@ function parseVercelProject(value: unknown): VercelProject | null {
 	return { projectId, orgId }
 }
 
+function parseVercelScope(value: unknown): VercelScope | null {
+	if (!isRecord(value)) return null
+	const { id, slug, name, current } = value
+	if (!validProviderId(id) || !validVercelScope(slug)) return null
+	if (typeof name !== 'string' || name.length < 1 || name.length > 160 || /[\r\n\0]/.test(name)) return null
+	if (typeof current !== 'boolean') return null
+	return { id, slug, name, current }
+}
+
+function requireVercelScope(value: string): string {
+	if (!validVercelScope(value)) {
+		throw new Error('Selected Vercel deployment account is invalid; refusing to deploy.')
+	}
+	return value
+}
+
+function validVercelScope(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value)
+}
+
 function validProviderId(value: unknown): value is string {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{2,128}$/.test(value)
 }
@@ -299,6 +359,13 @@ function requireUuid(value: string, label: string): string {
 		throw new Error(`${label} is invalid; refusing to deploy.`)
 	}
 	return value
+}
+
+function requireVercelDeploymentUrl(output: string): string {
+	const raw = parseJsonOutput(output)
+	const deployment = isRecord(raw) && isRecord(raw.deployment) ? raw.deployment : undefined
+	const candidate = deployment?.url ?? (isRecord(raw) ? raw.url : undefined)
+	return requireProviderUrl(typeof candidate === 'string' ? candidate : output, 'vercel.app', 'Vercel')
 }
 
 function requireProviderUrl(value: string, hostnameSuffix: string, provider: string): string {

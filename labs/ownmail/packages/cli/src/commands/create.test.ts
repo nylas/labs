@@ -122,13 +122,21 @@ describe('runCreate — resolveProject', () => {
 		expect(p.outro).toHaveBeenCalled()
 	})
 
-	it('uses the single existing (non-ejected) project when no name is given', async () => {
+	it('requires choosing the project name in the guide when --name is omitted', async () => {
 		const proj = makeProject({ slug: 'solo' })
 		vi.mocked(listProjects).mockReturnValue([proj, makeProject({ slug: 'gone', ejected: true })])
+		vi.mocked(p.select).mockResolvedValue('solo' as never)
+		vi.mocked(loadProject).mockReturnValue(proj)
 
 		await runCreate({})
 
-		expect(p.select).not.toHaveBeenCalled()
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Project name',
+				options: [expect.objectContaining({ value: 'solo' }), expect.objectContaining({ value: '__new__' })],
+			}),
+		)
+		expect(loadProject).toHaveBeenCalledWith('solo')
 		expect(p.outro).toHaveBeenCalled()
 	})
 

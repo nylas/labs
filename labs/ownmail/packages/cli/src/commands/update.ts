@@ -126,7 +126,7 @@ async function updateNodeProvider(
 					`"${project.slug}" is missing its recorded Vercel project. Run \`npx ownmail\` to repair it.`,
 				)
 			}
-			await ensureVercelProject(materialized.dir, `${project.slug}-ownmail`, {
+			await ensureVercelProject(materialized.dir, `${project.slug}-ownmail`, project.vercelOrgId, {
 				projectId: project.vercelProjectId,
 				orgId: project.vercelOrgId,
 			})
