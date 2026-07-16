@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.2.2
+
+### Patch Changes
+
+- d7c2bfa: Attribute OwnMail API requests with a fixed, non-identifying User-Agent so usage can be tracked in Coralogix.
+
 ## 0.2.1
 
 ### Patch Changes
