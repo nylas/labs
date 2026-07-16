@@ -2,7 +2,12 @@ import { Entry } from '@napi-rs/keyring'
 import { ownmailStateName } from '../nylas-env.js'
 import type { PendingSecretName, PendingSecretReference, PendingSecretValue, ProjectState } from './schema.js'
 
-export const PENDING_SECRET_NAMES: readonly PendingSecretName[] = ['apiKey', 'clientSecret', 'appPassword']
+export const PENDING_SECRET_NAMES: readonly PendingSecretName[] = [
+	'apiKey',
+	'clientSecret',
+	'appPassword',
+	'sessionSecret',
+]
 
 export type PendingSecretStorage = 'keyring' | 'local'
 
@@ -14,6 +19,7 @@ export function storePendingSecret(
 	project: ProjectState,
 	name: PendingSecretName,
 	value: string,
+	opts: { allowLocalFallback?: boolean } = {},
 ): PendingSecretStoreResult {
 	const ref = keyringReference(project, name)
 	try {
@@ -21,6 +27,11 @@ export function storePendingSecret(
 		project.pendingSecrets[name] = ref
 		return { storage: 'keyring' }
 	} catch {
+		if (opts.allowLocalFallback === false) {
+			throw new Error(
+				'OwnMail could not access the OS credential store required for local hosting. Unlock or enable the credential store, then retry; no additional runtime secret was written to disk.',
+			)
+		}
 		project.pendingSecrets[name] = value
 		return { storage: 'local' }
 	}
@@ -91,5 +102,7 @@ function pendingSecretLabel(name: PendingSecretName): string {
 			return 'Legacy Nylas application client secret'
 		case 'appPassword':
 			return 'Inbox password awaiting final verification'
+		case 'sessionSecret':
+			return 'Local app session secret'
 	}
 }

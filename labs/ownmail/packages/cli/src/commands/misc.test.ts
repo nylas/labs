@@ -189,6 +189,11 @@ describe('runCleanupSecrets', () => {
 })
 
 describe('runDeleteProject', () => {
+	it('refuses to claim a non-Cloudflare hosted deployment was deleted', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ hostingProvider: 'vercel' }))
+		await expect(runDeleteProject({ hosted: true })).rejects.toThrow(/cannot delete this vercel deployment/)
+		expect(deleteProject).not.toHaveBeenCalled()
+	})
 	function ok() {
 		return { code: 0, stdout: '', stderr: '' }
 	}
@@ -325,6 +330,11 @@ describe('runDeleteProject', () => {
 })
 
 describe('runDestroy', () => {
+	it('directs non-Cloudflare cleanup to the owning runtime', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ hostingProvider: 'local' }))
+		await expect(runDestroy({})).rejects.toThrow(/cannot delete this local deployment/)
+		expect(saveProject).not.toHaveBeenCalled()
+	})
 	function ok() {
 		return { code: 0, stdout: '', stderr: '' }
 	}

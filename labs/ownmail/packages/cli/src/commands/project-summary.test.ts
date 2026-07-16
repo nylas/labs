@@ -96,6 +96,24 @@ describe('projectStatusSummary', () => {
 			nextCommand: 'wrangler deploy',
 		})
 	})
+
+	it.each([
+		['vercel', 'Vercel', 'https://acme.vercel.app'],
+		['netlify', 'Netlify', 'https://acme.netlify.app'],
+		['local', 'Local web server', 'http://localhost:3000'],
+		['manual', 'Manual upload', 'https://manual.example.com'],
+	] as const)('labels %s hosting', (hostingProvider, hosting, appUrl) => {
+		expect(
+			projectStatusSummary(
+				project({
+					hostingProvider,
+					providerAppUrl: hostingProvider === 'vercel' || hostingProvider === 'netlify' ? appUrl : undefined,
+					localAppUrl: hostingProvider === 'local' ? appUrl : undefined,
+					manualAppUrl: hostingProvider === 'manual' ? appUrl : undefined,
+				}),
+			),
+		).toMatchObject({ hosting, appUrl })
+	})
 })
 
 describe('activeAppUrl', () => {
@@ -112,6 +130,21 @@ describe('activeAppUrl', () => {
 		expect(activeAppUrl(project({ manualAppUrl: 'https://manual.acme.com' }))).toBe('https://manual.acme.com')
 		expect(activeAppUrl(project({ workersDevUrl: 'https://acme.workers.dev' }))).toBe(
 			'https://acme.workers.dev',
+		)
+	})
+
+	it('selects only the URL belonging to an explicit provider', () => {
+		expect(
+			activeAppUrl(
+				project({
+					hostingProvider: 'vercel',
+					providerAppUrl: 'https://acme.vercel.app',
+					workersDevUrl: 'https://stale.workers.dev',
+				}),
+			),
+		).toBe('https://acme.vercel.app')
+		expect(activeAppUrl(project({ hostingProvider: 'local', localAppUrl: 'http://localhost:3000' }))).toBe(
+			'http://localhost:3000',
 		)
 	})
 })
@@ -143,5 +176,21 @@ describe('redirectCallbackUrls', () => {
 				}),
 			),
 		).toEqual(['http://localhost:3000/auth/callback', 'https://manual.acme.com/auth/callback'])
+	})
+
+	it('includes provider and local callbacks', () => {
+		expect(
+			redirectCallbackUrls(
+				project({
+					hostingProvider: 'vercel',
+					providerAppUrl: 'https://acme.vercel.app',
+					localAppUrl: 'http://localhost:3456',
+				}),
+			),
+		).toEqual([
+			'http://localhost:3000/auth/callback',
+			'https://acme.vercel.app/auth/callback',
+			'http://localhost:3456/auth/callback',
+		])
 	})
 })

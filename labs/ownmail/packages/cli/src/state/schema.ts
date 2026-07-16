@@ -65,7 +65,7 @@ export type PendingSecretReference = z.infer<typeof PendingSecretReferenceSchema
 export const PendingSecretValueSchema = z.union([z.string(), PendingSecretReferenceSchema])
 export type PendingSecretValue = z.infer<typeof PendingSecretValueSchema>
 
-export const PendingSecretNameSchema = z.enum(['apiKey', 'clientSecret', 'appPassword'])
+export const PendingSecretNameSchema = z.enum(['apiKey', 'clientSecret', 'appPassword', 'sessionSecret'])
 export type PendingSecretName = z.infer<typeof PendingSecretNameSchema>
 
 export const ProjectStateSchema = z.object({
@@ -75,7 +75,7 @@ export const ProjectStateSchema = z.object({
 
 	region: z.enum(['us', 'eu']).default('us'),
 	orgPublicId: z.string().optional(),
-	hostingProvider: z.enum(['cloudflare', 'manual']).optional(),
+	hostingProvider: z.enum(['cloudflare', 'vercel', 'netlify', 'local', 'manual']).optional(),
 
 	applicationId: z.string().optional(),
 	apiKeyId: z.string().optional(),
@@ -92,6 +92,13 @@ export const ProjectStateSchema = z.object({
 
 	workerName: z.string().optional(),
 	workersDevUrl: z.string().optional(),
+	providerAppUrl: z.string().url().optional(),
+	vercelProjectId: z.string().min(1).max(128).optional(),
+	vercelOrgId: z.string().min(1).max(128).optional(),
+	netlifySiteId: z.string().uuid().optional(),
+	localAppUrl: z.string().url().optional(),
+	localPort: z.number().int().min(1024).max(65_535).optional(),
+	localDeployDir: z.string().optional(),
 	manualDeployDir: z.string().optional(),
 	manualAppUrl: z.string().url().optional(),
 	kvNamespaceId: z.string().optional(),
@@ -109,6 +116,7 @@ export const ProjectStateSchema = z.object({
 			apiKey: PendingSecretValueSchema.optional(),
 			clientSecret: PendingSecretValueSchema.optional(),
 			appPassword: PendingSecretValueSchema.optional(),
+			sessionSecret: PendingSecretValueSchema.optional(),
 		})
 		.default({}),
 })

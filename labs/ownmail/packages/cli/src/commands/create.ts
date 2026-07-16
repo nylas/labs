@@ -86,7 +86,7 @@ export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): 
 		[
 			'OwnMail creates a Nylas email address and inbox, then deploys a private mailbox + calendar web app to your hosting account.',
 			'',
-			'You’ll need a Nylas sign-in and, for automated hosting, a Cloudflare account. A free nylas.email address needs no DNS changes; using your own email domain does.',
+			'You’ll need a Nylas sign-in and an account for Cloudflare, Vercel, or Netlify if you choose hosted deployment. Local hosting needs no provider account. A free nylas.email address needs no DNS changes; using your own email domain does.',
 			'',
 			'Your inbox password is shown once, so save it when prompted. Pending setup secrets use your OS keyring when available and are cleared after verification.',
 		].join('\n'),
@@ -121,7 +121,7 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 		markPlanConfirmed(ctx.project)
 		return
 	}
-	const hosting = ctx.project.hostingProvider === 'manual' ? 'Manual upload' : 'Cloudflare Workers'
+	const hosting = hostingLabel(ctx.project.hostingProvider)
 	const emailDomain = ctx.project.domainAddress ?? ctx.project.plannedDomainAddress
 	if (!emailDomain || !ctx.project.hostingProvider) {
 		throw new Error(
@@ -142,6 +142,23 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 	const confirmed = await p.confirm({ message: 'Create these OwnMail resources?', initialValue: true })
 	if (p.isCancel(confirmed) || !confirmed) throw new CancelledError()
 	markPlanConfirmed(ctx.project)
+}
+
+function hostingLabel(provider: ProjectState['hostingProvider']): string {
+	switch (provider) {
+		case 'cloudflare':
+			return 'Cloudflare Workers'
+		case 'vercel':
+			return 'Vercel'
+		case 'netlify':
+			return 'Netlify'
+		case 'local':
+			return 'Local web server'
+		case 'manual':
+			return 'Manual upload'
+		default:
+			return 'Not selected'
+	}
 }
 
 function markPlanConfirmed(project: ProjectState): void {

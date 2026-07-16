@@ -15,8 +15,9 @@ ready to inspect, adapt, and take somewhere interesting.
 ## Give your inbox a home
 
 OwnMail is a self-hosted mailbox and calendar app for independent builders.
-Start with a guided deployment, use your own domain, and eject the source when
-you are ready to customize every last detail.
+Start with a guided Cloudflare, Vercel, Netlify, or local deployment, use your
+own domain, and eject the source when you are ready to customize every last
+detail.
 
 Start from your terminal:
 

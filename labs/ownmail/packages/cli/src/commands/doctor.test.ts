@@ -456,6 +456,17 @@ describe('runDoctor — healthy project', () => {
 		expect(messages().some((m) => m.includes('manual hosting uses polling'))).toBe(true)
 	})
 
+	it('reports that non-Cloudflare providers use polling under --fix', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'vercel', providerAppUrl: 'https://acme.vercel.app' }),
+		)
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+
+		await runDoctor({ fix: true })
+
+		expect(messages().some((message) => message.includes('automatic webhook secret rotation'))).toBe(true)
+	})
+
 	it('reports missing app URL when instant updates cannot be repaired', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({ hostingProvider: 'cloudflare', applicationId: 'app_1', completedSteps: ['deploy'] }),

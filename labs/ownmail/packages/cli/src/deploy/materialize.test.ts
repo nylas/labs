@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { exportManualBundle, loadManifest, materialize, templateRoot } from './materialize.js'
+import {
+	exportManualBundle,
+	loadManifest,
+	materialize,
+	materializeLocal,
+	materializeNetlify,
+	materializeVercel,
+	templateRoot,
+} from './materialize.js'
 
 const { manifest, wranglerConfig, existsMap } = vi.hoisted(() => ({
 	manifest: {
@@ -34,11 +42,13 @@ vi.mock('node:fs', () => ({
 	}),
 	writeFileSync: vi.fn(),
 	mkdirSync: vi.fn(),
+	mkdtempSync: vi.fn((path: string) => `${path}abc123`),
+	rmSync: vi.fn(),
 	cpSync: vi.fn(),
 	existsSync: vi.fn((path: string) => existsMap.get(path) ?? false),
 }))
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 
 beforeEach(() => {
 	vi.clearAllMocks()
@@ -88,6 +98,50 @@ describe('materialize', () => {
 		const [[, contents]] = vi.mocked(writeFileSync).mock.calls
 		const written = JSON.parse(contents as string)
 		expect(written.routes).toEqual([{ pattern: 'mail.acme.com', custom_domain: true }])
+	})
+})
+
+describe('Node provider materialization', () => {
+	it('copies prebuilt Vercel output into a private temporary directory', () => {
+		existsMap.set('/fake/template/.vercel/output', true)
+		const result = materializeVercel('acme')
+		expect(result.dir).toContain('/ownmail/acme/vercel-abc123')
+		expect(cpSync).toHaveBeenCalledWith(
+			'/fake/template/.vercel/output',
+			expect.stringContaining('/.vercel/output'),
+			{ recursive: true },
+		)
+	})
+
+	it('assembles a Netlify fetch function and static bundle', () => {
+		existsMap.set('/fake/template/dist-vercel/client', true)
+		existsMap.set('/fake/template/dist-vercel/server', true)
+		const result = materializeNetlify('acme')
+		const writes = vi.mocked(writeFileSync).mock.calls.map(([path, body]) => [String(path), String(body)])
+		expect(result.dir).toContain('/ownmail/acme/netlify-abc123')
+		expect(writes.some(([path, body]) => path.endsWith('ssr.mjs') && body.includes('preferStatic'))).toBe(
+			true,
+		)
+		expect(writes.some(([path, body]) => path.endsWith('netlify.toml') && body.includes('dist/client'))).toBe(
+			true,
+		)
+	})
+
+	it('replaces a durable local runtime with the Node build and server scripts', () => {
+		for (const path of [
+			'/fake/template/dist-vercel',
+			'/fake/template/scripts/node-adapter.mjs',
+			'/fake/template/scripts/serve-node.mjs',
+		]) {
+			existsMap.set(path, true)
+		}
+		expect(materializeLocal('/runtime/acme')).toEqual({ dir: '/runtime/acme' })
+		expect(rmSync).toHaveBeenCalledWith('/runtime/acme', { recursive: true, force: true })
+		expect(cpSync).toHaveBeenCalledTimes(3)
+	})
+
+	it('fails closed when a required bundled target is missing', () => {
+		expect(() => materializeVercel('acme')).toThrow(/bundled Vercel app target is missing/)
 	})
 })
 

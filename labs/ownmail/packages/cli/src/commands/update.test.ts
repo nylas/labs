@@ -10,9 +10,24 @@ vi.mock('@clack/prompts', () => ({
 	spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
 }))
 
+vi.mock('node:fs', () => ({ rmSync: vi.fn() }))
+
+vi.mock('../deploy/app-health.js', () => ({ checkAppHealth: vi.fn() }))
+
+vi.mock('../deploy/local-server.js', () => ({ findLocalPort: vi.fn(), startLocalServer: vi.fn() }))
+
 vi.mock('../deploy/materialize.js', () => ({
 	loadManifest: vi.fn(),
 	materialize: vi.fn(),
+	materializeVercel: vi.fn(),
+	materializeNetlify: vi.fn(),
+	materializeLocal: vi.fn(),
+}))
+
+vi.mock('../deploy/provider-cli.js', () => ({
+	deployVercel: vi.fn(),
+	deployNetlify: vi.fn(),
+	ensureVercelProject: vi.fn(),
 }))
 
 vi.mock('../deploy/wrangler.js', () => ({
@@ -25,7 +40,10 @@ vi.mock('../nylas-env.js', () => ({
 
 vi.mock('../state/store.js', () => ({
 	saveProject: vi.fn(),
+	configDir: vi.fn(() => '/config'),
 }))
+
+vi.mock('../state/pending-secrets.js', () => ({ readPendingSecret: vi.fn() }))
 
 vi.mock('../steps/deploy.js', () => ({
 	ensureCloudflareAuth: vi.fn(),
@@ -36,9 +54,19 @@ vi.mock('./shared.js', () => ({
 }))
 
 import * as p from '@clack/prompts'
-import { loadManifest, materialize } from '../deploy/materialize.js'
+import { checkAppHealth } from '../deploy/app-health.js'
+import { findLocalPort, startLocalServer } from '../deploy/local-server.js'
+import {
+	loadManifest,
+	materialize,
+	materializeLocal,
+	materializeNetlify,
+	materializeVercel,
+} from '../deploy/materialize.js'
+import { deployNetlify, deployVercel, ensureVercelProject } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
+import { readPendingSecret } from '../state/pending-secrets.js'
 import { saveProject } from '../state/store.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { pickExistingProject } from './shared.js'
@@ -84,6 +112,17 @@ beforeEach(() => {
 	})
 	vi.mocked(deployedApiBaseUrl).mockReturnValue(undefined)
 	vi.mocked(materialize).mockReturnValue({ dir: '/tmp/x', configPath: '/tmp/x/wrangler.json' })
+	vi.mocked(materializeVercel).mockReturnValue({ dir: '/tmp/vercel' })
+	vi.mocked(materializeNetlify).mockReturnValue({ dir: '/tmp/netlify' })
+	vi.mocked(materializeLocal).mockReturnValue({ dir: '/config/runtimes/acme' })
+	vi.mocked(deployVercel).mockResolvedValue('https://acme.vercel.app')
+	vi.mocked(deployNetlify).mockResolvedValue('https://acme.netlify.app')
+	vi.mocked(findLocalPort).mockResolvedValue(3000)
+	vi.mocked(startLocalServer).mockResolvedValue('http://localhost:3000')
+	vi.mocked(checkAppHealth).mockResolvedValue(false)
+	vi.mocked(readPendingSecret).mockImplementation((_project, name) =>
+		name === 'apiKey' ? 'nyk_secret' : 'session_secret',
+	)
 	vi.mocked(deploy).mockResolvedValue('https://acme.workers.dev')
 })
 
@@ -254,5 +293,106 @@ describe('runUpdate — redeploy', () => {
 		expect(arg).not.toHaveProperty('appDomain')
 		expect(arg?.vars.INBOX_EMAIL).toBe('')
 		expect(arg?.vars).not.toHaveProperty('NYLAS_API_BASE_URL')
+	})
+})
+
+describe('runUpdate — Node providers', () => {
+	it('redeploys a linked Vercel project without rotating settings', async () => {
+		const project = makeProject({
+			hostingProvider: 'vercel',
+			vercelProjectId: 'prj_1',
+			vercelOrgId: 'team_1',
+			providerAppUrl: 'https://old.vercel.app',
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		await runUpdate({})
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'acme-ownmail', {
+			projectId: 'prj_1',
+			orgId: 'team_1',
+		})
+		expect(project.providerAppUrl).toBe('https://acme.vercel.app')
+	})
+
+	it('requires recorded identifiers before provider redeploys', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ hostingProvider: 'vercel' }))
+		await expect(runUpdate({})).rejects.toThrow(/missing its recorded Vercel project/)
+
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ hostingProvider: 'netlify' }))
+		await expect(runUpdate({})).rejects.toThrow(/missing its recorded Netlify site/)
+	})
+
+	it('redeploys a recorded Netlify site', async () => {
+		const project = makeProject({
+			hostingProvider: 'netlify',
+			netlifySiteId: '123e4567-e89b-42d3-a456-426614174000',
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		await runUpdate({})
+		expect(deployNetlify).toHaveBeenCalledWith('/tmp/netlify', project.netlifySiteId)
+		expect(project.providerAppUrl).toBe('https://acme.netlify.app')
+	})
+
+	it('stops the provider spinner on a failed redeploy', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'netlify', netlifySiteId: '123e4567-e89b-42d3-a456-426614174000' }),
+		)
+		vi.mocked(deployNetlify).mockRejectedValueOnce(new Error('failed'))
+		await expect(runUpdate({})).rejects.toThrow('failed')
+	})
+
+	it('restarts a stopped local server with keyring secrets', async () => {
+		vi.mocked(deployedApiBaseUrl).mockReturnValue('https://api-staging.us.nylas.com')
+		const project = makeProject({
+			hostingProvider: 'local',
+			applicationId: 'app_1',
+			inboxEmail: 'hello@example.com',
+			localAppUrl: 'http://localhost:3000',
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		await runUpdate({})
+		expect(startLocalServer).toHaveBeenCalledWith(
+			expect.objectContaining({
+				environment: expect.objectContaining({
+					NYLAS_API_KEY: 'nyk_secret',
+					NYLAS_API_BASE_URL: 'https://api-staging.us.nylas.com',
+				}),
+			}),
+		)
+		expect(project.templateVersion).toBe('1.2.0')
+	})
+
+	it('requires the existing local server to stop before updating', async () => {
+		vi.mocked(checkAppHealth).mockResolvedValueOnce(true)
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'local', localAppUrl: 'http://localhost:3000' }),
+		)
+		await expect(runUpdate({})).rejects.toThrow(/Stop it with Ctrl\+C/)
+	})
+
+	it('restarts a stopped local server without an API base override', async () => {
+		const project = makeProject({
+			hostingProvider: 'local',
+			applicationId: 'app_1',
+			inboxEmail: 'hello@example.com',
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		await runUpdate({})
+		expect(vi.mocked(startLocalServer).mock.calls.at(-1)?.[0].environment).not.toHaveProperty(
+			'NYLAS_API_BASE_URL',
+		)
+	})
+
+	it('fails when local runtime secrets or required settings are missing', async () => {
+		vi.mocked(readPendingSecret).mockReturnValue(null)
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ hostingProvider: 'local' }))
+		await expect(runUpdate({})).rejects.toThrow(/secrets are unavailable/)
+
+		vi.mocked(readPendingSecret).mockImplementation((_project, name) =>
+			name === 'apiKey' ? 'key' : 'session',
+		)
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'local', applicationId: 'app_1' }),
+		)
+		await expect(runUpdate({})).rejects.toThrow(/Inbox email is missing/)
 	})
 })

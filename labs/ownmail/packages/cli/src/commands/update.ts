@@ -1,8 +1,20 @@
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
 import * as p from '@clack/prompts'
-import { loadManifest, materialize } from '../deploy/materialize.js'
+import { checkAppHealth } from '../deploy/app-health.js'
+import { findLocalPort, startLocalServer } from '../deploy/local-server.js'
+import {
+	loadManifest,
+	materialize,
+	materializeLocal,
+	materializeNetlify,
+	materializeVercel,
+} from '../deploy/materialize.js'
+import { deployNetlify, deployVercel, ensureVercelProject } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
-import { saveProject } from '../state/store.js'
+import { readPendingSecret } from '../state/pending-secrets.js'
+import { configDir, saveProject } from '../state/store.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { pickExistingProject } from './shared.js'
 
@@ -35,6 +47,14 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 			].join('\n'),
 		)
 		p.outro('No Cloudflare deployment was changed.')
+		return
+	}
+	if (provider === 'vercel' || provider === 'netlify') {
+		await updateNodeProvider(project, provider)
+		return
+	}
+	if (provider === 'local') {
+		await updateLocalProject(project)
 		return
 	}
 
@@ -87,6 +107,94 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 		throw err
 	}
 	p.outro('Secrets and sessions were untouched.')
+}
+
+async function updateNodeProvider(
+	project: Awaited<ReturnType<typeof pickExistingProject>>,
+	provider: 'vercel' | 'netlify',
+): Promise<void> {
+	const manifest = loadManifest()
+	const materialized =
+		provider === 'vercel' ? materializeVercel(project.slug) : materializeNetlify(project.slug)
+	const spinner = p.spinner()
+	spinner.start(`Redeploying to ${provider === 'vercel' ? 'Vercel' : 'Netlify'}…`)
+	try {
+		let url: string
+		if (provider === 'vercel') {
+			if (!project.vercelProjectId || !project.vercelOrgId) {
+				throw new Error(
+					`"${project.slug}" is missing its recorded Vercel project. Run \`npx ownmail\` to repair it.`,
+				)
+			}
+			await ensureVercelProject(materialized.dir, `${project.slug}-ownmail`, {
+				projectId: project.vercelProjectId,
+				orgId: project.vercelOrgId,
+			})
+			url = await deployVercel(materialized.dir)
+		} else {
+			if (!project.netlifySiteId) {
+				throw new Error(
+					`"${project.slug}" is missing its recorded Netlify site. Run \`npx ownmail\` to repair it.`,
+				)
+			}
+			url = await deployNetlify(materialized.dir, project.netlifySiteId)
+		}
+		project.providerAppUrl = url
+		project.templateVersion = manifest.templateVersion
+		saveProject(project)
+		spinner.stop(`Updated: ${url} (template ${manifest.templateVersion})`)
+	} catch (error) {
+		spinner.stop(`${provider === 'vercel' ? 'Vercel' : 'Netlify'} update needs attention; retry when ready.`)
+		throw error
+	} finally {
+		rmSync(materialized.dir, { recursive: true, force: true })
+	}
+	p.outro('Deployment settings and sessions were untouched.')
+}
+
+async function updateLocalProject(project: Awaited<ReturnType<typeof pickExistingProject>>): Promise<void> {
+	if (
+		project.localAppUrl &&
+		(await checkAppHealth(project.localAppUrl, { attempts: 1, delayMs: 0, timeoutMs: 1000 }))
+	) {
+		throw new Error(
+			`The local server for "${project.slug}" is still running. Stop it with Ctrl+C in its terminal, then retry \`npx ownmail update\`.`,
+		)
+	}
+	const apiKey = readPendingSecret(project, 'apiKey')
+	const sessionSecret = readPendingSecret(project, 'sessionSecret')
+	if (!apiKey || !sessionSecret) {
+		throw new Error(
+			'Local runtime secrets are unavailable from the OS credential store. Re-run `npx ownmail` to repair the local deployment.',
+		)
+	}
+	const applicationId = requireNylasClientId(project.applicationId)
+	if (!project.inboxEmail?.trim()) throw new Error('Inbox email is missing; re-run `npx ownmail`.')
+	const manifest = loadManifest()
+	const port = await findLocalPort(project.localPort ?? 3000)
+	const targetDir = project.localDeployDir ?? join(configDir(), 'runtimes', project.slug)
+	const { dir } = materializeLocal(targetDir)
+	const runtimeApiBaseUrl = deployedApiBaseUrl(project.region)
+	const url = await startLocalServer({
+		dir,
+		port,
+		environment: {
+			NYLAS_API_KEY: apiKey,
+			SESSION_SECRET: sessionSecret,
+			NYLAS_CLIENT_ID: applicationId,
+			NYLAS_REGION: project.region,
+			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
+			APP_NAME: project.slug,
+			INBOX_EMAIL: project.inboxEmail,
+			TEMPLATE_VERSION: manifest.templateVersion,
+		},
+	})
+	project.localAppUrl = url
+	project.localPort = port
+	project.localDeployDir = dir
+	project.templateVersion = manifest.templateVersion
+	saveProject(project)
+	p.outro(`Updated local server: ${url}. Keep this terminal open; press Ctrl+C to stop it.`)
 }
 
 function requireNylasClientId(value: string | undefined): string {

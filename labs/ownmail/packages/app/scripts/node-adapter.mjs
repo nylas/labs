@@ -37,10 +37,10 @@ export function createNodeHandler(server) {
 			if (cookies.length > 0) res.setHeader('set-cookie', cookies)
 			if (response.body) Readable.fromWeb(response.body).pipe(res)
 			else res.end()
-		} catch (err) {
+		} catch {
 			res.statusCode = 500
 			res.end('Internal error')
-			console.error('[node-adapter]', err)
+			console.error('[node-adapter] Request failed.')
 		}
 	}
 }

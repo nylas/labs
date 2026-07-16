@@ -5,6 +5,7 @@ import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { CancelledError } from '../steps/provision.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
+import { activeAppUrl } from './project-summary.js'
 import { pickExistingProject } from './shared.js'
 
 const SANDBOX_GRANT_CAP = 5
@@ -65,7 +66,7 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 	spinner.stop(`${email} is live.`)
 
 	p.note(
-		`Email:    ${email}\nPassword: ${appPassword}\n\nShown ONCE — save it now. Log into your app at\n${project.workersDevUrl ?? 'your app URL'} with these credentials.`,
+		`Email:    ${email}\nPassword: ${appPassword}\n\nShown ONCE — save it now. Log into your app at\n${activeAppUrl(project) ?? 'your app URL'} with these credentials.`,
 		'New inbox',
 	)
 	p.outro('Done.')

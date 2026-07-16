@@ -91,6 +91,9 @@ export async function runDeleteProject(opts: { name?: string; hosted?: boolean }
 	p.intro('ownmail delete')
 	const project = await pickExistingProject(opts.name)
 	const deleteHosted = opts.hosted === true
+	if (deleteHosted && project.hostingProvider && project.hostingProvider !== 'cloudflare') {
+		throw nonCloudflareDeleteError(project)
+	}
 
 	p.log.warn(
 		[
@@ -140,6 +143,9 @@ export async function runDeleteProject(opts: { name?: string; hosted?: boolean }
 export async function runDestroy(opts: { name?: string }): Promise<void> {
 	p.intro('ownmail destroy')
 	const project = await pickExistingProject(opts.name)
+	if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
+		throw nonCloudflareDeleteError(project)
+	}
 
 	p.log.warn(
 		[
@@ -170,6 +176,12 @@ export async function runDestroy(opts: { name?: string }): Promise<void> {
 	)
 	saveProject(project)
 	p.outro('Destroyed. Run `npx ownmail` to redeploy any time.')
+}
+
+function nonCloudflareDeleteError(project: ProjectState): Error {
+	return new Error(
+		`OwnMail cannot delete this ${project.hostingProvider} deployment automatically. Remove or stop it from the provider dashboard or local server terminal, then run \`npx ownmail delete --name ${project.slug}\` to remove local project state. Nothing was deleted.`,
+	)
 }
 
 async function deleteHostedContent(project: ProjectState, opts: { strictKv?: boolean } = {}): Promise<void> {

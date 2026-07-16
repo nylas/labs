@@ -1,8 +1,8 @@
 # @ownmail/app
 
 The deployable mailbox and calendar app behind
-[OwnMail](https://www.npmjs.com/package/ownmail). It runs on Cloudflare Workers
-and is powered by Nylas Agent Accounts.
+[OwnMail](https://www.npmjs.com/package/ownmail). It runs on Cloudflare Workers,
+Vercel, Netlify, or a local Node server and is powered by Nylas Agent Accounts.
 
 This is the power-user half of OwnMail: a real app codebase for people who want
 their inbox to look, behave, and deploy their way.
@@ -15,9 +15,9 @@ Most people should start with the CLI:
 npx ownmail
 ```
 
-The CLI provisions the required Nylas and Cloudflare resources, then deploys
-this app. Reach for this package directly when you want to develop, customize,
-or host an ejected OwnMail app yourself.
+The CLI provisions the required Nylas resources, configures the chosen runtime,
+then deploys or starts this app. Reach for this package directly when you want
+to develop, customize, or host an ejected OwnMail app yourself.
 
 ## Start simple, then take control
 
