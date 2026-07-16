@@ -2,13 +2,20 @@ import { type GrantScopedClient, NylasV3Client } from '@nylas-labs/cli-kit/v3'
 import { createDevMailbox, devMailboxEmail, devMailboxName } from './dev-mocks.js'
 import { platform, usingDevMocks } from './platform.js'
 import { getSession } from './session.js'
+import { OWNMAIL_USER_AGENT } from './usage-attribution.js'
 
 let client: NylasV3Client | null = null
 
 export async function nylas(): Promise<NylasV3Client> {
 	if (!client) {
 		const { env } = await platform()
-		client = new NylasV3Client(env.NYLAS_API_KEY, env.NYLAS_REGION, fetch, env.NYLAS_API_BASE_URL)
+		client = new NylasV3Client(
+			env.NYLAS_API_KEY,
+			env.NYLAS_REGION,
+			fetch,
+			env.NYLAS_API_BASE_URL,
+			OWNMAIL_USER_AGENT,
+		)
 	}
 	return client
 }

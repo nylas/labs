@@ -9,6 +9,7 @@
  */
 
 import type { DpopKey } from './dpop.js'
+import { userAgentHeader } from './http.js'
 
 export const DEFAULT_DASHBOARD_ACCOUNT_URL = 'https://dashboard-account.eu.nylas.com'
 
@@ -128,11 +129,16 @@ export class DashboardAccountError extends Error {
 }
 
 export class DashboardAccountClient {
+	private readonly attributionHeaders: Record<string, string>
+
 	constructor(
 		private readonly dpop: DpopKey,
 		private readonly baseUrl: string = DEFAULT_DASHBOARD_ACCOUNT_URL,
 		private readonly fetchImpl: typeof fetch = fetch,
-	) {}
+		userAgent?: string,
+	) {
+		this.attributionHeaders = userAgentHeader(userAgent)
+	}
 
 	// ---- CLI email/password flow ---------------------------------------------
 
@@ -316,6 +322,7 @@ export class DashboardAccountClient {
 		const url = `${this.baseUrl}${path}`
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json',
+			...this.attributionHeaders,
 			DPoP: await this.dpop.proof(method, url, opts.tokens?.userToken),
 		}
 		if (opts.tokens) {

@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { platform } from '../server/platform.js'
 import { consumePkce, createSession } from '../server/session.js'
+import { OWNMAIL_USER_AGENT } from '../server/usage-attribution.js'
 
 export const Route = createFileRoute('/auth/callback')({
 	server: {
@@ -31,6 +32,7 @@ export const Route = createFileRoute('/auth/callback')({
 						redirectUri: `${url.origin}/auth/callback`,
 						code,
 						codeVerifier: pkce.verifier,
+						userAgent: OWNMAIL_USER_AGENT,
 					})
 					const headers = new Headers({ Location: MAIL_HOME_PATH })
 					headers.append('Set-Cookie', await createSession(token.grant_id, token.email ?? env.INBOX_EMAIL))

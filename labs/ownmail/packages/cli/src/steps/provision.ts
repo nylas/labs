@@ -21,6 +21,7 @@ import {
 } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
 import { markStep, saveProject } from '../state/store.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth, tokens } from './context.js'
 
@@ -83,10 +84,10 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	if (p.isCancel(loginType)) throw new CancelledError()
 
 	const dpop = ctx.dpop ?? (await DpopKey.generate())
-	const dashboard = new DashboardAccountClient(dpop, dashboardAccountUrl())
+	const dashboard = new DashboardAccountClient(dpop, dashboardAccountUrl(), fetch, OWNMAIL_USER_AGENT)
 	ctx.dpop = dpop
 	ctx.dashboard = dashboard
-	ctx.gateway = new GatewayClient(dpop, gatewayUrls())
+	ctx.gateway = new GatewayClient(dpop, gatewayUrls(), fetch, OWNMAIL_USER_AGENT)
 
 	let result: AuthResponse
 	if (loginType === 'email_password') {
@@ -324,7 +325,13 @@ function appDisplayName(app: GatewayApplication): string {
 export async function stepApiKey(ctx: StepContext): Promise<void> {
 	const pendingApiKey = readPendingSecret(ctx.project, 'apiKey')
 	if (pendingApiKey) {
-		ctx.v3 = new NylasV3Client(pendingApiKey, ctx.project.region, fetch, apiBaseUrl(ctx.project.region))
+		ctx.v3 = new NylasV3Client(
+			pendingApiKey,
+			ctx.project.region,
+			fetch,
+			apiBaseUrl(ctx.project.region),
+			OWNMAIL_USER_AGENT,
+		)
 		markStep(ctx.project, 'api-key')
 		return
 	}
@@ -352,7 +359,13 @@ export async function stepApiKey(ctx: StepContext): Promise<void> {
 	ctx.project.apiKeyId = created.id
 	const stored = storePendingSecret(ctx.project, 'apiKey', created.apiKey)
 	warnIfLocalPendingSecret(stored, 'Nylas API key')
-	ctx.v3 = new NylasV3Client(created.apiKey, ctx.project.region, fetch, apiBaseUrl(ctx.project.region))
+	ctx.v3 = new NylasV3Client(
+		created.apiKey,
+		ctx.project.region,
+		fetch,
+		apiBaseUrl(ctx.project.region),
+		OWNMAIL_USER_AGENT,
+	)
 	saveProject(ctx.project)
 	markStep(ctx.project, 'api-key')
 }

@@ -3,6 +3,7 @@ import { type Grant, NylasV3Client } from '@nylas-labs/cli-kit'
 import { apiBaseUrl } from '../nylas-env.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { CancelledError } from '../steps/provision.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import { pickExistingProject } from './shared.js'
 
@@ -25,7 +26,13 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail inbox-add ${Date.now()}`,
 	})
-	const v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
+	const v3 = new NylasV3Client(
+		key.apiKey,
+		project.region,
+		fetch,
+		apiBaseUrl(project.region),
+		OWNMAIL_USER_AGENT,
+	)
 
 	const existing = await v3.listGrants({ limit: 200 })
 	const agents = existing.data.filter((g) => g.provider === 'nylas')
@@ -77,7 +84,13 @@ export async function runInboxResetPassword(opts: { name?: string; email?: strin
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail password-reset ${Date.now()}`,
 	})
-	const v3 = new NylasV3Client(key.apiKey, project.region, fetch, apiBaseUrl(project.region))
+	const v3 = new NylasV3Client(
+		key.apiKey,
+		project.region,
+		fetch,
+		apiBaseUrl(project.region),
+		OWNMAIL_USER_AGENT,
+	)
 	const grants = await v3.listGrants({ limit: 200 })
 	const agents = grants.data.filter((g) => g.provider === 'nylas')
 	const grant = await pickGrantForPasswordReset(agents, project.grantId, opts.email)

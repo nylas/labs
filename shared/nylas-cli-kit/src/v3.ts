@@ -10,6 +10,8 @@
  * - hosted auth: authorize URL builder + code/token exchange (PKCE)
  */
 
+import { userAgentHeader } from './http.js'
+
 export const V3_URLS = {
 	us: 'https://api.us.nylas.com',
 	eu: 'https://api.eu.nylas.com',
@@ -272,6 +274,7 @@ export async function exchangeCodeForToken(
 		code: string
 		clientSecret: string
 		codeVerifier?: string
+		userAgent?: string
 	},
 	fetchImpl: typeof fetch = fetch,
 ): Promise<TokenResponse> {
@@ -296,7 +299,7 @@ export async function exchangeCodeForToken(
 		tokenUrl,
 		{
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', ...userAgentHeader(input.userAgent) },
 			body: JSON.stringify(body),
 		},
 		'token exchange',
@@ -344,14 +347,17 @@ function base64url(data: ArrayBuffer | Uint8Array): string {
 
 export class NylasV3Client {
 	private readonly baseUrl: string
+	private readonly attributionHeaders: Record<string, string>
 
 	constructor(
 		private readonly apiKey: string,
 		region: V3Region = 'us',
 		private readonly fetchImpl: typeof fetch = fetch,
 		baseUrl?: string,
+		userAgent?: string,
 	) {
 		this.baseUrl = resolveV3BaseUrl(region, baseUrl)
+		this.attributionHeaders = userAgentHeader(userAgent)
 	}
 
 	// -- Provisioning ---------------------------------------------------------
@@ -485,6 +491,7 @@ export class NylasV3Client {
 				headers: {
 					Authorization: `Bearer ${this.apiKey}`,
 					Accept: 'application/json',
+					...this.attributionHeaders,
 					...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
 				},
 				body: body === undefined ? null : JSON.stringify(body),
@@ -522,6 +529,7 @@ export class NylasV3Client {
 				method,
 				headers: {
 					Authorization: `Bearer ${this.apiKey}`,
+					...this.attributionHeaders,
 					...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
 				},
 				body: body === undefined ? null : JSON.stringify(body),

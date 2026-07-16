@@ -64,7 +64,7 @@ describe('nylas()', () => {
 
 		expect(first).toBe(second)
 		expect(clientCtor).toHaveBeenCalledTimes(1)
-		expect(clientCtor).toHaveBeenCalledWith('api-key', 'us', expect.any(Function), 'https://base')
+		expect(clientCtor).toHaveBeenCalledWith('api-key', 'us', expect.any(Function), 'https://base', 'ownmail')
 	})
 })
 

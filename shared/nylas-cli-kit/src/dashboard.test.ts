@@ -27,6 +27,32 @@ async function clientAndFetchWithResponse(payload: unknown): Promise<{
 }
 
 describe('DashboardAccountClient email/password login', () => {
+	it('attributes requests with a fixed User-Agent without changing auth headers', async () => {
+		const dpop = await DpopKey.generate()
+		const fetchImpl = vi.fn(async () =>
+			Response.json({
+				request_id: 'req',
+				success: true,
+				data: { user: { publicId: 'user-public-id' }, organizations: [] },
+			}),
+		)
+		const client = new DashboardAccountClient(
+			dpop,
+			'https://dashboard-account.test',
+			fetchImpl as unknown as typeof fetch,
+			'ownmail',
+		)
+
+		await client.currentSession({ userToken: 'user-token' })
+
+		const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+		expect(init.headers).toMatchObject({
+			'User-Agent': 'ownmail',
+			Authorization: 'Bearer user-token',
+			DPoP: expect.any(String),
+		})
+	})
+
 	it('logs in with email/password and validates the token response', async () => {
 		const { client, fetchImpl } = await clientAndFetchWithResponse({
 			request_id: 'req-password',
