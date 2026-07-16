@@ -1,5 +1,20 @@
 # ownmail
 
+## 0.4.0
+
+### Minor Changes
+
+- 55cf480: Add guided Vercel and Netlify deployments plus a loopback-only local web server to OwnMail.
+
+### Patch Changes
+
+- d7c2bfa: Attribute OwnMail API requests with a fixed, non-identifying User-Agent so usage can be tracked in Coralogix.
+- f5f098d: Keep the OwnMail setup header compact in small terminals while retaining a polished full-size introduction.
+- Updated dependencies [d7c2bfa]
+- Updated dependencies [55cf480]
+  - @ownmail/app@0.4.0
+  - @nylas-labs/cli-kit@0.2.2
+
 ## 0.3.3
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
 	"name": "@ownmail/app",
-	"version": "0.3.3",
+	"version": "0.4.0",
 	"description": "The OwnMail mailbox and calendar app for Cloudflare Workers and Node hosting",
 	"license": "MIT",
 	"repository": {
