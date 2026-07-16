@@ -142,6 +142,11 @@ async function updateNodeProvider(
 		project.providerAppUrl = url
 		project.templateVersion = manifest.templateVersion
 		saveProject(project)
+		if (provider === 'vercel' && !(await checkAppHealth(url))) {
+			throw new Error(
+				`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail update --name ${project.slug}\`.`,
+			)
+		}
 		spinner.stop(`Updated: ${url} (template ${manifest.templateVersion})`)
 	} catch (error) {
 		spinner.stop(`${provider === 'vercel' ? 'Vercel' : 'Netlify'} update needs attention; retry when ready.`)

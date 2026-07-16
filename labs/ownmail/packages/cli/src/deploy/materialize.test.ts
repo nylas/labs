@@ -188,7 +188,10 @@ describe('exportManualBundle', () => {
 		expect(cpSync).toHaveBeenCalledTimes(7)
 		expect(vi.mocked(existsSync)).toHaveBeenCalledTimes(7)
 
-		expect(JSON.parse(written('package.json')).name).toBe('acme')
+		const packageJson = JSON.parse(written('package.json'))
+		expect(packageJson.name).toBe('acme')
+		expect(packageJson.scripts['build:vercel']).toBe('vite build -c vite.config.vercel.ts')
+		expect(packageJson.dependencies.nitro).toBe('3.0.260610-beta')
 		expect(written('.env.example')).toContain('NYLAS_API_BASE_URL=https://api-eu.example.com')
 		expect(written('.env.example')).toContain('NYLAS_CLIENT_ID=app-123')
 		expect(written('secrets.env')).toContain('NYLAS_API_KEY=nyk_live_key')

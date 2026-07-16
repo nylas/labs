@@ -46,7 +46,9 @@ export function runTopLevel(fn: () => Promise<void>): Promise<void> {
 function formatTopLevelError(err: unknown): string {
 	const message = err instanceof Error ? err.message : ''
 	if (
-		/^(?:(?:Cloudflare|Vercel|Netlify) (?:could not|may have|returned)|OwnMail could not) /i.test(message) ||
+		/^(?:(?:Cloudflare|Vercel|Netlify) (?:could not|may have|returned|deployed)|OwnMail could not) /i.test(
+			message,
+		) ||
 		/\bHow to fix:/i.test(message)
 	) {
 		return message

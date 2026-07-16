@@ -171,6 +171,7 @@ describe('runTopLevel', () => {
 
 	it.each([
 		'Vercel could not deploy the mailbox app. Check the Vercel dashboard, then retry.',
+		'Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard.',
 		'Netlify returned an invalid deployment URL; refusing to record it.',
 	])('preserves a curated provider recovery message', async (guidance) => {
 		await runTopLevel(async () => {

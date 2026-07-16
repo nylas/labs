@@ -1,7 +1,5 @@
 /**
- * Minimal Node HTTP ↔ fetch-handler adapter. Used two ways:
- * - as the Vercel function entry (`export default`-wrapped by build-vercel.mjs)
- * - by `node scripts/serve-node.mjs` for local verification
+ * Minimal Node HTTP ↔ fetch-handler adapter used by the local Node server.
  */
 import { Readable } from 'node:stream'
 

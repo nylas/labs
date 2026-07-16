@@ -505,6 +505,11 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 	spinner.start('Checking your app is alive…')
 	const healthy = await checkAppHealth(url)
 	spinner.stop(healthy ? 'Your app is live!' : 'App deployed, but the health check hasn’t passed yet.')
+	if (!healthy && ctx.project.hostingProvider === 'vercel') {
+		throw new Error(
+			`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail update --name ${ctx.project.slug}\`.`,
+		)
+	}
 	if (!healthy) {
 		p.log.warn(`Give it a minute, then visit ${url}. If it stays down, run: npx ownmail doctor`)
 	}

@@ -1109,6 +1109,28 @@ describe('stepVerify', () => {
 		vi.unstubAllGlobals()
 	})
 
+	it('fails a Vercel setup with an actionable runtime-log command when health checks fail', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+		vi.stubGlobal('setTimeout', ((fn: () => void) => {
+			fn()
+			return 0
+		}) as unknown as typeof setTimeout)
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://acme.vercel.app',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+
+		await expect(stepVerify(ctx)).rejects.toThrow(
+			'npx vercel logs --deployment https://acme.vercel.app --level error --expand',
+		)
+		expect(clearPendingSecrets).not.toHaveBeenCalled()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'verify')
+		vi.unstubAllGlobals()
+	})
+
 	it('throws when no app URL is known', async () => {
 		const ctx = makeCtx(makeProject())
 		await expect(stepVerify(ctx)).rejects.toThrow(/App URL is missing/)
