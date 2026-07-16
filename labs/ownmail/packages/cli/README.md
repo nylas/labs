@@ -3,8 +3,8 @@
 **Email that answers to you.**
 
 OwnMail helps independent builders put a mailbox and calendar app on a domain
-they control. It provisions and deploys the app to your Cloudflare account,
-powered by Nylas Agent Accounts.
+they control. It provisions the app and deploys it to Cloudflare, Vercel, or
+Netlify, or starts it locally, powered by Nylas Agent Accounts.
 
 Start with the guided path. Eject to the source when you want the power-user
 path.
@@ -51,7 +51,7 @@ From there, the source and local-development workflow are yours to shape.
 
 - Node.js 20 or later
 - A Nylas account
-- A Cloudflare account
+- A Cloudflare, Vercel, or Netlify account for hosted deployment
 - A domain you control, or a free `nylas.email` subdomain created during setup
 
 ## Documentation
@@ -61,7 +61,8 @@ From there, the source and local-development workflow are yours to shape.
 - [Changelog](https://github.com/nylas/labs/blob/main/labs/ownmail/packages/cli/CHANGELOG.md)
 
 Do not commit generated passwords, API keys, session secrets, or deployment
-credentials. OwnMail stores deployed app secrets in Cloudflare Worker secrets.
+credentials. OwnMail stores hosted app secrets with the selected provider and
+keeps local runtime secrets in the OS credential store.
 
 ## License
 

@@ -30,4 +30,13 @@ describe('setupRealtimeWebhook', () => {
 		expect(result).toEqual({ status: 'skipped', reason: 'manual-hosting' })
 		expect(ensureWebhook).not.toHaveBeenCalled()
 	})
+
+	it.each(['vercel', 'netlify', 'local'] as const)('uses polling for %s hosting', async (hostingProvider) => {
+		const ensureWebhook = vi.fn()
+		await expect(setupRealtimeWebhook(project({ hostingProvider }), { ensureWebhook })).resolves.toEqual({
+			status: 'skipped',
+			reason: 'non-cloudflare-hosting',
+		})
+		expect(ensureWebhook).not.toHaveBeenCalled()
+	})
 })

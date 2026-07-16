@@ -1,3 +1,4 @@
+import { projectAppUrl } from '../deploy/webhook.js'
 import type { ProjectState, StepId } from '../state/schema.js'
 
 type SetupPhase = { label: string; steps: StepId[] }
@@ -26,17 +27,22 @@ export type ProjectStatusSummary = {
 }
 
 export function activeAppUrl(project: ProjectState): string | undefined {
-	if (project.appDomain) return `https://${project.appDomain}`
-	return project.manualAppUrl ?? project.workersDevUrl
+	return projectAppUrl(project)
 }
 
 export function redirectCallbackUrls(project: ProjectState): string[] {
 	const urls = new Set(['http://localhost:3000/auth/callback'])
-	if (project.hostingProvider !== 'manual' && project.workersDevUrl) {
+	if ((project.hostingProvider === 'cloudflare' || !project.hostingProvider) && project.workersDevUrl) {
 		urls.add(`${project.workersDevUrl}/auth/callback`)
 	}
 	if (project.manualAppUrl) {
 		urls.add(`${project.manualAppUrl}/auth/callback`)
+	}
+	if (project.providerAppUrl) {
+		urls.add(`${project.providerAppUrl}/auth/callback`)
+	}
+	if (project.localAppUrl) {
+		urls.add(`${project.localAppUrl}/auth/callback`)
 	}
 	if (project.appDomain) {
 		urls.add(`https://${project.appDomain}/auth/callback`)
@@ -66,6 +72,9 @@ export function projectStatusSummary(project: ProjectState): ProjectStatusSummar
 function hostingLabel(project: ProjectState): string {
 	if (project.ejected) return 'Ejected source'
 	if (project.hostingProvider === 'manual') return 'Manual upload'
+	if (project.hostingProvider === 'vercel') return 'Vercel'
+	if (project.hostingProvider === 'netlify') return 'Netlify'
+	if (project.hostingProvider === 'local') return 'Local web server'
 	if (
 		project.hostingProvider === 'cloudflare' ||
 		project.workerName ||

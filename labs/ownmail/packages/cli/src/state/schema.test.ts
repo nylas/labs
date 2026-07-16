@@ -60,6 +60,39 @@ describe('ProjectStateSchema', () => {
 		expect(parsed.pendingSecrets).toEqual({ apiKey: 'k' })
 	})
 
+	it.each([
+		'cloudflare',
+		'vercel',
+		'netlify',
+		'local',
+		'manual',
+	] as const)('accepts the %s hosting provider', (hostingProvider) => {
+		expect(
+			ProjectStateSchema.parse({ slug: 'my-inbox', createdAt: 1, updatedAt: 1, hostingProvider })
+				.hostingProvider,
+		).toBe(hostingProvider)
+	})
+
+	it('validates provider and local deployment metadata', () => {
+		const parsed = ProjectStateSchema.parse({
+			slug: 'my-inbox',
+			createdAt: 1,
+			updatedAt: 1,
+			providerAppUrl: 'https://acme.vercel.app',
+			vercelProjectId: 'prj_1',
+			vercelOrgId: 'team_1',
+			netlifySiteId: '123e4567-e89b-42d3-a456-426614174000',
+			localAppUrl: 'http://localhost:3000',
+			localPort: 3000,
+			localDeployDir: '/tmp/runtime',
+			pendingSecrets: { sessionSecret: 'session' },
+		})
+		expect(parsed.localPort).toBe(3000)
+		expect(parsed.pendingSecrets.sessionSecret).toBe('session')
+		expect(ProjectStateSchema.safeParse({ ...parsed, localPort: 80 }).success).toBe(false)
+		expect(ProjectStateSchema.safeParse({ ...parsed, netlifySiteId: 'bad' }).success).toBe(false)
+	})
+
 	it('accepts keyring references for pending setup secrets', () => {
 		const parsed = ProjectStateSchema.parse({
 			slug: 'my-inbox',

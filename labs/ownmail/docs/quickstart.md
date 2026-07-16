@@ -4,7 +4,8 @@
 
 - Node.js 20+ (`node -v`)
 - A Nylas account, or a Google, Microsoft, or GitHub account to create one
-- A Cloudflare account (you can create one during browser sign-in)
+- A Cloudflare, Vercel, or Netlify account for hosted deployment; no provider
+  account is needed to run locally
 
 ## Create your inbox + app
 
@@ -23,9 +24,9 @@ The wizard walks you through everything:
    your own domain (you'll add a few DNS records; the wizard waits and verifies).
 3. **Name your inbox** — e.g. `contact@you.nylas.email`, and save the
    generated password (shown exactly once).
-4. **Connect Cloudflare** — recommended browser OAuth via Wrangler; no tokens
-   to paste. A least-privilege API token is available as an advanced option.
-5. Done — your mailbox app is live at `https://<name>-ownmail.<account>.workers.dev`.
+4. **Choose hosting** — Cloudflare Workers, Vercel, Netlify, or a loopback-only
+   local web server. The hosted options guide you through provider sign-in.
+5. Done — the CLI reports the hosted URL or `http://localhost:<port>`.
 
 Log in with your inbox email + password. That's it.
 
@@ -43,7 +44,7 @@ Log in with your inbox email + password. That's it.
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key your app uses, zero downtime |
 | `ownmail app-domain mail.you.com` | Serve the app on your own domain (zone on your Cloudflare) |
-| `ownmail destroy` | Delete the deployed app (mail and inbox are kept) |
+| `ownmail destroy` | Delete a Cloudflare deployment (mail and inbox are kept) |
 
 ## Mail apps (IMAP/SMTP)
 
@@ -53,23 +54,22 @@ Your inbox also works in Apple Mail, Outlook, or Thunderbird:
 - SMTP: `smtp.nylas.email`, port 465 (SSL) or 587 (STARTTLS)
 - Username: your inbox email · Password: your inbox password
 
-## Deploying to Vercel instead
+## Hosting choices
 
-The app package ships a Vercel build target. From an ejected project (or the
-app source):
+The wizard automates all supported targets:
 
-```bash
-pnpm build:vercel          # produces .vercel/output (Build Output API v3)
-vercel deploy --prebuilt   # deploy with the Vercel CLI
-```
+- Cloudflare uses Workers plus KV-backed sessions and supports webhook-driven
+  instant updates.
+- Vercel deploys the bundled Build Output API target.
+- Netlify deploys static client assets plus a Node fetch function.
+- Local mode starts the same production Node build on loopback. Keep that
+  terminal open; press Ctrl+C to stop it. Run `npx ownmail update` after it has
+  stopped to restart on the latest version.
 
-Set the env vars from `template.json` (`NYLAS_API_KEY`, `SESSION_SECRET`,
-`NYLAS_CLIENT_ID`, `NYLAS_REGION`, `APP_NAME`, `INBOX_EMAIL`) in the Vercel
-project. On Vercel the app runs with **stateless signed-cookie sessions** (no
-KV needed); webhook-driven instant updates are a Cloudflare-only feature —
-Vercel deployments refresh on navigation/focus instead. Register
-`https://<your-app>.vercel.app/auth/callback` as a callback URI on your Nylas
-application (`npx ownmail doctor` can do this once the URL exists).
+Vercel, Netlify, and local mode use stateless signed-cookie sessions and refresh
+on navigation/focus. OwnMail stores hosted settings with the provider and keeps
+local runtime secrets in the OS credential store. Callback URIs are registered
+automatically after the deployment URL is known.
 
 ## Local UI development
 

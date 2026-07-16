@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -49,6 +49,70 @@ export type ManualExportInput = {
 	targetDir: string
 	apiKey?: string
 	sessionSecret: string
+}
+
+export type NodeMaterialized = {
+	dir: string
+}
+
+/** Copies the prebuilt Vercel Build Output API directory into an isolated deployment directory. */
+export function materializeVercel(slug: string): NodeMaterialized {
+	const dir = providerTempDir(slug, 'vercel')
+	copyRequired(join(templateRoot(), '.vercel', 'output'), join(dir, '.vercel', 'output'), 'Vercel')
+	return { dir }
+}
+
+/**
+ * Builds a Netlify deployment from the same Node SSR bundle used by Vercel.
+ * The fetch-style function handles dynamic routes while `preferStatic` keeps
+ * immutable client assets on Netlify's CDN.
+ */
+export function materializeNetlify(slug: string): NodeMaterialized {
+	const dir = providerTempDir(slug, 'netlify')
+	const root = templateRoot()
+	copyRequired(join(root, 'dist-vercel', 'client'), join(dir, 'dist', 'client'), 'Netlify')
+	copyRequired(join(root, 'dist-vercel', 'server'), join(dir, 'netlify', 'functions', 'server'), 'Netlify')
+	writeFileSync(
+		join(dir, 'netlify', 'functions', 'ssr.mjs'),
+		`import server from './server/server.js'
+export default (request) => server.fetch(request)
+export const config = { path: '/*', preferStatic: true }
+`,
+	)
+	writeFileSync(
+		join(dir, 'netlify.toml'),
+		'[build]\n  publish = "dist/client"\n  functions = "netlify/functions"\n',
+	)
+	return { dir }
+}
+
+/** Copies the Node SSR bundle and loopback-only server into durable local runtime storage. */
+export function materializeLocal(targetDir: string): NodeMaterialized {
+	const dir = resolve(targetDir)
+	rmSync(dir, { recursive: true, force: true })
+	mkdirSync(dir, { recursive: true, mode: 0o700 })
+	const root = templateRoot()
+	copyRequired(join(root, 'dist-vercel'), join(dir, 'dist-vercel'), 'local')
+	mkdirSync(join(dir, 'scripts'), { recursive: true, mode: 0o700 })
+	for (const script of ['node-adapter.mjs', 'serve-node.mjs']) {
+		copyRequired(join(root, 'scripts', script), join(dir, 'scripts', script), 'local')
+	}
+	return { dir }
+}
+
+function providerTempDir(slug: string, provider: string): string {
+	const parent = join(tmpdir(), 'ownmail', slug)
+	mkdirSync(parent, { recursive: true, mode: 0o700 })
+	return mkdtempSync(join(parent, `${provider}-`))
+}
+
+function copyRequired(from: string, to: string, provider: string): void {
+	if (!existsSync(from)) {
+		throw new Error(
+			`The bundled ${provider} app target is missing. Reinstall or update OwnMail, then retry this command.`,
+		)
+	}
+	cpSync(from, to, { recursive: true })
 }
 
 /**

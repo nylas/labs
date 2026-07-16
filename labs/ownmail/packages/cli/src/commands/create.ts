@@ -146,7 +146,7 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 		markPlanConfirmed(ctx.project)
 		return
 	}
-	const hosting = ctx.project.hostingProvider === 'manual' ? 'Manual upload' : 'Cloudflare Workers'
+	const hosting = hostingLabel(ctx.project.hostingProvider)
 	const emailDomain = ctx.project.domainAddress ?? ctx.project.plannedDomainAddress
 	if (!emailDomain || !ctx.project.hostingProvider) {
 		throw new Error(
@@ -167,6 +167,23 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 	const confirmed = await p.confirm({ message: 'Create these OwnMail resources?', initialValue: true })
 	if (p.isCancel(confirmed) || !confirmed) throw new CancelledError()
 	markPlanConfirmed(ctx.project)
+}
+
+function hostingLabel(provider: ProjectState['hostingProvider']): string {
+	switch (provider) {
+		case 'cloudflare':
+			return 'Cloudflare Workers'
+		case 'vercel':
+			return 'Vercel'
+		case 'netlify':
+			return 'Netlify'
+		case 'local':
+			return 'Local web server'
+		case 'manual':
+			return 'Manual upload'
+		default:
+			return 'Not selected'
+	}
 }
 
 function markPlanConfirmed(project: ProjectState): void {

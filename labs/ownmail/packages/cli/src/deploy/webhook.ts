@@ -7,7 +7,10 @@ const WEBHOOK_TRIGGER_TYPES = ['message.created', 'message.updated', 'thread.rep
 
 export type RealtimeWebhookResult =
 	| { status: 'registered'; callbackUrl: string; secretStored: boolean }
-	| { status: 'skipped'; reason: 'manual-hosting' | 'missing-app-url' | 'unhealthy-app' }
+	| {
+			status: 'skipped'
+			reason: 'manual-hosting' | 'non-cloudflare-hosting' | 'missing-app-url' | 'unhealthy-app'
+	  }
 	| { status: 'failed'; callbackUrl: string }
 
 export type RealtimeWebhookOptions = AppHealthOptions & {
@@ -21,6 +24,9 @@ export async function setupRealtimeWebhook(
 ): Promise<RealtimeWebhookResult> {
 	if (project.hostingProvider === 'manual') {
 		return { status: 'skipped', reason: 'manual-hosting' }
+	}
+	if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
+		return { status: 'skipped', reason: 'non-cloudflare-hosting' }
 	}
 
 	const url = webhookBaseUrl(project)
@@ -47,8 +53,18 @@ export async function setupRealtimeWebhook(
 }
 
 export function projectAppUrl(project: ProjectState): string | undefined {
-	if (project.appDomain) return `https://${project.appDomain}`
-	return project.manualAppUrl ?? project.workersDevUrl
+	switch (project.hostingProvider) {
+		case 'local':
+			return project.localAppUrl
+		case 'vercel':
+		case 'netlify':
+			return project.providerAppUrl
+		case 'manual':
+			return project.manualAppUrl
+		default:
+			if (project.appDomain) return `https://${project.appDomain}`
+			return project.manualAppUrl ?? project.workersDevUrl ?? project.providerAppUrl ?? project.localAppUrl
+	}
 }
 
 export function webhookBaseUrl(project: ProjectState): string | null {

@@ -102,6 +102,21 @@ describe('pending setup secrets', () => {
 		])
 	})
 
+	it('fails closed instead of writing durable local runtime secrets to project state', () => {
+		hoisted.failingSet.add(key('inbox:123:sessionSecret'))
+		const state = project()
+		expect(() =>
+			storePendingSecret(state, 'sessionSecret', 'session-secret', { allowLocalFallback: false }),
+		).toThrow(/credential store required for local hosting/)
+		expect(state.pendingSecrets.sessionSecret).toBeUndefined()
+	})
+
+	it('labels a keyring-backed local session secret', () => {
+		const state = project()
+		storePendingSecret(state, 'sessionSecret', 'session-secret', { allowLocalFallback: false })
+		expect(pendingSecretLabels(state)).toEqual(['Local app session secret (OS keyring)'])
+	})
+
 	it('returns null when a keyring reference cannot be read', () => {
 		const state = project()
 		storePendingSecret(state, 'apiKey', 'nyk_secret')

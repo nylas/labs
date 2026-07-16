@@ -1,7 +1,7 @@
 {
 	"name": "@ownmail/app",
 	"version": "0.3.3",
-	"description": "The OwnMail mailbox and calendar app (TanStack Start on Cloudflare Workers)",
+	"description": "The OwnMail mailbox and calendar app for Cloudflare Workers and Node hosting",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -13,6 +13,8 @@
 		"README.md",
 		"CHANGELOG.md",
 		"dist",
+		"dist-vercel",
+		".vercel/output",
 		"src",
 		"public",
 		"scripts",
@@ -28,7 +30,8 @@
 		"dev:ui": "OWNMAIL_DEV_MOCKS=1 SESSION_SECRET=ownmail-dev-session-secret-change-me NYLAS_API_KEY=dev NYLAS_CLIENT_ID=dev NYLAS_REGION=us APP_NAME=ownmail-dev INBOX_EMAIL=ada@ownmail.com TEMPLATE_VERSION=0.1.2 vite dev -c vite.config.local.ts --host 127.0.0.1",
 		"dev:local": "vite dev -c vite.config.local.ts --host 127.0.0.1",
 		"capture:readme": "node scripts/capture-readme-screenshots.mjs",
-		"build": "vite build",
+		"build": "pnpm build:cloudflare && pnpm build:vercel",
+		"build:cloudflare": "vite build",
 		"build:vercel": "vite build -c vite.config.vercel.ts --outDir dist-vercel && node scripts/build-vercel.mjs",
 		"test": "vitest run --coverage",
 		"coverage": "vitest run --coverage",

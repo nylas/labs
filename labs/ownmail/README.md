@@ -8,7 +8,8 @@
 > while the project develops.
 
 OwnMail gives independent builders a mailbox and calendar app on a domain they
-control. It deploys to your Cloudflare account and is powered by
+control. Deploy it to Cloudflare, Vercel, or Netlify, or run it on your own
+machine. It is powered by
 [Nylas Agent Accounts](https://developer.nylas.com/docs/v3/agent-accounts/).
 
 Start with a friendly setup wizard. Keep the deployment in your own account.
@@ -37,7 +38,7 @@ deployment. You can re-run the CLI at any time; setup steps are resumable.
 | You bring | OwnMail handles |
 |---|---|
 | A domain you control, or a `nylas.email` subdomain | Inbox creation, sign-in configuration, and deployment setup |
-| Your Cloudflare account | A deployed mailbox and calendar app in that account |
+| A Cloudflare, Vercel, or Netlify account — or just your machine | A deployed or local mailbox and calendar app |
 | Your next idea | An ejected app codebase when you want to customize the experience |
 
 ## Power-user move: eject
@@ -57,7 +58,7 @@ workflow. You stay in charge of the code from there.
 
 - Node.js 20+
 - A Nylas account
-- A Cloudflare account
+- A Cloudflare, Vercel, or Netlify account if you want hosted deployment
 - A domain you control, or a free `nylas.email` subdomain created during setup
 
 ## What gets created
@@ -65,7 +66,7 @@ workflow. You stay in charge of the code from there.
 1. A Nylas application and API key for your mailbox app
 2. A mailbox address, such as `contact@your-domain.com`
 3. A generated inbox password, shown once during setup
-4. A Cloudflare Workers deployment for the web app
+4. A Cloudflare Workers, Vercel, Netlify, or loopback-only local web app
 5. The required callback and app configuration for sign-in
 
 ## Keep building
@@ -82,7 +83,7 @@ workflow. You stay in charge of the code from there.
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key used by the app |
 | `ownmail app-domain mail.example.com` | Serve the app on your own domain |
-| `ownmail destroy` | Remove the deployed app without deleting mail data |
+| `ownmail destroy` | Remove a Cloudflare deployment without deleting mail data |
 
 ## What is in the box
 
@@ -98,25 +99,30 @@ workflow. You stay in charge of the code from there.
   New Nylas accounts are created through the browser flow. Cloudflare setup
   recommends browser OAuth, with a least-privilege API token available as an
   advanced option.
-- App secrets, including the Nylas API key and session secret, are stored as
-  Cloudflare Worker secrets.
+- Hosted app secrets are stored through the selected provider's secret manager.
+  Local runtime secrets stay in the OS credential store and are passed only to
+  the loopback server process.
 - The deployed app resolves the active inbox from the server-side session,
   not from client-provided identifiers.
 - Email HTML is rendered in sandboxed frames.
 - Do not commit generated secrets, inbox passwords, `.env` files, or exported
   deployment credentials.
 
-## Deploying to Vercel
+## Choose where it runs
 
-The app package also includes a Vercel build target. From an ejected project:
+`npx ownmail` offers four guided targets:
 
-```bash
-pnpm build:vercel
-vercel deploy --prebuilt
-```
+- **Cloudflare Workers** — Wrangler deploy with KV-backed sessions and realtime
+  webhook refresh.
+- **Vercel** — prebuilt Node function deploy with settings sent to Vercel over
+  stdin.
+- **Netlify** — Node function deploy with static assets served from its CDN.
+- **Run locally** — production Node build bound only to `localhost`; keep the
+  terminal open and press Ctrl+C to stop it.
 
-Set the environment variables from `template.json` in your Vercel project. Add
-your deployed Vercel callback URL to your Nylas application before using sign-in.
+Vercel, Netlify, and local targets use stateless signed-cookie sessions and
+poll for new mail. The CLI registers each resulting callback URL automatically.
+Provider CLIs may open a browser the first time you sign in.
 
 ## Local development
 
@@ -156,8 +162,8 @@ resources the app uses in production:
   and attachment downloads.
 - Calendar: calendars, events, create/update/delete event, and RSVP.
 - Contacts: contact lookup for compose autocomplete.
-- Realtime refresh: Nylas webhooks in Cloudflare deployments; local UI mocks and
-  Vercel deployments fall back to navigation/focus refresh.
+- Realtime refresh: Nylas webhooks in Cloudflare deployments; local UI mocks,
+  Vercel, Netlify, and local deployments fall back to navigation/focus refresh.
 
 Those capabilities map to the public
 [Nylas API reference](https://developer.nylas.com/docs/reference/api/). Features

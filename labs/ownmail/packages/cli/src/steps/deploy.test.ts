@@ -1,7 +1,23 @@
 import * as p from '@clack/prompts'
 import open from 'open'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { exportManualBundle, loadManifest, materialize } from '../deploy/materialize.js'
+import { findLocalPort, startLocalServer } from '../deploy/local-server.js'
+import {
+	exportManualBundle,
+	loadManifest,
+	materialize,
+	materializeLocal,
+	materializeNetlify,
+	materializeVercel,
+} from '../deploy/materialize.js'
+import {
+	deployNetlify,
+	deployVercel,
+	ensureNetlifySite,
+	ensureVercelProject,
+	setNetlifyEnvironment,
+	setVercelEnvironment,
+} from '../deploy/provider-cli.js'
 import {
 	cloudflareApiTokenConfigured,
 	deploy,
@@ -48,6 +64,21 @@ vi.mock('@clack/prompts', () => ({
 }))
 
 vi.mock('open', () => ({ default: vi.fn() }))
+vi.mock('node:fs', () => ({ rmSync: vi.fn() }))
+
+vi.mock('../deploy/local-server.js', () => ({
+	findLocalPort: vi.fn(),
+	startLocalServer: vi.fn(),
+}))
+
+vi.mock('../deploy/provider-cli.js', () => ({
+	deployNetlify: vi.fn(),
+	deployVercel: vi.fn(),
+	ensureNetlifySite: vi.fn(),
+	ensureVercelProject: vi.fn(),
+	setNetlifyEnvironment: vi.fn(),
+	setVercelEnvironment: vi.fn(),
+}))
 
 vi.mock('../deploy/wrangler.js', () => ({
 	runWrangler: vi.fn(),
@@ -62,6 +93,9 @@ vi.mock('../deploy/wrangler.js', () => ({
 vi.mock('../deploy/materialize.js', () => ({
 	loadManifest: vi.fn(() => ({ templateVersion: '1.0.0' })),
 	materialize: vi.fn(() => ({ dir: '/tmp/deploy', configPath: '/tmp/deploy/wrangler.json' })),
+	materializeVercel: vi.fn(() => ({ dir: '/tmp/vercel' })),
+	materializeNetlify: vi.fn(() => ({ dir: '/tmp/netlify' })),
+	materializeLocal: vi.fn(() => ({ dir: '/config/runtimes/my-inbox' })),
 	exportManualBundle: vi.fn(() => '/tmp/export'),
 }))
 
@@ -76,6 +110,7 @@ vi.mock('../nylas-env.js', () => ({
 vi.mock('../state/store.js', () => ({
 	markStep: vi.fn(),
 	saveProject: vi.fn(),
+	configDir: vi.fn(() => '/config'),
 	loadAuth: vi.fn(() => null),
 	saveAuth: vi.fn(),
 }))
@@ -84,10 +119,19 @@ vi.mock('../state/pending-secrets.js', () => ({
 	clearPendingSecrets: vi.fn((project: ProjectState) => {
 		project.pendingSecrets = {}
 	}),
+	clearPendingSecret: vi.fn((project: ProjectState, name: keyof ProjectState['pendingSecrets']) => {
+		delete project.pendingSecrets[name]
+	}),
 	readPendingSecret: vi.fn((project: ProjectState, name: keyof ProjectState['pendingSecrets']) => {
 		const secret = project.pendingSecrets[name]
 		return typeof secret === 'string' ? secret : null
 	}),
+	storePendingSecret: vi.fn(
+		(project: ProjectState, name: keyof ProjectState['pendingSecrets'], value: string) => {
+			project.pendingSecrets[name] = value
+			return { storage: 'keyring' }
+		},
+	),
 }))
 
 vi.mock('@nylas-labs/cli-kit', () => ({
@@ -97,7 +141,7 @@ vi.mock('@nylas-labs/cli-kit', () => ({
 	NylasV3Client: class {},
 }))
 
-import { clearPendingSecrets } from '../state/pending-secrets.js'
+import { clearPendingSecret, clearPendingSecrets, storePendingSecret } from '../state/pending-secrets.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 	return {
@@ -140,6 +184,15 @@ beforeEach(() => {
 		dir: '/tmp/deploy',
 		configPath: '/tmp/deploy/wrangler.json',
 	})
+	vi.mocked(materializeVercel).mockReturnValue({ dir: '/tmp/vercel' })
+	vi.mocked(materializeNetlify).mockReturnValue({ dir: '/tmp/netlify' })
+	vi.mocked(materializeLocal).mockReturnValue({ dir: '/config/runtimes/my-inbox' })
+	vi.mocked(ensureVercelProject).mockResolvedValue({ projectId: 'prj_1', orgId: 'team_1' })
+	vi.mocked(ensureNetlifySite).mockResolvedValue({ siteId: '123e4567-e89b-42d3-a456-426614174000' })
+	vi.mocked(deployVercel).mockResolvedValue('https://my-inbox.vercel.app')
+	vi.mocked(deployNetlify).mockResolvedValue('https://my-inbox.netlify.app')
+	vi.mocked(findLocalPort).mockResolvedValue(3000)
+	vi.mocked(startLocalServer).mockResolvedValue('http://localhost:3000')
 	vi.mocked(exportManualBundle).mockReturnValue('/tmp/export')
 	vi.mocked(resourceNameSuffix).mockReturnValue('')
 	vi.mocked(deployedApiBaseUrl).mockReturnValue(undefined)
@@ -364,6 +417,7 @@ describe('stepDeploy (cloudflare)', () => {
 		vi.mocked(deploy).mockResolvedValueOnce('https://my-inbox.workers.dev')
 		const ctx = makeCtx(
 			makeProject({
+				hostingProvider: 'cloudflare',
 				applicationId: 'client-id',
 				workerName: 'worker',
 				kvNamespaceId: 'kv',
@@ -469,6 +523,142 @@ describe('stepDeploy (cloudflare)', () => {
 			'Cloudflare could not finish secret setup; your project can be resumed.',
 		)
 		expect(ctx.project.workersDevUrl).toBe('https://plain.workers.dev')
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+})
+
+describe('stepDeploy (additional providers)', () => {
+	const base = {
+		applicationId: 'client-id',
+		inboxEmail: 'hello@example.com',
+		pendingSecrets: { apiKey: 'nyk_secret' },
+	}
+
+	it('links, configures, and deploys a Vercel project', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+		await stepDeploy(ctx)
+
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', undefined)
+		expect(setVercelEnvironment).toHaveBeenCalledWith(
+			'/tmp/vercel',
+			expect.objectContaining({
+				NYLAS_API_KEY: 'nyk_secret',
+				NYLAS_CLIENT_ID: 'client-id',
+				INBOX_EMAIL: 'hello@example.com',
+			}),
+			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
+		)
+		expect(ctx.project.vercelProjectId).toBe('prj_1')
+		expect(ctx.project.vercelOrgId).toBe('team_1')
+		expect(ctx.project.providerAppUrl).toBe('https://my-inbox.vercel.app')
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('reuses recorded Vercel identifiers', async () => {
+		const ctx = makeCtx(
+			makeProject({
+				...base,
+				hostingProvider: 'vercel',
+				vercelProjectId: 'prj_existing',
+				vercelOrgId: 'team_existing',
+			}),
+		)
+		await stepDeploy(ctx)
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', {
+			projectId: 'prj_existing',
+			orgId: 'team_existing',
+		})
+	})
+
+	it('does not reuse a partial Vercel identifier pair', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel', vercelProjectId: 'prj_partial' }))
+		await stepDeploy(ctx)
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', undefined)
+	})
+
+	it('creates, configures, and deploys a Netlify project', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'netlify' }))
+		await stepDeploy(ctx)
+
+		expect(setNetlifyEnvironment).toHaveBeenCalledWith(
+			'/tmp/netlify',
+			'123e4567-e89b-42d3-a456-426614174000',
+			expect.objectContaining({ NYLAS_API_KEY: 'nyk_secret' }),
+			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
+		)
+		expect(ctx.project.netlifySiteId).toBe('123e4567-e89b-42d3-a456-426614174000')
+		expect(ctx.project.providerAppUrl).toBe('https://my-inbox.netlify.app')
+	})
+
+	it('starts a loopback local server with keyring-backed runtime secrets', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'local' }))
+		await stepDeploy(ctx)
+
+		expect(materializeLocal).toHaveBeenCalledWith('/config/runtimes/my-inbox')
+		expect(startLocalServer).toHaveBeenCalledWith(
+			expect.objectContaining({
+				dir: '/config/runtimes/my-inbox',
+				port: 3000,
+				environment: expect.objectContaining({ NYLAS_API_KEY: 'nyk_secret' }),
+			}),
+		)
+		expect(ctx.project.localAppUrl).toBe('http://localhost:3000')
+		expect(ctx.project.localPort).toBe(3000)
+	})
+
+	it('reuses an existing local session secret and includes a runtime API override', async () => {
+		vi.mocked(deployedApiBaseUrl).mockReturnValue('https://api-staging.us.nylas.com')
+		const ctx = makeCtx(
+			makeProject({
+				...base,
+				hostingProvider: 'local',
+				pendingSecrets: { apiKey: 'nyk_secret', sessionSecret: 'existing-session' },
+			}),
+		)
+		await stepDeploy(ctx)
+		expect(startLocalServer).toHaveBeenCalledWith(
+			expect.objectContaining({
+				environment: expect.objectContaining({
+					SESSION_SECRET: 'existing-session',
+					NYLAS_API_BASE_URL: 'https://api-staging.us.nylas.com',
+				}),
+			}),
+		)
+		expect(
+			vi.mocked(storePendingSecret).mock.calls.filter(([, name]) => name === 'sessionSecret'),
+		).toHaveLength(0)
+	})
+
+	it('reuses a healthy local server on the current template', async () => {
+		const fetchMock = stubHealthyApp()
+		const ctx = makeCtx(
+			makeProject({
+				...base,
+				hostingProvider: 'local',
+				localAppUrl: 'http://localhost:3000',
+				templateVersion: '1.0.0',
+			}),
+		)
+		await stepDeploy(ctx)
+		expect(fetchMock).toHaveBeenCalled()
+		expect(startLocalServer).not.toHaveBeenCalled()
+	})
+
+	it('rejects an unknown recorded provider', async () => {
+		const ctx = makeCtx(
+			makeProject({ ...base, hostingProvider: 'unknown' as ProjectState['hostingProvider'] }),
+		)
+		await expect(stepDeploy(ctx)).rejects.toThrow(/supported hosting provider/)
+	})
+
+	it.each([
+		['vercel', () => vi.mocked(deployVercel).mockRejectedValueOnce(new Error('vercel failed'))],
+		['netlify', () => vi.mocked(deployNetlify).mockRejectedValueOnce(new Error('netlify failed'))],
+		['local', () => vi.mocked(startLocalServer).mockRejectedValueOnce(new Error('local failed'))],
+	] as const)('keeps a failed %s deployment resumable', async (hostingProvider, fail) => {
+		fail()
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider }))
+		await expect(stepDeploy(ctx)).rejects.toThrow(/failed/)
 		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
 	})
 })
@@ -588,6 +778,16 @@ describe('stepWebhook', () => {
 		await stepWebhook(ctx)
 		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('polling'))
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
+	it.each([
+		['vercel', 'Vercel hosting'],
+		['netlify', 'Netlify hosting'],
+		['local', 'Local hosting'],
+	] as const)('uses polling for %s hosting', async (hostingProvider, label) => {
+		const ctx = makeCtx(makeProject({ hostingProvider }))
+		await stepWebhook(ctx)
+		expect(p.log.info).toHaveBeenCalledWith(`${label} uses polling for new mail.`)
 	})
 
 	it('registers the webhook and stores its secret', async () => {
@@ -881,5 +1081,26 @@ describe('stepVerify', () => {
 		await stepVerify(ctx)
 		expect(fetchMock).toHaveBeenCalledWith('https://manual.example.com/healthz', expect.any(Object))
 		vi.unstubAllGlobals()
+	})
+
+	it('keeps local runtime credentials while clearing one-time secrets', async () => {
+		stubHealthyApp()
+		vi.mocked(p.confirm).mockResolvedValueOnce(false)
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'local',
+				localAppUrl: 'http://localhost:3000',
+				pendingSecrets: {
+					apiKey: 'api',
+					sessionSecret: 'session',
+					appPassword: 'password',
+					clientSecret: 'legacy',
+				},
+			}),
+		)
+		await stepVerify(ctx)
+		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'clientSecret')
+		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'appPassword')
+		expect(clearPendingSecrets).not.toHaveBeenCalled()
 	})
 })

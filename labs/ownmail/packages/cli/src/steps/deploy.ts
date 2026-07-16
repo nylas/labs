@@ -1,9 +1,26 @@
 import { randomBytes } from 'node:crypto'
-import { resolve } from 'node:path'
+import { rmSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import open from 'open'
 import { checkAppHealth } from '../deploy/app-health.js'
-import { exportManualBundle, loadManifest, materialize } from '../deploy/materialize.js'
+import { findLocalPort, startLocalServer } from '../deploy/local-server.js'
+import {
+	exportManualBundle,
+	loadManifest,
+	materialize,
+	materializeLocal,
+	materializeNetlify,
+	materializeVercel,
+} from '../deploy/materialize.js'
+import {
+	deployNetlify,
+	deployVercel,
+	ensureNetlifySite,
+	ensureVercelProject,
+	setNetlifyEnvironment,
+	setVercelEnvironment,
+} from '../deploy/provider-cli.js'
 import { projectAppUrl, setupRealtimeWebhook } from '../deploy/webhook.js'
 import {
 	cloudflareApiTokenConfigured,
@@ -14,8 +31,13 @@ import {
 	wranglerLogin,
 } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl, resourceNameSuffix } from '../nylas-env.js'
-import { clearPendingSecrets, readPendingSecret } from '../state/pending-secrets.js'
-import { markStep, saveProject } from '../state/store.js'
+import {
+	clearPendingSecret,
+	clearPendingSecrets,
+	readPendingSecret,
+	storePendingSecret,
+} from '../state/pending-secrets.js'
+import { configDir, markStep, saveProject } from '../state/store.js'
 import { requireV3, type StepContext } from './context.js'
 import { CancelledError } from './provision.js'
 
@@ -34,6 +56,21 @@ export async function stepHostingProvider(ctx: StepContext): Promise<void> {
 				hint: 'automated deploy',
 			},
 			{
+				value: 'vercel' as const,
+				label: 'Vercel',
+				hint: 'automated Node deploy',
+			},
+			{
+				value: 'netlify' as const,
+				label: 'Netlify',
+				hint: 'automated functions deploy',
+			},
+			{
+				value: 'local' as const,
+				label: 'Run locally',
+				hint: 'loopback web server',
+			},
+			{
 				value: 'manual' as const,
 				label: 'Manual upload',
 				hint: 'export files for another provider',
@@ -48,7 +85,7 @@ export async function stepHostingProvider(ctx: StepContext): Promise<void> {
 
 /** 07 — Cloudflare auth for wrangler deploys. */
 export async function stepCfAuth(_ctx: StepContext): Promise<void> {
-	if (_ctx.project.hostingProvider === 'manual') {
+	if (_ctx.project.hostingProvider && _ctx.project.hostingProvider !== 'cloudflare') {
 		markStep(_ctx.project, 'cf-auth')
 		return
 	}
@@ -125,7 +162,7 @@ export async function ensureCloudflareAuth(): Promise<void> {
 
 /** 08 — KV namespace + worker name. */
 export async function stepCfResources(ctx: StepContext): Promise<void> {
-	if (ctx.project.hostingProvider === 'manual') {
+	if (ctx.project.hostingProvider && ctx.project.hostingProvider !== 'cloudflare') {
 		markStep(ctx.project, 'cf-resources')
 		return
 	}
@@ -153,9 +190,24 @@ export async function stepCfResources(ctx: StepContext): Promise<void> {
 
 /** 10 — Materialize the template, deploy, then set secrets. */
 export async function stepDeploy(ctx: StepContext): Promise<void> {
-	if (ctx.project.hostingProvider === 'manual') {
-		await stepManualDeploy(ctx)
-		return
+	switch (ctx.project.hostingProvider) {
+		case 'manual':
+			await stepManualDeploy(ctx)
+			return
+		case 'vercel':
+			await stepVercelDeploy(ctx)
+			return
+		case 'netlify':
+			await stepNetlifyDeploy(ctx)
+			return
+		case 'local':
+			await stepLocalDeploy(ctx)
+			return
+		case 'cloudflare':
+		case undefined:
+			break
+		default:
+			throw new Error('Choose a supported hosting provider before deploying.')
 	}
 
 	const manifest = loadManifest()
@@ -203,6 +255,119 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	} catch (err) {
 		spinner.stop('Cloudflare could not finish secret setup; your project can be resumed.')
 		throw err
+	}
+	markStep(ctx.project, 'deploy')
+}
+
+async function stepVercelDeploy(ctx: StepContext): Promise<void> {
+	const manifest = loadManifest()
+	const apiKey = requirePendingApiKey(ctx)
+	const sessionSecret = randomBytes(32).toString('base64url')
+	const { dir } = materializeVercel(ctx.project.slug)
+	const spinner = p.spinner()
+	spinner.start('Deploying your mailbox app to Vercel…')
+	try {
+		const linked = await ensureVercelProject(
+			dir,
+			`${ctx.project.slug}-ownmail`,
+			ctx.project.vercelProjectId && ctx.project.vercelOrgId
+				? { projectId: ctx.project.vercelProjectId, orgId: ctx.project.vercelOrgId }
+				: undefined,
+		)
+		ctx.project.vercelProjectId = linked.projectId
+		ctx.project.vercelOrgId = linked.orgId
+		saveProject(ctx.project)
+		await setVercelEnvironment(
+			dir,
+			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
+			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
+		)
+		const url = await deployVercel(dir)
+		ctx.project.providerAppUrl = url
+		ctx.project.templateVersion = manifest.templateVersion
+		saveProject(ctx.project)
+		spinner.stop(`Deployed: ${url}`)
+	} catch (error) {
+		spinner.stop('Vercel deployment needs attention; your project can be resumed.')
+		throw error
+	} finally {
+		rmSync(dir, { recursive: true, force: true })
+	}
+	markStep(ctx.project, 'deploy')
+}
+
+async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
+	const manifest = loadManifest()
+	const apiKey = requirePendingApiKey(ctx)
+	const sessionSecret = randomBytes(32).toString('base64url')
+	const { dir } = materializeNetlify(ctx.project.slug)
+	const spinner = p.spinner()
+	spinner.start('Deploying your mailbox app to Netlify…')
+	try {
+		const site = await ensureNetlifySite(dir, `${ctx.project.slug}-ownmail`, ctx.project.netlifySiteId)
+		ctx.project.netlifySiteId = site.siteId
+		saveProject(ctx.project)
+		await setNetlifyEnvironment(
+			dir,
+			site.siteId,
+			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
+			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
+		)
+		const url = await deployNetlify(dir, site.siteId)
+		ctx.project.providerAppUrl = url
+		ctx.project.templateVersion = manifest.templateVersion
+		saveProject(ctx.project)
+		spinner.stop(`Deployed: ${url}`)
+	} catch (error) {
+		spinner.stop('Netlify deployment needs attention; your project can be resumed.')
+		throw error
+	} finally {
+		rmSync(dir, { recursive: true, force: true })
+	}
+	markStep(ctx.project, 'deploy')
+}
+
+async function stepLocalDeploy(ctx: StepContext): Promise<void> {
+	const manifest = loadManifest()
+	if (
+		ctx.project.localAppUrl &&
+		ctx.project.templateVersion === manifest.templateVersion &&
+		(await checkAppHealth(ctx.project.localAppUrl, { attempts: 1, delayMs: 0, timeoutMs: 1000 }))
+	) {
+		p.log.info(`Local web server is already running at ${ctx.project.localAppUrl}.`)
+		markStep(ctx.project, 'deploy')
+		return
+	}
+
+	const apiKey = requirePendingApiKey(ctx)
+	storePendingSecret(ctx.project, 'apiKey', apiKey, { allowLocalFallback: false })
+	let sessionSecret = readPendingSecret(ctx.project, 'sessionSecret')
+	if (!sessionSecret) {
+		sessionSecret = randomBytes(32).toString('base64url')
+		storePendingSecret(ctx.project, 'sessionSecret', sessionSecret, { allowLocalFallback: false })
+	}
+	saveProject(ctx.project)
+
+	const port = await findLocalPort(ctx.project.localPort ?? 3000)
+	const targetDir = join(configDir(), 'runtimes', ctx.project.slug)
+	const { dir } = materializeLocal(targetDir)
+	const spinner = p.spinner()
+	spinner.start('Starting the local mailbox web server…')
+	try {
+		const url = await startLocalServer({
+			dir,
+			port,
+			environment: runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
+		})
+		ctx.project.localAppUrl = url
+		ctx.project.localPort = port
+		ctx.project.localDeployDir = dir
+		ctx.project.templateVersion = manifest.templateVersion
+		saveProject(ctx.project)
+		spinner.stop(`Running locally: ${url}`)
+	} catch (error) {
+		spinner.stop('The local web server could not start; your project can be resumed.')
+		throw error
 	}
 	markStep(ctx.project, 'deploy')
 }
@@ -270,8 +435,8 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 
 /** 10b — Register the realtime webhook and store its secret on the worker. */
 export async function stepWebhook(ctx: StepContext): Promise<void> {
-	if (ctx.project.hostingProvider === 'manual') {
-		p.log.info('Skipping automatic webhook setup for manual hosting; the app will use polling.')
+	if (ctx.project.hostingProvider && ctx.project.hostingProvider !== 'cloudflare') {
+		p.log.info(`${hostingLabel(ctx.project.hostingProvider)} uses polling for new mail.`)
 		markStep(ctx.project, 'webhook')
 		return
 	}
@@ -324,7 +489,12 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 	}
 
 	// One-time setup secrets are no longer needed once everything downstream ran.
-	clearPendingSecrets(ctx.project)
+	if (ctx.project.hostingProvider === 'local') {
+		clearPendingSecret(ctx.project, 'clientSecret')
+		clearPendingSecret(ctx.project, 'appPassword')
+	} else {
+		clearPendingSecrets(ctx.project)
+	}
 	saveProject(ctx.project)
 
 	markStep(ctx.project, 'verify')
@@ -357,6 +527,38 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 
 function appUrl(ctx: StepContext): string | undefined {
 	return projectAppUrl(ctx.project)
+}
+
+function runtimeEnvironment(
+	ctx: StepContext,
+	templateVersion: string,
+	apiKey: string,
+	sessionSecret: string,
+): Record<string, string> {
+	const apiBaseUrl = deployedApiBaseUrl(ctx.project.region)
+	return {
+		NYLAS_API_KEY: apiKey,
+		SESSION_SECRET: sessionSecret,
+		NYLAS_CLIENT_ID: requireNylasClientId(ctx.project.applicationId),
+		NYLAS_REGION: ctx.project.region,
+		...(apiBaseUrl ? { NYLAS_API_BASE_URL: apiBaseUrl } : {}),
+		APP_NAME: ctx.project.slug,
+		INBOX_EMAIL: requireProjectValue(ctx.project.inboxEmail, 'Inbox email'),
+		TEMPLATE_VERSION: templateVersion,
+	}
+}
+
+function hostingLabel(provider: StepContext['project']['hostingProvider']): string {
+	switch (provider) {
+		case 'vercel':
+			return 'Vercel hosting'
+		case 'netlify':
+			return 'Netlify hosting'
+		case 'local':
+			return 'Local hosting'
+		default:
+			return 'Manual hosting'
+	}
 }
 
 function validateHttpsUrl(value: string | undefined): string | undefined {

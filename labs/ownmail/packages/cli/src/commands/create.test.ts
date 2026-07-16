@@ -394,6 +394,15 @@ describe('runCreate — step machine', () => {
 		expect(stepApp).not.toHaveBeenCalled()
 	})
 
+	it('fails closed when the hosting step does not record a supported provider', async () => {
+		const { stepHostingProvider } = await import('../steps/deploy.js')
+		vi.mocked(stepHostingProvider).mockImplementationOnce(async () => undefined)
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({ slug: 'acme', domainAddress: 'existing.example.com' }),
+		)
+		await expect(runCreate({ name: 'acme' })).rejects.toThrow(/Setup plan is incomplete/)
+	})
+
 	it('describes manual hosting in the creation summary', async () => {
 		vi.mocked(loadProject).mockReturnValue(
 			makeProject({
@@ -409,6 +418,20 @@ describe('runCreate — step machine', () => {
 			expect.stringContaining('Hosting:      Manual upload'),
 			'Ready to create',
 		)
+	})
+
+	it.each([
+		['vercel', 'Vercel'],
+		['netlify', 'Netlify'],
+		['local', 'Local web server'],
+	] as const)('describes %s hosting in the creation summary', async (hostingProvider, label) => {
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({ slug: 'acme', hostingProvider, domainAddress: 'existing.example.com' }),
+		)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.note).toHaveBeenCalledWith(expect.stringContaining(`Hosting:      ${label}`), 'Ready to create')
 	})
 
 	it('does not re-confirm legacy projects that already have durable resources', async () => {

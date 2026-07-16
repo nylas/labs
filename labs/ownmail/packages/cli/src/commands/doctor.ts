@@ -276,6 +276,8 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		if (opts.fix) {
 			if (project.hostingProvider === 'manual') {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'manual-hosting' }))
+			} else if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
+				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'non-cloudflare-hosting' }))
 			} else if (!cloudflareOk) {
 				results.push({
 					name: 'Instant updates',
@@ -343,7 +345,7 @@ async function repairApiKey(
 		}
 	}
 	/* v8 ignore stop */
-	if (project.hostingProvider === 'manual') {
+	if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
 		return {
 			name: 'Nylas API key',
 			status: 'fail',
@@ -461,6 +463,13 @@ function formatWebhookRepairResult(result: Awaited<ReturnType<typeof setupRealti
 			name: 'Instant updates',
 			status: 'skip',
 			detail: 'manual hosting uses polling unless you configure webhooks yourself',
+		}
+	}
+	if (result.status === 'skipped' && result.reason === 'non-cloudflare-hosting') {
+		return {
+			name: 'Instant updates',
+			status: 'skip',
+			detail: 'this hosting mode uses polling; automatic webhook secret rotation is Cloudflare-only',
 		}
 	}
 	return {
