@@ -215,10 +215,9 @@ async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }) {
 		return newProject(opts.name, newProjectRegion)
 	}
 	const existing = listProjects().filter((proj) => !proj.ejected)
-	if (existing.length === 1 && existing[0]) return normalizeProjectRegion(existing[0], requestedRegion)
-	if (existing.length > 1) {
+	if (existing.length > 0) {
 		const picked = await p.select({
-			message: 'Which project?',
+			message: 'Project name',
 			options: [
 				...existing.map((proj) => ({
 					value: proj.slug,

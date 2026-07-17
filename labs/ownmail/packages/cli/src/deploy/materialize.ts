@@ -178,8 +178,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 				scripts: {
 					dev: 'vite dev',
 					build: 'vite build',
-					'build:vercel':
-						'vite build -c vite.config.vercel.ts --outDir dist-vercel && node scripts/build-vercel.mjs',
+					'build:vercel': 'vite build -c vite.config.vercel.ts',
 					typecheck: 'tsc --noEmit',
 				},
 				dependencies: {
@@ -187,6 +186,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 					'@tanstack/react-router': '^1.130.0',
 					'@tanstack/react-start': '^1.138.0',
 					'lucide-react': '^1.23.0',
+					nitro: '3.0.260610-beta',
 					react: '^19.1.0',
 					'react-dom': '^19.1.0',
 				},
@@ -254,7 +254,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 			'```',
 			'',
 			'Upload `.vercel/output` to any host that supports the Vercel Build Output API.',
-			'For other Node SSR hosts, adapt `scripts/node-adapter.mjs` and the server bundle in `dist-vercel/server`.',
+			'The Vercel build uses the official Nitro adapter for TanStack Start.',
 			'',
 			'After the app has a public HTTPS URL, rerun `ownmail` and choose manual hosting again so the CLI can register the hosted-auth callback URL.',
 			'',

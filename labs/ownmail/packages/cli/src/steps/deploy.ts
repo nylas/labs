@@ -18,6 +18,8 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	listVercelScopes,
+	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
@@ -263,17 +265,16 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 	const manifest = loadManifest()
 	const apiKey = requirePendingApiKey(ctx)
 	const sessionSecret = randomBytes(32).toString('base64url')
+	const existingProject =
+		ctx.project.vercelProjectId && ctx.project.vercelOrgId
+			? { projectId: ctx.project.vercelProjectId, orgId: ctx.project.vercelOrgId }
+			: undefined
+	const scope = existingProject?.orgId ?? (await selectVercelScope(ctx))
 	const { dir } = materializeVercel(ctx.project.slug)
 	const spinner = p.spinner()
 	spinner.start('Deploying your mailbox app to Vercel…')
 	try {
-		const linked = await ensureVercelProject(
-			dir,
-			`${ctx.project.slug}-ownmail`,
-			ctx.project.vercelProjectId && ctx.project.vercelOrgId
-				? { projectId: ctx.project.vercelProjectId, orgId: ctx.project.vercelOrgId }
-				: undefined,
-		)
+		const linked = await ensureVercelProject(dir, `${ctx.project.slug}-ownmail`, scope, existingProject)
 		ctx.project.vercelProjectId = linked.projectId
 		ctx.project.vercelOrgId = linked.orgId
 		saveProject(ctx.project)
@@ -282,7 +283,7 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
 			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
 		)
-		const url = await deployVercel(dir)
+		const url = await deployVercel(dir, linked.orgId)
 		ctx.project.providerAppUrl = url
 		ctx.project.templateVersion = manifest.templateVersion
 		saveProject(ctx.project)
@@ -294,6 +295,27 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 		rmSync(dir, { recursive: true, force: true })
 	}
 	markStep(ctx.project, 'deploy')
+}
+
+async function selectVercelScope(ctx: StepContext): Promise<string> {
+	const scopes = await listVercelScopes()
+	const selected = await p.select({
+		message: 'Which Vercel account should own this deployment?',
+		options: scopes.map((scope) => ({
+			value: scope.id,
+			label: scope.name === scope.slug ? scope.slug : `${scope.name} (${scope.slug})`,
+			...(scope.current ? { hint: 'current account' } : {}),
+		})),
+		...(ctx.project.vercelOrgId && scopes.some((scope) => scope.id === ctx.project.vercelOrgId)
+			? { initialValue: ctx.project.vercelOrgId }
+			: {}),
+	})
+	if (p.isCancel(selected)) throw new CancelledError()
+	const scope = scopes.find((candidate) => candidate.id === selected)
+	if (!scope) throw new Error('Choose one of the Vercel accounts returned for your signed-in user.')
+	ctx.project.vercelOrgId = scope.id
+	saveProject(ctx.project)
+	return scope.id
 }
 
 async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
@@ -463,6 +485,13 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 /** 09 — Register redirect URIs for hosted auth. */
 export async function stepRedirectUris(ctx: StepContext): Promise<void> {
 	const v3 = requireV3(ctx)
+	if (ctx.project.hostingProvider === 'vercel' && ctx.project.providerAppUrl && ctx.project.vercelOrgId) {
+		ctx.project.providerAppUrl = await resolveVercelProductionUrl(
+			ctx.project.providerAppUrl,
+			ctx.project.vercelOrgId,
+		)
+		saveProject(ctx.project)
+	}
 	// Worker URL shape is deterministic before first deploy only if we know the
 	// account subdomain — so this step runs once after deploy too (doctor re-runs it).
 	const urls = new Set(['http://localhost:3000/auth/callback'])
@@ -484,6 +513,11 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 	spinner.start('Checking your app is alive…')
 	const healthy = await checkAppHealth(url)
 	spinner.stop(healthy ? 'Your app is live!' : 'App deployed, but the health check hasn’t passed yet.')
+	if (!healthy && ctx.project.hostingProvider === 'vercel') {
+		throw new Error(
+			`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail update --name ${ctx.project.slug}\`.`,
+		)
+	}
 	if (!healthy) {
 		p.log.warn(`Give it a minute, then visit ${url}. If it stays down, run: npx ownmail doctor`)
 	}

@@ -15,6 +15,8 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	listVercelScopes,
+	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
@@ -76,6 +78,8 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	deployVercel: vi.fn(),
 	ensureNetlifySite: vi.fn(),
 	ensureVercelProject: vi.fn(),
+	listVercelScopes: vi.fn(),
+	resolveVercelProductionUrl: vi.fn(),
 	setNetlifyEnvironment: vi.fn(),
 	setVercelEnvironment: vi.fn(),
 }))
@@ -188,8 +192,14 @@ beforeEach(() => {
 	vi.mocked(materializeNetlify).mockReturnValue({ dir: '/tmp/netlify' })
 	vi.mocked(materializeLocal).mockReturnValue({ dir: '/config/runtimes/my-inbox' })
 	vi.mocked(ensureVercelProject).mockResolvedValue({ projectId: 'prj_1', orgId: 'team_1' })
+	vi.mocked(listVercelScopes).mockResolvedValue([
+		{ id: 'user_1', slug: 'aaron', name: 'aaron', current: true },
+		{ id: 'team_1', slug: 'acme', name: 'Acme Team', current: false },
+	])
+	vi.mocked(p.select).mockResolvedValue('team_1')
 	vi.mocked(ensureNetlifySite).mockResolvedValue({ siteId: '123e4567-e89b-42d3-a456-426614174000' })
 	vi.mocked(deployVercel).mockResolvedValue('https://my-inbox.vercel.app')
+	vi.mocked(resolveVercelProductionUrl).mockImplementation(async (url) => url)
 	vi.mocked(deployNetlify).mockResolvedValue('https://my-inbox.netlify.app')
 	vi.mocked(findLocalPort).mockResolvedValue(3000)
 	vi.mocked(startLocalServer).mockResolvedValue('http://localhost:3000')
@@ -538,7 +548,16 @@ describe('stepDeploy (additional providers)', () => {
 		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
 		await stepDeploy(ctx)
 
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', undefined)
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Which Vercel account should own this deployment?',
+				options: expect.arrayContaining([
+					expect.objectContaining({ value: 'user_1', hint: 'current account' }),
+					expect.objectContaining({ value: 'team_1', label: 'Acme Team (acme)' }),
+				]),
+			}),
+		)
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_1', undefined)
 		expect(setVercelEnvironment).toHaveBeenCalledWith(
 			'/tmp/vercel',
 			expect.objectContaining({
@@ -564,7 +583,8 @@ describe('stepDeploy (additional providers)', () => {
 			}),
 		)
 		await stepDeploy(ctx)
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', {
+		expect(listVercelScopes).not.toHaveBeenCalled()
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_existing', {
 			projectId: 'prj_existing',
 			orgId: 'team_existing',
 		})
@@ -573,7 +593,35 @@ describe('stepDeploy (additional providers)', () => {
 	it('does not reuse a partial Vercel identifier pair', async () => {
 		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel', vercelProjectId: 'prj_partial' }))
 		await stepDeploy(ctx)
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', undefined)
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_1', undefined)
+	})
+
+	it('preselects a recorded Vercel account while repairing a partial link', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel', vercelOrgId: 'team_1' }))
+
+		await stepDeploy(ctx)
+
+		expect(p.select).toHaveBeenCalledWith(expect.objectContaining({ initialValue: 'team_1' }))
+	})
+
+	it('cancels before materializing when Vercel account selection is cancelled', async () => {
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(materializeVercel).not.toHaveBeenCalled()
+		expect(ensureVercelProject).not.toHaveBeenCalled()
+	})
+
+	it('rejects a Vercel account value that was not returned by the provider', async () => {
+		vi.mocked(p.select).mockResolvedValueOnce('team_attacker')
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/Choose one of the Vercel accounts/)
+
+		expect(saveProject).not.toHaveBeenCalledWith(expect.objectContaining({ vercelOrgId: 'team_attacker' }))
+		expect(ensureVercelProject).not.toHaveBeenCalled()
 	})
 
 	it('creates, configures, and deploys a Netlify project', async () => {
@@ -946,6 +994,29 @@ describe('stepWebhook', () => {
 })
 
 describe('stepRedirectUris', () => {
+	it('repairs an immutable Vercel deployment URL before registering hosted auth', async () => {
+		const ensureRedirectUris = vi.fn().mockResolvedValue(undefined)
+		vi.mocked(resolveVercelProductionUrl).mockResolvedValue('https://my-inbox-team.vercel.app')
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://my-inbox-build-id.vercel.app',
+				vercelOrgId: 'team_1',
+			}),
+			{ ensureRedirectUris },
+		)
+
+		await stepRedirectUris(ctx)
+
+		expect(resolveVercelProductionUrl).toHaveBeenCalledWith('https://my-inbox-build-id.vercel.app', 'team_1')
+		expect(ctx.project.providerAppUrl).toBe('https://my-inbox-team.vercel.app')
+		expect(saveProject).toHaveBeenCalledWith(ctx.project)
+		expect(ensureRedirectUris).toHaveBeenCalledWith([
+			'http://localhost:3000/auth/callback',
+			'https://my-inbox-team.vercel.app/auth/callback',
+		])
+	})
+
 	it('registers localhost, app domain, and workers.dev callbacks', async () => {
 		const ensureRedirectUris = vi.fn().mockResolvedValue(undefined)
 		const ctx = makeCtx(
@@ -1061,6 +1132,28 @@ describe('stepVerify', () => {
 		await stepVerify(ctx)
 		expect(fetchMock).toHaveBeenCalledTimes(10)
 		expect(p.log.warn).toHaveBeenCalled()
+		vi.unstubAllGlobals()
+	})
+
+	it('fails a Vercel setup with an actionable runtime-log command when health checks fail', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+		vi.stubGlobal('setTimeout', ((fn: () => void) => {
+			fn()
+			return 0
+		}) as unknown as typeof setTimeout)
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://acme.vercel.app',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+
+		await expect(stepVerify(ctx)).rejects.toThrow(
+			'npx vercel logs --deployment https://acme.vercel.app --level error --expand',
+		)
+		expect(clearPendingSecrets).not.toHaveBeenCalled()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'verify')
 		vi.unstubAllGlobals()
 	})
 

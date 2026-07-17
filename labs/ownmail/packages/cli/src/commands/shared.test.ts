@@ -169,6 +169,26 @@ describe('runTopLevel', () => {
 		expect(p.log.error).toHaveBeenCalledWith(guidance)
 	})
 
+	it.each([
+		'Vercel could not deploy the mailbox app. Check the Vercel dashboard, then retry.',
+		'Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard.',
+		'Netlify returned an invalid deployment URL; refusing to record it.',
+	])('preserves a curated provider recovery message', async (guidance) => {
+		await runTopLevel(async () => {
+			throw new Error(guidance)
+		})
+		expect(p.log.error).toHaveBeenCalledWith(guidance)
+	})
+
+	it('does not expose arbitrary text merely because it mentions a provider', async () => {
+		await runTopLevel(async () => {
+			throw new Error('Vercel leaked raw provider detail')
+		})
+		expect(p.log.error).toHaveBeenCalledWith(
+			'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+		)
+	})
+
 	it('preserves the deployment precondition and its remedy', async () => {
 		await runTopLevel(async () => {
 			throw new Error('This project hasn’t deployed yet — run `npx ownmail` first.')

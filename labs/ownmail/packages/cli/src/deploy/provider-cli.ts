@@ -13,26 +13,60 @@ type CliResult = { code: number; stdout: string; stderr: string }
 type RuntimeEnvironment = Record<string, string>
 
 export type VercelProject = { projectId: string; orgId: string }
+export type VercelScope = { id: string; slug: string; name: string; current: boolean }
 export type NetlifySite = { siteId: string }
+
+export async function listVercelScopes(): Promise<VercelScope[]> {
+	await ensureProviderLogin('vercel')
+	const result = await runProviderCli('vercel', [
+		'teams',
+		'list',
+		'--format',
+		'json',
+		'--limit',
+		'100',
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code !== 0) throw providerFailure('vercel', 'list deployment accounts', result, false)
+	const raw = parseJsonOutput(result.stdout)
+	if (!isRecord(raw) || !Array.isArray(raw.teams)) {
+		throw new Error(
+			'Vercel returned an invalid account list. Re-run this command; OwnMail will not select an unverified deployment account.',
+		)
+	}
+	const scopes = raw.teams.map(parseVercelScope)
+	if (scopes.some((scope) => !scope) || scopes.length === 0) {
+		throw new Error(
+			'Vercel returned invalid deployment account details. Re-run this command; OwnMail will not deploy to an unverified account.',
+		)
+	}
+	return scopes as VercelScope[]
+}
 
 export async function ensureVercelProject(
 	dir: string,
 	projectName: string,
+	scope: string,
 	existing?: VercelProject,
 ): Promise<VercelProject> {
 	if (existing) {
 		writeVercelProject(dir, existing)
 		return existing
 	}
+	const selectedScope = requireVercelScope(scope)
 	await ensureProviderLogin('vercel')
 	const linked = await runProviderCli('vercel', [
 		'link',
 		'--yes',
 		'--project',
 		projectName,
+		'--scope',
+		selectedScope,
 		'--cwd',
 		dir,
 		'--no-color',
+		'--non-interactive',
 	])
 	if (linked.code !== 0) throw providerFailure('vercel', 'link the project', linked, true)
 	let raw: unknown
@@ -67,10 +101,12 @@ export async function setVercelEnvironment(
 				name,
 				'production',
 				'--force',
+				'--yes',
 				...(secretNames.has(name) ? ['--sensitive'] : []),
 				'--cwd',
 				dir,
 				'--no-color',
+				'--non-interactive',
 			],
 			{ stdin: `${value}\n` },
 		)
@@ -78,7 +114,7 @@ export async function setVercelEnvironment(
 	}
 }
 
-export async function deployVercel(dir: string): Promise<string> {
+export async function deployVercel(dir: string, scope: string): Promise<string> {
 	const result = await runProviderCli('vercel', [
 		'deploy',
 		'--prebuilt',
@@ -87,9 +123,97 @@ export async function deployVercel(dir: string): Promise<string> {
 		'--cwd',
 		dir,
 		'--no-color',
+		'--non-interactive',
+		'--format',
+		'json',
 	])
 	if (result.code !== 0) throw providerFailure('vercel', 'deploy the mailbox app', result, true)
-	return requireProviderUrl(result.stdout, 'vercel.app', 'Vercel')
+	const url = requireVercelDeploymentUrl(result.stdout)
+	return resolveVercelProductionUrl(url, scope)
+}
+
+export async function resolveVercelProductionUrl(url: string, scope: string): Promise<string> {
+	const result = await runProviderCli('vercel', [
+		'inspect',
+		url,
+		'--wait',
+		'--timeout',
+		'2m',
+		'--scope',
+		requireVercelScope(scope),
+		'--format',
+		'json',
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code !== 0) {
+		const output = `${result.stdout}\n${result.stderr}`
+		if (/initializing|queued|timed out|timeout|waiting/i.test(output)) {
+			throw vercelInitializingError(url)
+		}
+		throw new Error(
+			`Vercel accepted the mailbox deployment, but could not confirm that it became ready. Run \`npx vercel inspect ${url} --wait\` for its current status, then retry the same OwnMail command.`,
+		)
+	}
+	const raw = parseJsonOutput(result.stdout)
+	if (!isRecord(raw)) {
+		throw new Error(
+			`Vercel accepted the mailbox deployment, but it did not become ready. Run \`npx vercel inspect ${url} --logs\` to view its build status and errors, then retry the same OwnMail command.`,
+		)
+	}
+	const readyState = typeof raw.readyState === 'string' ? raw.readyState.toUpperCase() : ''
+	if (readyState === 'READY') return requireVercelProductionAlias(raw, url)
+	if (readyState === 'INITIALIZING' || readyState === 'QUEUED' || readyState === 'BUILDING') {
+		throw vercelInitializingError(url)
+	}
+	throw new Error(
+		`Vercel accepted the mailbox deployment, but it did not become ready. Run \`npx vercel inspect ${url} --logs\` to view its build status and errors, then retry the same OwnMail command.`,
+	)
+}
+
+function requireVercelProductionAlias(value: Record<string, unknown>, inspectedUrl: string): string {
+	const deploymentUrl = requireVercelInspectedUrl(value.url, inspectedUrl)
+	const aliases = Array.isArray(value.aliases) ? value.aliases : []
+	for (const alias of aliases) {
+		if (typeof alias !== 'string') continue
+		try {
+			const url = requireProviderUrl(
+				alias.startsWith('https://') ? alias : `https://${alias}`,
+				'vercel.app',
+				'Vercel',
+			)
+			if (url !== deploymentUrl) return url
+		} catch {
+			// Ignore custom domains and malformed aliases; only Vercel's validated
+			// stable production alias is safe to persist as the hosted-auth origin.
+		}
+	}
+	throw new Error(
+		`Vercel deployed the mailbox app, but did not return its stable production URL. Run \`npx vercel inspect ${inspectedUrl}\` to verify its aliases, then retry the same OwnMail command.`,
+	)
+}
+
+function requireVercelInspectedUrl(value: unknown, inspectedUrl: string): string {
+	if (typeof value === 'string') {
+		try {
+			return requireProviderUrl(
+				value.startsWith('https://') ? value : `https://${value}`,
+				'vercel.app',
+				'Vercel',
+			)
+		} catch {
+			// Fall through to the stable-URL recovery error without exposing raw output.
+		}
+	}
+	throw new Error(
+		`Vercel deployed the mailbox app, but did not identify its immutable deployment URL. Run \`npx vercel inspect ${inspectedUrl}\` to verify the deployment, then retry the same OwnMail command.`,
+	)
+}
+
+function vercelInitializingError(url: string): Error {
+	return new Error(
+		`Vercel accepted the mailbox deployment, but it is still initializing after 2 minutes. Vercel may be delaying its deployment queue. Run \`npx vercel inspect ${url} --wait\` to monitor it, then retry the same OwnMail command once it is ready.`,
+	)
 }
 
 export async function ensureNetlifySite(
@@ -190,7 +314,8 @@ function writeVercelProject(dir: string, project: VercelProject): void {
 }
 
 async function ensureProviderLogin(provider: Provider): Promise<void> {
-	const checkArgs = provider === 'vercel' ? ['whoami', '--no-color'] : ['sites:list', '--json']
+	const checkArgs =
+		provider === 'vercel' ? ['whoami', '--no-color', '--non-interactive'] : ['sites:list', '--json']
 	const checked = await runProviderCli(provider, checkArgs)
 	if (checked.code === 0) return
 	const login = await runProviderCli(provider, ['login'], { interactive: true })
@@ -229,7 +354,7 @@ function runProviderCli(
 		child.stderr?.on('data', (chunk: Buffer) => {
 			stderr = append(stderr, chunk)
 		})
-		if (opts.stdin !== undefined && child.stdin) child.stdin.end(opts.stdin)
+		if (child.stdin) child.stdin.end(opts.stdin)
 		child.on('error', () => reject(new Error(`${providerName(provider)} deployment helper failed to start.`)))
 		child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
 	})
@@ -290,6 +415,26 @@ function parseVercelProject(value: unknown): VercelProject | null {
 	return { projectId, orgId }
 }
 
+function parseVercelScope(value: unknown): VercelScope | null {
+	if (!isRecord(value)) return null
+	const { id, slug, name, current } = value
+	if (!validProviderId(id) || !validVercelDisplaySlug(slug)) return null
+	if (typeof name !== 'string' || name.length < 1 || name.length > 160 || /[\r\n\0]/.test(name)) return null
+	if (typeof current !== 'boolean') return null
+	return { id, slug, name, current }
+}
+
+function requireVercelScope(value: string): string {
+	if (!validProviderId(value)) {
+		throw new Error('Selected Vercel deployment account is invalid; refusing to deploy.')
+	}
+	return value
+}
+
+function validVercelDisplaySlug(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._@+-]{0,159}$/.test(value)
+}
+
 function validProviderId(value: unknown): value is string {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{2,128}$/.test(value)
 }
@@ -301,10 +446,26 @@ function requireUuid(value: string, label: string): string {
 	return value
 }
 
+function requireVercelDeploymentUrl(output: string): string {
+	const raw = parseJsonOutput(output)
+	const deployment = isRecord(raw) && isRecord(raw.deployment) ? raw.deployment : undefined
+	const candidate = deployment?.url ?? (isRecord(raw) ? raw.url : undefined)
+	return requireProviderUrl(typeof candidate === 'string' ? candidate : output, 'vercel.app', 'Vercel')
+}
+
 function requireProviderUrl(value: string, hostnameSuffix: string, provider: string): string {
 	try {
 		const url = new URL(value.trim())
-		if (url.protocol !== 'https:' || !url.hostname.endsWith(`.${hostnameSuffix}`)) throw new Error('invalid')
+		if (
+			url.protocol !== 'https:' ||
+			!url.hostname.endsWith(`.${hostnameSuffix}`) ||
+			url.username ||
+			url.password ||
+			url.port ||
+			url.pathname !== '/'
+		) {
+			throw new Error('invalid')
+		}
 		url.hash = ''
 		url.search = ''
 		return url.toString().replace(/\/$/, '')

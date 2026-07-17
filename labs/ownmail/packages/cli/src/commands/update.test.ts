@@ -305,12 +305,27 @@ describe('runUpdate — Node providers', () => {
 			providerAppUrl: 'https://old.vercel.app',
 		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		vi.mocked(checkAppHealth).mockResolvedValueOnce(true)
 		await runUpdate({})
-		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'acme-ownmail', {
+		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'acme-ownmail', 'team_1', {
 			projectId: 'prj_1',
 			orgId: 'team_1',
 		})
 		expect(project.providerAppUrl).toBe('https://acme.vercel.app')
+	})
+
+	it('reports Vercel runtime logs when the redeployed app is unhealthy', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				hostingProvider: 'vercel',
+				vercelProjectId: 'prj_1',
+				vercelOrgId: 'team_1',
+			}),
+		)
+
+		await expect(runUpdate({})).rejects.toThrow(
+			'npx vercel logs --deployment https://acme.vercel.app --level error --expand',
+		)
 	})
 
 	it('requires recorded identifiers before provider redeploys', async () => {

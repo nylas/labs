@@ -52,6 +52,8 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	listVercelScopes,
+	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from './provider-cli.js'
@@ -69,7 +71,7 @@ beforeEach(() => {
 
 describe('Vercel provider CLI', () => {
 	it('reuses and validates recorded project identifiers', async () => {
-		const result = await ensureVercelProject('/tmp/app', 'acme-ownmail', {
+		const result = await ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_123', {
 			projectId: 'prj_123',
 			orgId: 'team_123',
 		})
@@ -84,34 +86,119 @@ describe('Vercel provider CLI', () => {
 			'/tmp/app/.vercel/project.json',
 			JSON.stringify({ projectId: 'prj_new', orgId: 'team_new' }),
 		)
-		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail')).resolves.toEqual({
+		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_chosen')).resolves.toEqual({
 			projectId: 'prj_new',
 			orgId: 'team_new',
 		})
 		expect(spawnedArgs(1)).toContain('login')
-		expect(spawnedArgs(2)).toContain('link')
+		expect(spawnedArgs(2)).toEqual(
+			expect.arrayContaining(['link', '--scope', 'team_chosen', '--non-interactive']),
+		)
+		expect(stdinEnded(2)).toBe(true)
+	})
+
+	it('lists and validates the personal and team scopes available to the signed-in user', async () => {
+		queueCli(
+			{ code: 0, stdout: 'user' },
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					teams: [
+						{
+							id: 'user_1',
+							slug: 'aaron@example.com',
+							name: 'aaron@example.com',
+							current: true,
+						},
+						{ id: 'team_1', slug: 'acme', name: 'Acme', current: false },
+					],
+					pagination: { count: 2 },
+				}),
+			},
+		)
+
+		await expect(listVercelScopes()).resolves.toEqual([
+			{
+				id: 'user_1',
+				slug: 'aaron@example.com',
+				name: 'aaron@example.com',
+				current: true,
+			},
+			{ id: 'team_1', slug: 'acme', name: 'Acme', current: false },
+		])
+		expect(spawnedArgs(1)).toEqual(
+			expect.arrayContaining(['teams', 'list', '--format', 'json', '--non-interactive']),
+		)
+	})
+
+	it('rejects missing, empty, or malformed Vercel scope lists', async () => {
+		queueCli({ code: 0 }, { code: 0, stdout: 'null' })
+		await expect(listVercelScopes()).rejects.toThrow(/invalid account list/)
+
+		queueCli({ code: 0 }, { code: 0, stdout: '{}' })
+		await expect(listVercelScopes()).rejects.toThrow(/invalid account list/)
+
+		queueCli({ code: 0 }, { code: 0, stdout: '{"teams":[]}' })
+		await expect(listVercelScopes()).rejects.toThrow(/invalid deployment account details/)
+	})
+
+	it.each([
+		['non-object entry', null],
+		['invalid id', { id: '../bad', slug: 'acme', name: 'Acme', current: false }],
+		['invalid slug type', { id: 'team_1', slug: null, name: 'Acme', current: false }],
+		['invalid slug format', { id: 'team_1', slug: '../bad', name: 'Acme', current: false }],
+		['missing name', { id: 'team_1', slug: 'acme', current: false }],
+		['empty name', { id: 'team_1', slug: 'acme', name: '', current: false }],
+		['oversized name', { id: 'team_1', slug: 'acme', name: 'a'.repeat(161), current: false }],
+		['control character in name', { id: 'team_1', slug: 'acme', name: 'Acme\nTeam', current: false }],
+		['invalid current marker', { id: 'team_1', slug: 'acme', name: 'Acme', current: 'yes' }],
+	])('rejects a %s returned by Vercel', async (_case, scope) => {
+		queueCli({ code: 0 }, { code: 0, stdout: JSON.stringify({ teams: [scope] }) })
+
+		await expect(listVercelScopes()).rejects.toThrow(/invalid deployment account details/)
+	})
+
+	it('reports a Vercel account-list failure without exposing provider output', async () => {
+		queueCli({ code: 0 }, { code: 1, stderr: 'private provider detail' })
+
+		const error = await listVercelScopes().catch((caught: unknown) => caught)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toMatch(/could not list deployment accounts/)
+		expect((error as Error).message).not.toMatch(/private provider detail/)
 	})
 
 	it('fails safely for invalid recorded or returned identifiers', async () => {
 		await expect(
-			ensureVercelProject('/tmp/app', 'acme-ownmail', { projectId: '../bad', orgId: 'team_ok' }),
+			ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_ok', {
+				projectId: '../bad',
+				orgId: 'team_ok',
+			}),
 		).rejects.toThrow(/identifiers are invalid/)
 
 		queueCli({ code: 0 }, { code: 0 })
 		hoisted.files.set('/tmp/app/.vercel/project.json', JSON.stringify({ projectId: 'bad id', orgId: 'x' }))
-		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail')).rejects.toThrow(
+		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_ok')).rejects.toThrow(
 			/invalid project identifiers/,
 		)
 	})
 
+	it('rejects an invalid selected scope before starting Vercel', async () => {
+		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail', '../bad')).rejects.toThrow(
+			/Selected Vercel deployment account is invalid/,
+		)
+		expect(hoisted.spawn).not.toHaveBeenCalled()
+	})
+
 	it('reports an unverifiable link without exposing provider output', async () => {
 		queueCli({ code: 0 }, { code: 0 })
-		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail')).rejects.toThrow(/may have linked/)
+		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_ok')).rejects.toThrow(
+			/may have linked/,
+		)
 	})
 
 	it('classifies link and environment-setting failures', async () => {
 		queueCli({ code: 0 }, { code: 1, stderr: 'network failure' })
-		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail')).rejects.toThrow(/could not link/)
+		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_ok')).rejects.toThrow(/could not link/)
 
 		queueCli({ code: 1, stderr: 'network failure' })
 		await expect(setVercelEnvironment('/tmp', { APP_NAME: 'acme' }, new Set())).rejects.toThrow(
@@ -122,7 +209,7 @@ describe('Vercel provider CLI', () => {
 	it('rejects non-object Vercel link metadata', async () => {
 		queueCli({ code: 0 }, { code: 0 })
 		hoisted.files.set('/tmp/app/.vercel/project.json', '[]')
-		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail')).rejects.toThrow(
+		await expect(ensureVercelProject('/tmp/app', 'acme-ownmail', 'team_ok')).rejects.toThrow(
 			/invalid project identifiers/,
 		)
 	})
@@ -135,6 +222,7 @@ describe('Vercel provider CLI', () => {
 			new Set(['NYLAS_API_KEY']),
 		)
 		expect(spawnedArgs(0)).toContain('--sensitive')
+		expect(spawnedArgs(0)).toContain('--yes')
 		expect(spawnedArgs(1)).not.toContain('--sensitive')
 		expect(stdinValue(0)).toBe('secret-value\n')
 		expect(JSON.stringify(hoisted.spawn.mock.calls)).not.toContain('secret-value')
@@ -151,11 +239,156 @@ describe('Vercel provider CLI', () => {
 	})
 
 	it('deploys prebuilt output and validates the provider URL', async () => {
-		queueCli({ code: 0, stdout: 'https://acme.vercel.app\n' })
-		await expect(deployVercel('/tmp/app')).resolves.toBe('https://acme.vercel.app')
+		queueCli(
+			{ code: 0, stdout: 'https://acme-build.vercel.app\n' },
+			{
+				code: 0,
+				stdout: '{"readyState":"READY","url":"acme-build.vercel.app","aliases":["acme.vercel.app"]}',
+			},
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://acme.vercel.app')
+		expect(spawnedArgs(0)).toEqual(expect.arrayContaining(['--format', 'json']))
+		expect(spawnedArgs(1)).toEqual(
+			expect.arrayContaining([
+				'inspect',
+				'https://acme-build.vercel.app',
+				'--wait',
+				'--timeout',
+				'2m',
+				'--scope',
+				'team_ok',
+			]),
+		)
+
+		queueCli(
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					status: 'ok',
+					deployment: { url: 'https://structured.vercel.app' },
+				}),
+			},
+			{
+				code: 0,
+				stdout:
+					'{"readyState":"READY","url":"structured.vercel.app","aliases":["structured-team.vercel.app"]}',
+			},
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://structured-team.vercel.app')
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://top-level.vercel.app"}' },
+			{
+				code: 0,
+				stdout: '{"readyState":"READY","url":"top-level.vercel.app","aliases":["top-level-team.vercel.app"]}',
+			},
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://top-level-team.vercel.app')
 
 		queueCli({ code: 0, stdout: 'https://attacker.example.com' })
-		await expect(deployVercel('/tmp/app')).rejects.toThrow(/invalid deployment URL/)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/invalid deployment URL/)
+
+		queueCli({ code: 0, stdout: '{"deployment":[]}' })
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/invalid deployment URL/)
+	})
+
+	it('resolves only a validated stable Vercel production alias', async () => {
+		queueCli({
+			code: 0,
+			stdout: JSON.stringify({
+				readyState: 'READY',
+				url: 'build-id.vercel.app',
+				aliases: [
+					'https://custom.example.com',
+					'https://user:password@attacker.vercel.app',
+					'build-id.vercel.app',
+					'main-team.vercel.app',
+				],
+			}),
+		})
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).resolves.toBe(
+			'https://main-team.vercel.app',
+		)
+
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"https://build-id.vercel.app","aliases":["main-team.vercel.app"]}',
+		})
+		await expect(resolveVercelProductionUrl('https://main-team.vercel.app', 'team_ok')).resolves.toBe(
+			'https://main-team.vercel.app',
+		)
+
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"build-id.vercel.app","aliases":["custom.example.com"]}',
+		})
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not return its stable production URL/,
+		)
+
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"build-id.vercel.app","aliases":[123]}',
+		})
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not return its stable production URL/,
+		)
+
+		queueCli({ code: 0, stdout: '{"readyState":"READY","url":"build-id.vercel.app"}' })
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not return its stable production URL/,
+		)
+
+		queueCli({ code: 0, stdout: '{"readyState":"READY","aliases":["main-team.vercel.app"]}' })
+		await expect(resolveVercelProductionUrl('https://main-team.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not identify its immutable deployment URL/,
+		)
+
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"https://custom.example.com","aliases":["main-team.vercel.app"]}',
+		})
+		await expect(resolveVercelProductionUrl('https://main-team.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not identify its immutable deployment URL/,
+		)
+	})
+
+	it('reports queued and failed deployments with actionable inspection commands', async () => {
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://queued.vercel.app"}' },
+			{ code: 1, stderr: 'Deployment is still initializing; timed out waiting' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(
+			/still initializing after 2 minutes.*vercel inspect https:\/\/queued\.vercel\.app --wait/s,
+		)
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://building.vercel.app"}' },
+			{ code: 0, stdout: '{"readyState":"BUILDING"}' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/still initializing after 2 minutes/)
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://unknown.vercel.app"}' },
+			{ code: 1, stderr: 'unexpected inspect failure' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(
+			/could not confirm that it became ready.*vercel inspect https:\/\/unknown\.vercel\.app --wait/s,
+		)
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://failed.vercel.app"}' },
+			{ code: 0, stdout: '{"readyState":"ERROR"}' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(
+			/vercel inspect https:\/\/failed\.vercel\.app --logs/,
+		)
+
+		queueCli({ code: 0, stdout: '{"url":"https://invalid-state.vercel.app"}' }, { code: 0, stdout: '[]' })
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/it did not become ready/)
+
+		queueCli({ code: 0, stdout: '{"url":"https://missing-state.vercel.app"}' }, { code: 0, stdout: '{}' })
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/it did not become ready/)
 	})
 })
 
@@ -299,32 +532,34 @@ describe('safe provider failures', () => {
 		['generic', 'unexpected raw provider detail', /Check the provider dashboard/],
 	])('classifies %s failures without returning raw output', async (_name, stderr, expected) => {
 		queueCli({ code: 1, stderr })
-		await expect(deployVercel('/tmp')).rejects.toThrow(expected)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(expected)
 	})
 
 	it('reports a missing bundled provider helper', async () => {
 		hoisted.resolveFails = true
-		await expect(deployVercel('/tmp')).rejects.toThrow(/could not start its bundled Vercel/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not start its bundled Vercel/)
 	})
 
 	it('reports a provider package that does not expose the expected binary', async () => {
 		hoisted.missingBin = true
-		await expect(deployVercel('/tmp')).rejects.toThrow(/could not start its bundled Vercel/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not start its bundled Vercel/)
 	})
 
 	it('reports failed interactive login without assuming a remote mutation', async () => {
 		queueCli({ code: 1 }, { code: 1, stderr: 'login cancelled' })
-		await expect(ensureVercelProject('/tmp', 'acme')).rejects.toThrow(/No deployment change was made/)
+		await expect(ensureVercelProject('/tmp', 'acme', 'team_ok')).rejects.toThrow(
+			/No deployment change was made/,
+		)
 	})
 
 	it('treats a missing process exit code as failure', async () => {
 		queueCli({ code: null, stderr: 'process stopped' })
-		await expect(deployVercel('/tmp')).rejects.toThrow(/could not deploy/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
 	})
 
 	it('reports a provider process start failure', async () => {
 		queueCli({ code: 1, error: true })
-		await expect(deployVercel('/tmp')).rejects.toThrow(/helper failed to start/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/helper failed to start/)
 	})
 })
 
@@ -336,13 +571,14 @@ function fakeChild(result: FakeResult) {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: EventEmitter
 		stderr: EventEmitter
-		stdin: { end(value: string): void; value?: string }
+		stdin: { end(value?: string): void; value?: string; ended?: boolean }
 	}
 	child.stdout = new EventEmitter()
 	child.stderr = new EventEmitter()
 	child.stdin = {
-		end(value: string) {
+		end(value?: string) {
 			this.value = value
+			this.ended = true
 		},
 	}
 	queueMicrotask(() => {
@@ -363,4 +599,8 @@ function spawnedArgs(index: number): string[] {
 
 function stdinValue(index: number): string | undefined {
 	return (hoisted.spawn.mock.results[index]?.value as { stdin?: { value?: string } })?.stdin?.value
+}
+
+function stdinEnded(index: number): boolean | undefined {
+	return (hoisted.spawn.mock.results[index]?.value as { stdin?: { ended?: boolean } })?.stdin?.ended
 }
