@@ -73,6 +73,20 @@ describe('ProjectStateSchema', () => {
 		).toBe(hostingProvider)
 	})
 
+	it('accepts only boolean shared-storage choices while preserving legacy omission', () => {
+		expect(
+			ProjectStateSchema.parse({ slug: 'my-inbox', createdAt: 1, updatedAt: 1 }).sharedStorage,
+		).toBeUndefined()
+		expect(
+			ProjectStateSchema.parse({ slug: 'my-inbox', createdAt: 1, updatedAt: 1, sharedStorage: false })
+				.sharedStorage,
+		).toBe(false)
+		expect(
+			ProjectStateSchema.safeParse({ slug: 'my-inbox', createdAt: 1, updatedAt: 1, sharedStorage: 'yes' })
+				.success,
+		).toBe(false)
+	})
+
 	it('validates provider and local deployment metadata', () => {
 		const parsed = ProjectStateSchema.parse({
 			slug: 'my-inbox',

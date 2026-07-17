@@ -53,6 +53,8 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
+	hasVercelUpstashInstallation,
+	inspectVercelRealtimeStore,
 	listVercelScopes,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
@@ -272,6 +274,44 @@ describe('Vercel provider CLI', () => {
 				'--no-env-pull',
 			]),
 		)
+	})
+
+	it('inspects storage and Marketplace installation prerequisites without provisioning', async () => {
+		queueCli(
+			{ code: 0, stdout: JSON.stringify({ resources: [] }) },
+			{ code: 0, stdout: JSON.stringify({ installations: [] }) },
+			{ code: 0, stdout: JSON.stringify({ installations: [{ id: 'icfg_upstash' }] }) },
+		)
+		await expect(inspectVercelRealtimeStore('/tmp/app')).resolves.toBe('missing')
+		await expect(hasVercelUpstashInstallation('team_123')).resolves.toBe(false)
+		await expect(hasVercelUpstashInstallation('team_123')).resolves.toBe(true)
+		expect(spawnedArgs(1)).toEqual(
+			expect.arrayContaining([
+				'integration',
+				'installations',
+				'--integration',
+				'upstash',
+				'--scope',
+				'team_123',
+			]),
+		)
+	})
+
+	it('fails closed for invalid or unavailable Marketplace installation inventories', async () => {
+		queueCli({ code: 1, stderr: 'network failure' })
+		await expect(hasVercelUpstashInstallation('team_123')).rejects.toThrow(/inspect Upstash setup/)
+
+		queueCli({ code: 0, stdout: '{}' })
+		await expect(hasVercelUpstashInstallation('team_123')).rejects.toThrow(
+			/invalid Upstash installation list/,
+		)
+
+		queueCli({ code: 0, stdout: JSON.stringify({ installations: [{}] }) })
+		await expect(hasVercelUpstashInstallation('team_123')).rejects.toThrow(
+			/invalid Upstash installation list/,
+		)
+
+		await expect(hasVercelUpstashInstallation('../bad')).rejects.toThrow(/deployment account is invalid/)
 	})
 
 	it('fails closed for malformed or unavailable Vercel realtime storage', async () => {

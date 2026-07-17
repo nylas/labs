@@ -19,10 +19,13 @@ The CLI provisions the required Nylas resources, configures the chosen runtime,
 then deploys or starts this app. Reach for this package directly when you want
 to develop, customize, or host an ejected OwnMail app yourself.
 
-Cloudflare uses its bound KV namespace for sessions and realtime counters.
-Guided Vercel deployments use an Upstash Redis resource connected through the
-Vercel Marketplace. Other Node deployments remain stateless unless both
-`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are configured.
+Shared storage is optional on every runtime. Without it, sessions and OAuth state
+use HMAC-signed cookies and mailbox refresh falls back to polling. Cloudflare can
+use a bound KV namespace; guided Vercel deployments can use an Upstash Redis
+resource connected through the third-party Vercel Marketplace. Other Node
+deployments can opt in by setting `OWNMAIL_SHARED_STORAGE=enabled` together with
+either `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` or Vercel's
+Marketplace-provided `KV_REST_API_URL` / `KV_REST_API_TOKEN` pair.
 
 ## Start simple, then take control
 

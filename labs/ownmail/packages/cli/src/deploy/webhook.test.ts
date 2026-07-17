@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectState } from '../state/schema.js'
 import { setupRealtimeWebhook } from './webhook.js'
 
@@ -7,7 +7,7 @@ vi.mock('./materialize.js', () => ({ materializeVercel: vi.fn(() => ({ dir: '/tm
 vi.mock('./provider-cli.js', () => ({
 	deployVercel: vi.fn(async () => 'https://acme.vercel.app'),
 	ensureVercelProject: vi.fn(),
-	ensureVercelRealtimeStore: vi.fn(),
+	inspectVercelRealtimeStore: vi.fn(async () => 'available'),
 	setVercelEnvironment: vi.fn(),
 }))
 vi.mock('./wrangler.js', () => ({
@@ -17,7 +17,7 @@ vi.mock('./wrangler.js', () => ({
 import {
 	deployVercel,
 	ensureVercelProject,
-	ensureVercelRealtimeStore,
+	inspectVercelRealtimeStore,
 	setVercelEnvironment,
 } from './provider-cli.js'
 
@@ -27,12 +27,19 @@ function project(overrides: Partial<ProjectState> = {}): ProjectState {
 		createdAt: 0,
 		updatedAt: 0,
 		region: 'us',
+		sharedStorage: true,
 		ejected: false,
 		completedSteps: [],
 		pendingSecrets: {},
 		...overrides,
 	} as ProjectState
 }
+
+beforeEach(() => {
+	vi.clearAllMocks()
+	vi.mocked(inspectVercelRealtimeStore).mockResolvedValue('available')
+	vi.mocked(deployVercel).mockResolvedValue('https://acme.vercel.app')
+})
 
 describe('setupRealtimeWebhook', () => {
 	it('does not attempt automatic webhook setup for manual hosting', async () => {
@@ -82,7 +89,7 @@ describe('setupRealtimeWebhook', () => {
 			projectId: 'prj_1',
 			orgId: 'team_1',
 		})
-		expect(ensureVercelRealtimeStore).toHaveBeenCalledWith('/tmp/vercel', 'acme-realtime', 'us')
+		expect(inspectVercelRealtimeStore).toHaveBeenCalledWith('/tmp/vercel')
 		expect(setVercelEnvironment).toHaveBeenCalledWith(
 			'/tmp/vercel',
 			{ NYLAS_WEBHOOK_SECRET: 'wh-secret' },
@@ -106,6 +113,20 @@ describe('setupRealtimeWebhook', () => {
 
 		expect(result.status).toBe('registered')
 		expect(rotateWebhookSecret).toHaveBeenCalledWith('webhook-1')
+	})
+
+	it('uses polling without registering a webhook when shared storage is disabled', async () => {
+		const ensureWebhook = vi.fn()
+		const result = await setupRealtimeWebhook(
+			project({
+				hostingProvider: 'vercel',
+				sharedStorage: false,
+				providerAppUrl: 'https://acme.vercel.app',
+			}),
+			{ ensureWebhook } as never,
+		)
+		expect(result).toEqual({ status: 'skipped', reason: 'storage-disabled' })
+		expect(ensureWebhook).not.toHaveBeenCalled()
 	})
 
 	it('fails closed when Vercel project identifiers are missing', async () => {
@@ -144,5 +165,27 @@ describe('setupRealtimeWebhook', () => {
 			status: 'failed',
 			callbackUrl: 'https://acme.vercel.app/api/webhooks/nylas',
 		})
+	})
+
+	it('fails closed without provisioning when recorded Vercel storage is missing', async () => {
+		vi.mocked(inspectVercelRealtimeStore).mockResolvedValueOnce('missing')
+		const result = await setupRealtimeWebhook(
+			project({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://acme.vercel.app',
+				vercelProjectId: 'prj_1',
+				vercelOrgId: 'team_1',
+			}),
+			{
+				ensureWebhook: vi.fn().mockResolvedValue({ webhook_secret: 'wh-secret' }),
+				rotateWebhookSecret: vi.fn(),
+			} as never,
+			{ checkHealth: false },
+		)
+		expect(result).toEqual({
+			status: 'failed',
+			callbackUrl: 'https://acme.vercel.app/api/webhooks/nylas',
+		})
+		expect(deployVercel).not.toHaveBeenCalled()
 	})
 })

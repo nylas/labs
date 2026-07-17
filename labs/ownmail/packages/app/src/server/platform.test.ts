@@ -38,8 +38,11 @@ function setEnv(overrides: Record<string, string | undefined>): void {
 		'OWNMAIL_DEV_MOCKS',
 		'NODE_ENV',
 		'SESSION_SECRET',
+		'OWNMAIL_SHARED_STORAGE',
 		'UPSTASH_REDIS_REST_URL',
 		'UPSTASH_REDIS_REST_TOKEN',
+		'KV_REST_API_URL',
+		'KV_REST_API_TOKEN',
 	]) {
 		vi.stubEnv(key, undefined as unknown as string)
 	}
@@ -113,6 +116,32 @@ describe('platform()', () => {
 		expect(p.kv).toBeNull()
 	})
 
+	it('honors a Cloudflare storage opt-out even when a legacy KV binding remains', async () => {
+		const sessions = { get: vi.fn(), put: vi.fn(), delete: vi.fn() }
+		vi.doMock('cloudflare:workers', () => ({
+			env: {
+				...REQUIRED_ENV,
+				SESSION_SECRET: 'cf',
+				OWNMAIL_SHARED_STORAGE: 'disabled',
+				SESSIONS: sessions,
+			},
+		}))
+		setEnv({})
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).resolves.toMatchObject({ runtime: 'cloudflare', kv: null })
+	})
+
+	it('fails closed when Cloudflare storage is enabled without a KV binding', async () => {
+		vi.doMock('cloudflare:workers', () => ({
+			env: { ...REQUIRED_ENV, SESSION_SECRET: 'cf', OWNMAIL_SHARED_STORAGE: 'enabled' },
+		}))
+		setEnv({})
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).rejects.toThrow('realtime storage is incomplete')
+	})
+
 	it('falls back to the node runtime when the Workers module is unavailable', async () => {
 		vi.doMock('cloudflare:workers', () => {
 			throw new Error('not a workers runtime')
@@ -160,9 +189,93 @@ describe('platform()', () => {
 		expect(redis.set).toHaveBeenNthCalledWith(2, 'key', 'value', undefined)
 	})
 
+	it('binds the Upstash resource from Vercel Marketplace KV variables', async () => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({
+			SESSION_SECRET: 'node-secret',
+			OWNMAIL_SHARED_STORAGE: 'enabled',
+			KV_REST_API_URL: 'https://ownmail.upstash.io',
+			KV_REST_API_TOKEN: 'redis-token',
+		})
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).resolves.toMatchObject({
+			runtime: 'node',
+			kv: expect.objectContaining({ increment: expect.any(Function) }),
+		})
+	})
+
+	it('accepts matching canonical and Vercel Marketplace credential pairs', async () => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({
+			SESSION_SECRET: 'node-secret',
+			UPSTASH_REDIS_REST_URL: 'https://ownmail.upstash.io',
+			UPSTASH_REDIS_REST_TOKEN: 'redis-token',
+			KV_REST_API_URL: 'https://ownmail.upstash.io',
+			KV_REST_API_TOKEN: 'redis-token',
+		})
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).resolves.toMatchObject({ runtime: 'node', kv: expect.any(Object) })
+	})
+
+	it('fails closed when canonical and Vercel Marketplace credentials conflict', async () => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({
+			SESSION_SECRET: 'node-secret',
+			UPSTASH_REDIS_REST_URL: 'https://canonical.upstash.io',
+			UPSTASH_REDIS_REST_TOKEN: 'canonical-token',
+			KV_REST_API_URL: 'https://marketplace.upstash.io',
+			KV_REST_API_TOKEN: 'marketplace-token',
+		})
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).rejects.toThrow('realtime storage configuration conflicts')
+	})
+
+	it('honors a node storage opt-out even when legacy Upstash credentials remain', async () => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({
+			SESSION_SECRET: 'node-secret',
+			OWNMAIL_SHARED_STORAGE: 'disabled',
+			UPSTASH_REDIS_REST_URL: 'https://ownmail.upstash.io',
+			UPSTASH_REDIS_REST_TOKEN: 'redis-token',
+		})
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).resolves.toMatchObject({ runtime: 'node', kv: null })
+	})
+
+	it('fails closed when node storage is enabled without credentials', async () => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({ SESSION_SECRET: 'node-secret', OWNMAIL_SHARED_STORAGE: 'enabled' })
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).rejects.toThrow('realtime storage is incomplete')
+	})
+
+	it('rejects an unrecognized shared storage mode', async () => {
+		setEnv({ SESSION_SECRET: 'node-secret', OWNMAIL_SHARED_STORAGE: 'sometimes' })
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).rejects.toThrow('shared storage mode is invalid')
+	})
+
 	it.each([
 		['only a URL', { UPSTASH_REDIS_REST_URL: 'https://ownmail.upstash.io' }],
 		['only a token', { UPSTASH_REDIS_REST_TOKEN: 'redis-token' }],
+		['only a Vercel URL', { KV_REST_API_URL: 'https://ownmail.upstash.io' }],
+		['only a Vercel token', { KV_REST_API_TOKEN: 'redis-token' }],
 		[
 			'an untrusted URL',
 			{

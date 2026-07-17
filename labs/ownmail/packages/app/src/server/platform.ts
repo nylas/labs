@@ -18,6 +18,9 @@ export type AppEnv = {
 	NYLAS_API_BASE_URL?: string
 	UPSTASH_REDIS_REST_URL?: string
 	UPSTASH_REDIS_REST_TOKEN?: string
+	KV_REST_API_URL?: string
+	KV_REST_API_TOKEN?: string
+	OWNMAIL_SHARED_STORAGE?: 'enabled' | 'disabled'
 	OWNMAIL_DEV_MOCKS?: string
 	/** Explicit opt-in for authenticated mailbox password changes in the web UI. */
 	OWNMAIL_ALLOW_PASSWORD_RESET?: string
@@ -43,6 +46,7 @@ export async function platform(): Promise<Platform> {
 	if (cached) return cached
 	const rawProcessEnv = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
 	const processEnv = rawProcessEnv as unknown as AppEnv | undefined
+	if (processEnv) sharedStorageMode(processEnv)
 	if (processEnv?.OWNMAIL_DEV_MOCKS === '1' && rawProcessEnv?.NODE_ENV !== 'production') {
 		if (!processEnv.SESSION_SECRET) {
 			throw new Error('Platform env unavailable - SESSION_SECRET not configured')
@@ -50,27 +54,36 @@ export async function platform(): Promise<Platform> {
 		cached = { env: processEnv, kv: null, runtime: 'node' }
 		return cached
 	}
+	let workerEnv: (AppEnv & { SESSIONS?: KvLike }) | undefined
 	try {
 		const { env } = await import('cloudflare:workers')
-		cached = {
-			env: env as unknown as AppEnv,
-			kv: (env as { SESSIONS?: KvLike }).SESSIONS ?? null,
-			runtime: 'cloudflare',
-		}
+		workerEnv = env as unknown as AppEnv & { SESSIONS?: KvLike }
 	} catch {
 		const env = processEnv
 		if (!env?.SESSION_SECRET) {
 			throw new Error('Platform env unavailable - SESSION_SECRET not configured')
 		}
 		cached = { env, kv: nodeKv(env), runtime: 'node' }
+		return cached
+	}
+	const sessions = workerEnv.SESSIONS
+	const storageMode = sharedStorageMode(workerEnv)
+	if (storageMode === 'enabled' && !sessions) {
+		throw new Error('Platform env unavailable - realtime storage is incomplete')
+	}
+	cached = {
+		env: workerEnv,
+		kv: storageMode === 'disabled' ? null : (sessions ?? null),
+		runtime: 'cloudflare',
 	}
 	return cached
 }
 
 function nodeKv(env: AppEnv): KvLike | null {
-	const url = env.UPSTASH_REDIS_REST_URL?.trim()
-	const token = env.UPSTASH_REDIS_REST_TOKEN?.trim()
-	if (!url && !token) return null
+	const storageMode = sharedStorageMode(env)
+	if (storageMode === 'disabled') return null
+	const { url, token } = nodeStorageCredentials(env)
+	if (!url && !token && storageMode !== 'enabled') return null
 	if (!url || !token) throw new Error('Platform env unavailable - realtime storage is incomplete')
 	let parsed: URL
 	try {
@@ -109,6 +122,32 @@ function nodeKv(env: AppEnv): KvLike | null {
 		},
 		increment: (key) => redis.incr(key),
 	}
+}
+
+function nodeStorageCredentials(env: AppEnv): { url?: string; token?: string } {
+	const upstash = {
+		url: env.UPSTASH_REDIS_REST_URL?.trim(),
+		token: env.UPSTASH_REDIS_REST_TOKEN?.trim(),
+	}
+	const vercel = {
+		url: env.KV_REST_API_URL?.trim(),
+		token: env.KV_REST_API_TOKEN?.trim(),
+	}
+	if (Boolean(upstash.url) !== Boolean(upstash.token) || Boolean(vercel.url) !== Boolean(vercel.token)) {
+		throw new Error('Platform env unavailable - realtime storage is incomplete')
+	}
+	if (upstash.url && vercel.url && (upstash.url !== vercel.url || upstash.token !== vercel.token)) {
+		throw new Error('Platform env unavailable - realtime storage configuration conflicts')
+	}
+	return upstash.url ? upstash : vercel
+}
+
+function sharedStorageMode(env: AppEnv): 'enabled' | 'disabled' | undefined {
+	const mode = env.OWNMAIL_SHARED_STORAGE
+	if (mode !== undefined && mode !== 'enabled' && mode !== 'disabled') {
+		throw new Error('Platform env unavailable - shared storage mode is invalid')
+	}
+	return mode
 }
 
 export async function usingDevMocks(): Promise<boolean> {

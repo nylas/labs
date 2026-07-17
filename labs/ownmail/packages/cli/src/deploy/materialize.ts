@@ -26,7 +26,7 @@ export function loadManifest(): TemplateManifest {
 export type MaterializeInput = {
 	slug: string
 	workerName: string
-	kvNamespaceId: string
+	kvNamespaceId?: string
 	vars: Record<string, string>
 	/** Optional custom domain for the app itself (Cloudflare custom_domain route). */
 	appDomain?: string
@@ -41,6 +41,7 @@ export type Materialized = {
 
 export type ManualExportInput = {
 	slug: string
+	sharedStorage: boolean
 	region: 'us' | 'eu'
 	apiBaseUrl?: string
 	applicationId: string
@@ -134,7 +135,11 @@ export function materialize(input: MaterializeInput): Materialized {
 	const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
 	config.name = input.workerName
 	config.topLevelName = input.workerName
-	config.kv_namespaces = [{ binding: 'SESSIONS', id: input.kvNamespaceId }]
+	if (input.kvNamespaceId) {
+		config.kv_namespaces = [{ binding: 'SESSIONS', id: input.kvNamespaceId }]
+	} else {
+		delete config.kv_namespaces
+	}
 	config.vars = input.vars
 	if (input.appDomain) {
 		config.routes = [{ pattern: input.appDomain, custom_domain: true }]
@@ -211,6 +216,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 			'NYLAS_API_KEY=<set in your hosting provider secrets>',
 			'SESSION_SECRET=<set in your hosting provider secrets>',
 			'NYLAS_WEBHOOK_SECRET=<optional>',
+			`OWNMAIL_SHARED_STORAGE=${input.sharedStorage ? 'enabled' : 'disabled'}`,
 			`NYLAS_CLIENT_ID=${input.applicationId}`,
 			`NYLAS_REGION=${input.region}`,
 			...(input.apiBaseUrl ? [`NYLAS_API_BASE_URL=${input.apiBaseUrl}`] : []),

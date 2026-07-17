@@ -21,6 +21,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
 			`health:   ${summary.health}`,
 			`region:   ${summary.region}`,
 			`hosting:  ${summary.hosting}`,
+			`storage:  ${summary.sharedStorage ? 'shared' : 'stateless'}`,
 			`domain:   ${summary.domain ?? '—'}${summary.domainVerified ? ' (verified)' : ''}`,
 			`inbox:    ${summary.inbox ?? '—'}`,
 			`app URL:  ${summary.appUrl ?? 'not deployed yet'}`,

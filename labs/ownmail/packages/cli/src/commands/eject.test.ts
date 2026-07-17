@@ -194,6 +194,7 @@ describe('runEject — writes the project', () => {
 		const project = makeProject({
 			workerName: undefined,
 			kvNamespaceId: undefined,
+			sharedStorage: false,
 			inboxEmail: undefined,
 		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
@@ -206,8 +207,9 @@ describe('runEject — writes the project', () => {
 		expect(writtenFile('.dev.vars')).toContain('<create an API key in the Nylas dashboard>')
 		// Worker name falls back to `${slug}-ownmail`.
 		expect(writtenFile('wrangler.jsonc')).toContain('"name": "acme-ownmail"')
-		// Empty KV id and inbox email.
-		expect(writtenFile('wrangler.jsonc')).toContain('"id": ""')
+		// No invalid placeholder KV binding is emitted; inbox email remains empty.
+		expect(writtenFile('wrangler.jsonc')).not.toContain('kv_namespaces')
+		expect(writtenFile('wrangler.jsonc')).toContain('"OWNMAIL_SHARED_STORAGE": "disabled"')
 		expect(writtenFile('wrangler.jsonc')).toContain('NYLAS_API_BASE_URL')
 		expect(cpSync).not.toHaveBeenCalledWith(join(ROOT, 'public'), expect.anything(), expect.anything())
 	})

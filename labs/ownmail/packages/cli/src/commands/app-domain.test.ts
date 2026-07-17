@@ -84,9 +84,15 @@ describe('runAppDomain', () => {
 		await expect(runAppDomain({})).rejects.toThrow(/hasn.t deployed yet/)
 	})
 
-	it('throws when the KV namespace is missing', async () => {
-		vi.mocked(pickExistingProject).mockResolvedValue(project({ kvNamespaceId: undefined }))
-		await expect(runAppDomain({})).rejects.toThrow(/hasn.t deployed yet/)
+	it('attaches a domain without a KV binding when shared storage is disabled', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			project({ sharedStorage: false, kvNamespaceId: undefined }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: null } as never)
+		await runAppDomain({ domain: 'mail.acme.com' })
+		expect(materialize).toHaveBeenCalledWith(
+			expect.not.objectContaining({ kvNamespaceId: expect.anything() }),
+		)
 	})
 
 	it('throws when the application id is missing', async () => {
@@ -137,6 +143,7 @@ describe('runAppDomain', () => {
 		expect(matInput.vars.NYLAS_API_BASE_URL).toBe('https://api-runtime.example.com')
 		expect(matInput.vars.INBOX_EMAIL).toBe('hi@acme.com')
 		expect(matInput.vars.TEMPLATE_VERSION).toBe('3.0.0')
+		expect(matInput.vars.OWNMAIL_SHARED_STORAGE).toBe('enabled')
 		expect(deploy).toHaveBeenCalledWith('/tmp/wrangler.json')
 		expect(proj.appDomain).toBe('mail.acme.com')
 		expect(proj.templateVersion).toBe('3.0.0')

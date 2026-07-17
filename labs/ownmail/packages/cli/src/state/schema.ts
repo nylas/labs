@@ -46,6 +46,7 @@ export const StepIdSchema = z.enum([
 	'domain',
 	'grant',
 	'hosting',
+	'storage',
 	'cf-auth',
 	'cf-resources',
 	'redirect-uris',
@@ -76,6 +77,8 @@ export const ProjectStateSchema = z.object({
 	region: z.enum(['us', 'eu']).default('us'),
 	orgPublicId: z.string().optional(),
 	hostingProvider: z.enum(['cloudflare', 'vercel', 'netlify', 'local', 'manual']).optional(),
+	/** Explicit shared session/realtime storage choice. Undefined is legacy state resolved on resume. */
+	sharedStorage: z.boolean().optional(),
 
 	applicationId: z.string().optional(),
 	apiKeyId: z.string().optional(),

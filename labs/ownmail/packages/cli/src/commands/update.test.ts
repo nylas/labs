@@ -28,7 +28,8 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	deployVercel: vi.fn(),
 	deployNetlify: vi.fn(),
 	ensureVercelProject: vi.fn(),
-	ensureVercelRealtimeStore: vi.fn(),
+	setNetlifyEnvironment: vi.fn(),
+	setVercelEnvironment: vi.fn(),
 }))
 
 vi.mock('../deploy/wrangler.js', () => ({
@@ -41,6 +42,7 @@ vi.mock('../nylas-env.js', () => ({
 
 vi.mock('../state/store.js', () => ({
 	saveProject: vi.fn(),
+	markStep: vi.fn(),
 	configDir: vi.fn(() => '/config'),
 }))
 
@@ -48,6 +50,8 @@ vi.mock('../state/pending-secrets.js', () => ({ readPendingSecret: vi.fn() }))
 
 vi.mock('../steps/deploy.js', () => ({
 	ensureCloudflareAuth: vi.fn(),
+	prepareVercelSharedStorage: vi.fn(),
+	resolveSharedStorageChoice: vi.fn(async (project: ProjectState) => project.sharedStorage === true),
 }))
 
 vi.mock('./shared.js', () => ({
@@ -68,13 +72,18 @@ import {
 	deployNetlify,
 	deployVercel,
 	ensureVercelProject,
-	ensureVercelRealtimeStore,
+	setNetlifyEnvironment,
+	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
-import { saveProject } from '../state/store.js'
-import { ensureCloudflareAuth } from '../steps/deploy.js'
+import { markStep, saveProject } from '../state/store.js'
+import {
+	ensureCloudflareAuth,
+	prepareVercelSharedStorage,
+	resolveSharedStorageChoice,
+} from '../steps/deploy.js'
 import { pickExistingProject } from './shared.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
@@ -83,6 +92,7 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 		createdAt: 0,
 		updatedAt: 0,
 		region: 'us',
+		sharedStorage: true,
 		ejected: false,
 		completedSteps: [],
 		pendingSecrets: {},
@@ -222,6 +232,16 @@ describe('runUpdate — redeploy', () => {
 		expect(p.outro).toHaveBeenCalledWith('Secrets and sessions were untouched.')
 	})
 
+	it('redeploys Cloudflare without a KV binding after storage opt-out', async () => {
+		const project = fullDeployProject({ sharedStorage: false, kvNamespaceId: undefined })
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		await runUpdate({})
+		expect(materialize).toHaveBeenCalledWith(
+			expect.not.objectContaining({ kvNamespaceId: expect.anything() }),
+		)
+		expect(ensureCloudflareAuth).toHaveBeenCalledWith({ sharedStorage: false })
+	})
+
 	it('shows migration notes when upgrading across versions', async () => {
 		vi.mocked(loadManifest).mockReturnValue({
 			templateVersion: '1.2.0',
@@ -303,7 +323,7 @@ describe('runUpdate — redeploy', () => {
 })
 
 describe('runUpdate — Node providers', () => {
-	it('redeploys a linked Vercel project without rotating settings', async () => {
+	it('redeploys a linked Vercel project and preserves the selected storage mode', async () => {
 		const project = makeProject({
 			hostingProvider: 'vercel',
 			vercelProjectId: 'prj_1',
@@ -317,8 +337,34 @@ describe('runUpdate — Node providers', () => {
 			projectId: 'prj_1',
 			orgId: 'team_1',
 		})
-		expect(ensureVercelRealtimeStore).toHaveBeenCalledWith('/tmp/vercel', 'acme-realtime', 'us')
+		expect(prepareVercelSharedStorage).toHaveBeenCalledWith('/tmp/vercel', 'acme', 'us', 'team_1')
+		expect(setVercelEnvironment).toHaveBeenCalledWith(
+			'/tmp/vercel',
+			{ OWNMAIL_SHARED_STORAGE: 'enabled' },
+			new Set(),
+		)
 		expect(project.providerAppUrl).toBe('https://acme.vercel.app')
+	})
+
+	it('redeploys Vercel without touching shared storage after opt-out', async () => {
+		const project = makeProject({
+			hostingProvider: 'vercel',
+			sharedStorage: false,
+			vercelProjectId: 'prj_1',
+			vercelOrgId: 'team_1',
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		vi.mocked(checkAppHealth).mockResolvedValueOnce(true)
+		await runUpdate({})
+		expect(resolveSharedStorageChoice).toHaveBeenCalledWith(project)
+		expect(markStep).toHaveBeenCalledWith(project, 'storage')
+		expect(setVercelEnvironment).toHaveBeenCalledWith(
+			'/tmp/vercel',
+			{ OWNMAIL_SHARED_STORAGE: 'disabled' },
+			new Set(),
+		)
+		expect(prepareVercelSharedStorage).not.toHaveBeenCalled()
+		expect(deployVercel).toHaveBeenCalled()
 	})
 
 	it('reports Vercel runtime logs when the redeployed app is unhealthy', async () => {
@@ -350,8 +396,32 @@ describe('runUpdate — Node providers', () => {
 		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
 		await runUpdate({})
+		expect(setNetlifyEnvironment).toHaveBeenCalledWith(
+			'/tmp/netlify',
+			project.netlifySiteId,
+			{ OWNMAIL_SHARED_STORAGE: 'enabled' },
+			new Set(),
+		)
 		expect(deployNetlify).toHaveBeenCalledWith('/tmp/netlify', project.netlifySiteId)
 		expect(project.providerAppUrl).toBe('https://acme.netlify.app')
+	})
+
+	it('preserves a storage opt-out when redeploying Netlify', async () => {
+		const project = makeProject({
+			hostingProvider: 'netlify',
+			sharedStorage: false,
+			netlifySiteId: '123e4567-e89b-42d3-a456-426614174000',
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+
+		await runUpdate({})
+
+		expect(setNetlifyEnvironment).toHaveBeenCalledWith(
+			'/tmp/netlify',
+			project.netlifySiteId,
+			{ OWNMAIL_SHARED_STORAGE: 'disabled' },
+			new Set(),
+		)
 	})
 
 	it('stops the provider spinner on a failed redeploy', async () => {
@@ -377,6 +447,7 @@ describe('runUpdate — Node providers', () => {
 				environment: expect.objectContaining({
 					NYLAS_API_KEY: 'nyk_secret',
 					NYLAS_API_BASE_URL: 'https://api-staging.us.nylas.com',
+					OWNMAIL_SHARED_STORAGE: 'enabled',
 				}),
 			}),
 		)
@@ -394,6 +465,7 @@ describe('runUpdate — Node providers', () => {
 	it('restarts a stopped local server without an API base override', async () => {
 		const project = makeProject({
 			hostingProvider: 'local',
+			sharedStorage: false,
 			applicationId: 'app_1',
 			inboxEmail: 'hello@example.com',
 		})
@@ -402,6 +474,9 @@ describe('runUpdate — Node providers', () => {
 		expect(vi.mocked(startLocalServer).mock.calls.at(-1)?.[0].environment).not.toHaveProperty(
 			'NYLAS_API_BASE_URL',
 		)
+		expect(vi.mocked(startLocalServer).mock.calls.at(-1)?.[0].environment).toMatchObject({
+			OWNMAIL_SHARED_STORAGE: 'disabled',
+		})
 	})
 
 	it('fails when local runtime secrets or required settings are missing', async () => {

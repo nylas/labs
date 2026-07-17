@@ -9,6 +9,7 @@ import {
 	stepDeploy,
 	stepHostingProvider,
 	stepRedirectUris,
+	stepSharedStorage,
 	stepVerify,
 	stepWebhook,
 } from '../steps/deploy.js'
@@ -56,6 +57,7 @@ const SETUP_PHASES: SetupPhase[] = [
 		name: 'Review your setup plan',
 		steps: [
 			{ id: 'hosting', run: stepHostingProvider },
+			{ id: 'storage', run: stepSharedStorage },
 			{ id: 'cf-auth', run: stepCfAuth },
 			{ id: 'domain-plan', run: stepDomainPlan },
 			{ id: 'plan-confirmed', run: stepConfirmPlan },
@@ -159,6 +161,7 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 			`Region:       ${ctx.project.region.toUpperCase()}`,
 			`Email domain: ${emailDomain}`,
 			`Hosting:      ${hosting}`,
+			`Storage:      ${ctx.project.sharedStorage ? 'Shared sessions + instant updates' : 'Signed cookies + polling'}`,
 			'',
 			'Continuing creates the Nylas app, API key, email domain, and inbox shown above.',
 		].join('\n'),

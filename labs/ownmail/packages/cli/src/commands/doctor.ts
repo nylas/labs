@@ -274,7 +274,9 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		}
 
 		if (opts.fix) {
-			if (project.hostingProvider === 'manual') {
+			if (project.sharedStorage === false) {
+				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'storage-disabled' }))
+			} else if (project.hostingProvider === 'manual') {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'manual-hosting' }))
 			} else if (
 				project.hostingProvider &&
@@ -446,6 +448,13 @@ function formatWebhookRepairResult(result: Awaited<ReturnType<typeof setupRealti
 			status: 'pass',
 			detail: 'registered realtime webhook',
 			fixed: true,
+		}
+	}
+	if (result.status === 'skipped' && result.reason === 'storage-disabled') {
+		return {
+			name: 'Instant updates',
+			status: 'skip',
+			detail: 'shared storage is disabled; the app uses periodic polling',
 		}
 	}
 	if (result.status === 'skipped' && result.reason === 'missing-app-url') {

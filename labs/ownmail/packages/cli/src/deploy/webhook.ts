@@ -6,7 +6,7 @@ import { materializeVercel } from './materialize.js'
 import {
 	deployVercel,
 	ensureVercelProject,
-	ensureVercelRealtimeStore,
+	inspectVercelRealtimeStore,
 	setVercelEnvironment,
 } from './provider-cli.js'
 import { putSecret } from './wrangler.js'
@@ -17,7 +17,12 @@ export type RealtimeWebhookResult =
 	| { status: 'registered'; callbackUrl: string; secretStored: boolean }
 	| {
 			status: 'skipped'
-			reason: 'manual-hosting' | 'non-cloudflare-hosting' | 'missing-app-url' | 'unhealthy-app'
+			reason:
+				| 'storage-disabled'
+				| 'manual-hosting'
+				| 'non-cloudflare-hosting'
+				| 'missing-app-url'
+				| 'unhealthy-app'
 	  }
 	| { status: 'failed'; callbackUrl: string }
 
@@ -39,6 +44,9 @@ export async function setupRealtimeWebhook(
 		project.hostingProvider !== 'vercel'
 	) {
 		return { status: 'skipped', reason: 'non-cloudflare-hosting' }
+	}
+	if (project.sharedStorage !== true && !project.kvNamespaceId) {
+		return { status: 'skipped', reason: 'storage-disabled' }
 	}
 
 	const url = webhookBaseUrl(project)
@@ -78,7 +86,9 @@ async function storeWebhookSecret(project: ProjectState, secret: string, expecte
 			projectId: project.vercelProjectId,
 			orgId: project.vercelOrgId,
 		})
-		await ensureVercelRealtimeStore(materialized.dir, `${project.slug}-realtime`, project.region)
+		if ((await inspectVercelRealtimeStore(materialized.dir)) !== 'available') {
+			throw new Error('Vercel shared storage is missing; rerun OwnMail setup before enabling webhooks.')
+		}
 		await setVercelEnvironment(
 			materialized.dir,
 			{ NYLAS_WEBHOOK_SECRET: secret },

@@ -110,20 +110,22 @@ workflow. You stay in charge of the code from there.
 
 ## Choose where it runs
 
-`npx ownmail` offers four guided targets:
+`npx ownmail` offers five guided targets:
 
-- **Cloudflare Workers** — Wrangler deploy with KV-backed sessions and realtime
-  webhook refresh.
-- **Vercel** — prebuilt Node function deploy with a free Upstash Redis resource
-  for durable sessions and realtime webhook refresh.
+- **Cloudflare Workers** — Wrangler deploy with optional Cloudflare KV storage.
+- **Vercel** — prebuilt Node function deploy with optional Upstash Redis storage.
 - **Netlify** — Node function deploy with static assets served from its CDN.
 - **Run locally** — production Node build bound only to `localhost`; keep the
   terminal open and press Ctrl+C to stop it.
+- **Manual upload** — exported Node bundle for another compatible provider.
 
-Netlify and local targets use stateless signed-cookie sessions and poll for new
-mail. Cloudflare and Vercel use shared storage plus Nylas webhooks for instant
-updates. The CLI registers each resulting callback URL automatically. Provider
-CLIs may open a browser the first time you sign in.
+Shared storage is optional. Without it, OwnMail uses HMAC-signed cookies and
+polls periodically for new mail. Enabling it keeps sessions server-side and
+allows Nylas webhooks to signal instant refreshes. Cloudflare uses its native KV;
+Vercel uses the third-party Upstash Marketplace integration. OwnMail explains
+that dependency and verifies that you installed Upstash and accepted its terms
+before it provisions a resource. Provider CLIs may open a browser the first time
+you sign in.
 
 ## Local development
 

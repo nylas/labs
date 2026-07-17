@@ -111,8 +111,11 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				compatibility_date: '2026-06-01',
 				compatibility_flags: ['nodejs_compat'],
 				main: '@tanstack/react-start/server-entry',
-				kv_namespaces: [{ binding: 'SESSIONS', id: project.kvNamespaceId ?? '' }],
+				...(project.sharedStorage !== false && project.kvNamespaceId
+					? { kv_namespaces: [{ binding: 'SESSIONS', id: project.kvNamespaceId }] }
+					: {}),
 				vars: {
+					OWNMAIL_SHARED_STORAGE: project.sharedStorage !== false ? 'enabled' : 'disabled',
 					NYLAS_CLIENT_ID: project.applicationId.trim(),
 					NYLAS_REGION: project.region,
 					...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
