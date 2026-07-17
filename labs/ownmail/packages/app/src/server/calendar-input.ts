@@ -11,11 +11,9 @@ const RECURRENCE_WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const
 
 type RsvpStatus = (typeof RSVP_STATUSES)[number]
 export type RecurrenceWeekday = (typeof RECURRENCE_WEEKDAYS)[number]
-export type EventRecurrence = {
-	frequency: (typeof RECURRENCE_FREQUENCIES)[number]
-	interval: 1 | 2
-	weekdays?: RecurrenceWeekday[]
-}
+export type EventRecurrence =
+	| { frequency: 'weekly'; interval: 1 | 2; weekdays: RecurrenceWeekday[] }
+	| { frequency: 'yearly'; interval: 1; weekdays?: never }
 
 export type EventRangeInput = {
 	start: number

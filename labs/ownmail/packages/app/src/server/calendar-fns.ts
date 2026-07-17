@@ -119,7 +119,7 @@ export const createEvent = createServerFn({ method: 'POST' })
 
 function recurrenceRules(recurrence: NonNullable<CreateEventInput['recurrence']>): string[] {
 	if (recurrence.frequency === 'yearly') return ['RRULE:FREQ=YEARLY']
-	return [`RRULE:FREQ=WEEKLY;INTERVAL=${recurrence.interval};BYDAY=${recurrence.weekdays!.join(',')}`]
+	return [`RRULE:FREQ=WEEKLY;INTERVAL=${recurrence.interval};BYDAY=${recurrence.weekdays.join(',')}`]
 }
 
 export const updateEvent = createServerFn({ method: 'POST' })
