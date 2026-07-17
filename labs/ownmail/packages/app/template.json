@@ -3,7 +3,14 @@
 	"minCliVersion": "0.1.0",
 	"requiredSecrets": ["NYLAS_API_KEY", "SESSION_SECRET"],
 	"optionalSecrets": ["NYLAS_WEBHOOK_SECRET"],
-	"requiredVars": ["NYLAS_CLIENT_ID", "NYLAS_REGION", "APP_NAME", "INBOX_EMAIL", "TEMPLATE_VERSION"],
-	"kvBindings": ["SESSIONS"],
+	"requiredVars": [
+		"NYLAS_CLIENT_ID",
+		"NYLAS_REGION",
+		"OWNMAIL_SHARED_STORAGE",
+		"APP_NAME",
+		"INBOX_EMAIL",
+		"TEMPLATE_VERSION"
+	],
+	"kvBindings": [],
 	"migrations": []
 }

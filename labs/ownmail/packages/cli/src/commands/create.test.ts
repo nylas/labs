@@ -36,6 +36,9 @@ vi.mock('../steps/deploy.js', () => ({
 	stepHostingProvider: vi.fn(async (ctx: { project: ProjectState }) => {
 		ctx.project.hostingProvider ??= 'cloudflare'
 	}),
+	stepSharedStorage: vi.fn(async (ctx: { project: ProjectState }) => {
+		ctx.project.sharedStorage ??= false
+	}),
 	stepCfAuth: vi.fn(),
 	stepCfResources: vi.fn(),
 	stepDeploy: vi.fn(),
@@ -442,6 +445,22 @@ describe('runCreate — step machine', () => {
 		expect(p.note).toHaveBeenCalledWith(expect.stringContaining(`Hosting:      ${label}`), 'Ready to create')
 	})
 
+	it('describes enabled shared storage in the creation summary', async () => {
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({
+				slug: 'acme',
+				hostingProvider: 'cloudflare',
+				sharedStorage: true,
+				domainAddress: 'existing.example.com',
+			}),
+		)
+		await runCreate({ name: 'acme' })
+		expect(p.note).toHaveBeenCalledWith(
+			expect.stringContaining('Storage:      Shared sessions + instant updates'),
+			'Ready to create',
+		)
+	})
+
 	it('does not re-confirm legacy projects that already have durable resources', async () => {
 		const project = makeProject({
 			slug: 'acme',
@@ -503,6 +522,7 @@ describe('runCreate — step machine', () => {
 			'domain',
 			'grant',
 			'hosting',
+			'storage',
 			'cf-auth',
 			'cf-resources',
 			'deploy',

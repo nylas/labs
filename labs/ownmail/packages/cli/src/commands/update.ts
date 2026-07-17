@@ -14,13 +14,18 @@ import {
 	deployNetlify,
 	deployVercel,
 	ensureVercelProject,
-	ensureVercelRealtimeStore,
+	setNetlifyEnvironment,
+	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
-import { configDir, saveProject } from '../state/store.js'
-import { ensureCloudflareAuth } from '../steps/deploy.js'
+import { configDir, markStep, saveProject } from '../state/store.js'
+import {
+	ensureCloudflareAuth,
+	prepareVercelSharedStorage,
+	resolveSharedStorageChoice,
+} from '../steps/deploy.js'
 import { pickExistingProject } from './shared.js'
 
 /**
@@ -40,6 +45,8 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 		)
 	}
 	const provider = project.hostingProvider ?? (project.workerName ? 'cloudflare' : 'manual')
+	await resolveSharedStorageChoice(project)
+	markStep(project, 'storage')
 	if (provider === 'manual') {
 		if (!project.manualDeployDir) {
 			throw new Error(`"${project.slug}" has not exported a manual deploy bundle yet. Run \`npx ownmail\`.`)
@@ -63,7 +70,11 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 		return
 	}
 
-	if (!project.workersDevUrl || !project.workerName || !project.kvNamespaceId) {
+	if (
+		!project.workersDevUrl ||
+		!project.workerName ||
+		(project.sharedStorage === true && !project.kvNamespaceId)
+	) {
 		throw new Error(`"${project.slug}" hasn’t finished its first deploy. Run \`npx ownmail\` to complete it.`)
 	}
 	const applicationId = requireNylasClientId(project.applicationId)
@@ -82,7 +93,7 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 		p.log.step(`Updating template ${project.templateVersion} → ${manifest.templateVersion}`)
 	}
 
-	await ensureCloudflareAuth()
+	await ensureCloudflareAuth({ sharedStorage: project.sharedStorage === true })
 
 	const runtimeApiBaseUrl = deployedApiBaseUrl(project.region)
 	const spinner = p.spinner()
@@ -90,9 +101,10 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 	const { configPath } = materialize({
 		slug: project.slug,
 		workerName: project.workerName,
-		kvNamespaceId: project.kvNamespaceId,
+		...(project.sharedStorage && project.kvNamespaceId ? { kvNamespaceId: project.kvNamespaceId } : {}),
 		...(project.appDomain ? { appDomain: project.appDomain } : {}),
 		vars: {
+			OWNMAIL_SHARED_STORAGE: project.sharedStorage === true ? 'enabled' : 'disabled',
 			NYLAS_CLIENT_ID: applicationId,
 			NYLAS_REGION: project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
@@ -135,7 +147,14 @@ async function updateNodeProvider(
 				projectId: project.vercelProjectId,
 				orgId: project.vercelOrgId,
 			})
-			await ensureVercelRealtimeStore(materialized.dir, `${project.slug}-realtime`, project.region)
+			await setVercelEnvironment(
+				materialized.dir,
+				{ OWNMAIL_SHARED_STORAGE: project.sharedStorage === true ? 'enabled' : 'disabled' },
+				new Set(),
+			)
+			if (project.sharedStorage === true) {
+				await prepareVercelSharedStorage(materialized.dir, project.slug, project.region, project.vercelOrgId)
+			}
 			url = await deployVercel(materialized.dir, project.vercelOrgId)
 		} else {
 			if (!project.netlifySiteId) {
@@ -143,6 +162,12 @@ async function updateNodeProvider(
 					`"${project.slug}" is missing its recorded Netlify site. Run \`npx ownmail\` to repair it.`,
 				)
 			}
+			await setNetlifyEnvironment(
+				materialized.dir,
+				project.netlifySiteId,
+				{ OWNMAIL_SHARED_STORAGE: project.sharedStorage === true ? 'enabled' : 'disabled' },
+				new Set(),
+			)
 			url = await deployNetlify(materialized.dir, project.netlifySiteId)
 		}
 		project.providerAppUrl = url
@@ -192,6 +217,7 @@ async function updateLocalProject(project: Awaited<ReturnType<typeof pickExistin
 		environment: {
 			NYLAS_API_KEY: apiKey,
 			SESSION_SECRET: sessionSecret,
+			OWNMAIL_SHARED_STORAGE: project.sharedStorage === true ? 'enabled' : 'disabled',
 			NYLAS_CLIENT_ID: applicationId,
 			NYLAS_REGION: project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),

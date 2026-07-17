@@ -19,6 +19,8 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
+	hasVercelUpstashInstallation,
+	inspectVercelRealtimeStore,
 	listVercelScopes,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
@@ -86,6 +88,57 @@ export async function stepHostingProvider(ctx: StepContext): Promise<void> {
 	markStep(ctx.project, 'hosting')
 }
 
+export async function stepSharedStorage(ctx: StepContext): Promise<void> {
+	await resolveSharedStorageChoice(ctx.project)
+	markStep(ctx.project, 'storage')
+}
+
+export async function resolveSharedStorageChoice(project: StepContext['project']): Promise<boolean> {
+	if (typeof project.sharedStorage === 'boolean') return project.sharedStorage
+	if (project.kvNamespaceId) {
+		project.sharedStorage = true
+		saveProject(project)
+		return true
+	}
+	if (project.hostingProvider !== 'cloudflare' && project.hostingProvider !== 'vercel') {
+		project.sharedStorage = false
+		saveProject(project)
+		p.log.info(`${hostingLabel(project.hostingProvider)} uses signed-cookie sessions and periodic polling.`)
+		return false
+	}
+
+	const thirdParty = project.hostingProvider === 'vercel'
+	p.note(
+		[
+			'Shared storage keeps sessions server-side and enables webhook-driven mailbox refresh.',
+			'Without it, OwnMail still works using signed cookies and periodic polling.',
+			thirdParty
+				? 'Vercel storage uses the third-party Upstash Marketplace integration and requires separate terms acceptance.'
+				: 'Cloudflare storage uses a KV namespace in your Cloudflare account.',
+		].join('\n'),
+		'Shared storage (optional)',
+	)
+	const choice = await p.select({
+		message: 'How should OwnMail store sessions and update signals?',
+		options: [
+			{
+				value: false,
+				label: 'No shared storage',
+				hint: 'signed cookies + periodic polling',
+			},
+			{
+				value: true,
+				label: 'Enable shared storage',
+				hint: thirdParty ? 'requires Upstash setup' : 'uses Cloudflare KV',
+			},
+		],
+	})
+	if (p.isCancel(choice)) throw new CancelledError()
+	project.sharedStorage = choice
+	saveProject(project)
+	return choice
+}
+
 /** 07 — Cloudflare auth for wrangler deploys. */
 export async function stepCfAuth(_ctx: StepContext): Promise<void> {
 	if (_ctx.project.hostingProvider && _ctx.project.hostingProvider !== 'cloudflare') {
@@ -98,18 +151,21 @@ export async function stepCfAuth(_ctx: StepContext): Promise<void> {
 		return
 	}
 
-	await ensureCloudflareAuth()
+	await ensureCloudflareAuth({ sharedStorage: _ctx.project.sharedStorage === true })
 	markStep(_ctx.project, 'cf-auth')
 }
 
-export async function ensureCloudflareAuth(): Promise<void> {
+export async function ensureCloudflareAuth(options: { sharedStorage?: boolean } = {}): Promise<void> {
 	if (await wranglerLoggedIn()) return
+	const kvPermission = options.sharedStorage === false ? '' : ', Workers KV Storage Edit'
 
 	p.log.info(
 		[
-			'Cloudflare Workers hosts the mailbox app and its session storage.',
+			options.sharedStorage === false
+				? 'Cloudflare Workers hosts the mailbox app without shared session storage.'
+				: 'Cloudflare Workers hosts the mailbox app and its optional session storage.',
 			'Recommended: Wrangler OAuth opens a browser so you can sign in without copying credentials.',
-			'Advanced: for least privilege, use an API token with Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read; User: User Details Read, Memberships Read. Add Zone: Workers Routes Edit only when using a custom app domain.',
+			`Advanced: for least privilege, use an API token with Account: Workers Scripts Edit${kvPermission}, Account Settings Read; User: User Details Read, Memberships Read. Add Zone: Workers Routes Edit only when using a custom app domain.`,
 		].join('\n'),
 	)
 
@@ -155,7 +211,7 @@ export async function ensureCloudflareAuth(): Promise<void> {
 
 	if (!(await wranglerLoggedIn())) {
 		const recovery = cloudflareApiTokenConfigured()
-			? 'Cloudflare rejected the configured API token or it lacks permission. Replace `CLOUDFLARE_API_TOKEN` with a new token that has Account: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read; User: User Details Read, Memberships Read. Add Zone: Workers Routes Edit for a custom app domain.'
+			? `Cloudflare rejected the configured API token or it lacks permission. Replace \`CLOUDFLARE_API_TOKEN\` with a new token that has Account: Workers Scripts Edit${kvPermission}, Account Settings Read; User: User Details Read, Memberships Read. Add Zone: Workers Routes Edit for a custom app domain.`
 			: 'Cloudflare sign-in did not complete. Re-run `npx ownmail` and connect with Wrangler OAuth, then finish the browser flow.'
 		throw new Error(
 			`${recovery} No Cloudflare resources were changed, and setup can safely resume after you reconnect.`,
@@ -170,7 +226,7 @@ export async function stepCfResources(ctx: StepContext): Promise<void> {
 		return
 	}
 
-	if (!ctx.project.kvNamespaceId) {
+	if (ctx.project.sharedStorage === true && !ctx.project.kvNamespaceId) {
 		const spinner = p.spinner()
 		spinner.start('Creating session storage…')
 		try {
@@ -216,7 +272,9 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	const manifest = loadManifest()
 	const applicationId = requireNylasClientId(ctx.project.applicationId)
 	const workerName = requireProjectValue(ctx.project.workerName, 'Cloudflare worker name')
-	const kvNamespaceId = requireProjectValue(ctx.project.kvNamespaceId, 'Cloudflare KV namespace')
+	const kvNamespaceId = ctx.project.sharedStorage
+		? requireProjectValue(ctx.project.kvNamespaceId, 'Cloudflare KV namespace')
+		: undefined
 	const apiKey = requirePendingApiKey(ctx)
 	const runtimeApiBaseUrl = deployedApiBaseUrl(ctx.project.region)
 	const spinner = p.spinner()
@@ -225,9 +283,10 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	const { configPath } = materialize({
 		slug: ctx.project.slug,
 		workerName,
-		kvNamespaceId,
+		...(kvNamespaceId ? { kvNamespaceId } : {}),
 		...(ctx.project.appDomain ? { appDomain: ctx.project.appDomain } : {}),
 		vars: {
+			OWNMAIL_SHARED_STORAGE: ctx.project.sharedStorage === true ? 'enabled' : 'disabled',
 			NYLAS_CLIENT_ID: applicationId,
 			NYLAS_REGION: ctx.project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
@@ -273,13 +332,17 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 	const scope = existingProject?.orgId ?? (await selectVercelScope(ctx))
 	const { dir } = materializeVercel(ctx.project.slug)
 	const spinner = p.spinner()
-	spinner.start('Deploying your mailbox app to Vercel…')
+	spinner.start('Preparing your Vercel project…')
 	try {
 		const linked = await ensureVercelProject(dir, `${ctx.project.slug}-ownmail`, scope, existingProject)
 		ctx.project.vercelProjectId = linked.projectId
 		ctx.project.vercelOrgId = linked.orgId
 		saveProject(ctx.project)
-		await ensureVercelRealtimeStore(dir, `${ctx.project.slug}-realtime`, ctx.project.region)
+		spinner.stop('Vercel project ready.')
+		if (ctx.project.sharedStorage === true) {
+			await prepareVercelSharedStorage(dir, ctx.project.slug, ctx.project.region, linked.orgId)
+		}
+		spinner.start('Deploying your mailbox app to Vercel…')
 		await setVercelEnvironment(
 			dir,
 			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
@@ -297,6 +360,38 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 		rmSync(dir, { recursive: true, force: true })
 	}
 	markStep(ctx.project, 'deploy')
+}
+
+export async function prepareVercelSharedStorage(
+	dir: string,
+	slug: string,
+	region: 'us' | 'eu',
+	scope: string,
+): Promise<void> {
+	if ((await inspectVercelRealtimeStore(dir)) === 'available') return
+	if (!(await hasVercelUpstashInstallation(scope))) {
+		p.note(
+			[
+				'Upstash is a third-party Vercel Marketplace integration.',
+				'Review its terms and install it for the selected Vercel account before OwnMail provisions storage:',
+				`npx vercel integration accept-terms upstash --scope ${scope}`,
+				'',
+				'No Upstash resource has been created yet.',
+			].join('\n'),
+			'Upstash setup required',
+		)
+		const ready = await p.confirm({
+			message: 'Have you installed Upstash and accepted its Marketplace terms?',
+			initialValue: false,
+		})
+		if (p.isCancel(ready) || !ready) throw new CancelledError()
+		if (!(await hasVercelUpstashInstallation(scope))) {
+			throw new Error(
+				`Upstash is not installed for the selected Vercel account. Run \`npx vercel integration accept-terms upstash --scope ${scope}\`, then retry OwnMail.`,
+			)
+		}
+	}
+	await ensureVercelRealtimeStore(dir, `${slug}-realtime`, region)
 }
 
 async function selectVercelScope(ctx: StepContext): Promise<string> {
@@ -410,6 +505,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 	const apiKey = requirePendingApiKey(ctx)
 	const exported = exportManualBundle({
 		slug: ctx.project.slug,
+		sharedStorage: ctx.project.sharedStorage === true,
 		region: ctx.project.region,
 		...(runtimeApiBaseUrl ? { apiBaseUrl: runtimeApiBaseUrl } : {}),
 		applicationId,
@@ -465,6 +561,11 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 		ctx.project.hostingProvider !== 'vercel'
 	) {
 		p.log.info(`${hostingLabel(ctx.project.hostingProvider)} uses polling for new mail.`)
+		markStep(ctx.project, 'webhook')
+		return
+	}
+	if (ctx.project.sharedStorage !== true && !ctx.project.kvNamespaceId) {
+		p.log.info('Shared storage is disabled; OwnMail will poll periodically for new mail.')
 		markStep(ctx.project, 'webhook')
 		return
 	}
@@ -579,6 +680,7 @@ function runtimeEnvironment(
 	return {
 		NYLAS_API_KEY: apiKey,
 		SESSION_SECRET: sessionSecret,
+		OWNMAIL_SHARED_STORAGE: ctx.project.sharedStorage === true ? 'enabled' : 'disabled',
 		NYLAS_CLIENT_ID: requireNylasClientId(ctx.project.applicationId),
 		NYLAS_REGION: ctx.project.region,
 		...(apiBaseUrl ? { NYLAS_API_BASE_URL: apiBaseUrl } : {}),

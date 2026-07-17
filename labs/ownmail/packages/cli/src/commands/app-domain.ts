@@ -25,7 +25,7 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 	p.intro('ownmail app-domain')
 	const project = await pickExistingProject(opts.name)
 	if (project.ejected) throw new Error('Ejected projects manage their own wrangler routes.')
-	if (!project.workerName || !project.kvNamespaceId || !project.applicationId) {
+	if (!project.workerName || !project.applicationId) {
 		throw new Error('This project hasn’t deployed yet — run `npx ownmail` first.')
 	}
 
@@ -43,7 +43,9 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 		throw new Error('Enter a domain like mail.your-company.com')
 	}
 
-	await ensureCloudflareAuth()
+	await ensureCloudflareAuth({
+		sharedStorage: project.sharedStorage === true || Boolean(project.kvNamespaceId),
+	})
 
 	const manifest = loadManifest()
 	const runtimeApiBaseUrl = deployedApiBaseUrl(project.region)
@@ -53,9 +55,12 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 	const { configPath } = materialize({
 		slug: project.slug,
 		workerName: project.workerName,
-		kvNamespaceId: project.kvNamespaceId,
+		...(project.sharedStorage !== false && project.kvNamespaceId
+			? { kvNamespaceId: project.kvNamespaceId }
+			: {}),
 		appDomain: domain,
 		vars: {
+			OWNMAIL_SHARED_STORAGE: project.sharedStorage !== false ? 'enabled' : 'disabled',
 			NYLAS_CLIENT_ID: project.applicationId,
 			NYLAS_REGION: project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),

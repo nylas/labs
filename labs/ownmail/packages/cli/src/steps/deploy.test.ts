@@ -16,6 +16,8 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
+	hasVercelUpstashInstallation,
+	inspectVercelRealtimeStore,
 	listVercelScopes,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
@@ -40,6 +42,7 @@ import {
 	stepDeploy,
 	stepHostingProvider,
 	stepRedirectUris,
+	stepSharedStorage,
 	stepVerify,
 	stepWebhook,
 } from './deploy.js'
@@ -80,6 +83,8 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	ensureNetlifySite: vi.fn(),
 	ensureVercelProject: vi.fn(),
 	ensureVercelRealtimeStore: vi.fn(),
+	hasVercelUpstashInstallation: vi.fn(),
+	inspectVercelRealtimeStore: vi.fn(),
 	listVercelScopes: vi.fn(),
 	resolveVercelProductionUrl: vi.fn(),
 	setNetlifyEnvironment: vi.fn(),
@@ -155,6 +160,7 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 		createdAt: 1,
 		updatedAt: 1,
 		region: 'us',
+		sharedStorage: true,
 		ejected: false,
 		completedSteps: [],
 		pendingSecrets: {},
@@ -194,6 +200,8 @@ beforeEach(() => {
 	vi.mocked(materializeNetlify).mockReturnValue({ dir: '/tmp/netlify' })
 	vi.mocked(materializeLocal).mockReturnValue({ dir: '/config/runtimes/my-inbox' })
 	vi.mocked(ensureVercelProject).mockResolvedValue({ projectId: 'prj_1', orgId: 'team_1' })
+	vi.mocked(inspectVercelRealtimeStore).mockResolvedValue('available')
+	vi.mocked(hasVercelUpstashInstallation).mockResolvedValue(true)
 	vi.mocked(listVercelScopes).mockResolvedValue([
 		{ id: 'user_1', slug: 'aaron', name: 'aaron', current: true },
 		{ id: 'team_1', slug: 'acme', name: 'Acme Team', current: false },
@@ -248,6 +256,51 @@ describe('stepHostingProvider', () => {
 	})
 })
 
+describe('stepSharedStorage', () => {
+	it('reuses an explicit choice without prompting again', async () => {
+		const ctx = makeCtx(makeProject({ hostingProvider: 'cloudflare', sharedStorage: true }))
+		await stepSharedStorage(ctx)
+		expect(p.select).not.toHaveBeenCalled()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'storage')
+	})
+
+	it('persists an explicit opt-out without provisioning anything', async () => {
+		vi.mocked(p.select).mockResolvedValueOnce(false)
+		const ctx = makeCtx(makeProject({ hostingProvider: 'vercel', sharedStorage: undefined }))
+
+		await stepSharedStorage(ctx)
+
+		expect(ctx.project.sharedStorage).toBe(false)
+		expect(saveProject).toHaveBeenCalledWith(ctx.project)
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'storage')
+	})
+
+	it('preserves legacy Cloudflare KV projects as shared-storage deployments', async () => {
+		const ctx = makeCtx(
+			makeProject({ hostingProvider: 'cloudflare', sharedStorage: undefined, kvNamespaceId: 'kv-1' }),
+		)
+
+		await stepSharedStorage(ctx)
+
+		expect(ctx.project.sharedStorage).toBe(true)
+		expect(p.select).not.toHaveBeenCalled()
+	})
+
+	it('records unsupported hosting modes as stateless', async () => {
+		const ctx = makeCtx(makeProject({ hostingProvider: 'netlify', sharedStorage: undefined }))
+		await stepSharedStorage(ctx)
+		expect(ctx.project.sharedStorage).toBe(false)
+		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('signed-cookie sessions'))
+	})
+
+	it('stays resumable when the storage choice is cancelled', async () => {
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+		const ctx = makeCtx(makeProject({ hostingProvider: 'cloudflare', sharedStorage: undefined }))
+		await expect(stepSharedStorage(ctx)).rejects.toBeInstanceOf(CancelledError)
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'storage')
+	})
+})
+
 describe('stepCfAuth', () => {
 	it('skips Cloudflare auth for manual hosting', async () => {
 		const ctx = makeCtx(makeProject({ hostingProvider: 'manual' }))
@@ -288,6 +341,15 @@ describe('ensureCloudflareAuth', () => {
 		vi.mocked(cloudflareApiTokenConfigured).mockReturnValue(true)
 		await ensureCloudflareAuth()
 		expect(p.select).not.toHaveBeenCalled()
+	})
+
+	it('does not request KV permission when shared storage is disabled', async () => {
+		vi.mocked(wranglerLoggedIn).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+		vi.mocked(cloudflareApiTokenConfigured).mockReturnValue(true)
+		await ensureCloudflareAuth({ sharedStorage: false })
+		const message = String(vi.mocked(p.log.info).mock.calls[0]?.[0])
+		expect(message).toContain('without shared session storage')
+		expect(message).not.toContain('Workers KV Storage Edit')
 	})
 
 	it('accepts a pasted API token', async () => {
@@ -399,6 +461,14 @@ describe('stepCfResources', () => {
 		expect(ctx.project.workerName).toBe('mail-ownmail')
 	})
 
+	it('creates only the worker name when shared storage is disabled', async () => {
+		const ctx = makeCtx(makeProject({ sharedStorage: false }))
+		await stepCfResources(ctx)
+		expect(ensureKvNamespace).not.toHaveBeenCalled()
+		expect(ctx.project.kvNamespaceId).toBeUndefined()
+		expect(ctx.project.workerName).toBe('my-inbox-ownmail')
+	})
+
 	it('reuses existing KV namespace and worker name on resume', async () => {
 		const ctx = makeCtx(makeProject({ kvNamespaceId: 'existing-kv', workerName: 'existing-worker' }))
 		await stepCfResources(ctx)
@@ -466,6 +536,23 @@ describe('stepDeploy (cloudflare)', () => {
 		expect(putSecret).toHaveBeenCalledTimes(2)
 		expect(putSecret).toHaveBeenCalledWith('worker', 'NYLAS_API_KEY', 'secret-key')
 		expect(putSecret).toHaveBeenCalledWith('worker', 'SESSION_SECRET', expect.any(String))
+	})
+
+	it('deploys without a KV binding when shared storage is disabled', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://stateless.workers.dev')
+		const ctx = makeCtx(
+			makeProject({
+				sharedStorage: false,
+				applicationId: 'client-id',
+				workerName: 'worker',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		await stepDeploy(ctx)
+		expect(materialize).toHaveBeenCalledWith(
+			expect.not.objectContaining({ kvNamespaceId: expect.anything() }),
+		)
+		expect(deploy).toHaveBeenCalled()
 	})
 
 	it('throws when the pending API key is missing at deploy time', async () => {
@@ -547,6 +634,7 @@ describe('stepDeploy (additional providers)', () => {
 	}
 
 	it('links, configures, and deploys a Vercel project', async () => {
+		vi.mocked(inspectVercelRealtimeStore).mockResolvedValueOnce('missing')
 		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
 		await stepDeploy(ctx)
 
@@ -574,6 +662,54 @@ describe('stepDeploy (additional providers)', () => {
 		expect(ctx.project.vercelOrgId).toBe('team_1')
 		expect(ctx.project.providerAppUrl).toBe('https://my-inbox.vercel.app')
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('deploys to Vercel without inspecting or provisioning storage after opt-out', async () => {
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel', sharedStorage: false }))
+
+		await stepDeploy(ctx)
+
+		expect(inspectVercelRealtimeStore).not.toHaveBeenCalled()
+		expect(ensureVercelRealtimeStore).not.toHaveBeenCalled()
+		expect(deployVercel).toHaveBeenCalled()
+	})
+
+	it('pauses for verified Upstash setup before provisioning third-party storage', async () => {
+		vi.mocked(inspectVercelRealtimeStore).mockResolvedValueOnce('missing')
+		vi.mocked(hasVercelUpstashInstallation).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await stepDeploy(ctx)
+
+		expect(p.note).toHaveBeenCalledWith(
+			expect.stringContaining('accept-terms upstash'),
+			'Upstash setup required',
+		)
+		expect(hasVercelUpstashInstallation).toHaveBeenCalledTimes(2)
+		expect(ensureVercelRealtimeStore).toHaveBeenCalled()
+	})
+
+	it('does not provision storage when third-party setup is declined', async () => {
+		vi.mocked(inspectVercelRealtimeStore).mockResolvedValueOnce('missing')
+		vi.mocked(hasVercelUpstashInstallation).mockResolvedValueOnce(false)
+		vi.mocked(p.confirm).mockResolvedValueOnce(false)
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
+		expect(ensureVercelRealtimeStore).not.toHaveBeenCalled()
+		expect(deployVercel).not.toHaveBeenCalled()
+	})
+
+	it('refuses to continue when claimed third-party setup cannot be verified', async () => {
+		vi.mocked(inspectVercelRealtimeStore).mockResolvedValueOnce('missing')
+		vi.mocked(hasVercelUpstashInstallation).mockResolvedValue(false)
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
+		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/Upstash is not installed/)
+		expect(ensureVercelRealtimeStore).not.toHaveBeenCalled()
+		expect(deployVercel).not.toHaveBeenCalled()
 	})
 
 	it('reuses recorded Vercel identifiers', async () => {
@@ -824,6 +960,20 @@ describe('stepDeploy (manual)', () => {
 })
 
 describe('stepWebhook', () => {
+	it('uses polling for Cloudflare when shared storage is disabled', async () => {
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'cloudflare',
+				sharedStorage: false,
+				workerName: 'worker',
+				workersDevUrl: 'https://app.workers.dev',
+			}),
+		)
+		await stepWebhook(ctx)
+		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('poll periodically'))
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+	})
+
 	it('skips webhook setup for manual hosting', async () => {
 		const ctx = makeCtx(makeProject({ hostingProvider: 'manual' }))
 		await stepWebhook(ctx)

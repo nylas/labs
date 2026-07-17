@@ -123,27 +123,7 @@ export async function ensureVercelRealtimeStore(
 	if (!/^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$/.test(resourceName)) {
 		throw new Error('Vercel realtime storage name is invalid; refusing to provision it.')
 	}
-	const listed = await runProviderCli('vercel', [
-		'integration',
-		'list',
-		'--format',
-		'json',
-		'--cwd',
-		dir,
-		'--no-color',
-		'--non-interactive',
-	])
-	if (listed.code !== 0) throw providerFailure('vercel', 'inspect realtime storage', listed, false)
-	const resources = parseVercelIntegrationResources(listed.stdout)
-	const existing = resources.find((resource) => resource.product === 'Upstash for Redis')
-	if (existing) {
-		if (existing.status !== 'available' && existing.status !== 'initializing') {
-			throw new Error(
-				'Vercel realtime storage is unavailable. Repair or remove the Upstash resource in the Vercel dashboard, then retry.',
-			)
-		}
-		return
-	}
+	if ((await inspectVercelRealtimeStore(dir)) === 'available') return
 
 	const created = await runProviderCli('vercel', [
 		'integration',
@@ -181,6 +161,57 @@ export async function ensureVercelRealtimeStore(
 			'Vercel may have provisioned realtime storage, but OwnMail could not verify it. Inspect the project Storage tab, then retry the same command.',
 		)
 	}
+}
+
+export async function inspectVercelRealtimeStore(dir: string): Promise<'available' | 'missing'> {
+	const listed = await runProviderCli('vercel', [
+		'integration',
+		'list',
+		'--format',
+		'json',
+		'--cwd',
+		dir,
+		'--no-color',
+		'--non-interactive',
+	])
+	if (listed.code !== 0) throw providerFailure('vercel', 'inspect realtime storage', listed, false)
+	const resources = parseVercelIntegrationResources(listed.stdout)
+	const existing = resources.find((resource) => resource.product === 'Upstash for Redis')
+	if (existing) {
+		if (existing.status !== 'available' && existing.status !== 'initializing') {
+			throw new Error(
+				'Vercel realtime storage is unavailable. Repair or remove the Upstash resource in the Vercel dashboard, then retry.',
+			)
+		}
+		return 'available'
+	}
+	return 'missing'
+}
+
+export async function hasVercelUpstashInstallation(scope: string): Promise<boolean> {
+	const result = await runProviderCli('vercel', [
+		'integration',
+		'installations',
+		'--integration',
+		'upstash',
+		'--scope',
+		requireVercelScope(scope),
+		'--format',
+		'json',
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code !== 0) throw providerFailure('vercel', 'inspect Upstash setup', result, false)
+	const raw = parseJsonOutput(result.stdout)
+	if (!isRecord(raw) || !Array.isArray(raw.installations) || raw.installations.length > 100) {
+		throw new Error('Vercel returned an invalid Upstash installation list; refusing to provision storage.')
+	}
+	for (const installation of raw.installations) {
+		if (!isRecord(installation) || !validProviderId(installation.id)) {
+			throw new Error('Vercel returned an invalid Upstash installation list; refusing to provision storage.')
+		}
+	}
+	return raw.installations.length > 0
 }
 
 export async function deployVercel(dir: string, scope: string): Promise<string> {

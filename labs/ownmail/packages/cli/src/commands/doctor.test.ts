@@ -32,7 +32,7 @@ vi.mock('../deploy/materialize.js', () => ({ materializeVercel: vi.fn(() => ({ d
 vi.mock('../deploy/provider-cli.js', () => ({
 	deployVercel: vi.fn(async () => 'https://acme.vercel.app'),
 	ensureVercelProject: vi.fn(),
-	ensureVercelRealtimeStore: vi.fn(),
+	inspectVercelRealtimeStore: vi.fn(async () => 'available'),
 	setVercelEnvironment: vi.fn(),
 }))
 
@@ -68,6 +68,7 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 		createdAt: 0,
 		updatedAt: 0,
 		region: 'us',
+		sharedStorage: true,
 		ejected: false,
 		apiKeyId: 'key_1',
 		completedSteps: [],
@@ -480,6 +481,25 @@ describe('runDoctor — healthy project', () => {
 
 		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
 		expect(messages().some((message) => message.includes('this hosting mode uses polling'))).toBe(true)
+	})
+
+	it('reports explicit storage opt-out as a polling deployment under --fix', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				hostingProvider: 'cloudflare',
+				sharedStorage: false,
+				applicationId: 'app_1',
+				workersDevUrl: 'https://acme.workers.dev',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(messages().some((message) => message.includes('shared storage is disabled'))).toBe(true)
 	})
 
 	it('repairs instant updates on Vercel under --fix', async () => {

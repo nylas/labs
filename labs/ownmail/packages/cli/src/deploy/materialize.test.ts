@@ -68,6 +68,7 @@ describe('templateRoot / loadManifest', () => {
 describe('materialize', () => {
 	const base = {
 		slug: 'acme',
+		sharedStorage: false,
 		workerName: 'acme-worker',
 		kvNamespaceId: 'kv123',
 		vars: { NYLAS_CLIENT_ID: 'client-abc', APP_NAME: 'acme' },
@@ -98,6 +99,16 @@ describe('materialize', () => {
 		const [[, contents]] = vi.mocked(writeFileSync).mock.calls
 		const written = JSON.parse(contents as string)
 		expect(written.routes).toEqual([{ pattern: 'mail.acme.com', custom_domain: true }])
+	})
+
+	it('removes the KV binding when shared storage is disabled', () => {
+		;(wranglerConfig as Record<string, unknown>).kv_namespaces = [
+			{ binding: 'SESSIONS', id: 'build-placeholder' },
+		]
+		materialize({ ...base, kvNamespaceId: undefined })
+		const [[, contents]] = vi.mocked(writeFileSync).mock.calls
+		const written = JSON.parse(contents as string)
+		expect(written.kv_namespaces).toBeUndefined()
 	})
 })
 
@@ -181,6 +192,7 @@ describe('exportManualBundle', () => {
 		}
 		const target = exportManualBundle({
 			...base,
+			sharedStorage: true,
 			apiBaseUrl: 'https://api-eu.example.com',
 			apiKey: 'nyk_live_key',
 		})
@@ -194,6 +206,7 @@ describe('exportManualBundle', () => {
 		expect(packageJson.dependencies.nitro).toBe('3.0.260610-beta')
 		expect(written('.env.example')).toContain('NYLAS_API_BASE_URL=https://api-eu.example.com')
 		expect(written('.env.example')).toContain('NYLAS_CLIENT_ID=app-123')
+		expect(written('.env.example')).toContain('OWNMAIL_SHARED_STORAGE=enabled')
 		expect(written('secrets.env')).toContain('NYLAS_API_KEY=nyk_live_key')
 
 		const secretsCall = vi.mocked(writeFileSync).mock.calls.find(([p]) => String(p).endsWith('secrets.env'))
@@ -205,6 +218,7 @@ describe('exportManualBundle', () => {
 		exportManualBundle(base)
 		expect(cpSync).not.toHaveBeenCalled()
 		expect(written('.env.example')).not.toContain('NYLAS_API_BASE_URL')
+		expect(written('.env.example')).toContain('OWNMAIL_SHARED_STORAGE=disabled')
 		expect(written('secrets.env')).toContain('NYLAS_API_KEY=<create an API key in the Nylas dashboard>')
 	})
 })

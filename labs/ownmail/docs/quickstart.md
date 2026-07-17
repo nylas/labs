@@ -58,14 +58,19 @@ Your inbox also works in Apple Mail, Outlook, or Thunderbird:
 
 The wizard automates all supported targets:
 
-- Cloudflare uses Workers plus KV-backed sessions and supports webhook-driven
-  instant updates.
-- Vercel deploys the bundled Build Output API target and provisions a free
-  Upstash Redis resource for durable sessions and webhook-driven instant updates.
+- Cloudflare uses Workers and offers an explicit choice of optional KV-backed
+  sessions and webhook-driven instant updates.
+- Vercel deploys the bundled Build Output API target and offers optional Upstash
+  Redis storage. Upstash is a third-party Marketplace integration; when selected,
+  the wizard pauses before provisioning so you can review its terms, install it,
+  and confirm setup. OwnMail verifies the installation before continuing.
 - Netlify deploys static client assets plus a Node fetch function.
 - Local mode starts the same production Node build on loopback. Keep that
   terminal open; press Ctrl+C to stop it. Run `npx ownmail update` after it has
   stopped to restart on the latest version.
+
+Every target works without shared storage. Stateless deployments keep session
+and OAuth state in HMAC-signed cookies and poll periodically for new mail.
 
 Netlify and local mode use stateless signed-cookie sessions and refresh on
 navigation/focus. OwnMail stores hosted settings with the provider and keeps

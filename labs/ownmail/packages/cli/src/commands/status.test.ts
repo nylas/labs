@@ -85,6 +85,13 @@ describe('runStatus', () => {
 		expect(body).toContain('next:     npx ownmail')
 	})
 
+	it('labels an enabled shared-storage deployment', async () => {
+		vi.mocked(listProjects).mockReturnValue([project({ sharedStorage: true })])
+		await runStatus()
+		const [[body]] = vi.mocked(p.note).mock.calls
+		expect(body).toContain('storage:  shared')
+	})
+
 	it('prints machine-readable JSON when requested', async () => {
 		const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
 		vi.mocked(listProjects).mockReturnValue([

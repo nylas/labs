@@ -3,7 +3,8 @@
 // requiredSecrets/requiredVars/kvBindings.
 declare namespace Cloudflare {
 	interface Env {
-		SESSIONS: KVNamespace
+		/** Optional shared storage; without it the app uses signed cookies and polling. */
+		SESSIONS?: KVNamespace
 		NYLAS_API_KEY: string
 		SESSION_SECRET: string
 		/** Optional — realtime falls back to slow polling without it. */
@@ -13,6 +14,7 @@ declare namespace Cloudflare {
 		NYLAS_API_BASE_URL?: string
 		UPSTASH_REDIS_REST_URL?: string
 		UPSTASH_REDIS_REST_TOKEN?: string
+		OWNMAIL_SHARED_STORAGE?: 'enabled' | 'disabled'
 		OWNMAIL_DEV_MOCKS?: string
 		OWNMAIL_ALLOW_PASSWORD_RESET?: string
 		APP_NAME: string

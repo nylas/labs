@@ -6,7 +6,7 @@ type SetupPhase = { label: string; steps: StepId[] }
 const SETUP_PHASES: SetupPhase[] = [
 	{ label: 'Connect your Nylas account', steps: ['dashboard-auth', 'org'] },
 	{ label: 'Create your email address and inbox', steps: ['app', 'api-key', 'connector', 'domain', 'grant'] },
-	{ label: 'Choose and connect hosting', steps: ['hosting', 'cf-auth'] },
+	{ label: 'Choose and connect hosting', steps: ['hosting', 'storage', 'cf-auth'] },
 	{ label: 'Deploy your mailbox app', steps: ['cf-resources', 'deploy', 'webhook', 'redirect-uris'] },
 	{ label: 'Verify your app', steps: ['verify'] },
 ]
@@ -18,6 +18,7 @@ export type ProjectStatusSummary = {
 	health: string
 	nextCommand: string
 	hosting: string
+	sharedStorage: boolean
 	appUrl: string | null
 	domain: string | null
 	domainVerified: boolean
@@ -60,6 +61,7 @@ export function projectStatusSummary(project: ProjectState): ProjectStatusSummar
 		health: stage.health,
 		nextCommand: stage.nextCommand,
 		hosting: hostingLabel(project),
+		sharedStorage: project.sharedStorage ?? Boolean(project.kvNamespaceId),
 		appUrl: appUrl ?? null,
 		domain: project.domainAddress ?? null,
 		domainVerified: project.domainVerified === true,
