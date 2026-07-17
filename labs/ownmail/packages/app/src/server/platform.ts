@@ -18,6 +18,8 @@ export type AppEnv = {
 	NYLAS_API_BASE_URL?: string
 	UPSTASH_REDIS_REST_URL?: string
 	UPSTASH_REDIS_REST_TOKEN?: string
+	KV_REST_API_URL?: string
+	KV_REST_API_TOKEN?: string
 	OWNMAIL_SHARED_STORAGE?: 'enabled' | 'disabled'
 	OWNMAIL_DEV_MOCKS?: string
 	/** Explicit opt-in for authenticated mailbox password changes in the web UI. */
@@ -80,8 +82,7 @@ export async function platform(): Promise<Platform> {
 function nodeKv(env: AppEnv): KvLike | null {
 	const storageMode = sharedStorageMode(env)
 	if (storageMode === 'disabled') return null
-	const url = env.UPSTASH_REDIS_REST_URL?.trim()
-	const token = env.UPSTASH_REDIS_REST_TOKEN?.trim()
+	const { url, token } = nodeStorageCredentials(env)
 	if (!url && !token && storageMode !== 'enabled') return null
 	if (!url || !token) throw new Error('Platform env unavailable - realtime storage is incomplete')
 	let parsed: URL
@@ -121,6 +122,24 @@ function nodeKv(env: AppEnv): KvLike | null {
 		},
 		increment: (key) => redis.incr(key),
 	}
+}
+
+function nodeStorageCredentials(env: AppEnv): { url?: string; token?: string } {
+	const upstash = {
+		url: env.UPSTASH_REDIS_REST_URL?.trim(),
+		token: env.UPSTASH_REDIS_REST_TOKEN?.trim(),
+	}
+	const vercel = {
+		url: env.KV_REST_API_URL?.trim(),
+		token: env.KV_REST_API_TOKEN?.trim(),
+	}
+	if (Boolean(upstash.url) !== Boolean(upstash.token) || Boolean(vercel.url) !== Boolean(vercel.token)) {
+		throw new Error('Platform env unavailable - realtime storage is incomplete')
+	}
+	if (upstash.url && vercel.url && (upstash.url !== vercel.url || upstash.token !== vercel.token)) {
+		throw new Error('Platform env unavailable - realtime storage configuration conflicts')
+	}
+	return upstash.url ? upstash : vercel
 }
 
 function sharedStorageMode(env: AppEnv): 'enabled' | 'disabled' | undefined {

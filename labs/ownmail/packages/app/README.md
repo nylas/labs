@@ -24,7 +24,8 @@ use HMAC-signed cookies and mailbox refresh falls back to polling. Cloudflare ca
 use a bound KV namespace; guided Vercel deployments can use an Upstash Redis
 resource connected through the third-party Vercel Marketplace. Other Node
 deployments can opt in by setting `OWNMAIL_SHARED_STORAGE=enabled` together with
-`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+either `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` or Vercel's
+Marketplace-provided `KV_REST_API_URL` / `KV_REST_API_TOKEN` pair.
 
 ## Start simple, then take control
 

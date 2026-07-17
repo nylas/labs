@@ -14,6 +14,8 @@ declare namespace Cloudflare {
 		NYLAS_API_BASE_URL?: string
 		UPSTASH_REDIS_REST_URL?: string
 		UPSTASH_REDIS_REST_TOKEN?: string
+		KV_REST_API_URL?: string
+		KV_REST_API_TOKEN?: string
 		OWNMAIL_SHARED_STORAGE?: 'enabled' | 'disabled'
 		OWNMAIL_DEV_MOCKS?: string
 		OWNMAIL_ALLOW_PASSWORD_RESET?: string
