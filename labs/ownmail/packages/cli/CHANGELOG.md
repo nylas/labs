@@ -1,5 +1,13 @@
 # ownmail
 
+## 0.4.1
+
+### Patch Changes
+
+- 4590337: Require project names in create setup, support scoped and non-blocking Vercel deployments with actionable provider errors, and produce self-contained Vercel functions.
+- Updated dependencies [4590337]
+  - @ownmail/app@0.4.1
+
 ## 0.4.0
 
 ### Minor Changes
