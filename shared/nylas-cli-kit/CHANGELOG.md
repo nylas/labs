@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.3.0
+
+### Minor Changes
+
+- 1290aaf: Support webhook-driven instant updates on Vercel with automatically provisioned shared storage and secure webhook-secret rotation.
+
 ## 0.2.2
 
 ### Patch Changes
