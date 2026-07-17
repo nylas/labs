@@ -1,5 +1,16 @@
 # @ownmail/app
 
+## 0.5.0
+
+### Minor Changes
+
+- 1290aaf: Support webhook-driven instant updates on Vercel with automatically provisioned shared storage and secure webhook-secret rotation.
+
+### Patch Changes
+
+- Updated dependencies [1290aaf]
+  - @nylas-labs/cli-kit@0.3.0
+
 ## 0.4.1
 
 ### Patch Changes
