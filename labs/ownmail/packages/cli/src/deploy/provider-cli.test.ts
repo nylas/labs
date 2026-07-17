@@ -53,6 +53,7 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	listVercelScopes,
+	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from './provider-cli.js'
@@ -228,13 +229,16 @@ describe('Vercel provider CLI', () => {
 	})
 
 	it('deploys prebuilt output and validates the provider URL', async () => {
-		queueCli({ code: 0, stdout: 'https://acme.vercel.app\n' }, { code: 0, stdout: '{"readyState":"READY"}' })
+		queueCli(
+			{ code: 0, stdout: 'https://acme-build.vercel.app\n' },
+			{ code: 0, stdout: '{"readyState":"READY","aliases":["acme.vercel.app"]}' },
+		)
 		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://acme.vercel.app')
 		expect(spawnedArgs(0)).toEqual(expect.arrayContaining(['--format', 'json']))
 		expect(spawnedArgs(1)).toEqual(
 			expect.arrayContaining([
 				'inspect',
-				'https://acme.vercel.app',
+				'https://acme-build.vercel.app',
 				'--wait',
 				'--timeout',
 				'2m',
@@ -251,21 +255,54 @@ describe('Vercel provider CLI', () => {
 					deployment: { url: 'https://structured.vercel.app' },
 				}),
 			},
-			{ code: 0, stdout: '{"readyState":"READY"}' },
+			{ code: 0, stdout: '{"readyState":"READY","aliases":["structured-team.vercel.app"]}' },
 		)
-		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://structured.vercel.app')
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://structured-team.vercel.app')
 
 		queueCli(
 			{ code: 0, stdout: '{"url":"https://top-level.vercel.app"}' },
-			{ code: 0, stdout: '{"readyState":"READY"}' },
+			{ code: 0, stdout: '{"readyState":"READY","aliases":["top-level-team.vercel.app"]}' },
 		)
-		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://top-level.vercel.app')
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://top-level-team.vercel.app')
 
 		queueCli({ code: 0, stdout: 'https://attacker.example.com' })
 		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/invalid deployment URL/)
 
 		queueCli({ code: 0, stdout: '{"deployment":[]}' })
 		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/invalid deployment URL/)
+	})
+
+	it('resolves only a validated stable Vercel production alias', async () => {
+		queueCli({
+			code: 0,
+			stdout: JSON.stringify({
+				readyState: 'READY',
+				aliases: [
+					'https://custom.example.com',
+					'https://user:password@attacker.vercel.app',
+					'build-id.vercel.app',
+					'main-team.vercel.app',
+				],
+			}),
+		})
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).resolves.toBe(
+			'https://main-team.vercel.app',
+		)
+
+		queueCli({ code: 0, stdout: '{"readyState":"READY","aliases":["custom.example.com"]}' })
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not return its stable production URL/,
+		)
+
+		queueCli({ code: 0, stdout: '{"readyState":"READY","aliases":[123]}' })
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not return its stable production URL/,
+		)
+
+		queueCli({ code: 0, stdout: '{"readyState":"READY"}' })
+		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not return its stable production URL/,
+		)
 	})
 
 	it('reports queued and failed deployments with actionable inspection commands', async () => {
@@ -300,6 +337,9 @@ describe('Vercel provider CLI', () => {
 		)
 
 		queueCli({ code: 0, stdout: '{"url":"https://invalid-state.vercel.app"}' }, { code: 0, stdout: '[]' })
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/it did not become ready/)
+
+		queueCli({ code: 0, stdout: '{"url":"https://missing-state.vercel.app"}' }, { code: 0, stdout: '{}' })
 		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/it did not become ready/)
 	})
 })

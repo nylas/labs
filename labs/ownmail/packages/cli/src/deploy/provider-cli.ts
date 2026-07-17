@@ -129,11 +129,10 @@ export async function deployVercel(dir: string, scope: string): Promise<string> 
 	])
 	if (result.code !== 0) throw providerFailure('vercel', 'deploy the mailbox app', result, true)
 	const url = requireVercelDeploymentUrl(result.stdout)
-	await waitForVercelDeployment(url, scope)
-	return url
+	return resolveVercelProductionUrl(url, scope)
 }
 
-async function waitForVercelDeployment(url: string, scope: string): Promise<void> {
+export async function resolveVercelProductionUrl(url: string, scope: string): Promise<string> {
 	const result = await runProviderCli('vercel', [
 		'inspect',
 		url,
@@ -157,13 +156,39 @@ async function waitForVercelDeployment(url: string, scope: string): Promise<void
 		)
 	}
 	const raw = parseJsonOutput(result.stdout)
-	const readyState = isRecord(raw) && typeof raw.readyState === 'string' ? raw.readyState.toUpperCase() : ''
-	if (readyState === 'READY') return
+	if (!isRecord(raw)) {
+		throw new Error(
+			`Vercel accepted the mailbox deployment, but it did not become ready. Run \`npx vercel inspect ${url} --logs\` to view its build status and errors, then retry the same OwnMail command.`,
+		)
+	}
+	const readyState = typeof raw.readyState === 'string' ? raw.readyState.toUpperCase() : ''
+	if (readyState === 'READY') return requireVercelProductionAlias(raw, url)
 	if (readyState === 'INITIALIZING' || readyState === 'QUEUED' || readyState === 'BUILDING') {
 		throw vercelInitializingError(url)
 	}
 	throw new Error(
 		`Vercel accepted the mailbox deployment, but it did not become ready. Run \`npx vercel inspect ${url} --logs\` to view its build status and errors, then retry the same OwnMail command.`,
+	)
+}
+
+function requireVercelProductionAlias(value: Record<string, unknown>, deploymentUrl: string): string {
+	const aliases = Array.isArray(value.aliases) ? value.aliases : []
+	for (const alias of aliases) {
+		if (typeof alias !== 'string') continue
+		try {
+			const url = requireProviderUrl(
+				alias.startsWith('https://') ? alias : `https://${alias}`,
+				'vercel.app',
+				'Vercel',
+			)
+			if (url !== deploymentUrl) return url
+		} catch {
+			// Ignore custom domains and malformed aliases; only Vercel's validated
+			// stable production alias is safe to persist as the hosted-auth origin.
+		}
+	}
+	throw new Error(
+		`Vercel deployed the mailbox app, but did not return its stable production URL. Run \`npx vercel inspect ${deploymentUrl}\` to verify its aliases, then retry the same OwnMail command.`,
 	)
 }
 
@@ -413,7 +438,16 @@ function requireVercelDeploymentUrl(output: string): string {
 function requireProviderUrl(value: string, hostnameSuffix: string, provider: string): string {
 	try {
 		const url = new URL(value.trim())
-		if (url.protocol !== 'https:' || !url.hostname.endsWith(`.${hostnameSuffix}`)) throw new Error('invalid')
+		if (
+			url.protocol !== 'https:' ||
+			!url.hostname.endsWith(`.${hostnameSuffix}`) ||
+			url.username ||
+			url.password ||
+			url.port ||
+			url.pathname !== '/'
+		) {
+			throw new Error('invalid')
+		}
 		url.hash = ''
 		url.search = ''
 		return url.toString().replace(/\/$/, '')

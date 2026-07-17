@@ -16,6 +16,7 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	listVercelScopes,
+	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
@@ -78,6 +79,7 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	ensureNetlifySite: vi.fn(),
 	ensureVercelProject: vi.fn(),
 	listVercelScopes: vi.fn(),
+	resolveVercelProductionUrl: vi.fn(),
 	setNetlifyEnvironment: vi.fn(),
 	setVercelEnvironment: vi.fn(),
 }))
@@ -197,6 +199,7 @@ beforeEach(() => {
 	vi.mocked(p.select).mockResolvedValue('team_1')
 	vi.mocked(ensureNetlifySite).mockResolvedValue({ siteId: '123e4567-e89b-42d3-a456-426614174000' })
 	vi.mocked(deployVercel).mockResolvedValue('https://my-inbox.vercel.app')
+	vi.mocked(resolveVercelProductionUrl).mockImplementation(async (url) => url)
 	vi.mocked(deployNetlify).mockResolvedValue('https://my-inbox.netlify.app')
 	vi.mocked(findLocalPort).mockResolvedValue(3000)
 	vi.mocked(startLocalServer).mockResolvedValue('http://localhost:3000')
@@ -991,6 +994,29 @@ describe('stepWebhook', () => {
 })
 
 describe('stepRedirectUris', () => {
+	it('repairs an immutable Vercel deployment URL before registering hosted auth', async () => {
+		const ensureRedirectUris = vi.fn().mockResolvedValue(undefined)
+		vi.mocked(resolveVercelProductionUrl).mockResolvedValue('https://my-inbox-team.vercel.app')
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://my-inbox-build-id.vercel.app',
+				vercelOrgId: 'team_1',
+			}),
+			{ ensureRedirectUris },
+		)
+
+		await stepRedirectUris(ctx)
+
+		expect(resolveVercelProductionUrl).toHaveBeenCalledWith('https://my-inbox-build-id.vercel.app', 'team_1')
+		expect(ctx.project.providerAppUrl).toBe('https://my-inbox-team.vercel.app')
+		expect(saveProject).toHaveBeenCalledWith(ctx.project)
+		expect(ensureRedirectUris).toHaveBeenCalledWith([
+			'http://localhost:3000/auth/callback',
+			'https://my-inbox-team.vercel.app/auth/callback',
+		])
+	})
+
 	it('registers localhost, app domain, and workers.dev callbacks', async () => {
 		const ensureRedirectUris = vi.fn().mockResolvedValue(undefined)
 		const ctx = makeCtx(

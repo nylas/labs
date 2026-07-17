@@ -19,6 +19,7 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	listVercelScopes,
+	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
@@ -484,6 +485,13 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 /** 09 — Register redirect URIs for hosted auth. */
 export async function stepRedirectUris(ctx: StepContext): Promise<void> {
 	const v3 = requireV3(ctx)
+	if (ctx.project.hostingProvider === 'vercel' && ctx.project.providerAppUrl && ctx.project.vercelOrgId) {
+		ctx.project.providerAppUrl = await resolveVercelProductionUrl(
+			ctx.project.providerAppUrl,
+			ctx.project.vercelOrgId,
+		)
+		saveProject(ctx.project)
+	}
 	// Worker URL shape is deterministic before first deploy only if we know the
 	// account subdomain — so this step runs once after deploy too (doctor re-runs it).
 	const urls = new Set(['http://localhost:3000/auth/callback'])
