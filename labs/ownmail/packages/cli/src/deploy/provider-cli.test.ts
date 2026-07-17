@@ -104,7 +104,12 @@ describe('Vercel provider CLI', () => {
 				code: 0,
 				stdout: JSON.stringify({
 					teams: [
-						{ id: 'user_1', slug: 'aaron', name: 'aaron@example.com', current: true },
+						{
+							id: 'user_1',
+							slug: 'aaron@example.com',
+							name: 'aaron@example.com',
+							current: true,
+						},
 						{ id: 'team_1', slug: 'acme', name: 'Acme', current: false },
 					],
 					pagination: { count: 2 },
@@ -113,7 +118,12 @@ describe('Vercel provider CLI', () => {
 		)
 
 		await expect(listVercelScopes()).resolves.toEqual([
-			{ id: 'user_1', slug: 'aaron', name: 'aaron@example.com', current: true },
+			{
+				id: 'user_1',
+				slug: 'aaron@example.com',
+				name: 'aaron@example.com',
+				current: true,
+			},
 			{ id: 'team_1', slug: 'acme', name: 'Acme', current: false },
 		])
 		expect(spawnedArgs(1)).toEqual(

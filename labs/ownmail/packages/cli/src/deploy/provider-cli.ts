@@ -418,21 +418,21 @@ function parseVercelProject(value: unknown): VercelProject | null {
 function parseVercelScope(value: unknown): VercelScope | null {
 	if (!isRecord(value)) return null
 	const { id, slug, name, current } = value
-	if (!validProviderId(id) || !validVercelScope(slug)) return null
+	if (!validProviderId(id) || !validVercelDisplaySlug(slug)) return null
 	if (typeof name !== 'string' || name.length < 1 || name.length > 160 || /[\r\n\0]/.test(name)) return null
 	if (typeof current !== 'boolean') return null
 	return { id, slug, name, current }
 }
 
 function requireVercelScope(value: string): string {
-	if (!validVercelScope(value)) {
+	if (!validProviderId(value)) {
 		throw new Error('Selected Vercel deployment account is invalid; refusing to deploy.')
 	}
 	return value
 }
 
-function validVercelScope(value: unknown): value is string {
-	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value)
+function validVercelDisplaySlug(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._@+-]{0,159}$/.test(value)
 }
 
 function validProviderId(value: unknown): value is string {
