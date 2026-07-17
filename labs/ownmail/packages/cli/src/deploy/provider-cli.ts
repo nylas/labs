@@ -171,7 +171,8 @@ export async function resolveVercelProductionUrl(url: string, scope: string): Pr
 	)
 }
 
-function requireVercelProductionAlias(value: Record<string, unknown>, deploymentUrl: string): string {
+function requireVercelProductionAlias(value: Record<string, unknown>, inspectedUrl: string): string {
+	const deploymentUrl = requireVercelInspectedUrl(value.url, inspectedUrl)
 	const aliases = Array.isArray(value.aliases) ? value.aliases : []
 	for (const alias of aliases) {
 		if (typeof alias !== 'string') continue
@@ -188,7 +189,24 @@ function requireVercelProductionAlias(value: Record<string, unknown>, deployment
 		}
 	}
 	throw new Error(
-		`Vercel deployed the mailbox app, but did not return its stable production URL. Run \`npx vercel inspect ${deploymentUrl}\` to verify its aliases, then retry the same OwnMail command.`,
+		`Vercel deployed the mailbox app, but did not return its stable production URL. Run \`npx vercel inspect ${inspectedUrl}\` to verify its aliases, then retry the same OwnMail command.`,
+	)
+}
+
+function requireVercelInspectedUrl(value: unknown, inspectedUrl: string): string {
+	if (typeof value === 'string') {
+		try {
+			return requireProviderUrl(
+				value.startsWith('https://') ? value : `https://${value}`,
+				'vercel.app',
+				'Vercel',
+			)
+		} catch {
+			// Fall through to the stable-URL recovery error without exposing raw output.
+		}
+	}
+	throw new Error(
+		`Vercel deployed the mailbox app, but did not identify its immutable deployment URL. Run \`npx vercel inspect ${inspectedUrl}\` to verify the deployment, then retry the same OwnMail command.`,
 	)
 }
 

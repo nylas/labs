@@ -231,7 +231,10 @@ describe('Vercel provider CLI', () => {
 	it('deploys prebuilt output and validates the provider URL', async () => {
 		queueCli(
 			{ code: 0, stdout: 'https://acme-build.vercel.app\n' },
-			{ code: 0, stdout: '{"readyState":"READY","aliases":["acme.vercel.app"]}' },
+			{
+				code: 0,
+				stdout: '{"readyState":"READY","url":"acme-build.vercel.app","aliases":["acme.vercel.app"]}',
+			},
 		)
 		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://acme.vercel.app')
 		expect(spawnedArgs(0)).toEqual(expect.arrayContaining(['--format', 'json']))
@@ -255,13 +258,20 @@ describe('Vercel provider CLI', () => {
 					deployment: { url: 'https://structured.vercel.app' },
 				}),
 			},
-			{ code: 0, stdout: '{"readyState":"READY","aliases":["structured-team.vercel.app"]}' },
+			{
+				code: 0,
+				stdout:
+					'{"readyState":"READY","url":"structured.vercel.app","aliases":["structured-team.vercel.app"]}',
+			},
 		)
 		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://structured-team.vercel.app')
 
 		queueCli(
 			{ code: 0, stdout: '{"url":"https://top-level.vercel.app"}' },
-			{ code: 0, stdout: '{"readyState":"READY","aliases":["top-level-team.vercel.app"]}' },
+			{
+				code: 0,
+				stdout: '{"readyState":"READY","url":"top-level.vercel.app","aliases":["top-level-team.vercel.app"]}',
+			},
 		)
 		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://top-level-team.vercel.app')
 
@@ -277,6 +287,7 @@ describe('Vercel provider CLI', () => {
 			code: 0,
 			stdout: JSON.stringify({
 				readyState: 'READY',
+				url: 'build-id.vercel.app',
 				aliases: [
 					'https://custom.example.com',
 					'https://user:password@attacker.vercel.app',
@@ -289,19 +300,46 @@ describe('Vercel provider CLI', () => {
 			'https://main-team.vercel.app',
 		)
 
-		queueCli({ code: 0, stdout: '{"readyState":"READY","aliases":["custom.example.com"]}' })
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"https://build-id.vercel.app","aliases":["main-team.vercel.app"]}',
+		})
+		await expect(resolveVercelProductionUrl('https://main-team.vercel.app', 'team_ok')).resolves.toBe(
+			'https://main-team.vercel.app',
+		)
+
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"build-id.vercel.app","aliases":["custom.example.com"]}',
+		})
 		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
 			/did not return its stable production URL/,
 		)
 
-		queueCli({ code: 0, stdout: '{"readyState":"READY","aliases":[123]}' })
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"build-id.vercel.app","aliases":[123]}',
+		})
 		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
 			/did not return its stable production URL/,
 		)
 
-		queueCli({ code: 0, stdout: '{"readyState":"READY"}' })
+		queueCli({ code: 0, stdout: '{"readyState":"READY","url":"build-id.vercel.app"}' })
 		await expect(resolveVercelProductionUrl('https://build-id.vercel.app', 'team_ok')).rejects.toThrow(
 			/did not return its stable production URL/,
+		)
+
+		queueCli({ code: 0, stdout: '{"readyState":"READY","aliases":["main-team.vercel.app"]}' })
+		await expect(resolveVercelProductionUrl('https://main-team.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not identify its immutable deployment URL/,
+		)
+
+		queueCli({
+			code: 0,
+			stdout: '{"readyState":"READY","url":"https://custom.example.com","aliases":["main-team.vercel.app"]}',
+		})
+		await expect(resolveVercelProductionUrl('https://main-team.vercel.app', 'team_ok')).rejects.toThrow(
+			/did not identify its immutable deployment URL/,
 		)
 	})
 
