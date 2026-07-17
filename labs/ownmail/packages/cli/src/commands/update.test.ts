@@ -28,6 +28,7 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	deployVercel: vi.fn(),
 	deployNetlify: vi.fn(),
 	ensureVercelProject: vi.fn(),
+	ensureVercelRealtimeStore: vi.fn(),
 }))
 
 vi.mock('../deploy/wrangler.js', () => ({
@@ -63,7 +64,12 @@ import {
 	materializeNetlify,
 	materializeVercel,
 } from '../deploy/materialize.js'
-import { deployNetlify, deployVercel, ensureVercelProject } from '../deploy/provider-cli.js'
+import {
+	deployNetlify,
+	deployVercel,
+	ensureVercelProject,
+	ensureVercelRealtimeStore,
+} from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
@@ -311,6 +317,7 @@ describe('runUpdate — Node providers', () => {
 			projectId: 'prj_1',
 			orgId: 'team_1',
 		})
+		expect(ensureVercelRealtimeStore).toHaveBeenCalledWith('/tmp/vercel', 'acme-realtime', 'us')
 		expect(project.providerAppUrl).toBe('https://acme.vercel.app')
 	})
 

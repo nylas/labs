@@ -8,6 +8,7 @@ const hoisted = vi.hoisted(() => ({
 		listRedirectUris: vi.fn(),
 		ensureRedirectUris: vi.fn(),
 		ensureWebhook: vi.fn(),
+		rotateWebhookSecret: vi.fn(),
 	},
 }))
 
@@ -24,6 +25,15 @@ vi.mock('@nylas-labs/cli-kit', () => ({
 vi.mock('../deploy/wrangler.js', () => ({
 	wranglerLoggedIn: vi.fn(),
 	putSecret: vi.fn(),
+}))
+
+vi.mock('node:fs', () => ({ rmSync: vi.fn() }))
+vi.mock('../deploy/materialize.js', () => ({ materializeVercel: vi.fn(() => ({ dir: '/tmp/vercel' })) }))
+vi.mock('../deploy/provider-cli.js', () => ({
+	deployVercel: vi.fn(async () => 'https://acme.vercel.app'),
+	ensureVercelProject: vi.fn(),
+	ensureVercelRealtimeStore: vi.fn(),
+	setVercelEnvironment: vi.fn(),
 }))
 
 vi.mock('../nylas-env.js', () => ({
@@ -94,7 +104,8 @@ beforeEach(() => {
 	hoisted.v3.listGrants.mockResolvedValue({ data: [] })
 	hoisted.v3.listRedirectUris.mockResolvedValue({ data: [] })
 	hoisted.v3.ensureRedirectUris.mockResolvedValue(undefined)
-	hoisted.v3.ensureWebhook.mockResolvedValue({})
+	hoisted.v3.ensureWebhook.mockResolvedValue({ id: 'webhook-1', webhook_secret: 'wh-secret' })
+	hoisted.v3.rotateWebhookSecret.mockResolvedValue({ data: {} })
 })
 
 afterEach(() => {
@@ -316,6 +327,7 @@ describe('runDoctor — healthy project', () => {
 				domainId: 'dom_1',
 				grantId: 'grant_1',
 				inboxEmail: 'contact@acme.com',
+				workerName: 'acme-ownmail',
 				workersDevUrl: 'https://acme.workers.dev',
 				appDomain: 'mail.acme.com',
 			}),
@@ -456,15 +468,41 @@ describe('runDoctor — healthy project', () => {
 		expect(messages().some((m) => m.includes('manual hosting uses polling'))).toBe(true)
 	})
 
-	it('reports that non-Cloudflare providers use polling under --fix', async () => {
+	it('reports that Netlify uses polling under --fix', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
-			makeProject({ hostingProvider: 'vercel', providerAppUrl: 'https://acme.vercel.app' }),
+			makeProject({ hostingProvider: 'netlify', providerAppUrl: 'https://acme.netlify.app' }),
 		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
 
 		await runDoctor({ fix: true })
 
-		expect(messages().some((message) => message.includes('automatic webhook secret rotation'))).toBe(true)
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(messages().some((message) => message.includes('this hosting mode uses polling'))).toBe(true)
+	})
+
+	it('repairs instant updates on Vercel under --fix', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://acme.vercel.app',
+				vercelProjectId: 'prj_1',
+				vercelOrgId: 'team_1',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		hoisted.v3.ensureWebhook.mockResolvedValue({ id: 'webhook-1', webhook_secret: 'wh-secret' })
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith(
+			'https://acme.vercel.app/api/webhooks/nylas',
+			expect.any(Array),
+		)
+		expect(messages().some((message) => message.includes('registered realtime webhook'))).toBe(true)
 	})
 
 	it('reports missing app URL when instant updates cannot be repaired', async () => {

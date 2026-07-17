@@ -52,6 +52,7 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	ensureVercelRealtimeStore,
 	listVercelScopes,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
@@ -226,6 +227,101 @@ describe('Vercel provider CLI', () => {
 		expect(spawnedArgs(1)).not.toContain('--sensitive')
 		expect(stdinValue(0)).toBe('secret-value\n')
 		expect(JSON.stringify(hoisted.spawn.mock.calls)).not.toContain('secret-value')
+	})
+
+	it('reuses an available Upstash store already connected to the Vercel project', async () => {
+		queueCli({
+			code: 0,
+			stdout: JSON.stringify({
+				resources: [{ name: 'acme-realtime', product: 'Upstash for Redis', status: 'available' }],
+			}),
+		})
+
+		await ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')
+
+		expect(hoisted.spawn).toHaveBeenCalledTimes(1)
+		expect(spawnedArgs(0)).toEqual(expect.arrayContaining(['integration', 'list', '--format', 'json']))
+	})
+
+	it('provisions a free non-upgrading Upstash store in the matching Vercel region', async () => {
+		queueCli(
+			{ code: 0, stdout: JSON.stringify({ resources: [] }) },
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					resource: { id: 'store_1', name: 'acme-realtime', status: 'available' },
+					product: { slug: 'upstash-kv' },
+				}),
+			},
+		)
+
+		await ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'eu')
+
+		expect(spawnedArgs(1)).toEqual(
+			expect.arrayContaining([
+				'integration',
+				'add',
+				'upstash/upstash-kv',
+				'--plan',
+				'free',
+				'--metadata',
+				'primaryRegion=fra1',
+				'autoUpgrade=false',
+				'--environment',
+				'production',
+				'--no-env-pull',
+			]),
+		)
+	})
+
+	it('fails closed for malformed or unavailable Vercel realtime storage', async () => {
+		queueCli({ code: 1, stderr: 'network failure' })
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/could not inspect realtime storage/,
+		)
+
+		queueCli({ code: 0, stdout: '{}' })
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/invalid realtime storage inventory/,
+		)
+
+		queueCli({ code: 0, stdout: JSON.stringify({ resources: [null] }) })
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/invalid realtime storage inventory/,
+		)
+
+		queueCli(
+			{ code: 0, stdout: JSON.stringify({ resources: [] }) },
+			{ code: 0, stdout: JSON.stringify({ resource: { name: 'wrong-name' } }) },
+		)
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/could not verify it/,
+		)
+
+		queueCli({ code: 0, stdout: JSON.stringify({ resources: [] }) }, { code: 1, stderr: 'network failure' })
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/could not provision realtime storage/,
+		)
+
+		queueCli({
+			code: 0,
+			stdout: JSON.stringify({ resources: [{ product: '', status: 'unknown' }] }),
+		})
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/invalid realtime storage inventory/,
+		)
+
+		queueCli({
+			code: 0,
+			stdout: JSON.stringify({
+				resources: [{ name: 'acme-realtime', product: 'Upstash for Redis', status: 'suspended' }],
+			}),
+		})
+		await expect(ensureVercelRealtimeStore('/tmp/app', 'acme-realtime', 'us')).rejects.toThrow(
+			/realtime storage is unavailable/,
+		)
+
+		await expect(ensureVercelRealtimeStore('/tmp/app', '../bad', 'us')).rejects.toThrow(/name is invalid/)
 	})
 
 	it('rejects invalid environment entries before invoking the provider', async () => {

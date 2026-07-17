@@ -11,6 +11,8 @@ declare namespace Cloudflare {
 		NYLAS_CLIENT_ID: string
 		NYLAS_REGION: 'us' | 'eu'
 		NYLAS_API_BASE_URL?: string
+		UPSTASH_REDIS_REST_URL?: string
+		UPSTASH_REDIS_REST_TOKEN?: string
 		OWNMAIL_DEV_MOCKS?: string
 		OWNMAIL_ALLOW_PASSWORD_RESET?: string
 		APP_NAME: string

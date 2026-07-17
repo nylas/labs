@@ -1,5 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const redis = vi.hoisted(() => ({
+	get: vi.fn(),
+	set: vi.fn(),
+	del: vi.fn(),
+	incr: vi.fn(),
+}))
+
+vi.mock('@upstash/redis', () => ({
+	Redis: class {
+		get = redis.get
+		set = redis.set
+		del = redis.del
+		incr = redis.incr
+	},
+}))
+
 /**
  * platform() memoizes at module scope and branches on the process env plus the
  * availability of the `cloudflare:workers` module. Every case therefore resets
@@ -18,7 +34,13 @@ const REQUIRED_ENV = {
 
 function setEnv(overrides: Record<string, string | undefined>): void {
 	// Start from a clean slate for the fields platform() reads, then apply.
-	for (const key of ['OWNMAIL_DEV_MOCKS', 'NODE_ENV', 'SESSION_SECRET']) {
+	for (const key of [
+		'OWNMAIL_DEV_MOCKS',
+		'NODE_ENV',
+		'SESSION_SECRET',
+		'UPSTASH_REDIS_REST_URL',
+		'UPSTASH_REDIS_REST_TOKEN',
+	]) {
 		vi.stubEnv(key, undefined as unknown as string)
 	}
 	for (const [key, value] of Object.entries(overrides)) {
@@ -27,6 +49,7 @@ function setEnv(overrides: Record<string, string | undefined>): void {
 }
 
 beforeEach(() => {
+	vi.clearAllMocks()
 	vi.resetModules()
 })
 
@@ -101,6 +124,68 @@ describe('platform()', () => {
 		expect(p.runtime).toBe('node')
 		expect(p.kv).toBeNull()
 		expect(p.env.SESSION_SECRET).toBe('node-secret')
+	})
+
+	it('binds serverless Redis storage on the node runtime when Vercel injects both credentials', async () => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({
+			SESSION_SECRET: 'node-secret',
+			UPSTASH_REDIS_REST_URL: 'https://ownmail.upstash.io',
+			UPSTASH_REDIS_REST_TOKEN: 'redis-token',
+		})
+		const { platform } = await import('./platform.js')
+
+		const p = await platform()
+		expect(p.runtime).toBe('node')
+		expect(p.kv).toEqual(
+			expect.objectContaining({
+				get: expect.any(Function),
+				put: expect.any(Function),
+				delete: expect.any(Function),
+				increment: expect.any(Function),
+			}),
+		)
+		redis.get.mockResolvedValue('value')
+		redis.set.mockResolvedValue('OK')
+		redis.del.mockResolvedValue(1)
+		redis.incr.mockResolvedValue(2)
+		await expect(p.kv?.get('key')).resolves.toBe('value')
+		await p.kv?.put('key', 'value', { expirationTtl: 60 })
+		await p.kv?.put('key', 'value')
+		await p.kv?.delete('key')
+		await expect(p.kv?.increment?.('key')).resolves.toBe(2)
+		expect(redis.set).toHaveBeenNthCalledWith(1, 'key', 'value', { ex: 60 })
+		expect(redis.set).toHaveBeenNthCalledWith(2, 'key', 'value', undefined)
+	})
+
+	it.each([
+		['only a URL', { UPSTASH_REDIS_REST_URL: 'https://ownmail.upstash.io' }],
+		['only a token', { UPSTASH_REDIS_REST_TOKEN: 'redis-token' }],
+		[
+			'an untrusted URL',
+			{
+				UPSTASH_REDIS_REST_URL: 'https://attacker.example.com',
+				UPSTASH_REDIS_REST_TOKEN: 'redis-token',
+			},
+		],
+		['a malformed URL', { UPSTASH_REDIS_REST_URL: 'not a URL', UPSTASH_REDIS_REST_TOKEN: 'redis-token' }],
+		[
+			'an invalid credential',
+			{
+				UPSTASH_REDIS_REST_URL: 'https://ownmail.upstash.io',
+				UPSTASH_REDIS_REST_TOKEN: 'bad\ncredential',
+			},
+		],
+	] as const)('fails closed for %s in the node storage configuration', async (_case, storageEnv) => {
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		setEnv({ SESSION_SECRET: 'node-secret', ...storageEnv })
+		const { platform } = await import('./platform.js')
+
+		await expect(platform()).rejects.toThrow(/realtime storage/)
 	})
 
 	it('throws in the node fallback when SESSION_SECRET is missing', async () => {
