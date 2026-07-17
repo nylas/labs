@@ -282,7 +282,7 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
 			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
 		)
-		const url = await deployVercel(dir)
+		const url = await deployVercel(dir, linked.orgId)
 		ctx.project.providerAppUrl = url
 		ctx.project.templateVersion = manifest.templateVersion
 		saveProject(ctx.project)

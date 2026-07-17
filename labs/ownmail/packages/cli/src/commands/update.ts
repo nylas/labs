@@ -130,7 +130,7 @@ async function updateNodeProvider(
 				projectId: project.vercelProjectId,
 				orgId: project.vercelOrgId,
 			})
-			url = await deployVercel(materialized.dir)
+			url = await deployVercel(materialized.dir, project.vercelOrgId)
 		} else {
 			if (!project.netlifySiteId) {
 				throw new Error(

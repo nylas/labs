@@ -114,7 +114,7 @@ export async function setVercelEnvironment(
 	}
 }
 
-export async function deployVercel(dir: string): Promise<string> {
+export async function deployVercel(dir: string, scope: string): Promise<string> {
 	const result = await runProviderCli('vercel', [
 		'deploy',
 		'--prebuilt',
@@ -128,7 +128,49 @@ export async function deployVercel(dir: string): Promise<string> {
 		'json',
 	])
 	if (result.code !== 0) throw providerFailure('vercel', 'deploy the mailbox app', result, true)
-	return requireVercelDeploymentUrl(result.stdout)
+	const url = requireVercelDeploymentUrl(result.stdout)
+	await waitForVercelDeployment(url, scope)
+	return url
+}
+
+async function waitForVercelDeployment(url: string, scope: string): Promise<void> {
+	const result = await runProviderCli('vercel', [
+		'inspect',
+		url,
+		'--wait',
+		'--timeout',
+		'2m',
+		'--scope',
+		requireVercelScope(scope),
+		'--format',
+		'json',
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code !== 0) {
+		const output = `${result.stdout}\n${result.stderr}`
+		if (/initializing|queued|timed out|timeout|waiting/i.test(output)) {
+			throw vercelInitializingError(url)
+		}
+		throw new Error(
+			`Vercel accepted the mailbox deployment, but could not confirm that it became ready. Run \`npx vercel inspect ${url} --wait\` for its current status, then retry the same OwnMail command.`,
+		)
+	}
+	const raw = parseJsonOutput(result.stdout)
+	const readyState = isRecord(raw) && typeof raw.readyState === 'string' ? raw.readyState.toUpperCase() : ''
+	if (readyState === 'READY') return
+	if (readyState === 'INITIALIZING' || readyState === 'QUEUED' || readyState === 'BUILDING') {
+		throw vercelInitializingError(url)
+	}
+	throw new Error(
+		`Vercel accepted the mailbox deployment, but it did not become ready. Run \`npx vercel inspect ${url} --logs\` to view its build status and errors, then retry the same OwnMail command.`,
+	)
+}
+
+function vercelInitializingError(url: string): Error {
+	return new Error(
+		`Vercel accepted the mailbox deployment, but it is still initializing after 2 minutes. Vercel may be delaying its deployment queue. Run \`npx vercel inspect ${url} --wait\` to monitor it, then retry the same OwnMail command once it is ready.`,
+	)
 }
 
 export async function ensureNetlifySite(

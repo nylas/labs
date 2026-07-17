@@ -228,27 +228,79 @@ describe('Vercel provider CLI', () => {
 	})
 
 	it('deploys prebuilt output and validates the provider URL', async () => {
-		queueCli({ code: 0, stdout: 'https://acme.vercel.app\n' })
-		await expect(deployVercel('/tmp/app')).resolves.toBe('https://acme.vercel.app')
+		queueCli({ code: 0, stdout: 'https://acme.vercel.app\n' }, { code: 0, stdout: '{"readyState":"READY"}' })
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://acme.vercel.app')
 		expect(spawnedArgs(0)).toEqual(expect.arrayContaining(['--format', 'json']))
+		expect(spawnedArgs(1)).toEqual(
+			expect.arrayContaining([
+				'inspect',
+				'https://acme.vercel.app',
+				'--wait',
+				'--timeout',
+				'2m',
+				'--scope',
+				'team_ok',
+			]),
+		)
 
-		queueCli({
-			code: 0,
-			stdout: JSON.stringify({
-				status: 'ok',
-				deployment: { url: 'https://structured.vercel.app' },
-			}),
-		})
-		await expect(deployVercel('/tmp/app')).resolves.toBe('https://structured.vercel.app')
+		queueCli(
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					status: 'ok',
+					deployment: { url: 'https://structured.vercel.app' },
+				}),
+			},
+			{ code: 0, stdout: '{"readyState":"READY"}' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://structured.vercel.app')
 
-		queueCli({ code: 0, stdout: '{"url":"https://top-level.vercel.app"}' })
-		await expect(deployVercel('/tmp/app')).resolves.toBe('https://top-level.vercel.app')
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://top-level.vercel.app"}' },
+			{ code: 0, stdout: '{"readyState":"READY"}' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).resolves.toBe('https://top-level.vercel.app')
 
 		queueCli({ code: 0, stdout: 'https://attacker.example.com' })
-		await expect(deployVercel('/tmp/app')).rejects.toThrow(/invalid deployment URL/)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/invalid deployment URL/)
 
 		queueCli({ code: 0, stdout: '{"deployment":[]}' })
-		await expect(deployVercel('/tmp/app')).rejects.toThrow(/invalid deployment URL/)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/invalid deployment URL/)
+	})
+
+	it('reports queued and failed deployments with actionable inspection commands', async () => {
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://queued.vercel.app"}' },
+			{ code: 1, stderr: 'Deployment is still initializing; timed out waiting' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(
+			/still initializing after 2 minutes.*vercel inspect https:\/\/queued\.vercel\.app --wait/s,
+		)
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://building.vercel.app"}' },
+			{ code: 0, stdout: '{"readyState":"BUILDING"}' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/still initializing after 2 minutes/)
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://unknown.vercel.app"}' },
+			{ code: 1, stderr: 'unexpected inspect failure' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(
+			/could not confirm that it became ready.*vercel inspect https:\/\/unknown\.vercel\.app --wait/s,
+		)
+
+		queueCli(
+			{ code: 0, stdout: '{"url":"https://failed.vercel.app"}' },
+			{ code: 0, stdout: '{"readyState":"ERROR"}' },
+		)
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(
+			/vercel inspect https:\/\/failed\.vercel\.app --logs/,
+		)
+
+		queueCli({ code: 0, stdout: '{"url":"https://invalid-state.vercel.app"}' }, { code: 0, stdout: '[]' })
+		await expect(deployVercel('/tmp/app', 'team_ok')).rejects.toThrow(/it did not become ready/)
 	})
 })
 
@@ -392,17 +444,17 @@ describe('safe provider failures', () => {
 		['generic', 'unexpected raw provider detail', /Check the provider dashboard/],
 	])('classifies %s failures without returning raw output', async (_name, stderr, expected) => {
 		queueCli({ code: 1, stderr })
-		await expect(deployVercel('/tmp')).rejects.toThrow(expected)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(expected)
 	})
 
 	it('reports a missing bundled provider helper', async () => {
 		hoisted.resolveFails = true
-		await expect(deployVercel('/tmp')).rejects.toThrow(/could not start its bundled Vercel/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not start its bundled Vercel/)
 	})
 
 	it('reports a provider package that does not expose the expected binary', async () => {
 		hoisted.missingBin = true
-		await expect(deployVercel('/tmp')).rejects.toThrow(/could not start its bundled Vercel/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not start its bundled Vercel/)
 	})
 
 	it('reports failed interactive login without assuming a remote mutation', async () => {
@@ -414,12 +466,12 @@ describe('safe provider failures', () => {
 
 	it('treats a missing process exit code as failure', async () => {
 		queueCli({ code: null, stderr: 'process stopped' })
-		await expect(deployVercel('/tmp')).rejects.toThrow(/could not deploy/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
 	})
 
 	it('reports a provider process start failure', async () => {
 		queueCli({ code: 1, error: true })
-		await expect(deployVercel('/tmp')).rejects.toThrow(/helper failed to start/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/helper failed to start/)
 	})
 })
 
