@@ -53,6 +53,10 @@ export const Route = createFileRoute('/api/webhooks/nylas')({
 					await Promise.all(
 						[...grantIds].map(async (grantId) => {
 							const key = `version:${grantId}`
+							if (kv.increment) {
+								await kv.increment(key)
+								return
+							}
 							const current = Number((await kv.get(key)) ?? '0')
 							await kv.put(key, String(current + 1))
 						}),

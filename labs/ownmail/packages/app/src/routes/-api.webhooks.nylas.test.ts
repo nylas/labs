@@ -183,6 +183,23 @@ describe('/api/webhooks/nylas POST', () => {
 		expect(kv.store.get('version:g2')).toBe('1')
 	})
 
+	it('uses an atomic increment when the shared store supports it', async () => {
+		const kv = makeKv({ 'version:g1': '5' })
+		kv.increment = vi.fn(async (key) => {
+			const next = Number(kv.store.get(key) ?? '0') + 1
+			kv.store.set(key, String(next))
+			return next
+		})
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })
+		const body = JSON.stringify({ data: { object: { grant_id: 'g1' } } })
+
+		const response = await post(body, await sign(SECRET, body))
+
+		expect(response.status).toBe(200)
+		expect(kv.increment).toHaveBeenCalledWith('version:g1')
+		expect(kv.store.get('version:g1')).toBe('6')
+	})
+
 	it('rejects a validly-signed payload that targets too many grants', async () => {
 		const kv = makeKv()
 		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })

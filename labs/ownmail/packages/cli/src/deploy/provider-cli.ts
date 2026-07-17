@@ -114,6 +114,75 @@ export async function setVercelEnvironment(
 	}
 }
 
+/** Ensures the linked Vercel project has durable storage for sessions and realtime counters. */
+export async function ensureVercelRealtimeStore(
+	dir: string,
+	resourceName: string,
+	region: 'us' | 'eu',
+): Promise<void> {
+	if (!/^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$/.test(resourceName)) {
+		throw new Error('Vercel realtime storage name is invalid; refusing to provision it.')
+	}
+	const listed = await runProviderCli('vercel', [
+		'integration',
+		'list',
+		'--format',
+		'json',
+		'--cwd',
+		dir,
+		'--no-color',
+		'--non-interactive',
+	])
+	if (listed.code !== 0) throw providerFailure('vercel', 'inspect realtime storage', listed, false)
+	const resources = parseVercelIntegrationResources(listed.stdout)
+	const existing = resources.find((resource) => resource.product === 'Upstash for Redis')
+	if (existing) {
+		if (existing.status !== 'available' && existing.status !== 'initializing') {
+			throw new Error(
+				'Vercel realtime storage is unavailable. Repair or remove the Upstash resource in the Vercel dashboard, then retry.',
+			)
+		}
+		return
+	}
+
+	const created = await runProviderCli('vercel', [
+		'integration',
+		'add',
+		'upstash/upstash-kv',
+		'--name',
+		resourceName,
+		'--plan',
+		'free',
+		'--metadata',
+		`primaryRegion=${region === 'eu' ? 'fra1' : 'iad1'}`,
+		'--metadata',
+		'autoUpgrade=false',
+		'--environment',
+		'production',
+		'--no-claim',
+		'--no-env-pull',
+		'--format',
+		'json',
+		'--cwd',
+		dir,
+		'--no-color',
+		'--non-interactive',
+	])
+	if (created.code !== 0) throw providerFailure('vercel', 'provision realtime storage', created, true)
+	const raw = parseJsonOutput(created.stdout)
+	if (
+		!isRecord(raw) ||
+		!isRecord(raw.resource) ||
+		raw.resource.name !== resourceName ||
+		!isRecord(raw.product) ||
+		raw.product.slug !== 'upstash-kv'
+	) {
+		throw new Error(
+			'Vercel may have provisioned realtime storage, but OwnMail could not verify it. Inspect the project Storage tab, then retry the same command.',
+		)
+	}
+}
+
 export async function deployVercel(dir: string, scope: string): Promise<string> {
 	const result = await runProviderCli('vercel', [
 		'deploy',
@@ -422,6 +491,35 @@ function parseVercelScope(value: unknown): VercelScope | null {
 	if (typeof name !== 'string' || name.length < 1 || name.length > 160 || /[\r\n\0]/.test(name)) return null
 	if (typeof current !== 'boolean') return null
 	return { id, slug, name, current }
+}
+
+function parseVercelIntegrationResources(output: string): Array<{ product: string; status: string }> {
+	const raw = parseJsonOutput(output)
+	if (!isRecord(raw) || !Array.isArray(raw.resources) || raw.resources.length > 100) {
+		throw new Error(
+			'Vercel returned an invalid realtime storage inventory; refusing to provision another store.',
+		)
+	}
+	return raw.resources.map((resource) => {
+		if (!isRecord(resource)) {
+			throw new Error(
+				'Vercel returned an invalid realtime storage inventory; refusing to provision another store.',
+			)
+		}
+		const { product, status } = resource
+		if (
+			typeof product !== 'string' ||
+			product.length < 1 ||
+			product.length > 160 ||
+			typeof status !== 'string' ||
+			!['available', 'initializing', 'error', 'suspended', 'limits-exceeded-suspended'].includes(status)
+		) {
+			throw new Error(
+				'Vercel returned an invalid realtime storage inventory; refusing to provision another store.',
+			)
+		}
+		return { product, status }
+	})
 }
 
 function requireVercelScope(value: string): string {

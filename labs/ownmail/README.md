@@ -114,15 +114,16 @@ workflow. You stay in charge of the code from there.
 
 - **Cloudflare Workers** — Wrangler deploy with KV-backed sessions and realtime
   webhook refresh.
-- **Vercel** — prebuilt Node function deploy with settings sent to Vercel over
-  stdin.
+- **Vercel** — prebuilt Node function deploy with a free Upstash Redis resource
+  for durable sessions and realtime webhook refresh.
 - **Netlify** — Node function deploy with static assets served from its CDN.
 - **Run locally** — production Node build bound only to `localhost`; keep the
   terminal open and press Ctrl+C to stop it.
 
-Vercel, Netlify, and local targets use stateless signed-cookie sessions and
-poll for new mail. The CLI registers each resulting callback URL automatically.
-Provider CLIs may open a browser the first time you sign in.
+Netlify and local targets use stateless signed-cookie sessions and poll for new
+mail. Cloudflare and Vercel use shared storage plus Nylas webhooks for instant
+updates. The CLI registers each resulting callback URL automatically. Provider
+CLIs may open a browser the first time you sign in.
 
 ## Local development
 
@@ -162,8 +163,8 @@ resources the app uses in production:
   and attachment downloads.
 - Calendar: calendars, events, create/update/delete event, and RSVP.
 - Contacts: contact lookup for compose autocomplete.
-- Realtime refresh: Nylas webhooks in Cloudflare deployments; local UI mocks,
-  Vercel, Netlify, and local deployments fall back to navigation/focus refresh.
+- Realtime refresh: Nylas webhooks in Cloudflare and Vercel deployments; local
+  UI mocks, Netlify, and local deployments fall back to navigation/focus refresh.
 
 Those capabilities map to the public
 [Nylas API reference](https://developer.nylas.com/docs/reference/api/). Features

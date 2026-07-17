@@ -276,7 +276,11 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		if (opts.fix) {
 			if (project.hostingProvider === 'manual') {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'manual-hosting' }))
-			} else if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
+			} else if (
+				project.hostingProvider &&
+				project.hostingProvider !== 'cloudflare' &&
+				project.hostingProvider !== 'vercel'
+			) {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'non-cloudflare-hosting' }))
 			} else if (!cloudflareOk) {
 				results.push({
@@ -469,7 +473,7 @@ function formatWebhookRepairResult(result: Awaited<ReturnType<typeof setupRealti
 		return {
 			name: 'Instant updates',
 			status: 'skip',
-			detail: 'this hosting mode uses polling; automatic webhook secret rotation is Cloudflare-only',
+			detail: 'this hosting mode uses polling; automatic webhook setup is available on Cloudflare and Vercel',
 		}
 	}
 	return {

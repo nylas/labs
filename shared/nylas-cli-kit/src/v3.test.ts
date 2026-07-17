@@ -185,6 +185,26 @@ describe('NylasV3Client', () => {
 		).resolves.toMatchObject({ id: 'webhook-legacy' })
 	})
 
+	it('rotates an existing webhook secret by encoded webhook id', async () => {
+		let requestUrl = ''
+		let requestMethod = ''
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requestUrl = String(input)
+			requestMethod = init?.method ?? 'GET'
+			return Response.json({
+				request_id: 'req-rotate',
+				data: { id: 'webhook/123', webhook_secret: 'wh-secret' },
+			})
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		const response = await client.rotateWebhookSecret('webhook/123')
+
+		expect(requestMethod).toBe('POST')
+		expect(requestUrl).toBe('https://api.us.nylas.com/v3/webhooks/rotate-secret/webhook%2F123')
+		expect(response.data.webhook_secret).toBe('wh-secret')
+	})
+
 	it('reads a draft directly by id', async () => {
 		let requestUrl = ''
 		let requestMethod = ''

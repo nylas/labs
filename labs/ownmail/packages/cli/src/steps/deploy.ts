@@ -18,6 +18,7 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	ensureVercelRealtimeStore,
 	listVercelScopes,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
@@ -278,6 +279,7 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 		ctx.project.vercelProjectId = linked.projectId
 		ctx.project.vercelOrgId = linked.orgId
 		saveProject(ctx.project)
+		await ensureVercelRealtimeStore(dir, `${ctx.project.slug}-realtime`, ctx.project.region)
 		await setVercelEnvironment(
 			dir,
 			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
@@ -457,7 +459,11 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 
 /** 10b — Register the realtime webhook and store its secret on the worker. */
 export async function stepWebhook(ctx: StepContext): Promise<void> {
-	if (ctx.project.hostingProvider && ctx.project.hostingProvider !== 'cloudflare') {
+	if (
+		ctx.project.hostingProvider &&
+		ctx.project.hostingProvider !== 'cloudflare' &&
+		ctx.project.hostingProvider !== 'vercel'
+	) {
 		p.log.info(`${hostingLabel(ctx.project.hostingProvider)} uses polling for new mail.`)
 		markStep(ctx.project, 'webhook')
 		return
@@ -584,8 +590,6 @@ function runtimeEnvironment(
 
 function hostingLabel(provider: StepContext['project']['hostingProvider']): string {
 	switch (provider) {
-		case 'vercel':
-			return 'Vercel hosting'
 		case 'netlify':
 			return 'Netlify hosting'
 		case 'local':

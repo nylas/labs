@@ -10,7 +10,12 @@ import {
 	materializeNetlify,
 	materializeVercel,
 } from '../deploy/materialize.js'
-import { deployNetlify, deployVercel, ensureVercelProject } from '../deploy/provider-cli.js'
+import {
+	deployNetlify,
+	deployVercel,
+	ensureVercelProject,
+	ensureVercelRealtimeStore,
+} from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
@@ -130,6 +135,7 @@ async function updateNodeProvider(
 				projectId: project.vercelProjectId,
 				orgId: project.vercelOrgId,
 			})
+			await ensureVercelRealtimeStore(materialized.dir, `${project.slug}-realtime`, project.region)
 			url = await deployVercel(materialized.dir, project.vercelOrgId)
 		} else {
 			if (!project.netlifySiteId) {

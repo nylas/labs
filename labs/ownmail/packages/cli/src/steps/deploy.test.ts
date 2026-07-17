@@ -15,6 +15,7 @@ import {
 	deployVercel,
 	ensureNetlifySite,
 	ensureVercelProject,
+	ensureVercelRealtimeStore,
 	listVercelScopes,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
@@ -78,6 +79,7 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	deployVercel: vi.fn(),
 	ensureNetlifySite: vi.fn(),
 	ensureVercelProject: vi.fn(),
+	ensureVercelRealtimeStore: vi.fn(),
 	listVercelScopes: vi.fn(),
 	resolveVercelProductionUrl: vi.fn(),
 	setNetlifyEnvironment: vi.fn(),
@@ -558,6 +560,7 @@ describe('stepDeploy (additional providers)', () => {
 			}),
 		)
 		expect(ensureVercelProject).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-ownmail', 'team_1', undefined)
+		expect(ensureVercelRealtimeStore).toHaveBeenCalledWith('/tmp/vercel', 'my-inbox-realtime', 'us')
 		expect(setVercelEnvironment).toHaveBeenCalledWith(
 			'/tmp/vercel',
 			expect.objectContaining({
@@ -829,13 +832,36 @@ describe('stepWebhook', () => {
 	})
 
 	it.each([
-		['vercel', 'Vercel hosting'],
 		['netlify', 'Netlify hosting'],
 		['local', 'Local hosting'],
 	] as const)('uses polling for %s hosting', async (hostingProvider, label) => {
 		const ctx = makeCtx(makeProject({ hostingProvider }))
 		await stepWebhook(ctx)
 		expect(p.log.info).toHaveBeenCalledWith(`${label} uses polling for new mail.`)
+	})
+
+	it('registers Vercel instant updates and redeploys with the webhook secret', async () => {
+		stubHealthyApp()
+		const ensureWebhook = vi.fn().mockResolvedValue({ id: 'webhook-1', webhook_secret: 'wh-secret' })
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'vercel',
+				providerAppUrl: 'https://my-inbox.vercel.app',
+				vercelProjectId: 'prj_1',
+				vercelOrgId: 'team_1',
+			}),
+			{ ensureWebhook },
+		)
+
+		await stepWebhook(ctx)
+
+		expect(setVercelEnvironment).toHaveBeenCalledWith(
+			'/tmp/vercel',
+			{ NYLAS_WEBHOOK_SECRET: 'wh-secret' },
+			new Set(['NYLAS_WEBHOOK_SECRET']),
+		)
+		expect(deployVercel).toHaveBeenCalledWith('/tmp/vercel', 'team_1')
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
 	it('registers the webhook and stores its secret', async () => {

@@ -443,6 +443,10 @@ export class NylasV3Client {
 		return this.request('POST', '/v3/webhooks', input)
 	}
 
+	async rotateWebhookSecret(webhookId: string): Promise<ItemResponse<Webhook>> {
+		return this.request('POST', `/v3/webhooks/rotate-secret/${encodeURIComponent(webhookId)}`)
+	}
+
 	/** Creates the webhook if no active one exists for this URL; returns it either way. */
 	async ensureWebhook(callbackUrl: string, triggerTypes: string[]): Promise<Webhook> {
 		const existing = await this.listWebhooks()

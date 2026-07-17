@@ -60,16 +60,17 @@ The wizard automates all supported targets:
 
 - Cloudflare uses Workers plus KV-backed sessions and supports webhook-driven
   instant updates.
-- Vercel deploys the bundled Build Output API target.
+- Vercel deploys the bundled Build Output API target and provisions a free
+  Upstash Redis resource for durable sessions and webhook-driven instant updates.
 - Netlify deploys static client assets plus a Node fetch function.
 - Local mode starts the same production Node build on loopback. Keep that
   terminal open; press Ctrl+C to stop it. Run `npx ownmail update` after it has
   stopped to restart on the latest version.
 
-Vercel, Netlify, and local mode use stateless signed-cookie sessions and refresh
-on navigation/focus. OwnMail stores hosted settings with the provider and keeps
-local runtime secrets in the OS credential store. Callback URIs are registered
-automatically after the deployment URL is known.
+Netlify and local mode use stateless signed-cookie sessions and refresh on
+navigation/focus. OwnMail stores hosted settings with the provider and keeps
+local runtime secrets in the OS credential store. Callback URIs and Nylas
+webhooks are registered automatically after the deployment URL is known.
 
 ## Local UI development
 

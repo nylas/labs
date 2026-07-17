@@ -47,6 +47,9 @@ importers:
       '@tanstack/react-start':
         specifier: ^1.138.0
         version: 1.168.27(crossws@0.4.10(srvx@0.11.22))(esbuild@0.28.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rolldown@1.2.0)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@upstash/redis':
+        specifier: ^1.38.0
+        version: 1.38.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -61,7 +64,7 @@ importers:
         version: 1.23.0(react@19.2.7)
       nitro:
         specifier: 3.0.260610-beta
-        version: 3.0.260610-beta(@electric-sql/pglite@0.3.16)(@netlify/blobs@10.7.9)(@netlify/runtime@4.1.25)(@vercel/blob@2.4.0)(chokidar@5.0.0)(dotenv@17.4.2)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260701.0)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.107.0(@cloudflare/workers-types@4.20260702.1))
+        version: 3.0.260610-beta(@electric-sql/pglite@0.3.16)(@netlify/blobs@10.7.9)(@netlify/runtime@4.1.25)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(chokidar@5.0.0)(dotenv@17.4.2)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260701.0)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.107.0(@cloudflare/workers-types@4.20260702.1))
       react:
         specifier: ^19.1.0
         version: 19.2.7
@@ -152,7 +155,7 @@ importers:
         version: 3.0.0
       netlify-cli:
         specifier: 26.2.0
-        version: 26.2.0(@types/node@24.13.2)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(picomatch@4.0.5)(rollup@4.62.2)(srvx@0.11.22)
+        version: 26.2.0(@types/node@24.13.2)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(picomatch@4.0.5)(rollup@4.62.2)(srvx@0.11.22)
       open:
         specifier: ^10.1.0
         version: 10.2.0
@@ -3242,6 +3245,9 @@ packages:
     engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [win32]
+
+  '@upstash/redis@1.38.0':
+    resolution: {integrity: sha512-wu+dZBptlLy0+MCUEoHmzrY/TnmgDey3+c7EbIGwrLqAvkP8yi5MWZHYGIFtAygmL4Bkz2TdFu+eU0vFPncIcg==}
 
   '@vercel/backends@0.8.24':
     resolution: {integrity: sha512-ru94AtJLD2YTh/7HtfGT/x2v1Bkf45WQDv2NX+Wn9xEIDwMWr7Ez/2khNk2v5e9cWKxATvWdc0T7SBozQCsQOA==}
@@ -9320,7 +9326,7 @@ snapshots:
       semver: 7.8.5
       tmp-promise: 3.0.3
 
-  '@netlify/dev@4.18.9(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(rollup@4.62.2)(srvx@0.11.22)':
+  '@netlify/dev@4.18.9(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(rollup@4.62.2)(srvx@0.11.22)':
     dependencies:
       '@netlify/ai': 0.4.2
       '@netlify/blobs': 10.7.9(supports-color@10.2.2)
@@ -9330,7 +9336,7 @@ snapshots:
       '@netlify/edge-functions-dev': 1.0.22
       '@netlify/functions-dev': 1.3.1(rollup@4.62.2)
       '@netlify/headers': 2.1.11
-      '@netlify/images': 1.3.10(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)
+      '@netlify/images': 1.3.10(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)
       '@netlify/redirects': 3.1.13
       '@netlify/runtime': 4.1.25
       '@netlify/static': 3.1.10
@@ -9463,9 +9469,9 @@ snapshots:
     dependencies:
       '@netlify/headers-parser': 9.0.3
 
-  '@netlify/images@1.3.10(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)':
+  '@netlify/images@1.3.10(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)':
     dependencies:
-      ipx: 3.1.1(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)
+      ipx: 3.1.1(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -10965,6 +10971,10 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
+
+  '@upstash/redis@1.38.0':
+    dependencies:
+      uncrypto: 0.1.3
 
   '@vercel/backends@0.8.24(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(rollup@4.62.2)':
     dependencies:
@@ -13255,7 +13265,7 @@ snapshots:
 
   ipaddr.js@2.4.0: {}
 
-  ipx@3.1.1(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22):
+  ipx@3.1.1(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22):
     dependencies:
       '@fastify/accept-negotiator': 2.0.1
       citty: 0.1.6
@@ -13271,7 +13281,7 @@ snapshots:
       sharp: 0.34.5
       svgo: 4.0.2
       ufo: 1.6.4
-      unstorage: 1.17.5(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))
+      unstorage: 1.17.5(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))
       xss: 1.0.15
     transitivePeerDependencies:
       - '@azure/app-configuration'
@@ -14008,7 +14018,7 @@ snapshots:
 
   negotiator@1.0.0: {}
 
-  netlify-cli@26.2.0(@types/node@24.13.2)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(picomatch@4.0.5)(rollup@4.62.2)(srvx@0.11.22):
+  netlify-cli@26.2.0(@types/node@24.13.2)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(picomatch@4.0.5)(rollup@4.62.2)(srvx@0.11.22):
     dependencies:
       '@fastify/static': 9.3.0
       '@netlify/ai': 0.4.2
@@ -14017,13 +14027,13 @@ snapshots:
       '@netlify/build': 35.15.0(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(picomatch@4.0.5)(rollup@4.62.2)
       '@netlify/build-info': 10.5.1
       '@netlify/config': 24.6.0
-      '@netlify/dev': 4.18.9(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(rollup@4.62.2)(srvx@0.11.22)
+      '@netlify/dev': 4.18.9(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(rollup@4.62.2)(srvx@0.11.22)
       '@netlify/dev-utils': 4.4.6
       '@netlify/edge-bundler': 14.10.3
       '@netlify/edge-functions': 3.0.8
       '@netlify/edge-functions-bootstrap': 2.17.1
       '@netlify/headers-parser': 9.0.3
-      '@netlify/images': 1.3.10(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)
+      '@netlify/images': 1.3.10(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(srvx@0.11.22)
       '@netlify/local-functions-proxy': 2.0.3
       '@netlify/redirect-parser': 15.0.4
       '@netlify/zip-it-and-ship-it': 14.7.1(rollup@4.62.2)(supports-color@10.2.2)
@@ -14145,7 +14155,7 @@ snapshots:
 
   nf3@0.3.22: {}
 
-  nitro@3.0.260610-beta(@electric-sql/pglite@0.3.16)(@netlify/blobs@10.7.9)(@netlify/runtime@4.1.25)(@vercel/blob@2.4.0)(chokidar@5.0.0)(dotenv@17.4.2)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260701.0)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.107.0(@cloudflare/workers-types@4.20260702.1)):
+  nitro@3.0.260610-beta(@electric-sql/pglite@0.3.16)(@netlify/blobs@10.7.9)(@netlify/runtime@4.1.25)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(chokidar@5.0.0)(dotenv@17.4.2)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260701.0)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.107.0(@cloudflare/workers-types@4.20260702.1)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.10(srvx@0.11.22)
@@ -14160,7 +14170,7 @@ snapshots:
       rolldown: 1.2.0
       srvx: 0.11.22
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 17.4.2
       jiti: 2.7.0
@@ -15878,7 +15888,7 @@ snapshots:
       rollup: 4.62.2
       vite: 7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0)
 
-  unstorage@1.17.5(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16)):
+  unstorage@1.17.5(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16)):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0
@@ -15890,12 +15900,14 @@ snapshots:
       ufo: 1.6.4
     optionalDependencies:
       '@netlify/blobs': 10.7.9(supports-color@10.2.2)
+      '@upstash/redis': 1.38.0
       '@vercel/blob': 2.4.0
       db0: 0.3.4(@electric-sql/pglite@0.3.16)
 
-  unstorage@2.0.0-alpha.7(@netlify/blobs@10.7.9)(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(@netlify/blobs@10.7.9)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       '@netlify/blobs': 10.7.9(supports-color@10.2.2)
+      '@upstash/redis': 1.38.0
       '@vercel/blob': 2.4.0
       chokidar: 5.0.0
       db0: 0.3.4(@electric-sql/pglite@0.3.16)
