@@ -25,13 +25,19 @@ vi.mock('./platform.js', () => ({ platform: () => platformMock() }))
 const SESSION_SECRET = 'test-session-secret'
 
 /** An in-memory KV so we can assert what the session layer persisted. */
-function makeKv(): KvLike & { store: Map<string, string> } {
+function makeKv(): KvLike & {
+	store: Map<string, string>
+	puts: { key: string; value: string; options?: { expirationTtl?: number } }[]
+} {
 	const store = new Map<string, string>()
+	const puts: { key: string; value: string; options?: { expirationTtl?: number } }[] = []
 	return {
 		store,
+		puts,
 		get: async (key) => store.get(key) ?? null,
-		put: async (key, value) => {
+		put: async (key, value, options) => {
 			store.set(key, value)
+			puts.push({ key, value, options })
 		},
 		delete: async (key) => {
 			store.delete(key)
@@ -141,6 +147,36 @@ describe('KV-backed sessions', () => {
 		expect(await getSession(req(`ownmail_session=${switchedCookie}`))).toEqual(
 			expect.objectContaining({ grantId: 'grant-a', email: 'a@ownmail.com' }),
 		)
+	})
+
+	it('uses the KV minimum TTL in the final minute without extending the session deadline', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		vi.useFakeTimers()
+		try {
+			const startedAt = new Date('2026-01-01T00:00:00.000Z')
+			vi.setSystemTime(startedAt)
+			let cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+			cookie = cookieFromSetCookie(
+				await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-b', 'b@ownmail.com'),
+			)
+			const expiresAt = startedAt.getTime() + 14 * 24 * 60 * 60 * 1000
+			vi.setSystemTime(new Date(expiresAt - 30_000))
+			const request = req(`ownmail_session=${cookie}`)
+			const handle = (await sessionAccountSummaries(request))?.find(
+				(account) => account.email === 'a@ownmail.com',
+			)?.handle as string
+
+			const switched = (await switchSessionAccount(request, handle)) as string
+
+			expect(kv.puts.at(-1)?.options?.expirationTtl).toBe(60)
+			expect(switched).toContain('Max-Age=30')
+			const switchedCookie = cookieFromSetCookie(switched)
+			vi.setSystemTime(new Date(expiresAt + 1))
+			expect(await getSession(req(`ownmail_session=${switchedCookie}`))).toBeNull()
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('fails closed for arbitrary handles that are not in the verified account allow-list', async () => {
