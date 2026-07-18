@@ -10,10 +10,12 @@ vi.mock('@tanstack/react-router', () => ({
 const getAccountCapabilities = vi.fn()
 const getMailboxInfo = vi.fn()
 const resetMailboxPassword = vi.fn()
+const updateMailboxDisplayName = vi.fn()
 vi.mock('../server/fns.js', () => ({
 	getAccountCapabilities: () => getAccountCapabilities(),
 	getMailboxInfo: () => getMailboxInfo(),
 	resetMailboxPassword: (input: unknown) => resetMailboxPassword(input),
+	updateMailboxDisplayName: (input: unknown) => updateMailboxDisplayName(input),
 }))
 
 vi.mock('../components/AppRail.js', () => ({
@@ -43,8 +45,11 @@ import { Route } from './settings.js'
 const info = { email: 'ada@example.com', displayName: 'Ada', appName: 'OwnMail' }
 const password = 'StrongPassword123!More'
 
-function renderSettings(passwordResetEnabled = false) {
-	Route.useLoaderData = vi.fn(() => ({ info, capabilities: { passwordResetEnabled } }))
+function renderSettings(
+	passwordResetEnabled = false,
+	loaderInfo: { email: string; displayName?: string; appName: string } = info,
+) {
+	Route.useLoaderData = vi.fn(() => ({ info: loaderInfo, capabilities: { passwordResetEnabled } }))
 	const Component = Route.options.component
 	return render(<Component />)
 }
@@ -55,6 +60,9 @@ beforeEach(() => {
 	getMailboxInfo.mockResolvedValue(info)
 	getAccountCapabilities.mockResolvedValue({ passwordResetEnabled: false })
 	resetMailboxPassword.mockResolvedValue({ ok: true })
+	updateMailboxDisplayName.mockImplementation(async ({ data }) => ({
+		displayName: data.displayName.trim(),
+	}))
 })
 
 afterEach(cleanup)
@@ -78,16 +86,24 @@ describe('/settings', () => {
 		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
 	})
 
-	it('saves local profile, compose, and timezone preferences', async () => {
+	it('starts with an empty required name when the account has no persisted name', () => {
+		renderSettings(false, { email: 'ada@example.com', appName: 'OwnMail' })
+
+		expect(screen.getByLabelText('Display name')).toHaveValue('')
+		expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
+	})
+
+	it('persists the account name before saving device preferences', async () => {
 		renderSettings()
 		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: ' Ada Lovelace ' } })
 		fireEvent.click(screen.getByLabelText('Save recipients to contacts automatically'))
 		const [primaryTimezone, secondaryTimezone] = screen.getAllByRole('combobox')
 		fireEvent.change(primaryTimezone, { target: { value: 'UTC' } })
 		fireEvent.change(secondaryTimezone, { target: { value: 'America/Toronto' } })
-		fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
-		expect(await screen.findByText('Saved on this device.')).toBeInTheDocument()
+		expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
+		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: ' Ada Lovelace ' } })
 		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toEqual({
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
@@ -98,11 +114,28 @@ describe('/settings', () => {
 		primaryTimezone.append(invalidTimezone)
 		fireEvent.change(primaryTimezone, { target: { value: 'not/a-timezone' } })
 		fireEvent.change(secondaryTimezone, { target: { value: '' } })
-		fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }))
-		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
-			secondaryTimezone: '',
-		})
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() =>
+			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+				primaryTimezone: 'UTC',
+				secondaryTimezone: '',
+			}),
+		)
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
 		expect(screen.getByText('Password changes are disabled by your administrator.')).toBeInTheDocument()
+	})
+
+	it('does not adopt an account name when the server mutation fails', async () => {
+		updateMailboxDisplayName.mockRejectedValue(new Error('upstream detail'))
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Changed' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'We could not save your settings. Check the display name and try again.',
+		)
+		expect(window.localStorage.getItem('ownmail:user-preferences:v1')).toBeNull()
+		expect(screen.getByLabelText('Display name')).toHaveValue('Changed')
 	})
 
 	it('validates confirmation and submits an enabled password change', async () => {

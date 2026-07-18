@@ -11,7 +11,12 @@ import {
 	type UserPreferences,
 	useUserPreferences,
 } from '../components/user-preferences.js'
-import { getAccountCapabilities, getMailboxInfo, resetMailboxPassword } from '../server/fns.js'
+import {
+	getAccountCapabilities,
+	getMailboxInfo,
+	resetMailboxPassword,
+	updateMailboxDisplayName,
+} from '../server/fns.js'
 
 export const Route = createFileRoute('/settings')({
 	loader: async () => {
@@ -25,7 +30,10 @@ function SettingsPage() {
 	const { info, capabilities } = Route.useLoaderData()
 	const [preferences, savePreferences] = useUserPreferences()
 	const [draft, setDraft] = useState<UserPreferences>(preferences)
-	const [saved, setSaved] = useState(false)
+	const [displayName, setDisplayName] = useState(info.displayName ?? '')
+	const [persistedDisplayName, setPersistedDisplayName] = useState(info.displayName ?? '')
+	const [saveStatus, setSaveStatus] = useState<string | null>(null)
+	const [saving, setSaving] = useState(false)
 	const [password, setPassword] = useState('')
 	const [confirmPassword, setConfirmPassword] = useState('')
 	const [passwordStatus, setPasswordStatus] = useState<string | null>(null)
@@ -37,10 +45,12 @@ function SettingsPage() {
 
 	function update(next: Partial<UserPreferences>) {
 		setDraft((current) => ({ ...current, ...next }))
-		setSaved(false)
+		setSaveStatus(null)
 	}
 
-	function save() {
+	async function save() {
+		setSaveStatus(null)
+		setSaving(true)
 		const primaryTimezone = isSupportedTimezone(draft.primaryTimezone)
 			? draft.primaryTimezone
 			: preferences.primaryTimezone
@@ -50,13 +60,26 @@ function SettingsPage() {
 			draft.secondaryTimezone !== primaryTimezone
 				? draft.secondaryTimezone
 				: ''
-		savePreferences({
-			...draft,
-			displayName: draft.displayName.trim().slice(0, 120),
-			primaryTimezone,
-			secondaryTimezone,
-		})
-		setSaved(true)
+		try {
+			const normalizedDisplayName = displayName.trim()
+			const account =
+				normalizedDisplayName === persistedDisplayName
+					? { displayName: persistedDisplayName }
+					: await updateMailboxDisplayName({ data: { displayName } })
+			savePreferences({
+				...draft,
+				displayName: account.displayName,
+				primaryTimezone,
+				secondaryTimezone,
+			})
+			setDisplayName(account.displayName)
+			setPersistedDisplayName(account.displayName)
+			setSaveStatus('Settings saved.')
+		} catch {
+			setSaveStatus('We could not save your settings. Check the display name and try again.')
+		} finally {
+			setSaving(false)
+		}
 	}
 
 	async function changePassword(event: React.FormEvent<HTMLFormElement>) {
@@ -112,7 +135,7 @@ function SettingsPage() {
 			<div className="flex min-h-0 flex-1 overflow-hidden">
 				<AppRailNav
 					email={info.email}
-					displayName={info.displayName}
+					displayName={persistedDisplayName || info.displayName}
 					accounts={info.accounts}
 					active="settings"
 				/>
@@ -124,17 +147,22 @@ function SettingsPage() {
 								<h2 className="font-display text-lg font-semibold">Profile</h2>
 							</div>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Customize how your name appears in {info.appName} on this device.
+								Set the account name shown in {info.appName} and on messages you send.
 							</p>
 							<label className="mt-4 block text-sm font-medium" htmlFor="settings-display-name">
 								Display name
 							</label>
 							<input
 								id="settings-display-name"
-								value={draft.displayName}
-								onChange={(event) => update({ displayName: event.target.value })}
+								value={displayName}
+								onChange={(event) => {
+									setDisplayName(event.target.value)
+									setSaveStatus(null)
+								}}
+								minLength={1}
 								maxLength={120}
 								autoComplete="name"
+								required
 								className="mt-1 h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 							/>
 						</section>
@@ -179,11 +207,15 @@ function SettingsPage() {
 								/>
 							</div>
 							<div className="mt-5 flex items-center gap-3">
-								<Button type="button" onClick={save}>
+								<Button type="button" onClick={save} disabled={saving || !displayName.trim()}>
 									<Check className="h-4 w-4" />
-									Save preferences
+									{saving ? 'Saving…' : 'Save settings'}
 								</Button>
-								{saved ? <span className="text-sm text-muted-foreground">Saved on this device.</span> : null}
+								{saveStatus ? (
+									<span className="text-sm text-muted-foreground" role="status">
+										{saveStatus}
+									</span>
+								) : null}
 							</div>
 						</section>
 
@@ -234,7 +266,7 @@ function SettingsPage() {
 			<Sheet open={navigationOpen} onClose={() => setNavigationOpen(false)} title="Navigation">
 				<AppRailMobileNav
 					email={info.email}
-					displayName={info.displayName}
+					displayName={persistedDisplayName || info.displayName}
 					accounts={info.accounts}
 					active="settings"
 					onNavigate={() => setNavigationOpen(false)}

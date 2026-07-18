@@ -88,6 +88,26 @@ describe('AppRailNav', () => {
 		).toBeInTheDocument()
 	})
 
+	it('prefers the server account name over a stale browser-only name', async () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({
+				displayName: 'Stale Browser Name',
+				autoSaveContacts: true,
+				primaryTimezone: 'UTC',
+				secondaryTimezone: '',
+			}),
+		)
+		render(<AppRailNav email="ada@ownmail.com" displayName="Persisted Name" active="mail" />)
+
+		expect(
+			await screen.findByRole('link', {
+				name: 'Account settings for Persisted Name · ada@ownmail.com',
+			}),
+		).toBeInTheDocument()
+		expect(screen.queryByText(/Stale Browser Name/)).toBeNull()
+	})
+
 	it('falls back to the bare email for the account settings label without a display name', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
 		expect(screen.getByRole('link', { name: 'Account settings for ada@ownmail.com' })).toBeInTheDocument()
@@ -119,7 +139,13 @@ describe('AppRailNav', () => {
 		const target = screen.getByRole('button', { name: 'support-americas-long@ownmail.com' })
 		expect(target).toHaveAttribute('name', 'account')
 		expect(target).toHaveAttribute('value', 'b'.repeat(43))
-		expect(target).toHaveClass('min-h-11')
+		expect(target).toHaveClass('min-h-11', 'min-w-0')
+		const avatar = target.querySelector('[data-slot="account-switcher-avatar"]')
+		expect(avatar).toHaveClass('app-rail-account', 'shrink-0')
+		expect(avatar?.querySelector('.app-rail-account-inner')).toBeInTheDocument()
+		const email = screen.getByText('support-americas-long@ownmail.com')
+		expect(email).toHaveClass('min-w-0', 'flex-1', 'truncate')
+		expect(email).toHaveAttribute('title', 'support-americas-long@ownmail.com')
 		expect(target.closest('form')).toHaveAttribute('action', '/auth')
 		expect(target.closest('form')).toHaveAttribute('method', 'post')
 		expect(screen.queryByDisplayValue('grant-b')).toBeNull()

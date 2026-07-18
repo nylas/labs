@@ -89,7 +89,7 @@ export function AppRailNav({
 		setIsDark(nextDark)
 	}
 
-	const effectiveDisplayName = preferences.displayName || displayName
+	const effectiveDisplayName = displayName || preferences.displayName
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
 
 	return (
@@ -155,7 +155,7 @@ export function AppRailNav({
 					aria-current={active === 'settings' ? 'page' : undefined}
 				>
 					<span className="app-rail-account-inner">
-						<span className="app-rail-account-initials">{initials(effectiveDisplayName ?? email)}</span>
+						<span className="app-rail-account-initials">{initials(effectiveDisplayName || email)}</span>
 					</span>
 				</Link>
 			</div>
@@ -195,7 +195,7 @@ export function AppRailMobileNav({
 		setIsDark(nextDark)
 	}
 
-	const effectiveDisplayName = preferences.displayName || displayName
+	const effectiveDisplayName = displayName || preferences.displayName
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
 
 	return (
@@ -259,7 +259,7 @@ export function AppRailMobileNav({
 					)}
 				>
 					<span className="app-rail-account-inner shrink-0" aria-hidden="true">
-						<span className="app-rail-account-initials">{initials(effectiveDisplayName ?? email)}</span>
+						<span className="app-rail-account-initials">{initials(effectiveDisplayName || email)}</span>
 					</span>
 					<span className="truncate">Account settings</span>
 					<span className="sr-only"> for {accountLabel}</span>
@@ -297,14 +297,22 @@ function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[]
 							value={account.handle}
 							aria-current={account.active ? 'true' : undefined}
 							className={cn(
-								'flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted',
+								'flex min-h-11 min-w-0 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted',
 								account.active && 'bg-muted font-medium',
 							)}
 						>
-							<span className="app-rail-account-inner shrink-0" aria-hidden="true">
-								<span className="app-rail-account-initials">{initials(account.email)}</span>
+							<span
+								className="app-rail-account shrink-0"
+								data-slot="account-switcher-avatar"
+								aria-hidden="true"
+							>
+								<span className="app-rail-account-inner">
+									<span className="app-rail-account-initials">{initials(account.email)}</span>
+								</span>
 							</span>
-							<span className="min-w-0 break-all">{account.email}</span>
+							<span className="min-w-0 flex-1 truncate" title={account.email}>
+								{account.email}
+							</span>
 						</button>
 					</form>
 				))}

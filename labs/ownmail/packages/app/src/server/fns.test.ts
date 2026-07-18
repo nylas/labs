@@ -85,7 +85,11 @@ beforeEach(() => {
 	mailbox = makeMailbox()
 	getRequestMock.mockReset().mockReturnValue(new Request('http://ownmail.local/'))
 	mailboxFromRequestMock.mockReset()
-	nylasMock.mockReset()
+	nylasMock.mockReset().mockResolvedValue({
+		getGrant: vi.fn().mockResolvedValue({
+			data: { id: 'grant-123', provider: 'nylas' },
+		}),
+	})
 	usingDevMocksMock.mockReset().mockResolvedValue(false)
 	mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
 	mailbox.listFolders.mockResolvedValue({ data: [] })
@@ -101,6 +105,73 @@ beforeEach(() => {
 })
 
 describe('account settings security', () => {
+	it('validates and persists only the session-owned account display name', async () => {
+		expect(() => fns.updateMailboxDisplayName.validator(null)).toThrow('Invalid display name')
+		expect(() => fns.updateMailboxDisplayName.validator({ displayName: 123 })).toThrow('Invalid display name')
+		expect(() => fns.updateMailboxDisplayName.validator({ displayName: '   ' })).toThrow(
+			'Invalid display name',
+		)
+		expect(() => fns.updateMailboxDisplayName.validator({ displayName: 'a'.repeat(121) })).toThrow(
+			'Invalid display name',
+		)
+		expect(() => fns.updateMailboxDisplayName.validator({ displayName: 'Ada\nAdmin' })).toThrow(
+			'Invalid display name',
+		)
+		expect(() =>
+			fns.updateMailboxDisplayName.validator({ displayName: 'Ada', grantId: 'other-grant' } as never),
+		).toThrow('Invalid display name')
+
+		const updateGrant = vi
+			.fn()
+			.mockResolvedValue({ data: { id: 'grant-from-session', name: 'Ada Lovelace' } })
+		const getGrant = vi.fn().mockResolvedValue({
+			data: { id: 'grant-from-session', provider: 'nylas', name: 'Ada Lovelace' },
+		})
+		nylasMock.mockResolvedValue({ updateGrant, getGrant })
+		resolveMailbox({ grantId: 'grant-from-session' })
+		const data = fns.updateMailboxDisplayName.validator({ displayName: '  Ada Lovelace  ' })
+
+		expect(await fns.updateMailboxDisplayName.handler({ data })).toEqual({ displayName: 'Ada Lovelace' })
+		expect(updateGrant).toHaveBeenCalledWith('grant-from-session', { name: 'Ada Lovelace' })
+		expect(getGrant).toHaveBeenCalledWith('grant-from-session')
+	})
+
+	it('rejects unauthenticated and stale accounts without exposing upstream details', async () => {
+		mailboxFromRequestMock.mockResolvedValue(null)
+		await expect(
+			fns.updateMailboxDisplayName.handler({ data: { displayName: 'Ada' } }),
+		).rejects.toMatchObject({ to: LOGIN_PATH })
+		expect(nylasMock).not.toHaveBeenCalled()
+
+		const updateGrant = vi.fn().mockRejectedValue(new NylasApiError('secret upstream account detail', 404))
+		nylasMock.mockResolvedValue({ updateGrant, getGrant: vi.fn() })
+		resolveMailbox({ grantId: 'stale-session-grant' })
+		await expect(fns.updateMailboxDisplayName.handler({ data: { displayName: 'Ada' } })).rejects.toThrow(
+			'We could not update this account. Try again.',
+		)
+	})
+
+	it('fails closed when the provider does not confirm the persisted account name and supports dev mocks', async () => {
+		const updateGrant = vi.fn().mockResolvedValue({ data: { id: 'grant-123', name: 'Ada' } })
+		const getGrant = vi
+			.fn()
+			.mockResolvedValueOnce({ data: { id: 'different-grant', name: 'Ada' } })
+			.mockResolvedValueOnce({ data: { id: 'grant-123', name: 'Grace' } })
+		nylasMock.mockResolvedValue({ updateGrant, getGrant })
+		resolveMailbox()
+		await expect(fns.updateMailboxDisplayName.handler({ data: { displayName: 'Ada' } })).rejects.toThrow(
+			'We could not update this account. Try again.',
+		)
+		await expect(fns.updateMailboxDisplayName.handler({ data: { displayName: 'Ada' } })).rejects.toThrow(
+			'We could not update this account. Try again.',
+		)
+
+		usingDevMocksMock.mockResolvedValue(true)
+		await expect(
+			fns.updateMailboxDisplayName.handler({ data: { displayName: 'Dev Account' } }),
+		).resolves.toEqual({ displayName: 'Dev Account' })
+	})
+
 	it('keeps password changes disabled unless the administrator explicitly enables them', async () => {
 		resolveMailbox()
 		platformMock.mockResolvedValue({ env: { APP_NAME: 'ownmail', OWNMAIL_ALLOW_PASSWORD_RESET: 'false' } })
@@ -151,7 +222,11 @@ describe('requireMailbox (auth gate)', () => {
 
 describe('getMailboxInfo', () => {
 	it('returns the email, app name, and display name when present', async () => {
-		resolveMailbox({ displayName: 'Ada Lovelace' })
+		const getGrant = vi.fn().mockResolvedValue({
+			data: { id: 'grant-123', provider: 'nylas', name: 'Ada Lovelace' },
+		})
+		nylasMock.mockResolvedValue({ getGrant })
+		resolveMailbox()
 		expect(await fns.getMailboxInfo.handler({})).toEqual({
 			email: 'ada@ownmail.com',
 			displayName: 'Ada Lovelace',
@@ -170,6 +245,21 @@ describe('getMailboxInfo', () => {
 		resolveMailbox()
 		const info = await fns.getMailboxInfo.handler({})
 		expect(info).toEqual({ email: 'ada@ownmail.com', appName: 'ownmail', accounts: [] })
+	})
+
+	it('fails closed on malformed or mismatched grant metadata', async () => {
+		resolveMailbox()
+		const getGrant = vi
+			.fn()
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({})
+			.mockResolvedValueOnce({ data: { id: 'grant-123', name: 123 } })
+			.mockResolvedValueOnce({ data: { id: 'another-grant', name: 'Mallory' } })
+		nylasMock.mockResolvedValue({ getGrant })
+		await expect(fns.getMailboxInfo.handler({})).rejects.toThrow('Something went wrong')
+		await expect(fns.getMailboxInfo.handler({})).rejects.toThrow('Something went wrong')
+		await expect(fns.getMailboxInfo.handler({})).rejects.toThrow('Something went wrong')
+		await expect(fns.getMailboxInfo.handler({})).rejects.toThrow('Something went wrong')
 	})
 })
 

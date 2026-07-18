@@ -31,6 +31,19 @@ describe('MessageBody (plain text)', () => {
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
+	it('renders literal content in a bounded, safely wrapping plaintext container', () => {
+		const longToken = 'x'.repeat(200)
+		const text = `First line\r\n  indented ${longToken}`
+		render(<MessageBody message={message({ id: 'm-contained', body: text })} />)
+		const container = document.querySelector('[data-slot="plain-email-content"]')
+		const content = container?.querySelector('p')
+
+		expect(container).toHaveClass('overflow-hidden', 'rounded-xl', 'border', 'bg-card', 'p-5')
+		expect(content).toHaveClass('whitespace-pre-wrap', 'break-words', '[overflow-wrap:anywhere]')
+		expect(content).toHaveTextContent(`First line\n  indented ${longToken}`, { normalizeWhitespace: false })
+		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
+	})
+
 	it('renders Markdown-looking plaintext literally', () => {
 		render(<MessageBody message={message({ id: 'm2', body: '# Heading\n\n**not bold**' })} />)
 		expect(screen.getByText('# Heading')).toBeInTheDocument()
@@ -53,21 +66,33 @@ describe('MessageBody (plain text)', () => {
 })
 
 describe('MessageBody (provider HTML, before client mount)', () => {
-	it('falls back to plain-text paragraphs while unmounted', () => {
+	it('shows a neutral placeholder instead of presenting the HTML message as plaintext', () => {
 		mountState.mounted = false
-		render(<MessageBody message={message({ id: 'm5', body: '<p>Hello world</p>' })} />)
-		// Plain fallback, not the rich renderer, so no untrusted HTML runs pre-hydration.
-		expect(screen.getByText('Hello world')).toBeInTheDocument()
+		render(
+			<MessageBody
+				message={message({
+					id: 'm5',
+					body: '<p><strong>HTML version</strong></p>',
+					snippet: 'Plaintext version',
+				})}
+			/>,
+		)
+
+		expect(screen.getByRole('status', { name: 'Loading email content' })).toBeInTheDocument()
+		expect(screen.queryByText('HTML version')).toBeNull()
+		expect(screen.queryByText('Plaintext version')).toBeNull()
+		expect(document.querySelector('[data-slot="plain-email-content"]')).toBeNull()
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
-	it('renders nothing when unmounted and the HTML has no extractable text', () => {
+	it('does not inspect or execute textless HTML while unmounted', () => {
 		mountState.mounted = false
-		const { container } = render(<MessageBody message={message({ id: 'm6', body: '<p></p>' })} />)
-		expect(container.firstChild).toBeNull()
+		render(<MessageBody message={message({ id: 'm6', body: '<p></p>' })} />)
+		expect(screen.getByRole('status', { name: 'Loading email content' })).toBeInTheDocument()
+		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
-	it('projects a trusted draft envelope without Markdown markers or browser DOM APIs', () => {
+	it('keeps a trusted draft envelope behind the same client rendering boundary', () => {
 		mountState.mounted = false
 		vi.stubGlobal('DOMParser', undefined)
 		const { container } = render(
@@ -81,10 +106,10 @@ describe('MessageBody (provider HTML, before client mount)', () => {
 			/>,
 		)
 
-		expect(screen.getByText('Heading')).toBeInTheDocument()
-		expect(screen.getByText('ready to send')).toBeInTheDocument()
+		expect(screen.getByRole('status', { name: 'Loading email content' })).toBeInTheDocument()
 		expect(container.textContent).not.toContain('# Heading')
 		expect(container.textContent).not.toContain('**ready**')
+		expect(document.querySelector('[data-slot="plain-email-content"]')).toBeNull()
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
@@ -105,6 +130,23 @@ describe('MessageBody (provider HTML, before client mount)', () => {
 })
 
 describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
+	it('prefers the full HTML body over a conflicting plaintext snippet', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-alternative',
+					body: '<section><strong>Rich HTML version</strong></section>',
+					snippet: 'Plaintext version',
+				})}
+			/>,
+		)
+		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
+
+		expect(root?.querySelector('strong')?.textContent).toBe('Rich HTML version')
+		expect(root?.textContent).not.toContain('Plaintext version')
+		expect(document.querySelector('[data-slot="plain-email-content"]')).toBeNull()
+	})
+
 	it('renders the <ownmail-email> element titled with the message id', () => {
 		render(<MessageBody message={message({ id: 'msg-42', body: '<p>Rich <b>content</b></p>' })} />)
 		const el = document.querySelector(EMAIL_ELEMENT_TAG)
