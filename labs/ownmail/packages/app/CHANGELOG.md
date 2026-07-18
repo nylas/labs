@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.5.1
+
+### Patch Changes
+
+- d072fce: Make first-time `npx ownmail` startup fast by bundling the prebuilt app and downloading only the selected hosting provider CLI.
+
 ## 0.5.0
 
 ### Minor Changes

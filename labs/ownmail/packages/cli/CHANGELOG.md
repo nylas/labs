@@ -1,5 +1,12 @@
 # ownmail
 
+## 0.5.1
+
+### Patch Changes
+
+- 6318d8c: Fix custom-domain verification to reconcile dashboard status and let users choose, pause, or manually retry polling.
+- d072fce: Make first-time `npx ownmail` startup fast by bundling the prebuilt app and downloading only the selected hosting provider CLI.
+
 ## 0.5.0
 
 ### Minor Changes
