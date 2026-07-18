@@ -93,6 +93,32 @@ describe('mail query cache boundaries', () => {
 		)
 	})
 
+	it('strips provider-injected draft provenance and only accepts server-attested ids', () => {
+		const providerSpoof = { ...message, ownmailDraft: true } as Message
+
+		expect(toMailMessage(providerSpoof)).not.toHaveProperty('ownmailDraft')
+		expect(toMailThread({ ...thread, latest_draft_or_message: providerSpoof })).toEqual({
+			id: 't1',
+			folders: ['inbox'],
+			latest_draft_or_message: { id: 'm1', thread_id: 't1', subject: 'Hello' },
+		})
+		expect(
+			toMailThreadDetail({
+				thread,
+				messages: [providerSpoof],
+				mailboxEmail: 'me@example.com',
+			}),
+		).toMatchObject({ messages: [{ id: 'm1', subject: 'Hello' }] })
+		expect(
+			toMailThreadDetail({
+				thread,
+				messages: [providerSpoof],
+				mailboxEmail: 'me@example.com',
+				ownmailDraftMessageIds: ['m1'],
+			}),
+		).toMatchObject({ messages: [{ id: 'm1', subject: 'Hello', ownmailDraft: true }] })
+	})
+
 	it('builds executable finite query options with sanitized results', async () => {
 		const client = new QueryClient()
 		await expect(client.fetchQuery(foldersQueryOptions(async () => [folder]))).resolves.toEqual([

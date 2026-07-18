@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import type { Message } from '@nylas-labs/cli-kit/v3'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { MailMessage } from '../state/mail-queries.js'
 import { EMAIL_ELEMENT_TAG } from './email-render.js'
 import { markdownToDraftBody } from './html-to-markdown.js'
 import { MessageBody } from './MessageBody.js'
@@ -19,8 +19,8 @@ afterEach(() => {
 	document.documentElement.classList.remove('dark')
 })
 
-function message(fields: Partial<Message>): Message {
-	return fields as unknown as Message
+function message(fields: Partial<MailMessage>): MailMessage {
+	return fields as MailMessage
 }
 
 describe('MessageBody (plain text)', () => {
@@ -74,7 +74,8 @@ describe('MessageBody (provider HTML, before client mount)', () => {
 			<MessageBody
 				message={message({
 					id: 'draft-ssr',
-					folders: ['drafts'],
+					folders: ['custom'],
+					ownmailDraft: true,
 					body: markdownToDraftBody('# Heading\n\n**ready** to send'),
 				})}
 			/>,
@@ -93,7 +94,7 @@ describe('MessageBody (provider HTML, before client mount)', () => {
 			<MessageBody
 				message={message({
 					id: 'draft-empty',
-					folders: ['drafts'],
+					ownmailDraft: true,
 					body: markdownToDraftBody(''),
 				})}
 			/>,
@@ -112,12 +113,12 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		expect(el?.shadowRoot?.querySelector('.email-root')?.innerHTML).toContain('content')
 	})
 
-	it('does not interpret an OwnMail-looking envelope on a received message', () => {
+	it('does not interpret an OwnMail-looking envelope from a provider message in Drafts', () => {
 		render(
 			<MessageBody
 				message={message({
 					id: 'msg-untrusted-envelope',
-					folders: ['inbox'],
+					folders: ['drafts'],
 					body: markdownToDraftBody('# Heading\n\n**not bold**'),
 				})}
 			/>,
@@ -169,7 +170,8 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 			<MessageBody
 				message={message({
 					id: 'draft-preview',
-					folders: ['drafts'],
+					folders: ['custom'],
+					ownmailDraft: true,
 					body: markdownToDraftBody('# Heading\n\n**ready** to send'),
 				})}
 			/>,

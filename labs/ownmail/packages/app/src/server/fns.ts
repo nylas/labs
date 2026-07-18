@@ -163,7 +163,7 @@ function draftThreadMessages(
 	draft: Draft,
 	email: string,
 	displayName?: string,
-): { thread: Thread; messages: Message[] } {
+): { thread: Thread; messages: Message[]; ownmailDraftMessageIds: string[] } {
 	const from = draft.from?.length ? draft.from : [{ email, ...(displayName ? { name: displayName } : {}) }]
 	const message: Message = {
 		...draft,
@@ -188,7 +188,7 @@ function draftThreadMessages(
 		starred: draft.starred ?? false,
 		folders: draft.folders ?? ['drafts'],
 	}
-	return { thread, messages: [message] }
+	return { thread, messages: [message], ownmailDraftMessageIds: [message.id] }
 }
 
 function stripHtml(value: string): string {
@@ -294,6 +294,7 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			messages: Message[]
 			mailboxEmail: string
 			markedRead?: boolean
+			ownmailDraftMessageIds?: string[]
 		}> => {
 			const { mailbox, email, displayName, grantId } = await requireMailbox()
 			try {

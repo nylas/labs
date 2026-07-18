@@ -320,6 +320,7 @@ describe('getThreadMessages', () => {
 			folders: ['drafts'],
 			from: [{ email: 'ada@ownmail.com', name: 'Ada' }],
 		})
+		expect(res.ownmailDraftMessageIds).toEqual(['t1'])
 		expect(res.mailboxEmail).toBe('ada@ownmail.com')
 	})
 
@@ -349,6 +350,7 @@ describe('getThreadMessages', () => {
 		expect(res.thread.has_attachments).toBe(false) // only inline attachment
 		expect(res.messages[0].from).toEqual([{ email: 'sender@x.com' }])
 		expect(res.messages[0].thread_id).toBe('th')
+		expect(res.ownmailDraftMessageIds).toEqual(['d1'])
 	})
 
 	it('synthesizes a draft thread with defaults when the draft and mailbox lack optional fields', async () => {

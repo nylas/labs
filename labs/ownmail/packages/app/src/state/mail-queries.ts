@@ -6,7 +6,10 @@ const MAX_SEARCH_QUERY_LENGTH = 500
 
 /** Mail entities safe to keep in the browser cache. Provider grant identifiers are
  * deliberately removed at the query boundary and are never persisted. */
-export type MailMessage = Omit<Message, 'grant_id'>
+export type MailMessage = Omit<Message, 'grant_id' | 'ownmailDraft'> & {
+	/** Server-attested provenance for messages synthesized from the drafts endpoint. */
+	ownmailDraft?: true
+}
 export type MailDraft = Omit<Draft, 'grant_id'>
 export type MailThread = Omit<Thread, 'grant_id' | 'latest_draft_or_message'> & {
 	latest_draft_or_message?: MailMessage
@@ -59,9 +62,17 @@ export function normalizeMailThreadFilters(input: MailThreadFilters): MailThread
 	}
 }
 
-export function toMailMessage(message: Message): MailMessage {
-	const { grant_id: _grantId, ...safe } = message
-	return safe
+export function toMailMessage(message: Message, ownmailDraft = false): MailMessage {
+	// Provider objects are untrusted at this boundary. Explicitly discard a
+	// lookalike marker before attaching provenance supplied by our server result.
+	const {
+		grant_id: _grantId,
+		ownmailDraft: _providerMarker,
+		...safe
+	} = message as Message & {
+		ownmailDraft?: unknown
+	}
+	return { ...safe, ...(ownmailDraft ? { ownmailDraft: true as const } : {}) }
 }
 
 export function toMailDraft(draft: Draft): MailDraft {
@@ -87,10 +98,12 @@ export function toMailThreadDetail(detail: {
 	messages: Message[]
 	mailboxEmail: string
 	markedRead?: boolean
+	ownmailDraftMessageIds?: string[]
 }): MailThreadDetail {
+	const draftMessageIds = new Set(detail.ownmailDraftMessageIds ?? [])
 	return {
 		thread: toMailThread(detail.thread),
-		messages: detail.messages.map(toMailMessage),
+		messages: detail.messages.map((message) => toMailMessage(message, draftMessageIds.has(message.id))),
 		mailboxEmail: detail.mailboxEmail,
 		...(detail.markedRead !== undefined ? { markedRead: detail.markedRead } : {}),
 	}
@@ -156,6 +169,7 @@ export function threadDetailQueryOptions(
 		messages: Message[]
 		mailboxEmail: string
 		markedRead?: boolean
+		ownmailDraftMessageIds?: string[]
 	}>,
 ) {
 	const safeThreadId = requireCacheId(threadId, 'thread')

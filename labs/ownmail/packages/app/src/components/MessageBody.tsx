@@ -8,11 +8,11 @@ import { messageBodyParagraphs, messageHasHtml } from './ui-model.js'
 export function MessageBody({ message }: { message: MailMessage }) {
 	const mounted = useMounted()
 
-	// Drafts are the only read surface that can receive OwnMail's explicit
-	// Markdown storage envelope. Render that trusted envelope as the same final
-	// HTML used for sending; never interpret arbitrary received plaintext as Markdown.
+	// Only messages attested by our drafts-endpoint fallback can receive OwnMail's
+	// explicit Markdown storage envelope. Render that exact envelope as the same
+	// final HTML used for sending; never trust provider folder membership or fields.
 	const draftMarkdown =
-		message.folders?.includes('drafts') && message.body ? ownMailDraftMarkdown(message.body) : undefined
+		message.ownmailDraft === true && message.body ? ownMailDraftMarkdown(message.body) : undefined
 	if (draftMarkdown !== undefined) {
 		const html = markdownToEmailHtml(draftMarkdown)
 		if (!mounted) {

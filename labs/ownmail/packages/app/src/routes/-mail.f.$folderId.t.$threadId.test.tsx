@@ -228,15 +228,16 @@ describe('message list', () => {
 	it('renders a saved OwnMail draft as its final formatted HTML in the thread reader', () => {
 		renderThread(
 			loaderData({
-				thread: { id: 'd1', subject: 'Draft', starred: false, folders: ['drafts'] },
+				thread: { id: 'd1', subject: 'Draft', starred: false, folders: ['custom'] },
 				messages: [
 					{
 						id: 'd1',
-						folders: ['drafts'],
+						folders: ['custom'],
 						from: [{ email: 'me@x.com' }],
 						body: markdownToDraftBody('# Heading\n\n**ready** to send'),
 					},
 				],
+				ownmailDraftMessageIds: ['d1'],
 			}),
 		)
 		const root = screen.getByTitle('Email content d1').shadowRoot?.querySelector('.email-root')
