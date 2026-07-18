@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.4.0
+
+### Minor Changes
+
+- f82cdc4: Fix OwnMail email rendering, account switcher layout, and persistent account display names.
+
 ## 0.3.0
 
 ### Minor Changes
