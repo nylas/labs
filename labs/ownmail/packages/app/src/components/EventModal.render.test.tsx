@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventModal } from './EventModal.js'
 
@@ -17,6 +19,14 @@ vi.mock('../server/calendar-fns.js', () => ({ createEvent, deleteEvent, rsvpEven
 // The guest field's contact lookup is a server fn; stub it so rendering the
 // composer never reaches the network. Guest tests commit addresses directly.
 vi.mock('../server/fns.js', () => ({ searchContacts: vi.fn().mockResolvedValue([]) }))
+
+function render(ui: ReactElement) {
+	return testingRender(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			{ui}
+		</QueryClientProvider>,
+	)
+}
 
 // The composer's time pickers are Radix Selects, which need pointer-capture,
 // ResizeObserver, and scrollIntoView — none implemented by jsdom.

@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -92,12 +94,14 @@ beforeEach(() => {
 	getFolders.mockResolvedValue([])
 	getDraft.mockResolvedValue(null)
 	getThreadMessages.mockResolvedValue(null)
-	saveDraft.mockResolvedValue({ draftId: 'new-draft' })
-	saveComposeRecipients.mockResolvedValue({ ok: true })
-	sendDraft.mockResolvedValue(undefined)
+	saveDraft.mockResolvedValue({ draftId: 'new-draft', created: true })
+	saveComposeRecipients.mockResolvedValue({ contacts: [] })
+	sendDraft.mockResolvedValue({ removedDraftId: 'new-draft' })
 	sendMessage.mockResolvedValue(undefined)
-	updateThreadState.mockResolvedValue(undefined)
-	deleteDraft.mockResolvedValue(undefined)
+	updateThreadState.mockImplementation(async ({ data }: any) => ({
+		thread: { ...makeThread(), id: data.threadId, ...data },
+	}))
+	deleteDraft.mockImplementation(async ({ data }: any) => ({ removedDraftId: data.draftId }))
 })
 
 const NOW = 1_700_000_000
@@ -134,7 +138,15 @@ function makeMessage(overrides: any = {}) {
 	}
 }
 
-function renderCompose({ loader = {}, search = {} }: { loader?: any; search?: any } = {}) {
+function renderCompose({
+	loader = {},
+	search = {},
+	staleTime = 30_000,
+}: {
+	loader?: any
+	search?: any
+	staleTime?: number
+} = {}) {
 	const data = {
 		draft: null,
 		folders: [],
@@ -146,7 +158,13 @@ function renderCompose({ loader = {}, search = {} }: { loader?: any; search?: an
 	}
 	Route.useLoaderData = vi.fn(() => data)
 	Route.useSearch = vi.fn(() => search)
-	return render(<Route.options.component />)
+	return render(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime } } })}
+		>
+			<Route.options.component />
+		</QueryClientProvider>,
+	)
 }
 
 function fileInput(container: HTMLElement) {
@@ -312,7 +330,13 @@ describe('mail.compose composer prefill', () => {
 		const original = Object.getOwnPropertyDescriptor(globalThis, 'DOMParser')
 		Object.defineProperty(globalThis, 'DOMParser', { value: undefined, configurable: true })
 		try {
-			expect(() => renderToString(<Route.options.component />)).not.toThrow()
+			expect(() =>
+				renderToString(
+					<QueryClientProvider client={new QueryClient()}>
+						<Route.options.component />
+					</QueryClientProvider>,
+				),
+			).not.toThrow()
 		} finally {
 			if (original) Object.defineProperty(globalThis, 'DOMParser', original)
 		}
@@ -334,6 +358,12 @@ describe('mail.compose composer prefill', () => {
 })
 
 describe('mail.compose thread list', () => {
+	it('uses the starred cache key for the starred pseudo-folder', () => {
+		renderCompose({ loader: { folderId: 'starred' } })
+
+		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Starred')
+	})
+
 	it('renders unread, starred, multi-message and attachment cues for a rich thread row', () => {
 		const unread = makeThread({
 			id: 't1',
@@ -374,7 +404,7 @@ describe('mail.compose thread list', () => {
 		expect(screen.queryByText('1')).not.toBeInTheDocument()
 	})
 
-	it('toggles a row star through the server and refreshes the list', async () => {
+	it('toggles a row star through the centralized mutation gateway', async () => {
 		const thread = makeThread({ id: 't7', starred: false })
 		renderCompose({ loader: { threads: [thread] } })
 
@@ -383,7 +413,7 @@ describe('mail.compose thread list', () => {
 		await waitFor(() =>
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't7', starred: true } }),
 		)
-		expect(invalidate).toHaveBeenCalled()
+		expect(invalidate).not.toHaveBeenCalled()
 	})
 
 	it('sorts threads that carry no send or receive timestamp as epoch zero without crashing', () => {
@@ -449,7 +479,25 @@ describe('mail.compose selected backdrop', () => {
 		expect(screen.getAllByText('Finance').length).toBeGreaterThan(1)
 	})
 
-	it('archives the selected thread, leaves the composer, and refreshes', async () => {
+	it('propagates a loader-side mark-read into cached mail views', () => {
+		const loader = selectedLoader()
+		loader.selected.markedRead = true
+		renderCompose({
+			loader,
+			search: { threadId: 't1' },
+		})
+		expect(screen.getByRole('heading', { name: 'Hello there' })).toBeInTheDocument()
+		expect(invalidate).not.toHaveBeenCalled()
+	})
+
+	it('refetches a selected compose backdrop through its canonical detail query', async () => {
+		const loader = selectedLoader()
+		getThreadMessages.mockResolvedValue(loader.selected)
+		renderCompose({ loader, search: { threadId: 't1' }, staleTime: 0 })
+		await waitFor(() => expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+	})
+
+	it('archives the selected thread and leaves the composer', async () => {
 		renderCompose({
 			loader: selectedLoader(),
 			search: { replyToMessageId: 'm9', to: 'x@y.com', subject: 'Sub', body: 'Bod' },
@@ -461,7 +509,7 @@ describe('mail.compose selected backdrop', () => {
 			}),
 		)
 		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
-		expect(invalidate).toHaveBeenCalled()
+		expect(invalidate).not.toHaveBeenCalled()
 	})
 
 	it('returns an archived selected thread to the inbox', async () => {

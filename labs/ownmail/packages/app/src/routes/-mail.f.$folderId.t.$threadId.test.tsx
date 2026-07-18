@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,7 +29,14 @@ import { ErrorBanner, Route } from './mail.f.$folderId.t.$threadId.js'
 afterEach(cleanup)
 beforeEach(() => {
 	vi.clearAllMocks()
-	updateThreadState.mockResolvedValue(undefined)
+	updateThreadState.mockImplementation(async ({ data }: any) => ({
+		thread: {
+			id: data.threadId,
+			starred: data.starred ?? false,
+			unread: data.unread ?? false,
+			folders: ['work'],
+		},
+	}))
 	routerState = { location: { pathname: '/mail/f/inbox/t/t1' } }
 })
 
@@ -79,7 +88,13 @@ function renderThread(data: any = loaderData(), search: any = {}) {
 	Route.useParams = vi.fn(() => ({ folderId: 'inbox', threadId: 't1' }))
 	Route.useSearch = vi.fn(() => search)
 	const Component = Route.options.component
-	return render(<Component />)
+	return render(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}
+		>
+			<Component />
+		</QueryClientProvider>,
+	)
 }
 
 // --- loader & validateSearch --------------------------------------------
@@ -200,7 +215,7 @@ describe('toolbar actions', () => {
 		expect(navigate).toHaveBeenCalledWith(
 			expect.objectContaining({ to: '/mail/f/$folderId', params: { folderId: 'inbox' }, search: {} }),
 		)
-		expect(invalidate).toHaveBeenCalled()
+		expect(invalidate).not.toHaveBeenCalled()
 	})
 
 	it('returns archived threads to the inbox instead of archiving them again', async () => {
@@ -240,7 +255,7 @@ describe('toolbar actions', () => {
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
 		expect(navigate).not.toHaveBeenCalled()
-		expect(invalidate).toHaveBeenCalled()
+		expect(invalidate).not.toHaveBeenCalled()
 	})
 
 	it('unstars a starred thread and labels the control accordingly', async () => {
@@ -496,12 +511,12 @@ describe('keyboard shortcuts', () => {
 	})
 })
 
-// --- markedRead auto-refresh -------------------------------------------
+// --- markedRead cache propagation --------------------------------------
 
 describe('auto mark-read', () => {
-	it('invalidates the router once when the loader reports the thread was marked read', () => {
+	it('does not broadly invalidate the router when the loader reports the thread was marked read', () => {
 		renderThread(loaderData({ markedRead: true }))
-		expect(invalidate).toHaveBeenCalledTimes(1)
+		expect(invalidate).not.toHaveBeenCalled()
 	})
 
 	it('does not invalidate when the thread was already read', () => {

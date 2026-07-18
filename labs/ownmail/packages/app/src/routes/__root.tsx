@@ -7,6 +7,7 @@ import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { INITIAL_ROOT_CLASS_NAME } from '../components/theme.js'
 import { platform } from '../server/platform.js'
 import { DEFAULT_SITE_NAME, siteNameFromEnv } from '../server/site-config.js'
+import { OwnmailQueryProvider } from '../state/query-provider.js'
 import appCss from '../styles.css?url'
 
 const rootState = createServerFn({ method: 'GET' }).handler(async () => {
@@ -105,7 +106,9 @@ function RootComponent() {
 				/>
 			</head>
 			<body suppressHydrationWarning>
-				<Outlet />
+				<OwnmailQueryProvider>
+					<Outlet />
+				</OwnmailQueryProvider>
 				<Scripts />
 			</body>
 		</html>

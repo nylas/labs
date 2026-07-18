@@ -1,9 +1,9 @@
-import type { Message } from '@nylas-labs/cli-kit/v3'
+import type { MailMessage } from '../state/mail-queries.js'
 import { useMounted } from './ClientTime.js'
 import { EmailHtml } from './EmailHtml.js'
 import { messageBodyParagraphs, messageHasHtml } from './ui-model.js'
 
-export function MessageBody({ message }: { message: Message }) {
+export function MessageBody({ message }: { message: MailMessage }) {
 	const mounted = useMounted()
 
 	if (messageHasHtml(message)) {

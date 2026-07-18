@@ -1,5 +1,6 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import {
 	Archive,
 	Forward,
@@ -35,18 +36,24 @@ import {
 	threadTimestamp,
 } from '../components/ui-model.js'
 import { useUserPreferences } from '../components/user-preferences.js'
-import {
-	deleteDraft,
-	getDraft,
-	getFolders,
-	getThreadMessages,
-	getThreads,
-	saveComposeRecipients,
-	saveDraft,
-	sendDraft,
-	updateThreadState,
-} from '../server/fns.js'
+import { getDraft, getFolders, getThreadMessages, getThreads, saveComposeRecipients } from '../server/fns.js'
 import type { OutboundAttachment } from '../server/outbound-attachments.js'
+import { applyContactEffect } from '../state/contacts-state.js'
+import { applyMailCacheEffect } from '../state/mail-cache.js'
+import {
+	useDeleteDraftMutation,
+	useSaveDraftMutation,
+	useSendDraftMutation,
+	useUpdateThreadMutation,
+} from '../state/mail-mutations.js'
+import {
+	foldersQueryOptions,
+	threadDetailQueryOptions,
+	threadListQueryOptions,
+	toMailFolder,
+	toMailThread,
+	toMailThreadDetail,
+} from '../state/mail-queries.js'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 const MAX_COMPOSE_ATTACHMENTS = 10
@@ -132,10 +139,41 @@ export const Route = createFileRoute('/mail/compose')({
 })
 
 function Compose() {
-	const { draft, folders, threads, selected, folderId, reply } = Route.useLoaderData()
+	const initial = Route.useLoaderData()
+	const { draft, folderId, reply } = initial
 	const search = Route.useSearch()
 	const navigate = useNavigate()
-	const router = useRouter()
+	const queryClient = useQueryClient()
+	const updateThread = useUpdateThreadMutation()
+	const saveDraftMutation = useSaveDraftMutation()
+	const sendDraftMutation = useSendDraftMutation()
+	const deleteDraftMutation = useDeleteDraftMutation()
+	const threadFilters = folderId === 'starred' ? { starred: true } : { folderId }
+	const foldersQuery = useQuery({
+		...foldersQueryOptions(() => getFolders()),
+		initialData: initial.folders.map(toMailFolder),
+	})
+	const threadsQuery = useInfiniteQuery({
+		...threadListQueryOptions(threadFilters, (input) => getThreads({ data: input })),
+		initialData: {
+			pages: [{ threads: initial.threads.map(toMailThread) }],
+			pageParams: [undefined],
+		},
+	})
+	const selectedQuery = useQuery({
+		...threadDetailQueryOptions(search.threadId ?? '__no-compose-thread__', (id) =>
+			getThreadMessages({ data: { threadId: id } }),
+		),
+		...(initial.selected ? { initialData: toMailThreadDetail(initial.selected) } : {}),
+		enabled: Boolean(search.threadId),
+	})
+	const folders = foldersQuery.data
+	const threads = [
+		...new Map(
+			threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
+		).values(),
+	] as Thread[]
+	const selected = selectedQuery.data as typeof initial.selected
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
@@ -163,6 +201,16 @@ function Compose() {
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
+	useEffect(() => {
+		if (selected?.markedRead) {
+			applyMailCacheEffect(queryClient, {
+				type: 'thread.read',
+				threadId: selected.thread.id,
+				unread: false,
+				thread: selected.thread,
+			})
+		}
+	}, [queryClient, selected])
 
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
@@ -200,19 +248,17 @@ function Compose() {
 		input: { unread?: boolean; starred?: boolean; folder?: string },
 		leave = false,
 	) {
-		await updateThreadState({ data: { threadId, ...input } })
+		await updateThread.mutateAsync({ threadId, ...input })
 		if (leave) {
 			await navigate({ to: '/mail/compose', search: composeListSearch() })
 		}
-		await router.invalidate()
 	}
 
 	async function toggleBackdropRowStar(
 		thread: Awaited<ReturnType<typeof getThreads>>['threads'][number],
 		starred: boolean,
 	) {
-		await updateThreadState({ data: { threadId: thread.id, starred } })
-		await router.invalidate()
+		await updateThread.mutateAsync({ threadId: thread.id, starred })
 	}
 
 	function replyFromBackdrop(thread: Thread, messages: Message[]) {
@@ -299,16 +345,14 @@ function Compose() {
 
 	const persistDraft = useCallback(
 		async ({ to, subject, body, attachments, replyToMessageId }: DraftPersistenceInput) => {
-			const savedDraft = await saveDraft({
-				data: {
-					...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
-					to,
-					subject,
-					// Enveloped so reloading can tell markdown from legacy HTML drafts.
-					body: body ? markdownToDraftBody(body) : '',
-					...(attachments.length ? { attachments } : {}),
-					...(replyToMessageId ? { replyToMessageId } : {}),
-				},
+			const savedDraft = await saveDraftMutation.mutateAsync({
+				...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
+				to,
+				subject,
+				// Enveloped so reloading can tell markdown from legacy HTML drafts.
+				body: body ? markdownToDraftBody(body) : '',
+				...(attachments.length ? { attachments } : {}),
+				...(replyToMessageId ? { replyToMessageId } : {}),
 			})
 			draftIdRef.current = savedDraft.draftId
 			setDraftId(savedDraft.draftId)
@@ -316,7 +360,7 @@ function Compose() {
 			setSaved(true)
 			return savedDraft.draftId
 		},
-		[],
+		[saveDraftMutation],
 	)
 
 	const queueDraftPersistence = useCallback(
@@ -403,17 +447,15 @@ function Compose() {
 		setError(null)
 		try {
 			const id = await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
-			await sendDraft({
-				data: {
-					draftId: id,
-					to,
-					subject,
-					// The editor holds markdown; outgoing mail carries inline-styled HTML.
-					body: markdownToEmailHtml(body),
-					// The provider draft was just saved with the current attachments.
-					// sendDraft restores them server-side, avoiding duplicate files.
-					...(replyToMessageId ? { replyToMessageId } : {}),
-				},
+			await sendDraftMutation.mutateAsync({
+				draftId: id,
+				to,
+				subject,
+				// The editor holds markdown; outgoing mail carries inline-styled HTML.
+				body: markdownToEmailHtml(body),
+				// The provider draft was just saved with the current attachments.
+				// sendDraft restores them server-side, avoiding duplicate files.
+				...(replyToMessageId ? { replyToMessageId } : {}),
 			})
 			if (preferences.autoSaveContacts) {
 				void saveComposeRecipients({
@@ -423,7 +465,13 @@ function Compose() {
 							.map((email) => email.trim())
 							.filter(Boolean),
 					},
-				}).catch(() => undefined)
+				})
+					.then((receipt) => {
+						for (const contact of receipt.contacts) {
+							applyContactEffect(queryClient, { type: 'created', contact })
+						}
+					})
+					.catch(() => undefined)
 			}
 			navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
 		} catch {
@@ -436,8 +484,10 @@ function Compose() {
 		body,
 		navigate,
 		preferences.autoSaveContacts,
+		queryClient,
 		queueDraftPersistence,
 		replyToMessageId,
+		sendDraftMutation,
 		subject,
 		to,
 	])
@@ -461,7 +511,7 @@ function Compose() {
 		try {
 			await draftQueue.current
 			const savedDraftId = draftIdRef.current
-			if (savedDraftId) await deleteDraft({ data: { draftId: savedDraftId } })
+			if (savedDraftId) await deleteDraftMutation.mutateAsync(savedDraftId)
 			close()
 		} catch {
 			setError('Could not discard the draft. Check your connection, then try again.')

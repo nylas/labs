@@ -1,9 +1,19 @@
 // @vitest-environment jsdom
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, screen, render as testingRender, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ymd } from '../components/calendar.js'
+
+function render(ui: ReactElement) {
+	return testingRender(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			{ui}
+		</QueryClientProvider>,
+	)
+}
 
 // Router + server + child-component seams are stubbed so we can drive the loader helper
 // and the exported CalendarRouteScreen in isolation, with no live router or network.
@@ -285,6 +295,7 @@ describe('loadCalendarRouteData', () => {
 describe('CalendarViewRoutePage wrapper', () => {
 	it('feeds the params view + loader data straight into the screen', () => {
 		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2026-06-15' }))
 		Route.useLoaderData = vi.fn(() => richData())
 		const Page = Route.options.component
 		render(<Page />)
@@ -757,12 +768,12 @@ describe('event editor', () => {
 		expect(screen.getByTestId('event-modal').dataset.calendarName).toBe('Primary Cal')
 	})
 
-	it('revalidates the route only when the editor reports a change', () => {
+	it('closes after the editor reports a cached change', () => {
 		renderWeek()
 		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 		fireEvent.click(screen.getByText('close-changed'))
 		expect(screen.queryByTestId('event-modal')).toBeNull()
-		expect(h.invalidate).toHaveBeenCalledOnce()
+		expect(h.invalidate).not.toHaveBeenCalled()
 	})
 
 	it('does not revalidate when the editor closes unchanged', () => {

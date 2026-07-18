@@ -16,6 +16,7 @@ import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '../components/route-paths.js'
+import { signalLocalChange } from './change-version.js'
 import {
 	type ContactFieldsInput,
 	normalizeContactFields,
@@ -97,6 +98,29 @@ function listData<T>(value: unknown): T[] {
 
 type AttachmentDownloader = {
 	downloadAttachment(attachmentId: string, messageId: string): Promise<Response>
+}
+
+type FolderLister = {
+	listFolders(): Promise<{ data?: unknown }>
+}
+
+/** Folder metadata is reconciliation data, so a failed follow-up read must not
+ * turn an already-successful provider mutation into a reported failure. */
+async function freshFolders(mailbox: FolderLister): Promise<Folder[] | undefined> {
+	try {
+		return listData<Folder>((await mailbox.listFolders()).data)
+	} catch {
+		return undefined
+	}
+}
+
+async function mailReceipt<T extends object>(
+	mailbox: FolderLister,
+	grantId: string,
+	receipt: T,
+): Promise<T & { folders?: Folder[] }> {
+	const [folders] = await Promise.all([freshFolders(mailbox), signalLocalChange(grantId, 'mail')])
+	return { ...receipt, ...(folders ? { folders } : {}) }
 }
 
 /** Re-encode provider attachments because draft updates are full PUT replacements. */
@@ -271,16 +295,17 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			mailboxEmail: string
 			markedRead?: boolean
 		}> => {
-			const { mailbox, email, displayName } = await requireMailbox()
+			const { mailbox, email, displayName, grantId } = await requireMailbox()
 			try {
 				const thread = await mailbox.getThread(data.threadId)
 				const messageIds = thread.data.message_ids ?? []
 				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
 				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
 				if (thread.data.unread) {
-					await mailbox.updateThread(data.threadId, { unread: false })
+					const updated = await mailbox.updateThread(data.threadId, { unread: false })
+					await signalLocalChange(grantId, 'mail')
 					return {
-						thread: { ...thread.data, unread: false },
+						thread: updated.data,
 						messages,
 						mailboxEmail: email,
 						markedRead: true,
@@ -297,6 +322,21 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 		},
 	)
 
+/** Explicit read-state mutation for callers that keep data loading side-effect free. */
+export const markThreadRead = createServerFn({ method: 'POST' })
+	.validator((input: { threadId: string }) => ({
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+	}))
+	.handler(async ({ data }): Promise<{ thread: Thread; folders?: Folder[] }> => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			const updated = await mailbox.updateThread(data.threadId, { unread: false })
+			return mailReceipt(mailbox, grantId, { thread: updated.data })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
 export const sendMessage = createServerFn({ method: 'POST' })
 	.validator(
 		(input: {
@@ -312,19 +352,19 @@ export const sendMessage = createServerFn({ method: 'POST' })
 		},
 	)
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
-			await mailbox.send({
+			const sent = await mailbox.send({
 				to: data.toList.map((email) => ({ email })),
 				subject: data.subject,
 				body: data.body,
 				...(data.attachments ? { attachments: data.attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
+			return mailReceipt(mailbox, grantId, { message: sent.data })
 		} catch (err) {
 			throw friendly(err)
 		}
-		return { ok: true }
 	})
 
 // ---- Thread actions -----------------------------------------------------------
@@ -332,28 +372,28 @@ export const sendMessage = createServerFn({ method: 'POST' })
 export const updateThreadState = createServerFn({ method: 'POST' })
 	.validator(normalizeThreadStateInput)
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
 			const folders = data.folder
 				? threadFoldersAfterMove((await mailbox.getThread(data.threadId)).data.folders, data.folder)
 				: undefined
-			await mailbox.updateThread(data.threadId, {
+			const updated = await mailbox.updateThread(data.threadId, {
 				...(data.unread !== undefined ? { unread: data.unread } : {}),
 				...(data.starred !== undefined ? { starred: data.starred } : {}),
 				...(folders ? { folders } : {}),
 			})
+			return mailReceipt(mailbox, grantId, { thread: updated.data })
 		} catch (err) {
 			if (isNotFound(err) && data.folder && ['archive', 'trash'].includes(data.folder)) {
 				try {
 					await mailbox.deleteDraft(data.threadId)
-					return { ok: true }
+					return mailReceipt(mailbox, grantId, { removedDraftId: data.threadId })
 				} catch {
 					// fall through to the original, user-safe thread action error
 				}
 			}
 			throw friendly(err)
 		}
-		return { ok: true }
 	})
 
 // ---- Drafts ---------------------------------------------------------------------
@@ -378,7 +418,7 @@ export const saveDraft = createServerFn({ method: 'POST' })
 		},
 	)
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
 			const payload = {
 				to: data.toList.map((email) => ({ email })),
@@ -390,7 +430,11 @@ export const saveDraft = createServerFn({ method: 'POST' })
 			const saved = data.draftId
 				? await mailbox.updateDraft(data.draftId, payload)
 				: await mailbox.createDraft(payload)
-			return { draftId: saved.data.id }
+			return mailReceipt(mailbox, grantId, {
+				draftId: saved.data.id,
+				draft: saved.data,
+				created: data.draftId === undefined,
+			})
 		} catch (err) {
 			throw friendly(err)
 		}
@@ -431,7 +475,7 @@ export const sendDraft = createServerFn({ method: 'POST' })
 		},
 	)
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
 			const draft = await mailbox.getDraft(data.draftId)
 			const restoredAttachments = await restoreDraftAttachments(mailbox, draft.data)
@@ -443,11 +487,14 @@ export const sendDraft = createServerFn({ method: 'POST' })
 				...(attachments ? { attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
-			await mailbox.sendDraft(data.draftId)
+			const sent = await mailbox.sendDraft(data.draftId)
+			return mailReceipt(mailbox, grantId, {
+				removedDraftId: data.draftId,
+				message: sent.data,
+			})
 		} catch (err) {
 			throw friendly(err)
 		}
-		return { ok: true }
 	})
 
 export const deleteDraft = createServerFn({ method: 'POST' })
@@ -455,13 +502,13 @@ export const deleteDraft = createServerFn({ method: 'POST' })
 		draftId: requireNylasProviderId(input.draftId, 'draft'),
 	}))
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
 			await mailbox.deleteDraft(data.draftId)
+			return mailReceipt(mailbox, grantId, { removedDraftId: data.draftId })
 		} catch (err) {
 			throw friendly(err)
 		}
-		return { ok: true }
 	})
 
 export const listDrafts = createServerFn({ method: 'GET' }).handler(async () => {
@@ -513,10 +560,11 @@ export const getContact = createServerFn({ method: 'GET' })
 export const createContact = createServerFn({ method: 'POST' })
 	.validator((input: ContactFieldsInput) => normalizeContactFields(input))
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
 			const created = await mailbox.createContact(data)
-			return { contactId: created.data.id }
+			await signalLocalChange(grantId, 'contacts')
+			return { contactId: created.data.id, contact: created.data }
 		} catch (err) {
 			throw friendly(err)
 		}
@@ -525,10 +573,11 @@ export const createContact = createServerFn({ method: 'POST' })
 export const updateContact = createServerFn({ method: 'POST' })
 	.validator((input: UpdateContactInput) => normalizeUpdateContactInput(input))
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
-			await mailbox.updateContact(data.contactId, data.fields)
-			return { ok: true }
+			const updated = await mailbox.updateContact(data.contactId, data.fields)
+			await signalLocalChange(grantId, 'contacts')
+			return { contact: updated.data }
 		} catch (err) {
 			throw friendly(err)
 		}
@@ -537,10 +586,11 @@ export const updateContact = createServerFn({ method: 'POST' })
 export const deleteContact = createServerFn({ method: 'POST' })
 	.validator((input: { contactId: string }) => normalizeContactIdInput(input))
 	.handler(async ({ data }) => {
-		const { mailbox } = await requireMailbox()
+		const { mailbox, grantId } = await requireMailbox()
 		try {
 			await mailbox.deleteContact(data.contactId)
-			return { ok: true }
+			await signalLocalChange(grantId, 'contacts')
+			return { removedContactId: data.contactId }
 		} catch (err) {
 			throw friendly(err)
 		}
@@ -588,7 +638,8 @@ export const saveComposeRecipients = createServerFn({ method: 'POST' })
 		return { emails: [...new Set(normalized.map((email) => email.toLowerCase()))] }
 	})
 	.handler(async ({ data }) => {
-		const { mailbox, email: mailboxEmail } = await requireMailbox()
+		const { mailbox, email: mailboxEmail, grantId } = await requireMailbox()
+		const createdContacts: Contact[] = []
 		for (const email of data.emails) {
 			if (email === mailboxEmail.toLowerCase()) continue
 			try {
@@ -597,10 +648,14 @@ export const saveComposeRecipients = createServerFn({ method: 'POST' })
 				const alreadySaved = contacts.some((contact) =>
 					contact.emails?.some((candidate) => candidate.email.toLowerCase() === email),
 				)
-				if (!alreadySaved) await mailbox.createContact({ emails: [{ email }] })
+				if (!alreadySaved) {
+					const created = await mailbox.createContact({ emails: [{ email }] })
+					createdContacts.push(created.data)
+				}
 			} catch {
 				// Contact suggestions are an enhancement; a provider-side failure must not block sending mail.
 			}
 		}
-		return { ok: true }
+		if (createdContacts.length) await signalLocalChange(grantId, 'contacts')
+		return { contacts: createdContacts }
 	})

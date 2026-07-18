@@ -12,7 +12,12 @@ import {
 	X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createEvent, deleteEvent, rsvpEvent, updateEvent } from '../server/calendar-fns.js'
+import {
+	useCreateEventMutation,
+	useDeleteEventMutation,
+	useRsvpEventMutation,
+	useUpdateEventMutation,
+} from '../state/calendar-state.js'
 import {
 	calendarDateInTimeZone,
 	calendarSlotTime,
@@ -112,6 +117,10 @@ export function EventModal({
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const titleInputRef = useRef<HTMLInputElement>(null)
+	const createMutation = useCreateEventMutation()
+	const updateMutation = useUpdateEventMutation(event)
+	const deleteMutation = useDeleteEventMutation(event?.id ?? '')
+	const rsvpMutation = useRsvpEventMutation(event?.id ?? '')
 
 	// The create composer floats over the calendar (no backdrop) so the grid
 	// stays visible; the user can drag it aside by its header to reference a day.
@@ -237,16 +246,14 @@ export function EventModal({
 			)
 			const participants = valueToTokens(guests)
 			const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
-			await createEvent({
-				data: {
-					calendarId: selectedCalendar?.id ?? calendarId,
-					title: title.trim() || 'Untitled event',
-					...(location ? { location } : {}),
-					...(description.trim() ? { description } : {}),
-					...(participants.length ? { participants } : {}),
-					...(allDay ? { allDayDate: eventDate } : { startTime, endTime }),
-					...(recurrence ? { recurrence, timezone: timeZone } : {}),
-				},
+			await createMutation.mutateAsync({
+				calendarId: selectedCalendar?.id ?? calendarId,
+				title: title.trim() || 'Untitled event',
+				...(location ? { location } : {}),
+				...(description.trim() ? { description } : {}),
+				...(participants.length ? { participants } : {}),
+				...(allDay ? { allDayDate: eventDate } : { startTime, endTime }),
+				...(recurrence ? { recurrence, timezone: timeZone } : {}),
 			})
 			onClose(true)
 		} catch {
@@ -266,15 +273,13 @@ export function EventModal({
 			const endTime = Math.floor(
 				calendarSlotTime(eventDay, Math.max(endHour, startHour + 0.5), timeZone).getTime() / 1000,
 			)
-			await updateEvent({
-				data: {
-					eventId: event.id,
-					calendarId: event.calendar_id ?? calendarId,
-					title: title.trim() || 'Untitled event',
-					location,
-					description,
-					...(allDay ? {} : { startTime, endTime }),
-				},
+			await updateMutation.mutateAsync({
+				eventId: event.id,
+				calendarId: event.calendar_id ?? calendarId,
+				title: title.trim() || 'Untitled event',
+				location,
+				description,
+				...(allDay ? {} : { startTime, endTime }),
 			})
 			onClose(true)
 		} catch {
@@ -288,7 +293,10 @@ export function EventModal({
 		if (!event) return
 		setBusy(true)
 		try {
-			await deleteEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId } })
+			await deleteMutation.mutateAsync({
+				eventId: event.id,
+				calendarId: event.calendar_id ?? calendarId,
+			})
 			onClose(true)
 		} catch {
 			setError('Could not delete the event. Check your connection, then try again.')
@@ -301,7 +309,11 @@ export function EventModal({
 		if (!event) return
 		setBusy(true)
 		try {
-			await rsvpEvent({ data: { eventId: event.id, calendarId: event.calendar_id ?? calendarId, status } })
+			await rsvpMutation.mutateAsync({
+				eventId: event.id,
+				calendarId: event.calendar_id ?? calendarId,
+				status,
+			})
 			onClose(true)
 		} catch {
 			setError('RSVP failed')

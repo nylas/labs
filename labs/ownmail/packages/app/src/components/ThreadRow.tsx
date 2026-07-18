@@ -1,5 +1,5 @@
-import type { Thread } from '@nylas-labs/cli-kit/v3'
 import { Paperclip, Star } from 'lucide-react'
+import type { MailThread } from '../state/mail-queries.js'
 import { ClientListDate } from './ClientTime.js'
 import {
 	cn,
@@ -26,7 +26,7 @@ export function ThreadRowContent({
 	onToggleStar,
 	starPending = false,
 }: {
-	thread: Thread
+	thread: MailThread
 	folderId: string
 	onToggleStar: () => void
 	starPending?: boolean

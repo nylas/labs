@@ -38,6 +38,9 @@ vi.mock('./nylas.js', () => ({
 	mailboxFromRequest: (request: Request) => mailboxFromRequest(request),
 }))
 
+const { platform } = vi.hoisted(() => ({ platform: vi.fn() }))
+vi.mock('./platform.js', () => ({ platform: () => platform() }))
+
 const { createEvent, deleteEvent, getEvents, rsvpEvent, updateEvent } = await import('./calendar-fns.js')
 
 type CalStub = { id: string; is_primary: boolean; name: string }
@@ -55,7 +58,7 @@ function makeMailbox(calendars: CalStub[], overrides: Record<string, unknown> = 
 			],
 		})),
 		createEvent: vi.fn(async () => ({ data: { id: 'evt-created' } })),
-		updateEvent: vi.fn(async () => ({ data: {} })),
+		updateEvent: vi.fn(async (eventId: string) => ({ data: { id: eventId } })),
 		deleteEvent: vi.fn(async () => undefined),
 		sendRsvp: vi.fn(async () => ({ data: { ok: true } })),
 		...overrides,
@@ -64,7 +67,7 @@ function makeMailbox(calendars: CalStub[], overrides: Record<string, unknown> = 
 
 function resolveMailbox(calendars: CalStub[], overrides: Record<string, unknown> = {}) {
 	const mailbox = makeMailbox(calendars, overrides)
-	mailboxFromRequest.mockResolvedValue({ mailbox, email: 'ada@ownmail.com' })
+	mailboxFromRequest.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-123' })
 	return mailbox
 }
 
@@ -74,6 +77,7 @@ const CREATE = { title: 'Planning', startTime: 1_800_000_000, endTime: 1_800_003
 describe('calendar server functions', () => {
 	beforeEach(() => {
 		mailboxFromRequest.mockReset()
+		platform.mockReset().mockResolvedValue({ kv: null })
 	})
 
 	it('aggregates events across every calendar and reports the primary calendar', async () => {
@@ -186,7 +190,7 @@ describe('calendar server functions', () => {
 			},
 		})
 
-		expect(result).toEqual({ eventId: 'evt-created' })
+		expect(result).toEqual({ eventId: 'evt-created', event: { id: 'evt-created' } })
 		expect(mailbox.createEvent).toHaveBeenCalledWith(
 			{
 				title: 'Planning',
@@ -275,7 +279,7 @@ describe('calendar server functions', () => {
 			},
 		})
 
-		expect(result).toEqual({ ok: true })
+		expect(result).toEqual({ event: { id: 'event#1' } })
 		expect(mailbox.updateEvent).toHaveBeenCalledWith(
 			'event#1',
 			{
@@ -315,7 +319,7 @@ describe('calendar server functions', () => {
 
 		const result = await deleteEvent({ data: { eventId: 'event#1', calendarId: 'work' } })
 
-		expect(result).toEqual({ ok: true })
+		expect(result).toEqual({ removedEventId: 'event#1', calendarId: 'work' })
 		expect(mailbox.deleteEvent).toHaveBeenCalledWith('event#1', 'work')
 	})
 
@@ -324,7 +328,34 @@ describe('calendar server functions', () => {
 
 		const result = await rsvpEvent({ data: { eventId: 'event#1', status: 'yes' } })
 
-		expect(result).toEqual({ ok: true })
+		expect(result).toEqual({
+			eventId: 'event#1',
+			calendarId: 'primary',
+			status: 'yes',
+		})
 		expect(mailbox.sendRsvp).toHaveBeenCalledWith('event#1', 'primary', 'yes')
+	})
+
+	it('keeps provider failures generic for update, delete, and RSVP mutations', async () => {
+		const failure = new Error('sensitive provider detail')
+		resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], {
+			updateEvent: vi.fn().mockRejectedValue(failure),
+			deleteEvent: vi.fn().mockRejectedValue(failure),
+			sendRsvp: vi.fn().mockRejectedValue(failure),
+		})
+		const message = 'Something went wrong talking to your calendar. Check your connection and try again.'
+
+		await expect(updateEvent({ data: { eventId: 'event#1', title: 'Private' } })).rejects.toThrow(message)
+		await expect(deleteEvent({ data: { eventId: 'event#1' } })).rejects.toThrow(message)
+		await expect(rsvpEvent({ data: { eventId: 'event#1', status: 'yes' } })).rejects.toThrow(message)
+	})
+
+	it('keeps provider failures generic when creating an event', async () => {
+		resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], {
+			createEvent: vi.fn().mockRejectedValue(new Error('sensitive provider detail')),
+		})
+		await expect(createEvent({ data: CREATE })).rejects.toThrow(
+			'Something went wrong talking to your calendar. Check your connection and try again.',
+		)
 	})
 })

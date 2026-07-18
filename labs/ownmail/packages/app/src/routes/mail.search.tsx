@@ -1,4 +1,5 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -16,7 +17,17 @@ import {
 	threadRouteFolderId,
 	threadTimestamp,
 } from '../components/ui-model.js'
-import { getFolders, getThreadMessages, getThreads, updateThreadState } from '../server/fns.js'
+import { getFolders, getThreadMessages, getThreads } from '../server/fns.js'
+import { applyMailCacheEffect } from '../state/mail-cache.js'
+import { useUpdateThreadMutation } from '../state/mail-mutations.js'
+import {
+	foldersQueryOptions,
+	threadDetailQueryOptions,
+	threadListQueryOptions,
+	toMailFolder,
+	toMailThread,
+	toMailThreadDetail,
+} from '../state/mail-queries.js'
 
 export const Route = createFileRoute('/mail/search')({
 	validateSearch: (search): { q: string; folderId?: string; threadId?: string } => ({
@@ -46,9 +57,49 @@ export const Route = createFileRoute('/mail/search')({
 })
 
 function SearchResults() {
-	const { threads, folders, folderId, selected } = Route.useLoaderData()
+	const initial = Route.useLoaderData()
 	const { q, threadId } = Route.useSearch()
 	const router = useRouter()
+	const queryClient = useQueryClient()
+	const filters = {
+		q,
+		...(initial.folderId === 'starred'
+			? { starred: true }
+			: initial.folderId
+				? { folderId: initial.folderId }
+				: {}),
+	}
+	const foldersQuery = useQuery({
+		...foldersQueryOptions(() => getFolders()),
+		initialData: initial.folders.map(toMailFolder),
+	})
+	const threadsQuery = useInfiniteQuery({
+		...threadListQueryOptions(filters, (input) => getThreads({ data: input })),
+		initialData: {
+			pages: [
+				{
+					threads: initial.threads.map(toMailThread),
+					...(initial.nextCursor ? { nextCursor: initial.nextCursor } : {}),
+				},
+			],
+			pageParams: [undefined],
+		},
+	})
+	const selectedQuery = useQuery({
+		...threadDetailQueryOptions(threadId ?? '__no-selected-thread__', (id) =>
+			getThreadMessages({ data: { threadId: id } }),
+		),
+		...(initial.selected ? { initialData: toMailThreadDetail(initial.selected) } : {}),
+		enabled: Boolean(threadId),
+	})
+	const threads = [
+		...new Map(
+			threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
+		).values(),
+	] as Thread[]
+	const folders = foldersQuery.data
+	const folderId = initial.folderId
+	const selected = selectedQuery.data as typeof initial.selected
 	const [cursor, setCursor] = useState(-1)
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
@@ -118,8 +169,15 @@ function SearchResults() {
 	/* v8 ignore stop */
 
 	useEffect(() => {
-		if (selected?.markedRead) router.invalidate()
-	}, [router, selected?.markedRead])
+		if (selected?.markedRead) {
+			applyMailCacheEffect(queryClient, {
+				type: 'thread.read',
+				threadId: selected.thread.id,
+				unread: false,
+				thread: selected.thread,
+			})
+		}
+	}, [queryClient, selected])
 
 	return (
 		<>
@@ -193,7 +251,7 @@ function SearchThreadRow({
 	keyboardActive: boolean
 }) {
 	const folderId = threadRouteFolderId(thread)
-	const router = useRouter()
+	const updateThread = useUpdateThreadMutation()
 	const [starred, setStarred] = useState(thread.starred)
 	const [starPending, setStarPending] = useState(false)
 
@@ -208,8 +266,7 @@ function SearchThreadRow({
 		setStarred(nextStarred)
 		setStarPending(true)
 		try {
-			await updateThreadState({ data: { threadId: thread.id, starred: nextStarred } })
-			router.invalidate()
+			await updateThread.mutateAsync({ threadId: thread.id, starred: nextStarred })
 			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
 		} catch {
 			setStarred(!nextStarred)
@@ -249,6 +306,7 @@ function SearchThreadDetail({
 	folderId?: string
 }) {
 	const router = useRouter()
+	const updateThread = useUpdateThreadMutation()
 	const routeFolderId = threadRouteFolderId(selected.thread)
 	const lastMessage = selected.messages.at(-1)
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
@@ -273,14 +331,13 @@ function SearchThreadDetail({
 	}, [router, searchList])
 
 	async function act(input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) {
-		await updateThreadState({ data: { threadId: selected.thread.id, ...input } })
+		await updateThread.mutateAsync({ threadId: selected.thread.id, ...input })
 		if (leave) {
 			await router.navigate({
 				to: '/mail/search',
 				search: searchList,
 			})
 		}
-		await router.invalidate()
 	}
 
 	return (

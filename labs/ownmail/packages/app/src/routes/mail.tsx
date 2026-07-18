@@ -1,5 +1,6 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil, Search, X } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
@@ -18,6 +19,7 @@ import {
 	mailSearchInputValue,
 } from '../components/ui-model.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
+import { foldersQueryOptions, toMailFolder } from '../state/mail-queries.js'
 
 export const Route = createFileRoute('/mail')({
 	loader: async () => {
@@ -34,28 +36,12 @@ type MailInfo = {
 	appName: string
 }
 
-function useVersionPolling() {
-	const router = useRouter()
-	const last = useRef<number | null>(null)
-	useEffect(() => {
-		const timer = setInterval(async () => {
-			if (document.visibilityState !== 'visible') return
-			try {
-				const res = await fetch('/api/version')
-				if (!res.ok) return
-				const { version } = (await res.json()) as { version: number }
-				if (last.current !== null && version !== last.current) router.invalidate()
-				last.current = version
-			} catch {
-				// transient network errors — next tick will retry
-			}
-		}, 10_000)
-		return () => clearInterval(timer)
-	}, [router])
-}
-
 function MailLayout() {
-	const { info, folders } = Route.useLoaderData()
+	const { info, folders: initialFolders } = Route.useLoaderData()
+	const { data: folders } = useQuery({
+		...foldersQueryOptions(() => getFolders()),
+		initialData: initialFolders.map(toMailFolder),
+	})
 	return <MailRouteScreen info={info} folders={folders} />
 }
 
@@ -95,8 +81,6 @@ export function MailRouteScreen({
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
-	useVersionPolling()
-
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	const focusSearch = useCallback(() => {

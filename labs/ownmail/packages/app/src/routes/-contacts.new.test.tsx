@@ -47,10 +47,10 @@ describe('NewContactRoute', () => {
 		expect(screen.getByTestId('contact-modal')).toHaveAttribute('data-contact', 'null')
 	})
 
-	it('on save, refreshes and opens the newly created contact, preserving search', () => {
+	it('on save, opens the newly created contact, preserving search', () => {
 		renderRoute({ q: 'ada' })
 		fireEvent.click(screen.getByText('saved'))
-		expect(h.invalidate).toHaveBeenCalledTimes(1)
+		expect(h.invalidate).not.toHaveBeenCalled()
 		expect(h.navigate).toHaveBeenCalledWith({
 			to: '/contacts/$contactId',
 			params: { contactId: 'contact-new' },
@@ -58,10 +58,10 @@ describe('NewContactRoute', () => {
 		})
 	})
 
-	it('on save without an id, refreshes and returns to the list', () => {
+	it('on save without an id, returns to the list', () => {
 		renderRoute()
 		fireEvent.click(screen.getByText('saved-no-id'))
-		expect(h.invalidate).toHaveBeenCalledTimes(1)
+		expect(h.invalidate).not.toHaveBeenCalled()
 		expect(h.navigate).toHaveBeenCalledWith({ to: '/contacts', search: {} })
 	})
 

@@ -1,5 +1,5 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Check, ChevronLeft, ChevronRight, Menu, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
@@ -46,8 +46,11 @@ import {
 	eventTone,
 } from '../components/ui-model.js'
 import { useUserPreferences } from '../components/user-preferences.js'
-import { getEvents } from '../server/calendar-fns.js'
-import { getMailboxInfo } from '../server/fns.js'
+import {
+	type CalendarRouteData,
+	loadCalendarRouteData,
+	useCalendarRouteData,
+} from '../state/calendar-state.js'
 
 export const Route = createFileRoute('/calendar/$view')({
 	params: {
@@ -62,28 +65,13 @@ export const Route = createFileRoute('/calendar/$view')({
 	component: CalendarViewRoutePage,
 })
 
-export async function loadCalendarRouteData(view: CalView, date?: string) {
-	const anchor = date ? new Date(`${date}T00:00:00`) : new Date()
-	const visibleRange = viewRange(view, anchor)
-	// Preferences are intentionally client-side, so the server cannot know the
-	// selected display zone. Fetch a day on either side of the visible range to
-	// retain events that cross a date boundary in any supported timezone.
-	const start = addDays(visibleRange.start, -1)
-	const end = addDays(visibleRange.end, 1)
-	const [info, res] = await Promise.all([
-		getMailboxInfo(),
-		getEvents({
-			data: { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) },
-		}),
-	])
-	return { ...res, info, anchorIso: ymd(anchor) }
-}
-
-type CalendarRouteData = Awaited<ReturnType<typeof loadCalendarRouteData>>
+export { loadCalendarRouteData }
 
 function CalendarViewRoutePage() {
 	const { view } = Route.useParams()
-	const data = Route.useLoaderData()
+	const { date } = Route.useSearch()
+	const initialData = Route.useLoaderData()
+	const { data } = useCalendarRouteData(view, date, initialData)
 
 	return <CalendarRouteScreen view={view} data={data} />
 }
@@ -91,7 +79,6 @@ function CalendarViewRoutePage() {
 export function CalendarRouteScreen({ view, data }: { view: CalView; data: CalendarRouteData }) {
 	const { events, calendar, calendars, info, anchorIso } = data
 	const navigate = useNavigate()
-	const router = useRouter()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
 	const [newStartIsSlot, setNewStartIsSlot] = useState(false)
@@ -353,10 +340,9 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					preserveDefaultStartTime={editing === 'new' && newStartIsSlot}
 					events={events}
 					onDraftChange={setEventPreview}
-					onClose={(changed) => {
+					onClose={() => {
 						setEventPreview(null)
 						setEditing(null)
-						if (changed) router.invalidate()
 					}}
 				/>
 			) : null}

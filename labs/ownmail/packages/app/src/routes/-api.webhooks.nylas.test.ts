@@ -165,6 +165,46 @@ describe('/api/webhooks/nylas POST', () => {
 
 		expect(response.status).toBe(200)
 		expect(kv.store.get('version:g1')).toBe('3')
+		expect(kv.store.get('version:g1:mail')).toBe('1')
+		expect(kv.store.get('version:g1:contacts')).toBe('1')
+		expect(kv.store.get('version:g1:calendar')).toBe('1')
+	})
+
+	it('routes a typed notification only to its affected domain while retaining the legacy counter', async () => {
+		const kv = makeKv()
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })
+		const body = JSON.stringify({
+			type: 'contact.updated',
+			data: { object: { grant_id: 'g1' } },
+		})
+
+		const response = await post(body, await sign(SECRET, body))
+
+		expect(response.status).toBe(200)
+		expect(kv.store.get('version:g1')).toBe('1')
+		expect(kv.store.get('version:g1:contacts')).toBe('1')
+		expect(kv.store.has('version:g1:mail')).toBe(false)
+		expect(kv.store.has('version:g1:calendar')).toBe(false)
+	})
+
+	it('routes mail types narrowly and unknown future types defensively to every domain', async () => {
+		const kv = makeKv()
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })
+		const body = JSON.stringify({
+			deltas: [
+				{ type: 'message.created', object_data: { grant_id: 'mail-grant' } },
+				{ type: 'event.updated', object_data: { grant_id: 'calendar-grant' } },
+				{ type: 'future.object', object_data: { grant_id: 'future-grant' } },
+			],
+		})
+
+		expect((await post(body, await sign(SECRET, body))).status).toBe(200)
+		expect(kv.store.get('version:mail-grant:mail')).toBe('1')
+		expect(kv.store.has('version:mail-grant:contacts')).toBe(false)
+		expect(kv.store.get('version:calendar-grant:calendar')).toBe('1')
+		expect(kv.store.get('version:future-grant:mail')).toBe('1')
+		expect(kv.store.get('version:future-grant:contacts')).toBe('1')
+		expect(kv.store.get('version:future-grant:calendar')).toBe('1')
 	})
 
 	it('bumps the per-grant version counter for every grant in a validly-signed payload', async () => {

@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { bumpChangeVersionsInKv, CHANGE_DOMAINS, type ChangeDomain } from '../server/change-version.js'
 import { validNylasProviderId } from '../server/ids.js'
 import { platform } from '../server/platform.js'
 
@@ -6,8 +7,9 @@ const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 const MAX_GRANTS_PER_WEBHOOK = 100
 
 /**
- * Nylas webhook receiver. `message.created` (and friends) bump a per-grant
- * version counter in KV; clients poll /api/version and refetch on change.
+ * Nylas webhook receiver. Notifications bump a legacy aggregate counter and
+ * the affected mail, contacts, or calendar counter in KV; clients poll
+ * /api/version and refetch only the changed domain.
  * POSTs are HMAC-verified against NYLAS_WEBHOOK_SECRET; without the secret
  * configured, notifications are rejected (the app falls back to slow polling).
  */
@@ -40,26 +42,26 @@ export const Route = createFileRoute('/api/webhooks/nylas')({
 
 				try {
 					const payload = JSON.parse(body) as {
-						deltas?: { object_data?: { grant_id?: string } }[]
+						type?: unknown
+						deltas?: { type?: unknown; object_data?: { grant_id?: string } }[]
 						data?: { object?: { grant_id?: string } }
 					}
-					const grantIds = new Set<string>()
-					const fromData = payload.data?.object?.grant_id
-					if (validNylasProviderId(fromData)) grantIds.add(fromData)
-					for (const delta of payload.deltas ?? []) {
-						if (validNylasProviderId(delta.object_data?.grant_id)) grantIds.add(delta.object_data.grant_id)
+					const changes = new Map<string, Set<ChangeDomain>>()
+					const addChange = (grantId: string, type: unknown) => {
+						const domains = changes.get(grantId) ?? new Set<ChangeDomain>()
+						for (const domain of domainsForWebhookType(type)) domains.add(domain)
+						changes.set(grantId, domains)
 					}
-					if (grantIds.size > MAX_GRANTS_PER_WEBHOOK) return new Response('too many grants', { status: 400 })
+					const fromData = payload.data?.object?.grant_id
+					if (validNylasProviderId(fromData)) addChange(fromData, payload.type)
+					for (const delta of payload.deltas ?? []) {
+						if (validNylasProviderId(delta.object_data?.grant_id)) {
+							addChange(delta.object_data.grant_id, delta.type ?? payload.type)
+						}
+					}
+					if (changes.size > MAX_GRANTS_PER_WEBHOOK) return new Response('too many grants', { status: 400 })
 					await Promise.all(
-						[...grantIds].map(async (grantId) => {
-							const key = `version:${grantId}`
-							if (kv.increment) {
-								await kv.increment(key)
-								return
-							}
-							const current = Number((await kv.get(key)) ?? '0')
-							await kv.put(key, String(current + 1))
-						}),
+						[...changes].map(([grantId, domains]) => bumpChangeVersionsInKv(kv, grantId, domains)),
 					)
 				} catch {
 					// Malformed payloads are acknowledged so Nylas doesn't retry forever.
@@ -69,6 +71,24 @@ export const Route = createFileRoute('/api/webhooks/nylas')({
 		},
 	},
 })
+
+function domainsForWebhookType(type: unknown): readonly ChangeDomain[] {
+	if (typeof type !== 'string') return CHANGE_DOMAINS
+	const objectType = type.split('.')[0]?.toLowerCase()
+	if (
+		objectType === 'message' ||
+		objectType === 'thread' ||
+		objectType === 'folder' ||
+		objectType === 'draft'
+	) {
+		return ['mail']
+	}
+	if (objectType === 'contact') return ['contacts']
+	if (objectType === 'event' || objectType === 'calendar') return ['calendar']
+	// Grant changes and future event types may affect every domain. Fail safe by
+	// refreshing all scoped server state rather than silently missing a change.
+	return CHANGE_DOMAINS
+}
 
 async function verifySignature(secret: string, body: string, signatureHex: string): Promise<boolean> {
 	if (!/^[0-9a-f]{64}$/i.test(signatureHex)) return false

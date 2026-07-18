@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -140,12 +141,46 @@ describe('FolderView (route component)', () => {
 		Route.useSearch = vi.fn(() => ({ baseFolderId: 'archive' }))
 
 		const Component = Route.options.component
-		render(<Component />)
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
 
 		expect(Route.useParams).toHaveBeenCalled()
 		expect(Route.useSearch).toHaveBeenCalled()
 		// Empty inbox renders the "all caught up" empty state.
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
+	})
+
+	it('wires starred pagination and row mutations through the centralized query gateway', async () => {
+		Route.useLoaderData = vi.fn(() => ({
+			threads: [thread({ id: 't1', starred: false, folders: ['inbox'] })],
+			drafts: [],
+			folders: [],
+			nextCursor: 'cursor-2',
+		}))
+		Route.useParams = vi.fn(() => ({ folderId: 'starred' }))
+		Route.useSearch = vi.fn(() => ({}))
+		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
+		updateThreadState.mockResolvedValue({
+			thread: thread({ id: 't1', starred: true, folders: ['inbox'] }),
+		})
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: /Load more/ }))
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenCalledWith({ data: { starred: true, pageToken: 'cursor-2' } }),
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Star' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
+		)
 	})
 })
 
@@ -207,7 +242,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 		expect(screen.getByText('Work')).toBeInTheDocument()
 	})
 
-	it('toggles a thread star and asks the router to refresh so the UI reflects the change', async () => {
+	it('toggles a thread star without requiring a broad route refresh', async () => {
 		updateThreadState.mockResolvedValue({ ok: true })
 		render(
 			<MailFolderRouteScreen
@@ -222,8 +257,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 		await waitFor(() =>
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
-		// invalidate() runs only after updateThreadState resolves, so wait for it too.
-		await waitFor(() => expect(invalidate).toHaveBeenCalled())
+		expect(invalidate).not.toHaveBeenCalled()
 		// A starred thread advertises the un-star action.
 		cleanup()
 		render(
@@ -299,6 +333,23 @@ describe('MailFolderRouteScreen — drafts', () => {
 })
 
 describe('MailFolderRouteScreen — pagination', () => {
+	it('delegates managed pagination to the query-backed route wrapper', async () => {
+		const onLoadMore = vi.fn().mockResolvedValue(undefined)
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'page1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="cursor-1"
+				onLoadMore={onLoadMore}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: /Load more/ }))
+		await waitFor(() => expect(onLoadMore).toHaveBeenCalledTimes(1))
+		expect(getThreads).not.toHaveBeenCalled()
+	})
+
 	it('loads the next page of a starred folder and appends the results', async () => {
 		getThreads.mockResolvedValue({
 			threads: [thread({ id: 'page2', subject: 'Appended thread' })],
@@ -377,31 +428,6 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		const link = screen.getAllByRole('link')[0]
 		expect(link).toHaveAttribute('data-mask', 'no')
 		expect(link).toHaveAttribute('data-search', JSON.stringify({ baseFolderId: 'inbox' }))
-	})
-
-	it('invalidates the route on the visibility timer only while the tab is visible', () => {
-		vi.useFakeTimers()
-		try {
-			const visibility = vi.spyOn(document, 'visibilityState', 'get')
-			visibility.mockReturnValue('hidden')
-			render(
-				<MailFolderRouteScreen
-					threads={[]}
-					drafts={[]}
-					folders={[]}
-					folderId="inbox"
-					nextCursor={undefined}
-				/>,
-			)
-			vi.advanceTimersByTime(30_000)
-			expect(invalidate).not.toHaveBeenCalled()
-
-			visibility.mockReturnValue('visible')
-			vi.advanceTimersByTime(30_000)
-			expect(invalidate).toHaveBeenCalledTimes(1)
-		} finally {
-			vi.useRealTimers()
-		}
 	})
 })
 

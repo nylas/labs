@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { Folder } from '@nylas-labs/cli-kit/v3'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -149,7 +150,11 @@ describe('/mail loader + layout', () => {
 	it('renders the shell from loader data (logo, rail, sidebar)', () => {
 		Route.useLoaderData = vi.fn(() => ({ info, folders: [] as Folder[] }))
 		const Component = Route.options.component
-		render(<Component />)
+		render(
+			<QueryClientProvider client={new QueryClient()}>
+				<Component />
+			</QueryClientProvider>,
+		)
 		expect(screen.getByTestId('logo')).toHaveTextContent('OwnMail')
 		expect(screen.getByTestId('railnav')).toHaveAttribute('data-email', 'ada@example.com')
 	})
@@ -350,57 +355,5 @@ describe('MailRouteScreen — keyboard shortcuts', () => {
 		fireEvent.keyDown(window, { key: 'c', repeat: true })
 		expect(navigate).not.toHaveBeenCalled()
 		field.remove()
-	})
-})
-
-describe('useVersionPolling', () => {
-	const originalFetch = globalThis.fetch
-
-	afterEach(() => {
-		globalThis.fetch = originalFetch
-	})
-
-	it('polls /api/version while visible and invalidates only when the version changes', async () => {
-		vi.useFakeTimers()
-		const fetchMock = vi.fn()
-		globalThis.fetch = fetchMock as unknown as typeof fetch
-		const visibility = vi.spyOn(document, 'visibilityState', 'get')
-		try {
-			render(<MailRouteScreen info={info} folders={[]} />)
-
-			// Hidden tab: no polling at all.
-			visibility.mockReturnValue('hidden')
-			await vi.advanceTimersByTimeAsync(10_000)
-			expect(fetchMock).not.toHaveBeenCalled()
-
-			visibility.mockReturnValue('visible')
-			// A non-OK response is ignored.
-			fetchMock.mockResolvedValueOnce({ ok: false })
-			await vi.advanceTimersByTimeAsync(10_000)
-			expect(invalidate).not.toHaveBeenCalled()
-
-			// First OK response only records the baseline version.
-			fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ version: 1 }) })
-			await vi.advanceTimersByTimeAsync(10_000)
-			expect(invalidate).not.toHaveBeenCalled()
-
-			// A changed version triggers a router invalidation.
-			fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ version: 2 }) })
-			await vi.advanceTimersByTimeAsync(10_000)
-			expect(invalidate).toHaveBeenCalledTimes(1)
-
-			// Same version again: no further invalidation.
-			fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ version: 2 }) })
-			await vi.advanceTimersByTimeAsync(10_000)
-			expect(invalidate).toHaveBeenCalledTimes(1)
-
-			// Transient network error is swallowed.
-			fetchMock.mockRejectedValueOnce(new Error('offline'))
-			await vi.advanceTimersByTimeAsync(10_000)
-			expect(invalidate).toHaveBeenCalledTimes(1)
-		} finally {
-			visibility.mockRestore()
-			vi.useRealTimers()
-		}
 	})
 })

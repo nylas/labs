@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
@@ -39,6 +41,14 @@ vi.mock('../components/ContactModal.js', () => ({
 }))
 
 import { ContactDetailScreen, Route } from './contacts.$contactId.js'
+
+function render(ui: ReactElement) {
+	return testingRender(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			{ui}
+		</QueryClientProvider>,
+	)
+}
 
 const full: Contact = {
 	id: 'contact-1',
@@ -156,11 +166,11 @@ describe('ContactDetailRoute wrapper', () => {
 		})
 	})
 
-	it('renders the edit modal when the edit flag is set and refreshes on save', () => {
+	it('renders the edit modal when the edit flag is set and closes it on save', () => {
 		renderRoute({ edit: true })
 		expect(screen.getByTestId('contact-modal')).toBeInTheDocument()
 		fireEvent.click(screen.getByText('modal-saved'))
-		expect(h.invalidate).toHaveBeenCalledTimes(1)
+		expect(h.invalidate).not.toHaveBeenCalled()
 		expect(h.navigate).toHaveBeenCalledWith({
 			to: '/contacts/$contactId',
 			params: { contactId: 'contact-1' },
@@ -179,7 +189,7 @@ describe('ContactDetailRoute wrapper', () => {
 		})
 	})
 
-	it('deletes the contact then refreshes and returns to the list', async () => {
+	it('deletes the contact through the shared cache mutation and returns to the list', async () => {
 		renderRoute()
 		fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
@@ -187,7 +197,7 @@ describe('ContactDetailRoute wrapper', () => {
 		// final navigate, which implies the whole chain completed.
 		await waitFor(() => expect(h.navigate).toHaveBeenCalledWith({ to: '/contacts', search: {} }))
 		expect(h.deleteContact).toHaveBeenCalledWith({ data: { contactId: 'contact-1' } })
-		expect(h.invalidate).toHaveBeenCalled()
+		expect(h.invalidate).not.toHaveBeenCalled()
 	})
 
 	it('backs out of a delete confirmation', () => {

@@ -15,6 +15,7 @@ import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js
 import { Sheet } from '../components/Sheet.js'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS, cn, initials } from '../components/ui-model.js'
 import { getContacts, getMailboxInfo } from '../server/fns.js'
+import { flattenContactPages, useContactsPages } from '../state/contacts-state.js'
 
 export const Route = createFileRoute('/contacts')({
 	validateSearch: (search): { q?: string } =>
@@ -31,14 +32,17 @@ type ContactsInfo = { email: string; displayName?: string; appName: string }
 
 function ContactsLayout() {
 	const { info, contacts, nextCursor } = Route.useLoaderData()
+	const contactsQuery = useContactsPages({ contacts, ...(nextCursor ? { nextCursor } : {}) })
 	const { q } = Route.useSearch()
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	return (
 		<ContactsShell
 			info={info}
-			contacts={contacts}
-			nextCursor={nextCursor}
+			contacts={flattenContactPages(contactsQuery.data)}
+			nextCursor={contactsQuery.hasNextPage ? contactsQuery.data.pages.at(-1)?.nextCursor : undefined}
+			loadingMore={contactsQuery.isFetchingNextPage}
+			onLoadMore={() => contactsQuery.fetchNextPage()}
 			query={q ?? ''}
 			selectedId={contactIdFromPath(pathname)}
 			onQueryChange={(next) => navigate({ to: '/contacts', search: next ? { q: next } : {}, replace: true })}
@@ -53,6 +57,8 @@ export function ContactsShell({
 	query,
 	selectedId,
 	onQueryChange,
+	loadingMore: controlledLoadingMore,
+	onLoadMore,
 }: {
 	info: ContactsInfo
 	contacts: Contact[]
@@ -60,10 +66,13 @@ export function ContactsShell({
 	query: string
 	selectedId?: string
 	onQueryChange: (query: string) => void
+	loadingMore?: boolean
+	onLoadMore?: () => Promise<unknown>
 }) {
 	const [extra, setExtra] = useState<Contact[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
-	const [loadingMore, setLoadingMore] = useState(false)
+	const [localLoadingMore, setLocalLoadingMore] = useState(false)
+	const loadingMore = controlledLoadingMore ?? localLoadingMore
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const [cursor, setCursor] = useState(-1)
@@ -133,7 +142,11 @@ export function ContactsShell({
 	async function loadMore() {
 		// Only reachable from the paged button, which renders solely when a cursor
 		// exists and is disabled while a fetch is in flight — no re-entry guard needed.
-		setLoadingMore(true)
+		if (onLoadMore) {
+			await onLoadMore().catch(() => {})
+			return
+		}
+		setLocalLoadingMore(true)
 		try {
 			const res = await getContacts({ data: { pageToken: nextCursor } })
 			setExtra((prev) => [...prev, ...res.contacts])
@@ -141,7 +154,7 @@ export function ContactsShell({
 		} catch {
 			// The button remains available for a retry.
 		} finally {
-			setLoadingMore(false)
+			setLocalLoadingMore(false)
 		}
 	}
 
