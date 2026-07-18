@@ -172,7 +172,7 @@ async function persistSession(record: StoredSession): Promise<string> {
 	const { kv } = await platform()
 	if (kv) {
 		const id = base64url(crypto.getRandomValues(new Uint8Array(32)))
-		await kv.put(`session:${id}`, JSON.stringify(record), { expirationTtl: remainingTtl })
+		await kv.put(`session:${id}`, JSON.stringify(record), { expirationTtl: Math.max(60, remainingTtl) })
 		return setCookie(COOKIE_NAME, `${id}.${await hmac(id)}`, remainingTtl)
 	}
 	// Stateless: signed payload cookie.
