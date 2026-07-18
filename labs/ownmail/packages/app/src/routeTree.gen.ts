@@ -29,6 +29,7 @@ import { Route as CalendarViewRouteImport } from './routes/calendar.$view'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AttachmentsAttachmentIdRouteImport } from './routes/attachments.$attachmentId'
 import { Route as ApiVersionRouteImport } from './routes/api.version'
+import { Route as MessagesMessageIdDownloadRouteImport } from './routes/messages.$messageId.download'
 import { Route as MailFFolderIdRouteImport } from './routes/mail.f.$folderId'
 import { Route as ApiWebhooksNylasRouteImport } from './routes/api.webhooks.nylas'
 import { Route as MailFFolderIdTThreadIdRouteImport } from './routes/mail.f.$folderId.t.$threadId'
@@ -133,6 +134,12 @@ const ApiVersionRoute = ApiVersionRouteImport.update({
   path: '/api/version',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MessagesMessageIdDownloadRoute =
+  MessagesMessageIdDownloadRouteImport.update({
+    id: '/messages/$messageId/download',
+    path: '/messages/$messageId/download',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const MailFFolderIdRoute = MailFFolderIdRouteImport.update({
   id: '/f/$folderId',
   path: '/f/$folderId',
@@ -172,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/mail/': typeof MailIndexRoute
   '/api/webhooks/nylas': typeof ApiWebhooksNylasRoute
   '/mail/f/$folderId': typeof MailFFolderIdRouteWithChildren
+  '/messages/$messageId/download': typeof MessagesMessageIdDownloadRoute
   '/mail/f/$folderId/t/$threadId': typeof MailFFolderIdTThreadIdRoute
 }
 export interface FileRoutesByTo {
@@ -194,6 +202,7 @@ export interface FileRoutesByTo {
   '/mail': typeof MailIndexRoute
   '/api/webhooks/nylas': typeof ApiWebhooksNylasRoute
   '/mail/f/$folderId': typeof MailFFolderIdRouteWithChildren
+  '/messages/$messageId/download': typeof MessagesMessageIdDownloadRoute
   '/mail/f/$folderId/t/$threadId': typeof MailFFolderIdTThreadIdRoute
 }
 export interface FileRoutesById {
@@ -220,6 +229,7 @@ export interface FileRoutesById {
   '/mail/': typeof MailIndexRoute
   '/api/webhooks/nylas': typeof ApiWebhooksNylasRoute
   '/mail/f/$folderId': typeof MailFFolderIdRouteWithChildren
+  '/messages/$messageId/download': typeof MessagesMessageIdDownloadRoute
   '/mail/f/$folderId/t/$threadId': typeof MailFFolderIdTThreadIdRoute
 }
 export interface FileRouteTypes {
@@ -247,6 +257,7 @@ export interface FileRouteTypes {
     | '/mail/'
     | '/api/webhooks/nylas'
     | '/mail/f/$folderId'
+    | '/messages/$messageId/download'
     | '/mail/f/$folderId/t/$threadId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/mail'
     | '/api/webhooks/nylas'
     | '/mail/f/$folderId'
+    | '/messages/$messageId/download'
     | '/mail/f/$folderId/t/$threadId'
   id:
     | '__root__'
@@ -294,6 +306,7 @@ export interface FileRouteTypes {
     | '/mail/'
     | '/api/webhooks/nylas'
     | '/mail/f/$folderId'
+    | '/messages/$messageId/download'
     | '/mail/f/$folderId/t/$threadId'
   fileRoutesById: FileRoutesById
 }
@@ -310,6 +323,7 @@ export interface RootRouteChildren {
   ApiVersionRoute: typeof ApiVersionRoute
   AttachmentsAttachmentIdRoute: typeof AttachmentsAttachmentIdRoute
   ApiWebhooksNylasRoute: typeof ApiWebhooksNylasRoute
+  MessagesMessageIdDownloadRoute: typeof MessagesMessageIdDownloadRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -454,6 +468,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVersionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/messages/$messageId/download': {
+      id: '/messages/$messageId/download'
+      path: '/messages/$messageId/download'
+      fullPath: '/messages/$messageId/download'
+      preLoaderRoute: typeof MessagesMessageIdDownloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mail/f/$folderId': {
       id: '/mail/f/$folderId'
       path: '/f/$folderId'
@@ -559,6 +580,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiVersionRoute: ApiVersionRoute,
   AttachmentsAttachmentIdRoute: AttachmentsAttachmentIdRoute,
   ApiWebhooksNylasRoute: ApiWebhooksNylasRoute,
+  MessagesMessageIdDownloadRoute: MessagesMessageIdDownloadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

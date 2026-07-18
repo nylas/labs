@@ -1,4 +1,4 @@
-import { ChevronDown, Paperclip } from 'lucide-react'
+import { ChevronDown, Download, Paperclip } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { MailMessage, MailThread } from '../state/mail-queries.js'
 import { ClientMessageTime } from './ClientTime.js'
@@ -92,48 +92,60 @@ function MessageBlock({
 
 	return (
 		<article className={cn('py-5', !isLast && 'border-b border-border')}>
-			<button
-				type="button"
-				onClick={() => setOpen((value) => !value)}
-				className="w-full text-left"
-				aria-expanded={open}
-			>
-				{/*
-				 * The sender-identity row is a single line in every state, so the avatar
-				 * always centers against exactly one line of text — no orphaned avatar
-				 * height when expanded, and the row never changes height on toggle.
-				 */}
-				<div className="flex items-center gap-3">
-					<div
-						data-slot="sender-avatar"
-						className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
-					>
-						{initials(fromLabel)}
+			<div className="flex items-start gap-2">
+				<button
+					type="button"
+					onClick={() => setOpen((value) => !value)}
+					className="min-w-0 flex-1 text-left"
+					aria-expanded={open}
+				>
+					{/*
+					 * The sender-identity row is a single line in every state, so the avatar
+					 * always centers against exactly one line of text — no orphaned avatar
+					 * height when expanded, and the row never changes height on toggle.
+					 */}
+					<div className="flex items-center gap-3">
+						<div
+							data-slot="sender-avatar"
+							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
+						>
+							{initials(fromLabel)}
+						</div>
+						<div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+							<span className="text-sm font-semibold text-foreground">{fromLabel}</span>
+							{open ? <span className="text-xs text-muted-foreground">to {recipients}</span> : null}
+							{message.date ? (
+								<ClientMessageTime
+									epochSeconds={message.date}
+									className="ml-auto shrink-0 text-xs text-muted-foreground"
+								/>
+							) : null}
+						</div>
+						<ChevronDown
+							className={cn(
+								'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+								open && 'rotate-180',
+							)}
+						/>
 					</div>
-					<div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-						<span className="text-sm font-semibold text-foreground">{fromLabel}</span>
-						{open ? <span className="text-xs text-muted-foreground">to {recipients}</span> : null}
-						{message.date ? (
-							<ClientMessageTime
-								epochSeconds={message.date}
-								className="ml-auto shrink-0 text-xs text-muted-foreground"
-							/>
-						) : null}
-					</div>
-					<ChevronDown
-						className={cn(
-							'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-							open && 'rotate-180',
-						)}
-					/>
-				</div>
-				{/* Collapsed preview sits below the identity row, indented to the name's edge. */}
-				{!open ? (
-					<p className="mt-1 truncate pl-12 text-sm text-muted-foreground">
-						{collapsedMessagePreview(message)}
-					</p>
-				) : null}
-			</button>
+					{/* Collapsed preview sits below the identity row, indented to the name's edge. */}
+					{!open ? (
+						<p className="mt-1 truncate pl-12 text-sm text-muted-foreground">
+							{collapsedMessagePreview(message)}
+						</p>
+					) : null}
+				</button>
+				<a
+					data-slot="raw-email-download"
+					href={`/messages/${encodeURIComponent(message.id)}/download`}
+					download
+					aria-label={`Download raw email from ${fromLabel}`}
+					title="Download raw email"
+					className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					<Download className="h-4 w-4" />
+				</a>
+			</div>
 
 			{open ? (
 				// Indent by the avatar column (w-9) plus the header gap (gap-3) so the body
