@@ -30,7 +30,19 @@ describe('change version counters', () => {
 		await bumpChangeVersionsInKv(store, 'g', ['mail', 'mail'])
 		expect(await readChangeVersions(store, 'g')).toEqual({
 			version: 1,
-			domains: { mail: 1, contacts: 1, calendar: 1 },
+			domains: { mail: 1, contacts: 0, calendar: 0 },
+		})
+	})
+
+	it('uses the aggregate counter only when every scoped counter is absent', async () => {
+		expect(await readChangeVersions(kv({ 'version:g': '4' }), 'g')).toEqual({
+			version: 4,
+			domains: { mail: 4, contacts: 4, calendar: 4 },
+		})
+
+		expect(await readChangeVersions(kv({ 'version:g': '5', 'version:g:mail': '2' }), 'g')).toEqual({
+			version: 5,
+			domains: { mail: 2, contacts: 0, calendar: 0 },
 		})
 	})
 })

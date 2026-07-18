@@ -4,10 +4,17 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OwnmailQueryProvider, queryProviderTestApi } from './query-provider.js'
 
+const routerState = vi.hoisted(() => ({ pathname: '/' }))
+vi.mock('@tanstack/react-router', () => ({
+	useRouterState: (options: { select: (state: { location: { pathname: string } }) => unknown }) =>
+		options.select({ location: { pathname: routerState.pathname } }),
+}))
+
 afterEach(() => {
 	cleanup()
 	vi.restoreAllMocks()
 	vi.useRealTimers()
+	routerState.pathname = '/'
 	history.replaceState(null, '', '/')
 })
 
@@ -42,6 +49,7 @@ describe('server state version normalization', () => {
 
 describe('server state synchronization', () => {
 	it('establishes a baseline and invalidates only domains whose versions changed', async () => {
+		routerState.pathname = '/mail/f/inbox'
 		history.replaceState(null, '', '/mail/f/inbox')
 		vi.useFakeTimers()
 		const fetchMock = vi
@@ -69,7 +77,29 @@ describe('server state synchronization', () => {
 		view.unmount()
 	})
 
+	it('starts polling after in-app navigation enters a synchronized route', async () => {
+		routerState.pathname = '/settings'
+		vi.useFakeTimers()
+		const fetchMock = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValue(new Response(JSON.stringify({ domains: { mail: 1, contacts: 0, calendar: 0 } })))
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+
+		const child = <div>route</div>
+		const view = render(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		expect(fetchMock).not.toHaveBeenCalled()
+
+		routerState.pathname = '/mail/f/inbox'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+		expect(invalidate).toHaveBeenCalledWith({ refetchType: 'active' })
+	})
+
 	it('skips unrelated routes, hidden tabs, malformed responses, and transient failures', async () => {
+		routerState.pathname = '/settings'
 		const fetchMock = vi.spyOn(globalThis, 'fetch')
 		render(
 			<OwnmailQueryProvider>
@@ -79,6 +109,7 @@ describe('server state synchronization', () => {
 		expect(fetchMock).not.toHaveBeenCalled()
 		cleanup()
 
+		routerState.pathname = '/contacts'
 		history.replaceState(null, '', '/contacts')
 		vi.useFakeTimers()
 		const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')

@@ -25,8 +25,9 @@ function parseCounter(value: string | null): number | undefined {
 /**
  * Reads both the legacy aggregate counter and scoped counters. Existing KV
  * records created before scoped counters were introduced safely seed every
- * domain from the aggregate value, so old deployments cause a refresh instead
- * of missing a change.
+ * domain from the aggregate value. Once any scoped counter exists, absent or
+ * malformed domain counters remain at zero so aggregate bumps do not invalidate
+ * unrelated domains.
  */
 export async function readChangeVersions(kv: KvLike | null, grantId: string): Promise<ChangeVersions> {
 	if (!kv) return { version: 0, domains: { mail: 0, contacts: 0, calendar: 0 } }
@@ -37,12 +38,14 @@ export async function readChangeVersions(kv: KvLike | null, grantId: string): Pr
 		kv.get(domainKey(grantId, 'calendar')),
 	])
 	const version = parseCounter(legacyValue) ?? 0
+	const hasScopedCounters = [mailValue, contactsValue, calendarValue].some((value) => value !== null)
+	const fallback = hasScopedCounters ? 0 : version
 	return {
 		version,
 		domains: {
-			mail: parseCounter(mailValue) ?? version,
-			contacts: parseCounter(contactsValue) ?? version,
-			calendar: parseCounter(calendarValue) ?? version,
+			mail: parseCounter(mailValue) ?? fallback,
+			contacts: parseCounter(contactsValue) ?? fallback,
+			calendar: parseCounter(calendarValue) ?? fallback,
 		},
 	}
 }

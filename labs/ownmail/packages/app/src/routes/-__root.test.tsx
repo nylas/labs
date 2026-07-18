@@ -7,6 +7,8 @@ vi.mock('@tanstack/react-router', () => ({
 	HeadContent: () => null,
 	Outlet: () => null,
 	Scripts: () => null,
+	useRouterState: (options: { select: (state: { location: { pathname: string } }) => unknown }) =>
+		options.select({ location: { pathname: '/' } }),
 	Link: ({ to, children, ...rest }: any) => (
 		<a href={to} {...rest}>
 			{children}

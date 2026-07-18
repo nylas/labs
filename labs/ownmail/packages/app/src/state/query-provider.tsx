@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
+import { useRouterState } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useState } from 'react'
 
 const VERSION_POLL_INTERVAL_MS = 10_000
@@ -45,8 +46,9 @@ function safeVersion(value: unknown): number | null {
 
 function ServerStateSync() {
 	const queryClient = useQueryClient()
+	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	useEffect(() => {
-		if (!/^\/(mail|contacts|calendar)(?:\/|$)/.test(window.location.pathname)) return
+		if (!/^\/(mail|contacts|calendar)(?:\/|$)/.test(pathname)) return
 		let stopped = false
 		let previous: DomainVersions | null = null
 
@@ -85,7 +87,7 @@ function ServerStateSync() {
 			stopped = true
 			window.clearInterval(timer)
 		}
-	}, [queryClient])
+	}, [pathname, queryClient])
 	return null
 }
 
