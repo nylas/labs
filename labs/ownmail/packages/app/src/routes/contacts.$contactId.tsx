@@ -1,10 +1,11 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Building2, Mail, Pencil, Phone, StickyNote, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { ContactModal } from '../components/ContactModal.js'
 import { contactDisplayName, contactSubtitle } from '../components/contacts-model.js'
-import { deleteContact, getContact } from '../server/fns.js'
+import { getContact } from '../server/fns.js'
+import { useContact, useDeleteContactMutation } from '../state/contacts-state.js'
 import { ContactAvatar } from './contacts.js'
 
 export const Route = createFileRoute('/contacts/$contactId')({
@@ -17,13 +18,14 @@ export const Route = createFileRoute('/contacts/$contactId')({
 })
 
 function ContactDetailRoute() {
-	const contact = Route.useLoaderData()
+	const loadedContact = Route.useLoaderData()
+	const { data: contact } = useContact(loadedContact.id, loadedContact)
 	const { q, edit } = Route.useSearch()
 	const navigate = useNavigate()
-	const router = useRouter()
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const [deleting, setDeleting] = useState(false)
 	const [deleteError, setDeleteError] = useState<string | null>(null)
+	const deleteMutation = useDeleteContactMutation(contact.id)
 	const search = q ? { q } : {}
 
 	function openEdit() {
@@ -34,8 +36,7 @@ function ContactDetailRoute() {
 		})
 	}
 
-	function closeEdit(changed: boolean) {
-		if (changed) void router.invalidate()
+	function closeEdit(_changed: boolean) {
 		navigate({ to: '/contacts/$contactId', params: { contactId: contact.id }, search })
 	}
 
@@ -45,8 +46,7 @@ function ContactDetailRoute() {
 		setDeleteError(null)
 		setDeleting(true)
 		try {
-			await deleteContact({ data: { contactId: contact.id } })
-			void router.invalidate()
+			await deleteMutation.mutateAsync()
 			navigate({ to: '/contacts', search })
 		} catch {
 			setDeleteError('Failed to delete contact')

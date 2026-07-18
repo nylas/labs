@@ -1,0 +1,100 @@
+// @vitest-environment jsdom
+import { QueryClient } from '@tanstack/react-query'
+import { act, cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { OwnmailQueryProvider, queryProviderTestApi } from './query-provider.js'
+
+afterEach(() => {
+	cleanup()
+	vi.restoreAllMocks()
+	vi.useRealTimers()
+	history.replaceState(null, '', '/')
+})
+
+describe('server state version normalization', () => {
+	it('accepts scoped domain versions', () => {
+		expect(
+			queryProviderTestApi.normalizeVersions({ domains: { mail: 3, contacts: 2, calendar: 1 } }),
+		).toEqual({
+			mail: 3,
+			contacts: 2,
+			calendar: 1,
+		})
+	})
+
+	it('keeps compatibility with the legacy shared version', () => {
+		expect(queryProviderTestApi.normalizeVersions({ version: 7 })).toEqual({
+			mail: 7,
+			contacts: 7,
+			calendar: 7,
+		})
+	})
+
+	it('fails closed for malformed payloads', () => {
+		expect(queryProviderTestApi.normalizeVersions(null)).toBeNull()
+		expect(queryProviderTestApi.normalizeVersions({ version: -1 })).toEqual({
+			mail: 0,
+			contacts: 0,
+			calendar: 0,
+		})
+	})
+})
+
+describe('server state synchronization', () => {
+	it('establishes a baseline and invalidates only domains whose versions changed', async () => {
+		history.replaceState(null, '', '/mail/f/inbox')
+		vi.useFakeTimers()
+		const fetchMock = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 3 } })))
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+
+		const view = render(
+			<OwnmailQueryProvider>
+				<div>mail</div>
+			</OwnmailQueryProvider>,
+		)
+		await act(async () => {})
+		expect(invalidate).toHaveBeenCalledWith({ refetchType: 'active' })
+
+		await act(async () => vi.advanceTimersByTimeAsync(10_000))
+		expect(fetchMock).toHaveBeenCalledTimes(2)
+		const scoped = invalidate.mock.calls.slice(1).map(([options]) => options)
+		expect(scoped).toHaveLength(2)
+		expect(scoped[0]?.predicate?.({ queryKey: ['mail'] } as never)).toBe(true)
+		expect(scoped[0]?.predicate?.({ queryKey: ['contacts'] } as never)).toBe(false)
+		expect(scoped[1]?.predicate?.({ queryKey: ['calendar'] } as never)).toBe(true)
+
+		view.unmount()
+	})
+
+	it('skips unrelated routes, hidden tabs, malformed responses, and transient failures', async () => {
+		const fetchMock = vi.spyOn(globalThis, 'fetch')
+		render(
+			<OwnmailQueryProvider>
+				<div>home</div>
+			</OwnmailQueryProvider>,
+		)
+		expect(fetchMock).not.toHaveBeenCalled()
+		cleanup()
+
+		history.replaceState(null, '', '/contacts')
+		vi.useFakeTimers()
+		const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+		render(
+			<OwnmailQueryProvider>
+				<div>contacts</div>
+			</OwnmailQueryProvider>,
+		)
+		expect(fetchMock).not.toHaveBeenCalled()
+
+		visibility.mockReturnValue('visible')
+		fetchMock
+			.mockResolvedValueOnce(new Response('', { status: 503 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify([])))
+			.mockRejectedValueOnce(new Error('offline'))
+		await act(async () => vi.advanceTimersByTimeAsync(30_000))
+		expect(fetchMock).toHaveBeenCalledTimes(3)
+	})
+})

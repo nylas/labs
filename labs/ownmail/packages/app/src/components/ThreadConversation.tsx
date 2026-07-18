@@ -1,6 +1,6 @@
-import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { ChevronDown, Paperclip } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import type { MailMessage, MailThread } from '../state/mail-queries.js'
 import { ClientMessageTime } from './ClientTime.js'
 import { MessageBody } from './MessageBody.js'
 import { cn, collapsedMessagePreview, initials, labelBadgeClass, threadLabels } from './ui-model.js'
@@ -10,7 +10,7 @@ import { cn, collapsedMessagePreview, initials, labelBadgeClass, threadLabels } 
  * expandable message list. Shared by the folder thread route, the compose backdrop,
  * and search results so there is a single reading-pane implementation.
  */
-export function ThreadConversation({ thread, messages }: { thread: Thread; messages: Message[] }) {
+export function ThreadConversation({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
 	const labels = threadLabels(thread)
 	const threadAttachments = useMemo(
 		() =>
@@ -80,7 +80,7 @@ function MessageBlock({
 	defaultOpen,
 	isLast,
 }: {
-	message: Message
+	message: MailMessage
 	defaultOpen: boolean
 	isLast: boolean
 }) {
@@ -144,7 +144,7 @@ function MessageBlock({
 	)
 }
 
-function MessageAttachments({ message }: { message: Message }) {
+function MessageAttachments({ message }: { message: MailMessage }) {
 	const attachments = (message.attachments ?? []).filter((attachment) => !attachment.is_inline)
 	if (attachments.length === 0) return null
 	return (

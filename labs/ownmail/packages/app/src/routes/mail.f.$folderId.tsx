@@ -1,5 +1,6 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ClientListDate } from '../components/ClientTime.js'
@@ -8,6 +9,15 @@ import { THREAD_ROW_CLASS, ThreadRowContent } from '../components/ThreadRow.js'
 import { ScrollArea } from '../components/ui/scroll-area.js'
 import { cn, draftRecipientName, mailFolderTitle, threadTimestamp } from '../components/ui-model.js'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
+import { useUpdateThreadMutation } from '../state/mail-mutations.js'
+import {
+	draftsQueryOptions,
+	foldersQueryOptions,
+	threadListQueryOptions,
+	toMailDraft,
+	toMailFolder,
+	toMailThread,
+} from '../state/mail-queries.js'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
@@ -41,8 +51,50 @@ function FolderView() {
 	const loaderData = Route.useLoaderData()
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
+	const updateThread = useUpdateThreadMutation()
+	const filters = folderId === 'starred' ? { starred: true } : { folderId }
+	const folderQuery = useQuery({
+		...foldersQueryOptions(() => getFolders()),
+		initialData: loaderData.folders.map(toMailFolder),
+	})
+	const draftsQuery = useQuery({
+		...draftsQueryOptions(() => listDrafts()),
+		initialData: loaderData.drafts.map(toMailDraft),
+		enabled: folderId === 'drafts',
+	})
+	const threadsQuery = useInfiniteQuery({
+		...threadListQueryOptions(filters, (input) => getThreads({ data: input })),
+		initialData: {
+			pages: [
+				{
+					threads: loaderData.threads.map(toMailThread),
+					...(loaderData.nextCursor ? { nextCursor: loaderData.nextCursor } : {}),
+				},
+			],
+			pageParams: [undefined],
+		},
+		enabled: folderId !== 'drafts',
+	})
+	const threads = dedupeThreads(threadsQuery.data.pages.flatMap((page) => page.threads))
+	const nextCursor = threadsQuery.data.pages.at(-1)?.nextCursor
 
-	return <MailFolderRouteScreen {...loaderData} folderId={folderId} baseFolderId={baseFolderId} />
+	return (
+		<MailFolderRouteScreen
+			threads={threads as Thread[]}
+			drafts={draftsQuery.data as Draft[]}
+			folders={folderQuery.data as Awaited<ReturnType<typeof getFolders>>}
+			folderId={folderId}
+			baseFolderId={baseFolderId}
+			nextCursor={nextCursor}
+			loadingMore={threadsQuery.isFetchingNextPage}
+			onLoadMore={() => threadsQuery.fetchNextPage().then(() => undefined)}
+			onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
+		/>
+	)
+}
+
+function dedupeThreads<T extends { id: string }>(threads: T[]): T[] {
+	return [...new Map(threads.map((thread) => [thread.id, thread])).values()]
 }
 
 export function MailFolderRouteScreen({
@@ -52,13 +104,21 @@ export function MailFolderRouteScreen({
 	folderId,
 	baseFolderId,
 	nextCursor: initialCursor,
-}: MailFolderRouteData & { folderId: string; baseFolderId?: string }) {
+	loadingMore: managedLoadingMore,
+	onLoadMore,
+	onUpdateThread,
+}: MailFolderRouteData & {
+	folderId: string
+	baseFolderId?: string
+	loadingMore?: boolean
+	onLoadMore?: () => Promise<void>
+	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
+}) {
 	const folderTitle = mailFolderTitle(folderId, folders)
-	const router = useRouter()
 	const navigate = useNavigate()
 	const [extraThreads, setExtraThreads] = useState<Thread[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
-	const [loadingMore, setLoadingMore] = useState(false)
+	const [localLoadingMore, setLocalLoadingMore] = useState(false)
 	const [cursor, setCursor] = useState(-1)
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
@@ -67,7 +127,11 @@ export function MailFolderRouteScreen({
 			state.location.pathname.includes('/t/') ||
 			state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
 	})
-	const threads = useMemo(() => [...initialThreads, ...extraThreads], [extraThreads, initialThreads])
+	const loadingMore = managedLoadingMore ?? localLoadingMore
+	const threads = useMemo(
+		() => (onLoadMore ? initialThreads : dedupeThreads([...initialThreads, ...extraThreads])),
+		[extraThreads, initialThreads, onLoadMore],
+	)
 	const sortedThreads = useMemo(
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
@@ -158,18 +222,14 @@ export function MailFolderRouteScreen({
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [cursor, navItems.length, openItem])
 
-	// Light-touch realtime: refresh the list every 30s while the tab is visible.
-	useEffect(() => {
-		const timer = setInterval(() => {
-			if (document.visibilityState === 'visible') router.invalidate()
-		}, 30_000)
-		return () => clearInterval(timer)
-	}, [router])
-
 	async function loadMore() {
 		/* v8 ignore next -- defensive guard: the Load-more button only renders when a cursor exists, is disabled while loading, and never appears in the drafts folder, so this early return is unreachable from the UI */
 		if (!nextCursor || loadingMore || folderId === 'drafts') return
-		setLoadingMore(true)
+		if (onLoadMore) {
+			await onLoadMore()
+			return
+		}
+		setLocalLoadingMore(true)
 		try {
 			const res = await getThreads({
 				data: {
@@ -180,7 +240,7 @@ export function MailFolderRouteScreen({
 			setExtraThreads((current) => [...current, ...res.threads])
 			setNextCursor(res.nextCursor)
 		} finally {
-			setLoadingMore(false)
+			setLocalLoadingMore(false)
 		}
 	}
 
@@ -225,7 +285,7 @@ export function MailFolderRouteScreen({
 									folderId={folderId}
 									baseFolderId={baseFolderId}
 									navActive={cursor === index}
-									onChanged={() => router.invalidate()}
+									onUpdateThread={onUpdateThread}
 								/>
 							))}
 							{nextCursor ? (
@@ -313,13 +373,13 @@ function ThreadRow({
 	folderId,
 	baseFolderId,
 	navActive,
-	onChanged,
+	onUpdateThread,
 }: {
 	thread: Thread
 	folderId: string
 	baseFolderId?: string
 	navActive: boolean
-	onChanged: () => void
+	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
 }) {
 	const [starred, setStarred] = useState(thread.starred)
 	const [starPending, setStarPending] = useState(false)
@@ -335,8 +395,12 @@ function ThreadRow({
 		setStarred(nextStarred)
 		setStarPending(true)
 		try {
-			await updateThreadState({ data: { threadId: thread.id, starred: nextStarred } })
-			onChanged()
+			if (onUpdateThread) await onUpdateThread({ threadId: thread.id, starred: nextStarred })
+			else {
+				// Compatibility seam for the isolated screen tests; the production route
+				// always supplies the centralized optimistic mutation gateway.
+				await updateThreadState({ data: { threadId: thread.id, starred: nextStarred } })
+			}
 			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
 		} catch {
 			setStarred(!nextStarred)

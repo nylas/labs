@@ -1,7 +1,7 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { Plus, X } from 'lucide-react'
 import { useState } from 'react'
-import { createContact, updateContact } from '../server/fns.js'
+import { useCreateContactMutation, useUpdateContactMutation } from '../state/contacts-state.js'
 import {
 	type ContactForm,
 	contactToForm,
@@ -31,6 +31,8 @@ export function ContactModal({
 	const [form, setForm] = useState<ContactForm>(() => (contact ? contactToForm(contact) : emptyContactForm()))
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const createMutation = useCreateContactMutation()
+	const updateMutation = useUpdateContactMutation(contact)
 
 	function patch(next: Partial<ContactForm>) {
 		setForm((current) => ({ ...current, ...next }))
@@ -42,10 +44,10 @@ export function ContactModal({
 		try {
 			const fields = formToFields(form)
 			if (contact) {
-				await updateContact({ data: { contactId: contact.id, ...fields } })
+				await updateMutation.mutateAsync(fields)
 				onClose(true, contact.id)
 			} else {
-				const created = await createContact({ data: fields })
+				const created = await createMutation.mutateAsync(fields)
 				onClose(true, created.contactId)
 			}
 		} catch {

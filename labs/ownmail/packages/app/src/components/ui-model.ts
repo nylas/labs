@@ -1,5 +1,6 @@
-import type { Calendar, Draft, Event, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
+import type { Calendar, Event, Folder } from '@nylas-labs/cli-kit/v3'
 import { cn } from '../lib/utils.js'
+import type { MailDraft, MailMessage, MailThread } from '../state/mail-queries.js'
 import { eventTimes, startOfDay } from './calendar.js'
 
 export { cn }
@@ -74,7 +75,7 @@ export function totalUnread(folders: Folder[]): number {
 	return folders.reduce((sum, folder) => sum + (folder.unread_count ?? 0), 0)
 }
 
-export function threadSender(thread: Thread, folderId: string): string {
+export function threadSender(thread: MailThread, folderId: string): string {
 	const participant =
 		folderId === 'sent' || folderId === 'drafts'
 			? (thread.latest_draft_or_message?.to?.[0] ?? thread.participants?.[0])
@@ -83,17 +84,17 @@ export function threadSender(thread: Thread, folderId: string): string {
 	return participantLabel(participant) || '(unknown sender)'
 }
 
-function participantLabel(participant: NonNullable<Thread['participants']>[number] | undefined): string {
+function participantLabel(participant: NonNullable<MailThread['participants']>[number] | undefined): string {
 	return participant?.name || participant?.email || ''
 }
 
-export function threadTimestamp(thread: Thread): number | undefined {
+export function threadTimestamp(thread: MailThread): number | undefined {
 	const received = thread.latest_message_received_date ?? 0
 	const sent = thread.latest_message_sent_date ?? 0
 	return Math.max(received, sent) || undefined
 }
 
-export function threadRouteFolderId(thread: Thread): MailFolderId {
+export function threadRouteFolderId(thread: MailThread): MailFolderId {
 	return (
 		(thread.folders?.find((folder): folder is MailFolderId =>
 			MAIL_FOLDERS.some((standard) => standard.id === folder),
@@ -127,17 +128,17 @@ export function initials(nameOrEmail: string): string {
 		.toUpperCase()
 }
 
-export function messagePreview(message: Message): string {
+export function messagePreview(message: MailMessage): string {
 	if (message.snippet) return message.snippet
 	if (!message.body) return ''
 	return plainTextFromHtml(message.body)
 }
 
-export function collapsedMessagePreview(message: Message): string {
+export function collapsedMessagePreview(message: MailMessage): string {
 	return messageBodyParagraphs(message)[0] ?? messagePreview(message)
 }
 
-export function messageBodyParagraphs(message: Message): string[] {
+export function messageBodyParagraphs(message: MailMessage): string[] {
 	const source = message.body ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
 	return source
 		.split(/\n{2,}/)
@@ -150,7 +151,7 @@ export function messageBodyParagraphs(message: Message): string[] {
 		.filter(Boolean)
 }
 
-export function messageHasHtml(message: Message): boolean {
+export function messageHasHtml(message: MailMessage): boolean {
 	const body = message.body?.trim()
 	if (!body) return false
 	return /<[a-z][\s\S]*>/i.test(body)
@@ -280,16 +281,16 @@ function safeCodePoint(codePoint: number): string {
 	return String.fromCodePoint(codePoint)
 }
 
-export function draftRecipientList(draft: Draft): string {
+export function draftRecipientList(draft: MailDraft): string {
 	return draft.to?.map((person) => person.email).join(', ') || '(no recipient)'
 }
 
-export function draftRecipientName(draft: Draft): string {
+export function draftRecipientName(draft: MailDraft): string {
 	const recipient = draft.to?.[0]
 	return recipient?.name || recipient?.email || '(no recipient)'
 }
 
-export function replyDraftSearch(message: Message): {
+export function replyDraftSearch(message: MailMessage): {
 	to: string
 	subject: string
 	replyToMessageId: string
@@ -300,7 +301,7 @@ export function replyDraftSearch(message: Message): {
 }
 
 export function replyAllDraftSearch(
-	message: Message,
+	message: MailMessage,
 	mailboxEmail: string,
 ): {
 	to: string
@@ -318,7 +319,7 @@ export function replyAllDraftSearch(
 	return { to: recipients.join(', '), subject, replyToMessageId: message.id }
 }
 
-export function forwardDraftSearch(message: Message): {
+export function forwardDraftSearch(message: MailMessage): {
 	to: string
 	subject: string
 	body: string
@@ -354,7 +355,7 @@ export function forwardDraftSearch(message: Message): {
 	}
 }
 
-function uniqueEmails(participants: NonNullable<Message['to']>): string[] {
+function uniqueEmails(participants: NonNullable<MailMessage['to']>): string[] {
 	const seen = new Set<string>()
 	const emails: string[] = []
 	for (const participant of participants) {
@@ -368,7 +369,7 @@ function uniqueEmails(participants: NonNullable<Message['to']>): string[] {
 	return emails
 }
 
-export function threadLabels(thread: Thread): typeof LABELS {
+export function threadLabels(thread: MailThread): typeof LABELS {
 	const folderIds = new Set(thread.folders ?? [])
 	return LABELS.filter((label) => folderIds.has(label.id))
 }
@@ -503,7 +504,7 @@ export function composeBackdropThreadSearch(input: {
 export function composeBackdropReplySearch(input: {
 	folderId: string
 	threadId: string
-	message: Message
+	message: MailMessage
 }): ReturnType<typeof composeBackdropThreadSearch> {
 	return composeBackdropThreadSearch({
 		folderId: input.folderId,

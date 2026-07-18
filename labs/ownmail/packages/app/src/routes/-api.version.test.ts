@@ -32,7 +32,10 @@ describe('/api/version', () => {
 
 		expect(response.status).toBe(200)
 		expect(response.headers.get('Cache-Control')).toBe('no-store')
-		expect(await response.json()).toEqual({ version: 0 })
+		expect(await response.json()).toEqual({
+			version: 0,
+			domains: { mail: 0, contacts: 0, calendar: 0 },
+		})
 		expect(getSession).not.toHaveBeenCalled()
 	})
 
@@ -41,7 +44,10 @@ describe('/api/version', () => {
 
 		const response = await GET({ request: req() })
 
-		expect(await response.json()).toEqual({ version: 0 })
+		expect(await response.json()).toEqual({
+			version: 0,
+			domains: { mail: 0, contacts: 0, calendar: 0 },
+		})
 		expect(getSession).not.toHaveBeenCalled()
 	})
 
@@ -62,7 +68,27 @@ describe('/api/version', () => {
 		const response = await versionResponse(req(), { devMocks: false })
 
 		expect(kv.get).toHaveBeenCalledWith('version:grant-1')
-		expect(await response.json()).toEqual({ version: 7 })
+		expect(await response.json()).toEqual({
+			version: 7,
+			domains: { mail: 7, contacts: 7, calendar: 7 },
+		})
+	})
+
+	it('reports independent domain counters without exposing the session grant id', async () => {
+		getSession.mockResolvedValue({ grantId: 'grant-private' })
+		const values: Record<string, string> = {
+			'version:grant-private': '12',
+			'version:grant-private:mail': '9',
+			'version:grant-private:contacts': '4',
+			'version:grant-private:calendar': '7',
+		}
+		platform.mockResolvedValue({ kv: { get: vi.fn(async (key: string) => values[key] ?? null) } })
+
+		const response = await versionResponse(req(), { devMocks: false })
+		const json = await response.json()
+
+		expect(json).toEqual({ version: 12, domains: { mail: 9, contacts: 4, calendar: 7 } })
+		expect(JSON.stringify(json)).not.toContain('grant-private')
 	})
 
 	it('treats a grant with no recorded counter as version zero', async () => {
@@ -71,7 +97,10 @@ describe('/api/version', () => {
 
 		const response = await versionResponse(req(), { devMocks: false })
 
-		expect(await response.json()).toEqual({ version: 0 })
+		expect(await response.json()).toEqual({
+			version: 0,
+			domains: { mail: 0, contacts: 0, calendar: 0 },
+		})
 	})
 
 	it('reports a constant version when no KV binding exists (slow polling only)', async () => {
@@ -80,6 +109,9 @@ describe('/api/version', () => {
 
 		const response = await versionResponse(req(), { devMocks: false })
 
-		expect(await response.json()).toEqual({ version: 0 })
+		expect(await response.json()).toEqual({
+			version: 0,
+			domains: { mail: 0, contacts: 0, calendar: 0 },
+		})
 	})
 })

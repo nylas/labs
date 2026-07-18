@@ -1,4 +1,5 @@
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
 	Archive,
 	ArrowLeft,
@@ -21,7 +22,10 @@ import {
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
 } from '../components/ui-model.js'
-import { getThreadMessages, updateThreadState } from '../server/fns.js'
+import { getThreadMessages } from '../server/fns.js'
+import { applyMailCacheEffect } from '../state/mail-cache.js'
+import { useUpdateThreadMutation } from '../state/mail-mutations.js'
+import { threadDetailQueryOptions, toMailThreadDetail } from '../state/mail-queries.js'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
@@ -32,10 +36,16 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 })
 
 function ThreadView() {
-	const { thread, messages, mailboxEmail, markedRead } = Route.useLoaderData()
+	const initialDetail = Route.useLoaderData()
 	const { folderId, threadId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
-	const router = useRouter()
+	const queryClient = useQueryClient()
+	const { data: detail } = useQuery({
+		...threadDetailQueryOptions(threadId, (id) => getThreadMessages({ data: { threadId: id } })),
+		initialData: toMailThreadDetail(initialDetail),
+	})
+	const { thread, messages, mailboxEmail, markedRead } = detail
+	const updateThread = useUpdateThreadMutation()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
 	const [starred, setStarred] = useState(thread.starred)
@@ -56,7 +66,7 @@ function ThreadView() {
 			if (typeof input.starred === 'boolean') setStarred(input.starred)
 			setActing(true)
 			try {
-				await updateThreadState({ data: { threadId, ...input } })
+				await updateThread.mutateAsync({ threadId, ...input })
 				if (leave) {
 					await navigate({
 						to: '/mail/f/$folderId',
@@ -64,7 +74,6 @@ function ThreadView() {
 						search: baseFolderId ? { baseFolderId } : {},
 					})
 				}
-				await router.invalidate()
 				/* v8 ignore next 3 -- a failed optimistic star action restores the previous state before surfacing its error */
 			} catch {
 				if (typeof input.starred === 'boolean') setStarred(previousStarred)
@@ -73,7 +82,7 @@ function ThreadView() {
 				setActing(false)
 			}
 		},
-		[acting, baseFolderId, folderId, navigate, router, starred, threadId],
+		[acting, baseFolderId, folderId, navigate, starred, threadId, updateThread],
 	)
 
 	useEffect(() => {
@@ -112,8 +121,10 @@ function ThreadView() {
 	}, [act, baseFolderId, folderId, isArchived, navigate, starred])
 
 	useEffect(() => {
-		if (markedRead) router.invalidate()
-	}, [markedRead, router])
+		if (markedRead) {
+			applyMailCacheEffect(queryClient, { type: 'thread.read', threadId, unread: false, thread })
+		}
+	}, [markedRead, queryClient, thread, threadId])
 
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">

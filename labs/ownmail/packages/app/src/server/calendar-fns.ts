@@ -21,6 +21,7 @@ import {
 	type RsvpEventInput,
 	type UpdateEventInput,
 } from './calendar-input.js'
+import { signalLocalChange } from './change-version.js'
 import { mailboxFromRequest } from './nylas.js'
 
 async function requireMailbox() {
@@ -45,21 +46,23 @@ async function primaryCalendar(): Promise<{
 	calendar: Calendar
 	calendars: Calendar[]
 	mailbox: Awaited<ReturnType<typeof requireMailbox>>['mailbox']
+	grantId: string
 }> {
-	const { mailbox } = await requireMailbox()
+	const { mailbox, grantId } = await requireMailbox()
 	const response = await mailbox.listCalendars({ limit: 20 }).catch((err: unknown) => {
 		throw friendly(err)
 	})
 	const calendars = listData<Calendar>(response.data)
 	const calendar = calendars.find((c) => c.is_primary) ?? calendars[0]
 	if (!calendar) throw new Error('No calendar found on this account.')
-	return { calendar, calendars, mailbox }
+	return { calendar, calendars, mailbox, grantId }
 }
 
 async function authorizedCalendar(calendarId?: string): Promise<{
 	calendar: Calendar
 	calendars: Calendar[]
 	mailbox: Awaited<ReturnType<typeof requireMailbox>>['mailbox']
+	grantId: string
 }> {
 	const resolved = await primaryCalendar()
 	if (!calendarId) return resolved
@@ -94,7 +97,7 @@ export const getEvents = createServerFn({ method: 'GET' })
 export const createEvent = createServerFn({ method: 'POST' })
 	.validator((input: CreateEventInput) => normalizeCreateEventInput(input))
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
+		const { calendar, mailbox, grantId } = await authorizedCalendar(data.calendarId)
 		const when =
 			data.allDayDate !== undefined
 				? { date: data.allDayDate }
@@ -103,18 +106,25 @@ export const createEvent = createServerFn({ method: 'POST' })
 						end_time: data.endTime as number,
 						...(data.recurrence ? { start_timezone: data.timezone, end_timezone: data.timezone } : {}),
 					}
-		const created = await mailbox.createEvent(
-			{
-				title: data.title,
-				...(data.description ? { description: data.description } : {}),
-				...(data.location ? { location: data.location } : {}),
-				when,
-				...(data.recurrence ? { recurrence: recurrenceRules(data.recurrence) } : {}),
-				...(data.participants?.length ? { participants: data.participants.map((email) => ({ email })) } : {}),
-			},
-			calendar.id,
-		)
-		return { eventId: created.data.id }
+		try {
+			const created = await mailbox.createEvent(
+				{
+					title: data.title,
+					...(data.description ? { description: data.description } : {}),
+					...(data.location ? { location: data.location } : {}),
+					when,
+					...(data.recurrence ? { recurrence: recurrenceRules(data.recurrence) } : {}),
+					...(data.participants?.length
+						? { participants: data.participants.map((email) => ({ email })) }
+						: {}),
+				},
+				calendar.id,
+			)
+			await signalLocalChange(grantId, 'calendar')
+			return { eventId: created.data.id, event: created.data }
+		} catch (err) {
+			throw friendly(err)
+		}
 	})
 
 function recurrenceRules(recurrence: NonNullable<CreateEventInput['recurrence']>): string[] {
@@ -125,34 +135,53 @@ function recurrenceRules(recurrence: NonNullable<CreateEventInput['recurrence']>
 export const updateEvent = createServerFn({ method: 'POST' })
 	.validator((input: UpdateEventInput) => normalizeUpdateEventInput(input))
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
-		await mailbox.updateEvent(
-			data.eventId,
-			{
-				...(data.title !== undefined ? { title: data.title } : {}),
-				...(data.description !== undefined ? { description: data.description } : {}),
-				...(data.location !== undefined ? { location: data.location } : {}),
-				...(data.startTime !== undefined && data.endTime !== undefined
-					? { when: { start_time: data.startTime, end_time: data.endTime } }
-					: {}),
-			},
-			calendar.id,
-		)
-		return { ok: true }
+		const { calendar, mailbox, grantId } = await authorizedCalendar(data.calendarId)
+		try {
+			const updated = await mailbox.updateEvent(
+				data.eventId,
+				{
+					...(data.title !== undefined ? { title: data.title } : {}),
+					...(data.description !== undefined ? { description: data.description } : {}),
+					...(data.location !== undefined ? { location: data.location } : {}),
+					...(data.startTime !== undefined && data.endTime !== undefined
+						? { when: { start_time: data.startTime, end_time: data.endTime } }
+						: {}),
+				},
+				calendar.id,
+			)
+			await signalLocalChange(grantId, 'calendar')
+			return { event: updated.data }
+		} catch (err) {
+			throw friendly(err)
+		}
 	})
 
 export const deleteEvent = createServerFn({ method: 'POST' })
 	.validator((input: EventIdInput) => normalizeEventIdInput(input))
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
-		await mailbox.deleteEvent(data.eventId, calendar.id)
-		return { ok: true }
+		const { calendar, mailbox, grantId } = await authorizedCalendar(data.calendarId)
+		try {
+			await mailbox.deleteEvent(data.eventId, calendar.id)
+			await signalLocalChange(grantId, 'calendar')
+			return { removedEventId: data.eventId, calendarId: calendar.id }
+		} catch (err) {
+			throw friendly(err)
+		}
 	})
 
 export const rsvpEvent = createServerFn({ method: 'POST' })
 	.validator((input: RsvpEventInput) => normalizeRsvpEventInput(input))
 	.handler(async ({ data }) => {
-		const { calendar, mailbox } = await authorizedCalendar(data.calendarId)
-		await mailbox.sendRsvp(data.eventId, calendar.id, data.status)
-		return { ok: true }
+		const { calendar, mailbox, grantId } = await authorizedCalendar(data.calendarId)
+		try {
+			await mailbox.sendRsvp(data.eventId, calendar.id, data.status)
+			await signalLocalChange(grantId, 'calendar')
+			return {
+				eventId: data.eventId,
+				calendarId: calendar.id,
+				status: data.status,
+			}
+		} catch (err) {
+			throw friendly(err)
+		}
 	})

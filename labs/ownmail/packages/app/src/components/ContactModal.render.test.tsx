@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactModal } from './ContactModal.js'
 
@@ -10,6 +12,14 @@ const { createContact, updateContact } = vi.hoisted(() => ({
 }))
 
 vi.mock('../server/fns.js', () => ({ createContact, updateContact }))
+
+function render(ui: ReactElement) {
+	return testingRender(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			{ui}
+		</QueryClientProvider>,
+	)
+}
 
 beforeEach(() => {
 	createContact.mockReset().mockResolvedValue({ contactId: 'contact-new' })

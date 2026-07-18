@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
@@ -77,6 +79,16 @@ vi.mock('../server/fns.js', () => ({
 
 import { ContactsShell, Route } from './contacts.js'
 
+function render(ui: ReactElement) {
+	return testingRender(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}
+		>
+			{ui}
+		</QueryClientProvider>,
+	)
+}
+
 const info = { email: 'ada@ownmail.com', appName: 'ownmail' }
 const contacts: Contact[] = [
 	{ id: 'c-ada', given_name: 'Ada', surname: 'Lovelace', emails: [{ email: 'ada@x.com' }] },
@@ -139,6 +151,14 @@ describe('ContactsShell', () => {
 		await waitFor(() => expect(screen.getByText('Cy')).toBeInTheDocument())
 		expect(h.getContacts).toHaveBeenCalledWith({ data: { pageToken: 'cursor-2' } })
 		expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+	})
+
+	it('delegates managed pagination to the query-backed route wrapper', async () => {
+		const onLoadMore = vi.fn().mockResolvedValue(undefined)
+		shell({ nextCursor: 'cursor-2', onLoadMore })
+		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+		await waitFor(() => expect(onLoadMore).toHaveBeenCalledTimes(1))
+		expect(h.getContacts).not.toHaveBeenCalled()
 	})
 
 	it('shows a loading label while a page is in flight', async () => {
@@ -225,5 +245,17 @@ describe('ContactsLayout wrapper', () => {
 
 		h.getContacts.mockResolvedValue({ contacts })
 		expect(await Route.options.loader()).toEqual({ info, contacts })
+	})
+
+	it('owns route pagination in the shared query cache', async () => {
+		Route.useLoaderData = vi.fn(() => ({ info, contacts, nextCursor: 'cursor-2' }))
+		Route.useSearch = vi.fn(() => ({}))
+		h.getContacts.mockResolvedValue({ contacts: [{ id: 'c-cy', given_name: 'Cy' }] })
+		const Component = Route.options.component
+		render(<Component />)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+		expect(await screen.findByText('Cy')).toBeInTheDocument()
+		expect(h.getContacts).toHaveBeenCalledWith({ data: { pageToken: 'cursor-2' } })
 	})
 })

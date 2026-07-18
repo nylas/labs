@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,7 +47,13 @@ import { Route } from './mail.search.js'
 
 function renderRoute() {
 	const Comp = Route.options.component as () => JSX.Element
-	return render(<Comp />)
+	return render(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}
+		>
+			<Comp />
+		</QueryClientProvider>,
+	)
 }
 
 afterEach(cleanup)
@@ -54,7 +62,14 @@ beforeEach(() => {
 	h.location = { pathname: '/mail/search' }
 	h.navigate.mockResolvedValue(undefined)
 	h.invalidate.mockResolvedValue(undefined)
-	fns.updateThreadState.mockResolvedValue(undefined)
+	fns.updateThreadState.mockImplementation(async ({ data }: any) => ({
+		thread: {
+			id: data.threadId,
+			starred: data.starred ?? false,
+			unread: data.unread ?? false,
+			folders: [data.folder ?? 'inbox'],
+		},
+	}))
 })
 
 describe('/mail/search validateSearch', () => {
@@ -204,7 +219,23 @@ describe('/mail/search results list', () => {
 		expect(screen.getByText('Select a conversation')).toBeTruthy()
 	})
 
-	it('toggling a row star persists the new state and refreshes the list', async () => {
+	it('uses the starred cache key for the starred pseudo-folder', () => {
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, folderId: 'starred' }))
+		renderRoute()
+		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Starred')
+	})
+
+	it('hydrates the first result page with its continuation cursor', () => {
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
+
+		renderRoute()
+
+		expect(screen.getByText('Hello there')).toBeInTheDocument()
+	})
+
+	it('toggling a row star persists the new state through the mutation gateway', async () => {
 		const user = userEvent.setup()
 		renderRoute()
 
@@ -213,7 +244,7 @@ describe('/mail/search results list', () => {
 		await waitFor(() =>
 			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
-		expect(h.invalidate).toHaveBeenCalled()
+		expect(h.invalidate).not.toHaveBeenCalled()
 	})
 })
 
@@ -430,8 +461,8 @@ describe('/mail/search thread detail', () => {
 
 		renderRoute()
 
-		// markedRead selection triggers a background refresh on mount.
-		expect(h.invalidate).toHaveBeenCalled()
+		// markedRead is applied directly to every relevant cached view.
+		expect(h.invalidate).not.toHaveBeenCalled()
 		// With no message to act on, none of the reply actions render.
 		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Reply all' })).toBeNull()

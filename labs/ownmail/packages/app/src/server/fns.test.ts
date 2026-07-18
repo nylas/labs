@@ -88,7 +88,16 @@ beforeEach(() => {
 	nylasMock.mockReset()
 	usingDevMocksMock.mockReset().mockResolvedValue(false)
 	mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
-	platformMock.mockReset().mockResolvedValue({ env: { APP_NAME: 'ownmail' } })
+	mailbox.listFolders.mockResolvedValue({ data: [] })
+	mailbox.updateThread.mockImplementation(async (threadId, fields) => ({
+		data: { id: threadId, ...fields },
+	}))
+	mailbox.send.mockResolvedValue({ data: { id: 'message-sent' } })
+	mailbox.sendDraft.mockResolvedValue({ data: { id: 'message-sent-draft' } })
+	mailbox.createContact.mockImplementation(async (fields) => ({
+		data: { id: 'contact-created', ...fields },
+	}))
+	platformMock.mockReset().mockResolvedValue({ env: { APP_NAME: 'ownmail' }, kv: null })
 })
 
 describe('account settings security', () => {
@@ -264,6 +273,28 @@ describe('getThreadMessages', () => {
 		expect(res.messages).toHaveLength(2)
 	})
 
+	it('supports an explicit read mutation with a canonical thread and folder receipt', async () => {
+		resolveMailbox()
+		mailbox.listFolders.mockResolvedValue({ data: [{ id: 'inbox', name: 'Inbox' }] })
+
+		const result = await fns.markThreadRead.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.updateThread).toHaveBeenCalledWith('t1', { unread: false })
+		expect(result).toEqual({
+			thread: { id: 't1', unread: false },
+			folders: [{ id: 'inbox', name: 'Inbox' }],
+		})
+		expect(fns.markThreadRead.validator({ threadId: 't1' })).toEqual({ threadId: 't1' })
+	})
+
+	it('keeps explicit mark-read provider failures generic', async () => {
+		resolveMailbox()
+		mailbox.updateThread.mockRejectedValue(new Error('sensitive provider detail'))
+		await expect(fns.markThreadRead.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Something went wrong talking to your mailbox.',
+		)
+	})
+
 	it('falls back to a synthesized draft thread when the thread 404s but a draft matches', async () => {
 		resolveMailbox({ displayName: 'Ada' })
 		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
@@ -411,8 +442,29 @@ describe('sendMessage', () => {
 	it('sends without optional fields', async () => {
 		resolveMailbox()
 		const res = await fns.sendMessage.handler({ data: { subject: 's', body: 'b', toList: ['a@b.com'] } })
-		expect(res).toEqual({ ok: true })
+		expect(res).toEqual({ message: { id: 'message-sent' }, folders: [] })
 		expect(mailbox.send.mock.calls[0][0]).not.toHaveProperty('reply_to_message_id')
+	})
+
+	it('signals both the mail domain and legacy counter after a successful local mutation', async () => {
+		resolveMailbox()
+		const increment = vi.fn().mockResolvedValue(1)
+		platformMock.mockResolvedValue({ env: { APP_NAME: 'ownmail' }, kv: { increment } })
+
+		await fns.sendMessage.handler({ data: { subject: 's', body: 'b', toList: ['a@b.com'] } })
+
+		expect(increment).toHaveBeenCalledWith('version:grant-123')
+		expect(increment).toHaveBeenCalledWith('version:grant-123:mail')
+	})
+
+	it('does not report a confirmed send as failed when reconciliation storage is unavailable', async () => {
+		resolveMailbox()
+		mailbox.listFolders.mockRejectedValue(new Error('folder refresh unavailable'))
+		platformMock.mockRejectedValue(new Error('shared storage unavailable'))
+
+		await expect(
+			fns.sendMessage.handler({ data: { subject: 's', body: 'b', toList: ['a@b.com'] } }),
+		).resolves.toEqual({ message: { id: 'message-sent' } })
 	})
 
 	it('maps a quota error to a recognizable QUOTA message', async () => {
@@ -457,7 +509,7 @@ describe('updateThreadState', () => {
 		mailbox.deleteDraft.mockResolvedValue(undefined)
 		const res = await fns.updateThreadState.handler({ data: { threadId: 't1', folder: 'trash' } })
 		expect(mailbox.deleteDraft).toHaveBeenCalledWith('t1')
-		expect(res).toEqual({ ok: true })
+		expect(res).toEqual({ removedDraftId: 't1', folders: [] })
 	})
 
 	it('falls through to a friendly error when the draft delete also fails', async () => {
@@ -519,7 +571,7 @@ describe('saveDraft', () => {
 			data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: 'b' },
 		})
 		expect(mailbox.updateDraft).toHaveBeenCalled()
-		expect(res).toEqual({ draftId: 'd1' })
+		expect(res).toEqual({ draftId: 'd1', draft: { id: 'd1' }, created: false, folders: [] })
 	})
 
 	it('persists a reply reference with an autosaved draft', async () => {
@@ -543,7 +595,7 @@ describe('saveDraft', () => {
 			},
 		})
 		expect(mailbox.createDraft).toHaveBeenCalled()
-		expect(res).toEqual({ draftId: 'new' })
+		expect(res).toEqual({ draftId: 'new', draft: { id: 'new' }, created: true, folders: [] })
 	})
 
 	it('maps failures to a friendly error', async () => {
@@ -605,7 +657,11 @@ describe('sendDraft', () => {
 			await fns.sendDraft.handler({
 				data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: '<p>b</p>' },
 			}),
-		).toEqual({ ok: true })
+		).toEqual({
+			removedDraftId: 'd1',
+			message: { id: 'message-sent-draft' },
+			folders: [],
+		})
 		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', {
 			to: [{ email: 'a@b.com' }],
 			subject: 's',
@@ -700,7 +756,10 @@ describe('deleteDraft', () => {
 
 	it('deletes a draft', async () => {
 		resolveMailbox()
-		expect(await fns.deleteDraft.handler({ data: { draftId: 'd1' } })).toEqual({ ok: true })
+		expect(await fns.deleteDraft.handler({ data: { draftId: 'd1' } })).toEqual({
+			removedDraftId: 'd1',
+			folders: [],
+		})
 	})
 
 	it('maps failures to a friendly error', async () => {
@@ -806,7 +865,7 @@ describe('createContact', () => {
 		mailbox.createContact.mockResolvedValue({ data: { id: 'contact-new' } })
 		const res = await fns.createContact.handler({ data: { given_name: 'Ada' } })
 		expect(mailbox.createContact).toHaveBeenCalledWith({ given_name: 'Ada' })
-		expect(res).toEqual({ contactId: 'contact-new' })
+		expect(res).toEqual({ contactId: 'contact-new', contact: { id: 'contact-new' } })
 	})
 
 	it('maps API failures to a user-safe error', async () => {
@@ -837,7 +896,7 @@ describe('updateContact', () => {
 			data: { contactId: 'contact-1', fields: { given_name: 'Ada' } },
 		})
 		expect(mailbox.updateContact).toHaveBeenCalledWith('contact-1', { given_name: 'Ada' })
-		expect(res).toEqual({ ok: true })
+		expect(res).toEqual({ contact: { id: 'contact-1' } })
 	})
 
 	it('maps API failures to a user-safe error', async () => {
@@ -859,7 +918,7 @@ describe('deleteContact', () => {
 		mailbox.deleteContact.mockResolvedValue(undefined)
 		const res = await fns.deleteContact.handler({ data: { contactId: 'contact-1' } })
 		expect(mailbox.deleteContact).toHaveBeenCalledWith('contact-1')
-		expect(res).toEqual({ ok: true })
+		expect(res).toEqual({ removedContactId: 'contact-1' })
 	})
 
 	it('maps API failures to a user-safe error', async () => {
@@ -897,7 +956,9 @@ describe('saveComposeRecipients', () => {
 			fns.saveComposeRecipients.handler({
 				data: { emails: ['new@x.com', 'already@x.com', 'ada@ownmail.com', 'skip@x.com'] },
 			}),
-		).resolves.toEqual({ ok: true })
+		).resolves.toEqual({
+			contacts: [{ id: 'contact-created', emails: [{ email: 'new@x.com' }] }],
+		})
 		expect(mailbox.createContact).toHaveBeenCalledWith({ emails: [{ email: 'new@x.com' }] })
 		expect(mailbox.createContact).toHaveBeenCalledTimes(1)
 	})
@@ -906,7 +967,7 @@ describe('saveComposeRecipients', () => {
 		resolveMailbox()
 		mailbox.listContacts.mockResolvedValue({ data: null } as never)
 		await expect(fns.saveComposeRecipients.handler({ data: { emails: ['new@x.com'] } })).resolves.toEqual({
-			ok: true,
+			contacts: [{ id: 'contact-created', emails: [{ email: 'new@x.com' }] }],
 		})
 		expect(mailbox.createContact).toHaveBeenCalledWith({ emails: [{ email: 'new@x.com' }] })
 	})
@@ -966,6 +1027,6 @@ describe('error mapping edge cases', () => {
 		mailbox.getThread.mockRejectedValue(new Error('thread was deleted'))
 		mailbox.deleteDraft.mockResolvedValue(undefined)
 		const res = await fns.updateThreadState.handler({ data: { threadId: 't1', folder: 'archive' } })
-		expect(res).toEqual({ ok: true })
+		expect(res).toEqual({ removedDraftId: 't1', folders: [] })
 	})
 })
