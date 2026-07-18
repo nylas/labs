@@ -1,10 +1,26 @@
 import type { MailMessage } from '../state/mail-queries.js'
 import { useMounted } from './ClientTime.js'
 import { EmailHtml } from './EmailHtml.js'
+import { ownMailDraftMarkdown } from './html-to-markdown.js'
+import { markdownToEmailHtml } from './markdown-model.js'
 import { messageBodyParagraphs, messageHasHtml } from './ui-model.js'
 
 export function MessageBody({ message }: { message: MailMessage }) {
 	const mounted = useMounted()
+
+	// Only messages attested by our drafts-endpoint fallback can receive OwnMail's
+	// explicit Markdown storage envelope. Render that exact envelope as the same
+	// final HTML used for sending; never trust provider folder membership or fields.
+	const draftMarkdown =
+		message.ownmailDraft === true && message.body ? ownMailDraftMarkdown(message.body) : undefined
+	if (draftMarkdown !== undefined) {
+		const html = markdownToEmailHtml(draftMarkdown)
+		if (!mounted) {
+			const plain = messageBodyParagraphs({ ...message, body: html })
+			return plain.length > 0 ? <PlainBody paragraphs={plain} /> : null
+		}
+		return <EmailHtml html={html} messageId={message.id} />
+	}
 
 	if (messageHasHtml(message)) {
 		const plain = messageBodyParagraphs(message)

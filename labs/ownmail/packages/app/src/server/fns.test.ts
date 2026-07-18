@@ -299,13 +299,14 @@ describe('getThreadMessages', () => {
 	it('falls back to a synthesized draft thread when the thread 404s but a draft matches', async () => {
 		resolveMailbox({ displayName: 'Ada' })
 		mailbox.getThread.mockRejectedValue(new NylasApiError('gone', 404))
+		const body = '<pre data-ownmail-markdown="1"># hello\n**world**</pre>'
 		mailbox.listDrafts.mockResolvedValue({
 			data: [
 				{
 					id: 't1',
 					grant_id: 'g',
 					subject: 'Hi',
-					body: '<p>hello <b>world</b></p>',
+					body,
 					to: [{ email: 'x@y.com' }],
 					attachments: [{ is_inline: false }],
 				},
@@ -313,9 +314,14 @@ describe('getThreadMessages', () => {
 		})
 		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
 		expect(res.thread.subject).toBe('Hi')
-		expect(res.thread.snippet).toBe('hello world') // stripHtml fallback
+		expect(res.thread.snippet).toBe('# hello **world**') // stripHtml fallback
 		expect(res.thread.has_attachments).toBe(true)
-		expect(res.messages[0].from).toEqual([{ email: 'ada@ownmail.com', name: 'Ada' }])
+		expect(res.messages[0]).toMatchObject({
+			body,
+			folders: ['drafts'],
+			from: [{ email: 'ada@ownmail.com', name: 'Ada' }],
+		})
+		expect(res.ownmailDraftMessageIds).toEqual(['t1'])
 		expect(res.mailboxEmail).toBe('ada@ownmail.com')
 	})
 
@@ -345,6 +351,7 @@ describe('getThreadMessages', () => {
 		expect(res.thread.has_attachments).toBe(false) // only inline attachment
 		expect(res.messages[0].from).toEqual([{ email: 'sender@x.com' }])
 		expect(res.messages[0].thread_id).toBe('th')
+		expect(res.ownmailDraftMessageIds).toEqual(['d1'])
 	})
 
 	it('synthesizes a draft thread with defaults when the draft and mailbox lack optional fields', async () => {
