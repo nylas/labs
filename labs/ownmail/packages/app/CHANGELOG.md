@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.5.2
+
+### Patch Changes
+
+- e73437b: Keep mail, contact, and calendar state synchronized after optimistic and server-side changes.
+
 ## 0.5.1
 
 ### Patch Changes
