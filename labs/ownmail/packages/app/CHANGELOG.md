@@ -1,5 +1,16 @@
 # @ownmail/app
 
+## 0.7.0
+
+### Minor Changes
+
+- 7cd3ca4: Allow users to download the original raw email for an individual message.
+
+### Patch Changes
+
+- Updated dependencies [7cd3ca4]
+  - @nylas-labs/cli-kit@0.5.0
+
 ## 0.6.2
 
 ### Patch Changes
