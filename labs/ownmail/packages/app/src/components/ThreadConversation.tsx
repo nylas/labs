@@ -21,7 +21,7 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 	)
 
 	return (
-		<>
+		<div data-slot="thread-conversation" className="min-h-full bg-muted dark:bg-background">
 			<header className="border-b border-border px-5 py-5 lg:px-8">
 				<div className="flex flex-wrap items-start gap-x-3 gap-y-2">
 					<h1 className="font-display text-xl font-semibold text-balance lg:text-2xl">
@@ -71,7 +71,7 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 					/>
 				))}
 			</div>
-		</>
+		</div>
 	)
 }
 

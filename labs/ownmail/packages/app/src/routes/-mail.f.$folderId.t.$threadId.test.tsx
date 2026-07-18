@@ -126,6 +126,14 @@ describe('thread route validateSearch', () => {
 // --- header, subject, labels, attachments -------------------------------
 
 describe('thread header', () => {
+	it('uses a neutral light-mode conversation surface while preserving the dark-mode background', () => {
+		renderThread()
+		const conversation = document.querySelector('[data-slot="thread-conversation"]')
+
+		expect(conversation).toHaveClass('min-h-full', 'bg-muted', 'dark:bg-background')
+		expect(conversation).not.toHaveClass('bg-background', 'bg-card')
+	})
+
 	it('renders the subject and its thread labels', () => {
 		renderThread()
 		expect(screen.getByRole('heading', { name: 'Hello' })).toBeInTheDocument()
