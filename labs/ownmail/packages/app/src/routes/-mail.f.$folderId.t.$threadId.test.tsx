@@ -126,6 +126,31 @@ describe('thread route validateSearch', () => {
 // --- header, subject, labels, attachments -------------------------------
 
 describe('thread header', () => {
+	it('uses a neutral light-mode conversation surface while preserving the dark-mode background', () => {
+		renderThread()
+		const conversation = document.querySelector('[data-slot="thread-conversation"]')
+
+		expect(conversation).toHaveClass('min-h-full', 'bg-muted', 'dark:bg-background')
+		expect(conversation).not.toHaveClass('bg-background', 'bg-card')
+	})
+
+	it('keeps nested sender and attachment surfaces distinct from the muted conversation', () => {
+		renderThread()
+		const avatars = document.querySelectorAll('[data-slot="sender-avatar"]')
+		const attachmentLinks = document.querySelectorAll('[data-slot="thread-attachment"]')
+
+		expect(avatars).toHaveLength(richMessages().length)
+		for (const avatar of avatars) {
+			expect(avatar).toHaveClass('bg-card', 'dark:bg-muted')
+			expect(avatar).not.toHaveClass('bg-muted')
+		}
+		expect(attachmentLinks).toHaveLength(7)
+		for (const link of attachmentLinks) {
+			expect(link).toHaveClass('bg-card', 'hover:bg-accent', 'dark:bg-muted/40', 'dark:hover:bg-muted')
+			expect(link).not.toHaveClass('bg-muted/40', 'hover:bg-muted')
+		}
+	})
+
 	it('renders the subject and its thread labels', () => {
 		renderThread()
 		expect(screen.getByRole('heading', { name: 'Hello' })).toBeInTheDocument()
