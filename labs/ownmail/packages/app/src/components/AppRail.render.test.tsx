@@ -101,26 +101,28 @@ describe('AppRailNav', () => {
 		expect(signOut.closest('form')).toHaveAttribute('method', 'post')
 	})
 
-	it('submits only the opaque handle when switching between verified inboxes', () => {
-		const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {})
+	it('offers touch-sized full inbox labels while submitting only opaque handles on desktop', () => {
 		render(
 			<AppRailNav
-				email="ada@ownmail.com"
+				email="support-europe-long@ownmail.com"
 				active="mail"
 				accounts={[
-					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
-					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+					{ email: 'support-europe-long@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'support-americas-long@ownmail.com', handle: 'b'.repeat(43), active: false },
 				]}
 			/>,
 		)
 
-		const switcher = screen.getByRole('combobox', { name: 'Switch inbox' })
-		expect(switcher.closest('form')).toHaveAttribute('action', '/auth')
-		expect(switcher.closest('form')).toHaveAttribute('method', 'post')
-		fireEvent.change(switcher, { target: { value: 'b'.repeat(43) } })
-		expect(requestSubmit).toHaveBeenCalledOnce()
+		const switcher = screen.getByLabelText('Switch inbox. Current inbox: support-europe-long@ownmail.com')
+		expect(switcher).toHaveAttribute('title', 'Current inbox: support-europe-long@ownmail.com')
+		expect(switcher).toHaveClass('min-h-11', 'w-11')
+		const target = screen.getByRole('button', { name: 'support-americas-long@ownmail.com' })
+		expect(target).toHaveAttribute('name', 'account')
+		expect(target).toHaveAttribute('value', 'b'.repeat(43))
+		expect(target).toHaveClass('min-h-11')
+		expect(target.closest('form')).toHaveAttribute('action', '/auth')
+		expect(target.closest('form')).toHaveAttribute('method', 'post')
 		expect(screen.queryByDisplayValue('grant-b')).toBeNull()
-		requestSubmit.mockRestore()
 	})
 
 	it('offers the Hosted Auth proof flow for adding another inbox', () => {
@@ -139,7 +141,24 @@ describe('AppRailNav', () => {
 				]}
 			/>,
 		)
-		expect(screen.queryByRole('combobox', { name: 'Switch inbox' })).toBeNull()
+		expect(screen.queryByLabelText(/Switch inbox\. Current inbox:/)).toBeNull()
+	})
+
+	it('keeps the current inbox identifiable when its address has no local part', () => {
+		render(
+			<AppRailNav
+				email="@ownmail.com"
+				active="mail"
+				accounts={[
+					{ email: '@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'other@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+
+		expect(screen.getByLabelText('Switch inbox. Current inbox: @ownmail.com')).toHaveTextContent(
+			'@ownmail.com',
+		)
 	})
 })
 
@@ -220,5 +239,21 @@ describe('AppRailMobileNav', () => {
 		expect(onNavigate).toHaveBeenCalledOnce()
 		expect(requestSubmit).toHaveBeenCalledOnce()
 		requestSubmit.mockRestore()
+	})
+
+	it('hides the mobile switcher if session account data has no active account', () => {
+		render(
+			<AppRailMobileNav
+				email="ada@ownmail.com"
+				active="mail"
+				onNavigate={vi.fn()}
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: false },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+
+		expect(screen.queryByRole('combobox', { name: 'Switch inbox' })).toBeNull()
 	})
 })

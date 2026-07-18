@@ -2,7 +2,7 @@ import { exchangeCodeForToken } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { platform } from '../server/platform.js'
-import { addVerifiedSessionAccount, consumePkce } from '../server/session.js'
+import { addVerifiedSessionAccount, clearPkceCookie, consumePkce } from '../server/session.js'
 import { OWNMAIL_USER_AGENT } from '../server/usage-attribution.js'
 
 export const Route = createFileRoute('/auth/callback')({
@@ -16,11 +16,11 @@ export const Route = createFileRoute('/auth/callback')({
 				const state = url.searchParams.get('state')
 				const error = url.searchParams.get('error')
 				if (error || !code || !state) {
-					return loginFailedResponse(callbackFailureMessage(error))
+					return loginFailedResponse(callbackFailureMessage(error), clearPkceCookie())
 				}
 				const pkce = await consumePkce(request, state)
 				if (!pkce) {
-					return loginFailedResponse('expired login attempt — please try again')
+					return loginFailedResponse('expired login attempt — please try again', clearPkceCookie())
 				}
 
 				try {
@@ -39,12 +39,12 @@ export const Route = createFileRoute('/auth/callback')({
 						'Set-Cookie',
 						await addVerifiedSessionAccount(request, token.grant_id, token.email ?? env.INBOX_EMAIL),
 					)
-					if (pkce.clearCookie) headers.append('Set-Cookie', pkce.clearCookie)
+					headers.append('Set-Cookie', pkce.clearCookie)
 					return new Response(null, { status: 302, headers })
 				} catch (err) {
 					reportTokenExchangeFailure(err)
 					// Never surface exchange internals to the browser.
-					return loginFailedResponse(tokenExchangeFailureMessage(err))
+					return loginFailedResponse(tokenExchangeFailureMessage(err), clearPkceCookie())
 				}
 			},
 		},
@@ -90,7 +90,7 @@ function tokenExchangeFailureMessage(error: unknown): string {
 	return 'We couldn’t complete your sign-in. Please try again.'
 }
 
-function loginFailedResponse(message: string): Response {
+function loginFailedResponse(message: string, clearCookie: string): Response {
 	const html = `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
 <body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0">
 <div style="text-align:center">
@@ -98,7 +98,10 @@ function loginFailedResponse(message: string): Response {
 <p style="color:#666">${escapeHtml(message)}</p>
 <a href="/auth" style="color:#2563eb">Try again</a>
 </div></body>`
-	return new Response(html, { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+	return new Response(html, {
+		status: 401,
+		headers: { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': clearCookie },
+	})
 }
 
 function escapeHtml(value: string): string {

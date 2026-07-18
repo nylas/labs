@@ -124,7 +124,7 @@ export function AppRailNav({
 
 			<div className="mt-auto flex flex-col items-center gap-0.5 px-2 pb-3 pt-2">
 				<div className="app-rail-divider" aria-hidden="true" />
-				{accounts.length > 1 ? <AccountSwitcher accounts={accounts} compact /> : null}
+				{accounts.length > 1 ? <DesktopAccountSwitcher accounts={accounts} /> : null}
 				<a
 					href="/auth"
 					className="app-rail-item app-rail-item-utility"
@@ -269,21 +269,63 @@ export function AppRailMobileNav({
 	)
 }
 
+function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[] }) {
+	const active = accounts.find((account) => account.active)
+	if (!active) return null
+	const localPart = active.email.split('@')[0] || active.email
+	return (
+		<details className="group relative">
+			<summary
+				className="flex min-h-11 w-11 cursor-pointer list-none flex-col items-center justify-center rounded-md border border-border bg-card px-1 text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				aria-label={`Switch inbox. Current inbox: ${active.email}`}
+				title={`Current inbox: ${active.email}`}
+			>
+				<span className="text-[10px] font-bold leading-none" aria-hidden="true">
+					{initials(active.email)}
+				</span>
+				<span className="mt-1 block max-w-9 truncate text-[8px] leading-none" aria-hidden="true">
+					{localPart}
+				</span>
+			</summary>
+			<div className="absolute bottom-0 left-[calc(100%+0.5rem)] z-50 w-64 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
+				<p className="px-2 py-1 text-xs font-semibold text-muted-foreground">Switch inbox</p>
+				{accounts.map((account) => (
+					<form key={account.handle} action="/auth" method="post">
+						<button
+							type="submit"
+							name="account"
+							value={account.handle}
+							aria-current={account.active ? 'true' : undefined}
+							className={cn(
+								'flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted',
+								account.active && 'bg-muted font-medium',
+							)}
+						>
+							<span className="app-rail-account-inner shrink-0" aria-hidden="true">
+								<span className="app-rail-account-initials">{initials(account.email)}</span>
+							</span>
+							<span className="min-w-0 break-all">{account.email}</span>
+						</button>
+					</form>
+				))}
+			</div>
+		</details>
+	)
+}
+
 function AccountSwitcher({
 	accounts,
-	compact = false,
 	onNavigate,
 }: {
 	accounts: MailboxAccountOption[]
-	compact?: boolean
 	onNavigate?: () => void
 }) {
 	const active = accounts.find((account) => account.active)
 	if (!active) return null
 	return (
-		<form action="/auth" method="post" className={compact ? 'contents' : 'px-1'}>
-			<label className={compact ? 'block' : 'block text-xs font-medium text-muted-foreground'}>
-				{compact ? <span className="sr-only">Switch inbox</span> : <span className="px-2">Inbox</span>}
+		<form action="/auth" method="post" className="px-1">
+			<label className="block text-xs font-medium text-muted-foreground">
+				<span className="px-2">Inbox</span>
 				<select
 					name="account"
 					aria-label="Switch inbox"
@@ -293,12 +335,7 @@ function AccountSwitcher({
 						onNavigate?.()
 						event.currentTarget.form?.requestSubmit()
 					}}
-					className={cn(
-						'cursor-pointer rounded-md border border-border bg-card outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40',
-						compact
-							? 'mt-0.5 h-9 w-11 px-1 text-[10px] font-semibold'
-							: 'mt-1 h-10 w-full px-2 text-sm text-foreground',
-					)}
+					className="mt-1 h-10 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 				>
 					{accounts.map((account) => (
 						<option key={account.handle} value={account.handle}>

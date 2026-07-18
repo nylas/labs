@@ -51,6 +51,10 @@ function cookieFromSetCookie(setCookie: string): string {
 	return setCookie.slice('ownmail_session='.length, setCookie.indexOf(';'))
 }
 
+function pkceCookieFromSetCookie(setCookie: string): string {
+	return setCookie.slice('ownmail_pkce='.length, setCookie.indexOf(';'))
+}
+
 beforeEach(() => {
 	platformMock.mockReset()
 })
@@ -98,6 +102,7 @@ describe('KV-backed sessions', () => {
 			email: 'user@ownmail.com',
 			accounts: [{ grantId: 'grant-123', email: 'user@ownmail.com' }],
 			createdAt: expect.any(Number),
+			expiresAt: expect.any(Number),
 		})
 	})
 
@@ -119,6 +124,7 @@ describe('KV-backed sessions', () => {
 				{ grantId: 'grant-b', email: 'b@ownmail.com' },
 			],
 			createdAt: expect.any(Number),
+			expiresAt: expect.any(Number),
 		})
 		const summaries = await sessionAccountSummaries(nextRequest)
 		expect(summaries).toEqual([
@@ -156,20 +162,37 @@ describe('KV-backed sessions', () => {
 		await expect(createSession('', 'a@ownmail.com')).rejects.toThrow('Invalid session')
 	})
 
+	it('replaces a stale grant for the same canonical email address', async () => {
+		const firstCookie = cookieFromSetCookie(await createSession('grant-old', 'Ada@OwnMail.com'))
+		const nextCookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(
+				req(`ownmail_session=${firstCookie}`),
+				'grant-new',
+				'  ada@ownmail.com  ',
+			),
+		)
+
+		expect((await getSession(req(`ownmail_session=${nextCookie}`)))?.accounts).toEqual([
+			{ grantId: 'grant-new', email: 'ada@ownmail.com' },
+		])
+	})
+
 	it('migrates a valid legacy KV session record to the one-account session model', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
 		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
 		const id = cookie.split('.')[0] as string
+		const createdAt = Date.now() - 1_000
 		kv.store.set(
 			`session:${id}`,
-			JSON.stringify({ grantId: 'grant-old', email: 'old@ownmail.com', createdAt: 123 }),
+			JSON.stringify({ grantId: 'grant-old', email: 'old@ownmail.com', createdAt }),
 		)
 		expect(await getSession(req(`ownmail_session=${cookie}`))).toEqual({
 			grantId: 'grant-old',
 			email: 'old@ownmail.com',
 			accounts: [{ grantId: 'grant-old', email: 'old@ownmail.com' }],
-			createdAt: 123,
+			createdAt,
+			expiresAt: createdAt + 14 * 24 * 60 * 60 * 1000,
 		})
 	})
 
@@ -227,6 +250,37 @@ describe('KV-backed sessions', () => {
 		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
 	})
 
+	it('rejects a KV session record with no lifetime metadata', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookieValue = cookieFromSetCookie(await createSession('g', 'e@x.com'))
+		const id = cookieValue.split('.')[0] as string
+		kv.store.set(
+			`session:${id}`,
+			JSON.stringify({ accounts: [{ grantId: 'g', email: 'e@x.com' }], activeGrantId: 'g' }),
+		)
+
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
+	})
+
+	it('rejects an explicitly expired KV session record', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookieValue = cookieFromSetCookie(await createSession('g', 'e@x.com'))
+		const id = cookieValue.split('.')[0] as string
+		kv.store.set(
+			`session:${id}`,
+			JSON.stringify({
+				accounts: [{ grantId: 'g', email: 'e@x.com' }],
+				activeGrantId: 'g',
+				createdAt: Date.now() - 2_000,
+				expiresAt: Date.now() - 1_000,
+			}),
+		)
+
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
+	})
+
 	it('deletes the server-side record on destroy so the session cannot be replayed', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
@@ -245,23 +299,78 @@ describe('KV-backed sessions', () => {
 		expect(kv.store.size).toBe(0)
 	})
 
-	it('persists PKCE verifiers server-side without setting a cookie', async () => {
+	it('persists PKCE verifiers server-side and binds them to a signed browser nonce', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
-		expect(await storePkce('state-1', 'verifier-1')).toBeNull()
-		expect(kv.store.get('pkce:state-1')).toBe('verifier-1')
+		const cookie = await storePkce(req(), 'state-1', 'verifier-1')
+		expect(cookie).toContain('ownmail_pkce=')
+		expect(kv.store.get('pkce:state-1')).toContain('"verifier":"verifier-1"')
 	})
 
 	it('consumes and invalidates a stored PKCE verifier exactly once', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
-		await storePkce('state-1', 'verifier-1')
+		const cookie = await storePkce(req(), 'state-1', 'verifier-1')
 
-		const result = await consumePkce(req(), 'state-1')
-		expect(result).toEqual({ verifier: 'verifier-1', clearCookie: null })
+		const result = await consumePkce(req(`ownmail_pkce=${pkceCookieFromSetCookie(cookie)}`), 'state-1')
+		expect(result).toEqual({ verifier: 'verifier-1', clearCookie: expect.stringContaining('Max-Age=0') })
 		expect(kv.store.has('pkce:state-1')).toBe(false)
 		// A second consume finds nothing.
 		expect(await consumePkce(req(), 'state-1')).toBeNull()
+	})
+
+	it('does not let one browser consume another browser’s KV-backed auth attempt', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookieA = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
+		const cookieB = pkceCookieFromSetCookie(await storePkce(req(), 'state-b', 'verifier-b'))
+
+		expect(await consumePkce(req(`ownmail_pkce=${cookieB}`), 'state-a')).toBeNull()
+		expect(kv.store.has('pkce:state-a')).toBe(true)
+		expect(await consumePkce(req(`ownmail_pkce=${cookieA}`), 'state-a')).toEqual({
+			verifier: 'verifier-a',
+			clearCookie: expect.stringContaining('Max-Age=0'),
+		})
+	})
+
+	it.each([
+		'not-json{',
+		JSON.stringify({ verifier: 'verifier-a', nonce: 'nonce-a' }),
+	])('rejects a malformed server-side PKCE record without consuming it (%s)', async (record) => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
+		kv.store.set('pkce:state-a', record)
+
+		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-a')).toBeNull()
+		expect(kv.store.has('pkce:state-a')).toBe(true)
+	})
+
+	it('rejects a browser-bound attempt whose server-side verifier has expired or been evicted', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
+		kv.store.delete('pkce:state-a')
+
+		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-a')).toBeNull()
+	})
+
+	it('rejects an add-inbox callback from a different verified account set without burning state', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const sessionA = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const attempt = pkceCookieFromSetCookie(
+			await storePkce(req(`ownmail_session=${sessionA}`), 'state-add', 'verifier-add'),
+		)
+		const sessionB = cookieFromSetCookie(await createSession('grant-b', 'b@ownmail.com'))
+
+		expect(
+			await consumePkce(req(`ownmail_session=${sessionB}; ownmail_pkce=${attempt}`), 'state-add'),
+		).toBeNull()
+		expect(kv.store.has('pkce:state-add')).toBe(true)
+		expect(
+			await consumePkce(req(`ownmail_session=${sessionA}; ownmail_pkce=${attempt}`), 'state-add'),
+		).toEqual({ verifier: 'verifier-add', clearCookie: expect.stringContaining('Max-Age=0') })
 	})
 })
 
@@ -287,7 +396,8 @@ describe('stateless sessions (no KV)', () => {
 			grantId: 'grant-abc',
 			email: 'ada@ownmail.com',
 			accounts: [{ grantId: 'grant-abc', email: 'ada@ownmail.com' }],
-			createdAt: 0,
+			createdAt: expect.any(Number),
+			expiresAt: expect.any(Number),
 		})
 	})
 
@@ -302,7 +412,8 @@ describe('stateless sessions (no KV)', () => {
 			grantId: 'grant-legacy',
 			email: 'legacy@ownmail.com',
 			accounts: [{ grantId: 'grant-legacy', email: 'legacy@ownmail.com' }],
-			createdAt: 0,
+			createdAt: expect.any(Number),
+			expiresAt: expect.any(Number),
 		})
 	})
 
@@ -326,7 +437,56 @@ describe('stateless sessions (no KV)', () => {
 				{ grantId: 'grant-b', email: 'b@ownmail.com' },
 			],
 			createdAt: expect.any(Number),
+			expiresAt: expect.any(Number),
 		})
+	})
+
+	it('does not extend the absolute session lifetime when switching accounts near expiry', async () => {
+		vi.useFakeTimers()
+		try {
+			const startedAt = new Date('2026-01-01T00:00:00.000Z')
+			vi.setSystemTime(startedAt)
+			let cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+			cookie = cookieFromSetCookie(
+				await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-b', 'b@ownmail.com'),
+			)
+			vi.setSystemTime(new Date(startedAt.getTime() + 13 * 24 * 60 * 60 * 1000))
+			const request = req(`ownmail_session=${cookie}`)
+			const handle = (await sessionAccountSummaries(request))?.find(
+				(account) => account.email === 'a@ownmail.com',
+			)?.handle as string
+			const switched = (await switchSessionAccount(request, handle)) as string
+
+			expect(switched).toContain('Max-Age=86400')
+			const switchedCookie = cookieFromSetCookie(switched)
+			vi.setSystemTime(new Date(startedAt.getTime() + 14 * 24 * 60 * 60 * 1000 + 1))
+			expect(await getSession(req(`ownmail_session=${switchedCookie}`))).toBeNull()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('fails closed if a session expires during an account-switch rotation', async () => {
+		vi.useFakeTimers()
+		try {
+			const startedAt = new Date('2026-01-01T00:00:00.000Z')
+			vi.setSystemTime(startedAt)
+			const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+			const request = req(`ownmail_session=${cookie}`)
+			const handle = (await sessionAccountSummaries(request))?.[0]?.handle as string
+			let platformCalls = 0
+			platformMock.mockImplementation(async () => {
+				platformCalls += 1
+				if (platformCalls === 3) {
+					vi.setSystemTime(new Date(startedAt.getTime() + 14 * 24 * 60 * 60 * 1000 + 1))
+				}
+				return { env: { SESSION_SECRET }, kv: null, runtime: 'node' }
+			})
+
+			await expect(switchSessionAccount(request, handle)).rejects.toThrow('Session expired')
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('keeps ten normal verified accounts within the practical cookie budget', async () => {
@@ -343,6 +503,18 @@ describe('stateless sessions (no KV)', () => {
 
 		expect(cookie.length).toBeLessThanOrEqual(3800)
 		expect((await getSession(req(`ownmail_session=${cookie}`)))?.accounts).toHaveLength(10)
+		cookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(
+				req(`ownmail_session=${cookie}`),
+				'grant-replacement',
+				' INBOX9@OWNMAIL.COM ',
+			),
+		)
+		expect((await getSession(req(`ownmail_session=${cookie}`)))?.accounts).toHaveLength(10)
+		expect((await getSession(req(`ownmail_session=${cookie}`)))?.accounts.at(-1)).toEqual({
+			grantId: 'grant-replacement',
+			email: 'INBOX9@OWNMAIL.COM',
+		})
 		await expect(
 			addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-10', 'inbox10@ownmail.com'),
 		).rejects.toThrow('Too many inboxes')
@@ -405,13 +577,13 @@ describe('stateless sessions (no KV)', () => {
 	})
 
 	it('stores PKCE state in a signed, short-lived cookie', async () => {
-		const cookie = await storePkce('state-x', 'verifier-x')
+		const cookie = await storePkce(req(), 'state-x', 'verifier-x')
 		expect(cookie).toContain('ownmail_pkce=')
 		expect(cookie).toContain('Max-Age=600')
 	})
 
 	it('consumes the PKCE cookie, returns a clear-cookie, and matches the expected state', async () => {
-		const stored = (await storePkce('state-x', 'verifier-x')) as string
+		const stored = await storePkce(req(), 'state-x', 'verifier-x')
 		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
 		const result = await consumePkce(req(`ownmail_pkce=${value}`), 'state-x')
 		expect(result?.verifier).toBe('verifier-x')
@@ -427,7 +599,7 @@ describe('stateless sessions (no KV)', () => {
 	})
 
 	it('rejects a PKCE cookie with a bad signature', async () => {
-		const stored = (await storePkce('state-x', 'verifier-x')) as string
+		const stored = await storePkce(req(), 'state-x', 'verifier-x')
 		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
 		const [payload] = value.split('.')
 		expect(await consumePkce(req(`ownmail_pkce=${payload}.bad`), 'state-x')).toBeNull()
@@ -441,7 +613,7 @@ describe('stateless sessions (no KV)', () => {
 	})
 
 	it('rejects a PKCE cookie whose signed state does not match the request state', async () => {
-		const stored = (await storePkce('state-other', 'verifier-x')) as string
+		const stored = await storePkce(req(), 'state-other', 'verifier-x')
 		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
 		expect(await consumePkce(req(`ownmail_pkce=${value}`), 'state-x')).toBeNull()
 	})
@@ -449,7 +621,28 @@ describe('stateless sessions (no KV)', () => {
 	it('rejects a signed PKCE cookie after its server-enforced expiry', async () => {
 		const { signRaw } = await buildStatelessSession()
 		const raw = b64url(
-			JSON.stringify({ s: 'state-x', v: 'verifier-x', exp: Math.floor(Date.now() / 1000) - 1 }),
+			JSON.stringify({
+				s: 'state-x',
+				n: 'nonce-x',
+				i: 'anonymous',
+				v: 'verifier-x',
+				exp: Math.floor(Date.now() / 1000) - 1,
+			}),
+		)
+		const cookie = `${raw}.${await signRaw(raw)}`
+
+		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-x')).toBeNull()
+	})
+
+	it('rejects a stateless PKCE cookie without an embedded verifier', async () => {
+		const { signRaw } = await buildStatelessSession()
+		const raw = b64url(
+			JSON.stringify({
+				s: 'state-x',
+				n: 'nonce-x',
+				i: 'anonymous',
+				exp: Math.floor(Date.now() / 1000) + 60,
+			}),
 		)
 		const cookie = `${raw}.${await signRaw(raw)}`
 

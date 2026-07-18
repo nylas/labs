@@ -23,7 +23,7 @@ const createReferenceDevSessionCookie = vi.fn()
 const switchSessionAccount = vi.fn()
 const getSession = vi.fn()
 vi.mock('../server/session.js', () => ({
-	storePkce: (state: string, verifier: string) => storePkce(state, verifier),
+	storePkce: (request: Request, state: string, verifier: string) => storePkce(request, state, verifier),
 	createReferenceDevSessionCookie: () => createReferenceDevSessionCookie(),
 	switchSessionAccount: (request: Request, handle: string) => switchSessionAccount(request, handle),
 	getSession: (request: Request) => getSession(request),
@@ -97,20 +97,20 @@ describe('/auth', () => {
 				loginHint: 'ada@ownmail.com',
 			}),
 		)
-		expect(storePkce).toHaveBeenCalledWith(expect.any(String), 'v')
+		expect(storePkce).toHaveBeenCalledWith(expect.any(Request), expect.any(String), 'v')
 	})
 
-	it('omits the state cookie in KV mode and the login hint when no inbox is configured', async () => {
+	it('always binds auth state to a browser cookie and omits the login hint when no inbox is configured', async () => {
 		usingDevMocks.mockResolvedValue(false)
 		platform.mockResolvedValue({
 			env: { NYLAS_CLIENT_ID: 'client-123', NYLAS_REGION: 'eu', INBOX_EMAIL: '' },
 		})
-		storePkce.mockResolvedValue(null)
+		storePkce.mockResolvedValue('ownmail_pkce=signed-kv-attempt')
 
 		const response = await GET({ request: req() })
 
 		expect(response.status).toBe(302)
-		expect(response.headers.get('Set-Cookie')).toBeNull()
+		expect(response.headers.get('Set-Cookie')).toBe('ownmail_pkce=signed-kv-attempt')
 		expect(buildAuthorizeUrl).toHaveBeenCalledWith(
 			expect.not.objectContaining({ loginHint: expect.anything() }),
 		)
@@ -122,7 +122,7 @@ describe('/auth', () => {
 		platform.mockResolvedValue({
 			env: { NYLAS_CLIENT_ID: 'client-123', NYLAS_REGION: 'us', INBOX_EMAIL: 'ada@ownmail.com' },
 		})
-		storePkce.mockResolvedValue(null)
+		storePkce.mockResolvedValue('ownmail_pkce=signed-add-attempt')
 
 		await GET({ request: req() })
 
@@ -151,6 +151,24 @@ describe('/auth', () => {
 		expect(response.status).toBe(303)
 		expect(response.headers.get('Location')).toBe('/')
 		expect(response.headers.get('Set-Cookie')).toBe('ownmail_session=next')
+	})
+
+	it('accepts a bounded streaming body when Content-Length is unavailable', async () => {
+		const handle = 'b'.repeat(43)
+		switchSessionAccount.mockResolvedValue('ownmail_session=next')
+		const request = new Request('https://ownmail.local/auth', {
+			method: 'POST',
+			headers: {
+				origin: 'https://ownmail.local',
+				'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+			},
+			body: new URLSearchParams({ account: handle }),
+		})
+
+		const response = await POST({ request })
+
+		expect(response.status).toBe(303)
+		expect(switchSessionAccount).toHaveBeenCalledWith(request, handle)
 	})
 
 	it('rejects cross-origin account switches before reading session state', async () => {
@@ -213,8 +231,8 @@ describe('/auth', () => {
 	})
 
 	it.each([
-		{ headers: {}, label: 'missing length' },
 		{ headers: { 'content-length': 'nope' }, label: 'invalid length' },
+		{ headers: { 'content-length': '1e1' }, label: 'non-decimal length' },
 		{ headers: { 'content-length': '0' }, label: 'empty body' },
 		{ headers: { 'content-length': '9', 'content-type': '' }, label: 'missing media type' },
 		{
@@ -253,32 +271,92 @@ describe('/auth', () => {
 		expect(switchSessionAccount).not.toHaveBeenCalled()
 	})
 
-	it('rejects malformed form parsing and a form without a string account handle', async () => {
-		const malformedRequest = new Request('https://ownmail.local/auth', {
-			method: 'POST',
-			headers: {
-				origin: 'https://ownmail.local',
-				'content-type': 'application/x-www-form-urlencoded',
-				'content-length': '9',
-			},
-			body: 'account=x',
-		})
-		vi.spyOn(malformedRequest, 'formData').mockRejectedValueOnce(new Error('malformed'))
-		const malformed = await POST({ request: malformedRequest })
-		const missing = await POST({
+	it('rejects a request with valid form headers but no body stream', async () => {
+		const response = await POST({
 			request: new Request('https://ownmail.local/auth', {
 				method: 'POST',
 				headers: {
 					origin: 'https://ownmail.local',
 					'content-type': 'application/x-www-form-urlencoded',
+				},
+			}),
+		})
+
+		expect(response.status).toBe(400)
+		expect(switchSessionAccount).not.toHaveBeenCalled()
+	})
+
+	it('rejects malformed, ambiguous, mismatched, and actually oversized streaming bodies', async () => {
+		const baseHeaders = {
+			origin: 'https://ownmail.local',
+			'content-type': 'application/x-www-form-urlencoded',
+		}
+		const invalidUtf8 = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: baseHeaders,
+				body: new Uint8Array([0xff]),
+			}),
+		})
+		const missing = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: {
+					...baseHeaders,
 					'content-length': '7',
 				},
 				body: 'other=x',
 			}),
 		})
+		const duplicate = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: baseHeaders,
+				body: 'account=a&account=b',
+			}),
+		})
+		const mismatchedLength = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: { ...baseHeaders, 'content-length': '1' },
+				body: 'account=x',
+			}),
+		})
+		const oversized = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: baseHeaders,
+				body: `account=${'x'.repeat(1025)}`,
+			}),
+		})
 
-		expect(malformed.status).toBe(400)
+		expect(invalidUtf8.status).toBe(400)
 		expect(missing.status).toBe(400)
+		expect(duplicate.status).toBe(400)
+		expect(mismatchedLength.status).toBe(400)
+		expect(oversized.status).toBe(400)
+		expect(switchSessionAccount).not.toHaveBeenCalled()
+	})
+
+	it('fails closed when the request body stream errors while being read', async () => {
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.error(new Error('read failed'))
+			},
+		})
+		const response = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: {
+					origin: 'https://ownmail.local',
+					'content-type': 'application/x-www-form-urlencoded',
+				},
+				body,
+				duplex: 'half',
+			} as RequestInit),
+		})
+
+		expect(response.status).toBe(400)
 		expect(switchSessionAccount).not.toHaveBeenCalled()
 	})
 })
