@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * runWrangler shells out to the bundled wrangler binary; every consumer here
+ * runWrangler shells out to the exact pinned Wrangler binary; every consumer here
  * makes irreversible Cloudflare changes (KV creation, secret writes, deploys).
  * The tests drive the child-process contract (exit codes + stdout/stderr) so a
  * regression in how we parse wrangler's output is caught before it corrupts a
@@ -11,7 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // Controllable createRequire so we can exercise both the real bin field and the
 // './bin/wrangler.js' fallback used when a wrangler build omits it.
 const modCtl = vi.hoisted(() => ({
-	pkg: { bin: { wrangler: './bin/wrangler.js' } } as { bin: Record<string, string> },
+	pkg: { version: '4.107.0', bin: { wrangler: './bin/wrangler.js' } } as {
+		version: string
+		bin: Record<string, string>
+	},
 	resolveError: null as Error | null,
 }))
 
@@ -113,7 +116,7 @@ beforeEach(() => {
 	vi.clearAllMocks()
 	spawnCtl.queue.length = 0
 	spawnCtl.calls.length = 0
-	modCtl.pkg = { bin: { wrangler: './bin/wrangler.js' } }
+	modCtl.pkg = { version: '4.107.0', bin: { wrangler: './bin/wrangler.js' } }
 	modCtl.resolveError = null
 })
 
@@ -142,15 +145,23 @@ describe('runWrangler', () => {
 		expect(res.code).toBe(1)
 	})
 
-	it('explains how to recover when the bundled helper cannot start', async () => {
+	it('explains how to recover when the deployment helper cannot start', async () => {
 		spawnCtl.queue.push({ error: new Error('spawn ENOENT') })
-		await expect(runWrangler(['x'])).rejects.toThrow(/Reinstall or update OwnMail/)
+		await expect(runWrangler(['x'])).rejects.toThrow(/npm can reach the registry/)
 	})
 
-	it('explains how to recover when the bundled helper is missing', async () => {
+	it('downloads the exact pinned helper when no local Wrangler is installed', async () => {
 		modCtl.resolveError = new Error('MODULE_NOT_FOUND')
-		await expect(runWrangler(['x'])).rejects.toThrow(/No Cloudflare changes were made/)
-		expect(spawnCtl.calls).toHaveLength(0)
+		spawnCtl.queue.push({ code: 0 })
+		await expect(runWrangler(['x'])).resolves.toEqual({ code: 0, stdout: '', stderr: '' })
+		expect(spawnCtl.calls[0]?.args).toEqual([
+			'exec',
+			'--yes',
+			'--package=wrangler@4.107.0',
+			'--',
+			'wrangler',
+			'x',
+		])
 	})
 
 	it('uses inherited stdio and no pipes when interactive', async () => {
@@ -348,12 +359,12 @@ describe('deploy', () => {
 	})
 })
 
-describe('wranglerBin fallback', () => {
-	it('uses the default bin path when the wrangler package omits its bin field', async () => {
-		modCtl.pkg = { bin: {} }
+describe('Wrangler acquisition fallback', () => {
+	it('downloads the pinned package when the local package omits its bin field', async () => {
+		modCtl.pkg = { version: '4.107.0', bin: {} }
 		spawnCtl.queue.push({ code: 0 })
 		await runWrangler(['whoami'])
 		const args = spawnCtl.calls[0]?.args as string[]
-		expect(args[0]).toContain('bin/wrangler.js')
+		expect(args).toEqual(expect.arrayContaining(['--package=wrangler@4.107.0', '--', 'wrangler', 'whoami']))
 	})
 })
