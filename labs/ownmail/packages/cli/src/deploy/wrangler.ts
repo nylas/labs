@@ -1,16 +1,5 @@
 import { spawn } from 'node:child_process'
-import { createRequire } from 'node:module'
-
-const require = createRequire(import.meta.url)
-
-function wranglerBin(): string {
-	// Resolve the wrangler dependency's bin script so `npx ownmail` needs no
-	// globally installed wrangler.
-	const pkgPath = require.resolve('wrangler/package.json')
-	const pkg = require('wrangler/package.json') as { bin: Record<string, string> }
-	const rel = pkg.bin.wrangler ?? './bin/wrangler.js'
-	return new URL(rel, `file://${pkgPath}`).pathname
-}
+import { pinnedToolInvocation } from './pinned-tool.js'
 
 export type WranglerResult = { code: number; stdout: string; stderr: string }
 
@@ -74,7 +63,7 @@ export function cloudflareFailure(
 
 function wranglerUnavailable(): CloudflareNoChangeError {
 	return new CloudflareNoChangeError(
-		'OwnMail could not start its bundled Cloudflare deployment helper. Reinstall or update OwnMail, then retry the same OwnMail command. No Cloudflare changes were made.',
+		'OwnMail could not download or start its pinned Cloudflare deployment helper. Check that npm can reach the registry, then retry the same OwnMail command. No Cloudflare changes were made.',
 	)
 }
 
@@ -87,14 +76,8 @@ export async function runWrangler(
 	opts: { cwd?: string; interactive?: boolean; stdin?: string; env?: Record<string, string> } = {},
 ): Promise<WranglerResult> {
 	return new Promise((resolve, reject) => {
-		let bin: string
-		try {
-			bin = wranglerBin()
-		} catch {
-			reject(wranglerUnavailable())
-			return
-		}
-		const child = spawn(process.execPath, [bin, ...args], {
+		const invocation = pinnedToolInvocation('wrangler')
+		const child = spawn(invocation.command, [...invocation.args, ...args], {
 			cwd: opts.cwd ?? process.cwd(),
 			env: { ...process.env, ...opts.env },
 			stdio: opts.interactive ? 'inherit' : ['pipe', 'pipe', 'pipe'],

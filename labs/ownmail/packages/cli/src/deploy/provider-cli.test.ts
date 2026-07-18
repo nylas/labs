@@ -17,9 +17,12 @@ vi.mock('node:module', () => ({
 		Object.assign(
 			(id: string) => {
 				if (id === 'vercel/package.json') {
-					return { bin: hoisted.missingBin ? {} : { vercel: './dist/index.js' } }
+					return {
+						version: '56.2.1',
+						bin: hoisted.missingBin ? {} : { vercel: './dist/index.js' },
+					}
 				}
-				if (id === 'netlify-cli/package.json') return { bin: './bin/run.js' }
+				if (id === 'netlify-cli/package.json') return { version: '26.2.0', bin: './bin/run.js' }
 				throw new Error('unexpected package')
 			},
 			{
@@ -631,14 +634,20 @@ describe('safe provider failures', () => {
 		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(expected)
 	})
 
-	it('reports a missing bundled provider helper', async () => {
+	it('downloads the exact pinned provider helper when it is not installed locally', async () => {
 		hoisted.resolveFails = true
-		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not start its bundled Vercel/)
+		queueCli({ code: 1, stderr: 'provider unavailable' })
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
+		expect(spawnedArgs(0)).toEqual(
+			expect.arrayContaining(['--package=vercel@56.2.1', '--', 'vercel', 'deploy']),
+		)
 	})
 
-	it('reports a provider package that does not expose the expected binary', async () => {
+	it('downloads the pinned provider helper when a local package has no binary', async () => {
 		hoisted.missingBin = true
-		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not start its bundled Vercel/)
+		queueCli({ code: 1, stderr: 'provider unavailable' })
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
+		expect(spawnedArgs(0)).toContain('--package=vercel@56.2.1')
 	})
 
 	it('reports failed interactive login without assuming a remote mutation', async () => {
@@ -655,7 +664,7 @@ describe('safe provider failures', () => {
 
 	it('reports a provider process start failure', async () => {
 		queueCli({ code: 1, error: true })
-		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/helper failed to start/)
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/failed to download or start/)
 	})
 })
 

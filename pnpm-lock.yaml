@@ -144,43 +144,43 @@ importers:
       '@nylas-labs/cli-kit':
         specifier: workspace:*
         version: link:../../../../shared/nylas-cli-kit
-      '@ownmail/app':
-        specifier: workspace:*
-        version: link:../app
       citty:
         specifier: ^0.1.6
         version: 0.1.6
       env-paths:
         specifier: ^3.0.0
         version: 3.0.0
-      netlify-cli:
-        specifier: 26.2.0
-        version: 26.2.0(@types/node@24.13.2)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(picomatch@4.0.5)(rollup@4.62.2)(srvx@0.11.22)
       open:
         specifier: ^10.1.0
         version: 10.2.0
-      vercel:
-        specifier: 56.2.1
-        version: 56.2.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
-      wrangler:
-        specifier: 4.107.0
-        version: 4.107.0(@cloudflare/workers-types@4.20260702.1)
       zod:
         specifier: ^3.25.0
         version: 3.25.76
     devDependencies:
+      '@ownmail/app':
+        specifier: workspace:*
+        version: link:../app
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.2
       '@vitest/coverage-v8':
         specifier: 3.2.7
         version: 3.2.7(vitest@3.2.7(@edge-runtime/vm@3.2.0)(@types/node@24.13.2)(jiti@2.7.0)(jsdom@29.1.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
+      netlify-cli:
+        specifier: 26.2.0
+        version: 26.2.0(@types/node@24.13.2)(@upstash/redis@1.38.0)(@vercel/blob@2.4.0)(db0@0.3.4(@electric-sql/pglite@0.3.16))(picomatch@4.0.5)(rollup@4.62.2)(srvx@0.11.22)
       typescript:
         specifier: ^7.0.0
         version: 7.0.2
+      vercel:
+        specifier: 56.2.1
+        version: 56.2.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
       vitest:
         specifier: ^3.2.7
         version: 3.2.7(@edge-runtime/vm@3.2.0)(@types/node@24.13.2)(jiti@2.7.0)(jsdom@29.1.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0)
+      wrangler:
+        specifier: 4.107.0
+        version: 4.107.0(@cloudflare/workers-types@4.20260702.1)
 
   shared/nylas-cli-kit:
     devDependencies:

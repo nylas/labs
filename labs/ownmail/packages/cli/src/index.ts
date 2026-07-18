@@ -1,19 +1,14 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module'
 import { defineCommand, runMain } from 'citty'
-import { runAppDomain } from './commands/app-domain.js'
-import { runCreate } from './commands/create.js'
-import { runDoctor } from './commands/doctor.js'
-import { runEject } from './commands/eject.js'
-import { runInboxAdd, runInboxResetPassword } from './commands/inbox.js'
-import { runCleanupSecrets, runDeleteProject, runDestroy, runGrants, runLogin } from './commands/misc.js'
-import { runRotateKey } from './commands/rotate.js'
-import { runTopLevel } from './commands/shared.js'
-import { runStatus } from './commands/status.js'
-import { runUpdate } from './commands/update.js'
 
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
+
+async function runCommand(action: () => Promise<void>): Promise<void> {
+	const { runTopLevel } = await import('./commands/shared.js')
+	await runTopLevel(action)
+}
 
 const nameArg = {
 	type: 'string',
@@ -28,12 +23,13 @@ const create = defineCommand({
 		region: { type: 'string', description: 'Nylas region (us or eu)', default: 'us' },
 	},
 	async run({ args }) {
-		await runTopLevel(() =>
-			runCreate({
+		await runCommand(async () => {
+			const { runCreate } = await import('./commands/create.js')
+			await runCreate({
 				...(args.name ? { name: args.name } : {}),
 				region: args.region === 'eu' ? 'eu' : 'us',
-			}),
-		)
+			})
+		})
 	},
 })
 
@@ -48,18 +44,23 @@ const main = defineCommand({
 		update: defineCommand({
 			meta: { name: 'update', description: 'Redeploy with the latest app template (config-preserving)' },
 			args: { name: nameArg },
-			run: ({ args }) => runTopLevel(() => runUpdate(args.name ? { name: args.name } : {})),
+			run: ({ args }) =>
+				runCommand(async () => {
+					const { runUpdate } = await import('./commands/update.js')
+					await runUpdate(args.name ? { name: args.name } : {})
+				}),
 		}),
 		eject: defineCommand({
 			meta: { name: 'eject', description: 'Get the full app source and own it from here' },
 			args: { name: nameArg, dir: { type: 'positional', description: 'Target directory', required: false } },
 			run: ({ args }) =>
-				runTopLevel(() =>
-					runEject({
+				runCommand(async () => {
+					const { runEject } = await import('./commands/eject.js')
+					await runEject({
 						...(typeof args.name === 'string' ? { name: args.name } : {}),
 						...(typeof args.dir === 'string' ? { dir: args.dir } : {}),
-					}),
-				),
+					})
+				}),
 		}),
 		doctor: defineCommand({
 			meta: { name: 'doctor', description: 'Check your project health; use --fix for repairs' },
@@ -68,26 +69,39 @@ const main = defineCommand({
 				fix: { type: 'boolean', description: 'Repair safe issues such as missing redirect URIs' },
 			},
 			run: ({ args }) =>
-				runTopLevel(() =>
-					runDoctor({
+				runCommand(async () => {
+					const { runDoctor } = await import('./commands/doctor.js')
+					await runDoctor({
 						...(typeof args.name === 'string' ? { name: args.name } : {}),
 						fix: args.fix === true,
-					}),
-				),
+					})
+				}),
 		}),
 		grants: defineCommand({
 			meta: { name: 'grants', description: 'List the inboxes on your Nylas app' },
 			args: { name: nameArg },
-			run: ({ args }) => runTopLevel(() => runGrants(args.name ? { name: args.name } : {})),
+			run: ({ args }) =>
+				runCommand(async () => {
+					const { runGrants } = await import('./commands/misc.js')
+					await runGrants(args.name ? { name: args.name } : {})
+				}),
 		}),
 		login: defineCommand({
 			meta: { name: 'login', description: 'Log into your Nylas account again' },
-			run: () => runTopLevel(() => runLogin()),
+			run: () =>
+				runCommand(async () => {
+					const { runLogin } = await import('./commands/misc.js')
+					await runLogin()
+				}),
 		}),
 		destroy: defineCommand({
 			meta: { name: 'destroy', description: 'Delete the deployed app (keeps your inbox and mail)' },
 			args: { name: nameArg },
-			run: ({ args }) => runTopLevel(() => runDestroy(args.name ? { name: args.name } : {})),
+			run: ({ args }) =>
+				runCommand(async () => {
+					const { runDestroy } = await import('./commands/misc.js')
+					await runDestroy(args.name ? { name: args.name } : {})
+				}),
 		}),
 		delete: defineCommand({
 			meta: {
@@ -102,12 +116,13 @@ const main = defineCommand({
 				},
 			},
 			run: ({ args }) =>
-				runTopLevel(() =>
-					runDeleteProject({
+				runCommand(async () => {
+					const { runDeleteProject } = await import('./commands/misc.js')
+					await runDeleteProject({
 						...(typeof args.name === 'string' ? { name: args.name } : {}),
 						hosted: args.hosted === true,
-					}),
-				),
+					})
+				}),
 		}),
 		'cleanup-secrets': defineCommand({
 			meta: {
@@ -116,12 +131,19 @@ const main = defineCommand({
 			},
 			args: { name: nameArg },
 			run: ({ args }) =>
-				runTopLevel(() => runCleanupSecrets(typeof args.name === 'string' ? { name: args.name } : {})),
+				runCommand(async () => {
+					const { runCleanupSecrets } = await import('./commands/misc.js')
+					await runCleanupSecrets(typeof args.name === 'string' ? { name: args.name } : {})
+				}),
 		}),
 		status: defineCommand({
 			meta: { name: 'status', description: 'Show your projects and their state' },
 			args: { json: { type: 'boolean', description: 'Print machine-readable JSON' } },
-			run: ({ args }) => runTopLevel(() => runStatus({ json: args.json === true })),
+			run: ({ args }) =>
+				runCommand(async () => {
+					const { runStatus } = await import('./commands/status.js')
+					await runStatus({ json: args.json === true })
+				}),
 		}),
 		inbox: defineCommand({
 			meta: { name: 'inbox', description: 'Manage inboxes' },
@@ -129,7 +151,11 @@ const main = defineCommand({
 				add: defineCommand({
 					meta: { name: 'add', description: 'Add another inbox on your domain' },
 					args: { name: nameArg },
-					run: ({ args }) => runTopLevel(() => runInboxAdd(args.name ? { name: args.name } : {})),
+					run: ({ args }) =>
+						runCommand(async () => {
+							const { runInboxAdd } = await import('./commands/inbox.js')
+							await runInboxAdd(args.name ? { name: args.name } : {})
+						}),
 				}),
 				'reset-password': defineCommand({
 					meta: { name: 'reset-password', description: 'Reset an inbox password' },
@@ -138,19 +164,24 @@ const main = defineCommand({
 						email: { type: 'positional', description: 'Inbox email', required: false },
 					},
 					run: ({ args }) =>
-						runTopLevel(() =>
-							runInboxResetPassword({
+						runCommand(async () => {
+							const { runInboxResetPassword } = await import('./commands/inbox.js')
+							await runInboxResetPassword({
 								...(typeof args.name === 'string' ? { name: args.name } : {}),
 								...(typeof args.email === 'string' ? { email: args.email } : {}),
-							}),
-						),
+							})
+						}),
 				}),
 			},
 		}),
 		'rotate-key': defineCommand({
 			meta: { name: 'rotate-key', description: 'Rotate the API key your app uses' },
 			args: { name: nameArg },
-			run: ({ args }) => runTopLevel(() => runRotateKey(args.name ? { name: args.name } : {})),
+			run: ({ args }) =>
+				runCommand(async () => {
+					const { runRotateKey } = await import('./commands/rotate.js')
+					await runRotateKey(args.name ? { name: args.name } : {})
+				}),
 		}),
 		'app-domain': defineCommand({
 			meta: { name: 'app-domain', description: 'Serve your app on your own domain' },
@@ -163,12 +194,13 @@ const main = defineCommand({
 				},
 			},
 			run: ({ args }) =>
-				runTopLevel(() =>
-					runAppDomain({
+				runCommand(async () => {
+					const { runAppDomain } = await import('./commands/app-domain.js')
+					await runAppDomain({
 						...(typeof args.name === 'string' ? { name: args.name } : {}),
 						...(typeof args.domain === 'string' ? { domain: args.domain } : {}),
-					}),
-				),
+					})
+				}),
 		}),
 	},
 	args: {
@@ -178,12 +210,13 @@ const main = defineCommand({
 	async run({ args, rawArgs }) {
 		// Default command: bare `npx ownmail` runs create/resume.
 		if (rawArgs.length === 0 || rawArgs[0]?.startsWith('-')) {
-			await runTopLevel(() =>
-				runCreate({
+			await runCommand(async () => {
+				const { runCreate } = await import('./commands/create.js')
+				await runCreate({
 					...(args.name ? { name: args.name as string } : {}),
 					region: args.region === 'eu' ? 'eu' : 'us',
-				}),
-			)
+				})
+			})
 		}
 	},
 })

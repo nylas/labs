@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 
@@ -15,6 +16,8 @@ export type TemplateManifest = {
 }
 
 export function templateRoot(): string {
+	const bundled = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'template')
+	if (existsSync(join(bundled, 'template.json'))) return bundled
 	return dirname(require.resolve('@ownmail/app/package.json'))
 }
 

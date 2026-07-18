@@ -1,3 +1,5 @@
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	exportManualBundle,
@@ -56,6 +58,12 @@ beforeEach(() => {
 })
 
 describe('templateRoot / loadManifest', () => {
+	it('prefers the template bundled inside the published CLI', () => {
+		const bundled = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'template')
+		existsMap.set(join(bundled, 'template.json'), true)
+		expect(templateRoot()).toBe(bundled)
+	})
+
 	it('resolves the template root from the package.json location', () => {
 		expect(templateRoot()).toBe('/fake/template')
 	})
@@ -186,7 +194,7 @@ describe('exportManualBundle', () => {
 		})
 		expect(target).toBe('/out/acme')
 		expect(cpSync).toHaveBeenCalledTimes(7)
-		expect(vi.mocked(existsSync)).toHaveBeenCalledTimes(7)
+		expect(vi.mocked(existsSync)).toHaveBeenCalledTimes(8)
 
 		const packageJson = JSON.parse(written('package.json'))
 		expect(packageJson.name).toBe('acme')

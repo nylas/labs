@@ -1,11 +1,9 @@
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pinnedToolInvocation } from './pinned-tool.js'
 
-const require = createRequire(import.meta.url)
 const MAX_OUTPUT_BYTES = 1_000_000
 
 type Provider = 'vercel' | 'netlify'
@@ -397,18 +395,8 @@ function runProviderCli(
 	opts: { cwd?: string; stdin?: string; interactive?: boolean } = {},
 ): Promise<CliResult> {
 	return new Promise((resolve, reject) => {
-		let bin: string
-		try {
-			bin = providerBin(provider)
-		} catch {
-			reject(
-				new Error(
-					`OwnMail could not start its bundled ${providerName(provider)} deployment helper. Reinstall or update OwnMail, then retry; no provider change was made.`,
-				),
-			)
-			return
-		}
-		const child = spawn(process.execPath, [bin, ...args], {
+		const invocation = pinnedToolInvocation(provider)
+		const child = spawn(invocation.command, [...invocation.args, ...args], {
 			cwd: opts.cwd ?? process.cwd(),
 			env: process.env,
 			stdio: opts.interactive ? 'inherit' : ['pipe', 'pipe', 'pipe'],
@@ -424,19 +412,15 @@ function runProviderCli(
 			stderr = append(stderr, chunk)
 		})
 		if (child.stdin) child.stdin.end(opts.stdin)
-		child.on('error', () => reject(new Error(`${providerName(provider)} deployment helper failed to start.`)))
+		child.on('error', () =>
+			reject(
+				new Error(
+					`${providerName(provider)} deployment helper failed to download or start. Check npm registry access, then retry.`,
+				),
+			),
+		)
 		child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
 	})
-}
-
-function providerBin(provider: Provider): string {
-	const packageName = provider === 'vercel' ? 'vercel' : 'netlify-cli'
-	const command = provider
-	const packagePath = require.resolve(`${packageName}/package.json`)
-	const pkg = require(`${packageName}/package.json`) as { bin: string | Record<string, string> }
-	const relative = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin[command]
-	if (!relative) throw new Error('missing binary')
-	return fileURLToPath(new URL(relative, pathToFileURL(packagePath)))
 }
 
 function providerFailure(

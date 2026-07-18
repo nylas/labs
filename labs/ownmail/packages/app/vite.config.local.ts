@@ -19,6 +19,7 @@ export default defineConfig({
 	},
 	ssr: {
 		external: ['cloudflare:workers'],
+		noExternal: true,
 	},
 	environments: {
 		ssr: {
