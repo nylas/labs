@@ -24,6 +24,31 @@ describe('ScrollArea', () => {
 		expect(screen.getByText(/Scrollable content/)).toHaveClass('sr-only')
 	})
 
+	it('keeps background fades by default and accepts a caller-scoped overflow surface', () => {
+		const { rerender } = render(
+			<ScrollArea aria-label="Default fades">
+				<div>Default content</div>
+			</ScrollArea>,
+		)
+
+		const overflowSlots = () => [
+			document.querySelector('[data-slot="scroll-area-overflow-top"]'),
+			document.querySelector('[data-slot="scroll-area-overflow-bottom"]'),
+		]
+		for (const slot of overflowSlots()) expect(slot).toHaveClass('from-background/80')
+
+		rerender(
+			<ScrollArea aria-label="Muted fades" overflowIndicatorClassName="from-muted/80 dark:from-background/80">
+				<div>Muted content</div>
+			</ScrollArea>,
+		)
+
+		for (const slot of overflowSlots()) {
+			expect(slot).toHaveClass('from-muted/80', 'dark:from-background/80')
+			expect(slot).not.toHaveClass('from-background/80')
+		}
+	})
+
 	it('only displays directional overflow indicators when content is available in that direction', async () => {
 		render(
 			<ScrollArea aria-label="Thread list" className="h-24">

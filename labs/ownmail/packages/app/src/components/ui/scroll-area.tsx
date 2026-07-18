@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils.js'
 type ScrollAreaProps = React.ComponentProps<'div'> & {
 	viewportClassName?: string
 	viewportRef?: React.Ref<HTMLElement>
+	overflowIndicatorClassName?: string
 	'aria-label'?: string
 	'aria-describedby'?: string
 }
@@ -34,6 +35,7 @@ export function ScrollArea({
 	className,
 	viewportClassName,
 	viewportRef,
+	overflowIndicatorClassName,
 	children,
 	'aria-label': ariaLabel,
 	'aria-describedby': ariaDescribedBy,
@@ -156,6 +158,7 @@ export function ScrollArea({
 	}
 
 	const hasOverflow = overflow.top || overflow.bottom
+	const overflowGradientClassName = overflowIndicatorClassName ?? 'from-background/80'
 
 	return (
 		<div
@@ -198,17 +201,21 @@ export function ScrollArea({
 			) : null}
 			<div
 				aria-hidden="true"
+				data-slot="scroll-area-overflow-top"
 				data-overflow-top={overflow.top ? '' : undefined}
 				className={cn(
-					'pointer-events-none absolute inset-x-0 top-0 z-20 h-5 bg-linear-to-b from-background/80 to-transparent transition-opacity',
+					'pointer-events-none absolute inset-x-0 top-0 z-20 h-5 bg-linear-to-b to-transparent transition-opacity',
+					overflowGradientClassName,
 					!overflow.top && 'opacity-0',
 				)}
 			/>
 			<div
 				aria-hidden="true"
+				data-slot="scroll-area-overflow-bottom"
 				data-overflow-bottom={overflow.bottom ? '' : undefined}
 				className={cn(
-					'pointer-events-none absolute inset-x-0 bottom-0 z-20 h-5 bg-linear-to-t from-background/80 to-transparent transition-opacity',
+					'pointer-events-none absolute inset-x-0 bottom-0 z-20 h-5 bg-linear-to-t to-transparent transition-opacity',
+					overflowGradientClassName,
 					!overflow.bottom && 'opacity-0',
 				)}
 			/>
