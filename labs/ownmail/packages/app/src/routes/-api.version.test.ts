@@ -91,6 +91,22 @@ describe('/api/version', () => {
 		expect(JSON.stringify(json)).not.toContain('grant-private')
 	})
 
+	it('does not bump absent domains after the first scoped counter is written', async () => {
+		getSession.mockResolvedValue({ grantId: 'grant-1' })
+		const values: Record<string, string> = {
+			'version:grant-1': '3',
+			'version:grant-1:mail': '3',
+		}
+		platform.mockResolvedValue({ kv: { get: vi.fn(async (key: string) => values[key] ?? null) } })
+
+		const response = await versionResponse(req(), { devMocks: false })
+
+		expect(await response.json()).toEqual({
+			version: 3,
+			domains: { mail: 3, contacts: 0, calendar: 0 },
+		})
+	})
+
 	it('treats a grant with no recorded counter as version zero', async () => {
 		getSession.mockResolvedValue({ grantId: 'grant-1' })
 		platform.mockResolvedValue({ kv: { get: vi.fn().mockResolvedValue(null) } })
