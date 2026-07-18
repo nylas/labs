@@ -3,7 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil, Search, X } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
+import {
+	AppRailLogo,
+	AppRailMobileNav,
+	AppRailNav,
+	type MailboxAccountOption,
+} from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import { MailSidebar } from '../components/MailSidebar.js'
 import { Sheet } from '../components/Sheet.js'
@@ -34,6 +39,7 @@ type MailInfo = {
 	email: string
 	displayName?: string
 	appName: string
+	accounts?: MailboxAccountOption[]
 }
 
 function MailLayout() {
@@ -166,6 +172,7 @@ export function MailRouteScreen({
 	const railNavProps = {
 		email: info.email,
 		displayName: info.displayName,
+		accounts: info.accounts,
 		active: 'mail' as const,
 		onOpenCommandPalette: openPalette,
 	}

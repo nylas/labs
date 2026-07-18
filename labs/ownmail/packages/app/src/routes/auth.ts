@@ -2,7 +2,14 @@ import { buildAuthorizeUrl, generatePkcePair } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { platform, usingDevMocks } from '../server/platform.js'
-import { createReferenceDevSessionCookie, storePkce } from '../server/session.js'
+import {
+	createReferenceDevSessionCookie,
+	getSession,
+	storePkce,
+	switchSessionAccount,
+} from '../server/session.js'
+
+const MAX_SWITCH_BODY_BYTES = 1024
 
 export const Route = createFileRoute('/auth')({
 	server: {
@@ -23,7 +30,8 @@ export const Route = createFileRoute('/auth')({
 				const origin = new URL(request.url).origin
 				const state = crypto.randomUUID()
 				const pkce = await generatePkcePair()
-				const pkceCookie = await storePkce(state, pkce.verifier)
+				const pkceCookie = await storePkce(request, state, pkce.verifier)
+				const existingSession = await getSession(request)
 
 				const url = buildAuthorizeUrl({
 					region: env.NYLAS_REGION,
@@ -33,15 +41,81 @@ export const Route = createFileRoute('/auth')({
 					provider: 'nylas',
 					state,
 					codeChallenge: pkce.challenge,
-					...(env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
+					...(!existingSession && env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
 				})
 				const headers = new Headers({ Location: url })
-				if (pkceCookie) headers.set('Set-Cookie', pkceCookie)
+				headers.set('Set-Cookie', pkceCookie)
 				return new Response(null, { status: 302, headers })
+			},
+			/** Switches only to an inbox previously verified through this session's Hosted Auth flow. */
+			POST: async ({ request }) => {
+				if (request.headers.get('origin') !== new URL(request.url).origin) {
+					return new Response('Forbidden', { status: 403 })
+				}
+				const mediaType = (request.headers.get('content-type') ?? '').replace(/;.*$/, '').trim().toLowerCase()
+				const rawContentLength = request.headers.get('content-length')
+				if (
+					mediaType !== 'application/x-www-form-urlencoded' ||
+					(rawContentLength !== null && !validContentLength(rawContentLength))
+				) {
+					return new Response('Invalid request', { status: 400 })
+				}
+				const handle = await readBoundedSwitchHandle(request, rawContentLength)
+				if (!handle) return new Response('Invalid request', { status: 400 })
+				const cookie = await switchSessionAccount(request, handle)
+				if (!cookie) return new Response('Forbidden', { status: 403 })
+				return new Response(null, {
+					status: 303,
+					headers: { Location: MAIL_HOME_PATH, 'Set-Cookie': cookie },
+				})
 			},
 		},
 	},
 })
+
+function validContentLength(value: string): boolean {
+	if (!/^[1-9]\d{0,3}$/.test(value)) return false
+	return Number(value) <= MAX_SWITCH_BODY_BYTES
+}
+
+async function readBoundedSwitchHandle(
+	request: Request,
+	declaredLength: string | null,
+): Promise<string | null> {
+	if (!request.body) return null
+	const reader = request.body.getReader()
+	const chunks: Uint8Array[] = []
+	let length = 0
+	try {
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+			length += value.byteLength
+			if (length > MAX_SWITCH_BODY_BYTES) {
+				await reader.cancel()
+				return null
+			}
+			chunks.push(value)
+		}
+	} catch {
+		return null
+	}
+	if (length === 0 || (declaredLength !== null && length !== Number(declaredLength))) return null
+	const bytes = new Uint8Array(length)
+	let offset = 0
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset)
+		offset += chunk.byteLength
+	}
+	let body: string
+	try {
+		body = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+	} catch {
+		return null
+	}
+	const values = new URLSearchParams(body).getAll('account')
+	return values.length === 1 && values[0] ? values[0] : null
+}
 
 function configurationErrorResponse(message: string): Response {
 	const html = `<!doctype html><meta charset="utf-8"><title>Configuration error</title>

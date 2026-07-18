@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Sun, Users } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Plus, Search, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH, SETTINGS_PATH } from './route-paths.js'
 import {
@@ -12,9 +12,16 @@ import {
 import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS, cn, initials } from './ui-model.js'
 import { useUserPreferences } from './user-preferences.js'
 
+export type MailboxAccountOption = {
+	email: string
+	handle: string
+	active: boolean
+}
+
 type AppRailNavProps = {
 	email: string
 	displayName?: string
+	accounts?: MailboxAccountOption[]
 	active: 'mail' | 'calendar' | 'contacts' | 'settings'
 	onOpenCommandPalette?: () => void
 }
@@ -56,7 +63,13 @@ export function AppRailLogo({ appName, className }: { appName: string; className
 	)
 }
 
-export function AppRailNav({ email, displayName, active, onOpenCommandPalette }: AppRailNavProps) {
+export function AppRailNav({
+	email,
+	displayName,
+	accounts = [],
+	active,
+	onOpenCommandPalette,
+}: AppRailNavProps) {
 	const [isDark, setIsDark] = useState(false)
 	const [mounted, setMounted] = useState(false)
 	const [preferences] = useUserPreferences()
@@ -111,6 +124,15 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 
 			<div className="mt-auto flex flex-col items-center gap-0.5 px-2 pb-3 pt-2">
 				<div className="app-rail-divider" aria-hidden="true" />
+				{accounts.length > 1 ? <DesktopAccountSwitcher accounts={accounts} /> : null}
+				<a
+					href="/auth"
+					className="app-rail-item app-rail-item-utility"
+					aria-label="Add inbox"
+					title="Add inbox"
+				>
+					<Plus className="h-[17px] w-[17px]" />
+				</a>
 				<RailButton onClick={toggleTheme} ariaLabel={themeToggleLabel(mounted, isDark)}>
 					{mounted && isDark ? <Sun className="h-[17px] w-[17px]" /> : <Moon className="h-[17px] w-[17px]" />}
 				</RailButton>
@@ -149,6 +171,7 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 export function AppRailMobileNav({
 	email,
 	displayName,
+	accounts = [],
 	active,
 	onOpenCommandPalette,
 	onNavigate,
@@ -200,6 +223,15 @@ export function AppRailMobileNav({
 			</div>
 
 			<div className="mt-3 space-y-1 border-t border-border px-2 pt-3">
+				{accounts.length > 1 ? <AccountSwitcher accounts={accounts} onNavigate={onNavigate} /> : null}
+				<a
+					href="/auth"
+					onClick={onNavigate}
+					className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+				>
+					<Plus className="h-5 w-5" aria-hidden="true" />
+					<span>Add inbox</span>
+				</a>
 				<MobileNavButton
 					label={themeToggleLabel(mounted, isDark)}
 					onClick={toggleTheme}
@@ -234,6 +266,85 @@ export function AppRailMobileNav({
 				</Link>
 			</div>
 		</nav>
+	)
+}
+
+function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[] }) {
+	const active = accounts.find((account) => account.active)
+	if (!active) return null
+	const localPart = active.email.split('@')[0] || active.email
+	return (
+		<details className="group relative">
+			<summary
+				className="flex min-h-11 w-11 cursor-pointer list-none flex-col items-center justify-center rounded-md border border-border bg-card px-1 text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				aria-label={`Switch inbox. Current inbox: ${active.email}`}
+				title={`Current inbox: ${active.email}`}
+			>
+				<span className="text-[10px] font-bold leading-none" aria-hidden="true">
+					{initials(active.email)}
+				</span>
+				<span className="mt-1 block max-w-9 truncate text-[8px] leading-none" aria-hidden="true">
+					{localPart}
+				</span>
+			</summary>
+			<div className="absolute bottom-0 left-[calc(100%+0.5rem)] z-50 w-64 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
+				<p className="px-2 py-1 text-xs font-semibold text-muted-foreground">Switch inbox</p>
+				{accounts.map((account) => (
+					<form key={account.handle} action="/auth" method="post">
+						<button
+							type="submit"
+							name="account"
+							value={account.handle}
+							aria-current={account.active ? 'true' : undefined}
+							className={cn(
+								'flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted',
+								account.active && 'bg-muted font-medium',
+							)}
+						>
+							<span className="app-rail-account-inner shrink-0" aria-hidden="true">
+								<span className="app-rail-account-initials">{initials(account.email)}</span>
+							</span>
+							<span className="min-w-0 break-all">{account.email}</span>
+						</button>
+					</form>
+				))}
+			</div>
+		</details>
+	)
+}
+
+function AccountSwitcher({
+	accounts,
+	onNavigate,
+}: {
+	accounts: MailboxAccountOption[]
+	onNavigate?: () => void
+}) {
+	const active = accounts.find((account) => account.active)
+	if (!active) return null
+	return (
+		<form action="/auth" method="post" className="px-1">
+			<label className="block text-xs font-medium text-muted-foreground">
+				<span className="px-2">Inbox</span>
+				<select
+					name="account"
+					aria-label="Switch inbox"
+					value={active.handle}
+					title={`Current inbox: ${active.email}`}
+					onChange={(event) => {
+						onNavigate?.()
+						event.currentTarget.form?.requestSubmit()
+					}}
+					className="mt-1 h-10 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				>
+					{accounts.map((account) => (
+						<option key={account.handle} value={account.handle}>
+							{account.email}
+						</option>
+					))}
+				</select>
+			</label>
+		</form>
 	)
 }
 

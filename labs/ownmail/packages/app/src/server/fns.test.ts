@@ -156,6 +156,7 @@ describe('getMailboxInfo', () => {
 			email: 'ada@ownmail.com',
 			displayName: 'Ada Lovelace',
 			appName: 'ownmail',
+			accounts: [],
 		})
 	})
 
@@ -168,7 +169,7 @@ describe('getMailboxInfo', () => {
 	it('omits displayName when the mailbox has none', async () => {
 		resolveMailbox()
 		const info = await fns.getMailboxInfo.handler({})
-		expect(info).toEqual({ email: 'ada@ownmail.com', appName: 'ownmail' })
+		expect(info).toEqual({ email: 'ada@ownmail.com', appName: 'ownmail', accounts: [] })
 	})
 })
 

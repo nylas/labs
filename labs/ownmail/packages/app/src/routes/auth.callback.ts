@@ -2,7 +2,7 @@ import { exchangeCodeForToken } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { platform } from '../server/platform.js'
-import { consumePkce, createSession } from '../server/session.js'
+import { addVerifiedSessionAccount, consumePkce, getSession } from '../server/session.js'
 import { OWNMAIL_USER_AGENT } from '../server/usage-attribution.js'
 
 export const Route = createFileRoute('/auth/callback')({
@@ -15,15 +15,19 @@ export const Route = createFileRoute('/auth/callback')({
 				const code = url.searchParams.get('code')
 				const state = url.searchParams.get('state')
 				const error = url.searchParams.get('error')
-				if (error || !code || !state) {
-					return loginFailedResponse(callbackFailureMessage(error))
+				if (error) {
+					if (!state) return loginFailedResponse(callbackFailureMessage(error))
+					const failedAttempt = await consumePkce(request, state)
+					return loginFailedResponse(callbackFailureMessage(error), failedAttempt?.clearCookie)
 				}
+				if (!code || !state) return loginFailedResponse(callbackFailureMessage(null))
 				const pkce = await consumePkce(request, state)
 				if (!pkce) {
 					return loginFailedResponse('expired login attempt — please try again')
 				}
 
 				try {
+					const existingSession = await getSession(request)
 					const token = await exchangeCodeForToken({
 						region: env.NYLAS_REGION,
 						baseUrl: env.NYLAS_API_BASE_URL,
@@ -34,19 +38,40 @@ export const Route = createFileRoute('/auth/callback')({
 						codeVerifier: pkce.verifier,
 						userAgent: OWNMAIL_USER_AGENT,
 					})
+					const verifiedEmail = callbackEmail(token.email, env.INBOX_EMAIL, Boolean(existingSession))
+					if (!verifiedEmail) {
+						return loginFailedResponse(
+							'We couldn’t verify the email address for that inbox. Please try again.',
+							pkce.clearCookie,
+						)
+					}
 					const headers = new Headers({ Location: MAIL_HOME_PATH })
-					headers.append('Set-Cookie', await createSession(token.grant_id, token.email ?? env.INBOX_EMAIL))
-					if (pkce.clearCookie) headers.append('Set-Cookie', pkce.clearCookie)
+					headers.append(
+						'Set-Cookie',
+						await addVerifiedSessionAccount(request, token.grant_id, verifiedEmail),
+					)
+					headers.append('Set-Cookie', pkce.clearCookie)
 					return new Response(null, { status: 302, headers })
 				} catch (err) {
 					reportTokenExchangeFailure(err)
 					// Never surface exchange internals to the browser.
-					return loginFailedResponse(tokenExchangeFailureMessage(err))
+					return loginFailedResponse(tokenExchangeFailureMessage(err), pkce.clearCookie)
 				}
 			},
 		},
 	},
 })
+
+function callbackEmail(
+	tokenEmail: string | undefined,
+	configuredInboxEmail: string | undefined,
+	hasExistingSession: boolean,
+): string | null {
+	const verifiedEmail = tokenEmail?.trim()
+	if (verifiedEmail) return verifiedEmail
+	if (hasExistingSession) return null
+	return configuredInboxEmail?.trim() || null
+}
 
 /**
  * Records identifiers that let operators find a failed exchange in provider logs
@@ -87,7 +112,7 @@ function tokenExchangeFailureMessage(error: unknown): string {
 	return 'We couldn’t complete your sign-in. Please try again.'
 }
 
-function loginFailedResponse(message: string): Response {
+function loginFailedResponse(message: string, clearCookie?: string): Response {
 	const html = `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
 <body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0">
 <div style="text-align:center">
@@ -95,7 +120,9 @@ function loginFailedResponse(message: string): Response {
 <p style="color:#666">${escapeHtml(message)}</p>
 <a href="/auth" style="color:#2563eb">Try again</a>
 </div></body>`
-	return new Response(html, { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+	const headers = new Headers({ 'Content-Type': 'text/html; charset=utf-8' })
+	if (clearCookie) headers.set('Set-Cookie', clearCookie)
+	return new Response(html, { status: 401, headers })
 }
 
 function escapeHtml(value: string): string {

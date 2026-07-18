@@ -110,7 +110,12 @@ function SettingsPage() {
 			</div>
 
 			<div className="flex min-h-0 flex-1 overflow-hidden">
-				<AppRailNav email={info.email} displayName={info.displayName} active="settings" />
+				<AppRailNav
+					email={info.email}
+					displayName={info.displayName}
+					accounts={info.accounts}
+					active="settings"
+				/>
 				<main className="min-w-0 flex-1 overflow-y-auto">
 					<div className="mx-auto w-full max-w-2xl space-y-7 px-5 py-7 sm:px-8">
 						<section>
@@ -230,6 +235,7 @@ function SettingsPage() {
 				<AppRailMobileNav
 					email={info.email}
 					displayName={info.displayName}
+					accounts={info.accounts}
 					active="settings"
 					onNavigate={() => setNavigationOpen(false)}
 				/>

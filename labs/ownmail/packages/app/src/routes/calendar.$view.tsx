@@ -273,6 +273,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				<AppRailNav
 					email={info.email}
 					displayName={info.displayName}
+					accounts={info.accounts}
 					active="calendar"
 					onOpenCommandPalette={openPalette}
 				/>
@@ -351,6 +352,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				<AppRailMobileNav
 					email={info.email}
 					displayName={info.displayName}
+					accounts={info.accounts}
 					active="calendar"
 					onOpenCommandPalette={openPalette}
 					onNavigate={() => setSidebarOpen(false)}
