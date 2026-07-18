@@ -24,6 +24,7 @@ vi.mock('../server/fns.js', () => ({
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
+import { markdownToDraftBody } from '../components/html-to-markdown.js'
 import { ErrorBanner, Route } from './mail.f.$folderId.t.$threadId.js'
 
 afterEach(cleanup)
@@ -222,6 +223,27 @@ describe('message list', () => {
 		// m2 is open by default; its attachments render inside the message block too
 		expect(screen.getAllByText('attachment').length).toBeGreaterThan(0) // a2 has no filename
 		expect(screen.getAllByText('big.zip').length).toBeGreaterThan(0)
+	})
+
+	it('renders a saved OwnMail draft as its final formatted HTML in the thread reader', () => {
+		renderThread(
+			loaderData({
+				thread: { id: 'd1', subject: 'Draft', starred: false, folders: ['drafts'] },
+				messages: [
+					{
+						id: 'd1',
+						folders: ['drafts'],
+						from: [{ email: 'me@x.com' }],
+						body: markdownToDraftBody('# Heading\n\n**ready** to send'),
+					},
+				],
+			}),
+		)
+		const root = screen.getByTitle('Email content d1').shadowRoot?.querySelector('.email-root')
+
+		expect(root?.querySelector('h1')?.textContent).toBe('Heading')
+		expect(root?.querySelector('strong')?.textContent).toBe('ready')
+		expect(root?.textContent).not.toContain('# Heading')
 	})
 })
 

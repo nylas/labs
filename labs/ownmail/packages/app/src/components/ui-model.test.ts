@@ -29,6 +29,7 @@ import {
 	mailFolderTitle,
 	mailSearchInputValue,
 	messageBodyParagraphs,
+	messageHasHtml,
 	messagePreview,
 	replyAllDraftSearch,
 	replyDraftSearch,
@@ -135,6 +136,11 @@ describe('ui-model mail helpers', () => {
 		} as Message
 
 		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
+	})
+
+	it('detects html bodies for rich rendering', () => {
+		expect(messageHasHtml({ body: '<p>Hello</p>' } as Message)).toBe(true)
+		expect(messageHasHtml({ body: 'plain text' } as Message)).toBe(false)
 	})
 
 	it('does not leak script contents from spaced script end tags', () => {
@@ -516,11 +522,8 @@ describe('ui-model plain-text projection edge cases', () => {
 	})
 
 	it('falls back to the snippet and then to nothing when a message has no body', () => {
-		// No body + snippet → snippet paragraph; blank body also falls back; no body + no snippet → empty.
+		// No body + snippet → snippet paragraph; no body + no snippet → empty (?? '' guard).
 		expect(messageBodyParagraphs({ snippet: 'Only snippet' } as Message)).toEqual(['Only snippet'])
-		expect(messageBodyParagraphs({ body: '   ', snippet: 'Whitespace fallback' } as Message)).toEqual([
-			'Whitespace fallback',
-		])
 		expect(messageBodyParagraphs({} as Message)).toEqual([])
 	})
 

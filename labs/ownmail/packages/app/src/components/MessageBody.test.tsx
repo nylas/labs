@@ -3,6 +3,7 @@ import type { Message } from '@nylas-labs/cli-kit/v3'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_ELEMENT_TAG } from './email-render.js'
+import { markdownToDraftBody } from './html-to-markdown.js'
 import { MessageBody } from './MessageBody.js'
 
 // useMounted drives the "render plain text on the server, upgrade to the shadow-DOM
@@ -13,6 +14,7 @@ vi.mock('./ClientTime.js', () => ({ useMounted: () => mountState.mounted }))
 
 afterEach(() => {
 	cleanup()
+	vi.unstubAllGlobals()
 	mountState.mounted = true
 	document.documentElement.classList.remove('dark')
 })
@@ -21,26 +23,27 @@ function message(fields: Partial<Message>): Message {
 	return fields as unknown as Message
 }
 
-describe('MessageBody (plain-text fallback)', () => {
-	it('renders provider snippet text only when no HTML body exists', () => {
-		render(<MessageBody message={message({ id: 'm1', snippet: 'First line.\n\nSecond line.' })} />)
+describe('MessageBody (plain text)', () => {
+	it('keeps tagless body paragraphs on the React-escaped plaintext path', () => {
+		render(<MessageBody message={message({ id: 'm1', body: 'First line.\n\nSecond line.' })} />)
 		expect(screen.getByText('First line.')).toBeInTheDocument()
 		expect(screen.getByText('Second line.')).toBeInTheDocument()
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
-	it('renders fallback text literally instead of interpreting Markdown syntax', () => {
-		render(<MessageBody message={message({ id: 'm2', snippet: '# Heading\n\n**not bold**' })} />)
+	it('renders Markdown-looking plaintext literally', () => {
+		render(<MessageBody message={message({ id: 'm2', body: '# Heading\n\n**not bold**' })} />)
 		expect(screen.getByText('# Heading')).toBeInTheDocument()
 		expect(screen.getByText('**not bold**')).toBeInTheDocument()
 		expect(document.querySelector('h1')).toBeNull()
 		expect(document.querySelector('strong')).toBeNull()
 	})
 
-	it('escapes tag-looking fallback text instead of treating it as markup', () => {
-		render(<MessageBody message={message({ id: 'm3', snippet: 'Use <script> literally' })} />)
-		expect(screen.getByText('Use <script> literally')).toBeInTheDocument()
+	it('preserves malformed tag-looking plaintext literally', () => {
+		render(<MessageBody message={message({ id: 'm3', body: 'Use <script literally' })} />)
+		expect(screen.getByText('Use <script literally')).toBeInTheDocument()
 		expect(document.querySelector('script')).toBeNull()
+		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
 	it('renders nothing when the provider returns no readable body or fallback', () => {
@@ -63,6 +66,41 @@ describe('MessageBody (provider HTML, before client mount)', () => {
 		const { container } = render(<MessageBody message={message({ id: 'm6', body: '<p></p>' })} />)
 		expect(container.firstChild).toBeNull()
 	})
+
+	it('projects a trusted draft envelope without Markdown markers or browser DOM APIs', () => {
+		mountState.mounted = false
+		vi.stubGlobal('DOMParser', undefined)
+		const { container } = render(
+			<MessageBody
+				message={message({
+					id: 'draft-ssr',
+					folders: ['drafts'],
+					body: markdownToDraftBody('# Heading\n\n**ready** to send'),
+				})}
+			/>,
+		)
+
+		expect(screen.getByText('Heading')).toBeInTheDocument()
+		expect(screen.getByText('ready to send')).toBeInTheDocument()
+		expect(container.textContent).not.toContain('# Heading')
+		expect(container.textContent).not.toContain('**ready**')
+		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
+	})
+
+	it('renders no SSR placeholder for an empty trusted draft envelope', () => {
+		mountState.mounted = false
+		const { container } = render(
+			<MessageBody
+				message={message({
+					id: 'draft-empty',
+					folders: ['drafts'],
+					body: markdownToDraftBody(''),
+				})}
+			/>,
+		)
+
+		expect(container.firstChild).toBeNull()
+	})
 })
 
 describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
@@ -74,8 +112,16 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		expect(el?.shadowRoot?.querySelector('.email-root')?.innerHTML).toContain('content')
 	})
 
-	it('keeps a tagless provider body on the HTML path without interpreting Markdown', () => {
-		render(<MessageBody message={message({ id: 'msg-tagless', body: '# Heading\n\n**not bold**' })} />)
+	it('does not interpret an OwnMail-looking envelope on a received message', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-untrusted-envelope',
+					folders: ['inbox'],
+					body: markdownToDraftBody('# Heading\n\n**not bold**'),
+				})}
+			/>,
+		)
 		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
 
 		expect(root).not.toBeNull()
@@ -116,5 +162,23 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		expect(root?.innerHTML).not.toContain('javascript:')
 		expect(safeLink?.getAttribute('target')).toBe('_blank')
 		expect(safeLink?.getAttribute('rel')).toBe('noopener noreferrer nofollow')
+	})
+
+	it('renders an explicit OwnMail draft envelope as its final email HTML preview', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'draft-preview',
+					folders: ['drafts'],
+					body: markdownToDraftBody('# Heading\n\n**ready** to send'),
+				})}
+			/>,
+		)
+		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
+
+		expect(root?.querySelector('h1')?.textContent).toBe('Heading')
+		expect(root?.querySelector('strong')?.textContent).toBe('ready')
+		expect(root?.textContent).not.toContain('# Heading')
+		expect(root?.textContent).not.toContain('**ready**')
 	})
 })

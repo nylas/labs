@@ -2,4 +2,4 @@
 "@ownmail/app": patch
 ---
 
-Render Nylas message bodies through the sanitized HTML reader without Markdown conversion.
+Render saved OwnMail Markdown drafts as their final formatted HTML in the reading preview.

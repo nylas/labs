@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { htmlToMarkdown, markdownToDraftBody, seedToMarkdown } from './html-to-markdown.js'
+import {
+	htmlToMarkdown,
+	markdownToDraftBody,
+	ownMailDraftMarkdown,
+	seedToMarkdown,
+} from './html-to-markdown.js'
 import { parseLine, renderLine } from './markdown-model.js'
 
 describe('htmlToMarkdown', () => {
@@ -114,6 +119,15 @@ describe('markdown draft envelope', () => {
 		expect(seedToMarkdown('mentioning data-ownmail-markdown in prose')).toBe(
 			'mentioning data-ownmail-markdown in prose',
 		)
+	})
+
+	it('decodes only the versioned OwnMail draft envelope', () => {
+		expect(ownMailDraftMarkdown(markdownToDraftBody('# Hi\n**ready**'))).toBe('# Hi\n**ready**')
+		expect(ownMailDraftMarkdown('<div><pre data-ownmail-markdown="1">wrapped</pre></div>')).toBe('wrapped')
+		expect(ownMailDraftMarkdown('<pre data-ownmail-markdown="2">future</pre>')).toBeUndefined()
+		expect(ownMailDraftMarkdown('<pre x-data-ownmail-markdown="1">spoof</pre>')).toBeUndefined()
+		expect(ownMailDraftMarkdown('<pre data-ownmail-markdown="1">unfinished')).toBeUndefined()
+		expect(ownMailDraftMarkdown('<pre>plain</pre>')).toBeUndefined()
 	})
 })
 

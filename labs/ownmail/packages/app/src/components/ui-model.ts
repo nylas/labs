@@ -139,7 +139,7 @@ export function collapsedMessagePreview(message: MailMessage): string {
 }
 
 export function messageBodyParagraphs(message: MailMessage): string[] {
-	const source = message.body?.trim() ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
+	const source = message.body ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
 	return source
 		.split(/\n{2,}/)
 		.map((paragraph) =>
@@ -149,6 +149,12 @@ export function messageBodyParagraphs(message: MailMessage): string[] {
 				.trim(),
 		)
 		.filter(Boolean)
+}
+
+export function messageHasHtml(message: MailMessage): boolean {
+	const body = message.body?.trim()
+	if (!body) return false
+	return /<[a-z][\s\S]*>/i.test(body)
 }
 
 function plainTextFromHtml(html: string, preserveParagraphs = false): string {

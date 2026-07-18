@@ -185,18 +185,30 @@ export function markdownToDraftBody(markdown: string): string {
 	return `<pre ${MARKDOWN_DRAFT_ATTR}="1">${escapeHtml(markdown)}</pre>`
 }
 
+/** Decode only OwnMail's explicit draft-storage envelope. */
+export function ownMailDraftMarkdown(raw: string): string | undefined {
+	if (!raw.includes(MARKDOWN_DRAFT_ATTR)) return undefined
+	const opening = /<pre\b(?=[^>]*\sdata-ownmail-markdown\s*=\s*(?:"1"|'1'|1(?=\s|>)))[^>]*>/i.exec(raw)
+	if (!opening) return undefined
+	const contentStart = opening.index + opening[0].length
+	const closing = /<\/pre\s*>/i.exec(raw.slice(contentStart))
+	if (!closing) return undefined
+	return raw
+		.slice(contentStart, contentStart + closing.index)
+		.replace(/&lt;/gi, '<')
+		.replace(/&gt;/gi, '>')
+		.replace(/&amp;/gi, '&')
+}
+
 /**
  * Adopt a seed: an enveloped markdown draft round-trips exactly; other HTML
  * (a legacy WYSIWYG draft) converts; plain text is already markdown.
  */
 export function seedToMarkdown(raw: string): string {
 	if (raw.trim() === '') return ''
-	// Providers may rewrap stored bodies, so locate the envelope by parsing
-	// rather than by exact prefix match.
-	if (raw.includes(MARKDOWN_DRAFT_ATTR)) {
-		const parsed = new DOMParser().parseFromString(raw, 'text/html')
-		const envelope = parsed.querySelector(`pre[${MARKDOWN_DRAFT_ATTR}]`)
-		if (envelope) return envelope.textContent as string
-	}
+	// Providers may rewrap stored bodies, so locate the exact versioned envelope
+	// rather than depending on an exact prefix match.
+	const markdown = ownMailDraftMarkdown(raw)
+	if (markdown !== undefined) return markdown
 	return LOOKS_LIKE_HTML.test(raw) ? htmlToMarkdown(raw) : raw.replace(/\r\n?/g, '\n')
 }
