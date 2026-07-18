@@ -99,7 +99,7 @@ describe('NylasV3Client', () => {
 		expect(grants.data).toEqual([{ id: 'grant-123', provider: 'nylas' }])
 	})
 
-	it('updates an agent account app password on the grant settings', async () => {
+	it('gets a grant and updates its top-level display name with its settings', async () => {
 		let requestUrl = ''
 		let requestMethod = ''
 		let requestBody: unknown = null
@@ -111,13 +111,19 @@ describe('NylasV3Client', () => {
 		}
 		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
 
+		await client.getGrant('grant/123')
+		expect(requestUrl).toBe('https://api.us.nylas.com/v3/grants/grant%2F123')
+		expect(requestMethod).toBe('GET')
+
 		await client.updateGrant('grant-123', {
+			name: 'Ada Lovelace',
 			settings: { email: 'contact@example.com', app_password: 'New-password-123456' },
 		})
 
 		expect(requestUrl).toBe('https://api.us.nylas.com/v3/grants/grant-123')
 		expect(requestMethod).toBe('PATCH')
 		expect(requestBody).toEqual({
+			name: 'Ada Lovelace',
 			settings: { email: 'contact@example.com', app_password: 'New-password-123456' },
 		})
 	})

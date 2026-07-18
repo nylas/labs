@@ -386,11 +386,16 @@ export class NylasV3Client {
 		return this.request('GET', `/v3/grants${toQuery(query)}`)
 	}
 
+	async getGrant(grantId: string): Promise<ItemResponse<Grant>> {
+		return this.request('GET', `/v3/grants/${encodeURIComponent(grantId)}`)
+	}
+
 	async updateGrant(
 		grantId: string,
-		input: { settings?: { [key: string]: Json | undefined }; workspaceId?: string },
+		input: { name?: string; settings?: { [key: string]: Json | undefined }; workspaceId?: string },
 	): Promise<ItemResponse<Grant>> {
 		const body: Record<string, unknown> = {}
+		if (input.name !== undefined) body.name = input.name
 		if (input.settings) body.settings = input.settings
 		if (input.workspaceId) body.workspace_id = input.workspaceId
 		return this.request('PATCH', `/v3/grants/${encodeURIComponent(grantId)}`, body)
