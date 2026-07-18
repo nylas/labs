@@ -129,9 +129,15 @@ describe('thread header', () => {
 	it('uses a neutral light-mode conversation surface while preserving the dark-mode background', () => {
 		renderThread()
 		const conversation = document.querySelector('[data-slot="thread-conversation"]')
+		const overflowSlots = document.querySelectorAll('[data-slot^="scroll-area-overflow-"]')
 
 		expect(conversation).toHaveClass('min-h-full', 'bg-muted', 'dark:bg-background')
 		expect(conversation).not.toHaveClass('bg-background', 'bg-card')
+		expect(overflowSlots).toHaveLength(2)
+		for (const slot of overflowSlots) {
+			expect(slot).toHaveClass('from-muted/80', 'dark:from-background/80')
+			expect(slot).not.toHaveClass('from-background/80')
+		}
 	})
 
 	it('keeps nested sender and attachment surfaces distinct from the muted conversation', () => {

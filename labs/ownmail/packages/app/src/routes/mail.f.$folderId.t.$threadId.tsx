@@ -226,7 +226,11 @@ function ThreadView() {
 			</div>
 			{error ? <ErrorBanner message={error} /> : null}
 
-			<ScrollArea aria-label="Thread conversation" className="min-h-0 flex-1">
+			<ScrollArea
+				aria-label="Thread conversation"
+				className="min-h-0 flex-1"
+				overflowIndicatorClassName="from-muted/80 dark:from-background/80"
+			>
 				<ThreadConversation thread={thread} messages={messages} />
 			</ScrollArea>
 
