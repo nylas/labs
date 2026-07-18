@@ -198,6 +198,26 @@ describe('thread header', () => {
 // --- message list -------------------------------------------------------
 
 describe('message list', () => {
+	it('offers a separate raw email download for each individual message', () => {
+		renderThread(
+			loaderData({
+				messages: [
+					{
+						id: 'msg/#1',
+						from: [{ name: 'Alice', email: 'alice@x.com' }],
+						body: 'Raw message',
+					},
+				],
+			}),
+		)
+		const link = screen.getByRole('link', { name: 'Download raw email from Alice' })
+
+		expect(link).toHaveAttribute('href', '/messages/msg%2F%231/download')
+		expect(link).toHaveAttribute('download')
+		expect(link.closest('button')).toBeNull()
+		expect(link.parentElement?.querySelector('button')).toHaveAttribute('aria-expanded', 'true')
+	})
+
 	it('opens the last message and collapses earlier ones, showing previews and senders', () => {
 		renderThread()
 		// senders resolved from name, email, and the unknown fallback

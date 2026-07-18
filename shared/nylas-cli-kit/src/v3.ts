@@ -84,6 +84,14 @@ export type Message = {
 	attachments?: MessageAttachment[]
 }
 
+/** Raw message envelope returned by Get Message with `fields=raw_mime`. */
+export type RawMimeMessage = {
+	id: string
+	grant_id: string
+	object?: 'message'
+	raw_mime: string
+}
+
 export type Thread = {
 	id: string
 	grant_id: string
@@ -640,6 +648,9 @@ export class GrantScopedClient {
 	}
 	getMessage(messageId: string): Promise<ItemResponse<Message>> {
 		return this.client.request('GET', this.path(`/messages/${encodeURIComponent(messageId)}`))
+	}
+	getRawMime(messageId: string): Promise<ItemResponse<RawMimeMessage>> {
+		return this.client.request('GET', this.path(`/messages/${encodeURIComponent(messageId)}?fields=raw_mime`))
 	}
 	updateMessage(
 		messageId: string,

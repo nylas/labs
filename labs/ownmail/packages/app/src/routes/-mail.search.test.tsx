@@ -498,7 +498,7 @@ describe('/mail/search thread detail', () => {
 		expect(screen.getByText('C')).toBeTruthy()
 		expect(screen.getByTitle('Email content mc')).toBeTruthy()
 		// No non-inline attachments -> no attachment download links in the reader.
-		expect(document.querySelector('a[download]')).toBeNull()
+		expect(document.querySelector('[data-slot="thread-attachment"]')).toBeNull()
 	})
 })
 

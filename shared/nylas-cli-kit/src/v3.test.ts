@@ -255,6 +255,28 @@ describe('NylasV3Client', () => {
 		expect(await response.text()).toBe('pdf-bytes')
 	})
 
+	it('requests raw MIME for one encoded message id', async () => {
+		let requestUrl = ''
+		const fetchImpl: typeof fetch = async (input) => {
+			requestUrl = String(input)
+			return Response.json({
+				request_id: 'req-mime',
+				data: {
+					id: 'msg#1',
+					grant_id: 'grant-123',
+					object: 'message',
+					raw_mime: 'TUlNRS1WZXJzaW9uOiAxLjA',
+				},
+			})
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		const response = await mailbox.getRawMime('msg#1')
+
+		expect(requestUrl).toBe('https://api.us.nylas.com/v3/grants/grant-123/messages/msg%231?fields=raw_mime')
+		expect(response.data.raw_mime).toBe('TUlNRS1WZXJzaW9uOiAxLjA')
+	})
+
 	it('performs the full contact CRUD cycle against grant-scoped contact endpoints', async () => {
 		const calls: { method: string; url: string; body: unknown }[] = []
 		const fetchImpl: typeof fetch = async (input, init) => {
