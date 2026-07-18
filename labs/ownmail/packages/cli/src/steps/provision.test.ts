@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import * as p from '@clack/prompts'
 import { DashboardAccountClient, DpopKey, GatewayClient, NylasV3Client } from '@nylas-labs/cli-kit'
 import open from 'open'
@@ -17,6 +18,7 @@ import {
 	stepDomainPlan,
 	stepGrant,
 	stepOrg,
+	watchVerificationControls,
 } from './provision.js'
 
 // A sentinel that our mocked p.isCancel treats as "the user cancelled". Making a
@@ -965,12 +967,283 @@ describe('stepDomain', () => {
 			}),
 			dashboard: { domainInfo, verifyDomain } as never,
 		})
+		vi.mocked(p.select).mockResolvedValueOnce('poll' as never)
 
 		await stepDomain(ctx)
 
 		expect(verifyDomain).toHaveBeenCalledTimes(5)
 		expect(ctx.project.domainVerified).toBe(true)
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'domain')
+	})
+
+	it('finishes from the authoritative dashboard state without starting a verification loop', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockResolvedValue({
+			verifiedOwnership: true,
+			verifiedMx: true,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		})
+		const verifyDomain = vi.fn()
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+
+		await stepDomain(ctx)
+
+		expect(getInboxDomain).toHaveBeenCalledWith(expect.anything(), 'custom-1', 'us')
+		expect(verifyDomain).not.toHaveBeenCalled()
+		expect(p.select).not.toHaveBeenCalled()
+		expect(ctx.project.domainVerified).toBe(true)
+	})
+
+	it('offers a manual retry and completes once the required checks verify', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockRejectedValue(new Error('refresh unavailable'))
+		const verifyDomain = vi.fn((_tokens: unknown, _domainId: string, { type }: { type: string }) =>
+			Promise.resolve({ status: type === 'ownership' || type === 'mx' ? 'verified' : 'pending' }),
+		)
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce('manual' as never)
+
+		await stepDomain(ctx)
+
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({
+				options: expect.arrayContaining([
+					expect.objectContaining({ value: 'poll' }),
+					expect.objectContaining({ value: 'manual' }),
+				]),
+			}),
+		)
+		expect(ctx.project.domainVerified).toBe(true)
+	})
+
+	it('returns to the verification choice after an unsuccessful manual retry', async () => {
+		const unverified = {
+			verifiedOwnership: false,
+			verifiedMx: false,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		}
+		const verified = { ...unverified, verifiedOwnership: true, verifiedMx: true }
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi
+			.fn()
+			.mockResolvedValueOnce(unverified)
+			.mockResolvedValueOnce(unverified)
+			.mockResolvedValueOnce(verified)
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'pending' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('manual' as never)
+			.mockResolvedValueOnce('manual' as never)
+
+		await stepDomain(ctx)
+
+		expect(p.select).toHaveBeenCalledTimes(2)
+		const spinners = vi.mocked(p.spinner).mock.results.map((result) => result.value)
+		expect(spinners[0]?.stop).toHaveBeenCalledWith(expect.stringContaining('Still waiting on'))
+		expect(ctx.project.domainVerified).toBe(true)
+	})
+
+	it('allows cancellation from the verification choice', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockResolvedValue({
+			verifiedOwnership: false,
+			verifiedMx: false,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		})
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
+
+		await expect(stepDomain(ctx)).rejects.toBeInstanceOf(CancelledError)
+	})
+
+	it('lets the user escape automatic polling and retry manually', async () => {
+		const unverified = {
+			verifiedOwnership: false,
+			verifiedMx: false,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		}
+		const verified = { ...unverified, verifiedOwnership: true, verifiedMx: true }
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi
+			.fn()
+			.mockResolvedValueOnce(unverified)
+			.mockResolvedValueOnce(unverified)
+			.mockResolvedValue(verified)
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'pending' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('poll' as never)
+			.mockResolvedValueOnce('manual' as never)
+
+		const promise = stepDomain(ctx)
+		await vi.waitFor(() => expect(getInboxDomain).toHaveBeenCalledTimes(2))
+		process.stdin.emit('data', Buffer.from('\u001b'))
+		await promise
+
+		expect(p.select).toHaveBeenCalledTimes(2)
+		expect(ctx.project.domainVerified).toBe(true)
+		const spinners = vi.mocked(p.spinner).mock.results.map((result) => result.value)
+		expect(spinners[0]?.stop).toHaveBeenCalledWith('Automatic polling paused.')
+	})
+
+	it('honors Escape pressed while a verification request is in flight', async () => {
+		const unverified = {
+			verifiedOwnership: false,
+			verifiedMx: false,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		}
+		const verified = { ...unverified, verifiedOwnership: true, verifiedMx: true }
+		let releaseVerification!: (value: { status: string }) => void
+		const blockedVerification = new Promise<{ status: string }>((resolve) => {
+			releaseVerification = resolve
+		})
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi
+			.fn()
+			.mockResolvedValueOnce(unverified)
+			.mockResolvedValueOnce(unverified)
+			.mockResolvedValue(verified)
+		const verifyDomain = vi
+			.fn()
+			.mockImplementationOnce(() => blockedVerification)
+			.mockResolvedValue({ status: 'pending' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('poll' as never)
+			.mockResolvedValueOnce('manual' as never)
+
+		const promise = stepDomain(ctx)
+		await vi.waitFor(() => expect(verifyDomain).toHaveBeenCalledTimes(1))
+		process.stdin.emit('data', Buffer.from('\u001b'))
+		releaseVerification({ status: 'pending' })
+		await promise
+
+		expect(p.select).toHaveBeenCalledTimes(2)
+		expect(ctx.project.domainVerified).toBe(true)
+	})
+
+	it('honors Ctrl+C pressed while a verification request is in flight', async () => {
+		const unverified = {
+			verifiedOwnership: false,
+			verifiedMx: false,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		}
+		let releaseVerification!: (value: { status: string }) => void
+		const blockedVerification = new Promise<{ status: string }>((resolve) => {
+			releaseVerification = resolve
+		})
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockResolvedValue(unverified)
+		const verifyDomain = vi
+			.fn()
+			.mockImplementationOnce(() => blockedVerification)
+			.mockResolvedValue({ status: 'pending' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce('poll' as never)
+
+		const promise = stepDomain(ctx)
+		const assertion = expect(promise).rejects.toBeInstanceOf(CancelledError)
+		await vi.waitFor(() => expect(verifyDomain).toHaveBeenCalledTimes(1))
+		process.stdin.emit('data', Buffer.from('\u0003'))
+		releaseVerification({ status: 'pending' })
+		await assertion
+	})
+
+	it('honors Ctrl+C while waiting between automatic verification attempts', async () => {
+		const unverified = {
+			verifiedOwnership: false,
+			verifiedMx: false,
+			verifiedSpf: false,
+			verifiedDkim: false,
+			verifiedFeedback: false,
+		}
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockResolvedValue(unverified)
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'pending' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce('poll' as never)
+
+		const promise = stepDomain(ctx)
+		const assertion = expect(promise).rejects.toBeInstanceOf(CancelledError)
+		await vi.waitFor(() => expect(getInboxDomain).toHaveBeenCalledTimes(2))
+		process.stdin.emit('data', Buffer.from('\u0003'))
+		await assertion
 	})
 
 	it('throws CancelledError when the domain-choice picker is cancelled', async () => {
@@ -1111,6 +1384,7 @@ describe('stepDomain', () => {
 			dashboard: { listInboxDomains, createInboxDomain, domainInfo, verifyDomain } as never,
 		})
 		vi.mocked(p.select).mockResolvedValueOnce('custom' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('poll' as never)
 		vi.mocked(p.text).mockResolvedValueOnce('mail.acme.com' as never)
 
 		await stepDomain(ctx)
@@ -1145,6 +1419,7 @@ describe('stepDomain', () => {
 			dashboard: { listInboxDomains, createInboxDomain, domainInfo, verifyDomain } as never,
 		})
 		vi.mocked(p.select).mockResolvedValueOnce('custom' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('poll' as never)
 		vi.mocked(p.text).mockResolvedValueOnce('mail.acme.com' as never)
 
 		const promise = stepDomain(ctx)
@@ -1165,6 +1440,7 @@ describe('stepDomain', () => {
 			dashboard: { listInboxDomains, createInboxDomain, domainInfo, verifyDomain } as never,
 		})
 		vi.mocked(p.select).mockResolvedValueOnce('custom' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('poll' as never)
 		vi.mocked(p.text).mockResolvedValueOnce('mail.acme.com' as never)
 
 		const promise = stepDomain(ctx)
@@ -1172,6 +1448,69 @@ describe('stepDomain', () => {
 		await vi.advanceTimersByTimeAsync(31 * 60 * 1000)
 		await assertion
 		vi.useRealTimers()
+	})
+})
+
+describe('watchVerificationControls', () => {
+	it('ignores unrelated keys, keeps the first control, and restores a paused raw terminal', async () => {
+		const input = Object.assign(new EventEmitter(), {
+			isTTY: true,
+			isRaw: false,
+			isPaused: vi.fn(() => true),
+			resume: vi.fn(),
+			pause: vi.fn(),
+			setRawMode: vi.fn(),
+		})
+		input.setRawMode.mockImplementation((mode: boolean) => {
+			input.isRaw = mode
+		})
+
+		const controls = watchVerificationControls(input as never)
+		input.emit('data', Buffer.from('x'))
+		expect(controls.current()).toBeNull()
+		input.emit('data', Buffer.from('\u001b'))
+		input.emit('data', Buffer.from('\u0003'))
+
+		await expect(controls.wait).resolves.toBe('back')
+		expect(controls.current()).toBe('back')
+		controls.dispose()
+		expect(input.setRawMode).toHaveBeenNthCalledWith(1, true)
+		expect(input.setRawMode).toHaveBeenNthCalledWith(2, false)
+		expect(input.resume).toHaveBeenCalledTimes(1)
+		expect(input.pause).toHaveBeenCalledTimes(1)
+	})
+
+	it('supports TTY-like inputs without raw-mode controls', () => {
+		const input = Object.assign(new EventEmitter(), {
+			isTTY: true,
+			isRaw: false,
+			isPaused: vi.fn(() => false),
+			resume: vi.fn(),
+			pause: vi.fn(),
+		})
+
+		const controls = watchVerificationControls(input as never)
+		controls.dispose()
+
+		expect(input.resume).toHaveBeenCalledTimes(1)
+		expect(input.pause).not.toHaveBeenCalled()
+	})
+
+	it('does not toggle raw mode again when the terminal was already raw', () => {
+		const input = Object.assign(new EventEmitter(), {
+			isTTY: true,
+			isRaw: true,
+			isPaused: vi.fn(() => false),
+			resume: vi.fn(),
+			pause: vi.fn(),
+			setRawMode: vi.fn(),
+		})
+
+		const controls = watchVerificationControls(input as never)
+		controls.dispose()
+
+		expect(input.setRawMode).toHaveBeenCalledTimes(1)
+		expect(input.setRawMode).toHaveBeenCalledWith(true)
 	})
 })
 

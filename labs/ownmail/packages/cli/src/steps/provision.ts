@@ -5,6 +5,7 @@ import {
 	DpopKey,
 	type GatewayApplication,
 	GatewayClient,
+	type InboxDomain,
 	NylasV3Client,
 	type Region,
 	type SsoLoginType,
@@ -31,6 +32,20 @@ const APPLICATION_REGIONS: Region[] = ['us', 'eu']
 const DASHBOARD_EMAIL_SCHEMA = z.string().trim().max(254).email()
 const DASHBOARD_PASSWORD_SCHEMA = z.string().min(1).max(1024)
 const DASHBOARD_MFA_CODE_SCHEMA = z.string().regex(/^[0-9]{6}$/)
+const DOMAIN_VERIFICATION_CHECKS = ['ownership', 'mx', 'spf', 'dkim', 'feedback'] as const
+const DOMAIN_POLL_INTERVAL_MS = 30_000
+const DOMAIN_POLL_TIMEOUT_MS = 30 * 60 * 1000
+
+type DomainVerificationCheck = (typeof DOMAIN_VERIFICATION_CHECKS)[number]
+type PollControl = 'back' | 'cancel'
+type VerificationInput = Pick<
+	NodeJS.ReadStream,
+	'isPaused' | 'on' | 'pause' | 'removeListener' | 'resume'
+> & {
+	isTTY?: boolean
+	isRaw?: boolean
+	setRawMode?: (mode: boolean) => unknown
+}
 
 /** 01 — Dashboard email/password or SSO flow (login or register). */
 export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
@@ -555,8 +570,7 @@ async function verifyCustomDomain(ctx: StepContext, domainId: string, domain: st
 	const dashboard = requireDashboard(ctx)
 	const region = ctx.project.region
 	p.log.step('Publish these DNS records at your DNS provider:')
-	const checks = ['ownership', 'mx', 'spf', 'dkim', 'feedback'] as const
-	for (const type of checks) {
+	for (const type of DOMAIN_VERIFICATION_CHECKS) {
 		try {
 			const info = await dashboard.domainInfo(tokens(ctx), domainId, { region, type })
 			const o = info.attempt?.options
@@ -568,33 +582,185 @@ async function verifyCustomDomain(ctx: StepContext, domainId: string, domain: st
 		}
 	}
 
-	const spinner = p.spinner()
-	spinner.start('Waiting for DNS records (checking every 30s — Ctrl+C to pause; re-run ownmail to resume)…')
-	const pending = new Set<string>(checks)
-	const deadline = Date.now() + 30 * 60 * 1000
-	while (pending.size > 0 && Date.now() < deadline) {
-		for (const type of [...pending]) {
-			try {
-				const result = await dashboard.verifyDomain(tokens(ctx), domainId, { type }, region)
-				if (/verified|success|ok/i.test(result.status)) pending.delete(type)
-			} catch {
-				// keep polling
+	const pending = new Set<DomainVerificationCheck>(DOMAIN_VERIFICATION_CHECKS)
+	if (await refreshDomainVerificationState(ctx, domainId, pending)) {
+		finishDomainVerification(ctx, domain)
+		return
+	}
+
+	for (;;) {
+		const mode = await p.select({
+			message: `DNS verification is waiting on: ${[...pending].join(', ')}. How should OwnMail continue?`,
+			options: [
+				{
+					value: 'poll' as const,
+					label: 'Poll automatically',
+					hint: 'every 30s; press Esc to go back',
+				},
+				{
+					value: 'manual' as const,
+					label: 'Retry verification now',
+					hint: 'return here if DNS is still pending',
+				},
+			],
+		})
+		if (p.isCancel(mode)) throw new CancelledError()
+
+		const spinner = p.spinner()
+		if (mode === 'manual') {
+			spinner.start('Checking DNS records…')
+			if (await runDomainVerificationSweep(ctx, domainId, pending)) {
+				spinner.stop(`${domain} verified — mail routing is live.`)
+				finishDomainVerification(ctx, domain, false)
+				return
 			}
+			spinner.stop(`Still waiting on: ${[...pending].join(', ')}.`)
+			continue
 		}
-		if (pending.size > 0) {
-			spinner.message(`Waiting on: ${[...pending].join(', ')}`)
-			await new Promise((r) => setTimeout(r, 30_000))
+
+		spinner.start('Polling DNS every 30s — press Esc to go back or Ctrl+C to pause setup…')
+		const controls = watchVerificationControls()
+		const deadline = Date.now() + DOMAIN_POLL_TIMEOUT_MS
+		try {
+			while (Date.now() < deadline) {
+				if (await runDomainVerificationSweep(ctx, domainId, pending)) {
+					spinner.stop(`${domain} verified — mail routing is live.`)
+					finishDomainVerification(ctx, domain, false)
+					return
+				}
+
+				const control = controls.current()
+				if (control === 'cancel') throw new CancelledError()
+				if (control === 'back') {
+					spinner.stop('Automatic polling paused.')
+					break
+				}
+
+				spinner.message(`Waiting on: ${[...pending].join(', ')} — Esc goes back`)
+				const waitedControl = await waitForPollInterval(controls.wait)
+				if (waitedControl === 'cancel') throw new CancelledError()
+				if (waitedControl === 'back') {
+					spinner.stop('Automatic polling paused.')
+					break
+				}
+			}
+
+			if (Date.now() >= deadline) {
+				spinner.stop('DNS not fully verified yet.')
+				throw new Error(
+					`Still waiting on: ${[...pending].join(', ')}. DNS can take a while — re-run ownmail to resume from here.`,
+				)
+			}
+		} finally {
+			controls.dispose()
 		}
 	}
-	if (pending.size > 0) {
-		spinner.stop('DNS not fully verified yet.')
-		throw new Error(
-			`Still waiting on: ${[...pending].join(', ')}. DNS can take a while — re-run ownmail to resume from here.`,
-		)
+}
+
+async function runDomainVerificationSweep(
+	ctx: StepContext,
+	domainId: string,
+	pending: Set<DomainVerificationCheck>,
+): Promise<boolean> {
+	const dashboard = requireDashboard(ctx)
+	for (const type of [...pending]) {
+		try {
+			const result = await dashboard.verifyDomain(tokens(ctx), domainId, { type }, ctx.project.region)
+			if (/verified|success|ok/i.test(result.status)) pending.delete(type)
+		} catch {
+			// A later authoritative domain refresh can still observe a completed check.
+		}
 	}
-	spinner.stop(`${domain} verified — mail routing is live.`)
+
+	const refreshed = await refreshDomainVerificationState(ctx, domainId, pending)
+	return refreshed || (!pending.has('ownership') && !pending.has('mx'))
+}
+
+async function refreshDomainVerificationState(
+	ctx: StepContext,
+	domainId: string,
+	pending: Set<DomainVerificationCheck>,
+): Promise<boolean> {
+	try {
+		const domain = await requireDashboard(ctx).getInboxDomain(tokens(ctx), domainId, ctx.project.region)
+		updatePendingDomainChecks(pending, domain)
+		return isFullyVerified(domain)
+	} catch {
+		return false
+	}
+}
+
+function updatePendingDomainChecks(
+	pending: Set<DomainVerificationCheck>,
+	domain: Pick<
+		InboxDomain,
+		'verifiedOwnership' | 'verifiedMx' | 'verifiedSpf' | 'verifiedDkim' | 'verifiedFeedback'
+	>,
+): void {
+	const verified: Record<DomainVerificationCheck, boolean> = {
+		ownership: domain.verifiedOwnership,
+		mx: domain.verifiedMx,
+		spf: domain.verifiedSpf,
+		dkim: domain.verifiedDkim,
+		feedback: domain.verifiedFeedback,
+	}
+	for (const type of DOMAIN_VERIFICATION_CHECKS) {
+		if (verified[type]) pending.delete(type)
+		else pending.add(type)
+	}
+}
+
+function finishDomainVerification(ctx: StepContext, domain: string, logSuccess = true): void {
+	if (logSuccess) p.log.success(`${domain} verified — mail routing is live.`)
 	ctx.project.domainVerified = true
 	saveProject(ctx.project)
+}
+
+export function watchVerificationControls(input: VerificationInput = process.stdin): {
+	wait: Promise<PollControl>
+	current: () => PollControl | null
+	dispose: () => void
+} {
+	const wasPaused = input.isPaused()
+	const wasRaw = Boolean(input.isRaw)
+	let control: PollControl | null = null
+	let resolveControl!: (value: PollControl) => void
+	const wait = new Promise<PollControl>((resolve) => {
+		resolveControl = resolve
+	})
+	const onData = (chunk: Buffer | string): void => {
+		const key = chunk.toString()
+		const next = key === '\u001b' ? 'back' : key === '\u0003' ? 'cancel' : null
+		if (!next || control) return
+		control = next
+		resolveControl(next)
+	}
+
+	input.on('data', onData)
+	if (input.isTTY && typeof input.setRawMode === 'function') input.setRawMode(true)
+	input.resume()
+
+	return {
+		wait,
+		current: () => control,
+		dispose: () => {
+			input.removeListener('data', onData)
+			if (input.isTTY && typeof input.setRawMode === 'function' && Boolean(input.isRaw) !== wasRaw) {
+				input.setRawMode(wasRaw)
+			}
+			if (wasPaused) input.pause()
+		},
+	}
+}
+
+async function waitForPollInterval(control: Promise<PollControl>): Promise<PollControl | null> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => resolve(null), DOMAIN_POLL_INTERVAL_MS)
+		void control.then((value) => {
+			clearTimeout(timer)
+			resolve(value)
+		})
+	})
 }
 
 function hasDurableResources(project: ProjectState): boolean {
