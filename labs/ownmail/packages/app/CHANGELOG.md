@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.6.1
+
+### Patch Changes
+
+- 1072c27: Prevent Cloudflare-backed inbox session rotations from failing during the final minute.
+
 ## 0.6.0
 
 ### Minor Changes
