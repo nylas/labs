@@ -1,5 +1,13 @@
 # @ownmail/app
 
+## 0.6.2
+
+### Patch Changes
+
+- f82cdc4: Fix OwnMail email rendering, account switcher layout, and persistent account display names.
+- Updated dependencies [f82cdc4]
+  - @nylas-labs/cli-kit@0.4.0
+
 ## 0.6.1
 
 ### Patch Changes
