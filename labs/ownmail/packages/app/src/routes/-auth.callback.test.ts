@@ -13,10 +13,11 @@ const platform = vi.fn()
 vi.mock('../server/platform.js', () => ({ platform: () => platform() }))
 
 const consumePkce = vi.fn()
-const createSession = vi.fn()
+const addVerifiedSessionAccount = vi.fn()
 vi.mock('../server/session.js', () => ({
 	consumePkce: (r: any, s: string) => consumePkce(r, s),
-	createSession: (grantId: string, email: string) => createSession(grantId, email),
+	addVerifiedSessionAccount: (request: Request, grantId: string, email: string) =>
+		addVerifiedSessionAccount(request, grantId, email),
 }))
 
 import { Route } from './auth.callback.js'
@@ -83,13 +84,13 @@ describe('/auth/callback', () => {
 	it('exchanges the code for a grant and establishes the session, clearing the PKCE cookie', async () => {
 		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: 'ownmail_pkce=; Max-Age=0' })
 		exchangeCodeForToken.mockResolvedValue({ grant_id: 'grant-1', email: 'ada@ownmail.com' })
-		createSession.mockResolvedValue('ownmail_session=abc')
+		addVerifiedSessionAccount.mockResolvedValue('ownmail_session=abc')
 
 		const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
 
 		expect(response.status).toBe(302)
 		expect(response.headers.get('Location')).toBe('/')
-		expect(createSession).toHaveBeenCalledWith('grant-1', 'ada@ownmail.com')
+		expect(addVerifiedSessionAccount).toHaveBeenCalledWith(expect.any(Request), 'grant-1', 'ada@ownmail.com')
 		expect(response.headers.getSetCookie()).toEqual(['ownmail_session=abc', 'ownmail_pkce=; Max-Age=0'])
 		expect(exchangeCodeForToken).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -104,11 +105,15 @@ describe('/auth/callback', () => {
 	it('falls back to the configured inbox email and skips a clear cookie in KV mode', async () => {
 		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: null })
 		exchangeCodeForToken.mockResolvedValue({ grant_id: 'grant-2' })
-		createSession.mockResolvedValue('ownmail_session=def')
+		addVerifiedSessionAccount.mockResolvedValue('ownmail_session=def')
 
 		const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
 
-		expect(createSession).toHaveBeenCalledWith('grant-2', 'fallback@ownmail.com')
+		expect(addVerifiedSessionAccount).toHaveBeenCalledWith(
+			expect.any(Request),
+			'grant-2',
+			'fallback@ownmail.com',
+		)
 		expect(response.headers.getSetCookie()).toEqual(['ownmail_session=def'])
 	})
 

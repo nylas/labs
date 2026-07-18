@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KvLike } from './platform.js'
 import {
+	addVerifiedSessionAccount,
 	clearSessionCookie,
 	consumePkce,
 	createReferenceDevSessionCookie,
@@ -8,7 +9,9 @@ import {
 	destroySession,
 	getSession,
 	hasReferenceDevSessionCookie,
+	sessionAccountSummaries,
 	storePkce,
+	switchSessionAccount,
 } from './session.js'
 
 /**
@@ -42,6 +45,10 @@ function usePlatform(kv: KvLike | null): void {
 
 function req(cookie?: string): Request {
 	return new Request('http://ownmail.local/', cookie ? { headers: { cookie } } : {})
+}
+
+function cookieFromSetCookie(setCookie: string): string {
+	return setCookie.slice('ownmail_session='.length, setCookie.indexOf(';'))
 }
 
 beforeEach(() => {
@@ -89,7 +96,80 @@ describe('KV-backed sessions', () => {
 		expect(session).toEqual({
 			grantId: 'grant-123',
 			email: 'user@ownmail.com',
+			accounts: [{ grantId: 'grant-123', email: 'user@ownmail.com' }],
 			createdAt: expect.any(Number),
+		})
+	})
+
+	it('adds only callback-verified accounts and switches by opaque handle', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const initialCookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const initialRequest = req(`ownmail_session=${initialCookie}`)
+		const nextCookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(initialRequest, 'grant-b', 'b@ownmail.com'),
+		)
+		const nextRequest = req(`ownmail_session=${nextCookie}`)
+
+		expect(await getSession(nextRequest)).toEqual({
+			grantId: 'grant-b',
+			email: 'b@ownmail.com',
+			accounts: [
+				{ grantId: 'grant-a', email: 'a@ownmail.com' },
+				{ grantId: 'grant-b', email: 'b@ownmail.com' },
+			],
+			createdAt: expect.any(Number),
+		})
+		const summaries = await sessionAccountSummaries(nextRequest)
+		expect(summaries).toEqual([
+			{ email: 'a@ownmail.com', handle: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), active: false },
+			{ email: 'b@ownmail.com', handle: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), active: true },
+		])
+		expect(JSON.stringify(summaries)).not.toContain('grant-a')
+
+		const firstHandle = summaries?.[0]?.handle
+		expect(firstHandle).toBeTruthy()
+		const switchedCookie = cookieFromSetCookie(
+			(await switchSessionAccount(nextRequest, firstHandle as string)) as string,
+		)
+		expect(await getSession(req(`ownmail_session=${switchedCookie}`))).toEqual(
+			expect.objectContaining({ grantId: 'grant-a', email: 'a@ownmail.com' }),
+		)
+	})
+
+	it('fails closed for arbitrary handles that are not in the verified account allow-list', async () => {
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		expect(await switchSessionAccount(req(`ownmail_session=${cookie}`), 'z'.repeat(43))).toBeNull()
+		expect(await switchSessionAccount(req(`ownmail_session=${cookie}`), 'grant-a')).toBeNull()
+		const handle = (await sessionAccountSummaries(req(`ownmail_session=${cookie}`)))?.[0]?.handle as string
+		expect(await switchSessionAccount(req(), handle)).toBeNull()
+	})
+
+	it('deduplicates a re-verified grant and rejects invalid verified account records', async () => {
+		const firstCookie = cookieFromSetCookie(await createSession('grant-a', 'old@ownmail.com'))
+		const nextCookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(`ownmail_session=${firstCookie}`), 'grant-a', 'new@ownmail.com'),
+		)
+		expect((await getSession(req(`ownmail_session=${nextCookie}`)))?.accounts).toEqual([
+			{ grantId: 'grant-a', email: 'new@ownmail.com' },
+		])
+		await expect(createSession('', 'a@ownmail.com')).rejects.toThrow('Invalid session')
+	})
+
+	it('migrates a valid legacy KV session record to the one-account session model', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const id = cookie.split('.')[0] as string
+		kv.store.set(
+			`session:${id}`,
+			JSON.stringify({ grantId: 'grant-old', email: 'old@ownmail.com', createdAt: 123 }),
+		)
+		expect(await getSession(req(`ownmail_session=${cookie}`))).toEqual({
+			grantId: 'grant-old',
+			email: 'old@ownmail.com',
+			accounts: [{ grantId: 'grant-old', email: 'old@ownmail.com' }],
+			createdAt: 123,
 		})
 	})
 
@@ -111,6 +191,28 @@ describe('KV-backed sessions', () => {
 		const id = cookieValue.split('.')[0]
 		kv.store.set(`session:${id}`, 'not-json{')
 
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
+	})
+
+	it.each([null, 'text', []])('rejects a parsed KV session that is not a record (%j)', async (record) => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookieValue = cookieFromSetCookie(await createSession('g', 'e@x.com'))
+		const id = cookieValue.split('.')[0] as string
+		kv.store.set(`session:${id}`, JSON.stringify(record))
+
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
+	})
+
+	it('rejects a KV session with a non-record account entry', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookieValue = cookieFromSetCookie(await createSession('g', 'e@x.com'))
+		const id = cookieValue.split('.')[0] as string
+		kv.store.set(
+			`session:${id}`,
+			JSON.stringify({ accounts: [null], activeGrantId: 'g', createdAt: Date.now() }),
+		)
 		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
 	})
 
@@ -166,12 +268,96 @@ describe('KV-backed sessions', () => {
 describe('stateless sessions (no KV)', () => {
 	beforeEach(() => usePlatform(null))
 
+	it('starts a verified account session when Hosted Auth completes without an existing session', async () => {
+		const cookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(), 'grant-first', 'first@ownmail.com'),
+		)
+		expect(await getSession(req(`ownmail_session=${cookie}`))).toEqual(
+			expect.objectContaining({ grantId: 'grant-first', email: 'first@ownmail.com' }),
+		)
+		expect(await sessionAccountSummaries(req())).toBeNull()
+	})
+
 	it('round-trips the grant through a signed self-contained cookie', async () => {
 		const setCookie = await createSession('grant-abc', 'ada@ownmail.com')
 		const cookieValue = setCookie.slice('ownmail_session='.length, setCookie.indexOf(';'))
 
 		const session = await getSession(req(`ownmail_session=${cookieValue}`))
-		expect(session).toEqual({ grantId: 'grant-abc', email: 'ada@ownmail.com', createdAt: 0 })
+		expect(session).toEqual({
+			grantId: 'grant-abc',
+			email: 'ada@ownmail.com',
+			accounts: [{ grantId: 'grant-abc', email: 'ada@ownmail.com' }],
+			createdAt: 0,
+		})
+	})
+
+	it('migrates a valid legacy stateless cookie to the one-account session model', async () => {
+		const { signedCookie } = await buildStatelessSession({
+			g: 'grant-legacy',
+			e: 'legacy@ownmail.com',
+			exp: Math.floor(Date.now() / 1000) + 60,
+		})
+
+		expect(await getSession(req(`ownmail_session=${signedCookie}`))).toEqual({
+			grantId: 'grant-legacy',
+			email: 'legacy@ownmail.com',
+			accounts: [{ grantId: 'grant-legacy', email: 'legacy@ownmail.com' }],
+			createdAt: 0,
+		})
+	})
+
+	it('persists verified accounts and active selection inside a signed stateless cookie', async () => {
+		const firstCookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const firstRequest = req(`ownmail_session=${firstCookie}`)
+		const secondCookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(firstRequest, 'grant-b', 'b@ownmail.com'),
+		)
+		const secondRequest = req(`ownmail_session=${secondCookie}`)
+		const summaries = await sessionAccountSummaries(secondRequest)
+		const firstHandle = summaries?.find((account) => account.email === 'a@ownmail.com')?.handle
+		const switched = await switchSessionAccount(secondRequest, firstHandle as string)
+
+		expect(switched).toBeTruthy()
+		expect(await getSession(req(`ownmail_session=${cookieFromSetCookie(switched as string)}`))).toEqual({
+			grantId: 'grant-a',
+			email: 'a@ownmail.com',
+			accounts: [
+				{ grantId: 'grant-a', email: 'a@ownmail.com' },
+				{ grantId: 'grant-b', email: 'b@ownmail.com' },
+			],
+			createdAt: expect.any(Number),
+		})
+	})
+
+	it('keeps ten normal verified accounts within the practical cookie budget', async () => {
+		let cookie = cookieFromSetCookie(await createSession('grant-0', 'inbox0@ownmail.com'))
+		for (let index = 1; index < 10; index += 1) {
+			cookie = cookieFromSetCookie(
+				await addVerifiedSessionAccount(
+					req(`ownmail_session=${cookie}`),
+					`grant-${index}`,
+					`inbox${index}@ownmail.com`,
+				),
+			)
+		}
+
+		expect(cookie.length).toBeLessThanOrEqual(3800)
+		expect((await getSession(req(`ownmail_session=${cookie}`)))?.accounts).toHaveLength(10)
+		await expect(
+			addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-10', 'inbox10@ownmail.com'),
+		).rejects.toThrow('Too many inboxes')
+	})
+
+	it('fails closed rather than emitting an oversized stateless session cookie', async () => {
+		const longGrant = (suffix: string) => `${'g'.repeat(900)}${suffix}`
+		let cookie = cookieFromSetCookie(await createSession(longGrant('0'), 'a@ownmail.com'))
+		cookie = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), longGrant('1'), 'b@ownmail.com'),
+		)
+
+		await expect(
+			addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), longGrant('2'), 'c@ownmail.com'),
+		).rejects.toThrow('Session is too large')
 	})
 
 	it('returns null when no session cookie is present', async () => {

@@ -2,7 +2,14 @@ import { buildAuthorizeUrl, generatePkcePair } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { platform, usingDevMocks } from '../server/platform.js'
-import { createReferenceDevSessionCookie, storePkce } from '../server/session.js'
+import {
+	createReferenceDevSessionCookie,
+	getSession,
+	storePkce,
+	switchSessionAccount,
+} from '../server/session.js'
+
+const MAX_SWITCH_BODY_BYTES = 1024
 
 export const Route = createFileRoute('/auth')({
 	server: {
@@ -24,6 +31,7 @@ export const Route = createFileRoute('/auth')({
 				const state = crypto.randomUUID()
 				const pkce = await generatePkcePair()
 				const pkceCookie = await storePkce(state, pkce.verifier)
+				const existingSession = await getSession(request)
 
 				const url = buildAuthorizeUrl({
 					region: env.NYLAS_REGION,
@@ -33,11 +41,42 @@ export const Route = createFileRoute('/auth')({
 					provider: 'nylas',
 					state,
 					codeChallenge: pkce.challenge,
-					...(env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
+					...(!existingSession && env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
 				})
 				const headers = new Headers({ Location: url })
 				if (pkceCookie) headers.set('Set-Cookie', pkceCookie)
 				return new Response(null, { status: 302, headers })
+			},
+			/** Switches only to an inbox previously verified through this session's Hosted Auth flow. */
+			POST: async ({ request }) => {
+				if (request.headers.get('origin') !== new URL(request.url).origin) {
+					return new Response('Forbidden', { status: 403 })
+				}
+				const mediaType = (request.headers.get('content-type') ?? '').replace(/;.*$/, '').trim().toLowerCase()
+				const rawContentLength = request.headers.get('content-length')
+				const contentLength = Number(rawContentLength)
+				if (
+					mediaType !== 'application/x-www-form-urlencoded' ||
+					rawContentLength === null ||
+					!Number.isSafeInteger(contentLength) ||
+					contentLength <= 0 ||
+					contentLength > MAX_SWITCH_BODY_BYTES
+				) {
+					return new Response('Invalid request', { status: 400 })
+				}
+				let handle: FormDataEntryValue | null
+				try {
+					handle = (await request.formData()).get('account')
+				} catch {
+					return new Response('Invalid request', { status: 400 })
+				}
+				if (typeof handle !== 'string') return new Response('Invalid request', { status: 400 })
+				const cookie = await switchSessionAccount(request, handle)
+				if (!cookie) return new Response('Forbidden', { status: 403 })
+				return new Response(null, {
+					status: 303,
+					headers: { Location: MAIL_HOME_PATH, 'Set-Cookie': cookie },
+				})
 			},
 		},
 	},

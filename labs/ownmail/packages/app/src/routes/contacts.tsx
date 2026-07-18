@@ -2,7 +2,12 @@ import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Plus, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../components/AppRail.js'
+import {
+	AppRailLogo,
+	AppRailMobileNav,
+	AppRailNav,
+	type MailboxAccountOption,
+} from '../components/AppRail.js'
 import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
 import {
 	contactDisplayName,
@@ -28,7 +33,12 @@ export const Route = createFileRoute('/contacts')({
 	component: ContactsLayout,
 })
 
-type ContactsInfo = { email: string; displayName?: string; appName: string }
+type ContactsInfo = {
+	email: string
+	displayName?: string
+	appName: string
+	accounts?: MailboxAccountOption[]
+}
 
 function ContactsLayout() {
 	const { info, contacts, nextCursor } = Route.useLoaderData()
@@ -161,6 +171,7 @@ export function ContactsShell({
 	const railNavProps = {
 		email: info.email,
 		displayName: info.displayName,
+		accounts: info.accounts,
 		active: 'contacts' as const,
 		onOpenCommandPalette: openPalette,
 	}

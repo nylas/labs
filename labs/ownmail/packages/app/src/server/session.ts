@@ -5,9 +5,9 @@
  * Security invariant: the Nylas API key is app-wide, so the grant_id MUST come
  * from this server-side session — never from client input.
  *
- * KV mode: cookie = <random id>.<hmac(id)>, KV maps id → {grantId, email}.
+ * KV mode: cookie = <random id>.<hmac(id)>, KV maps id → the verified inboxes.
  * Stateless mode: cookie = <base64url payload>.<hmac(payload)> where the
- * payload carries {grantId, email, exp} directly. Both are HMAC-SHA256-signed
+ * payload carries the verified inboxes and expiry directly. Both are HMAC-SHA256-signed
  * with SESSION_SECRET.
  */
 import { platform } from './platform.js'
@@ -15,10 +15,24 @@ import { platform } from './platform.js'
 const COOKIE_NAME = 'ownmail_session'
 const PKCE_COOKIE = 'ownmail_pkce'
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14 // 14 days
+const MAX_SESSION_ACCOUNTS = 10
+const MAX_SESSION_COOKIE_VALUE_LENGTH = 3800
+
+export type SessionAccount = {
+	grantId: string
+	email: string
+}
 
 export type Session = {
 	grantId: string
 	email: string
+	accounts: SessionAccount[]
+	createdAt: number
+}
+
+type StoredSession = {
+	accounts: SessionAccount[]
+	activeGrantId: string
 	createdAt: number
 }
 
@@ -71,20 +85,95 @@ function setCookie(name: string, value: string, maxAge: number, secure = true): 
 
 /** Returns the Set-Cookie header value establishing the session. */
 export async function createSession(grantId: string, email: string): Promise<string> {
+	return persistSession({
+		accounts: [{ grantId, email }],
+		activeGrantId: grantId,
+		createdAt: Date.now(),
+	})
+}
+
+/**
+ * Adds a mailbox only after Hosted Auth has verified its credentials. Existing
+ * verified mailboxes remain available and the newly verified mailbox becomes active.
+ */
+export async function addVerifiedSessionAccount(
+	request: Request,
+	grantId: string,
+	email: string,
+): Promise<string> {
+	const current = await getSession(request)
+	const accounts = current?.accounts.filter((account) => account.grantId !== grantId) ?? []
+	if (accounts.length >= MAX_SESSION_ACCOUNTS) throw new Error('Too many inboxes in this session')
+	const cookie = await persistSession({
+		accounts: [...accounts, { grantId, email }],
+		activeGrantId: grantId,
+		createdAt: current?.createdAt || Date.now(),
+	})
+	if (current) await destroySession(request)
+	return cookie
+}
+
+/** Selects an already verified mailbox. A client-provided grant id is never accepted. */
+export async function switchSessionAccount(request: Request, handle: string): Promise<string | null> {
+	if (!/^[A-Za-z0-9_-]{43}$/.test(handle)) return null
+	const current = await getSession(request)
+	if (!current) return null
+	let selected: SessionAccount | undefined
+	for (const account of current.accounts) {
+		if (timingSafeEqual(await accountHandle(account.grantId), handle)) {
+			selected = account
+			break
+		}
+	}
+	if (!selected) return null
+	const cookie = await persistSession({
+		accounts: current.accounts,
+		activeGrantId: selected.grantId,
+		createdAt: current.createdAt || Date.now(),
+	})
+	await destroySession(request)
+	return cookie
+}
+
+export async function sessionAccountSummaries(
+	request: Request,
+): Promise<{ email: string; handle: string; active: boolean }[] | null> {
+	const session = await getSession(request)
+	if (!session) return null
+	return Promise.all(
+		session.accounts.map(async (account) => ({
+			email: account.email,
+			handle: await accountHandle(account.grantId),
+			active: account.grantId === session.grantId,
+		})),
+	)
+}
+
+async function accountHandle(grantId: string): Promise<string> {
+	return hmac(`account:${grantId}`)
+}
+
+async function persistSession(record: StoredSession): Promise<string> {
+	if (!validStoredSession(record)) throw new Error('Invalid session')
 	const { kv } = await platform()
 	if (kv) {
 		const id = base64url(crypto.getRandomValues(new Uint8Array(32)))
-		const record: Session = { grantId, email, createdAt: Date.now() }
 		await kv.put(`session:${id}`, JSON.stringify(record), { expirationTtl: SESSION_TTL_SECONDS })
 		return setCookie(COOKIE_NAME, `${id}.${await hmac(id)}`, SESSION_TTL_SECONDS)
 	}
 	// Stateless: signed payload cookie.
 	const payload = base64url(
 		encoder.encode(
-			JSON.stringify({ g: grantId, e: email, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS }),
+			JSON.stringify({
+				a: record.accounts.map((account) => ({ g: account.grantId, e: account.email })),
+				active: record.activeGrantId,
+				exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+			}),
 		),
 	)
-	return setCookie(COOKIE_NAME, `${payload}.${await hmac(payload)}`, SESSION_TTL_SECONDS)
+	const value = `${payload}.${await hmac(payload)}`
+	if (value.length > MAX_SESSION_COOKIE_VALUE_LENGTH) throw new Error('Session is too large')
+	return setCookie(COOKIE_NAME, value, SESSION_TTL_SECONDS)
 }
 
 export function clearSessionCookie(): string {
@@ -111,8 +200,8 @@ export async function getSession(request: Request): Promise<Session | null> {
 		const raw = await kv.get(`session:${first}`)
 		if (!raw) return null
 		try {
-			const parsed = JSON.parse(raw) as Partial<Session>
-			return validSession(parsed) ? parsed : null
+			const parsed = JSON.parse(raw) as Partial<StoredSession> & Partial<Session>
+			return restoreSession(parsed)
 		} catch {
 			return null
 		}
@@ -120,16 +209,31 @@ export async function getSession(request: Request): Promise<Session | null> {
 	const decoded = fromBase64url(first)
 	if (!decoded) return null
 	try {
-		const parsed = JSON.parse(decoded) as { g?: unknown; e?: unknown; exp?: unknown }
-		if (
-			typeof parsed.g !== 'string' ||
-			typeof parsed.e !== 'string' ||
-			typeof parsed.exp !== 'number' ||
-			!Number.isSafeInteger(parsed.exp) ||
-			parsed.exp * 1000 < Date.now()
-		)
+		const parsed = JSON.parse(decoded) as {
+			a?: unknown
+			active?: unknown
+			g?: unknown
+			e?: unknown
+			exp?: unknown
+		}
+		if (typeof parsed.exp !== 'number' || !Number.isSafeInteger(parsed.exp) || parsed.exp * 1000 < Date.now())
 			return null
-		return { grantId: parsed.g, email: parsed.e, createdAt: 0 }
+		// Accept legacy one-inbox cookies until their normal expiry.
+		const stored = Array.isArray(parsed.a)
+			? {
+					accounts: parsed.a.map((account) => {
+						const value = account as { g?: unknown; e?: unknown }
+						return { grantId: value.g, email: value.e }
+					}),
+					activeGrantId: parsed.active,
+					createdAt: 0,
+				}
+			: {
+					accounts: [{ grantId: parsed.g, email: parsed.e }],
+					activeGrantId: parsed.g,
+					createdAt: 0,
+				}
+		return restoreSession(stored)
 	} catch {
 		return null
 	}
@@ -198,16 +302,50 @@ export async function consumePkce(
 	}
 }
 
-function validSession(value: Partial<Session>): value is Session {
+function validAccount(value: unknown): value is SessionAccount {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const account = value as Partial<SessionAccount>
 	return (
-		typeof value.grantId === 'string' &&
-		value.grantId.length > 0 &&
-		value.grantId.length <= 1000 &&
-		!/\r|\n/.test(value.grantId) &&
-		typeof value.email === 'string' &&
-		value.email.length > 0 &&
-		value.email.length <= 320 &&
-		typeof value.createdAt === 'number' &&
-		Number.isFinite(value.createdAt)
+		typeof account.grantId === 'string' &&
+		account.grantId.length > 0 &&
+		account.grantId.length <= 1000 &&
+		!/\r|\n/.test(account.grantId) &&
+		typeof account.email === 'string' &&
+		account.email.length > 0 &&
+		account.email.length <= 320 &&
+		!/[\r\n\0]/.test(account.email)
 	)
+}
+function validStoredSession(value: unknown): value is StoredSession {
+	const session = value as Partial<StoredSession>
+	return (
+		Array.isArray(session.accounts) &&
+		session.accounts.length > 0 &&
+		session.accounts.length <= MAX_SESSION_ACCOUNTS &&
+		session.accounts.every(validAccount) &&
+		new Set(session.accounts.map((account) => account.grantId)).size === session.accounts.length &&
+		typeof session.activeGrantId === 'string' &&
+		session.accounts.some((account) => account.grantId === session.activeGrantId) &&
+		typeof session.createdAt === 'number' &&
+		Number.isFinite(session.createdAt)
+	)
+}
+
+function restoreSession(value: unknown): Session | null {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+	const record = value as Record<string, unknown>
+	const stored: unknown = Array.isArray(record.accounts)
+		? {
+				accounts: record.accounts,
+				activeGrantId: record.activeGrantId,
+				createdAt: record.createdAt,
+			}
+		: {
+				accounts: [{ grantId: record.grantId, email: record.email }],
+				activeGrantId: record.grantId,
+				createdAt: record.createdAt,
+			}
+	if (!validStoredSession(stored)) return null
+	const active = stored.accounts.find((account) => account.grantId === stored.activeGrantId) as SessionAccount
+	return { ...active, accounts: stored.accounts, createdAt: stored.createdAt }
 }

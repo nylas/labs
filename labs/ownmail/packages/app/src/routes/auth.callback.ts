@@ -2,7 +2,7 @@ import { exchangeCodeForToken } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '../components/route-paths.js'
 import { platform } from '../server/platform.js'
-import { consumePkce, createSession } from '../server/session.js'
+import { addVerifiedSessionAccount, consumePkce } from '../server/session.js'
 import { OWNMAIL_USER_AGENT } from '../server/usage-attribution.js'
 
 export const Route = createFileRoute('/auth/callback')({
@@ -35,7 +35,10 @@ export const Route = createFileRoute('/auth/callback')({
 						userAgent: OWNMAIL_USER_AGENT,
 					})
 					const headers = new Headers({ Location: MAIL_HOME_PATH })
-					headers.append('Set-Cookie', await createSession(token.grant_id, token.email ?? env.INBOX_EMAIL))
+					headers.append(
+						'Set-Cookie',
+						await addVerifiedSessionAccount(request, token.grant_id, token.email ?? env.INBOX_EMAIL),
+					)
 					if (pkce.clearCookie) headers.append('Set-Cookie', pkce.clearCookie)
 					return new Response(null, { status: 302, headers })
 				} catch (err) {

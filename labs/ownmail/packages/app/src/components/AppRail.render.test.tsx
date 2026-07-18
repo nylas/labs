@@ -100,6 +100,47 @@ describe('AppRailNav', () => {
 		expect(signOut.closest('form')).toHaveAttribute('action', '/logout')
 		expect(signOut.closest('form')).toHaveAttribute('method', 'post')
 	})
+
+	it('submits only the opaque handle when switching between verified inboxes', () => {
+		const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {})
+		render(
+			<AppRailNav
+				email="ada@ownmail.com"
+				active="mail"
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+
+		const switcher = screen.getByRole('combobox', { name: 'Switch inbox' })
+		expect(switcher.closest('form')).toHaveAttribute('action', '/auth')
+		expect(switcher.closest('form')).toHaveAttribute('method', 'post')
+		fireEvent.change(switcher, { target: { value: 'b'.repeat(43) } })
+		expect(requestSubmit).toHaveBeenCalledOnce()
+		expect(screen.queryByDisplayValue('grant-b')).toBeNull()
+		requestSubmit.mockRestore()
+	})
+
+	it('offers the Hosted Auth proof flow for adding another inbox', () => {
+		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
+		expect(screen.getByRole('link', { name: 'Add inbox' })).toHaveAttribute('href', '/auth')
+	})
+
+	it('hides the switch control if session account data has no active account', () => {
+		render(
+			<AppRailNav
+				email="ada@ownmail.com"
+				active="mail"
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: false },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+		expect(screen.queryByRole('combobox', { name: 'Switch inbox' })).toBeNull()
+	})
 })
 
 describe('AppRailMobileNav', () => {
@@ -156,5 +197,28 @@ describe('AppRailMobileNav', () => {
 		).toHaveAttribute('aria-current', 'page')
 		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
 		expect(onNavigate).toHaveBeenCalledTimes(1)
+	})
+
+	it('shows the verified inbox switcher in mobile navigation', () => {
+		const onNavigate = vi.fn()
+		const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {})
+		render(
+			<AppRailMobileNav
+				email="ada@ownmail.com"
+				active="mail"
+				onNavigate={onNavigate}
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+
+		fireEvent.change(screen.getByRole('combobox', { name: 'Switch inbox' }), {
+			target: { value: 'b'.repeat(43) },
+		})
+		expect(onNavigate).toHaveBeenCalledOnce()
+		expect(requestSubmit).toHaveBeenCalledOnce()
+		requestSubmit.mockRestore()
 	})
 })

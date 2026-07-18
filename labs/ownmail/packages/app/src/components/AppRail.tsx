@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Search, Sun, Users } from 'lucide-react'
+import { Calendar, LogOut, Mail, Moon, Plus, Search, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH, MAIL_HOME_PATH, SETTINGS_PATH } from './route-paths.js'
 import {
@@ -12,9 +12,16 @@ import {
 import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS, cn, initials } from './ui-model.js'
 import { useUserPreferences } from './user-preferences.js'
 
+export type MailboxAccountOption = {
+	email: string
+	handle: string
+	active: boolean
+}
+
 type AppRailNavProps = {
 	email: string
 	displayName?: string
+	accounts?: MailboxAccountOption[]
 	active: 'mail' | 'calendar' | 'contacts' | 'settings'
 	onOpenCommandPalette?: () => void
 }
@@ -56,7 +63,13 @@ export function AppRailLogo({ appName, className }: { appName: string; className
 	)
 }
 
-export function AppRailNav({ email, displayName, active, onOpenCommandPalette }: AppRailNavProps) {
+export function AppRailNav({
+	email,
+	displayName,
+	accounts = [],
+	active,
+	onOpenCommandPalette,
+}: AppRailNavProps) {
 	const [isDark, setIsDark] = useState(false)
 	const [mounted, setMounted] = useState(false)
 	const [preferences] = useUserPreferences()
@@ -111,6 +124,15 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 
 			<div className="mt-auto flex flex-col items-center gap-0.5 px-2 pb-3 pt-2">
 				<div className="app-rail-divider" aria-hidden="true" />
+				{accounts.length > 1 ? <AccountSwitcher accounts={accounts} compact /> : null}
+				<a
+					href="/auth"
+					className="app-rail-item app-rail-item-utility"
+					aria-label="Add inbox"
+					title="Add inbox"
+				>
+					<Plus className="h-[17px] w-[17px]" />
+				</a>
 				<RailButton onClick={toggleTheme} ariaLabel={themeToggleLabel(mounted, isDark)}>
 					{mounted && isDark ? <Sun className="h-[17px] w-[17px]" /> : <Moon className="h-[17px] w-[17px]" />}
 				</RailButton>
@@ -149,6 +171,7 @@ export function AppRailNav({ email, displayName, active, onOpenCommandPalette }:
 export function AppRailMobileNav({
 	email,
 	displayName,
+	accounts = [],
 	active,
 	onOpenCommandPalette,
 	onNavigate,
@@ -200,6 +223,15 @@ export function AppRailMobileNav({
 			</div>
 
 			<div className="mt-3 space-y-1 border-t border-border px-2 pt-3">
+				{accounts.length > 1 ? <AccountSwitcher accounts={accounts} onNavigate={onNavigate} /> : null}
+				<a
+					href="/auth"
+					onClick={onNavigate}
+					className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+				>
+					<Plus className="h-5 w-5" aria-hidden="true" />
+					<span>Add inbox</span>
+				</a>
 				<MobileNavButton
 					label={themeToggleLabel(mounted, isDark)}
 					onClick={toggleTheme}
@@ -234,6 +266,48 @@ export function AppRailMobileNav({
 				</Link>
 			</div>
 		</nav>
+	)
+}
+
+function AccountSwitcher({
+	accounts,
+	compact = false,
+	onNavigate,
+}: {
+	accounts: MailboxAccountOption[]
+	compact?: boolean
+	onNavigate?: () => void
+}) {
+	const active = accounts.find((account) => account.active)
+	if (!active) return null
+	return (
+		<form action="/auth" method="post" className={compact ? 'contents' : 'px-1'}>
+			<label className={compact ? 'block' : 'block text-xs font-medium text-muted-foreground'}>
+				{compact ? <span className="sr-only">Switch inbox</span> : <span className="px-2">Inbox</span>}
+				<select
+					name="account"
+					aria-label="Switch inbox"
+					value={active.handle}
+					title={`Current inbox: ${active.email}`}
+					onChange={(event) => {
+						onNavigate?.()
+						event.currentTarget.form?.requestSubmit()
+					}}
+					className={cn(
+						'cursor-pointer rounded-md border border-border bg-card outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40',
+						compact
+							? 'mt-0.5 h-9 w-11 px-1 text-[10px] font-semibold'
+							: 'mt-1 h-10 w-full px-2 text-sm text-foreground',
+					)}
+				>
+					{accounts.map((account) => (
+						<option key={account.handle} value={account.handle}>
+							{account.email}
+						</option>
+					))}
+				</select>
+			</label>
+		</form>
 	)
 }
 
