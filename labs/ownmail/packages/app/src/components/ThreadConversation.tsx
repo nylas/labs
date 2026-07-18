@@ -45,8 +45,9 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 							return (
 								<a
 									key={attachment.id}
+									data-slot="thread-attachment"
 									href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(parent.id)}`}
-									className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+									className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
 									download={attachment.filename}
 								>
 									<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
@@ -103,7 +104,10 @@ function MessageBlock({
 				 * height when expanded, and the row never changes height on toggle.
 				 */}
 				<div className="flex items-center gap-3">
-					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
+					<div
+						data-slot="sender-avatar"
+						className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
+					>
 						{initials(fromLabel)}
 					</div>
 					<div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -152,8 +156,9 @@ function MessageAttachments({ message }: { message: MailMessage }) {
 			{attachments.map((attachment) => (
 				<a
 					key={attachment.id}
+					data-slot="thread-attachment"
 					href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(message.id)}`}
-					className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+					className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
 					download={attachment.filename}
 				>
 					<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
