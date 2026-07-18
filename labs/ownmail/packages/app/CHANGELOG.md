@@ -1,5 +1,18 @@
 # @ownmail/app
 
+## 0.6.0
+
+### Minor Changes
+
+- 4a23d91: Support securely adding and switching between multiple verified inboxes.
+
+### Patch Changes
+
+- 0028cf6: Keep server-state refreshes scoped to changed domains and start version polling after in-app navigation.
+- 2d37aef: Give light-mode email threads a neutral background while preserving contrast for nested sender and attachment affordances.
+- 6ebd49e: Render saved OwnMail Markdown drafts as their final formatted HTML in the reading preview.
+- c3b0923: Align folder-thread overflow fades with the muted conversation surface while preserving other scroll areas and dark mode.
+
 ## 0.5.2
 
 ### Patch Changes
