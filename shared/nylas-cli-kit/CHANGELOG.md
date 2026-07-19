@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.5.0
+
+### Minor Changes
+
+- 7cd3ca4: Allow users to download the original raw email for an individual message.
+
 ## 0.4.0
 
 ### Minor Changes
