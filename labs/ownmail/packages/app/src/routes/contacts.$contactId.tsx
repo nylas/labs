@@ -2,10 +2,10 @@ import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Building2, Mail, Pencil, Phone, StickyNote, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import { ContactModal } from '../components/ContactModal.js'
-import { contactDisplayName, contactSubtitle } from '../components/contacts-model.js'
+import { ContactModal } from '../features/contacts/components/ContactModal.js'
+import { contactDisplayName, contactSubtitle } from '../features/contacts/lib/contacts-model.js'
+import { useContact, useDeleteContactMutation } from '../features/contacts/state/contacts-state.js'
 import { getContact } from '../server/fns.js'
-import { useContact, useDeleteContactMutation } from '../state/contacts-state.js'
 import { ContactAvatar } from './contacts.js'
 
 export const Route = createFileRoute('/contacts/$contactId')({

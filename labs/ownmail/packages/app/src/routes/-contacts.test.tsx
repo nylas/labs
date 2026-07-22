@@ -30,7 +30,7 @@ vi.mock('@tanstack/react-router', () => ({
 	Outlet: () => <div data-testid="outlet" />,
 }))
 
-vi.mock('../components/AppRail.js', () => ({
+vi.mock('../app/components/AppRail.js', () => ({
 	AppRailLogo: (props: any) => <div data-testid="logo">{props.appName}</div>,
 	AppRailNav: (props: any) => (
 		<div data-testid="nav" data-active={props.active}>
@@ -48,7 +48,7 @@ vi.mock('../components/AppRail.js', () => ({
 	),
 }))
 
-vi.mock('../components/Sheet.js', () => ({
+vi.mock('../shared/components/Sheet.js', () => ({
 	Sheet: (props: any) =>
 		props.open ? (
 			<div data-testid="sheet">
@@ -60,7 +60,7 @@ vi.mock('../components/Sheet.js', () => ({
 		) : null,
 }))
 
-vi.mock('../components/CommandPalette.js', () => ({
+vi.mock('../app/components/CommandPalette.js', () => ({
 	CommandPalette: (props: any) =>
 		props.open ? (
 			<div data-testid="palette">

@@ -43,7 +43,7 @@ const platformMock = vi.fn()
 const usingDevMocksMock = vi.fn()
 vi.mock('./platform.js', () => ({ platform: () => platformMock(), usingDevMocks: () => usingDevMocksMock() }))
 
-import { LOGIN_PATH } from '../components/route-paths.js'
+import { LOGIN_PATH } from '../app/config/route-paths.js'
 import * as fns from './fns.js'
 
 /** A mailbox with every method stubbed; tests override per-case. */

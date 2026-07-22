@@ -10,7 +10,7 @@ vi.mock('@tanstack/react-router', () => ({
 	useRouter: () => ({ invalidate: h.invalidate }),
 }))
 
-vi.mock('../components/ContactModal.js', () => ({
+vi.mock('../features/contacts/components/ContactModal.js', () => ({
 	ContactModal: (props: any) => (
 		<div data-testid="contact-modal" data-contact={String(props.contact)}>
 			<button type="button" onClick={() => props.onClose(true, 'contact-new')}>

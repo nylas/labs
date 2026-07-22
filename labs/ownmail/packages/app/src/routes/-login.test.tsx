@@ -28,7 +28,7 @@ vi.mock('../server/session.js', () => ({
 	hasReferenceDevSessionCookie: (r: any) => hasReferenceDevSessionCookie(r),
 }))
 
-vi.mock('../components/LoginScreen.js', () => ({
+vi.mock('../features/auth/components/LoginScreen.js', () => ({
 	LoginScreen: (props: any) => (
 		<div data-testid="login-screen" data-site-name={props.siteName}>
 			{props.signInHref}

@@ -27,7 +27,7 @@ vi.mock('./contacts.js', () => ({
 	ContactAvatar: (props: any) => <span data-testid="avatar">{props.name}</span>,
 }))
 
-vi.mock('../components/ContactModal.js', () => ({
+vi.mock('../features/contacts/components/ContactModal.js', () => ({
 	ContactModal: (props: any) => (
 		<div data-testid="contact-modal">
 			<button type="button" onClick={() => props.onClose(true)}>

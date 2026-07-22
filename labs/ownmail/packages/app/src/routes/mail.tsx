@@ -8,23 +8,25 @@ import {
 	AppRailMobileNav,
 	AppRailNav,
 	type MailboxAccountOption,
-} from '../components/AppRail.js'
-import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
-import { MailSidebar } from '../components/MailSidebar.js'
-import { Sheet } from '../components/Sheet.js'
+} from '../app/components/AppRail.js'
+import { CommandPalette, useCommandPaletteShortcut } from '../app/components/CommandPalette.js'
 import {
-	activeMailSidebarFolderId,
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
-	cn,
-	composeSearchFromMailLocation,
-	liveSearchTarget,
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
+} from '../app/config/layout.js'
+import { MailSidebar } from '../features/mail/components/MailSidebar.js'
+import {
+	activeMailSidebarFolderId,
+	composeSearchFromMailLocation,
+	liveSearchTarget,
 	mailSearchInputValue,
-} from '../components/ui-model.js'
+} from '../features/mail/lib/mail-ui-model.js'
+import { foldersQueryOptions, toMailFolder } from '../features/mail/state/mail-queries.js'
 import { getFolders, getMailboxInfo } from '../server/fns.js'
-import { foldersQueryOptions, toMailFolder } from '../state/mail-queries.js'
+import { Sheet } from '../shared/components/Sheet.js'
+import { cn } from '../shared/lib/utils.js'
 
 export const Route = createFileRoute('/mail')({
 	loader: async () => {

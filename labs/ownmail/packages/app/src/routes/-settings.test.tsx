@@ -18,7 +18,7 @@ vi.mock('../server/fns.js', () => ({
 	updateMailboxDisplayName: (input: unknown) => updateMailboxDisplayName(input),
 }))
 
-vi.mock('../components/AppRail.js', () => ({
+vi.mock('../app/components/AppRail.js', () => ({
 	AppRailLogo: ({ appName }: { appName: string }) => <div>{appName}</div>,
 	AppRailNav: () => <nav aria-label="App navigation" />,
 	AppRailMobileNav: ({ onNavigate }: { onNavigate: () => void }) => (
@@ -28,7 +28,7 @@ vi.mock('../components/AppRail.js', () => ({
 	),
 }))
 
-vi.mock('../components/Sheet.js', () => ({
+vi.mock('../shared/components/Sheet.js', () => ({
 	Sheet: (props: any) =>
 		props.open ? (
 			<div data-testid="sheet">

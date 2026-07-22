@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ContactModal } from '../components/ContactModal.js'
+import { ContactModal } from '../features/contacts/components/ContactModal.js'
 
 export const Route = createFileRoute('/contacts/new')({
 	validateSearch: (search): { q?: string } =>

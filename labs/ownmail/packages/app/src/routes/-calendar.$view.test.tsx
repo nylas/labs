@@ -5,7 +5,7 @@ import { cleanup, fireEvent, screen, render as testingRender, within } from '@te
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ymd } from '../components/calendar.js'
+import { ymd } from '../features/calendar/lib/calendar.js'
 
 function render(ui: ReactElement) {
 	return testingRender(
@@ -30,12 +30,14 @@ vi.mock('@tanstack/react-router', () => ({
 	useRouter: () => ({ invalidate: h.invalidate }),
 }))
 
-vi.mock('../server/calendar-fns.js', () => ({ getEvents: (args: any) => h.getEvents(args) }))
+vi.mock('../features/calendar/server/calendar-fns.js', () => ({
+	getEvents: (args: any) => h.getEvents(args),
+}))
 vi.mock('../server/fns.js', () => ({ getMailboxInfo: () => h.getMailboxInfo() }))
 
 // The chrome/dialog children own their own render tests; stub them to observable markers
 // so this suite stays focused on the calendar grid + navigation logic.
-vi.mock('../components/AppRail.js', () => ({
+vi.mock('../app/components/AppRail.js', () => ({
 	AppRailLogo: (props: any) => <div data-testid="app-rail-logo">{props.appName}</div>,
 	AppRailNav: (props: any) => (
 		<div data-testid="app-rail-nav" data-active={props.active}>
@@ -53,7 +55,7 @@ vi.mock('../components/AppRail.js', () => ({
 	),
 }))
 
-vi.mock('../components/CommandPalette.js', () => ({
+vi.mock('../app/components/CommandPalette.js', () => ({
 	CommandPalette: (props: any) =>
 		props.open ? (
 			<div data-testid="command-palette">
@@ -65,7 +67,7 @@ vi.mock('../components/CommandPalette.js', () => ({
 	useCommandPaletteShortcut: () => {},
 }))
 
-vi.mock('../components/Sheet.js', () => ({
+vi.mock('../shared/components/Sheet.js', () => ({
 	Sheet: (props: any) =>
 		props.open ? (
 			<div data-testid="sheet">
@@ -77,7 +79,7 @@ vi.mock('../components/Sheet.js', () => ({
 		) : null,
 }))
 
-vi.mock('../components/EventModal.js', () => ({
+vi.mock('../features/calendar/components/EventModal.js', () => ({
 	EventModal: (props: any) => (
 		<div
 			role="dialog"

@@ -24,7 +24,7 @@ vi.mock('../server/fns.js', () => ({
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
-import { markdownToDraftBody } from '../components/html-to-markdown.js'
+import { markdownToDraftBody } from '../features/mail/lib/html-to-markdown.js'
 import { ErrorBanner, Route } from './mail.f.$folderId.t.$threadId.js'
 
 afterEach(cleanup)

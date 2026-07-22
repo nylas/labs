@@ -55,7 +55,7 @@ vi.mock('../server/fns.js', () => ({
 
 // ClientListDate depends on a mount effect + locale formatting; stub it to a stable
 // marker so list assertions stay deterministic.
-vi.mock('../components/ClientTime.js', () => ({
+vi.mock('../shared/components/ClientTime.js', () => ({
 	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => (
 		<time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
 	),
