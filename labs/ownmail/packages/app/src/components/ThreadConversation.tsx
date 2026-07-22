@@ -15,7 +15,9 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 	const threadAttachments = useMemo(
 		() =>
 			messages.flatMap((message) =>
-				(message.attachments ?? []).filter((attachment) => !attachment.is_inline),
+				(message.attachments ?? [])
+					.filter((attachment) => !attachment.is_inline)
+					.map((attachment) => ({ attachment, messageId: message.id })),
 			),
 		[messages],
 	)
@@ -36,28 +38,9 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 
 				{threadAttachments.length > 0 ? (
 					<div className="mt-4 flex flex-wrap gap-2">
-						{threadAttachments.map((attachment) => {
-							const parent = messages.find((message) =>
-								message.attachments?.some((item) => item.id === attachment.id),
-							)
-							/* v8 ignore next -- unreachable: threadAttachments is derived from these same messages, so every attachment id always matches its source message */
-							if (!parent) return null
-							return (
-								<a
-									key={attachment.id}
-									data-slot="thread-attachment"
-									href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(parent.id)}`}
-									className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
-									download={attachment.filename}
-								>
-									<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-									<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
-									{attachment.size ? (
-										<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
-									) : null}
-								</a>
-							)
-						})}
+						{threadAttachments.map(({ attachment, messageId }) => (
+							<AttachmentLink key={attachment.id} attachment={attachment} messageId={messageId} />
+						))}
 					</div>
 				) : null}
 			</header>
@@ -166,21 +149,28 @@ function MessageAttachments({ message }: { message: MailMessage }) {
 	return (
 		<div className="mt-4 flex flex-wrap gap-2">
 			{attachments.map((attachment) => (
-				<a
-					key={attachment.id}
-					data-slot="thread-attachment"
-					href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(message.id)}`}
-					className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
-					download={attachment.filename}
-				>
-					<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-					<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
-					{attachment.size ? (
-						<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
-					) : null}
-				</a>
+				<AttachmentLink key={attachment.id} attachment={attachment} messageId={message.id} />
 			))}
 		</div>
+	)
+}
+
+type Attachment = NonNullable<MailMessage['attachments']>[number]
+
+function AttachmentLink({ attachment, messageId }: { attachment: Attachment; messageId: string }) {
+	return (
+		<a
+			data-slot="thread-attachment"
+			href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`}
+			className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
+			download={attachment.filename}
+		>
+			<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+			<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
+			{attachment.size ? (
+				<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
+			) : null}
+		</a>
 	)
 }
 
