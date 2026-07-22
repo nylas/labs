@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { LOGIN_PATH } from '../components/route-paths.js'
-import { clearSessionCookie, destroySession } from '../server/session.js'
+import { LOGIN_PATH } from '#app/config/route-paths'
+import { clearSessionCookie, destroySession } from '#server/session'
 
 export const Route = createFileRoute('/logout')({
 	server: {

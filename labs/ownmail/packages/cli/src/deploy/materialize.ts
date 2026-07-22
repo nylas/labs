@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { sourceImports } from './source-imports.js'
 
 const require = createRequire(import.meta.url)
 
@@ -162,6 +163,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 		'src',
 		'public',
 		'scripts',
+		'components.json',
 		'vite.config.ts',
 		'vite.config.vercel.ts',
 		'tsconfig.json',
@@ -178,6 +180,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 				name: input.slug,
 				private: true,
 				type: 'module',
+				imports: sourceImports,
 				scripts: {
 					dev: 'vite dev',
 					build: 'vite build',

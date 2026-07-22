@@ -1,13 +1,8 @@
 import { buildAuthorizeUrl, generatePkcePair } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
-import { MAIL_HOME_PATH } from '../components/route-paths.js'
-import { platform, usingDevMocks } from '../server/platform.js'
-import {
-	createReferenceDevSessionCookie,
-	getSession,
-	storePkce,
-	switchSessionAccount,
-} from '../server/session.js'
+import { MAIL_HOME_PATH } from '#app/config/route-paths'
+import { platform, usingDevMocks } from '#server/platform'
+import { createReferenceDevSessionCookie, getSession, storePkce, switchSessionAccount } from '#server/session'
 
 const MAX_SWITCH_BODY_BYTES = 1024
 

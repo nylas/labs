@@ -2,25 +2,22 @@ import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Plus, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-	AppRailLogo,
-	AppRailMobileNav,
-	AppRailNav,
-	type MailboxAccountOption,
-} from '../components/AppRail.js'
-import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
+import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	contactDisplayName,
 	contactIdFromPath,
 	contactSubtitle,
 	filterContacts,
 	sortContacts,
-} from '../components/contacts-model.js'
-import { edgeCursor, listNavAction, moveCursor } from '../components/list-nav.js'
-import { Sheet } from '../components/Sheet.js'
-import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS, cn, initials } from '../components/ui-model.js'
-import { getContacts, getMailboxInfo } from '../server/fns.js'
-import { flattenContactPages, useContactsPages } from '../state/contacts-state.js'
+} from '#features/contacts/lib/contacts-model'
+import { flattenContactPages, useContactsPages } from '#features/contacts/state/contacts-state'
+import { getContacts, getMailboxInfo } from '#server/fns'
+import { Sheet } from '#shared/components/Sheet'
+import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { initials } from '#shared/lib/presentation'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/contacts')({
 	validateSearch: (search): { q?: string } =>

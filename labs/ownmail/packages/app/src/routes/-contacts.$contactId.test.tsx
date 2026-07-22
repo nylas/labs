@@ -18,7 +18,7 @@ vi.mock('@tanstack/react-router', () => ({
 	useRouter: () => ({ invalidate: h.invalidate }),
 }))
 
-vi.mock('../server/fns.js', () => ({
+vi.mock('#server/fns', () => ({
 	deleteContact: (args: any) => h.deleteContact(args),
 	getContact: (args: any) => h.getContact(args),
 }))
@@ -27,7 +27,7 @@ vi.mock('./contacts.js', () => ({
 	ContactAvatar: (props: any) => <span data-testid="avatar">{props.name}</span>,
 }))
 
-vi.mock('../components/ContactModal.js', () => ({
+vi.mock('#features/contacts/components/ContactModal', () => ({
 	ContactModal: (props: any) => (
 		<div data-testid="contact-modal">
 			<button type="button" onClick={() => props.onClose(true)}>

@@ -41,7 +41,7 @@ const fns = vi.hoisted(() => ({
 	getThreadMessages: vi.fn(),
 	updateThreadState: vi.fn(),
 }))
-vi.mock('../server/fns.js', () => fns)
+vi.mock('#server/fns', () => fns)
 
 import { Route } from './mail.search.js'
 

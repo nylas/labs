@@ -1,9 +1,9 @@
 import { exchangeCodeForToken } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
-import { MAIL_HOME_PATH } from '../components/route-paths.js'
-import { platform } from '../server/platform.js'
-import { addVerifiedSessionAccount, consumePkce, getSession } from '../server/session.js'
-import { OWNMAIL_USER_AGENT } from '../server/usage-attribution.js'
+import { MAIL_HOME_PATH } from '#app/config/route-paths'
+import { platform } from '#server/platform'
+import { addVerifiedSessionAccount, consumePkce, getSession } from '#server/session'
+import { OWNMAIL_USER_AGENT } from '#server/usage-attribution'
 
 export const Route = createFileRoute('/auth/callback')({
 	server: {

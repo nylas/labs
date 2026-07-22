@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { markdownToDraftBody } from '../components/html-to-markdown.js'
-import { markdownToEmailHtml } from '../components/markdown-model.js'
+import { markdownToDraftBody } from '#features/mail/lib/html-to-markdown'
+import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
 
 // TanStack router/start are stubbed so the route module can be imported and its
 // loader/component exercised directly without a live router. `navigate` and
@@ -39,7 +39,7 @@ const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
-vi.mock('../server/fns.js', () => ({
+vi.mock('#server/fns', () => ({
 	getDraft: (a: any) => getDraft(a),
 	getFolders: (a: any) => getFolders(a),
 	getThreads: (a: any) => getThreads(a),
@@ -54,7 +54,7 @@ vi.mock('../server/fns.js', () => ({
 
 // Focus coverage on mail.compose.tsx: the "To" autocomplete and the error banner
 // are their own units, so they are replaced with minimal stand-ins.
-vi.mock('../components/RecipientInput.js', () => ({
+vi.mock('#shared/components/RecipientInput', () => ({
 	RecipientInput: ({ value, onChange, placeholder }: any) => (
 		<input
 			aria-label="To"
@@ -67,7 +67,7 @@ vi.mock('../components/RecipientInput.js', () => ({
 // The markdown editor is a unit of its own (see MarkdownEditor.render.test.tsx);
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
-vi.mock('../components/MarkdownEditor.js', () => ({
+vi.mock('#features/mail/components/MarkdownEditor', () => ({
 	MarkdownEditor: ({ value, onChange, placeholder }: any) => (
 		<textarea
 			placeholder={placeholder ?? 'Write your message...'}

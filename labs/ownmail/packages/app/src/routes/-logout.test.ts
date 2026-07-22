@@ -6,7 +6,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 const destroySession = vi.fn()
 const clearSessionCookie = vi.fn()
-vi.mock('../server/session.js', () => ({
+vi.mock('#server/session', () => ({
 	destroySession: (r: any) => destroySession(r),
 	clearSessionCookie: () => clearSessionCookie(),
 }))

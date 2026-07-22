@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { nylas } from '../server/nylas.js'
-import { usingDevMocks } from '../server/platform.js'
-import { getSession } from '../server/session.js'
+import { nylas } from '#server/nylas'
+import { usingDevMocks } from '#server/platform'
+import { getSession } from '#server/session'
 
 export const Route = createFileRoute('/attachments/$attachmentId')({
 	server: {

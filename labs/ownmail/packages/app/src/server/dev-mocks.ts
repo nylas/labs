@@ -11,7 +11,7 @@ import type {
 	SendMessageRequest,
 	Thread,
 } from '@nylas-labs/cli-kit/v3'
-import { threadFoldersAfterMove } from './mail-folders.js'
+import { threadFoldersAfterMove } from '#features/mail/server/mail-folders'
 
 const GRANT_ID = 'dev-grant'
 const MAILBOX_NAME = 'Ada Lovelace'

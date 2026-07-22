@@ -23,7 +23,7 @@ vi.mock('@tanstack/react-start', () => ({
 vi.mock('../styles.css?url', () => ({ default: '/assets/styles.css' }))
 
 const platform = vi.fn()
-vi.mock('../server/platform.js', () => ({ platform: () => platform() }))
+vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 import { Route } from './__root.js'
 

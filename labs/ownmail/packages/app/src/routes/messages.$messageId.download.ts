@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { nylas } from '../server/nylas.js'
-import { usingDevMocks } from '../server/platform.js'
-import { getSession } from '../server/session.js'
+import { nylas } from '#server/nylas'
+import { usingDevMocks } from '#server/platform'
+import { getSession } from '#server/session'
 
 const MAX_PROVIDER_MESSAGE_ID_LENGTH = 1000
 const MAX_RAW_MIME_BASE64URL_LENGTH = 50 * 1024 * 1024

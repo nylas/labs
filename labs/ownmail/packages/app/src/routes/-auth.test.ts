@@ -13,7 +13,7 @@ vi.mock('@nylas-labs/cli-kit/v3', () => ({
 
 const platform = vi.fn()
 const usingDevMocks = vi.fn()
-vi.mock('../server/platform.js', () => ({
+vi.mock('#server/platform', () => ({
 	platform: () => platform(),
 	usingDevMocks: () => usingDevMocks(),
 }))
@@ -22,7 +22,7 @@ const storePkce = vi.fn()
 const createReferenceDevSessionCookie = vi.fn()
 const switchSessionAccount = vi.fn()
 const getSession = vi.fn()
-vi.mock('../server/session.js', () => ({
+vi.mock('#server/session', () => ({
 	storePkce: (request: Request, state: string, verifier: string) => storePkce(request, state, verifier),
 	createReferenceDevSessionCookie: () => createReferenceDevSessionCookie(),
 	switchSessionAccount: (request: Request, handle: string) => switchSessionAccount(request, handle),

@@ -19,12 +19,12 @@ vi.mock('@tanstack/react-router', () => ({
 
 const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
-vi.mock('../server/fns.js', () => ({
+vi.mock('#server/fns', () => ({
 	getThreadMessages: (input: any) => getThreadMessages(input),
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
-import { markdownToDraftBody } from '../components/html-to-markdown.js'
+import { markdownToDraftBody } from '#features/mail/lib/html-to-markdown'
 import { ErrorBanner, Route } from './mail.f.$folderId.t.$threadId.js'
 
 afterEach(cleanup)

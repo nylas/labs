@@ -3,28 +3,25 @@ import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil, Search, X } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
+import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import {
-	AppRailLogo,
-	AppRailMobileNav,
-	AppRailNav,
-	type MailboxAccountOption,
-} from '../components/AppRail.js'
-import { CommandPalette, useCommandPaletteShortcut } from '../components/CommandPalette.js'
-import { MailSidebar } from '../components/MailSidebar.js'
-import { Sheet } from '../components/Sheet.js'
-import {
-	activeMailSidebarFolderId,
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
-	cn,
-	composeSearchFromMailLocation,
-	liveSearchTarget,
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
+} from '#app/config/layout'
+import { MailSidebar } from '#features/mail/components/MailSidebar'
+import {
+	activeMailSidebarFolderId,
+	composeSearchFromMailLocation,
+	liveSearchTarget,
 	mailSearchInputValue,
-} from '../components/ui-model.js'
-import { getFolders, getMailboxInfo } from '../server/fns.js'
-import { foldersQueryOptions, toMailFolder } from '../state/mail-queries.js'
+} from '#features/mail/lib/mail-ui-model'
+import { foldersQueryOptions, toMailFolder } from '#features/mail/state/mail-queries'
+import { getFolders, getMailboxInfo } from '#server/fns'
+import { Sheet } from '#shared/components/Sheet'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail')({
 	loader: async () => {

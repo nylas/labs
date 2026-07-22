@@ -1,9 +1,9 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { DEFAULT_MAIL_FOLDER_ID, LOGIN_PATH } from '../components/route-paths.js'
-import { usingDevMocks } from '../server/platform.js'
-import { getSession } from '../server/session.js'
+import { DEFAULT_MAIL_FOLDER_ID, LOGIN_PATH } from '#app/config/route-paths'
+import { usingDevMocks } from '#server/platform'
+import { getSession } from '#server/session'
 
 const homeState = createServerFn({ method: 'GET' }).handler(async () => {
 	if (await usingDevMocks()) {

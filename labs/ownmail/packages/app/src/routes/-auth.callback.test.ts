@@ -10,12 +10,12 @@ vi.mock('@nylas-labs/cli-kit/v3', () => ({
 }))
 
 const platform = vi.fn()
-vi.mock('../server/platform.js', () => ({ platform: () => platform() }))
+vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 const consumePkce = vi.fn()
 const addVerifiedSessionAccount = vi.fn()
 const getSession = vi.fn()
-vi.mock('../server/session.js', () => ({
+vi.mock('#server/session', () => ({
 	consumePkce: (r: any, s: string) => consumePkce(r, s),
 	addVerifiedSessionAccount: (request: Request, grantId: string, email: string) =>
 		addVerifiedSessionAccount(request, grantId, email),
