@@ -36,6 +36,7 @@
 		"build:vercel": "vite build -c vite.config.vercel.ts",
 		"test": "vitest run --coverage",
 		"coverage": "vitest run --coverage",
+		"pretypecheck": "pnpm --filter @nylas-labs/cli-kit build",
 		"typecheck": "tsc --noEmit",
 		"prepack": "pnpm build"
 	},
