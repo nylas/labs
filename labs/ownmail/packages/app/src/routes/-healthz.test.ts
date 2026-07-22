@@ -5,7 +5,7 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 const platform = vi.fn()
-vi.mock('../server/platform.js', () => ({ platform: () => platform() }))
+vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 import { Route } from './healthz.js'
 

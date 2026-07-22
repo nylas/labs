@@ -3,8 +3,8 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ThreadConversation } from '../features/mail/components/ThreadConversation.js'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '../features/mail/components/ThreadRow.js'
+import { ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
 import {
 	forwardDraftSearch,
 	mailFolderTitle,
@@ -14,9 +14,9 @@ import {
 	searchListSearch,
 	threadRouteFolderId,
 	threadTimestamp,
-} from '../features/mail/lib/mail-ui-model.js'
-import { applyMailCacheEffect } from '../features/mail/state/mail-cache.js'
-import { useUpdateThreadMutation } from '../features/mail/state/mail-mutations.js'
+} from '#features/mail/lib/mail-ui-model'
+import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
+import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
 	threadDetailQueryOptions,
@@ -24,10 +24,10 @@ import {
 	toMailFolder,
 	toMailThread,
 	toMailThreadDetail,
-} from '../features/mail/state/mail-queries.js'
-import { getFolders, getThreadMessages, getThreads } from '../server/fns.js'
-import { edgeCursor, listNavAction, moveCursor } from '../shared/lib/list-nav.js'
-import { cn } from '../shared/lib/utils.js'
+} from '#features/mail/state/mail-queries'
+import { getFolders, getThreadMessages, getThreads } from '#server/fns'
+import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/search')({
 	validateSearch: (search): { q: string; folderId?: string; threadId?: string } => ({

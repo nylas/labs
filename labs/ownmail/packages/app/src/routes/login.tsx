@@ -1,11 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { AUTH_PATH, MAIL_HOME_PATH } from '../app/config/route-paths.js'
-import { LoginScreen } from '../features/auth/components/LoginScreen.js'
-import { platform, usingDevMocks } from '../server/platform.js'
-import { getSession, hasReferenceDevSessionCookie } from '../server/session.js'
-import { siteNameFromEnv } from '../server/site-config.js'
+import { AUTH_PATH, MAIL_HOME_PATH } from '#app/config/route-paths'
+import { LoginScreen } from '#features/auth/components/LoginScreen'
+import { platform, usingDevMocks } from '#server/platform'
+import { getSession, hasReferenceDevSessionCookie } from '#server/session'
+import { siteNameFromEnv } from '#server/site-config'
 
 const loginState = createServerFn({ method: 'GET' }).handler(async () => {
 	const request = getRequest()

@@ -1,5 +1,5 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import type { EventTone } from '../../../shared/lib/color-tone.js'
+import type { EventTone } from '#shared/lib/color-tone'
 import { eventTimes } from './calendar.js'
 
 const TONE_RGB: Record<EventTone, [number, number, number]> = {

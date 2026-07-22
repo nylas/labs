@@ -1,10 +1,10 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { Plus, X } from 'lucide-react'
 import { useState } from 'react'
-import { Dialog, DialogContent, DialogTitle } from '../../../shared/components/ui/dialog.js'
-import { Input } from '../../../shared/components/ui/input.js'
-import { Textarea } from '../../../shared/components/ui/textarea.js'
-import { cn } from '../../../shared/lib/utils.js'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
+import { Input } from '#shared/components/ui/input'
+import { Textarea } from '#shared/components/ui/textarea'
+import { cn } from '#shared/lib/utils'
 import {
 	type ContactForm,
 	contactToForm,

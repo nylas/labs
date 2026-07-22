@@ -1,6 +1,6 @@
 import { Moon, Sun } from 'lucide-react'
 import { type Ref, useEffect, useMemo, useRef, useState } from 'react'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../../shared/components/ui/tooltip.js'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import {
 	applyDarkInvert,
 	applyEmailHtml,

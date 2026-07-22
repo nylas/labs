@@ -1,14 +1,20 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getMailboxInfo } from '../../../server/fns.js'
-import { addDays, type CalView, viewRange, ymd } from '../lib/calendar.js'
-import { createEvent, deleteEvent, getEvents, rsvpEvent, updateEvent } from '../server/calendar-fns.js'
+import {
+	createEvent,
+	deleteEvent,
+	getEvents,
+	rsvpEvent,
+	updateEvent,
+} from '#features/calendar/server/calendar-fns'
 import type {
 	CreateEventInput,
 	EventIdInput,
 	RsvpEventInput,
 	UpdateEventInput,
-} from '../server/calendar-input.js'
+} from '#features/calendar/server/calendar-input'
+import { getMailboxInfo } from '#server/fns'
+import { addDays, type CalView, viewRange, ymd } from '../lib/calendar.js'
 
 export type CalendarRouteData = Awaited<ReturnType<typeof loadCalendarRouteData>>
 

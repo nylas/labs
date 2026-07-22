@@ -3,9 +3,9 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '../features/mail/components/ThreadRow.js'
-import { draftRecipientName, mailFolderTitle, threadTimestamp } from '../features/mail/lib/mail-ui-model.js'
-import { useUpdateThreadMutation } from '../features/mail/state/mail-mutations.js'
+import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
+import { draftRecipientName, mailFolderTitle, threadTimestamp } from '#features/mail/lib/mail-ui-model'
+import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import {
 	draftsQueryOptions,
 	foldersQueryOptions,
@@ -13,12 +13,12 @@ import {
 	toMailDraft,
 	toMailFolder,
 	toMailThread,
-} from '../features/mail/state/mail-queries.js'
-import { getFolders, getThreads, listDrafts, updateThreadState } from '../server/fns.js'
-import { ClientListDate } from '../shared/components/ClientTime.js'
-import { ScrollArea } from '../shared/components/ui/scroll-area.js'
-import { edgeCursor, listNavAction, moveCursor } from '../shared/lib/list-nav.js'
-import { cn } from '../shared/lib/utils.js'
+} from '#features/mail/state/mail-queries'
+import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
+import { ClientListDate } from '#shared/components/ClientTime'
+import { ScrollArea } from '#shared/components/ui/scroll-area'
+import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
 	validateSearch: (search): { baseFolderId?: string } => ({

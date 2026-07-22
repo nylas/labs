@@ -1,9 +1,9 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { createServerFn } from '@tanstack/react-start'
-import { signalLocalChange } from '../../../server/change-version.js'
-import { requireNylasProviderId } from '../../../server/ids.js'
-import { friendly, listData, requireMailbox } from '../../../server/mailbox-boundary.js'
-import { parseRecipientEmails } from '../../mail/server/recipients.js'
+import { parseRecipientEmails } from '#features/mail/server/recipients'
+import { signalLocalChange } from '#server/change-version'
+import { requireNylasProviderId } from '#server/ids'
+import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
 import {
 	type ContactFieldsInput,
 	normalizeContactFields,

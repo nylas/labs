@@ -12,6 +12,7 @@ const entries = [
 	'src',
 	'public',
 	'scripts',
+	'components.json',
 	'template.json',
 	'vite.config.ts',
 	'vite.config.vercel.ts',

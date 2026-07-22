@@ -1,7 +1,7 @@
 import { Paperclip, Star } from 'lucide-react'
-import { ClientListDate } from '../../../shared/components/ClientTime.js'
-import { labelBadgeClass } from '../../../shared/lib/color-tone.js'
-import { cn } from '../../../shared/lib/utils.js'
+import { ClientListDate } from '#shared/components/ClientTime'
+import { labelBadgeClass } from '#shared/lib/color-tone'
+import { cn } from '#shared/lib/utils'
 import {
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,

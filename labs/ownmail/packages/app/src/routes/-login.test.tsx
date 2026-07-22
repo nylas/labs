@@ -19,16 +19,16 @@ vi.mock('@tanstack/react-start/server', () => ({
 
 const usingDevMocks = vi.fn()
 const platform = vi.fn()
-vi.mock('../server/platform.js', () => ({ platform: () => platform(), usingDevMocks: () => usingDevMocks() }))
+vi.mock('#server/platform', () => ({ platform: () => platform(), usingDevMocks: () => usingDevMocks() }))
 
 const getSession = vi.fn()
 const hasReferenceDevSessionCookie = vi.fn()
-vi.mock('../server/session.js', () => ({
+vi.mock('#server/session', () => ({
 	getSession: (r: any) => getSession(r),
 	hasReferenceDevSessionCookie: (r: any) => hasReferenceDevSessionCookie(r),
 }))
 
-vi.mock('../features/auth/components/LoginScreen.js', () => ({
+vi.mock('#features/auth/components/LoginScreen', () => ({
 	LoginScreen: (props: any) => (
 		<div data-testid="login-screen" data-site-name={props.siteName}>
 			{props.signInHref}

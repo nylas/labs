@@ -1,4 +1,4 @@
-import { requireNylasProviderId } from '../../../server/ids.js'
+import { requireNylasProviderId } from '#server/ids'
 
 export type ThreadListInput = {
 	folderId?: string

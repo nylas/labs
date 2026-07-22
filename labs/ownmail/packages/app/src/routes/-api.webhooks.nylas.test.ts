@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { KvLike } from '../server/platform.js'
+import type { KvLike } from '#server/platform'
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 }))
 
 const platform = vi.fn()
-vi.mock('../server/platform.js', () => ({ platform: () => platform() }))
+vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 import { Route } from './api.webhooks.nylas.js'
 

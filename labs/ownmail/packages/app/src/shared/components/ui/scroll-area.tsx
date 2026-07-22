@@ -1,6 +1,6 @@
 import type * as React from 'react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { cn } from '../../lib/utils.js'
+import { cn } from '#shared/lib/utils'
 
 type ScrollAreaProps = React.ComponentProps<'div'> & {
 	viewportClassName?: string

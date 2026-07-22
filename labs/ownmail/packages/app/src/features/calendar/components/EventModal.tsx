@@ -12,26 +12,20 @@ import {
 	X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RecipientInput } from '../../../shared/components/RecipientInput.js'
-import { Dialog, DialogContent, DialogTitle } from '../../../shared/components/ui/dialog.js'
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from '../../../shared/components/ui/select.js'
-import { Textarea } from '../../../shared/components/ui/textarea.js'
-import { type EventTone, eventColorClass, labelBadgeClass } from '../../../shared/lib/color-tone.js'
-import { valueToTokens } from '../../../shared/lib/contact-token.js'
+import { RecipientInput } from '#shared/components/RecipientInput'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#shared/components/ui/select'
+import { Textarea } from '#shared/components/ui/textarea'
+import { type EventTone, eventColorClass, labelBadgeClass } from '#shared/lib/color-tone'
+import { valueToTokens } from '#shared/lib/contact-token'
 import {
 	clampPointToViewport,
 	createPanelPosition,
 	ESTIMATED_PANEL_SIZE,
 	type Point,
 	type Rect,
-} from '../../../shared/lib/modal-position.js'
-import { cn } from '../../../shared/lib/utils.js'
+} from '#shared/lib/modal-position'
+import { cn } from '#shared/lib/utils'
 import {
 	calendarDateInTimeZone,
 	calendarSlotTime,

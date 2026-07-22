@@ -1,15 +1,15 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { friendly, requireMailbox } from '../../../server/mailbox-boundary.js'
-import { nylas } from '../../../server/nylas.js'
-import { platform, usingDevMocks } from '../../../server/platform.js'
-import { sessionAccountSummaries } from '../../../server/session.js'
-import { siteNameFromEnv } from '../../../server/site-config.js'
+import { friendly, requireMailbox } from '#server/mailbox-boundary'
+import { nylas } from '#server/nylas'
+import { platform, usingDevMocks } from '#server/platform'
+import { sessionAccountSummaries } from '#server/session'
+import { siteNameFromEnv } from '#server/site-config'
 
 const MAX_DISPLAY_NAME_LENGTH = 120
 
 export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async () => {
-	const { platform } = await import('../../../server/platform.js')
+	const { platform } = await import('#server/platform')
 	const { env } = await platform()
 	const { email, displayName: devDisplayName, grantId } = await requireMailbox()
 	let displayName = devDisplayName

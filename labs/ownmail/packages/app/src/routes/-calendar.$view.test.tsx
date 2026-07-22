@@ -5,7 +5,7 @@ import { cleanup, fireEvent, screen, render as testingRender, within } from '@te
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ymd } from '../features/calendar/lib/calendar.js'
+import { ymd } from '#features/calendar/lib/calendar'
 
 function render(ui: ReactElement) {
 	return testingRender(
@@ -30,14 +30,14 @@ vi.mock('@tanstack/react-router', () => ({
 	useRouter: () => ({ invalidate: h.invalidate }),
 }))
 
-vi.mock('../features/calendar/server/calendar-fns.js', () => ({
+vi.mock('#features/calendar/server/calendar-fns', () => ({
 	getEvents: (args: any) => h.getEvents(args),
 }))
-vi.mock('../server/fns.js', () => ({ getMailboxInfo: () => h.getMailboxInfo() }))
+vi.mock('#server/fns', () => ({ getMailboxInfo: () => h.getMailboxInfo() }))
 
 // The chrome/dialog children own their own render tests; stub them to observable markers
 // so this suite stays focused on the calendar grid + navigation logic.
-vi.mock('../app/components/AppRail.js', () => ({
+vi.mock('#app/components/AppRail', () => ({
 	AppRailLogo: (props: any) => <div data-testid="app-rail-logo">{props.appName}</div>,
 	AppRailNav: (props: any) => (
 		<div data-testid="app-rail-nav" data-active={props.active}>
@@ -55,7 +55,7 @@ vi.mock('../app/components/AppRail.js', () => ({
 	),
 }))
 
-vi.mock('../app/components/CommandPalette.js', () => ({
+vi.mock('#app/components/CommandPalette', () => ({
 	CommandPalette: (props: any) =>
 		props.open ? (
 			<div data-testid="command-palette">
@@ -67,7 +67,7 @@ vi.mock('../app/components/CommandPalette.js', () => ({
 	useCommandPaletteShortcut: () => {},
 }))
 
-vi.mock('../shared/components/Sheet.js', () => ({
+vi.mock('#shared/components/Sheet', () => ({
 	Sheet: (props: any) =>
 		props.open ? (
 			<div data-testid="sheet">
@@ -79,7 +79,7 @@ vi.mock('../shared/components/Sheet.js', () => ({
 		) : null,
 }))
 
-vi.mock('../features/calendar/components/EventModal.js', () => ({
+vi.mock('#features/calendar/components/EventModal', () => ({
 	EventModal: (props: any) => (
 		<div
 			role="dialog"

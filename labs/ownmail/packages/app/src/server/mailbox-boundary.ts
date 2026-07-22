@@ -1,7 +1,7 @@
 import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { getRequest } from '@tanstack/react-start/server'
-import { LOGIN_PATH } from '../app/config/route-paths.js'
+import { LOGIN_PATH } from '#app/config/route-paths'
 import { mailboxFromRequest } from './nylas.js'
 
 export async function requireMailbox() {

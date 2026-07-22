@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { messageBodyParagraphs } from '../features/mail/lib/mail-ui-model.js'
+import { messageBodyParagraphs } from '#features/mail/lib/mail-ui-model'
 import {
 	createDevMailbox,
 	devMailboxEmail,

@@ -2,16 +2,16 @@ import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Check, ChevronLeft, ChevronRight, Menu, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../app/components/AppRail.js'
-import { CommandPalette, useCommandPaletteShortcut } from '../app/components/CommandPalette.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
+import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import {
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
-} from '../app/config/layout.js'
-import { useUserPreferences } from '../app/preferences/user-preferences.js'
-import { EventModal } from '../features/calendar/components/EventModal.js'
+} from '#app/config/layout'
+import { useUserPreferences } from '#app/preferences/user-preferences'
+import { EventModal } from '#features/calendar/components/EventModal'
 import {
 	addDays,
 	allDayEventSegments,
@@ -35,19 +35,19 @@ import {
 	timedEventsOnDay,
 	viewRange,
 	ymd,
-} from '../features/calendar/lib/calendar.js'
-import { calendarTone, eventTone } from '../features/calendar/lib/calendar-ui-model.js'
+} from '#features/calendar/lib/calendar'
+import { calendarTone, eventTone } from '#features/calendar/lib/calendar-ui-model'
 import {
 	type CalendarRouteData,
 	loadCalendarRouteData,
 	useCalendarRouteData,
-} from '../features/calendar/state/calendar-state.js'
-import { Sheet } from '../shared/components/Sheet.js'
-import { ScrollArea } from '../shared/components/ui/scroll-area.js'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../shared/components/ui/tooltip.js'
-import { type EventTone, eventChipClass, eventColorClass } from '../shared/lib/color-tone.js'
-import type { Rect } from '../shared/lib/modal-position.js'
-import { cn } from '../shared/lib/utils.js'
+} from '#features/calendar/state/calendar-state'
+import { Sheet } from '#shared/components/Sheet'
+import { ScrollArea } from '#shared/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
+import { type EventTone, eventChipClass, eventColorClass } from '#shared/lib/color-tone'
+import type { Rect } from '#shared/lib/modal-position'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/calendar/$view')({
 	params: {

@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { searchContacts } from '../../server/fns.js'
+import { searchContacts } from '#server/fns'
 import { addToken, moveHighlight, removeTokenAt, tokensToValue, valueToTokens } from '../lib/contact-token.js'
 import { cn } from '../lib/utils.js'
 import { Input } from './ui/input.js'

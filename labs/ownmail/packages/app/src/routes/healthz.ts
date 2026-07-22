@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { platform } from '../server/platform.js'
+import { platform } from '#server/platform'
 
 export const Route = createFileRoute('/healthz')({
 	server: {

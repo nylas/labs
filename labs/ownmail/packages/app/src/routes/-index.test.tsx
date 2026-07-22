@@ -17,10 +17,10 @@ vi.mock('@tanstack/react-start/server', () => ({
 }))
 
 const usingDevMocks = vi.fn()
-vi.mock('../server/platform.js', () => ({ usingDevMocks: () => usingDevMocks() }))
+vi.mock('#server/platform', () => ({ usingDevMocks: () => usingDevMocks() }))
 
 const getSession = vi.fn()
-vi.mock('../server/session.js', () => ({ getSession: (r: any) => getSession(r) }))
+vi.mock('#server/session', () => ({ getSession: (r: any) => getSession(r) }))
 
 import { Route } from './index.js'
 

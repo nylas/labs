@@ -2,12 +2,12 @@
 import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
-import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '../app/config/app-meta.js'
-import { MAIL_HOME_PATH } from '../app/config/route-paths.js'
-import { INITIAL_ROOT_CLASS_NAME } from '../app/config/theme.js'
-import { OwnmailQueryProvider } from '../app/query/query-provider.js'
-import { platform } from '../server/platform.js'
-import { DEFAULT_SITE_NAME, siteNameFromEnv } from '../server/site-config.js'
+import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
+import { MAIL_HOME_PATH } from '#app/config/route-paths'
+import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
+import { OwnmailQueryProvider } from '#app/query/query-provider'
+import { platform } from '#server/platform'
+import { DEFAULT_SITE_NAME, siteNameFromEnv } from '#server/site-config'
 import appCss from '../styles.css?url'
 
 const rootState = createServerFn({ method: 'GET' }).handler(async () => {

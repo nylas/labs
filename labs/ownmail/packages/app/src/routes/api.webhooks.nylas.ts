@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { bumpChangeVersionsInKv, CHANGE_DOMAINS, type ChangeDomain } from '../server/change-version.js'
-import { validNylasProviderId } from '../server/ids.js'
-import { platform } from '../server/platform.js'
+import { bumpChangeVersionsInKv, CHANGE_DOMAINS, type ChangeDomain } from '#server/change-version'
+import { validNylasProviderId } from '#server/ids'
+import { platform } from '#server/platform'
 
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 const MAX_GRANTS_PER_WEBHOOK = 100

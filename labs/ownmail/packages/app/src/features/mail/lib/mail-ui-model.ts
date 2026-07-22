@@ -1,5 +1,5 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
-import { type EventTone, eventColorClass } from '../../../shared/lib/color-tone.js'
+import { type EventTone, eventColorClass } from '#shared/lib/color-tone'
 import type { MailDraft, MailMessage, MailThread } from '../state/mail-queries.js'
 
 export type MailFolderId = 'inbox' | 'starred' | 'sent' | 'drafts' | 'archive' | 'trash'

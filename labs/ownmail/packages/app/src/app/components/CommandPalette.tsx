@@ -1,9 +1,9 @@
 import { useNavigate } from '@tanstack/react-router'
 import { Calendar, Mail, Moon, Pencil, Search, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MAIL_FOLDERS } from '../../features/mail/lib/mail-ui-model.js'
-import { Dialog, DialogContent, DialogTitle } from '../../shared/components/ui/dialog.js'
-import { cn } from '../../shared/lib/utils.js'
+import { MAIL_FOLDERS } from '#features/mail/lib/mail-ui-model'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
+import { cn } from '#shared/lib/utils'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH } from '../config/route-paths.js'
 import { ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from '../config/theme.js'
 

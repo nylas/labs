@@ -1,6 +1,6 @@
 import { type Event, NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { LOGIN_PATH } from '../../../app/config/route-paths.js'
+import { LOGIN_PATH } from '#app/config/route-paths'
 
 // createServerFn is a chainable builder in @tanstack/react-start. The test stub keeps
 // that shape but makes the resulting server fn directly invocable: calling it runs the
@@ -34,12 +34,12 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 const { mailboxFromRequest } = vi.hoisted(() => ({ mailboxFromRequest: vi.fn() }))
-vi.mock('../../../server/nylas.js', () => ({
+vi.mock('#server/nylas', () => ({
 	mailboxFromRequest: (request: Request) => mailboxFromRequest(request),
 }))
 
 const { platform } = vi.hoisted(() => ({ platform: vi.fn() }))
-vi.mock('../../../server/platform.js', () => ({ platform: () => platform() }))
+vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 const { createEvent, deleteEvent, getEvents, rsvpEvent, updateEvent } = await import('./calendar-fns.js')
 

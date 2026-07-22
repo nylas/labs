@@ -6,13 +6,13 @@ vi.mock('@tanstack/react-router', () => ({
 
 const platform = vi.fn()
 const usingDevMocks = vi.fn()
-vi.mock('../server/platform.js', () => ({
+vi.mock('#server/platform', () => ({
 	platform: () => platform(),
 	usingDevMocks: () => usingDevMocks(),
 }))
 
 const getSession = vi.fn()
-vi.mock('../server/session.js', () => ({ getSession: (r: any) => getSession(r) }))
+vi.mock('#server/session', () => ({ getSession: (r: any) => getSession(r) }))
 
 import { Route, versionResponse } from './api.version.js'
 

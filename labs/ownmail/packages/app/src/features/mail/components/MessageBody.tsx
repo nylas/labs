@@ -1,4 +1,4 @@
-import { useMounted } from '../../../shared/components/ClientTime.js'
+import { useMounted } from '#shared/components/ClientTime'
 import { ownMailDraftMarkdown } from '../lib/html-to-markdown.js'
 import { messageHasHtml } from '../lib/mail-ui-model.js'
 import { markdownToEmailHtml } from '../lib/markdown-model.js'

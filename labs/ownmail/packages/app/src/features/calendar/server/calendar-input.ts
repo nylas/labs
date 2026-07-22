@@ -1,4 +1,4 @@
-import { requireNylasProviderId } from '../../../server/ids.js'
+import { requireNylasProviderId } from '#server/ids'
 
 const MAX_EVENT_RANGE_SECONDS = 60 * 60 * 24 * 62
 const MAX_TITLE_LENGTH = 500

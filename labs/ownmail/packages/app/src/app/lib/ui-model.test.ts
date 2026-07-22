@@ -1,11 +1,6 @@
 import type { Calendar, Event, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it, vi } from 'vitest'
-import {
-	fmtAgendaTime,
-	fmtCompactTime,
-	fmtTime,
-	formatFullDate,
-} from '../../features/calendar/lib/calendar.js'
+import { fmtAgendaTime, fmtCompactTime, fmtTime, formatFullDate } from '#features/calendar/lib/calendar'
 import { DEFAULT_MAIL_FOLDER_ID } from '../config/route-paths.js'
 import {
 	activeMailSidebarFolderId,

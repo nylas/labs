@@ -13,19 +13,19 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { ThreadConversation } from '../features/mail/components/ThreadConversation.js'
+import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import {
 	forwardDraftSearch,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
-} from '../features/mail/lib/mail-ui-model.js'
-import { applyMailCacheEffect } from '../features/mail/state/mail-cache.js'
-import { useUpdateThreadMutation } from '../features/mail/state/mail-mutations.js'
-import { threadDetailQueryOptions, toMailThreadDetail } from '../features/mail/state/mail-queries.js'
-import { getThreadMessages } from '../server/fns.js'
-import { ScrollArea } from '../shared/components/ui/scroll-area.js'
-import { cn } from '../shared/lib/utils.js'
+} from '#features/mail/lib/mail-ui-model'
+import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
+import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
+import { threadDetailQueryOptions, toMailThreadDetail } from '#features/mail/state/mail-queries'
+import { getThreadMessages } from '#server/fns'
+import { ScrollArea } from '#shared/components/ui/scroll-area'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	validateSearch: (search): { baseFolderId?: string } => ({

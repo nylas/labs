@@ -5,7 +5,7 @@
  * Blank rows the form leaves behind are dropped, not rejected.
  */
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import { requireNylasProviderId } from '../../../server/ids.js'
+import { requireNylasProviderId } from '#server/ids'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MAX_NAME_LENGTH = 200

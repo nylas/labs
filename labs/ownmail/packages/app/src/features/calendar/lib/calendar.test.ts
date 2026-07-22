@@ -1,6 +1,6 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
-import { CALENDAR_HOME_PATH } from '../../../app/config/route-paths.js'
+import { CALENDAR_HOME_PATH } from '#app/config/route-paths'
 import {
 	addDays,
 	allDayEventSegments,

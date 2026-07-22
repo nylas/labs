@@ -180,6 +180,7 @@ describe('exportManualBundle', () => {
 			'src',
 			'public',
 			'scripts',
+			'components.json',
 			'vite.config.ts',
 			'vite.config.vercel.ts',
 			'tsconfig.json',
@@ -193,11 +194,12 @@ describe('exportManualBundle', () => {
 			apiKey: 'nyk_live_key',
 		})
 		expect(target).toBe('/out/acme')
-		expect(cpSync).toHaveBeenCalledTimes(7)
-		expect(vi.mocked(existsSync)).toHaveBeenCalledTimes(8)
+		expect(cpSync).toHaveBeenCalledTimes(8)
+		expect(vi.mocked(existsSync)).toHaveBeenCalledTimes(9)
 
 		const packageJson = JSON.parse(written('package.json'))
 		expect(packageJson.name).toBe('acme')
+		expect(packageJson.imports['#shared/components/*']).toBe('./src/shared/components/*.tsx')
 		expect(packageJson.scripts['build:vercel']).toBe('vite build -c vite.config.vercel.ts')
 		expect(packageJson.dependencies.nitro).toBe('3.0.260610-beta')
 		expect(written('.env.example')).toContain('NYLAS_API_BASE_URL=https://api-eu.example.com')

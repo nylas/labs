@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { DEFAULT_CALENDAR_VIEW, isCalendarDate } from '../features/calendar/lib/calendar.js'
+import { DEFAULT_CALENDAR_VIEW, isCalendarDate } from '#features/calendar/lib/calendar'
 
 export const Route = createFileRoute('/calendar/')({
 	validateSearch: (search): { date?: string } => (isCalendarDate(search.date) ? { date: search.date } : {}),

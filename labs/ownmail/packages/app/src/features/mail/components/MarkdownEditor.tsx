@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { cn } from '../../../shared/lib/utils.js'
+import { cn } from '#shared/lib/utils'
 import { seedToMarkdown } from '../lib/html-to-markdown.js'
 import { type LinePoint, readLineRange, writeLineRange } from '../lib/markdown-dom.js'
 import {

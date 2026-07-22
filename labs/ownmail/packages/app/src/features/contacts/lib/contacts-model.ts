@@ -4,7 +4,7 @@
  * Kept side-effect-free so the list/detail/modal components stay thin.
  */
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import type { ContactFieldsInput } from '../server/contact-input.js'
+import type { ContactFieldsInput } from '#features/contacts/server/contact-input'
 
 // Form rows always carry a `type` string ('' means "no type"); this keeps the
 // inputs fully controlled with no undefined fallbacks in the modal.

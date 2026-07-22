@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { type ChangeVersions, readChangeVersions } from '../server/change-version.js'
-import { platform, usingDevMocks } from '../server/platform.js'
-import { getSession } from '../server/session.js'
+import { type ChangeVersions, readChangeVersions } from '#server/change-version'
+import { platform, usingDevMocks } from '#server/platform'
+import { getSession } from '#server/session'
 
 /** Cheap scoped change signal: clients poll this and refetch domains whose counter moved. */
 export const Route = createFileRoute('/api/version')({

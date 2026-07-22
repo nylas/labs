@@ -38,13 +38,13 @@ vi.mock('@tanstack/react-start/server', () => ({
 
 const getFolders = vi.fn()
 const getMailboxInfo = vi.fn()
-vi.mock('../server/fns.js', () => ({
+vi.mock('#server/fns', () => ({
 	getFolders: () => getFolders(),
 	getMailboxInfo: () => getMailboxInfo(),
 }))
 
 // Child chrome is exercised by its own suites; stub each to a minimal, inspectable shell.
-vi.mock('../app/components/AppRail.js', () => ({
+vi.mock('#app/components/AppRail', () => ({
 	AppRailLogo: ({ appName }: { appName: string }) => <div data-testid="logo">{appName}</div>,
 	AppRailNav: (props: any) => (
 		<div data-testid="railnav" data-email={props.email}>
@@ -63,7 +63,7 @@ vi.mock('../app/components/AppRail.js', () => ({
 }))
 
 const paletteShortcut = vi.fn()
-vi.mock('../app/components/CommandPalette.js', () => ({
+vi.mock('#app/components/CommandPalette', () => ({
 	useCommandPaletteShortcut: (open: () => void) => paletteShortcut(open),
 	CommandPalette: ({ open, onClose, onFocusSearch }: any) =>
 		open ? (
@@ -78,7 +78,7 @@ vi.mock('../app/components/CommandPalette.js', () => ({
 		) : null,
 }))
 
-vi.mock('../features/mail/components/MailSidebar.js', () => ({
+vi.mock('#features/mail/components/MailSidebar', () => ({
 	MailSidebar: (props: any) => (
 		<div data-testid="sidebar" data-folder={props.currentFolderId ?? ''} data-base={props.baseFolderId ?? ''}>
 			<button type="button" onClick={props.onNavigate}>
@@ -88,7 +88,7 @@ vi.mock('../features/mail/components/MailSidebar.js', () => ({
 	),
 }))
 
-vi.mock('../shared/components/Sheet.js', () => ({
+vi.mock('#shared/components/Sheet', () => ({
 	Sheet: ({ open, onClose, children }: any) =>
 		open ? (
 			<div data-testid="sheet">
@@ -102,12 +102,12 @@ vi.mock('../shared/components/Sheet.js', () => ({
 
 // Real mail model helpers, except liveSearchTarget is spy-wrapped so the (otherwise
 // unreachable) thread navigation branch can be driven explicitly.
-vi.mock('../features/mail/lib/mail-ui-model.js', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('../features/mail/lib/mail-ui-model.js')>()
+vi.mock('#features/mail/lib/mail-ui-model', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('#features/mail/lib/mail-ui-model')>()
 	return { ...actual, liveSearchTarget: vi.fn((...args: any[]) => (actual.liveSearchTarget as any)(...args)) }
 })
 
-import { liveSearchTarget } from '../features/mail/lib/mail-ui-model.js'
+import { liveSearchTarget } from '#features/mail/lib/mail-ui-model'
 import { MailRouteScreen, Route } from './mail.js'
 
 const info = { email: 'ada@example.com', displayName: 'Ada', appName: 'OwnMail' }

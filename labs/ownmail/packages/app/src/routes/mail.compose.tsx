@@ -16,12 +16,12 @@ import {
 	X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useUserPreferences } from '../app/preferences/user-preferences.js'
-import { applyContactEffect } from '../features/contacts/state/contacts-state.js'
-import { MarkdownEditor } from '../features/mail/components/MarkdownEditor.js'
-import { formatSize, ThreadConversation } from '../features/mail/components/ThreadConversation.js'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '../features/mail/components/ThreadRow.js'
-import { markdownToDraftBody, seedToMarkdown } from '../features/mail/lib/html-to-markdown.js'
+import { useUserPreferences } from '#app/preferences/user-preferences'
+import { applyContactEffect } from '#features/contacts/state/contacts-state'
+import { MarkdownEditor } from '#features/mail/components/MarkdownEditor'
+import { formatSize, ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
+import { markdownToDraftBody, seedToMarkdown } from '#features/mail/lib/html-to-markdown'
 import {
 	composeBackdropListSearch,
 	composeBackdropReplySearch,
@@ -32,16 +32,16 @@ import {
 	STAR_FILLED_CLASS,
 	shouldUseBrowserBackForComposeClose,
 	threadTimestamp,
-} from '../features/mail/lib/mail-ui-model.js'
-import { markdownToEmailHtml } from '../features/mail/lib/markdown-model.js'
-import type { OutboundAttachment } from '../features/mail/server/outbound-attachments.js'
-import { applyMailCacheEffect } from '../features/mail/state/mail-cache.js'
+} from '#features/mail/lib/mail-ui-model'
+import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
+import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
+import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
 import {
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
 	useSendDraftMutation,
 	useUpdateThreadMutation,
-} from '../features/mail/state/mail-mutations.js'
+} from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
 	threadDetailQueryOptions,
@@ -49,11 +49,11 @@ import {
 	toMailFolder,
 	toMailThread,
 	toMailThreadDetail,
-} from '../features/mail/state/mail-queries.js'
-import { getDraft, getFolders, getThreadMessages, getThreads, saveComposeRecipients } from '../server/fns.js'
-import { RecipientInput } from '../shared/components/RecipientInput.js'
-import { Button } from '../shared/components/ui/button.js'
-import { cn } from '../shared/lib/utils.js'
+} from '#features/mail/state/mail-queries'
+import { getDraft, getFolders, getThreadMessages, getThreads, saveComposeRecipients } from '#server/fns'
+import { RecipientInput } from '#shared/components/RecipientInput'
+import { Button } from '#shared/components/ui/button'
+import { cn } from '#shared/lib/utils'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 const MAX_COMPOSE_ATTACHMENTS = 10

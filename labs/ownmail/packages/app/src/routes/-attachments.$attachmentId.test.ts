@@ -5,13 +5,13 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 const nylas = vi.fn()
-vi.mock('../server/nylas.js', () => ({ nylas: () => nylas() }))
+vi.mock('#server/nylas', () => ({ nylas: () => nylas() }))
 
 const usingDevMocks = vi.fn()
-vi.mock('../server/platform.js', () => ({ usingDevMocks: () => usingDevMocks() }))
+vi.mock('#server/platform', () => ({ usingDevMocks: () => usingDevMocks() }))
 
 const getSession = vi.fn()
-vi.mock('../server/session.js', () => ({ getSession: (r: any) => getSession(r) }))
+vi.mock('#server/session', () => ({ getSession: (r: any) => getSession(r) }))
 
 import {
 	attachmentDownloadFilename,

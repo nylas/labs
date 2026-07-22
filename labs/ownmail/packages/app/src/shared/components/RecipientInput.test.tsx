@@ -6,9 +6,9 @@ import { RecipientInput } from './RecipientInput.js'
 
 // Contact lookup is a server function; stub it so the debounce/UI behaviour is
 // what's under test, not the network.
-vi.mock('../../server/fns.js', () => ({ searchContacts: vi.fn() }))
+vi.mock('#server/fns', () => ({ searchContacts: vi.fn() }))
 
-import { searchContacts } from '../../server/fns.js'
+import { searchContacts } from '#server/fns'
 
 const mockSearch = vi.mocked(searchContacts)
 

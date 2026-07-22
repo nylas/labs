@@ -1,8 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, LogOut, Mail, Moon, Plus, Search, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
-import { initials } from '../../shared/lib/presentation.js'
-import { cn } from '../../shared/lib/utils.js'
+import { initials } from '#shared/lib/presentation'
+import { cn } from '#shared/lib/utils'
 import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS } from '../config/layout.js'
 import {
 	CALENDAR_HOME_PATH,

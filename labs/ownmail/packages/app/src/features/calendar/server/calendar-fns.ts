@@ -7,9 +7,9 @@ import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { LOGIN_PATH } from '../../../app/config/route-paths.js'
-import { signalLocalChange } from '../../../server/change-version.js'
-import { mailboxFromRequest } from '../../../server/nylas.js'
+import { LOGIN_PATH } from '#app/config/route-paths'
+import { signalLocalChange } from '#server/change-version'
+import { mailboxFromRequest } from '#server/nylas'
 import { isRenderableCalendarEvent } from '../lib/calendar.js'
 import {
 	type CreateEventInput,

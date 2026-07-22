@@ -1,7 +1,7 @@
 import type { Folder, Thread } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, useMutation, useQueryClient } from '@tanstack/react-query'
-import { deleteDraft, saveDraft, sendDraft, updateThreadState } from '../../../server/fns.js'
-import type { OutboundAttachment } from '../server/outbound-attachments.js'
+import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
+import { deleteDraft, saveDraft, sendDraft, updateThreadState } from '#server/fns'
 import {
 	createMailOptimisticManager,
 	type MailCacheEffect,

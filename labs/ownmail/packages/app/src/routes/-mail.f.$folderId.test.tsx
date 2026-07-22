@@ -46,7 +46,7 @@ const getFolders = vi.fn()
 const getThreads = vi.fn()
 const listDrafts = vi.fn()
 const updateThreadState = vi.fn()
-vi.mock('../server/fns.js', () => ({
+vi.mock('#server/fns', () => ({
 	getFolders: () => getFolders(),
 	getThreads: (input: any) => getThreads(input),
 	listDrafts: () => listDrafts(),
@@ -55,7 +55,7 @@ vi.mock('../server/fns.js', () => ({
 
 // ClientListDate depends on a mount effect + locale formatting; stub it to a stable
 // marker so list assertions stay deterministic.
-vi.mock('../shared/components/ClientTime.js', () => ({
+vi.mock('#shared/components/ClientTime', () => ({
 	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => (
 		<time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
 	),

@@ -11,7 +11,7 @@ const { createContact, updateContact } = vi.hoisted(() => ({
 	updateContact: vi.fn(),
 }))
 
-vi.mock('../../../server/fns.js', () => ({ createContact, updateContact }))
+vi.mock('#server/fns', () => ({ createContact, updateContact }))
 
 function render(ui: ReactElement) {
 	return testingRender(

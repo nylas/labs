@@ -10,7 +10,7 @@ import { MessageBody } from './MessageBody.js'
 // renderer on the client" decision. Control it directly so both sides are testable
 // without depending on effect-flush timing.
 const mountState = vi.hoisted(() => ({ mounted: true }))
-vi.mock('../../../shared/components/ClientTime.js', () => ({ useMounted: () => mountState.mounted }))
+vi.mock('#shared/components/ClientTime', () => ({ useMounted: () => mountState.mounted }))
 
 afterEach(() => {
 	cleanup()

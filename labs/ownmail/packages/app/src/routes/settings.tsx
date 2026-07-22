@@ -1,23 +1,23 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Check, KeyRound, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { AppRailLogo, AppRailMobileNav, AppRailNav } from '../app/components/AppRail.js'
-import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '../app/config/layout.js'
+import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
+import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	availableTimezones,
 	isSupportedTimezone,
 	type UserPreferences,
 	useUserPreferences,
-} from '../app/preferences/user-preferences.js'
+} from '#app/preferences/user-preferences'
 import {
 	getAccountCapabilities,
 	getMailboxInfo,
 	resetMailboxPassword,
 	updateMailboxDisplayName,
-} from '../server/fns.js'
-import { Sheet } from '../shared/components/Sheet.js'
-import { Button } from '../shared/components/ui/button.js'
-import { cn } from '../shared/lib/utils.js'
+} from '#server/fns'
+import { Sheet } from '#shared/components/Sheet'
+import { Button } from '#shared/components/ui/button'
+import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/settings')({
 	loader: async () => {

@@ -20,14 +20,14 @@ const api = vi.hoisted(() => ({
 	updateThreadState: vi.fn(),
 }))
 
-vi.mock('../../features/calendar/server/calendar-fns.js', () => ({
+vi.mock('#features/calendar/server/calendar-fns', () => ({
 	createEvent: api.createEvent,
 	deleteEvent: api.deleteEvent,
 	getEvents: vi.fn(),
 	rsvpEvent: api.rsvpEvent,
 	updateEvent: api.updateEvent,
 }))
-vi.mock('../../server/fns.js', () => ({
+vi.mock('#server/fns', () => ({
 	createContact: api.createContact,
 	deleteContact: api.deleteContact,
 	deleteDraft: api.deleteDraft,
@@ -47,7 +47,7 @@ import {
 	useDeleteEventMutation,
 	useRsvpEventMutation,
 	useUpdateEventMutation,
-} from '../../features/calendar/state/calendar-state.js'
+} from '#features/calendar/state/calendar-state'
 import {
 	type ContactsPages,
 	contactsKeys,
@@ -55,19 +55,19 @@ import {
 	useCreateContactMutation,
 	useDeleteContactMutation,
 	useUpdateContactMutation,
-} from '../../features/contacts/state/contacts-state.js'
+} from '#features/contacts/state/contacts-state'
 import {
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
 	useSendDraftMutation,
 	useUpdateThreadMutation,
-} from '../../features/mail/state/mail-mutations.js'
+} from '#features/mail/state/mail-mutations'
 import {
 	type MailDraft,
 	type MailFolder,
 	type MailThreadListData,
 	mailKeys,
-} from '../../features/mail/state/mail-queries.js'
+} from '#features/mail/state/mail-queries'
 
 let client: QueryClient
 const wrapper = ({ children }: { children: ReactNode }) => (

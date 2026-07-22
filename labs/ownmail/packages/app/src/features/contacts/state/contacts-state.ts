@@ -7,8 +7,8 @@ import {
 	useQuery,
 	useQueryClient,
 } from '@tanstack/react-query'
-import { createContact, deleteContact, getContact, getContacts, updateContact } from '../../../server/fns.js'
-import type { ContactFieldsInput } from '../server/contact-input.js'
+import type { ContactFieldsInput } from '#features/contacts/server/contact-input'
+import { createContact, deleteContact, getContact, getContacts, updateContact } from '#server/fns'
 
 export type ContactsPage = Awaited<ReturnType<typeof getContacts>>
 export type ContactsPages = InfiniteData<ContactsPage, string | undefined>

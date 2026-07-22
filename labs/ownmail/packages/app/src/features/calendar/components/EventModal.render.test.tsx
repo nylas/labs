@@ -14,11 +14,16 @@ const { createEvent, deleteEvent, rsvpEvent, updateEvent } = vi.hoisted(() => ({
 	updateEvent: vi.fn(),
 }))
 
-vi.mock('../server/calendar-fns.js', () => ({ createEvent, deleteEvent, rsvpEvent, updateEvent }))
+vi.mock('#features/calendar/server/calendar-fns', () => ({
+	createEvent,
+	deleteEvent,
+	rsvpEvent,
+	updateEvent,
+}))
 
 // The guest field's contact lookup is a server fn; stub it so rendering the
 // composer never reaches the network. Guest tests commit addresses directly.
-vi.mock('../../../server/fns.js', () => ({ searchContacts: vi.fn().mockResolvedValue([]) }))
+vi.mock('#server/fns', () => ({ searchContacts: vi.fn().mockResolvedValue([]) }))
 
 function render(ui: ReactElement) {
 	return testingRender(

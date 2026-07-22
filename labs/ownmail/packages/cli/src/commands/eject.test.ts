@@ -161,10 +161,16 @@ describe('runEject — writes the project', () => {
 
 		expect(createApiKey).toHaveBeenCalled()
 		expect(mkdirSync).toHaveBeenCalledWith(expect.stringContaining('acme'), { recursive: true })
-		// All five template entries exist → all copied.
-		expect(cpSync).toHaveBeenCalledTimes(5)
+		// All six template entries exist → all copied.
+		expect(cpSync).toHaveBeenCalledTimes(6)
 		expect(writtenFile('.dev.vars')).toContain('NYLAS_API_KEY=nyk_minted')
 		expect(writtenFile('package.json')).toContain('"name": "acme"')
+		expect(writtenFile('package.json')).toContain('"#shared/components/*"')
+		expect(cpSync).toHaveBeenCalledWith(
+			join(ROOT, 'components.json'),
+			expect.stringContaining('components.json'),
+			{ recursive: true },
+		)
 		expect(writtenFile('wrangler.jsonc')).toContain('"name": "acme-ownmail"')
 		expect(writtenFile('wrangler.jsonc')).toContain('"id": "kv_1"')
 		expect(writtenFile('wrangler.jsonc')).not.toContain('NYLAS_API_BASE_URL')
@@ -201,8 +207,8 @@ describe('runEject — writes the project', () => {
 		await runEject({ dir: './custom-dir' })
 
 		expect(createApiKey).not.toHaveBeenCalled()
-		// 'public' entry does not exist → only 4 of 5 copied.
-		expect(cpSync).toHaveBeenCalledTimes(4)
+		// 'public' entry does not exist → only 5 of 6 copied.
+		expect(cpSync).toHaveBeenCalledTimes(5)
 		expect(writtenFile('.dev.vars')).toContain('<create an API key in the Nylas dashboard>')
 		// Worker name falls back to `${slug}-ownmail`.
 		expect(writtenFile('wrangler.jsonc')).toContain('"name": "acme-ownmail"')

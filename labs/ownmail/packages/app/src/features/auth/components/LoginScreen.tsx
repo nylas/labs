@@ -1,6 +1,6 @@
 import { ArrowRight, Calendar, Loader2, Mail, ShieldCheck } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import { Button } from '../../../shared/components/ui/button.js'
+import { Button } from '#shared/components/ui/button'
 
 export function LoginScreen({ signInHref, siteName }: { signInHref: string; siteName: string }) {
 	const [connecting, setConnecting] = useState(false)

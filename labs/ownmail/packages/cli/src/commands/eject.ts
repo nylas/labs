@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:
 import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { loadManifest, templateRoot } from '../deploy/materialize.js'
+import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
@@ -58,7 +59,14 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 	const runtimeApiBaseUrl = deployedApiBaseUrl(project.region)
 	const root = templateRoot()
 	mkdirSync(target, { recursive: true })
-	for (const entry of ['src', 'public', 'vite.config.ts', 'tsconfig.json', 'template.json']) {
+	for (const entry of [
+		'src',
+		'public',
+		'components.json',
+		'vite.config.ts',
+		'tsconfig.json',
+		'template.json',
+	]) {
 		const from = join(root, entry)
 		if (existsSync(from)) cpSync(from, join(target, entry), { recursive: true })
 	}
@@ -70,6 +78,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				name: project.slug,
 				private: true,
 				type: 'module',
+				imports: sourceImports,
 				scripts: {
 					dev: 'vite dev',
 					build: 'vite build',

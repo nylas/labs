@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import type * as React from 'react'
-import { cn } from '../../lib/utils.js'
+import { cn } from '#shared/lib/utils'
 
 export const Dialog = DialogPrimitive.Root
 export const DialogTitle = DialogPrimitive.Title
