@@ -56,7 +56,7 @@ workflow. You stay in charge of the code from there.
 
 ## What you need
 
-- Node.js 20+
+- Node.js 20.12+
 - A Nylas account
 - A Cloudflare, Vercel, or Netlify account if you want hosted deployment
 - A domain you control, or a free `nylas.email` subdomain created during setup

@@ -49,7 +49,7 @@ From there, the source and local-development workflow are yours to shape.
 
 ## Requirements
 
-- Node.js 20 or later
+- Node.js 20.12 or later
 - A Nylas account
 - A Cloudflare, Vercel, or Netlify account for hosted deployment
 - A domain you control, or a free `nylas.email` subdomain created during setup
