@@ -631,6 +631,40 @@ describe('EventModal — new event', () => {
 		// Anchor right edge (50 + 60) + gap (12) = 122; top aligns with the slot.
 		expect(dialog.style.left).toBe('122px')
 		expect(dialog.style.top).toBe('100px')
+		expect(dialog.style.maxHeight).toBe('calc(100dvh - 108px)')
+		expect(dialog.firstElementChild?.nextElementSibling?.nextElementSibling).toHaveClass(
+			'overflow-y-auto',
+			'overscroll-contain',
+		)
+	})
+
+	it('keeps the composer within the viewport after a resize', () => {
+		const originalWidth = window.innerWidth
+		const originalHeight = window.innerHeight
+		Object.defineProperty(window, 'innerWidth', { configurable: true, value: 480 })
+		Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 })
+		try {
+			render(
+				<EventModal
+					event={null}
+					defaultStart={defaultStart}
+					calendarId="cal1"
+					calendarName="Work"
+					calendars={calendars}
+					anchorRect={{ top: 100, left: 50, width: 60, height: 40 }}
+					onClose={vi.fn()}
+				/>,
+			)
+			const dialog = screen.getByRole('dialog', { name: 'New event' })
+			fireEvent(window, new Event('resize'))
+
+			expect(dialog.style.left).toBe('12px')
+			expect(dialog.style.top).toBe('8px')
+			expect(dialog.style.maxHeight).toBe('calc(100dvh - 16px)')
+		} finally {
+			Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+			Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
+		}
 	})
 
 	it('closes the floating composer on Escape but ignores other keys', () => {
