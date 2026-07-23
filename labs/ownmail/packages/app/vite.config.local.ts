@@ -8,7 +8,7 @@ import { defineConfig } from 'vite'
  * Local Node SSR target. Use `pnpm dev:ui` for mock data or `pnpm dev:local`
  * with real environment variables for Nylas integration testing.
  */
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	plugins: [tailwindcss(), tanstackStart(), react()],
 	resolve: {
 		alias: {
@@ -19,7 +19,7 @@ export default defineConfig({
 	},
 	ssr: {
 		external: ['cloudflare:workers'],
-		noExternal: true,
+		...(command === 'build' ? { noExternal: true } : {}),
 	},
 	environments: {
 		ssr: {
@@ -30,4 +30,4 @@ export default defineConfig({
 			},
 		},
 	},
-})
+}))
