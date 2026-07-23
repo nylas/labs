@@ -231,6 +231,14 @@ describe('message list', () => {
 		expect(screen.getByText('first body line')).toBeInTheDocument()
 	})
 
+	it('lets expanded message content reclaim the avatar gutter', () => {
+		renderThread()
+		const content = document.querySelector('[data-slot="expanded-message-content"]')
+
+		expect(content).toHaveClass('mt-4', 'min-w-0')
+		expect(content).not.toHaveClass('pl-12')
+	})
+
 	it('toggles a collapsed message open and back, rendering its (empty) body and no attachments', async () => {
 		const user = userEvent.setup()
 		renderThread()

@@ -134,10 +134,9 @@ function MessageBlock({
 			</div>
 
 			{open ? (
-				// Indent by the avatar column (w-9) plus the header gap (gap-3) so the body
-				// shares the sender/recipient/timestamp left edge — one reading column, with
-				// the avatar as a gutter rather than dead space beside the text.
-				<div className="mt-4 pl-12">
+				// The avatar belongs to the identity row only. Let the message content reclaim
+				// that gutter below the header so HTML mail and attachments use the full pane.
+				<div data-slot="expanded-message-content" className="mt-4 min-w-0">
 					<MessageBody message={message} />
 					<MessageAttachments message={message} />
 				</div>
