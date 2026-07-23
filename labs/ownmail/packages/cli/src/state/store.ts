@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import envPaths from 'env-paths'
 import { ownmailStateName } from '../nylas-env.js'
@@ -31,7 +40,19 @@ function readJson<T>(path: string): T | null {
 
 function writeJson(path: string, value: unknown): void {
 	mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 })
-	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
+	const temporaryPath = `${path}.${randomUUID()}.tmp`
+	try {
+		writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+			mode: 0o600,
+			flag: 'wx',
+		})
+		renameSync(temporaryPath, path)
+	} catch (err) {
+		try {
+			unlinkSync(temporaryPath)
+		} catch {}
+		throw err
+	}
 }
 
 // ---- Auth -------------------------------------------------------------------

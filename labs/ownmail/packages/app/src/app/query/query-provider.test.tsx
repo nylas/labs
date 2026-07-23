@@ -56,6 +56,9 @@ describe('server state synchronization', () => {
 			.spyOn(globalThis, 'fetch')
 			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
 			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 3 } })))
+			.mockImplementation(async () => {
+				return new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 3 } }))
+			})
 		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
 
 		const view = render(
@@ -73,6 +76,10 @@ describe('server state synchronization', () => {
 		expect(scoped[0]?.predicate?.({ queryKey: ['mail'] } as never)).toBe(true)
 		expect(scoped[0]?.predicate?.({ queryKey: ['contacts'] } as never)).toBe(false)
 		expect(scoped[1]?.predicate?.({ queryKey: ['calendar'] } as never)).toBe(true)
+
+		await act(async () => vi.advanceTimersByTimeAsync(60_000))
+		expect(fetchMock).toHaveBeenCalledTimes(8)
+		expect(invalidate).toHaveBeenLastCalledWith({ refetchType: 'active' })
 
 		view.unmount()
 	})

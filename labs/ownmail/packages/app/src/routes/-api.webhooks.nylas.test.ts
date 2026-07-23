@@ -72,13 +72,22 @@ describe('/api/webhooks/nylas GET verification', () => {
 })
 
 describe('/api/webhooks/nylas POST', () => {
-	it('rejects notifications when no webhook secret is configured (falls back to polling)', async () => {
+	it('returns a retryable generic error when runtime initialization fails', async () => {
+		platform.mockRejectedValue(new Error('private runtime configuration'))
+
+		const response = await post('{}', 'deadbeef')
+
+		expect(response.status).toBe(503)
+		expect(await response.text()).toBe('webhook temporarily unavailable')
+	})
+
+	it('returns a retryable generic error while the webhook secret is unavailable', async () => {
 		platform.mockResolvedValue({ env: {}, kv: makeKv() })
 
 		const response = await post('{}', 'deadbeef')
 
-		expect(response.status).toBe(401)
-		expect(await response.text()).toBe('webhook secret not configured')
+		expect(response.status).toBe(503)
+		expect(await response.text()).toBe('webhook temporarily unavailable')
 	})
 
 	it('rejects an oversized payload from its Content-Length before reading its body', async () => {
@@ -254,7 +263,22 @@ describe('/api/webhooks/nylas POST', () => {
 		expect(kv.store.size).toBe(0)
 	})
 
-	it('acknowledges a validly-signed but malformed payload so Nylas stops retrying', async () => {
+	it('returns 503 when realtime persistence fails so Nylas retries the event', async () => {
+		const kv = makeKv()
+		kv.put = vi.fn().mockRejectedValue(new Error('temporary storage outage'))
+		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })
+		const body = JSON.stringify({
+			type: 'message.created',
+			data: { object: { grant_id: 'grant-1' } },
+		})
+
+		const response = await post(body, await sign(SECRET, body))
+
+		expect(response.status).toBe(503)
+		expect(await response.text()).toBe('webhook temporarily unavailable')
+	})
+
+	it('rejects a validly-signed malformed payload without treating it as transient', async () => {
 		const kv = makeKv()
 		const putSpy = vi.spyOn(kv, 'put')
 		platform.mockResolvedValue({ env: { NYLAS_WEBHOOK_SECRET: SECRET }, kv })
@@ -262,7 +286,8 @@ describe('/api/webhooks/nylas POST', () => {
 
 		const response = await post(body, await sign(SECRET, body))
 
-		expect(response.status).toBe(200)
+		expect(response.status).toBe(400)
+		expect(await response.text()).toBe('invalid payload')
 		expect(putSpy).not.toHaveBeenCalled()
 	})
 })

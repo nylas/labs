@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({
 	spawn: vi.fn(),
@@ -51,6 +51,8 @@ vi.mock('node:fs', () => ({
 }))
 
 import {
+	attachVercelDomain,
+	configureNetlifyDomain,
 	deployNetlify,
 	deployVercel,
 	ensureNetlifySite,
@@ -77,6 +79,186 @@ beforeEach(() => {
 	hoisted.removed.length = 0
 	hoisted.resolveFails = false
 	hoisted.missingBin = false
+	Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true })
+})
+
+afterEach(() => {
+	Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true })
+})
+
+describe('custom domain provider lifecycle', () => {
+	const siteId = '123e4567-e89b-42d3-a456-426614174000'
+
+	it('attaches a Vercel domain without force and accepts an idempotent assignment', async () => {
+		queueCli({ code: 0 }, { code: 0 })
+		await attachVercelDomain('mail.acme.com', 'prj_1', 'team_1')
+		expect(spawnedArgs(1)).toEqual(
+			expect.arrayContaining([
+				'domains',
+				'add',
+				'mail.acme.com',
+				'prj_1',
+				'--scope',
+				'team_1',
+				'--no-color',
+				'--non-interactive',
+			]),
+		)
+		expect(spawnedArgs(1)).not.toContain('--force')
+
+		queueCli({ code: 0 }, { code: 1, stderr: 'Domain is already assigned to this project' })
+		await expect(attachVercelDomain('mail.acme.com', 'prj_1', 'team_1')).resolves.toBeUndefined()
+	})
+
+	it('does not steal a Vercel domain from another project or expose raw output', async () => {
+		queueCli({ code: 0 }, { code: 1, stderr: 'domain already assigned private-project-name' })
+		await expect(attachVercelDomain('mail.acme.com', 'prj_1', 'team_1')).rejects.toThrow(
+			/assigned to another project/,
+		)
+
+		queueCli({ code: 0 }, { code: 1, stderr: 'private provider output' })
+		const error = await attachVercelDomain('mail.acme.com', 'prj_1', 'team_1').catch(
+			(caught: unknown) => caught,
+		)
+		expect((error as Error).message).toMatch(/could not attach/)
+		expect((error as Error).message).not.toContain('private provider output')
+	})
+
+	it.each([
+		['https://mail.acme.com', 'prj_1', 'team_1'],
+		['mail.acme.com', '../bad', 'team_1'],
+		['mail.acme.com', 'prj_1', '../bad'],
+	])('rejects invalid Vercel domain boundaries before spawning', async (domain, projectId, orgId) => {
+		await expect(attachVercelDomain(domain, projectId, orgId)).rejects.toThrow(/invalid/)
+		expect(hoisted.spawn).not.toHaveBeenCalled()
+	})
+
+	it('merges Netlify aliases and promotes the requested primary without losing the old one', async () => {
+		queueCli(
+			{ code: 0 },
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					id: siteId,
+					custom_domain: 'old.acme.com',
+					domain_aliases: ['alias.acme.com'],
+				}),
+			},
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					id: siteId,
+					custom_domain: 'mail.acme.com',
+					domain_aliases: ['alias.acme.com', 'old.acme.com'],
+				}),
+			},
+		)
+
+		await configureNetlifyDomain('mail.acme.com', siteId, true)
+
+		const data = spawnedArgs(2)[spawnedArgs(2).indexOf('--data') + 1]
+		expect(JSON.parse(data)).toEqual({
+			site_id: siteId,
+			body: {
+				custom_domain: 'mail.acme.com',
+				domain_aliases: ['alias.acme.com', 'old.acme.com'],
+			},
+		})
+	})
+
+	it('adds a Netlify secondary alias while preserving the primary', async () => {
+		queueCli(
+			{ code: 0 },
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					site_id: siteId,
+					custom_domain: 'mail.acme.com',
+					domain_aliases: null,
+				}),
+			},
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					site_id: siteId,
+					custom_domain: 'mail.acme.com',
+					domain_aliases: ['inbox.acme.com'],
+				}),
+			},
+		)
+
+		await configureNetlifyDomain('inbox.acme.com', siteId, false)
+
+		const data = spawnedArgs(2)[spawnedArgs(2).indexOf('--data') + 1]
+		expect(JSON.parse(data)).toEqual({
+			site_id: siteId,
+			body: { domain_aliases: ['inbox.acme.com'] },
+		})
+	})
+
+	it('fails with an actionable command instead of opening provider login without a TTY', async () => {
+		Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true })
+		queueCli({ code: 1 })
+
+		await expect(attachVercelDomain('mail.acme.com', 'prj_1', 'team_1')).rejects.toThrow(/vercel login/)
+
+		expect(hoisted.spawn).toHaveBeenCalledTimes(1)
+	})
+
+	it.each([
+		['non-object response', 'null', /invalid custom-domain details/],
+		[
+			'wrong site',
+			JSON.stringify({ id: '223e4567-e89b-42d3-a456-426614174000', domain_aliases: [] }),
+			/unexpected site/,
+		],
+		[
+			'invalid primary',
+			JSON.stringify({ id: siteId, custom_domain: 'bad\nhost', domain_aliases: [] }),
+			/invalid primary/,
+		],
+		[
+			'non-array aliases',
+			JSON.stringify({ id: siteId, custom_domain: null, domain_aliases: 'bad' }),
+			/invalid custom-domain aliases/,
+		],
+		[
+			'invalid alias',
+			JSON.stringify({ id: siteId, custom_domain: null, domain_aliases: ['bad\nhost'] }),
+			/invalid custom-domain aliases/,
+		],
+		[
+			'too many aliases',
+			JSON.stringify({
+				id: siteId,
+				custom_domain: null,
+				domain_aliases: Array.from({ length: 101 }, (_, index) => `a${index}.example.com`),
+			}),
+			/invalid custom-domain aliases/,
+		],
+	] as const)('rejects Netlify %s before update', async (_case, output, error) => {
+		queueCli({ code: 0 }, { code: 0, stdout: output })
+		await expect(configureNetlifyDomain('mail.acme.com', siteId, true)).rejects.toThrow(error)
+		expect(hoisted.spawn).toHaveBeenCalledTimes(2)
+	})
+
+	it('reports Netlify read, update, and unverifiable success safely', async () => {
+		queueCli({ code: 0 }, { code: 1, stderr: 'private read output' })
+		await expect(configureNetlifyDomain('mail.acme.com', siteId, true)).rejects.toThrow(
+			/inspect the custom-domain configuration/,
+		)
+
+		const current = JSON.stringify({ id: siteId, custom_domain: null, domain_aliases: [] })
+		queueCli({ code: 0 }, { code: 0, stdout: current }, { code: 1, stderr: 'private update output' })
+		await expect(configureNetlifyDomain('mail.acme.com', siteId, true)).rejects.toThrow(/could not attach/)
+
+		queueCli(
+			{ code: 0 },
+			{ code: 0, stdout: current },
+			{ code: 0, stdout: JSON.stringify({ id: siteId, custom_domain: null, domain_aliases: [] }) },
+		)
+		await expect(configureNetlifyDomain('mail.acme.com', siteId, true)).rejects.toThrow(/could not verify/)
+	})
 })
 
 describe('Vercel provider CLI', () => {

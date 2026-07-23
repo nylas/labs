@@ -34,11 +34,34 @@ ownmail status
 ownmail update
 ownmail doctor
 ownmail inbox add
+ownmail app-domain mail.example.com --primary
 ownmail eject
 ```
 
 Run `ownmail --help` or `ownmail <command> --help` for the complete command
 reference.
+
+## Custom app domains
+
+An app domain is the browser hostname for the hosted mailbox; it is separate
+from the email domain used after `@` in mailbox addresses. Attach the canonical
+sign-in and realtime-update hostname with:
+
+```bash
+ownmail app-domain mail.example.com --primary
+```
+
+Attach another working sign-in hostname without moving Nylas instant updates:
+
+```bash
+ownmail app-domain inbox.example.com --secondary
+```
+
+OwnMail updates the recorded Cloudflare, Vercel, or Netlify project, registers
+the Hosted Auth callback, and reconciles a single Nylas webhook on the primary
+domain. If provider DNS verification or TLS is pending, follow the Domain
+settings guidance and retry the exact resume command shown by OwnMail. The
+previous app URL stays active until promotion completes.
 
 ## Eject when you are ready
 

@@ -21,6 +21,7 @@ import {
 	setNetlifyEnvironment,
 	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
+import { WEBHOOK_TRIGGER_TYPES } from '../deploy/webhook.js'
 import {
 	cloudflareApiTokenConfigured,
 	deploy,
@@ -210,10 +211,12 @@ beforeEach(() => {
 	vi.mocked(deployedApiBaseUrl).mockReturnValue(undefined)
 	vi.mocked(open).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof open>>)
 	delete process.env.CLOUDFLARE_API_TOKEN
+	Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true })
 })
 
 afterEach(() => {
 	vi.unstubAllGlobals()
+	Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true })
 })
 
 function stubHealthyApp() {
@@ -281,6 +284,16 @@ describe('ensureCloudflareAuth', () => {
 		vi.mocked(wranglerLoggedIn).mockResolvedValueOnce(true)
 		await ensureCloudflareAuth()
 		expect(p.select).not.toHaveBeenCalled()
+	})
+
+	it('does not open an interactive login flow without a TTY', async () => {
+		Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true })
+		vi.mocked(wranglerLoggedIn).mockResolvedValueOnce(false)
+
+		await expect(ensureCloudflareAuth()).rejects.toThrow(/npx wrangler login/)
+
+		expect(p.select).not.toHaveBeenCalled()
+		expect(wranglerLogin).not.toHaveBeenCalled()
 	})
 
 	it('skips the connect prompt when an API token is already configured', async () => {
@@ -831,13 +844,10 @@ describe('stepWebhook', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
 
-	it.each([
-		['netlify', 'Netlify hosting'],
-		['local', 'Local hosting'],
-	] as const)('uses polling for %s hosting', async (hostingProvider, label) => {
-		const ctx = makeCtx(makeProject({ hostingProvider }))
+	it('uses polling for local hosting', async () => {
+		const ctx = makeCtx(makeProject({ hostingProvider: 'local' }))
 		await stepWebhook(ctx)
-		expect(p.log.info).toHaveBeenCalledWith(`${label} uses polling for new mail.`)
+		expect(p.log.info).toHaveBeenCalledWith('Local hosting uses polling for new mail.')
 	})
 
 	it('registers Vercel instant updates and redeploys with the webhook secret', async () => {
@@ -871,11 +881,10 @@ describe('stepWebhook', () => {
 			ensureWebhook,
 		})
 		await stepWebhook(ctx)
-		expect(ensureWebhook).toHaveBeenCalledWith('https://app.workers.dev/api/webhooks/nylas', [
-			'message.created',
-			'message.updated',
-			'thread.replied',
-		])
+		expect(ensureWebhook).toHaveBeenCalledWith(
+			'https://app.workers.dev/api/webhooks/nylas',
+			WEBHOOK_TRIGGER_TYPES,
+		)
 		expect(putSecret).toHaveBeenCalledWith('worker', 'NYLAS_WEBHOOK_SECRET', 'wh-secret')
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
 	})
@@ -890,11 +899,10 @@ describe('stepWebhook', () => {
 
 		await stepWebhook(ctx)
 
-		expect(ensureWebhook).toHaveBeenCalledWith('https://app.workers.dev/path/api/webhooks/nylas', [
-			'message.created',
-			'message.updated',
-			'thread.replied',
-		])
+		expect(ensureWebhook).toHaveBeenCalledWith(
+			'https://app.workers.dev/path/api/webhooks/nylas',
+			WEBHOOK_TRIGGER_TYPES,
+		)
 	})
 
 	it('registers the webhook without storing a secret when none is returned', async () => {
@@ -905,7 +913,7 @@ describe('stepWebhook', () => {
 		})
 		await stepWebhook(ctx)
 		expect(putSecret).not.toHaveBeenCalled()
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('skips webhook setup until the deployed app is healthy', async () => {
@@ -925,7 +933,7 @@ describe('stepWebhook', () => {
 		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz', expect.any(Object))
 		expect(ensureWebhook).not.toHaveBeenCalled()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('not reachable yet'))
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('skips webhook setup locally when no app URL is recorded', async () => {
@@ -936,7 +944,7 @@ describe('stepWebhook', () => {
 
 		expect(ensureWebhook).not.toHaveBeenCalled()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('skips webhook setup locally when the app URL is blank', async () => {
@@ -947,7 +955,7 @@ describe('stepWebhook', () => {
 
 		expect(ensureWebhook).not.toHaveBeenCalled()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('skips webhook setup locally when the app URL is not HTTPS', async () => {
@@ -960,7 +968,7 @@ describe('stepWebhook', () => {
 
 		expect(ensureWebhook).not.toHaveBeenCalled()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('skips webhook setup locally when the app URL is malformed', async () => {
@@ -973,7 +981,7 @@ describe('stepWebhook', () => {
 
 		expect(ensureWebhook).not.toHaveBeenCalled()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('public HTTPS app URL'))
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('warns and continues when webhook setup fails with an Error', async () => {
@@ -992,7 +1000,7 @@ describe('stepWebhook', () => {
 		expect(warning).toContain('npx ownmail doctor')
 		expect(warning).toContain('Request ID: req-webhook-123')
 		expect(warning).not.toContain('unable.verify.webhook_url')
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('warns and continues when a returned webhook secret cannot be stored', async () => {
@@ -1005,7 +1013,7 @@ describe('stepWebhook', () => {
 		await stepWebhook(ctx)
 
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Couldn’t set up instant updates.'))
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
 	})
 
 	it('warns and continues when webhook setup fails with a non-Error', async () => {
@@ -1018,7 +1026,23 @@ describe('stepWebhook', () => {
 		const [[warning]] = vi.mocked(p.log.warn).mock.calls
 		expect(warning).toContain('Couldn’t set up instant updates.')
 		expect(warning).not.toContain('string failure')
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'webhook')
+		expect(markStep).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		['ambiguous-ownmail-destinations', 'remove obsolete “ownmail realtime” webhooks'],
+		['tracked-destination-ownership-mismatch', 'recorded destination no longer matches'],
+		['unrecognized-callback-destination', 'different webhook already uses this callback URL'],
+	] as const)('shows actionable recovery for %s', async (code, recovery) => {
+		stubHealthyApp()
+		const ctx = makeCtx(makeProject({ workerName: 'worker', workersDevUrl: 'https://app.workers.dev' }), {
+			reconcileWebhook: vi.fn().mockRejectedValue(Object.assign(new Error('hidden'), { code })),
+		})
+
+		await stepWebhook(ctx)
+
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining(recovery))
+		expect(markStep).not.toHaveBeenCalled()
 	})
 })
 

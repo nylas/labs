@@ -75,7 +75,7 @@ describe('runStatus', () => {
 		vi.mocked(listProjects).mockReturnValue([project()])
 		await runStatus()
 		const [[body]] = vi.mocked(p.note).mock.calls
-		expect(body).toContain('domain:   —')
+		expect(body).toContain('email domain:       —')
 		expect(body).not.toContain('(verified)')
 		expect(body).toContain('inbox:    —')
 		expect(body).toContain('not deployed yet')
@@ -83,6 +83,39 @@ describe('runStatus', () => {
 		expect(body).not.toContain('(ejected)')
 		expect(body).toContain('stage:    Not started')
 		expect(body).toContain('next:     npx ownmail')
+		expect(body).toContain('pending app domain: —')
+	})
+
+	it('prints the exact custom-domain resume command and role', async () => {
+		vi.mocked(listProjects).mockReturnValue([
+			project({
+				hostingProvider: 'cloudflare',
+				workersDevUrl: 'https://acme.workers.dev',
+				appDomains: ['mail.acme.com'],
+				pendingAppDomain: { domain: 'mail.acme.com', primary: false },
+			}),
+		])
+
+		await runStatus()
+
+		const [[body]] = vi.mocked(p.note).mock.calls
+		expect(body).toContain('stage:    Custom domain setup pending')
+		expect(body).toContain('pending app domain: mail.acme.com (--secondary)')
+		expect(body).toContain('next:     npx ownmail app-domain mail.acme.com --name acme --secondary')
+	})
+
+	it('labels a pending primary-domain promotion', async () => {
+		vi.mocked(listProjects).mockReturnValue([
+			project({
+				appDomains: ['mail.acme.com'],
+				pendingAppDomain: { domain: 'mail.acme.com', primary: true },
+			}),
+		])
+
+		await runStatus()
+
+		const [[body]] = vi.mocked(p.note).mock.calls
+		expect(body).toContain('pending app domain: mail.acme.com (--primary)')
 	})
 
 	it('prints machine-readable JSON when requested', async () => {

@@ -158,7 +158,10 @@ describe('runEject — confirmation', () => {
 
 describe('runEject — writes the project', () => {
 	it('mints a fresh API key and scaffolds the full project', async () => {
-		const project = makeProject()
+		const project = makeProject({
+			appDomain: 'mail.acme.com',
+			appDomains: ['mail.acme.com', 'inbox.acme.com'],
+		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
 
 		await runEject({})
@@ -179,6 +182,10 @@ describe('runEject — writes the project', () => {
 		)
 		expect(writtenFile('wrangler.jsonc')).toContain('"name": "acme-ownmail"')
 		expect(writtenFile('wrangler.jsonc')).toContain('"id": "kv_1"')
+		expect(JSON.parse(writtenFile('wrangler.jsonc') ?? '{}').routes).toEqual([
+			{ pattern: 'mail.acme.com', custom_domain: true },
+			{ pattern: 'inbox.acme.com', custom_domain: true },
+		])
 		expect(writtenFile('wrangler.jsonc')).not.toContain('NYLAS_API_BASE_URL')
 		expect(writtenFile('README.md')).toContain('hi@acme.com')
 		expect(project.ejected).toBe(true)
@@ -197,6 +204,23 @@ describe('runEject — writes the project', () => {
 		expect(writtenFile('.dev.vars')).toContain('<create an API key in the Nylas dashboard>')
 		expect(saveProject).toHaveBeenCalled()
 	})
+
+	it.each(['vercel', 'netlify'] as const)(
+		'does not export Cloudflare custom-domain routes for %s projects',
+		async (hostingProvider) => {
+			vi.mocked(pickExistingProject).mockResolvedValue(
+				makeProject({
+					hostingProvider,
+					appDomain: 'mail.acme.com',
+					appDomains: ['mail.acme.com'],
+				}),
+			)
+
+			await runEject({})
+
+			expect(JSON.parse(writtenFile('wrangler.jsonc') ?? '{}').routes).toBeUndefined()
+		},
+	)
 
 	it('omits the support reference when API-key minting has no request ID', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(makeProject())

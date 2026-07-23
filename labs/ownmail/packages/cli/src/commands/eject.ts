@@ -4,6 +4,7 @@ import * as p from '@clack/prompts'
 import { loadManifest, templateRoot } from '../deploy/materialize.js'
 import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
+import { projectAppDomains } from '../state/app-domains.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { OWNMAIL_VERSION } from '../usage-attribution.js'
@@ -124,6 +125,14 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				compatibility_flags: ['nodejs_compat'],
 				main: '@tanstack/react-start/server-entry',
 				kv_namespaces: [{ binding: 'SESSIONS', id: project.kvNamespaceId ?? '' }],
+				...(project.hostingProvider === 'cloudflare' || !project.hostingProvider
+					? {
+							routes: projectAppDomains(project).map((pattern) => ({
+								pattern,
+								custom_domain: true,
+							})),
+						}
+					: {}),
 				vars: {
 					NYLAS_CLIENT_ID: project.applicationId.trim(),
 					NYLAS_REGION: project.region,

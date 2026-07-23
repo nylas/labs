@@ -42,6 +42,36 @@ describe('ProjectStateSchema', () => {
 		expect(parsed.ejected).toBe(false)
 		expect(parsed.completedSteps).toEqual([])
 		expect(parsed.pendingSecrets).toEqual({})
+		expect(parsed.appDomains).toEqual([])
+	})
+
+	it('validates primary, additional, pending, and tracked webhook domain state', () => {
+		const parsed = ProjectStateSchema.parse({
+			slug: 'my-inbox',
+			createdAt: 1,
+			updatedAt: 1,
+			appDomain: 'mail.example.com',
+			appDomains: ['mail.example.com', 'inbox.example.com'],
+			pendingAppDomain: { domain: 'new.example.com', primary: true },
+			realtimeWebhookId: 'webhook-1',
+		})
+		expect(parsed.appDomains).toHaveLength(2)
+		expect(parsed.pendingAppDomain?.primary).toBe(true)
+		expect(ProjectStateSchema.safeParse({ ...parsed, appDomain: 'https://bad.example.com' }).success).toBe(
+			false,
+		)
+		expect(
+			ProjectStateSchema.safeParse({
+				...parsed,
+				appDomains: Array.from({ length: 51 }, (_, index) => `mail${index}.example.com`),
+			}).success,
+		).toBe(false)
+		expect(
+			ProjectStateSchema.safeParse({
+				...parsed,
+				pendingAppDomain: { domain: '*.example.com', primary: false },
+			}).success,
+		).toBe(false)
 	})
 
 	it('preserves explicitly provided values over defaults', () => {

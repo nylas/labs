@@ -35,6 +35,8 @@ export type MaterializeInput = {
 	vars: Record<string, string>
 	/** Optional custom domain for the app itself (Cloudflare custom_domain route). */
 	appDomain?: string
+	/** All custom domains attached to the app. */
+	appDomains?: string[]
 }
 
 export type Materialized = {
@@ -131,8 +133,9 @@ export function materialize(input: MaterializeInput): Materialized {
 		throw new Error('NYLAS_CLIENT_ID is required before deploying the mailbox app.')
 	}
 	const root = templateRoot()
-	const dir = join(tmpdir(), 'ownmail', input.slug, `deploy-${Date.now()}`)
-	mkdirSync(dir, { recursive: true })
+	const parent = join(tmpdir(), 'ownmail', input.slug)
+	mkdirSync(parent, { recursive: true, mode: 0o700 })
+	const dir = mkdtempSync(join(parent, 'deploy-'))
 	cpSync(join(root, 'dist'), join(dir, 'dist'), { recursive: true })
 
 	const configPath = join(dir, 'dist', 'server', 'wrangler.json')
@@ -141,8 +144,11 @@ export function materialize(input: MaterializeInput): Materialized {
 	config.topLevelName = input.workerName
 	config.kv_namespaces = [{ binding: 'SESSIONS', id: input.kvNamespaceId }]
 	config.vars = input.vars
-	if (input.appDomain) {
-		config.routes = [{ pattern: input.appDomain, custom_domain: true }]
+	const appDomains = [
+		...new Set([...(input.appDomains ?? []), ...(input.appDomain ? [input.appDomain] : [])]),
+	]
+	if (appDomains.length > 0) {
+		config.routes = appDomains.map((pattern) => ({ pattern, custom_domain: true }))
 	}
 	// The build-machine absolute paths are meaningless here; point them at the
 	// materialized copy so wrangler resolves relative assets/main correctly.

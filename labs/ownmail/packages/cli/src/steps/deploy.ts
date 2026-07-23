@@ -34,6 +34,7 @@ import {
 	wranglerLogin,
 } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl, resourceNameSuffix } from '../nylas-env.js'
+import { projectAppDomains } from '../state/app-domains.js'
 import {
 	clearPendingSecret,
 	clearPendingSecrets,
@@ -104,6 +105,12 @@ export async function stepCfAuth(_ctx: StepContext): Promise<void> {
 
 export async function ensureCloudflareAuth(): Promise<void> {
 	if (await wranglerLoggedIn()) return
+
+	if (!process.stdin.isTTY) {
+		throw new Error(
+			'Cloudflare sign-in is required. Run `npx wrangler login` in an interactive terminal or configure `CLOUDFLARE_API_TOKEN`, then retry. No Cloudflare resources were changed.',
+		)
+	}
 
 	p.log.info(
 		[
@@ -227,6 +234,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 		workerName,
 		kvNamespaceId,
 		...(ctx.project.appDomain ? { appDomain: ctx.project.appDomain } : {}),
+		appDomains: projectAppDomains(ctx.project),
 		vars: {
 			NYLAS_CLIENT_ID: applicationId,
 			NYLAS_REGION: ctx.project.region,
@@ -459,11 +467,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 
 /** 10b — Register the realtime webhook and store its secret on the worker. */
 export async function stepWebhook(ctx: StepContext): Promise<void> {
-	if (
-		ctx.project.hostingProvider &&
-		ctx.project.hostingProvider !== 'cloudflare' &&
-		ctx.project.hostingProvider !== 'vercel'
-	) {
+	if (ctx.project.hostingProvider === 'manual' || ctx.project.hostingProvider === 'local') {
 		p.log.info(`${hostingLabel(ctx.project.hostingProvider)} uses polling for new mail.`)
 		markStep(ctx.project, 'webhook')
 		return
@@ -481,11 +485,22 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 			'Couldn’t set up instant updates because the deployed app is not reachable yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor --fix` after the app is healthy to retry.',
 		)
 	} else if (result.status === 'failed') {
+		const recovery =
+			result.reason === 'ambiguous-ownmail-destinations'
+				? 'OwnMail found more than one eligible destination. In the Nylas Dashboard, remove obsolete “ownmail realtime” webhooks for this project, then run `npx ownmail doctor --fix`.'
+				: result.reason === 'tracked-destination-ownership-mismatch'
+					? 'The recorded destination no longer matches this OwnMail project. Run `npx ownmail doctor` to inspect the project before changing webhooks.'
+					: result.reason === 'unrecognized-callback-destination'
+						? 'A different webhook already uses this callback URL. Review Webhooks in the Nylas Dashboard, then run `npx ownmail doctor --fix`.'
+						: 'Run `npx ownmail doctor --fix` to retry.'
 		p.log.warn(
-			`Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. Run \`npx ownmail doctor --fix\` to retry.${result.requestId ? `\n\nRequest ID: ${result.requestId}. Include this ID if you contact Nylas Support.` : ''}`,
+			`Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. ${recovery}${result.requestId ? `\n\nRequest ID: ${result.requestId}. Include this ID if you contact Nylas Support.` : ''}`,
 		)
 	}
-	markStep(ctx.project, 'webhook')
+	if (result.status === 'registered') {
+		saveProject(ctx.project)
+		markStep(ctx.project, 'webhook')
+	}
 }
 
 /** 09 — Register redirect URIs for hosted auth. */
@@ -505,8 +520,8 @@ export async function stepRedirectUris(ctx: StepContext): Promise<void> {
 	if (url) {
 		urls.add(`${url}/auth/callback`)
 	}
-	if (ctx.project.appDomain) {
-		urls.add(`https://${ctx.project.appDomain}/auth/callback`)
+	for (const domain of projectAppDomains(ctx.project)) {
+		urls.add(`https://${domain}/auth/callback`)
 	}
 	await v3.ensureRedirectUris([...urls])
 	markStep(ctx.project, 'redirect-uris')
@@ -590,8 +605,6 @@ function runtimeEnvironment(
 
 function hostingLabel(provider: StepContext['project']['hostingProvider']): string {
 	switch (provider) {
-		case 'netlify':
-			return 'Netlify hosting'
 		case 'local':
 			return 'Local hosting'
 		default:

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isAppDomain } from './app-domains.js'
 
 /**
  * Project slugs are used as filenames under the OwnMail state directory and
@@ -102,8 +103,18 @@ export const ProjectStateSchema = z.object({
 	manualDeployDir: z.string().optional(),
 	manualAppUrl: z.string().url().optional(),
 	kvNamespaceId: z.string().optional(),
-	/** Custom domain serving the app itself (Cloudflare custom_domain route). */
-	appDomain: z.string().optional(),
+	/** Primary custom domain serving the app. Retained for backwards-compatible state. */
+	appDomain: z.string().refine(isAppDomain, 'Invalid primary app domain.').optional(),
+	/** Every custom domain attached to the hosted app, including the primary domain. */
+	appDomains: z.array(z.string().refine(isAppDomain, 'Invalid app domain.')).max(50).default([]),
+	/** A resumable domain promotion that has not completed provider + Nylas setup yet. */
+	pendingAppDomain: z
+		.object({
+			domain: z.string().refine(isAppDomain, 'Invalid pending app domain.'),
+			primary: z.boolean(),
+		})
+		.optional(),
+	realtimeWebhookId: z.string().min(1).max(256).optional(),
 
 	templateVersion: z.string().optional(),
 	ejected: z.boolean().default(false),
