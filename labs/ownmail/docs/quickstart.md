@@ -2,7 +2,7 @@
 
 ## What you need
 
-- Node.js 20.12+ (`node -v`)
+- Node.js 22+ (`node -v`)
 - A Nylas account, or a Google, Microsoft, or GitHub account to create one
 - A Cloudflare, Vercel, or Netlify account for hosted deployment; no provider
   account is needed to run locally

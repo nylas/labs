@@ -2,4 +2,4 @@
 "ownmail": minor
 ---
 
-Require Node.js 20.12 or later to match the CLI's runtime dependencies.
+Require Node.js 22 or later to match the CLI and its pinned deployment tools.
