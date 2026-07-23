@@ -23,7 +23,7 @@ vi.mock('#server/session', () => ({
 	getSession: (request: Request) => getSession(request),
 }))
 
-import { Route } from './auth.callback.js'
+import { escapeHtml, Route } from './auth.callback.js'
 
 const GET = Route.options.server.handlers.GET
 let consoleError: ReturnType<typeof vi.spyOn>
@@ -54,6 +54,10 @@ afterEach(() => {
 })
 
 describe('/auth/callback', () => {
+	it('escapes every HTML metacharacter used in failure responses', () => {
+		expect(escapeHtml(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;')
+	})
+
 	it('does not reflect a hostile provider error verbatim', async () => {
 		const response = await GET({ request: callbackRequest('?error=%3Cscript%3E%26%22%27') })
 
@@ -235,21 +239,22 @@ describe('/auth/callback', () => {
 		expect(consoleError).not.toHaveBeenCalled()
 	})
 
-	it.each([
-		400, 401, 403,
-	])('gives an actionable message for rejected inbox credentials (%i)', async (status) => {
-		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: 'ownmail_pkce=; Max-Age=0' })
-		exchangeCodeForToken.mockRejectedValue(
-			Object.assign(new Error('provider response included a secret'), {
-				name: 'NylasApiError',
-				status,
-			}),
-		)
+	it.each([400, 401, 403])(
+		'gives an actionable message for rejected inbox credentials (%i)',
+		async (status) => {
+			consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: 'ownmail_pkce=; Max-Age=0' })
+			exchangeCodeForToken.mockRejectedValue(
+				Object.assign(new Error('provider response included a secret'), {
+					name: 'NylasApiError',
+					status,
+				}),
+			)
 
-		const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
+			const response = await GET({ request: callbackRequest('?code=abc&state=xyz') })
 
-		expect(await response.text()).toContain('That email or password was not accepted')
-	})
+			expect(await response.text()).toContain('That email or password was not accepted')
+		},
+	)
 
 	it('asks the user to wait after a rate-limited token exchange', async () => {
 		consumePkce.mockResolvedValue({ verifier: 'v', clearCookie: 'ownmail_pkce=; Max-Age=0' })

@@ -369,18 +369,18 @@ describe('KV-backed sessions', () => {
 		})
 	})
 
-	it.each([
-		'not-json{',
-		JSON.stringify({ verifier: 'verifier-a', nonce: 'nonce-a' }),
-	])('rejects a malformed server-side PKCE record without consuming it (%s)', async (record) => {
-		const kv = makeKv()
-		usePlatform(kv)
-		const cookie = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
-		kv.store.set('pkce:state-a', record)
+	it.each(['not-json{', JSON.stringify({ verifier: 'verifier-a', nonce: 'nonce-a' })])(
+		'rejects a malformed server-side PKCE record without consuming it (%s)',
+		async (record) => {
+			const kv = makeKv()
+			usePlatform(kv)
+			const cookie = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
+			kv.store.set('pkce:state-a', record)
 
-		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-a')).toBeNull()
-		expect(kv.store.has('pkce:state-a')).toBe(true)
-	})
+			expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-a')).toBeNull()
+			expect(kv.store.has('pkce:state-a')).toBe(true)
+		},
+	)
 
 	it('rejects a browser-bound attempt whose server-side verifier has expired or been evicted', async () => {
 		const kv = makeKv()

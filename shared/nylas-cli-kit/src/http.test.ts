@@ -10,14 +10,12 @@ describe('userAgentHeader', () => {
 		expect(userAgentHeader()).toEqual({})
 	})
 
-	it.each([
-		'',
-		'ownmail user',
-		'ownmail\r\nx-secret: leaked',
-		'a'.repeat(129),
-	])('rejects an unsafe marker: %j', (userAgent) => {
-		expect(() => userAgentHeader(userAgent)).toThrow('userAgent must be')
-	})
+	it.each(['', 'ownmail user', 'ownmail\r\nx-secret: leaked', 'a'.repeat(129)])(
+		'rejects an unsafe marker: %j',
+		(userAgent) => {
+			expect(() => userAgentHeader(userAgent)).toThrow('userAgent must be')
+		},
+	)
 })
 
 describe('request ID extraction', () => {

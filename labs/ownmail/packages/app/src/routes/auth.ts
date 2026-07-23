@@ -122,7 +122,7 @@ function configurationErrorResponse(message: string): Response {
 	return new Response(html, { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
 	return value.replace(
 		/[&<>"']/g,
 		(c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,

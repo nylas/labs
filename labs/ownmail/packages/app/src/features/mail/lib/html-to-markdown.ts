@@ -44,7 +44,7 @@ function parseInlineNode(node: Node, marks: Mark[], href: string | undefined, ou
 		out.push({ text: (node as CharacterData).data, marks: [...marks], ...(href ? { href } : {}) })
 		return
 	}
-	/* v8 ignore next -- DOMParser also yields comment nodes; they carry no convertible content */
+	/* v8 ignore next -- DOMParser also yields comment nodes; they carry no convertible content -- @preserve */
 	if (node.nodeType !== 1) return
 	const el = node as HTMLElement
 	const tag = el.tagName

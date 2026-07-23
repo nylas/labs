@@ -28,7 +28,9 @@ vi.mock('@clack/prompts', () => ({
 }))
 
 vi.mock('@nylas-labs/cli-kit', () => ({
-	NylasV3Client: vi.fn(() => hoisted.v3),
+	NylasV3Client: vi.fn(function NylasV3ClientMock() {
+		return hoisted.v3
+	}),
 }))
 
 vi.mock('../nylas-env.js', () => ({

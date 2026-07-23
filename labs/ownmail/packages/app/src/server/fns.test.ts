@@ -221,6 +221,17 @@ describe('requireMailbox (auth gate)', () => {
 })
 
 describe('getMailboxInfo', () => {
+	it('uses the session-owned development display name without calling the provider', async () => {
+		usingDevMocksMock.mockResolvedValue(true)
+		resolveMailbox({ displayName: 'Dev Ada' })
+
+		expect(await fns.getMailboxInfo.handler({})).toMatchObject({
+			email: 'ada@ownmail.com',
+			displayName: 'Dev Ada',
+		})
+		expect(nylasMock).not.toHaveBeenCalled()
+	})
+
 	it('returns the email, app name, and display name when present', async () => {
 		const getGrant = vi.fn().mockResolvedValue({
 			data: { id: 'grant-123', provider: 'nylas', name: 'Ada Lovelace' },

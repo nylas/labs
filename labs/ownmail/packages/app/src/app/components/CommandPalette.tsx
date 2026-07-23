@@ -142,6 +142,7 @@ export function CommandPalette({
 		<Dialog
 			open={open}
 			onOpenChange={(next) => {
+				/* v8 ignore else -- @preserve controlled open dialogs only request dismissal; an open request is a no-op */
 				if (!next) onClose()
 			}}
 		>

@@ -280,7 +280,7 @@ export function EventModal({
 	}
 
 	async function saveEdit() {
-		/* v8 ignore next -- saveEdit() is only wired to the edit form, which renders only when event is present */
+		/* v8 ignore next -- saveEdit() is only wired to the edit form, which renders only when event is present -- @preserve */
 		if (!event) return
 		setBusy(true)
 		setError(null)
@@ -306,7 +306,7 @@ export function EventModal({
 	}
 
 	async function remove() {
-		/* v8 ignore next -- remove() is only wired to the delete button, which renders only when event is present */
+		/* v8 ignore next -- remove() is only wired to the delete button, which renders only when event is present -- @preserve */
 		if (!event) return
 		setBusy(true)
 		try {
@@ -322,7 +322,7 @@ export function EventModal({
 	}
 
 	async function rsvp(status: 'yes' | 'no' | 'maybe') {
-		/* v8 ignore next -- rsvp() is only wired to the RSVP buttons, which render only when event is present */
+		/* v8 ignore next -- rsvp() is only wired to the RSVP buttons, which render only when event is present -- @preserve */
 		if (!event) return
 		setBusy(true)
 		try {
@@ -352,6 +352,7 @@ export function EventModal({
 			<Dialog
 				open
 				onOpenChange={(next) => {
+					/* v8 ignore else -- @preserve the controlled open dialog only requests dismissal; busy or open requests are intentional no-ops */
 					if (!next && !busy) onClose(false)
 				}}
 			>
@@ -911,7 +912,7 @@ function dateFromInput(value: string): Date {
 
 function countConflicts(candidate: Event, events: Event[]): number {
 	const candidateTimes = eventTimes(candidate)
-	/* v8 ignore next -- preview events are constructed only from a valid date and complete time range. */
+	/* v8 ignore next -- preview events are constructed only from a valid date and complete time range. -- @preserve */
 	if (!candidateTimes) return 0
 	return events.filter((event) => {
 		const times = eventTimes(event)

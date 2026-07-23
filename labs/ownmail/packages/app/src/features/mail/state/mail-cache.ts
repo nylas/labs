@@ -155,7 +155,7 @@ function nextThreadForEffect(effect: MailCacheEffect, current?: MailThread): Mai
 				? { ...source, folders: threadFoldersAfterCacheMove(source.folders, effect.targetFolderId) }
 				: undefined
 		}
-		/* v8 ignore next 2 -- callers only invoke this helper for the cases above */
+		/* v8 ignore next 2 -- callers only invoke this helper for the cases above -- @preserve */
 		default:
 			return undefined
 	}
@@ -305,7 +305,7 @@ export function reduceMailCacheEntry(
 		const id = effectThreadId(effect)
 		if (!id || detail.thread.id !== id) return data
 		const nextThread = nextThreadForEffect(effect, detail.thread)
-		/* v8 ignore next -- a matching thread effect always has the cached detail as its source */
+		/* v8 ignore next -- a matching thread effect always has the cached detail as its source -- @preserve */
 		if (!nextThread) return data
 		return { ...detail, thread: nextThread }
 	}
@@ -373,7 +373,7 @@ export function createMailOptimisticManager(client: QueryClient) {
 	let entries: JournalEntry[] = []
 
 	function rebuild() {
-		/* v8 ignore next -- rebuild is private and is only called after begin captures the base */
+		/* v8 ignore next -- rebuild is private and is only called after begin captures the base -- @preserve */
 		if (!base) return
 		restoreMailCacheSnapshot(client, base)
 		for (const entry of entries) applyMailCacheEffect(client, entry.effect)

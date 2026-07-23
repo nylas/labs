@@ -30,7 +30,7 @@ export function MessageBody({
 		// HTML message as plaintext. Untrusted markup only reaches EmailHtml's
 		// sanitizer and isolated shadow root after the client has mounted.
 		if (!mounted) return <HtmlBodyPlaceholder />
-		/* v8 ignore next -- `?? ''` is unreachable: this branch only runs when messageHasHtml() confirmed message.body is a non-empty string */
+		/* v8 ignore next -- `?? ''` is unreachable: this branch only runs when messageHasHtml() confirmed message.body is a non-empty string -- @preserve */
 		return <EmailHtml html={message.body ?? ''} messageId={message.id} darken={darkenEmail} />
 	}
 

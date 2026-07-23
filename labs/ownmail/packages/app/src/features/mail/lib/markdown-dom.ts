@@ -109,7 +109,7 @@ function resolvePoint(root: HTMLElement, point: LinePoint): { node: Node; offset
 /** Place the selection at the given line points. */
 export function writeLineRange(root: HTMLElement, start: LinePoint, end: LinePoint): void {
 	const selection = root.ownerDocument.getSelection()
-	/* v8 ignore next -- guards a headless environment with selection disabled; jsdom always returns a Selection */
+	/* v8 ignore next -- guards a headless environment with selection disabled; jsdom always returns a Selection -- @preserve */
 	if (!selection) return
 	const from = resolvePoint(root, start)
 	const to = resolvePoint(root, end)

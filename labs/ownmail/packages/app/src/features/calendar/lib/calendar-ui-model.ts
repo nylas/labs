@@ -91,7 +91,7 @@ function eventTitleContextTone(title: string): EventTone | undefined {
 }
 
 function fallbackTone(index: number): EventTone {
-	/* v8 ignore next -- `index % 4` is always 0-3 and the tuple has four entries, so the indexed access is never undefined and the `?? 'blue'` fallback is unreachable */
+	/* v8 ignore next -- `index % 4` is always 0-3 and the tuple has four entries, so the indexed access is never undefined and the `?? 'blue'` fallback is unreachable -- @preserve */
 	return (['blue', 'teal', 'amber', 'rose'] as const)[index % 4] ?? 'blue'
 }
 

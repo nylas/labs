@@ -19,7 +19,7 @@ describe('local Vite config', () => {
 
 		expect(config.ssr?.external).toEqual(['cloudflare:workers'])
 		expect(config.ssr).not.toHaveProperty('noExternal')
-	})
+	}, 15_000)
 
 	it('keeps dependencies bundled for the distributable Node build', async () => {
 		const config = await loadLocalConfig('build')

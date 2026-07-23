@@ -17,7 +17,7 @@ function startOfLocalDay(date: Date): Date {
 }
 
 export function initials(nameOrEmail: string): string {
-	/* v8 ignore next -- `String.prototype.split` always yields a non-empty array, so `[0]` is never nullish and the `?? nameOrEmail` fallback is unreachable */
+	/* v8 ignore next -- `String.prototype.split` always yields a non-empty array, so `[0]` is never nullish and the `?? nameOrEmail` fallback is unreachable -- @preserve */
 	const source = nameOrEmail.includes('@') ? (nameOrEmail.split('@')[0] ?? nameOrEmail) : nameOrEmail
 	return source
 		.split(/[.\s_-]+/)

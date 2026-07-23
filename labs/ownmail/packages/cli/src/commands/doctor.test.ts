@@ -19,7 +19,9 @@ vi.mock('@clack/prompts', () => ({
 }))
 
 vi.mock('@nylas-labs/cli-kit', () => ({
-	NylasV3Client: vi.fn(() => hoisted.v3),
+	NylasV3Client: vi.fn(function NylasV3ClientMock() {
+		return hoisted.v3
+	}),
 }))
 
 vi.mock('../deploy/wrangler.js', () => ({
@@ -311,6 +313,12 @@ describe('runDoctor — healthy project', () => {
 		await runDoctor({ fix: true })
 		expect(messages().some((m) => m.includes('could not store a replacement in Cloudflare'))).toBe(true)
 		expect(messages().some((m) => m.includes('Request ID: req-cleanup-123'))).toBe(true)
+
+		vi.mocked(p.log.message).mockClear()
+		revokeApiKey.mockRejectedValue(new Error('cleanup failed'))
+		await runDoctor({ fix: true })
+		expect(messages().some((m) => m.includes('could not store a replacement in Cloudflare'))).toBe(true)
+		expect(messages().some((m) => m.includes('Request ID:'))).toBe(false)
 	})
 
 	it('flags a replacement whose previous API key cannot be revoked', async () => {

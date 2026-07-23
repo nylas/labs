@@ -117,9 +117,15 @@ function setDefaults(): void {
 	vi.mocked(open).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof open>>)
 	vi.mocked(DpopKey.generate).mockResolvedValue(fakeDpop as unknown as DpopKey)
 	vi.mocked(DpopKey.fromStored).mockResolvedValue(fakeDpop as unknown as DpopKey)
-	vi.mocked(DashboardAccountClient).mockImplementation(() => ({}) as unknown as DashboardAccountClient)
-	vi.mocked(GatewayClient).mockImplementation(() => ({}) as unknown as GatewayClient)
-	vi.mocked(NylasV3Client).mockImplementation(() => ({}) as unknown as NylasV3Client)
+	vi.mocked(DashboardAccountClient).mockImplementation(function DashboardAccountClientMock() {
+		return {} as unknown as DashboardAccountClient
+	})
+	vi.mocked(GatewayClient).mockImplementation(function GatewayClientMock() {
+		return {} as unknown as GatewayClient
+	})
+	vi.mocked(NylasV3Client).mockImplementation(function NylasV3ClientMock() {
+		return {} as unknown as NylasV3Client
+	})
 	vi.mocked(apiBaseUrl).mockReturnValue('https://api.test.nylas.com')
 	vi.mocked(dashboardAccountUrl).mockReturnValue(undefined)
 	vi.mocked(gatewayUrls).mockReturnValue({ us: 'https://gw.us', eu: 'https://gw.eu' })
@@ -252,9 +258,9 @@ describe('stepDashboardAuth', () => {
 			user: { publicId: 'user-pub' },
 			organizations: [{ publicId: 'org-pub' }],
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ loginWithPassword }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { loginWithPassword } as unknown as DashboardAccountClient
+		})
 
 		await stepDashboardAuth(ctx)
 
@@ -279,9 +285,9 @@ describe('stepDashboardAuth', () => {
 		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
 		vi.mocked(p.password).mockResolvedValueOnce('wrong-password')
 		const loginWithPassword = vi.fn().mockRejectedValue(new Error('internal auth detail'))
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ loginWithPassword }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { loginWithPassword } as unknown as DashboardAccountClient
+		})
 
 		const failure = stepDashboardAuth(ctx)
 		await expect(failure).rejects.toThrow(/Email\/password sign-in failed/)
@@ -305,9 +311,9 @@ describe('stepDashboardAuth', () => {
 			user: { publicId: 'user-pub' },
 			organizations: [],
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ loginWithPassword, completeMfaLogin }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { loginWithPassword, completeMfaLogin } as unknown as DashboardAccountClient
+		})
 
 		await stepDashboardAuth(ctx)
 
@@ -334,9 +340,9 @@ describe('stepDashboardAuth', () => {
 			organizations: [],
 		})
 		const completeMfaLogin = vi.fn().mockRejectedValue(new Error('sensitive factor detail'))
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ loginWithPassword, completeMfaLogin }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { loginWithPassword, completeMfaLogin } as unknown as DashboardAccountClient
+		})
 
 		const failure = stepDashboardAuth(ctx)
 		await expect(failure).rejects.toThrow('MFA verification failed')
@@ -373,9 +379,9 @@ describe('stepDashboardAuth', () => {
 			user: { publicId: 'user-pub' },
 			organizations: [],
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ loginWithPassword }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { loginWithPassword } as unknown as DashboardAccountClient
+		})
 		await expect(stepDashboardAuth(mfaCtx)).rejects.toBeInstanceOf(CancelledError)
 	})
 
@@ -398,9 +404,9 @@ describe('stepDashboardAuth', () => {
 				organizations: [{ publicId: 'org-pub' }],
 			}
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
 
 		await stepDashboardAuth(ctx)
 
@@ -427,9 +433,9 @@ describe('stepDashboardAuth', () => {
 				organizations: [],
 			}
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
 
 		await stepDashboardAuth(ctx)
 
@@ -454,9 +460,9 @@ describe('stepDashboardAuth', () => {
 				organizations: [{ publicId: 'o' }],
 			}
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
 
 		await stepDashboardAuth(ctx)
 
@@ -472,9 +478,9 @@ describe('stepDashboardAuth', () => {
 			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
 			return { status: 'complete' }
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
 
 		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
 	})
@@ -498,9 +504,9 @@ describe('stepDashboardAuth', () => {
 			user: { publicId: 'u' },
 			organizations: [{ publicId: 'o' }],
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize, completeMfaLogin }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize, completeMfaLogin } as unknown as DashboardAccountClient
+		})
 
 		await stepDashboardAuth(ctx)
 
@@ -520,9 +526,9 @@ describe('stepDashboardAuth', () => {
 			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
 			return { status: 'access_denied' }
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
 
 		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/choose “No — create one \(free\)”/)
 	})
@@ -535,9 +541,9 @@ describe('stepDashboardAuth', () => {
 			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
 			return { status: 'expired_token' }
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(
-			() => ({ ssoAuthorize }) as unknown as DashboardAccountClient,
-		)
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
 
 		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/sign-in link expired/)
 	})

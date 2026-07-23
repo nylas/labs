@@ -13,7 +13,9 @@ vi.mock('@clack/prompts', () => ({
 	log: { info: vi.fn(), warn: vi.fn(), step: vi.fn(), message: vi.fn() },
 }))
 vi.mock('@nylas-labs/cli-kit', () => ({
-	NylasV3Client: vi.fn().mockImplementation(() => ({ listGrants })),
+	NylasV3Client: vi.fn().mockImplementation(function NylasV3ClientMock() {
+		return { listGrants }
+	}),
 }))
 vi.mock('../deploy/wrangler.js', () => ({
 	runWrangler: vi.fn(),

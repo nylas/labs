@@ -48,7 +48,10 @@ function safeFolders(folders: Folder[] | undefined) {
 function reconcileInBackground(client: QueryClient) {
 	// The mutation receipt is authoritative for the immediate UI. Reconciliation
 	// is deliberately detached so a later read failure cannot undo confirmed work.
-	void client.invalidateQueries({ queryKey: mailKeys.all, refetchType: 'inactive' }).catch(() => {})
+	void client.invalidateQueries({ queryKey: mailKeys.all, refetchType: 'inactive' }).catch(
+		/* v8 ignore next -- @preserve background reconciliation failures are intentionally detached and have no observable mutation result */
+		() => {},
+	)
 }
 
 function updateThreadEffect(

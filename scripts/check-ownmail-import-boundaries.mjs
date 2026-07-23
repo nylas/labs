@@ -68,7 +68,7 @@ function moduleSpecifier(node) {
 				? stringLiteral(node.moduleReference.expression)
 				: null
 		case 'TSImportType':
-			return stringLiteral(node.argument)
+			return stringLiteral(node.source ?? node.argument)
 		default:
 			return null
 	}

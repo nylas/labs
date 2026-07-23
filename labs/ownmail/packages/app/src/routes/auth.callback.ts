@@ -125,7 +125,7 @@ function loginFailedResponse(message: string, clearCookie?: string): Response {
 	return new Response(html, { status: 401, headers })
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
 	return value.replace(
 		/[&<>"']/g,
 		(c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,

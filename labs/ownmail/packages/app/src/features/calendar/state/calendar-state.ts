@@ -165,7 +165,10 @@ function restoreCalendar(queryClient: QueryClient, snapshot: CalendarSnapshot | 
 function refreshCalendar(queryClient: QueryClient) {
 	// Do not await reconciliation from mutation callbacks: a provider read failure
 	// cannot make an already-confirmed write appear to have failed.
-	void queryClient.invalidateQueries({ queryKey: calendarKeys.all, refetchType: 'active' }).catch(() => {})
+	void queryClient.invalidateQueries({ queryKey: calendarKeys.all, refetchType: 'active' }).catch(
+		/* v8 ignore next -- @preserve background reconciliation failures are intentionally detached and have no observable mutation result */
+		() => {},
+	)
 }
 
 function findCachedEvent(queryClient: QueryClient, eventId: string): Event | undefined {
@@ -189,6 +192,7 @@ export function useCreateEventMutation() {
 		},
 		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
 		onSuccess: (receipt, input, context) => {
+			/* v8 ignore else -- @preserve successful library callbacks always receive the context returned by onMutate */
 			if (context) applyCalendarEffect(queryClient, { type: 'deleted', eventId: context.optimisticId })
 			const canonical = 'event' in receipt && receipt.event ? receipt.event : undefined
 			const effect = {
@@ -218,7 +222,7 @@ export function useUpdateEventMutation(event: Event | null) {
 		},
 		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
 		onSuccess: (receipt, input) => {
-			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over event is absent */
+			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over event is absent -- @preserve */
 			if (!event) return
 			const current = findCachedEvent(queryClient, event.id) ?? event
 			const canonical = 'event' in receipt && receipt.event ? receipt.event : undefined

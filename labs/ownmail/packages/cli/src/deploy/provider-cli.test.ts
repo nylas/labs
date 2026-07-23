@@ -18,7 +18,7 @@ vi.mock('node:module', () => ({
 			(id: string) => {
 				if (id === 'vercel/package.json') {
 					return {
-						version: '56.2.1',
+						version: '56.5.0',
 						bin: hoisted.missingBin ? {} : { vercel: './dist/index.js' },
 					}
 				}
@@ -62,7 +62,13 @@ import {
 	setVercelEnvironment,
 } from './provider-cli.js'
 
-type FakeResult = { code: number | null; stdout?: string; stderr?: string; error?: boolean }
+type FakeResult = {
+	code: number | null
+	stdout?: string
+	stderr?: string
+	error?: boolean
+	noStdin?: boolean
+}
 
 beforeEach(() => {
 	vi.clearAllMocks()
@@ -639,7 +645,7 @@ describe('safe provider failures', () => {
 		queueCli({ code: 1, stderr: 'provider unavailable' })
 		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
 		expect(spawnedArgs(0)).toEqual(
-			expect.arrayContaining(['--package=vercel@56.2.1', '--', 'vercel', 'deploy']),
+			expect.arrayContaining(['--package=vercel@56.5.0', '--', 'vercel', 'deploy']),
 		)
 	})
 
@@ -647,7 +653,7 @@ describe('safe provider failures', () => {
 		hoisted.missingBin = true
 		queueCli({ code: 1, stderr: 'provider unavailable' })
 		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
-		expect(spawnedArgs(0)).toContain('--package=vercel@56.2.1')
+		expect(spawnedArgs(0)).toContain('--package=vercel@56.5.0')
 	})
 
 	it('reports failed interactive login without assuming a remote mutation', async () => {
@@ -666,6 +672,12 @@ describe('safe provider failures', () => {
 		queueCli({ code: 1, error: true })
 		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/failed to download or start/)
 	})
+
+	it('handles a provider process without a writable stdin stream', async () => {
+		queueCli({ code: 1, stderr: 'provider unavailable', noStdin: true })
+		await expect(deployVercel('/tmp', 'team_ok')).rejects.toThrow(/could not deploy/)
+		expect(stdinEnded(0)).toBeUndefined()
+	})
 })
 
 function queueCli(...results: FakeResult[]): void {
@@ -676,15 +688,17 @@ function fakeChild(result: FakeResult) {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: EventEmitter
 		stderr: EventEmitter
-		stdin: { end(value?: string): void; value?: string; ended?: boolean }
+		stdin?: { end(value?: string): void; value?: string; ended?: boolean }
 	}
 	child.stdout = new EventEmitter()
 	child.stderr = new EventEmitter()
-	child.stdin = {
-		end(value?: string) {
-			this.value = value
-			this.ended = true
-		},
+	if (!result.noStdin) {
+		child.stdin = {
+			end(value?: string) {
+				this.value = value
+				this.ended = true
+			},
+		}
 	}
 	queueMicrotask(() => {
 		if (result.error) {

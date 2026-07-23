@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthState, ProjectState } from './schema.js'
 
 vi.mock('env-paths', () => ({
@@ -62,12 +62,8 @@ function validProject(slug = 'inbox'): ProjectState {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks()
+	vi.resetAllMocks()
 	mockExists.mockReturnValue(true)
-})
-
-afterEach(() => {
-	vi.restoreAllMocks()
 })
 
 describe('configDir', () => {

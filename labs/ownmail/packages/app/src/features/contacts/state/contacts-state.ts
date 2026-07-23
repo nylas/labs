@@ -198,7 +198,10 @@ function restoreContacts(queryClient: QueryClient, snapshot: ContactSnapshot | u
 function refreshContacts(queryClient: QueryClient) {
 	// A refresh is reconciliation, not part of the mutation transaction. If it fails,
 	// the confirmed optimistic value remains visible and focus/poll sync retries later.
-	void queryClient.invalidateQueries({ queryKey: contactsKeys.all, refetchType: 'active' }).catch(() => {})
+	void queryClient.invalidateQueries({ queryKey: contactsKeys.all, refetchType: 'active' }).catch(
+		/* v8 ignore next -- @preserve background reconciliation failures are intentionally detached and have no observable mutation result */
+		() => {},
+	)
 }
 
 export function useCreateContactMutation() {
@@ -217,6 +220,7 @@ export function useCreateContactMutation() {
 		},
 		onError: (_error, _fields, context) => restoreContacts(queryClient, context?.snapshot),
 		onSuccess: (receipt, fields, context) => {
+			/* v8 ignore else -- @preserve successful library callbacks always receive the context returned by onMutate */
 			if (context) applyContactEffect(queryClient, { type: 'deleted', contactId: context.optimisticId })
 			const canonical = 'contact' in receipt && receipt.contact ? receipt.contact : undefined
 			const effect = {
@@ -249,7 +253,7 @@ export function useUpdateContactMutation(contact: Contact | null) {
 		},
 		onError: (_error, _fields, context) => restoreContacts(queryClient, context?.snapshot),
 		onSuccess: (receipt, fields) => {
-			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over contact is absent */
+			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over contact is absent -- @preserve */
 			if (!contact) return
 			const canonical = 'contact' in receipt && receipt.contact ? receipt.contact : undefined
 			const effect = {

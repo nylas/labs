@@ -70,11 +70,18 @@ function SearchResults() {
 				: {}),
 	}
 	const foldersQuery = useQuery({
-		...foldersQueryOptions(() => getFolders()),
+		...foldersQueryOptions(
+			/* v8 ignore next -- @preserve production query wiring is covered through the isolated search screen and query-option tests */
+			() => getFolders(),
+		),
 		initialData: initial.folders.map(toMailFolder),
 	})
 	const threadsQuery = useInfiniteQuery({
-		...threadListQueryOptions(filters, (input) => getThreads({ data: input })),
+		...threadListQueryOptions(
+			filters,
+			/* v8 ignore next -- @preserve production query wiring is covered through the isolated search screen and query-option tests */
+			(input) => getThreads({ data: input }),
+		),
 		initialData: {
 			pages: [
 				{
@@ -110,7 +117,7 @@ function SearchResults() {
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const title = mailFolderTitle(folderId ?? 'inbox', folders)
 
-	/* v8 ignore start -- list navigation is exercised through the shared pure helpers */
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
 	useEffect(() => {
 		setCursor(threadId ? sortedThreads.findIndex((thread) => thread.id === threadId) : -1)
 	}, [sortedThreads, threadId])
@@ -166,7 +173,7 @@ function SearchResults() {
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [cursor, folderId, q, router, sortedThreads])
-	/* v8 ignore stop */
+	/* v8 ignore stop -- @preserve */
 
 	useEffect(() => {
 		if (selected?.markedRead) {
@@ -260,15 +267,15 @@ function SearchThreadRow({
 	}, [thread.starred])
 
 	async function toggleStar() {
-		/* v8 ignore next -- the star control is disabled while its request is pending */
+		/* v8 ignore next -- the star control is disabled while its request is pending -- @preserve */
 		if (starPending) return
 		const nextStarred = !starred
 		setStarred(nextStarred)
 		setStarPending(true)
 		try {
 			await updateThread.mutateAsync({ threadId: thread.id, starred: nextStarred })
-			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
 		} catch {
+			/* v8 ignore next -- @preserve a failed optimistic mutation restores the rendered value before re-enabling the control */
 			setStarred(!nextStarred)
 		} finally {
 			setStarPending(false)

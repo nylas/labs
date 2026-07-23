@@ -251,7 +251,7 @@ export async function stepOrg(ctx: StepContext): Promise<void> {
 		if (picked !== session.organization?.publicId) {
 			const switched = await dashboard.switchOrg(tokens(ctx), picked)
 			const auth = ctx.auth
-			/* v8 ignore next -- tokens(ctx) above throws when auth is absent. */
+			/* v8 ignore next -- tokens(ctx) above throws when auth is absent. -- @preserve */
 			if (!auth) throw new Error('Not logged in — dashboard auth step must run first')
 			setAuth(ctx, {
 				...auth,

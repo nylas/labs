@@ -324,14 +324,14 @@ describe('runCreate — step machine', () => {
 		expect(p.note).not.toHaveBeenCalled()
 	})
 
-	it.each([
-		{ columns: 0, rows: Number.NaN },
-		{},
-	])('renders the full setup note when terminal dimensions are unavailable or invalid', (dimensions) => {
-		showSetupHeader(dimensions)
+	it.each([{ columns: 0, rows: Number.NaN }, {}])(
+		'renders the full setup note when terminal dimensions are unavailable or invalid',
+		(dimensions) => {
+			showSetupHeader(dimensions)
 
-		expect(p.note).toHaveBeenCalledWith(expect.any(String), 'Your inbox. Your domain.')
-	})
+			expect(p.note).toHaveBeenCalledWith(expect.any(String), 'Your inbox. Your domain.')
+		},
+	)
 
 	it('runs every step and shows the success outro', async () => {
 		vi.mocked(loadProject).mockReturnValue(makeProject({ slug: 'acme' }))

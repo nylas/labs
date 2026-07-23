@@ -306,6 +306,13 @@ describe('calendar view helpers', () => {
 		expect(laterGapSlot.toISOString()).toBe('2026-03-08T07:00:00.000Z')
 	})
 
+	it('chooses the earliest instant for an ambiguous fall-back wall-clock slot', () => {
+		const instant = calendarSlotTime(new Date(2026, 10, 1), 1.5, 'America/New_York')
+
+		expect(instant.toISOString()).toBe('2026-11-01T05:30:00.000Z')
+		expect(calendarWallClockHour(instant, 'America/New_York')).toBe(1.5)
+	})
+
 	it('excludes an event at its exact selected-timezone end boundary', () => {
 		const midnight = timedEvent('midnight', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:00:00Z')
 		const thirtyPast = timedEvent('thirty-past', 'work', '2026-07-08T23:30:00Z', '2026-07-09T00:30:00Z')
@@ -438,6 +445,20 @@ describe('calendar view helpers', () => {
 			{ id: 'ccc', startColumn: 1, span: 2, row: 0 },
 			{ id: 'aaa', startColumn: 1, span: 1, row: 1 },
 			{ id: 'bbb', startColumn: 1, span: 1, row: 2 },
+		])
+	})
+
+	it('reuses an all-day row when event spans do not overlap', () => {
+		const weekStart = startOfWeek(new Date('2026-07-08T12:00:00'))
+		const columns = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+		const segments = allDayEventSegments(
+			[allDayEvent('sunday', 'primary', '2026-07-05'), allDayEvent('tuesday', 'primary', '2026-07-07')],
+			columns,
+		)
+
+		expect(segments.map(({ event, row }) => ({ id: event.id, row }))).toEqual([
+			{ id: 'sunday', row: 0 },
+			{ id: 'tuesday', row: 0 },
 		])
 	})
 
