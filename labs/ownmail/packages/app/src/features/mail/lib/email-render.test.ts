@@ -19,8 +19,9 @@ describe('emailSupportsDarkMode', () => {
 		expect(emailSupportsDarkMode('<style>@media (prefers-color-scheme: dark){}</style>')).toBe(true)
 	})
 
-	it('detects a declared color-scheme', () => {
-		expect(emailSupportsDarkMode('<div style="color-scheme:dark">x</div>')).toBe(true)
+	it('does not treat a bare color-scheme declaration as adaptive dark styles', () => {
+		expect(emailSupportsDarkMode('<meta name="color-scheme" content="light dark"><p>x</p>')).toBe(false)
+		expect(emailSupportsDarkMode('<div style="color-scheme:dark">x</div>')).toBe(false)
 	})
 
 	it('returns false for an email with no dark-mode signals', () => {

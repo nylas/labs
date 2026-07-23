@@ -59,13 +59,14 @@ export interface EmailElementLike extends EventTarget {
 const MAX_PREVIEW_LENGTH = 120
 
 /**
- * Does the email ship its own dark-mode support? If it does we leave its colors
- * alone rather than force a filter-based inversion on top of styles it already
- * adapts. The two signals a dark-aware email uses are a `prefers-color-scheme`
- * media query or a declared `color-scheme`.
+ * Does the email ship an adaptive dark-mode stylesheet? If it does we leave its
+ * colors alone rather than force a filter-based inversion on top of styles it
+ * already adapts. A bare `color-scheme` declaration is not sufficient: providers
+ * commonly include it in metadata that our sanitizer removes, and it does not
+ * itself supply dark colors for the message content.
  */
 export function emailSupportsDarkMode(html: string): boolean {
-	return /prefers-color-scheme|color-scheme/i.test(html)
+	return /@media[^{]*\(\s*prefers-color-scheme\s*:\s*dark\s*\)/i.test(html)
 }
 
 /**

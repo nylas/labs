@@ -1,5 +1,6 @@
 import { ChevronDown, Download, Paperclip } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
 import { labelBadgeClass } from '#shared/lib/color-tone'
 import { initials } from '#shared/lib/presentation'
@@ -14,6 +15,7 @@ import { MessageBody } from './MessageBody.js'
  * and search results so there is a single reading-pane implementation.
  */
 export function ThreadConversation({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
+	const [preferences] = useUserPreferences()
 	const labels = threadLabels(thread)
 	const threadAttachments = useMemo(
 		() =>
@@ -55,6 +57,7 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 						message={message}
 						defaultOpen={index === messages.length - 1}
 						isLast={index === messages.length - 1}
+						darkenEmail={preferences.emailDarkMode}
 					/>
 				))}
 			</div>
@@ -66,10 +69,12 @@ function MessageBlock({
 	message,
 	defaultOpen,
 	isLast,
+	darkenEmail,
 }: {
 	message: MailMessage
 	defaultOpen: boolean
 	isLast: boolean
+	darkenEmail: boolean
 }) {
 	const [open, setOpen] = useState(defaultOpen)
 	const from = message.from?.[0]
@@ -138,7 +143,7 @@ function MessageBlock({
 				// shares the sender/recipient/timestamp left edge — one reading column, with
 				// the avatar as a gutter rather than dead space beside the text.
 				<div className="mt-4 pl-12">
-					<MessageBody message={message} />
+					<MessageBody message={message} darkenEmail={darkenEmail} />
 					<MessageAttachments message={message} />
 				</div>
 			) : null}

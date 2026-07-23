@@ -1,6 +1,4 @@
-import { Moon, Sun } from 'lucide-react'
 import { type Ref, useEffect, useMemo, useRef, useState } from 'react'
-import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import {
 	applyDarkInvert,
 	applyEmailHtml,
@@ -39,22 +37,28 @@ function useIsDark(): boolean {
 /**
  * Client-only renderer for HTML email. Mounts the `<ownmail-email>` shadow-DOM
  * element, feeds it sanitized HTML, and layers on the app-side chrome that has to
- * live outside the shadow boundary: a hover/tap URL preview and the auto-dark toggle.
+ * live outside the shadow boundary: a hover/tap URL preview and account-controlled
+ * automatic darkening.
  *
- * Auto-dark defaults on: when the app is dark and the email has no dark styles of
- * its own, we invert it so it isn't a blinding white rectangle. The user can turn
- * that off per message to see the email's true colors.
+ * When enabled, a dark app theme inverts email that has no adaptive dark stylesheet
+ * of its own so it does not become a blinding white rectangle.
  */
-export function EmailHtml({ html, messageId }: { html: string; messageId: string }) {
+export function EmailHtml({
+	html,
+	messageId,
+	darken = true,
+}: {
+	html: string
+	messageId: string
+	darken?: boolean
+}) {
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
-	const [autoDark, setAutoDark] = useState(true)
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => emailSupportsDarkMode(html), [html])
-	const invert = autoDark && isDark && !supportsDark
-	const showToggle = isDark && !supportsDark
+	const invert = darken && isDark && !supportsDark
 
 	useEffect(() => {
 		ensureEmailElementDefined()
@@ -75,30 +79,6 @@ export function EmailHtml({ html, messageId }: { html: string; messageId: string
 
 	return (
 		<div className="relative">
-			{showToggle ? (
-				// Float in the top-right corner so the toggle never pushes the email down
-				// (a full-width row here left an awkward empty band under the sender header).
-				<div className="absolute right-2 top-2 z-10">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								type="button"
-								onClick={() => setAutoDark((value) => !value)}
-								aria-pressed={autoDark}
-								aria-label="Toggle automatic dark mode for this email"
-								className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/80 px-2 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted"
-							>
-								{autoDark ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-								{autoDark ? 'Dark' : 'Original'}
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							{autoDark ? 'Showing an auto-darkened version' : 'Showing the email’s original colors'}
-						</TooltipContent>
-					</Tooltip>
-				</div>
-			) : null}
-
 			{ready ? (
 				<OwnmailEmail ref={ref} title={`Email content ${messageId}`} className="block w-full" />
 			) : null}

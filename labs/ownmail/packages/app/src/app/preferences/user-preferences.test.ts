@@ -15,6 +15,7 @@ describe('user preferences', () => {
 	it('uses safe local defaults when no preference has been saved', () => {
 		const preferences = defaultUserPreferences()
 		expect(preferences.autoSaveContacts).toBe(true)
+		expect(preferences.emailDarkMode).toBe(true)
 		expect(isSupportedTimezone(preferences.primaryTimezone)).toBe(true)
 		expect(readUserPreferences()).toEqual(preferences)
 	})
@@ -23,12 +24,14 @@ describe('user preferences', () => {
 		const saved = writeUserPreferences({
 			displayName: '  Ada Lovelace  ',
 			autoSaveContacts: false,
+			emailDarkMode: false,
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
 		})
 		expect(saved).toEqual({
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
+			emailDarkMode: false,
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
 		})
@@ -43,6 +46,7 @@ describe('user preferences', () => {
 		const saved = writeUserPreferences({
 			displayName: 123 as never,
 			autoSaveContacts: true,
+			emailDarkMode: true,
 			primaryTimezone: 'not/a-timezone',
 			secondaryTimezone: 'UTC',
 		})
@@ -83,6 +87,7 @@ describe('user preferences', () => {
 			writeUserPreferences({
 				displayName: 'Ada',
 				autoSaveContacts: true,
+				emailDarkMode: true,
 				primaryTimezone: 'UTC',
 				secondaryTimezone: '',
 			}),
