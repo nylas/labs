@@ -1,7 +1,7 @@
 {
 	"name": "ownmail",
 	"version": "0.7.5",
-	"description": "Your inbox. Your domain. No per-seat fees. Deploy a full mailbox + calendar app in one command. Powered by Nylas.",
+	"description": "Launch an inbox on your domain with a ready-to-use mail, calendar, and contacts app you can deploy and customize.",
 	"license": "MIT",
 	"homepage": "https://github.com/nylas/labs/tree/main/labs/ownmail#readme",
 	"bugs": {
@@ -21,7 +21,7 @@
 		"cloudflare",
 		"vercel",
 		"netlify",
-		"self-hosted"
+		"custom-domain"
 	],
 	"type": "module",
 	"bin": {

@@ -37,7 +37,7 @@ const main = defineCommand({
 	meta: {
 		name: 'ownmail',
 		version,
-		description: 'Your inbox. Your domain. No per-seat fees. Powered by Nylas.',
+		description: 'Launch an inbox on your domain—with one guided command.',
 	},
 	subCommands: {
 		create,

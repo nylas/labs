@@ -307,8 +307,8 @@ describe('runCreate — step machine', () => {
 
 		expect(p.intro).toHaveBeenCalledWith('ownmail')
 		expect(p.note).toHaveBeenCalledWith(
-			expect.stringContaining('Create a Nylas inbox'),
-			'Your inbox. Your domain.',
+			expect.stringContaining('Create an email address'),
+			'Launch an inbox on your domain—with one guided command.',
 		)
 		expect(p.log.info).not.toHaveBeenCalled()
 	})
@@ -320,7 +320,9 @@ describe('runCreate — step machine', () => {
 		showSetupHeader({ columns, rows })
 
 		expect(p.intro).toHaveBeenCalledWith('ownmail')
-		expect(p.log.info).toHaveBeenCalledWith('Your inbox. Your domain. We’ll guide you through setup.')
+		expect(p.log.info).toHaveBeenCalledWith(
+			'Create your email address and launch your mail app. We’ll guide each step.',
+		)
 		expect(p.note).not.toHaveBeenCalled()
 	})
 
@@ -329,7 +331,10 @@ describe('runCreate — step machine', () => {
 		(dimensions) => {
 			showSetupHeader(dimensions)
 
-			expect(p.note).toHaveBeenCalledWith(expect.any(String), 'Your inbox. Your domain.')
+			expect(p.note).toHaveBeenCalledWith(
+				expect.any(String),
+				'Launch an inbox on your domain—with one guided command.',
+			)
 		},
 	)
 
@@ -341,8 +346,8 @@ describe('runCreate — step machine', () => {
 		expect(p.intro).toHaveBeenCalledWith('ownmail')
 		expect(p.outro).toHaveBeenCalledWith('Enjoy your inbox — powered by Nylas.')
 		expect(p.note).toHaveBeenCalledWith(
-			expect.stringContaining('Create a Nylas inbox'),
-			'Your inbox. Your domain.',
+			expect.stringContaining('Create an email address'),
+			'Launch an inbox on your domain—with one guided command.',
 		)
 		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('Starting “acme” at [1/5]'))
 		expect(p.log.step).toHaveBeenCalledTimes(5)

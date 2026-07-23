@@ -20,8 +20,9 @@ The wizard walks you through everything:
 1. **Sign in to Nylas** — use your existing Nylas email/password or approve a
    Google, Microsoft, or GitHub browser sign-in. Authenticator-code MFA is
    supported. New here? Pick "create one (free)" and use the browser flow.
-2. **Pick your address** — a free `you.nylas.email` subdomain (instant), or
-   your own domain (you'll add a few DNS records; the wizard waits and verifies).
+2. **Pick your address** — a Nylas-provided `you.nylas.email` trial subdomain
+   (instant), or your own domain (you'll add a few DNS records; the wizard waits
+   and verifies).
 3. **Name your inbox** — e.g. `contact@you.nylas.email`, and save the
    generated password (shown exactly once).
 4. **Choose hosting** — Cloudflare Workers, Vercel, Netlify, or a loopback-only

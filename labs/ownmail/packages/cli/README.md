@@ -1,13 +1,17 @@
 # OwnMail
 
-**Email that answers to you.**
+**Launch an inbox on your domain—with one guided command.**
 
-OwnMail helps independent builders put a mailbox and calendar app on a domain
-they control. It provisions the app and deploys it to Cloudflare, Vercel, or
-Netlify, or starts it locally, powered by Nylas Agent Accounts.
+OwnMail creates an email address on a domain you control—or a Nylas-provided
+`nylas.email` trial subdomain—and deploys a ready-to-use web app for mail,
+calendar, and contacts. Run the app in your Cloudflare, Vercel, or Netlify
+account, or on your own machine.
 
-Start with the guided path. Eject to the source when you want the power-user
-path.
+The guided setup handles inbox creation, sign-in configuration, and deployment,
+and walks you through DNS when you use your own domain. Nylas hosts the mailbox
+service through Agent Accounts; hosted deployments run in your provider
+account, and you can export the complete app source whenever you want to
+customize it.
 
 ![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](https://cdn.jsdelivr.net/npm/ownmail@0.2.0/assets/screenshots/ownmail-mail-modes.png)
 
@@ -52,7 +56,7 @@ From there, the source and local-development workflow are yours to shape.
 - Node.js 22.12 or later
 - A Nylas account
 - A Cloudflare, Vercel, or Netlify account for hosted deployment
-- A domain you control, or a free `nylas.email` subdomain created during setup
+- A domain you control, or a Nylas-provided `nylas.email` trial subdomain
 
 ## Documentation
 
