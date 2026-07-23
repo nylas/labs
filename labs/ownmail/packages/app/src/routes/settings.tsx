@@ -18,6 +18,7 @@ import {
 import { Sheet } from '#shared/components/Sheet'
 import { Button } from '#shared/components/ui/button'
 import { cn } from '#shared/lib/utils'
+import { OWNMAIL_VERSION } from '#shared/lib/version'
 
 export const Route = createFileRoute('/settings')({
 	loader: async () => {
@@ -275,6 +276,10 @@ function SettingsPage() {
 								</p>
 							)}
 						</section>
+
+						<p className="border-t border-border pt-6 text-xs text-muted-foreground">
+							OwnMail v{OWNMAIL_VERSION}
+						</p>
 					</div>
 				</main>
 			</div>

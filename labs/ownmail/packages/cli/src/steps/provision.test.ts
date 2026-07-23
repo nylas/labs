@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import type { ProjectState } from '../state/schema.js'
 import { markStep, saveAuth, saveProject } from '../state/store.js'
+import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import type { StepContext } from './context.js'
 import {
@@ -728,7 +729,7 @@ describe('stepApiKey', () => {
 			'us',
 			fetch,
 			'https://api.test.nylas.com',
-			'ownmail',
+			OWNMAIL_USER_AGENT,
 		)
 		expect(ctx.v3).not.toBeNull()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'api-key')
@@ -755,7 +756,7 @@ describe('stepApiKey', () => {
 			'us',
 			fetch,
 			'https://api.test.nylas.com',
-			'ownmail',
+			OWNMAIL_USER_AGENT,
 		)
 		expect(saveProject).toHaveBeenCalled()
 	})

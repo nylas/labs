@@ -6,6 +6,7 @@ import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
+import { OWNMAIL_VERSION } from '../usage-attribution.js'
 import { pickExistingProject, supportReference } from './shared.js'
 
 /**
@@ -77,6 +78,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 		`${JSON.stringify(
 			{
 				name: project.slug,
+				version: OWNMAIL_VERSION,
 				private: true,
 				type: 'module',
 				imports: sourceImports,

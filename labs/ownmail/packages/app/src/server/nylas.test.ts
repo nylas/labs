@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { OWNMAIL_VERSION } from '#shared/lib/version'
 
 /**
  * nylas.ts is the only module that mints a Nylas client. Its security-critical
@@ -64,7 +65,13 @@ describe('nylas()', () => {
 
 		expect(first).toBe(second)
 		expect(clientCtor).toHaveBeenCalledTimes(1)
-		expect(clientCtor).toHaveBeenCalledWith('api-key', 'us', expect.any(Function), 'https://base', 'ownmail')
+		expect(clientCtor).toHaveBeenCalledWith(
+			'api-key',
+			'us',
+			expect.any(Function),
+			'https://base',
+			`ownmail/${OWNMAIL_VERSION}`,
+		)
 	})
 })
 

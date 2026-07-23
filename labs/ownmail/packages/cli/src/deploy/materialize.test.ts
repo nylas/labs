@@ -36,6 +36,10 @@ vi.mock('node:module', () => ({
 		}),
 }))
 
+vi.mock('../usage-attribution.js', () => ({
+	OWNMAIL_VERSION: '0.7.4',
+}))
+
 vi.mock('node:fs', () => ({
 	readFileSync: vi.fn((path: string) => {
 		if (path.endsWith('template.json')) return JSON.stringify(manifest)
@@ -199,6 +203,7 @@ describe('exportManualBundle', () => {
 
 		const packageJson = JSON.parse(written('package.json'))
 		expect(packageJson.name).toBe('acme')
+		expect(packageJson.version).toBe('0.7.4')
 		expect(packageJson.imports['#shared/components/*']).toBe('./src/shared/components/*.tsx')
 		expect(packageJson.scripts['build:vercel']).toBe('vite build -c vite.config.vercel.ts')
 		expect(packageJson.dependencies.nitro).toBe('3.0.260610-beta')

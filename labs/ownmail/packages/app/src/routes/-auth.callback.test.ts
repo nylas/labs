@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { OWNMAIL_VERSION } from '#shared/lib/version'
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
@@ -155,7 +156,7 @@ describe('/auth/callback', () => {
 				code: 'abc',
 				codeVerifier: 'v',
 				clientSecret: 'secret',
-				userAgent: 'ownmail',
+				userAgent: `ownmail/${OWNMAIL_VERSION}`,
 			}),
 		)
 	})

@@ -93,6 +93,12 @@ describe('/settings', () => {
 		expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
 	})
 
+	it('shows the running OwnMail version', () => {
+		renderSettings()
+
+		expect(screen.getByText(/^OwnMail v[0-9A-Za-z][0-9A-Za-z.-]*$/)).toBeInTheDocument()
+	})
+
 	it('persists the account name before saving device preferences', async () => {
 		renderSettings()
 		expect(screen.getByLabelText('Darken email content automatically')).toBeChecked()
