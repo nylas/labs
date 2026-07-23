@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.7.5
+
+### Patch Changes
+
+- 196bd02: Surface the OwnMail release version in Settings and include it in Nylas request User-Agent attribution.
+
 ## 0.7.4
 
 ## 0.7.3
