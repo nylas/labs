@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DashboardAccountClient } from './dashboard.js'
+import { DashboardAccountClient, DashboardAccountError } from './dashboard.js'
 import { DpopKey } from './dpop.js'
 
 async function clientWithResponse(payload: unknown): Promise<DashboardAccountClient> {
@@ -286,6 +286,66 @@ describe('DashboardAccountClient sessions', () => {
 				name: 'Acme',
 			},
 			previousOrgSessionRevoked: true,
+		})
+	})
+})
+
+describe('DashboardAccountClient errors', () => {
+	it('retains a validated response request ID on HTTP failures', async () => {
+		const dpop = await DpopKey.generate()
+		const fetchImpl = vi.fn(async () =>
+			Response.json(
+				{
+					request_id: 'req-body-123',
+					success: false,
+					error: { message: 'sensitive upstream detail' },
+				},
+				{ status: 403, headers: { 'x-request-id': 'req-header-123' } },
+			),
+		)
+		const client = new DashboardAccountClient(
+			dpop,
+			'https://dashboard-account.test',
+			fetchImpl as unknown as typeof fetch,
+		)
+
+		const error = await client.currentSession({ userToken: 'user-token' }).catch((caught: unknown) => caught)
+
+		expect(error).toBeInstanceOf(DashboardAccountError)
+		expect(error).toMatchObject({ status: 403, requestId: 'req-header-123' })
+	})
+
+	it('retains an envelope request ID when the success response is malformed', async () => {
+		const client = await clientWithResponse({
+			request_id: 'req-malformed-123',
+			success: false,
+			data: null,
+		})
+
+		await expect(client.currentSession({ userToken: 'user-token' })).rejects.toMatchObject({
+			status: 200,
+			requestId: 'req-malformed-123',
+		})
+	})
+
+	it('retains a header request ID when a successful response is not JSON', async () => {
+		const dpop = await DpopKey.generate()
+		const fetchImpl = vi.fn(
+			async () =>
+				new Response('not json', {
+					status: 200,
+					headers: { 'x-request-id': 'req-invalid-json-123' },
+				}),
+		)
+		const client = new DashboardAccountClient(
+			dpop,
+			'https://dashboard-account.test',
+			fetchImpl as unknown as typeof fetch,
+		)
+
+		await expect(client.currentSession({ userToken: 'user-token' })).rejects.toMatchObject({
+			status: 200,
+			requestId: 'req-invalid-json-123',
 		})
 	})
 })

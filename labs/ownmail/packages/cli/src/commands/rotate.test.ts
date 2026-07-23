@@ -10,7 +10,10 @@ vi.mock('@clack/prompts', () => ({
 }))
 vi.mock('@nylas-labs/cli-kit', () => ({
 	GatewayError: class GatewayError extends Error {
-		constructor(message: string) {
+		constructor(
+			message: string,
+			readonly requestId?: string,
+		) {
 			super(message)
 			this.name = 'GatewayError'
 		}
@@ -26,7 +29,12 @@ vi.mock('../steps/context.js', () => ({
 	requireGateway: vi.fn(),
 	tokens: vi.fn(() => ({ userToken: 't' })),
 }))
-vi.mock('./shared.js', () => ({ pickExistingProject: vi.fn() }))
+vi.mock('./shared.js', () => ({
+	pickExistingProject: vi.fn(),
+	supportReference: vi.fn((err: { requestId?: string }) =>
+		err.requestId ? `Request ID: ${err.requestId}. Include this ID if you contact Nylas Support.` : undefined,
+	),
+}))
 
 import * as p from '@clack/prompts'
 import { GatewayError } from '@nylas-labs/cli-kit'
@@ -164,19 +172,38 @@ describe('runRotateKey', () => {
 		)
 	})
 
-	it('warns with the gateway detail when revocation fails (GatewayError)', async () => {
+	it('includes the request ID if reclaiming the unused new key fails in Nylas', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project({ workerName: 'w1', applicationId: 'app-1' }))
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway({
+			revokeApiKey: vi
+				.fn()
+				.mockRejectedValue(new GatewayError('hidden upstream detail', 'req-unused-key-123')),
+		})
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+		vi.mocked(putSecret).mockRejectedValueOnce(
+			new CloudflareNoChangeError('Reinstall OwnMail. No Cloudflare changes were made.'),
+		)
+
+		await expect(runRotateKey({})).rejects.toThrow(/No Cloudflare changes were made/)
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Request ID: req-unused-key-123'))
+		expect(p.log.warn).not.toHaveBeenCalledWith(expect.stringContaining('hidden upstream detail'))
+	})
+
+	it('warns with the gateway request ID without exposing provider detail', async () => {
 		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'old-key' })
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
 		const gw = gateway({
-			revokeApiKey: vi.fn().mockRejectedValue(new GatewayError('403 forbidden')),
+			revokeApiKey: vi.fn().mockRejectedValue(new GatewayError('403 forbidden', 'req-revoke-123')),
 		})
 		vi.mocked(requireGateway).mockReturnValue(gw as never)
 		await runRotateKey({})
-		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('403 forbidden'))
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Request ID: req-revoke-123'))
+		expect(p.log.warn).not.toHaveBeenCalledWith(expect.stringContaining('403 forbidden'))
 	})
 
-	it('stringifies non-gateway errors on revocation failure', async () => {
+	it('does not expose arbitrary non-gateway errors on revocation failure', async () => {
 		const proj = project({ workerName: 'w1', applicationId: 'app-1', apiKeyId: 'old-key' })
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
@@ -185,6 +212,7 @@ describe('runRotateKey', () => {
 		})
 		vi.mocked(requireGateway).mockReturnValue(gw as never)
 		await runRotateKey({})
-		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('network down'))
+		expect(p.log.warn).toHaveBeenCalledWith('Could not revoke the old key. Revoke it in the Nylas dashboard.')
+		expect(p.log.warn).not.toHaveBeenCalledWith(expect.stringContaining('network down'))
 	})
 })

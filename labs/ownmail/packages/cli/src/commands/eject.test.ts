@@ -44,6 +44,9 @@ vi.mock('../steps/context.js', () => ({
 
 vi.mock('./shared.js', () => ({
 	pickExistingProject: vi.fn(),
+	supportReference: vi.fn((err: { requestId?: string }) =>
+		err.requestId ? `Request ID: ${err.requestId}. Include this ID if you contact Nylas Support.` : undefined,
+	),
 }))
 
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
@@ -182,13 +185,25 @@ describe('runEject — writes the project', () => {
 
 	it('warns and uses a placeholder API key when minting fails', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(makeProject())
-		createApiKey.mockRejectedValue(new Error('expired'))
+		createApiKey.mockRejectedValue(Object.assign(new Error('expired'), { requestId: 'req-eject-key-123' }))
 
 		await runEject({})
 
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not mint'))
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Request ID: req-eject-key-123'))
 		expect(writtenFile('.dev.vars')).toContain('<create an API key in the Nylas dashboard>')
 		expect(saveProject).toHaveBeenCalled()
+	})
+
+	it('omits the support reference when API-key minting has no request ID', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject())
+		createApiKey.mockRejectedValue(new Error('expired'))
+
+		await runEject({})
+
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('Could not mint')
+		expect(warning).not.toContain('Request ID:')
 	})
 
 	it('skips minting when not logged in and falls back to defaults', async () => {

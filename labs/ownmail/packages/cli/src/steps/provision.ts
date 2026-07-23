@@ -185,10 +185,11 @@ async function authorizeWithPassword(dashboard: DashboardAccountClient): Promise
 	let loginResult: Awaited<ReturnType<DashboardAccountClient['loginWithPassword']>>
 	try {
 		loginResult = await dashboard.loginWithPassword({ email, password })
-	} catch {
+	} catch (err) {
 		spinner.stop('Nylas sign-in failed')
 		throw new Error(
 			'Email/password sign-in failed. Check your credentials and confirm this account uses Nylas email/password login.',
+			{ cause: err },
 		)
 	} finally {
 		password = ''
@@ -226,10 +227,10 @@ async function completeDashboardMfa(
 		code = ''
 		spinner.stop('MFA verification complete')
 		return result
-	} catch {
+	} catch (err) {
 		code = ''
 		spinner.stop('MFA verification failed')
-		throw new Error('MFA verification failed. Check the six-digit code and try again.')
+		throw new Error('MFA verification failed. Check the six-digit code and try again.', { cause: err })
 	}
 }
 

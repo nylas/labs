@@ -8,7 +8,7 @@ import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { activeAppUrl, redirectCallbackUrls } from './project-summary.js'
-import { pickExistingProject } from './shared.js'
+import { formatCommandError, pickExistingProject, supportReference } from './shared.js'
 
 type CheckResult = {
 	name: string
@@ -53,18 +53,19 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 
 	// 1. Dashboard session
 	let sessionOk = false
+	let sessionError: unknown
 	if (ctx.auth) {
 		try {
 			await requireDashboard(ctx).currentSession(tokens(ctx))
 			sessionOk = true
-		} catch {
-			// falls through
+		} catch (err) {
+			sessionError = err
 		}
 	}
 	results.push({
 		name: 'Nylas session',
 		status: sessionOk ? 'pass' : 'fail',
-		detail: sessionOk ? 'valid' : 'expired — run `npx ownmail login`',
+		detail: sessionOk ? 'valid' : withSupportReference('expired — run `npx ownmail login`', sessionError),
 	})
 
 	// 2. API access. Plain doctor is read-only, so it only uses an existing client.
@@ -95,11 +96,14 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					status: 'pass',
 					detail: 'created for this repair run',
 				})
-			} catch {
+			} catch (err) {
 				results.push({
 					name: 'Temporary API access',
 					status: 'fail',
-					detail: 'could not create a temporary API key; API checks and repairs were skipped',
+					detail: withSupportReference(
+						'could not create a temporary API key; API checks and repairs were skipped — run `npx ownmail login`, then retry',
+						err,
+					),
 				})
 			}
 		} else {
@@ -129,11 +133,14 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				)
 				const key = apiKeys.find((candidate) => candidate.id === project.apiKeyId)
 				apiKeyIssue = apiKeyIssueFor(key, project.apiKeyId)
-			} catch {
+			} catch (err) {
 				results.push({
 					name: 'Nylas API key',
 					status: 'fail',
-					detail: 'could not check key status — verify your Nylas session and try again',
+					detail: withSupportReference(
+						'could not check key status — run `npx ownmail login`, then retry',
+						err,
+					),
 				})
 			}
 		}
@@ -172,8 +179,15 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 								.filter(Boolean)
 								.join(', ')} — run \`npx ownmail\` to resume verification`,
 				})
-			} catch {
-				results.push({ name: 'Domain', status: 'fail', detail: 'could not fetch domain state' })
+			} catch (err) {
+				results.push({
+					name: 'Domain',
+					status: 'fail',
+					detail: withSupportReference(
+						'could not fetch domain state — run `npx ownmail login`, then retry',
+						err,
+					),
+				})
 			}
 		}
 
@@ -189,7 +203,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 						detail: found ? `grant ${found.grant_status ?? 'valid'}` : 'grant missing — was it deleted?',
 					})
 				} catch (err) {
-					results.push({ name: 'Inbox', status: 'fail', detail: `API error: ${(err as Error).message}` })
+					results.push({ name: 'Inbox', status: 'fail', detail: formatCommandError(err) })
 				}
 			} else {
 				results.push({
@@ -223,7 +237,11 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 						...(missing.length > 0 && opts.fix ? { fixed: true } : {}),
 					})
 				} catch (err) {
-					results.push({ name: 'Login redirect URIs', status: 'fail', detail: (err as Error).message })
+					results.push({
+						name: 'Login redirect URIs',
+						status: 'fail',
+						detail: formatCommandError(err),
+					})
 				}
 			} else {
 				results.push({
@@ -308,7 +326,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				results.push({
 					name: 'Temporary API key',
 					status: 'fail',
-					detail: `could not revoke temporary key: ${(err as Error).message}`,
+					detail: `Could not revoke the temporary key.\n\n${formatCommandError(err)}`,
 				})
 			}
 		}
@@ -375,11 +393,14 @@ async function repairApiKey(
 		created = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, applicationId, {
 			name: `ownmail ${project.slug} (doctor repair ${new Date().toISOString().slice(0, 10)})`,
 		})
-	} catch {
+	} catch (err) {
 		return {
 			name: 'Nylas API key',
 			status: 'fail',
-			detail: `${issue.detail} — could not create a replacement key; try \`npx ownmail login\``,
+			detail: withSupportReference(
+				`${issue.detail} — could not create a replacement key; try \`npx ownmail login\``,
+				err,
+			),
 		}
 	}
 
@@ -390,8 +411,16 @@ async function repairApiKey(
 		// untracked active credential behind. The previously installed key remains.
 		try {
 			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, created.id)
-		} catch {
+		} catch (revokeError) {
 			// The operator gets the generic repair failure below; never print secrets.
+			const reference = supportReference(revokeError)
+			if (reference) {
+				return {
+					name: 'Nylas API key',
+					status: 'fail',
+					detail: `${issue.detail} — could not store a replacement in Cloudflare, and the unused Nylas key could not be revoked\n\n${reference}`,
+				}
+			}
 		}
 		return {
 			name: 'Nylas API key',
@@ -405,11 +434,14 @@ async function repairApiKey(
 	if (issue.oldKeyId && issue.oldKeyId !== created.id) {
 		try {
 			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, issue.oldKeyId)
-		} catch {
+		} catch (err) {
 			return {
 				name: 'Nylas API key',
 				status: 'fail',
-				detail: 'replacement installed, but the previous key still needs to be revoked in Nylas',
+				detail: withSupportReference(
+					'replacement installed, but the previous key still needs to be revoked in Nylas',
+					err,
+				),
 			}
 		}
 	}
@@ -479,7 +511,7 @@ function formatWebhookRepairResult(result: Awaited<ReturnType<typeof setupRealti
 	return {
 		name: 'Instant updates',
 		status: 'fail',
-		detail: 'could not register realtime webhook; the app will continue with polling',
+		detail: `could not register realtime webhook; the app will continue with polling${result.status === 'failed' && result.requestId ? `\n\nRequest ID: ${result.requestId}. Include this ID if you contact Nylas Support.` : ''}`,
 	}
 }
 
@@ -494,4 +526,9 @@ function needsCloudflareLogin(project: ProjectState): boolean {
 function formatStateIssues(issues: ReturnType<typeof listProjectStateIssues>): string {
 	const labels = issues.map((issue) => issue.file).join(', ')
 	return `malformed local state file(s): ${labels}. Move the file aside or fix the JSON, then rerun doctor.`
+}
+
+function withSupportReference(message: string, err: unknown): string {
+	const reference = supportReference(err)
+	return reference ? `${message}\n\n${reference}` : message
 }

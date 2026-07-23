@@ -10,7 +10,7 @@
  * - hosted auth: authorize URL builder + code/token exchange (PKCE)
  */
 
-import { userAgentHeader } from './http.js'
+import { responseRequestId, userAgentHeader } from './http.js'
 
 export const V3_URLS = {
 	us: 'https://api.us.nylas.com',
@@ -312,17 +312,36 @@ export async function exchangeCodeForToken(
 		},
 		'token exchange',
 	)
-	const parsed = (await res.json()) as TokenResponse & { error?: string; error_description?: string }
-	if (!res.ok) {
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(await res.text()) as unknown
+	} catch {
 		throw new NylasApiError(
-			parsed.error_description ?? parsed.error ?? `token exchange failed with ${res.status}`,
+			`token exchange returned invalid JSON with ${res.status}`,
 			res.status,
-			undefined,
-			parsed.error,
-			parsed,
+			responseRequestId(res),
+			'invalid_response',
 		)
 	}
-	return parsed
+	if (!isRecord(parsed)) {
+		throw new NylasApiError(
+			`token exchange returned a malformed response with ${res.status}`,
+			res.status,
+			responseRequestId(res, parsed),
+			'invalid_response',
+		)
+	}
+	const tokenResponse = parsed as TokenResponse & { error?: string; error_description?: string }
+	if (!res.ok) {
+		throw new NylasApiError(
+			tokenResponse.error_description ?? tokenResponse.error ?? `token exchange failed with ${res.status}`,
+			res.status,
+			responseRequestId(res, tokenResponse),
+			tokenResponse.error,
+			tokenResponse,
+		)
+	}
+	return tokenResponse
 }
 
 /** PKCE pair: verifier to keep server-side, S256 challenge for the authorize URL. */
@@ -517,9 +536,11 @@ export class NylasV3Client {
 		)
 		const text = await res.text()
 		let parsed: unknown = null
+		let validJson = true
 		try {
 			parsed = text ? JSON.parse(text) : null
 		} catch {
+			validJson = false
 			parsed = text
 		}
 		if (!res.ok) {
@@ -530,9 +551,17 @@ export class NylasV3Client {
 			throw new NylasApiError(
 				errBody?.error?.message ?? `Nylas API ${method} ${path} failed with ${res.status}`,
 				res.status,
-				errBody?.request_id,
+				responseRequestId(res, parsed) ?? errBody?.request_id,
 				errBody?.error?.type,
 				parsed,
+			)
+		}
+		if (!validJson || (!isRecord(parsed) && method !== 'DELETE' && res.status !== 204)) {
+			throw new NylasApiError(
+				`Nylas API ${method} ${path} returned an invalid response`,
+				res.status,
+				responseRequestId(res),
+				'invalid_response',
 			)
 		}
 		return sanitizeListResponse(parsed) as T
@@ -567,7 +596,7 @@ export class NylasV3Client {
 			throw new NylasApiError(
 				errBody?.error?.message ?? `Nylas API ${method} ${path} failed with ${res.status}`,
 				res.status,
-				errBody?.request_id,
+				responseRequestId(res, parsed) ?? errBody?.request_id,
 				errBody?.error?.type,
 				parsed,
 			)

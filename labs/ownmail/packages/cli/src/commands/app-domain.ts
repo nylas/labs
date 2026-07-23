@@ -8,7 +8,7 @@ import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { CancelledError } from '../steps/provision.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
-import { pickExistingProject } from './shared.js'
+import { pickExistingProject, supportReference } from './shared.js'
 
 const APP_DOMAIN_PATTERN = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/
 
@@ -89,9 +89,10 @@ export async function runAppDomain(opts: { name?: string; domain?: string }): Pr
 				OWNMAIL_USER_AGENT,
 			).ensureRedirectUris([`https://${domain}/auth/callback`])
 			p.log.step('Login redirect registered for the new domain.')
-		} catch {
+		} catch (err) {
+			const reference = supportReference(err)
 			p.log.warn(
-				'Could not register the login redirect — run `npx ownmail login`, then `npx ownmail doctor --fix`.',
+				`Could not register the login redirect — run \`npx ownmail login\`, then \`npx ownmail doctor --fix\`.${reference ? `\n\n${reference}` : ''}`,
 			)
 		}
 	} else {

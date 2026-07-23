@@ -9,7 +9,7 @@
  */
 
 import type { DpopKey } from './dpop.js'
-import { userAgentHeader } from './http.js'
+import { bodyRequestId, responseRequestId, userAgentHeader } from './http.js'
 
 export const DEFAULT_DASHBOARD_ACCOUNT_URL = 'https://dashboard-account.eu.nylas.com'
 
@@ -122,6 +122,7 @@ export class DashboardAccountError extends Error {
 		message: string,
 		readonly status: number,
 		readonly body: unknown,
+		readonly requestId?: string,
 	) {
 		super(message)
 		this.name = 'DashboardAccountError'
@@ -344,9 +345,11 @@ export class DashboardAccountClient {
 
 		const text = await res.text()
 		let parsed: unknown = null
+		let validJson = true
 		try {
 			parsed = text ? JSON.parse(text) : null
 		} catch {
+			validJson = false
 			parsed = text
 		}
 		if (!res.ok) {
@@ -354,6 +357,15 @@ export class DashboardAccountClient {
 				`dashboard-account ${method} ${path} failed with ${res.status}`,
 				res.status,
 				parsed,
+				responseRequestId(res, parsed),
+			)
+		}
+		if (!validJson) {
+			throw new DashboardAccountError(
+				`dashboard-account ${method} ${path} returned invalid JSON`,
+				res.status,
+				undefined,
+				responseRequestId(res),
 			)
 		}
 		return parsed as T
@@ -374,7 +386,12 @@ function unwrapEnvelope<T>(value: unknown, path: string): Envelope<T> {
 	if (isRecord(value) && value.success === true && 'data' in value) {
 		return value as Envelope<T>
 	}
-	throw new Error(`dashboard-account ${path} returned a malformed response`)
+	throw new DashboardAccountError(
+		`dashboard-account ${path} returned a malformed response`,
+		200,
+		undefined,
+		bodyRequestId(value),
+	)
 }
 
 function parseSsoStartResponse(value: unknown, path: string): SsoStartResponse {

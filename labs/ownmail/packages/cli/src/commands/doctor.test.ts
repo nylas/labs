@@ -49,6 +49,14 @@ vi.mock('../steps/context.js', () => ({
 
 vi.mock('./shared.js', () => ({
 	pickExistingProject: vi.fn(),
+	formatCommandError: vi.fn((err: unknown) =>
+		err instanceof Error ? `Safe failure: ${err.message}` : 'Safe failure',
+	),
+	supportReference: vi.fn((err: { requestId?: string }) =>
+		err?.requestId
+			? `Request ID: ${err.requestId}. Include this ID if you contact Nylas Support.`
+			: undefined,
+	),
 }))
 
 vi.mock('../state/store.js', () => ({
@@ -237,13 +245,16 @@ describe('runDoctor — healthy project', () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ applicationId: 'app_1' }))
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
 		currentSession.mockResolvedValue({})
-		listApiKeys.mockRejectedValue(new Error('sensitive provider error'))
+		listApiKeys.mockRejectedValue(
+			Object.assign(new Error('sensitive provider error'), { requestId: 'req-key-status-123' }),
+		)
 		vi.stubGlobal('fetch', vi.fn())
 
 		await runDoctor({})
 
 		const message = messages().find((m) => m.includes('could not check key status'))
 		expect(message).toBeDefined()
+		expect(message).toContain('Request ID: req-key-status-123')
 		expect(message).not.toContain('sensitive provider error')
 	})
 
@@ -294,9 +305,12 @@ describe('runDoctor — healthy project', () => {
 		expect(saveProject).not.toHaveBeenCalled()
 
 		vi.mocked(p.log.message).mockClear()
-		revokeApiKey.mockRejectedValue(new Error('cleanup failed'))
+		revokeApiKey.mockRejectedValue(
+			Object.assign(new Error('cleanup failed'), { requestId: 'req-cleanup-123' }),
+		)
 		await runDoctor({ fix: true })
 		expect(messages().some((m) => m.includes('could not store a replacement in Cloudflare'))).toBe(true)
+		expect(messages().some((m) => m.includes('Request ID: req-cleanup-123'))).toBe(true)
 	})
 
 	it('flags a replacement whose previous API key cannot be revoked', async () => {
@@ -551,7 +565,9 @@ describe('runDoctor — healthy project', () => {
 		)
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
 		currentSession.mockResolvedValue({})
-		hoisted.v3.ensureWebhook.mockRejectedValue(new Error('unable.verify.webhook_url'))
+		hoisted.v3.ensureWebhook.mockRejectedValue(
+			Object.assign(new Error('unable.verify.webhook_url'), { requestId: 'req-doctor-webhook-123' }),
+		)
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => ({ ok: true, json: async () => ({ templateVersion: '1.2.0' }) })),
@@ -561,6 +577,7 @@ describe('runDoctor — healthy project', () => {
 
 		const instant = messages().find((m) => m.includes('Instant updates'))
 		expect(instant).toContain('could not register realtime webhook')
+		expect(instant).toContain('Request ID: req-doctor-webhook-123')
 		expect(instant).not.toContain('unable.verify.webhook_url')
 		expect(process.exitCode).toBe(1)
 	})
@@ -748,8 +765,8 @@ describe('runDoctor — failures and skips', () => {
 		await runDoctor({})
 
 		const msgs = messages()
-		expect(msgs.some((m) => m.includes('API error: grants down'))).toBe(true)
-		expect(msgs.some((m) => m.includes('uris down'))).toBe(true)
+		expect(msgs.some((m) => m.includes('Safe failure: grants down'))).toBe(true)
+		expect(msgs.some((m) => m.includes('Safe failure: uris down'))).toBe(true)
 		expect(process.exitCode).toBe(1)
 	})
 
@@ -841,7 +858,8 @@ describe('runDoctor — failures and skips', () => {
 
 		await runDoctor({ fix: true })
 
-		expect(messages().some((m) => m.includes('could not revoke temporary key'))).toBe(true)
+		expect(messages().some((m) => m.includes('Could not revoke the temporary key'))).toBe(true)
+		expect(messages().some((m) => m.includes('Safe failure: revoke down'))).toBe(true)
 		expect(messages().some((m) => m.includes('probe-key'))).toBe(false)
 		expect(process.exitCode).toBe(1)
 	})

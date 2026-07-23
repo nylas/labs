@@ -1,6 +1,7 @@
+import { DashboardAccountError, GatewayError, NylasApiError } from '@nylas-labs/cli-kit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectState } from '../state/schema.js'
-import { pickExistingProject, runTopLevel } from './shared.js'
+import { formatCommandError, pickExistingProject, runTopLevel, supportReference } from './shared.js'
 
 vi.mock('@clack/prompts', () => ({
 	select: vi.fn(),
@@ -138,7 +139,7 @@ describe('runTopLevel', () => {
 			throw new Error('boom')
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
 		)
 		expect(process.exitCode).toBe(1)
 	})
@@ -185,7 +186,7 @@ describe('runTopLevel', () => {
 			throw new Error('Vercel leaked raw provider detail')
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
 		)
 	})
 
@@ -207,9 +208,7 @@ describe('runTopLevel', () => {
 		await runTopLevel(async () => {
 			throw new Error('No projects yet. Run `npx ownmail` first.')
 		})
-		expect(p.log.error).toHaveBeenCalledWith(
-			'Your local OwnMail project is incomplete or unavailable.\n\nHow to fix: Run `npx ownmail status` to find your project, or run `npx ownmail` to create or resume one.',
-		)
+		expect(p.log.error).toHaveBeenCalledWith('No projects yet. Run `npx ownmail` first.')
 	})
 
 	it('explains how to recover from a connectivity failure', async () => {
@@ -217,7 +216,7 @@ describe('runTopLevel', () => {
 			throw new Error('gateway V3_ApiKeys timed out after 30s')
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'OwnMail could not reach a required service.\n\nHow to fix: Check your internet connection, then retry the command.',
+			'OwnMail could not reach a required service.\n\nHow to fix: Check your internet connection and the provider status page, then retry the command.',
 		)
 	})
 
@@ -226,8 +225,136 @@ describe('runTopLevel', () => {
 			throw 'plain string'
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'The command could not be completed.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
 		)
 		expect(process.exitCode).toBe(1)
+	})
+})
+
+describe('formatCommandError', () => {
+	it('explains a Nylas authentication failure and includes its request ID', () => {
+		expect(formatCommandError(new NylasApiError('secret upstream detail', 401, 'req-auth-123'))).toBe(
+			'The Nylas API rejected the current credentials (HTTP 401).\n\nHow to fix: Run `npx ownmail login`, then retry the command.\n\nRequest ID: req-auth-123. Include this ID if you contact Nylas Support.',
+		)
+	})
+
+	it.each([
+		[
+			new NylasApiError('hidden', 404, 'req-not-found', 'not_found'),
+			'The Nylas API could not find a resource recorded by this project (HTTP 404, not_found).',
+			'doctor --fix',
+		],
+		[
+			new NylasApiError('hidden', 409, undefined, 'conflict'),
+			'The Nylas API reported a resource conflict (HTTP 409, conflict).',
+			'retry the same command',
+		],
+		[
+			new NylasApiError('hidden', 429, undefined, 'rate_limited'),
+			'The Nylas API is rate limiting the request (HTTP 429, rate_limited).',
+			'Wait a few minutes',
+		],
+		[
+			new NylasApiError('hidden', 503),
+			'The Nylas API is temporarily unavailable (HTTP 503).',
+			'Nylas status page',
+		],
+		[
+			new NylasApiError('hidden', 422, undefined, 'invalid_request'),
+			'The Nylas API rejected the request (HTTP 422, invalid_request).',
+			'command inputs',
+		],
+	])('maps API failures to a specific recovery path', (error, summary, recovery) => {
+		const formatted = formatCommandError(error)
+		expect(formatted).toContain(summary)
+		expect(formatted).toContain(recovery)
+		expect(formatted).not.toContain('hidden')
+	})
+
+	it('uses a safe fallback for an unclassified service failure and drops unsafe codes', () => {
+		const formatted = formatCommandError(
+			new NylasApiError('hidden', 418, undefined, 'unsafe\ninternal-detail'),
+		)
+		expect(formatted).toBe(
+			'The Nylas API could not complete the request (HTTP 418).\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the session check fails, run `npx ownmail login`.',
+		)
+	})
+
+	it('explains a successful HTTP response with an invalid payload', () => {
+		expect(
+			formatCommandError(new NylasApiError('hidden', 200, 'req-invalid-123', 'invalid_response')),
+		).toContain('The Nylas API returned an invalid response (HTTP 200, invalid_response).')
+	})
+
+	it('explains malformed successful dashboard responses with their request ID', () => {
+		const formatted = formatCommandError(
+			new DashboardAccountError('hidden', 200, undefined, 'req-malformed-123'),
+		)
+		expect(formatted).toContain('The Nylas dashboard returned an invalid response.')
+		expect(formatted).toContain('Request ID: req-malformed-123.')
+	})
+
+	it('maps dashboard HTTP failures without exposing their body', () => {
+		const formatted = formatCommandError(
+			new DashboardAccountError('hidden', 403, { token: 'must-not-print' }, 'req-dashboard-123'),
+		)
+		expect(formatted).toContain('The Nylas dashboard rejected the current credentials (HTTP 403).')
+		expect(formatted).not.toContain('must-not-print')
+	})
+
+	it('uses GraphQL codes when the gateway has no HTTP status', () => {
+		const formatted = formatCommandError(
+			new GatewayError(
+				'hidden',
+				[{ message: 'ignored' }, { extensions: { code: 'RATE_LIMITED', supportId: 'support-body' } }],
+				'support-gateway-123',
+			),
+		)
+		expect(formatted).toContain('The Nylas dashboard is rate limiting the request (RATE_LIMITED).')
+		expect(formatted).toContain('Request ID: support-gateway-123.')
+		expect(formatted).not.toContain('ignored')
+	})
+
+	it('omits empty service details and support references', () => {
+		expect(formatCommandError(new GatewayError('hidden'))).toBe(
+			'The Nylas dashboard could not complete the request.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the session check fails, run `npx ownmail login`.',
+		)
+	})
+
+	it('keeps only validated request IDs', () => {
+		expect(supportReference({ requestId: 'req-safe-123' })).toContain('req-safe-123')
+		expect(supportReference({ requestId: 'secret\ninjected' })).toBeUndefined()
+		expect(supportReference(null)).toBeUndefined()
+	})
+
+	it('retains a request ID through safe wrappers and avoids cause cycles', () => {
+		expect(
+			supportReference(new Error('Sign-in failed', { cause: { requestId: 'req-cause-123' } })),
+		).toContain('req-cause-123')
+		const cyclic = new Error('cycle')
+		cyclic.cause = cyclic
+		expect(supportReference(cyclic)).toBeUndefined()
+	})
+
+	it('rejects control characters and non-actionable provider text from plain errors', () => {
+		const fallback =
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.'
+		expect(formatCommandError(new Error('Vercel leaked raw provider detail; check token\rsecret'))).toBe(
+			fallback,
+		)
+		expect(formatCommandError(new Error('Vercel leaked raw provider detail; check \u202Esecret'))).toBe(
+			fallback,
+		)
+	})
+
+	it('preserves reviewed actionable messages that use normal Unicode punctuation', () => {
+		const message = '"acme" hasn’t finished its first deploy — run `npx ownmail` to complete it.'
+		expect(formatCommandError(new Error(message))).toBe(message)
+	})
+
+	it('classifies plain local authentication, project, and network failures', () => {
+		expect(formatCommandError(new Error('INVALID SESSION'))).toContain('session is invalid')
+		expect(formatCommandError(new Error('no Nylas application'))).toContain('local OwnMail project')
+		expect(formatCommandError(new Error('ECONNREFUSED'))).toContain('internet connection')
 	})
 })

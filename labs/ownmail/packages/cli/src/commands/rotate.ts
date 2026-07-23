@@ -3,7 +3,7 @@ import { GatewayError } from '@nylas-labs/cli-kit'
 import { CloudflareNoChangeError, putSecret } from '../deploy/wrangler.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
-import { pickExistingProject } from './shared.js'
+import { pickExistingProject, supportReference } from './shared.js'
 
 /**
  * Rotates the deployed NYLAS_API_KEY: mint new → put on worker → revoke old.
@@ -35,9 +35,10 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 		if (err instanceof CloudflareNoChangeError) {
 			try {
 				await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, created.id)
-			} catch {
+			} catch (revokeError) {
+				const reference = revokeError instanceof GatewayError ? supportReference(revokeError) : undefined
 				p.log.warn(
-					'Cloudflare made no changes, but OwnMail could not revoke the unused new Nylas key. Revoke that key in the Nylas dashboard before retrying.',
+					`Cloudflare made no changes, but OwnMail could not revoke the unused new Nylas key. Revoke that key in the Nylas dashboard before retrying.${reference ? `\n\n${reference}` : ''}`,
 				)
 			}
 			throw err
@@ -56,8 +57,10 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 			await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, oldKeyId)
 			p.log.step('Old key revoked.')
 		} catch (err) {
-			const detail = err instanceof GatewayError ? err.message : String(err)
-			p.log.warn(`Could not revoke the old key (${detail}). Revoke it in the Nylas dashboard.`)
+			const reference = err instanceof GatewayError ? supportReference(err) : undefined
+			p.log.warn(
+				`Could not revoke the old key. Revoke it in the Nylas dashboard.${reference ? `\n\n${reference}` : ''}`,
+			)
 		}
 	}
 	p.outro('Rotation complete. Sessions and mail were untouched.')
