@@ -24,6 +24,7 @@ import {
 	ESTIMATED_PANEL_SIZE,
 	type Point,
 	type Rect,
+	type Size,
 } from '#shared/lib/modal-position'
 import { cn } from '#shared/lib/utils'
 import {
@@ -62,7 +63,15 @@ export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
 /** Floating, draggable composer panel — no backdrop, positioned beside the slot. */
 export const EVENT_COMPOSER_PANEL_CLASS =
-	'fixed z-50 flex max-h-[calc(100vh-1rem)] w-[28rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl'
+	'fixed z-50 flex max-h-[calc(100dvh-1rem)] w-[28rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl'
+
+export function eventComposerMaxHeight(top: number): string {
+	return `calc(100dvh - ${Math.max(0, top) + 8}px)`
+}
+
+function currentViewportSize(): Size {
+	return { width: window.innerWidth, height: window.innerHeight }
+}
 
 function eventBarClass(tone: EventTone): string {
 	return eventColorClass(tone, 'bg')
@@ -127,10 +136,7 @@ export function EventModal({
 	// The create composer floats over the calendar (no backdrop) so the grid
 	// stays visible; the user can drag it aside by its header to reference a day.
 	const [panelPos, setPanelPos] = useState<Point>(() =>
-		createPanelPosition(anchorRect, ESTIMATED_PANEL_SIZE, {
-			width: window.innerWidth,
-			height: window.innerHeight,
-		}),
+		createPanelPosition(anchorRect, ESTIMATED_PANEL_SIZE, currentViewportSize()),
 	)
 	const dragCleanup = useRef<(() => void) | null>(null)
 
@@ -142,7 +148,7 @@ export function EventModal({
 				clampPointToViewport(
 					{ x: origin.x + (moveEvent.clientX - start.x), y: origin.y + (moveEvent.clientY - start.y) },
 					ESTIMATED_PANEL_SIZE,
-					{ width: window.innerWidth, height: window.innerHeight },
+					currentViewportSize(),
 				),
 			)
 		}
@@ -158,6 +164,15 @@ export function EventModal({
 
 	// Tear down a drag still in flight if the composer unmounts mid-drag.
 	useEffect(() => () => dragCleanup.current?.(), [])
+
+	// Keep the full composer inside the viewport after a resize or device rotation.
+	useEffect(() => {
+		function keepPanelInViewport() {
+			setPanelPos((position) => clampPointToViewport(position, ESTIMATED_PANEL_SIZE, currentViewportSize()))
+		}
+		window.addEventListener('resize', keepPanelInViewport)
+		return () => window.removeEventListener('resize', keepPanelInViewport)
+	}, [])
 
 	// The floating composer has no backdrop to click away, so Escape closes it.
 	useEffect(() => {
@@ -501,7 +516,11 @@ export function EventModal({
 			role="dialog"
 			aria-label="New event"
 			className={EVENT_COMPOSER_PANEL_CLASS}
-			style={{ left: panelPos.x, top: panelPos.y }}
+			style={{
+				left: panelPos.x,
+				top: panelPos.y,
+				maxHeight: eventComposerMaxHeight(panelPos.y),
+			}}
 		>
 			<div className={cn('h-1 w-full shrink-0', eventBarClass(selectedCalendarTone))} />
 			<div
@@ -526,7 +545,7 @@ export function EventModal({
 				</button>
 			</div>
 
-			<div className="min-h-0 space-y-5 overflow-y-auto px-5 py-5">
+			<div className="min-h-0 space-y-5 overflow-y-auto overscroll-contain px-5 py-5">
 				<label className="block space-y-1.5" htmlFor="event-title">
 					<span className="text-sm font-medium">Title</span>
 					<input
