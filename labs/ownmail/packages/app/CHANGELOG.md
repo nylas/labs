@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.8.0
+
+### Patch Changes
+
+- 03f5231: Clarify OwnMail positioning across public package copy and the CLI setup experience.
+- ec0cee0: Upgrade runtime and deployment dependencies to their latest stable releases, including TypeScript 7 compatibility.
+
 ## 0.7.5
 
 ### Patch Changes
