@@ -56,7 +56,7 @@ workflow. You stay in charge of the code from there.
 
 ## What you need
 
-- Node.js 20+
+- Node.js 22.12+
 - A Nylas account
 - A Cloudflare, Vercel, or Netlify account if you want hosted deployment
 - A domain you control, or a free `nylas.email` subdomain created during setup
@@ -134,7 +134,7 @@ pnpm test
 pnpm lint
 ```
 
-Node.js 20+ and pnpm 10+ are required.
+Node.js 22.18+ (22.x) or 24.11+, and pnpm 11+ are required.
 
 ### Develop the app UI locally
 
