@@ -77,6 +77,15 @@ describe('startLocalServer', () => {
 		expect(child.kill).toHaveBeenCalledWith('SIGTERM')
 	})
 
+	it('does not terminate a process that has already exited', async () => {
+		const child = fakeChild()
+		child.exitCode = 1
+		hoisted.spawn.mockReturnValue(child)
+		hoisted.checkAppHealth.mockResolvedValue(false)
+		await expect(startLocalServer(input)).rejects.toThrow(/could not start/)
+		expect(child.kill).not.toHaveBeenCalled()
+	})
+
 	it('fails when the child errors or exits during startup', async () => {
 		for (const event of ['error', 'exit'] as const) {
 			const child = fakeChild()

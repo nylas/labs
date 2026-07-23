@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // Controllable createRequire so we can exercise both the real bin field and the
 // './bin/wrangler.js' fallback used when a wrangler build omits it.
 const modCtl = vi.hoisted(() => ({
-	pkg: { version: '4.107.0', bin: { wrangler: './bin/wrangler.js' } } as {
+	pkg: { version: '4.114.0', bin: { wrangler: './bin/wrangler.js' } } as {
 		version: string
 		bin: Record<string, string>
 	},
@@ -116,7 +116,7 @@ beforeEach(() => {
 	vi.clearAllMocks()
 	spawnCtl.queue.length = 0
 	spawnCtl.calls.length = 0
-	modCtl.pkg = { version: '4.107.0', bin: { wrangler: './bin/wrangler.js' } }
+	modCtl.pkg = { version: '4.114.0', bin: { wrangler: './bin/wrangler.js' } }
 	modCtl.resolveError = null
 })
 
@@ -157,7 +157,7 @@ describe('runWrangler', () => {
 		expect(spawnCtl.calls[0]?.args).toEqual([
 			'exec',
 			'--yes',
-			'--package=wrangler@4.107.0',
+			'--package=wrangler@4.114.0',
 			'--',
 			'wrangler',
 			'x',
@@ -361,10 +361,10 @@ describe('deploy', () => {
 
 describe('Wrangler acquisition fallback', () => {
 	it('downloads the pinned package when the local package omits its bin field', async () => {
-		modCtl.pkg = { version: '4.107.0', bin: {} }
+		modCtl.pkg = { version: '4.114.0', bin: {} }
 		spawnCtl.queue.push({ code: 0 })
 		await runWrangler(['whoami'])
 		const args = spawnCtl.calls[0]?.args as string[]
-		expect(args).toEqual(expect.arrayContaining(['--package=wrangler@4.107.0', '--', 'wrangler', 'whoami']))
+		expect(args).toEqual(expect.arrayContaining(['--package=wrangler@4.114.0', '--', 'wrangler', 'whoami']))
 	})
 })

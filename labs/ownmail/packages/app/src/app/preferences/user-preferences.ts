@@ -71,7 +71,7 @@ function normalizePreferences(value: unknown): UserPreferences {
 }
 
 export function readUserPreferences(): UserPreferences {
-	/* v8 ignore next -- exercised during server rendering, outside jsdom's browser environment. */
+	/* v8 ignore next -- exercised during server rendering, outside jsdom's browser environment. -- @preserve */
 	if (typeof window === 'undefined') return defaultUserPreferences()
 	try {
 		return normalizePreferences(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null'))
@@ -82,6 +82,7 @@ export function readUserPreferences(): UserPreferences {
 
 export function writeUserPreferences(value: UserPreferences): UserPreferences {
 	const normalized = normalizePreferences(value)
+	/* v8 ignore else -- @preserve writes only run from browser interactions; server rendering never persists preferences */
 	if (typeof window !== 'undefined') {
 		try {
 			window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))

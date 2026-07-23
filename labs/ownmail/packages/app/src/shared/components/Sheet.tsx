@@ -24,7 +24,7 @@ export function Sheet({
 		returnFocusRef.current = document.activeElement as HTMLElement | null
 		function onKeyDown(event: KeyboardEvent) {
 			if (event.key === 'Escape') onClose()
-			/* v8 ignore start -- focus-loop branches require browser-level Tab traversal; the dialog itself is covered in render tests */
+			/* v8 ignore start -- focus-loop branches require browser-level Tab traversal; the dialog itself is covered in render tests -- @preserve */
 			if (event.key !== 'Tab') return
 			const panel = panelRef.current
 			if (!panel) return
@@ -47,7 +47,7 @@ export function Sheet({
 				event.preventDefault()
 				first?.focus()
 			}
-			/* v8 ignore stop */
+			/* v8 ignore stop -- @preserve */
 		}
 		document.addEventListener('keydown', onKeyDown)
 		const previous = document.body.style.overflow

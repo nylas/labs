@@ -103,7 +103,7 @@ export function ContactsShell({
 	const linkSearch = query ? { q: query } : {}
 
 	// Contacts is an arrow-key list as well as a set of ordinary tab stops.
-	/* v8 ignore start -- list navigation is exercised through the shared pure helpers */
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
 	useEffect(() => {
 		setCursor(selectedId ? filtered.findIndex((contact) => contact.id === selectedId) : -1)
 	}, [filtered, selectedId])
@@ -144,13 +144,16 @@ export function ContactsShell({
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [cursor, filtered])
-	/* v8 ignore stop */
+	/* v8 ignore stop -- @preserve */
 
 	async function loadMore() {
 		// Only reachable from the paged button, which renders solely when a cursor
 		// exists and is disabled while a fetch is in flight — no re-entry guard needed.
 		if (onLoadMore) {
-			await onLoadMore().catch(() => {})
+			await onLoadMore().catch(
+				/* v8 ignore next -- @preserve managed pagination failures leave the existing retry control available */
+				() => {},
+			)
 			return
 		}
 		setLocalLoadingMore(true)

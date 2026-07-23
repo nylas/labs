@@ -13,7 +13,9 @@ vi.mock('@clack/prompts', () => ({
 	log: { step: vi.fn(), warn: vi.fn() },
 }))
 vi.mock('@nylas-labs/cli-kit', () => ({
-	NylasV3Client: vi.fn().mockImplementation(() => ({ ensureRedirectUris })),
+	NylasV3Client: vi.fn().mockImplementation(function NylasV3ClientMock() {
+		return { ensureRedirectUris }
+	}),
 }))
 vi.mock('../deploy/materialize.js', () => ({
 	loadManifest: vi.fn(() => ({ templateVersion: '3.0.0' })),

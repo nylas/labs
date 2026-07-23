@@ -9,64 +9,34 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as MailRouteImport } from './routes/mail'
-import { Route as LogoutRouteImport } from './routes/logout'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as HealthzRouteImport } from './routes/healthz'
-import { Route as ContactsRouteImport } from './routes/contacts'
-import { Route as CalendarRouteImport } from './routes/calendar'
-import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as MailIndexRouteImport } from './routes/mail.index'
-import { Route as ContactsIndexRouteImport } from './routes/contacts.index'
-import { Route as CalendarIndexRouteImport } from './routes/calendar.index'
-import { Route as MailSearchRouteImport } from './routes/mail.search'
-import { Route as MailComposeRouteImport } from './routes/mail.compose'
-import { Route as ContactsNewRouteImport } from './routes/contacts.new'
-import { Route as ContactsContactIdRouteImport } from './routes/contacts.$contactId'
-import { Route as CalendarViewRouteImport } from './routes/calendar.$view'
-import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
-import { Route as AttachmentsAttachmentIdRouteImport } from './routes/attachments.$attachmentId'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as CalendarRouteImport } from './routes/calendar'
+import { Route as ContactsRouteImport } from './routes/contacts'
+import { Route as HealthzRouteImport } from './routes/healthz'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as LogoutRouteImport } from './routes/logout'
+import { Route as MailRouteImport } from './routes/mail'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ApiVersionRouteImport } from './routes/api.version'
-import { Route as MessagesMessageIdDownloadRouteImport } from './routes/messages.$messageId.download'
-import { Route as MailFFolderIdRouteImport } from './routes/mail.f.$folderId'
+import { Route as AttachmentsAttachmentIdRouteImport } from './routes/attachments.$attachmentId'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
+import { Route as CalendarIndexRouteImport } from './routes/calendar.index'
+import { Route as CalendarViewRouteImport } from './routes/calendar.$view'
+import { Route as ContactsIndexRouteImport } from './routes/contacts.index'
+import { Route as ContactsContactIdRouteImport } from './routes/contacts.$contactId'
+import { Route as ContactsNewRouteImport } from './routes/contacts.new'
+import { Route as MailIndexRouteImport } from './routes/mail.index'
+import { Route as MailComposeRouteImport } from './routes/mail.compose'
+import { Route as MailSearchRouteImport } from './routes/mail.search'
 import { Route as ApiWebhooksNylasRouteImport } from './routes/api.webhooks.nylas'
+import { Route as MailFFolderIdRouteImport } from './routes/mail.f.$folderId'
+import { Route as MessagesMessageIdDownloadRouteImport } from './routes/messages.$messageId.download'
 import { Route as MailFFolderIdTThreadIdRouteImport } from './routes/mail.f.$folderId.t.$threadId'
 
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MailRoute = MailRouteImport.update({
-  id: '/mail',
-  path: '/mail',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LogoutRoute = LogoutRouteImport.update({
-  id: '/logout',
-  path: '/logout',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HealthzRoute = HealthzRouteImport.update({
-  id: '/healthz',
-  path: '/healthz',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ContactsRoute = ContactsRouteImport.update({
-  id: '/contacts',
-  path: '/contacts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CalendarRoute = CalendarRouteImport.update({
-  id: '/calendar',
-  path: '/calendar',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -74,59 +44,39 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const CalendarRoute = CalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MailIndexRoute = MailIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => MailRoute,
+const ContactsRoute = ContactsRouteImport.update({
+  id: '/contacts',
+  path: '/contacts',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ContactsIndexRoute = ContactsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ContactsRoute,
+const HealthzRoute = HealthzRouteImport.update({
+  id: '/healthz',
+  path: '/healthz',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const CalendarIndexRoute = CalendarIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => CalendarRoute,
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const MailSearchRoute = MailSearchRouteImport.update({
-  id: '/search',
-  path: '/search',
-  getParentRoute: () => MailRoute,
+const LogoutRoute = LogoutRouteImport.update({
+  id: '/logout',
+  path: '/logout',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const MailComposeRoute = MailComposeRouteImport.update({
-  id: '/compose',
-  path: '/compose',
-  getParentRoute: () => MailRoute,
+const MailRoute = MailRouteImport.update({
+  id: '/mail',
+  path: '/mail',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ContactsNewRoute = ContactsNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => ContactsRoute,
-} as any)
-const ContactsContactIdRoute = ContactsContactIdRouteImport.update({
-  id: '/$contactId',
-  path: '/$contactId',
-  getParentRoute: () => ContactsRoute,
-} as any)
-const CalendarViewRoute = CalendarViewRouteImport.update({
-  id: '/$view',
-  path: '/$view',
-  getParentRoute: () => CalendarRoute,
-} as any)
-const AuthCallbackRoute = AuthCallbackRouteImport.update({
-  id: '/callback',
-  path: '/callback',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AttachmentsAttachmentIdRoute = AttachmentsAttachmentIdRouteImport.update({
-  id: '/attachments/$attachmentId',
-  path: '/attachments/$attachmentId',
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiVersionRoute = ApiVersionRouteImport.update({
@@ -134,15 +84,54 @@ const ApiVersionRoute = ApiVersionRouteImport.update({
   path: '/api/version',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MessagesMessageIdDownloadRoute =
-  MessagesMessageIdDownloadRouteImport.update({
-    id: '/messages/$messageId/download',
-    path: '/messages/$messageId/download',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const MailFFolderIdRoute = MailFFolderIdRouteImport.update({
-  id: '/f/$folderId',
-  path: '/f/$folderId',
+const AttachmentsAttachmentIdRoute = AttachmentsAttachmentIdRouteImport.update({
+  id: '/attachments/$attachmentId',
+  path: '/attachments/$attachmentId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/callback',
+  path: '/callback',
+  getParentRoute: () => AuthRoute,
+} as any)
+const CalendarIndexRoute = CalendarIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CalendarRoute,
+} as any)
+const CalendarViewRoute = CalendarViewRouteImport.update({
+  id: '/$view',
+  path: '/$view',
+  getParentRoute: () => CalendarRoute,
+} as any)
+const ContactsIndexRoute = ContactsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ContactsRoute,
+} as any)
+const ContactsContactIdRoute = ContactsContactIdRouteImport.update({
+  id: '/$contactId',
+  path: '/$contactId',
+  getParentRoute: () => ContactsRoute,
+} as any)
+const ContactsNewRoute = ContactsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => ContactsRoute,
+} as any)
+const MailIndexRoute = MailIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => MailRoute,
+} as any)
+const MailComposeRoute = MailComposeRouteImport.update({
+  id: '/compose',
+  path: '/compose',
+  getParentRoute: () => MailRoute,
+} as any)
+const MailSearchRoute = MailSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => MailRoute,
 } as any)
 const ApiWebhooksNylasRoute = ApiWebhooksNylasRouteImport.update({
@@ -150,6 +139,17 @@ const ApiWebhooksNylasRoute = ApiWebhooksNylasRouteImport.update({
   path: '/api/webhooks/nylas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MailFFolderIdRoute = MailFFolderIdRouteImport.update({
+  id: '/f/$folderId',
+  path: '/f/$folderId',
+  getParentRoute: () => MailRoute,
+} as any)
+const MessagesMessageIdDownloadRoute =
+  MessagesMessageIdDownloadRouteImport.update({
+    id: '/messages/$messageId/download',
+    path: '/messages/$messageId/download',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const MailFFolderIdTThreadIdRoute = MailFFolderIdTThreadIdRouteImport.update({
   id: '/t/$threadId',
   path: '/t/$threadId',
@@ -328,53 +328,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mail': {
-      id: '/mail'
-      path: '/mail'
-      fullPath: '/mail'
-      preLoaderRoute: typeof MailRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/logout': {
-      id: '/logout'
-      path: '/logout'
-      fullPath: '/logout'
-      preLoaderRoute: typeof LogoutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/healthz': {
-      id: '/healthz'
-      path: '/healthz'
-      fullPath: '/healthz'
-      preLoaderRoute: typeof HealthzRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/contacts': {
-      id: '/contacts'
-      path: '/contacts'
-      fullPath: '/contacts'
-      preLoaderRoute: typeof ContactsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/calendar': {
-      id: '/calendar'
-      path: '/calendar'
-      fullPath: '/calendar'
-      preLoaderRoute: typeof CalendarRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -384,81 +342,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/calendar': {
+      id: '/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof CalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/mail/': {
-      id: '/mail/'
-      path: '/'
-      fullPath: '/mail/'
-      preLoaderRoute: typeof MailIndexRouteImport
-      parentRoute: typeof MailRoute
+    '/contacts': {
+      id: '/contacts'
+      path: '/contacts'
+      fullPath: '/contacts'
+      preLoaderRoute: typeof ContactsRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/contacts/': {
-      id: '/contacts/'
-      path: '/'
-      fullPath: '/contacts/'
-      preLoaderRoute: typeof ContactsIndexRouteImport
-      parentRoute: typeof ContactsRoute
+    '/healthz': {
+      id: '/healthz'
+      path: '/healthz'
+      fullPath: '/healthz'
+      preLoaderRoute: typeof HealthzRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/calendar/': {
-      id: '/calendar/'
-      path: '/'
-      fullPath: '/calendar/'
-      preLoaderRoute: typeof CalendarIndexRouteImport
-      parentRoute: typeof CalendarRoute
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/mail/search': {
-      id: '/mail/search'
-      path: '/search'
-      fullPath: '/mail/search'
-      preLoaderRoute: typeof MailSearchRouteImport
-      parentRoute: typeof MailRoute
+    '/logout': {
+      id: '/logout'
+      path: '/logout'
+      fullPath: '/logout'
+      preLoaderRoute: typeof LogoutRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/mail/compose': {
-      id: '/mail/compose'
-      path: '/compose'
-      fullPath: '/mail/compose'
-      preLoaderRoute: typeof MailComposeRouteImport
-      parentRoute: typeof MailRoute
+    '/mail': {
+      id: '/mail'
+      path: '/mail'
+      fullPath: '/mail'
+      preLoaderRoute: typeof MailRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/contacts/new': {
-      id: '/contacts/new'
-      path: '/new'
-      fullPath: '/contacts/new'
-      preLoaderRoute: typeof ContactsNewRouteImport
-      parentRoute: typeof ContactsRoute
-    }
-    '/contacts/$contactId': {
-      id: '/contacts/$contactId'
-      path: '/$contactId'
-      fullPath: '/contacts/$contactId'
-      preLoaderRoute: typeof ContactsContactIdRouteImport
-      parentRoute: typeof ContactsRoute
-    }
-    '/calendar/$view': {
-      id: '/calendar/$view'
-      path: '/$view'
-      fullPath: '/calendar/$view'
-      preLoaderRoute: typeof CalendarViewRouteImport
-      parentRoute: typeof CalendarRoute
-    }
-    '/auth/callback': {
-      id: '/auth/callback'
-      path: '/callback'
-      fullPath: '/auth/callback'
-      preLoaderRoute: typeof AuthCallbackRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/attachments/$attachmentId': {
-      id: '/attachments/$attachmentId'
-      path: '/attachments/$attachmentId'
-      fullPath: '/attachments/$attachmentId'
-      preLoaderRoute: typeof AttachmentsAttachmentIdRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/version': {
@@ -468,11 +398,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVersionRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/messages/$messageId/download': {
-      id: '/messages/$messageId/download'
-      path: '/messages/$messageId/download'
-      fullPath: '/messages/$messageId/download'
-      preLoaderRoute: typeof MessagesMessageIdDownloadRouteImport
+    '/attachments/$attachmentId': {
+      id: '/attachments/$attachmentId'
+      path: '/attachments/$attachmentId'
+      fullPath: '/attachments/$attachmentId'
+      preLoaderRoute: typeof AttachmentsAttachmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/calendar/': {
+      id: '/calendar/'
+      path: '/'
+      fullPath: '/calendar/'
+      preLoaderRoute: typeof CalendarIndexRouteImport
+      parentRoute: typeof CalendarRoute
+    }
+    '/calendar/$view': {
+      id: '/calendar/$view'
+      path: '/$view'
+      fullPath: '/calendar/$view'
+      preLoaderRoute: typeof CalendarViewRouteImport
+      parentRoute: typeof CalendarRoute
+    }
+    '/contacts/': {
+      id: '/contacts/'
+      path: '/'
+      fullPath: '/contacts/'
+      preLoaderRoute: typeof ContactsIndexRouteImport
+      parentRoute: typeof ContactsRoute
+    }
+    '/contacts/$contactId': {
+      id: '/contacts/$contactId'
+      path: '/$contactId'
+      fullPath: '/contacts/$contactId'
+      preLoaderRoute: typeof ContactsContactIdRouteImport
+      parentRoute: typeof ContactsRoute
+    }
+    '/contacts/new': {
+      id: '/contacts/new'
+      path: '/new'
+      fullPath: '/contacts/new'
+      preLoaderRoute: typeof ContactsNewRouteImport
+      parentRoute: typeof ContactsRoute
+    }
+    '/mail/': {
+      id: '/mail/'
+      path: '/'
+      fullPath: '/mail/'
+      preLoaderRoute: typeof MailIndexRouteImport
+      parentRoute: typeof MailRoute
+    }
+    '/mail/compose': {
+      id: '/mail/compose'
+      path: '/compose'
+      fullPath: '/mail/compose'
+      preLoaderRoute: typeof MailComposeRouteImport
+      parentRoute: typeof MailRoute
+    }
+    '/mail/search': {
+      id: '/mail/search'
+      path: '/search'
+      fullPath: '/mail/search'
+      preLoaderRoute: typeof MailSearchRouteImport
+      parentRoute: typeof MailRoute
+    }
+    '/api/webhooks/nylas': {
+      id: '/api/webhooks/nylas'
+      path: '/api/webhooks/nylas'
+      fullPath: '/api/webhooks/nylas'
+      preLoaderRoute: typeof ApiWebhooksNylasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mail/f/$folderId': {
@@ -482,11 +482,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailFFolderIdRouteImport
       parentRoute: typeof MailRoute
     }
-    '/api/webhooks/nylas': {
-      id: '/api/webhooks/nylas'
-      path: '/api/webhooks/nylas'
-      fullPath: '/api/webhooks/nylas'
-      preLoaderRoute: typeof ApiWebhooksNylasRouteImport
+    '/messages/$messageId/download': {
+      id: '/messages/$messageId/download'
+      path: '/messages/$messageId/download'
+      fullPath: '/messages/$messageId/download'
+      preLoaderRoute: typeof MessagesMessageIdDownloadRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mail/f/$folderId/t/$threadId': {

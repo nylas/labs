@@ -41,7 +41,7 @@ function ContactDetailRoute() {
 	}
 
 	async function remove() {
-		/* v8 ignore next -- the confirmed-delete control is disabled as soon as the first request starts */
+		/* v8 ignore next -- the confirmed-delete control is disabled as soon as the first request starts -- @preserve */
 		if (deleting) return
 		setDeleteError(null)
 		setDeleting(true)

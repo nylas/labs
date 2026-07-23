@@ -82,7 +82,7 @@ export function MarkdownEditor({
 	/** Re-render with the lines under `[selStart, selEnd]` raw, caret restored. */
 	const applyRender = useCallback((nextSource: string, selStart: number, selEnd: number) => {
 		const root = ref.current
-		/* v8 ignore next -- render only ever runs from handlers on the mounted editable */
+		/* v8 ignore next -- render only ever runs from handlers on the mounted editable -- @preserve */
 		if (!root) return
 		// Callers always pass ordered offsets: DOM ranges are ordered, and the
 		// model's edit helpers order their results.
@@ -108,7 +108,7 @@ export function MarkdownEditor({
 	 */
 	const readSelection = useCallback((): SourceSelection | null => {
 		const root = ref.current
-		/* v8 ignore next -- selection reads only run from handlers on the mounted editable */
+		/* v8 ignore next -- selection reads only run from handlers on the mounted editable -- @preserve */
 		if (!root) return null
 		const range = readLineRange(root)
 		if (!range) return null
@@ -145,7 +145,7 @@ export function MarkdownEditor({
 	// legacy HTML drafts) by re-seeding the DOM fully rendered.
 	useEffect(() => {
 		const root = ref.current
-		/* v8 ignore next -- the effect runs after mount, so the ref is always populated */
+		/* v8 ignore next -- the effect runs after mount, so the ref is always populated -- @preserve */
 		if (!root) return
 		if (value === lastEmitted.current) return
 		const seeded = seedToMarkdown(value)
@@ -163,7 +163,7 @@ export function MarkdownEditor({
 	// Track the caret as it moves (click, arrows, ⌘A) to re-target raw lines.
 	useEffect(() => {
 		const doc = ref.current?.ownerDocument
-		/* v8 ignore next -- the editor always mounts inside a document */
+		/* v8 ignore next -- the editor always mounts inside a document -- @preserve */
 		if (!doc) return
 		doc.addEventListener('selectionchange', syncActive)
 		return () => doc.removeEventListener('selectionchange', syncActive)
@@ -176,7 +176,7 @@ export function MarkdownEditor({
 	// always lands in raw source text.
 	useEffect(() => {
 		const root = ref.current
-		/* v8 ignore next -- the effect runs after mount, so the ref is always populated */
+		/* v8 ignore next -- the effect runs after mount, so the ref is always populated -- @preserve */
 		if (!root) return
 		const onBeforeInput = () => {
 			const range = readLineRange(root)
@@ -192,7 +192,7 @@ export function MarkdownEditor({
 	// End-of-drag: apply the activation that was deferred during the drag.
 	useEffect(() => {
 		const doc = ref.current?.ownerDocument
-		/* v8 ignore next -- the editor always mounts inside a document */
+		/* v8 ignore next -- the editor always mounts inside a document -- @preserve */
 		if (!doc) return
 		const onMouseUp = () => {
 			dragging.current = false
@@ -210,7 +210,7 @@ export function MarkdownEditor({
 	// text equals the source line, so the caret restores by identity offset.
 	const onInput = useCallback(() => {
 		const root = ref.current
-		/* v8 ignore next -- input only fires on the mounted editable element */
+		/* v8 ignore next -- input only fires on the mounted editable element -- @preserve */
 		if (!root) return
 		const range = active.current
 		if (!range) return
@@ -267,7 +267,7 @@ export function MarkdownEditor({
 			if (event.key === 'Enter') {
 				event.preventDefault()
 				const selection = readSelection()
-				/* v8 ignore next -- Enter cannot fire without a selection inside the editable */
+				/* v8 ignore next -- Enter cannot fire without a selection inside the editable -- @preserve */
 				if (!selection) return
 				const result = replaceRange(source.current, selection.start, selection.end, '\n')
 				commit(result.source, result.caret)
@@ -275,7 +275,7 @@ export function MarkdownEditor({
 			}
 			if (event.key !== 'Backspace' && event.key !== 'Delete' && event.key.length !== 1) return
 			const selection = readSelection()
-			/* v8 ignore next -- editing keys cannot fire without a selection inside the editable */
+			/* v8 ignore next -- editing keys cannot fire without a selection inside the editable -- @preserve */
 			if (!selection) return
 			// A selection spanning lines must be edited in the model: the browser
 			// would merge our per-line elements and desync the source.
@@ -315,7 +315,7 @@ export function MarkdownEditor({
 			const text = event.clipboardData.getData('text/plain')
 			if (!text) return
 			const selection = readSelection()
-			/* v8 ignore next -- a paste always lands on a selection within the editable */
+			/* v8 ignore next -- a paste always lands on a selection within the editable -- @preserve */
 			if (!selection) return
 			const result = replaceRange(
 				source.current,
@@ -346,7 +346,7 @@ export function MarkdownEditor({
 
 	const onBlur = useCallback(() => {
 		const root = ref.current
-		/* v8 ignore next -- blur only fires on the mounted editable element */
+		/* v8 ignore next -- blur only fires on the mounted editable element -- @preserve */
 		if (!root) return
 		active.current = null
 		root.innerHTML = docHtml(source.current, null)

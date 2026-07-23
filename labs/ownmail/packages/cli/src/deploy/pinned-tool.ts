@@ -12,8 +12,8 @@ type ToolSpec = {
 }
 
 const TOOL_SPECS: Record<PinnedTool, ToolSpec> = {
-	wrangler: { packageName: 'wrangler', version: '4.107.0', command: 'wrangler' },
-	vercel: { packageName: 'vercel', version: '56.2.1', command: 'vercel' },
+	wrangler: { packageName: 'wrangler', version: '4.114.0', command: 'wrangler' },
+	vercel: { packageName: 'vercel', version: '56.5.0', command: 'vercel' },
 	netlify: { packageName: 'netlify-cli', version: '26.2.0', command: 'netlify' },
 }
 

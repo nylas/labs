@@ -33,7 +33,7 @@ afterEach(() => {
 describe('pinnedToolInvocation', () => {
 	it('uses an exact locally installed tool with an object bin map', () => {
 		control.packages.set('vercel/package.json', {
-			version: '56.2.1',
+			version: '56.5.0',
 			bin: { vercel: './dist/index.js' },
 		})
 		expect(pinnedToolInvocation('vercel')).toEqual({
@@ -57,14 +57,14 @@ describe('pinnedToolInvocation', () => {
 
 	it.each([
 		['wrong version', { version: '1.0.0', bin: { wrangler: './bin/wrangler.js' } }],
-		['missing binary', { version: '4.107.0', bin: {} }],
-		['escaping binary', { version: '4.107.0', bin: { wrangler: '../../outside.js' } }],
-		['package-root binary', { version: '4.107.0', bin: { wrangler: '.' } }],
+		['missing binary', { version: '4.114.0', bin: {} }],
+		['escaping binary', { version: '4.114.0', bin: { wrangler: '../../outside.js' } }],
+		['package-root binary', { version: '4.114.0', bin: { wrangler: '.' } }],
 	] as const)('downloads the pinned tool for a %s local package', (_name, pkg) => {
 		control.packages.set('wrangler/package.json', pkg)
 		expect(pinnedToolInvocation('wrangler')).toEqual({
 			command: 'npm',
-			args: ['exec', '--yes', '--package=wrangler@4.107.0', '--', 'wrangler'],
+			args: ['exec', '--yes', '--package=wrangler@4.114.0', '--', 'wrangler'],
 			downloaded: true,
 		})
 	})

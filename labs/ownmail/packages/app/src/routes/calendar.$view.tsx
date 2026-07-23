@@ -110,7 +110,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				.sort((a, b) => {
 					const aTimes = eventTimes(a)
 					const bTimes = eventTimes(b)
-					/* v8 ignore next -- timedEventsOnDay only returns events with parsed times */
+					/* v8 ignore next -- timedEventsOnDay only returns events with parsed times -- @preserve */
 					if (!aTimes || !bTimes) return 0
 					return aTimes.start.getTime() - bTimes.start.getTime()
 				})
@@ -444,7 +444,7 @@ function CalendarSidebarPanel({
 					) : (
 						agenda.slice(0, 4).map((event, index) => {
 							const times = eventTimes(event)
-							/* v8 ignore next -- visibleEvents only contains runtime-validated events */
+							/* v8 ignore next -- visibleEvents only contains runtime-validated events -- @preserve */
 							if (!times) return null
 							return (
 								<button
@@ -497,7 +497,7 @@ function formatWeekTitle(anchor: Date): string {
 	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
-/* v8 ignore start -- grid movement is unit-tested in moveCalendarDay; pointer rendering is covered separately */
+/* v8 ignore start -- grid movement is unit-tested in moveCalendarDay; pointer rendering is covered separately -- @preserve */
 function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date) => void }) {
 	const [cursor, setCursor] = useState(() => new Date(refDate.getFullYear(), refDate.getMonth(), 1))
 	const [activeDay, setActiveDay] = useState(() => new Date(refDate))
@@ -671,7 +671,7 @@ function MonthGrid({
 							<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
 								{dayEvents.slice(0, 3).map((event, index) => {
 									const times = eventTimes(event)
-									/* v8 ignore next -- eventsOnDay excludes records without parsed times */
+									/* v8 ignore next -- eventsOnDay excludes records without parsed times -- @preserve */
 									if (!times) return null
 									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 									const allDay = times.allDay
@@ -972,7 +972,7 @@ function TimeGrid({
 									) : null}
 									{dayEvents.map((event, index) => {
 										const times = eventTimes(event)
-										/* v8 ignore next -- dayEvents excludes records without parsed times */
+										/* v8 ignore next -- dayEvents excludes records without parsed times -- @preserve */
 										if (!times) return null
 										const { start: s, end: e } = times
 										const preview = isNewEventPreview(event)
@@ -1050,7 +1050,7 @@ function ContinuousDayColumnRules({
 		</div>
 	)
 }
-/* v8 ignore stop */
+/* v8 ignore stop -- @preserve */
 
 function fmtHour(hour: number): string {
 	const normalizedHour = hour % 24

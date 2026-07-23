@@ -7,13 +7,10 @@ describe('OwnMail usage attribution', () => {
 		expect(OWNMAIL_USER_AGENT).toBe(`ownmail/${OWNMAIL_VERSION}`)
 	})
 
-	it.each([
-		undefined,
-		null,
-		{},
-		{ version: 7 },
-		{ version: 'invalid/version' },
-	])('rejects unsafe package metadata (%j)', (value) => {
-		expect(() => requireOwnmailPackageVersion(value)).toThrow('OwnMail package version is invalid')
-	})
+	it.each([undefined, null, {}, { version: 7 }, { version: 'invalid/version' }])(
+		'rejects unsafe package metadata (%j)',
+		(value) => {
+			expect(() => requireOwnmailPackageVersion(value)).toThrow('OwnMail package version is invalid')
+		},
+	)
 })

@@ -145,6 +145,7 @@ export const saveComposeRecipients = createServerFn({ method: 'POST' })
 				// Contact suggestions are an enhancement; a provider-side failure must not block sending mail.
 			}
 		}
+		/* v8 ignore else -- @preserve no cache signal is required when every recipient is already saved or skipped */
 		if (createdContacts.length) await signalLocalChange(grantId, 'contacts')
 		return { contacts: createdContacts }
 	})

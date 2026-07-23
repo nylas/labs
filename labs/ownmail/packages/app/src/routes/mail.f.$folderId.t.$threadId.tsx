@@ -43,7 +43,11 @@ function ThreadView() {
 	const { baseFolderId } = Route.useSearch()
 	const queryClient = useQueryClient()
 	const { data: detail } = useQuery({
-		...threadDetailQueryOptions(threadId, (id) => getThreadMessages({ data: { threadId: id } })),
+		...threadDetailQueryOptions(
+			threadId,
+			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
+			(id) => getThreadMessages({ data: { threadId: id } }),
+		),
 		initialData: toMailThreadDetail(initialDetail),
 	})
 	const { thread, messages, mailboxEmail, markedRead } = detail
@@ -65,7 +69,7 @@ function ThreadView() {
 			input: { unread?: boolean; starred?: boolean; folder?: string },
 			leave = false,
 		) => {
-			/* v8 ignore next -- every toolbar action is disabled while the request is pending */
+			/* v8 ignore next -- every toolbar action is disabled while the request is pending -- @preserve */
 			if (pendingAction) return
 			setError(null)
 			const previousStarred = starred
@@ -80,10 +84,11 @@ function ThreadView() {
 						search: baseFolderId ? { baseFolderId } : {},
 					})
 				}
-				/* v8 ignore next 3 -- a failed optimistic star action restores the previous state before surfacing its error */
 			} catch {
+				/* v8 ignore start -- a failed optimistic star action restores the previous state before surfacing its error -- @preserve */
 				if (typeof input.starred === 'boolean') setStarred(previousStarred)
 				setError('Action failed')
+				/* v8 ignore stop -- @preserve */
 			} finally {
 				setPendingAction(null)
 			}

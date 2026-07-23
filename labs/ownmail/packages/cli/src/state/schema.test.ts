@@ -60,18 +60,15 @@ describe('ProjectStateSchema', () => {
 		expect(parsed.pendingSecrets).toEqual({ apiKey: 'k' })
 	})
 
-	it.each([
-		'cloudflare',
-		'vercel',
-		'netlify',
-		'local',
-		'manual',
-	] as const)('accepts the %s hosting provider', (hostingProvider) => {
-		expect(
-			ProjectStateSchema.parse({ slug: 'my-inbox', createdAt: 1, updatedAt: 1, hostingProvider })
-				.hostingProvider,
-		).toBe(hostingProvider)
-	})
+	it.each(['cloudflare', 'vercel', 'netlify', 'local', 'manual'] as const)(
+		'accepts the %s hosting provider',
+		(hostingProvider) => {
+			expect(
+				ProjectStateSchema.parse({ slug: 'my-inbox', createdAt: 1, updatedAt: 1, hostingProvider })
+					.hostingProvider,
+			).toBe(hostingProvider)
+		},
+	)
 
 	it('validates provider and local deployment metadata', () => {
 		const parsed = ProjectStateSchema.parse({

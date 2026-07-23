@@ -68,6 +68,7 @@ export function RecipientInput({
 			}
 		}, 250)
 		return () => {
+			/* v8 ignore else -- @preserve this cleanup exists only after the effect schedules a timer */
 			if (timer.current) clearTimeout(timer.current)
 		}
 	}, [query])

@@ -358,7 +358,7 @@ async function repairApiKey(
 	issue: ApiKeyIssue,
 ): Promise<CheckResult> {
 	const applicationId = project.applicationId
-	/* v8 ignore start -- repairApiKey is only invoked after runDoctor verifies applicationId. */
+	/* v8 ignore start -- repairApiKey is only invoked after runDoctor verifies applicationId. -- @preserve */
 	if (!applicationId) {
 		return {
 			name: 'Nylas API key',
@@ -366,7 +366,7 @@ async function repairApiKey(
 			detail: `${issue.detail} — missing Nylas application; rerun ownmail setup`,
 		}
 	}
-	/* v8 ignore stop */
+	/* v8 ignore stop -- @preserve */
 	if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
 		return {
 			name: 'Nylas API key',

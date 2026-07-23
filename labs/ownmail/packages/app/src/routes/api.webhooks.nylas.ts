@@ -100,7 +100,7 @@ async function verifySignature(secret: string, body: string, signatureHex: strin
 		['verify'],
 	)
 	const hexPairs = signatureHex.match(/.{2}/g)
-	/* v8 ignore next -- signatureHex already passed the /^[0-9a-f]{64}$/ gate above, so match(/.{2}/g) always returns 32 pairs; this guard is unreachable */
+	/* v8 ignore next -- signatureHex already passed the /^[0-9a-f]{64}$/ gate above, so match(/.{2}/g) always returns 32 pairs; this guard is unreachable -- @preserve */
 	if (!hexPairs) return false
 	const sigBytes = new Uint8Array(hexPairs.map((h) => Number.parseInt(h, 16)))
 	return crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(body))

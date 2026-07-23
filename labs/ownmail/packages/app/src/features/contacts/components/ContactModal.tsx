@@ -60,7 +60,7 @@ export function ContactModal({
 		<Dialog
 			open
 			onOpenChange={(next) => {
-				/* v8 ignore next -- while saving, the dialog cannot be dismissed */
+				/* v8 ignore next -- while saving, the dialog cannot be dismissed -- @preserve */
 				if (!next && !busy) onClose(false)
 			}}
 		>

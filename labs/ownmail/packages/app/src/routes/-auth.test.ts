@@ -29,7 +29,7 @@ vi.mock('#server/session', () => ({
 	getSession: (request: Request) => getSession(request),
 }))
 
-import { Route } from './auth.js'
+import { escapeHtml, Route } from './auth.js'
 
 const GET = Route.options.server.handlers.GET
 const POST = Route.options.server.handlers.POST
@@ -46,6 +46,10 @@ beforeEach(() => {
 })
 
 describe('/auth', () => {
+	it('escapes every HTML metacharacter used in configuration responses', () => {
+		expect(escapeHtml(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;')
+	})
+
 	it('short-circuits to the mailbox with a dev-session cookie under local mocks', async () => {
 		usingDevMocks.mockResolvedValue(true)
 		platform.mockResolvedValue({ env: {} })

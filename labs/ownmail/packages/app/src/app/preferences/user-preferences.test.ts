@@ -62,12 +62,12 @@ describe('user preferences', () => {
 		const supportedValuesOf = Intl.supportedValuesOf
 		try {
 			Object.defineProperty(Intl, 'supportedValuesOf', { configurable: true, value: undefined })
-			vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
-				() => ({ resolvedOptions: () => ({ timeZone: '' }), format: () => '' }) as Intl.DateTimeFormat,
-			)
+			vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function DateTimeFormatMock() {
+				return { resolvedOptions: () => ({ timeZone: '' }), format: () => '' } as Intl.DateTimeFormat
+			})
 			expect(defaultUserPreferences().primaryTimezone).toBe('UTC')
 			expect(availableTimezones()).toContain('UTC')
-			vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+			vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function UnsupportedDateTimeFormatMock() {
 				throw new Error('unsupported')
 			})
 			expect(defaultUserPreferences().primaryTimezone).toBe('UTC')

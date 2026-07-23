@@ -30,7 +30,7 @@ export const AuthStateSchema = z.object({
 	orgToken: z.string().optional(),
 	userPublicId: z.string().optional(),
 	orgPublicId: z.string().optional(),
-	dpopPrivateJwk: z.record(z.unknown()),
+	dpopPrivateJwk: z.record(z.string(), z.unknown()),
 	updatedAt: z.number(),
 })
 export type AuthState = z.infer<typeof AuthStateSchema>

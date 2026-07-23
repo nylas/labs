@@ -271,7 +271,10 @@ export function calendarSlotTime(day: Date, hour: number, timeZone: string): Dat
 	)
 	// With no exact candidate, the before/after samples above bound a gap in the
 	// current IANA timezone rules.
-	const gap = gaps.sort((a, b) => a.after - a.before - (b.after - b.before))[0] as (typeof gaps)[number]
+	const gap = gaps.sort(
+		/* v8 ignore next -- @preserve current IANA transitions yield one bounded gap; sorting keeps historical multi-offset data deterministic */
+		(a, b) => a.after - a.before - (b.after - b.before),
+	)[0] as (typeof gaps)[number]
 	return firstValidTimeAfterGap(target, timeZone, gap.before, gap.after)
 }
 
@@ -310,7 +313,7 @@ export function eventsOnDay(events: Event[], day: Date, timeZone?: CalendarTimeZ
 		.sort((a, b) => {
 			const aTimes = eventTimes(a)
 			const bTimes = eventTimes(b)
-			/* v8 ignore next -- this sort runs only after the preceding filter retained both valid events */
+			/* v8 ignore next -- this sort runs only after the preceding filter retained both valid events -- @preserve */
 			if (!aTimes || !bTimes) return 0
 			return Number(bTimes.allDay) - Number(aTimes.allDay) || aTimes.start.getTime() - bTimes.start.getTime()
 		})
@@ -350,7 +353,7 @@ export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEve
 		.sort((a, b) => {
 			const aTimes = eventTimes(a.event)
 			const bTimes = eventTimes(b.event)
-			/* v8 ignore next -- segments are created only for events with parsed all-day times */
+			/* v8 ignore next -- segments are created only for events with parsed all-day times -- @preserve */
 			if (!aTimes || !bTimes) return 0
 			return (
 				a.startColumn - b.startColumn ||

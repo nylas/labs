@@ -214,7 +214,7 @@ function Compose() {
 
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
-	/* v8 ignore start -- command-key dispatch is covered by the component's button workflows */
+	/* v8 ignore start -- command-key dispatch is covered by the component's button workflows -- @preserve */
 	useEffect(() => {
 		setBody(seedToMarkdown(draftBody))
 	}, [draftBody])
@@ -267,7 +267,7 @@ function Compose() {
 		const replySearch = composeBackdropReplySearch({ folderId, threadId: thread.id, message })
 		setDraftId(undefined)
 		setTo(replySearch.to ?? '')
-		/* v8 ignore next -- replyDraftSearch always returns a truthy subject (at minimum 'Re: '), so composeBackdropReplySearch always includes subject and the ?? '' default is unreachable */
+		/* v8 ignore next -- replyDraftSearch always returns a truthy subject (at minimum 'Re: '), so composeBackdropReplySearch always includes subject and the ?? '' default is unreachable -- @preserve */
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
@@ -288,7 +288,7 @@ function Compose() {
 		})
 		setDraftId(undefined)
 		setTo(replySearch.to ?? '')
-		/* v8 ignore next -- replyAllDraftSearch always returns a truthy subject (at minimum 'Re: '), so subject is always present and the ?? '' default is unreachable */
+		/* v8 ignore next -- replyAllDraftSearch always returns a truthy subject (at minimum 'Re: '), so subject is always present and the ?? '' default is unreachable -- @preserve */
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
@@ -306,7 +306,7 @@ function Compose() {
 		})
 		setDraftId(undefined)
 		setTo(forwardSearch.to ?? '')
-		/* v8 ignore next 2 -- forwardDraftSearch always returns a truthy subject (min 'Fwd: ') and a truthy body (always contains the forwarded-message divider), so both are always present and the ?? '' defaults are unreachable */
+		/* v8 ignore next 2 -- forwardDraftSearch always returns a truthy subject (min 'Fwd: ') and a truthy body (always contains the forwarded-message divider), so both are always present and the ?? '' defaults are unreachable -- @preserve */
 		setSubject(forwardSearch.subject ?? '')
 		setBody(forwardSearch.body ?? '')
 		setError(null)
@@ -547,7 +547,7 @@ function Compose() {
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [busy, close, saveNow, submit])
-	/* v8 ignore stop */
+	/* v8 ignore stop -- @preserve */
 
 	return (
 		<>
@@ -652,8 +652,9 @@ function Compose() {
 					<div className="flex min-w-0 items-center gap-2">
 						<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
 						{busy ? <span className="text-xs text-background/70">Sending…</span> : null}
-						{/* v8 ignore next -- this status is driven by deferred autosave completion, which the route tests intentionally do not await */}
+						{/* v8 ignore start -- this status is driven by deferred autosave completion, which the route tests intentionally do not await -- @preserve */}
 						{!busy && savingDraft ? <span className="text-xs text-background/70">Saving…</span> : null}
+						{/* v8 ignore stop -- @preserve */}
 						{!busy && !savingDraft && saved ? (
 							<span className="text-xs text-background/70">Saved</span>
 						) : null}
@@ -801,15 +802,15 @@ function ComposeThreadRow({
 	}, [thread.starred])
 
 	async function toggleStar() {
-		/* v8 ignore next -- the star control is disabled while its request is pending */
+		/* v8 ignore next -- the star control is disabled while its request is pending -- @preserve */
 		if (starPending) return
 		const nextStarred = !starred
 		setStarred(nextStarred)
 		setStarPending(true)
 		try {
 			await onToggleStar(nextStarred)
-			/* v8 ignore next 3 -- a failed optimistic mutation restores the rendered value before re-enabling the control */
 		} catch {
+			/* v8 ignore next -- @preserve a failed optimistic mutation restores the rendered value before re-enabling the control */
 			setStarred(!nextStarred)
 		} finally {
 			setStarPending(false)
@@ -933,7 +934,7 @@ function BackdropAction({
 }
 
 async function fileToAttachment(file: File): Promise<ComposeAttachment> {
-	/* v8 ignore next 3 -- defensive: addAttachments rejects any file set exceeding the 2 MB total before calling this, so a single over-size file can never reach here */
+	/* v8 ignore next 3 -- defensive: addAttachments rejects any file set exceeding the 2 MB total before calling this, so a single over-size file can never reach here -- @preserve */
 	if (file.size > MAX_COMPOSE_ATTACHMENT_BYTES) {
 		throw new Error('Attachments must be under 2 MB total.')
 	}

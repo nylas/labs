@@ -6,7 +6,7 @@ export function LoginScreen({ signInHref, siteName }: { signInHref: string; site
 	const [connecting, setConnecting] = useState(false)
 
 	function handleSignIn() {
-		/* v8 ignore next -- defensive double-submit guard; the button is disabled while connecting, so this is unreachable via the UI */
+		/* v8 ignore next -- defensive double-submit guard; the button is disabled while connecting, so this is unreachable via the UI -- @preserve */
 		if (connecting) return
 		setConnecting(true)
 		window.setTimeout(() => {
