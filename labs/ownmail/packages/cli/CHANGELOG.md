@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.7.1
+
+### Patch Changes
+
+- ed5de4c: Keep shadcn component generation aligned with OwnMail's shared UI paths in source exports.
+
 ## 0.7.0
 
 ### Patch Changes
