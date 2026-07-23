@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { OWNMAIL_VERSION } from '../usage-attribution.js'
 import { sourceImports } from './source-imports.js'
 
 const require = createRequire(import.meta.url)
@@ -178,6 +179,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 		`${JSON.stringify(
 			{
 				name: input.slug,
+				version: OWNMAIL_VERSION,
 				private: true,
 				type: 'module',
 				imports: sourceImports,

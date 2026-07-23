@@ -55,6 +55,7 @@ import { loadManifest } from '../deploy/materialize.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
+import { OWNMAIL_VERSION } from '../usage-attribution.js'
 import { pickExistingProject } from './shared.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
@@ -167,8 +168,10 @@ describe('runEject — writes the project', () => {
 		// All six template entries exist → all copied.
 		expect(cpSync).toHaveBeenCalledTimes(6)
 		expect(writtenFile('.dev.vars')).toContain('NYLAS_API_KEY=nyk_minted')
-		expect(writtenFile('package.json')).toContain('"name": "acme"')
-		expect(writtenFile('package.json')).toContain('"#shared/components/*"')
+		const packageJson = JSON.parse(writtenFile('package.json') ?? '{}')
+		expect(packageJson.name).toBe('acme')
+		expect(packageJson.version).toBe(OWNMAIL_VERSION)
+		expect(packageJson.imports['#shared/components/*']).toBe('./src/shared/components/*.tsx')
 		expect(cpSync).toHaveBeenCalledWith(
 			join(ROOT, 'components.json'),
 			expect.stringContaining('components.json'),

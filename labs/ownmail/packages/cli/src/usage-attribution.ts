@@ -17,5 +17,8 @@ export function requireOwnmailPackageVersion(value: unknown): string {
 	return value.version
 }
 
+/** Published release shared by the CLI and generated app manifests. */
+export const OWNMAIL_VERSION = requireOwnmailPackageVersion(packageMetadata)
+
 /** Stable, non-identifying marker used to find OwnMail traffic by release in Nylas logs. */
-export const OWNMAIL_USER_AGENT = `ownmail/${requireOwnmailPackageVersion(packageMetadata)}`
+export const OWNMAIL_USER_AGENT = `ownmail/${OWNMAIL_VERSION}`
