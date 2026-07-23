@@ -3,6 +3,7 @@ import { useRouterState } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useState } from 'react'
 
 const VERSION_POLL_INTERVAL_MS = 10_000
+const FALLBACK_REFRESH_INTERVAL_MS = 60_000
 
 type DomainVersions = {
 	mail: number
@@ -51,6 +52,7 @@ function ServerStateSync() {
 		if (!/^\/(mail|contacts|calendar)(?:\/|$)/.test(pathname)) return
 		let stopped = false
 		let previous: DomainVersions | null = null
+		let lastFallbackRefresh = 0
 
 		async function sync() {
 			if (stopped || document.visibilityState !== 'visible') return
@@ -62,10 +64,12 @@ function ServerStateSync() {
 				if (!response.ok || stopped) return
 				const next = normalizeVersions(await response.json())
 				if (!next || stopped) return
+				const now = Date.now()
 				if (!previous) {
 					// The initial refresh closes the window between route loading and
 					// establishing the first external-change watermark.
 					await queryClient.invalidateQueries({ refetchType: 'active' })
+					lastFallbackRefresh = now
 				} else {
 					for (const domain of ['mail', 'contacts', 'calendar'] as const) {
 						if (next[domain] === previous[domain]) continue
@@ -74,6 +78,10 @@ function ServerStateSync() {
 							refetchType: 'active',
 						})
 					}
+				}
+				if (now - lastFallbackRefresh >= FALLBACK_REFRESH_INTERVAL_MS) {
+					await queryClient.invalidateQueries({ refetchType: 'active' })
+					lastFallbackRefresh = now
 				}
 				previous = next
 			} catch {

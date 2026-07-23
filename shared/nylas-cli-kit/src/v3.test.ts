@@ -261,6 +261,7 @@ describe('NylasV3Client', () => {
 				request_id: 'req-create',
 				data: {
 					id: 'webhook-123',
+					trigger_types: ['message.created'],
 					webhook_url: 'https://mail.example.com/api/webhooks/nylas',
 					status: 'active',
 				},
@@ -291,13 +292,17 @@ describe('NylasV3Client', () => {
 				data: [
 					{
 						id: 'webhook-current',
+						trigger_types: ['message.created'],
 						webhook_url: 'https://mail.example.com/api/webhooks/nylas',
 						status: 'active',
+						description: 'ownmail realtime',
 					},
 					{
 						id: 'webhook-legacy',
+						trigger_types: ['message.created'],
 						callback_url: 'https://legacy.example.com/api/webhooks/nylas',
 						status: 'active',
+						description: 'ownmail realtime',
 					},
 				],
 			})
@@ -309,6 +314,264 @@ describe('NylasV3Client', () => {
 		await expect(
 			client.ensureWebhook('https://legacy.example.com/api/webhooks/nylas', ['message.created']),
 		).resolves.toMatchObject({ id: 'webhook-legacy' })
+	})
+
+	it('moves a tracked webhook and reconciles triggers without rotating its secret', async () => {
+		const requests: Array<{ method: string; url: string; body?: unknown }> = []
+		const fetchImpl: typeof fetch = async (input, init) => {
+			const method = init?.method ?? 'GET'
+			const url = String(input)
+			requests.push({
+				method,
+				url,
+				...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+			})
+			if (method === 'GET') {
+				return Response.json({
+					request_id: 'req-list',
+					data: [
+						{
+							id: 'webhook-1',
+							trigger_types: ['message.created'],
+							webhook_url: 'https://old.example.com/api/webhooks/nylas',
+							status: 'active',
+							description: 'ownmail realtime',
+						},
+					],
+				})
+			}
+			return Response.json({
+				request_id: 'req-update',
+				data: {
+					id: 'webhook-1',
+					trigger_types: ['message.created', 'message.deleted'],
+					webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+					status: 'active',
+					description: 'ownmail realtime',
+				},
+			})
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		const result = await client.reconcileWebhook(
+			'https://mail.example.com/api/webhooks/nylas',
+			['message.created', 'message.deleted'],
+			{
+				webhookId: 'webhook-1',
+				knownCallbackUrls: ['https://old.example.com/api/webhooks/nylas'],
+			},
+		)
+
+		expect(result).toMatchObject({
+			operation: 'updated',
+			adopted: false,
+			previousUrl: 'https://old.example.com/api/webhooks/nylas',
+			webhook: { id: 'webhook-1' },
+		})
+		expect(requests).toEqual([
+			{
+				method: 'GET',
+				url: 'https://api.us.nylas.com/v3/webhooks',
+			},
+			{
+				method: 'PUT',
+				url: 'https://api.us.nylas.com/v3/webhooks/webhook-1',
+				body: {
+					trigger_types: ['message.created', 'message.deleted'],
+					webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+					description: 'ownmail realtime',
+					status: 'active',
+				},
+			},
+		])
+	})
+
+	it('adopts a known destination when the recorded id is stale', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json({
+				request_id: 'req-list',
+				data: [
+					{
+						id: 'webhook-current',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+						status: 'active',
+						description: 'ownmail realtime',
+					},
+				],
+			})
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created'], {
+				webhookId: 'webhook-stale',
+			}),
+		).resolves.toMatchObject({
+			operation: 'unchanged',
+			adopted: true,
+			webhook: { id: 'webhook-current' },
+		})
+	})
+
+	it('refuses to mutate a tracked destination that is not owned by this project', async () => {
+		let calls = 0
+		const fetchImpl: typeof fetch = async () => {
+			calls++
+			return Response.json({
+				request_id: 'req-list',
+				data: [
+					{
+						id: 'hostile-webhook',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://other.example.com/hooks',
+						status: 'active',
+						description: 'customer webhook',
+					},
+				],
+			})
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created'], {
+				webhookId: 'hostile-webhook',
+			}),
+		).rejects.toMatchObject({ code: 'tracked-destination-ownership-mismatch' })
+		expect(calls).toBe(1)
+	})
+
+	it('keeps the current owned destination and deletes a known legacy duplicate', async () => {
+		const requests: string[] = []
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requests.push(`${init?.method ?? 'GET'} ${String(input)}`)
+			return Response.json({
+				request_id: 'req-list',
+				data: [
+					{
+						id: 'webhook-current',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+						status: 'active',
+						description: 'ownmail realtime',
+					},
+					{
+						id: 'webhook-legacy',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://app.workers.dev/api/webhooks/nylas',
+						status: 'active',
+						description: 'ownmail realtime',
+					},
+				],
+			})
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created'], {
+				knownCallbackUrls: ['https://app.workers.dev/api/webhooks/nylas'],
+			}),
+		).resolves.toMatchObject({ webhook: { id: 'webhook-current' }, operation: 'unchanged' })
+		expect(requests).toEqual([
+			'GET https://api.us.nylas.com/v3/webhooks',
+			'DELETE https://api.us.nylas.com/v3/webhooks/webhook-legacy',
+		])
+	})
+
+	it('fails closed when multiple owned legacy destinations have no safe winner', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json({
+				request_id: 'req-list',
+				data: [
+					{
+						id: 'webhook-a',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://a.workers.dev/api/webhooks/nylas',
+						description: 'ownmail realtime',
+					},
+					{
+						id: 'webhook-b',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://b.workers.dev/api/webhooks/nylas',
+						description: 'ownmail realtime',
+					},
+				],
+			})
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created'], {
+				knownCallbackUrls: [
+					'https://a.workers.dev/api/webhooks/nylas',
+					'https://b.workers.dev/api/webhooks/nylas',
+				],
+			}),
+		).rejects.toMatchObject({ code: 'ambiguous-ownmail-destinations' })
+	})
+
+	it('refuses an unrecognized destination at the requested callback URL', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json({
+				request_id: 'req-list',
+				data: [
+					{
+						id: 'customer-webhook',
+						trigger_types: ['message.created'],
+						webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+						description: 'customer webhook',
+					},
+				],
+			})
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created']),
+		).rejects.toMatchObject({ code: 'unrecognized-callback-destination' })
+	})
+
+	it('adopts the single winner after losing a concurrent create race', async () => {
+		let listCount = 0
+		const fetchImpl: typeof fetch = async (_input, init) => {
+			if (init?.method === 'POST') {
+				return Response.json({ request_id: 'req-create', message: 'Webhook already exists' }, { status: 409 })
+			}
+			listCount++
+			return Response.json({
+				request_id: `req-list-${listCount}`,
+				data:
+					listCount === 1
+						? []
+						: [
+								{
+									id: 'webhook-winner',
+									trigger_types: ['message.created'],
+									webhook_url: 'https://mail.example.com/api/webhooks/nylas',
+									status: 'active',
+									description: 'ownmail realtime',
+								},
+							],
+			})
+		}
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created']),
+		).resolves.toMatchObject({
+			adopted: true,
+			operation: 'unchanged',
+			webhook: { id: 'webhook-winner' },
+		})
+	})
+
+	it('rejects invalid recorded callback URLs before changing a webhook', async () => {
+		const client = new NylasV3Client('api-key-123', 'us', async () =>
+			Response.json({ request_id: 'req-list', data: [] }),
+		)
+
+		await expect(
+			client.reconcileWebhook('https://mail.example.com/api/webhooks/nylas', ['message.created'], {
+				knownCallbackUrls: ['http://insecure.example.com/api/webhooks/nylas'],
+			}),
+		).rejects.toThrow(/recorded OwnMail webhook callback URL is invalid/)
 	})
 
 	it('rotates an existing webhook secret by encoded webhook id', async () => {

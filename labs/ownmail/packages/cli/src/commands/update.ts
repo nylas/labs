@@ -18,6 +18,7 @@ import {
 } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
+import { projectAppDomains } from '../state/app-domains.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
 import { configDir, saveProject } from '../state/store.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
@@ -92,6 +93,7 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 		workerName: project.workerName,
 		kvNamespaceId: project.kvNamespaceId,
 		...(project.appDomain ? { appDomain: project.appDomain } : {}),
+		appDomains: projectAppDomains(project),
 		vars: {
 			NYLAS_CLIENT_ID: applicationId,
 			NYLAS_REGION: project.region,

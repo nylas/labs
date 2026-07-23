@@ -31,6 +31,7 @@ describe('projectStatusSummary', () => {
 				hostingProvider: 'cloudflare',
 				workersDevUrl: 'https://acme.workers.dev',
 				appDomain: 'mail.acme.com',
+				appDomains: ['mail.acme.com', 'inbox.acme.com'],
 				domainVerified: true,
 				completedSteps: [
 					'dashboard-auth',
@@ -53,10 +54,34 @@ describe('projectStatusSummary', () => {
 		expect(summary).toMatchObject({
 			stage: 'Live',
 			health: 'Setup complete.',
+			primaryAppDomain: 'mail.acme.com',
+			additionalAppDomains: ['inbox.acme.com'],
+			appDomainStatus: 'ready',
 			hosting: 'Cloudflare Workers',
 			appUrl: 'https://mail.acme.com',
 			nextCommand: 'npx ownmail update',
 			domainVerified: true,
+		})
+	})
+
+	it('reports a resumable custom-domain promotion separately from the active URL', () => {
+		const summary = projectStatusSummary(
+			project({
+				hostingProvider: 'cloudflare',
+				workersDevUrl: 'https://acme.workers.dev',
+				appDomains: ['mail.acme.com'],
+				pendingAppDomain: { domain: 'mail.acme.com', primary: true },
+			}),
+		)
+		expect(summary).toMatchObject({
+			appUrl: 'https://acme.workers.dev',
+			primaryAppDomain: null,
+			additionalAppDomains: [],
+			appDomainStatus: 'setup-pending',
+			pendingAppDomain: { domain: 'mail.acme.com', primary: true },
+			stage: 'Custom domain setup pending',
+			health: 'https://mail.acme.com is attached, but primary-domain activation is incomplete.',
+			nextCommand: 'npx ownmail app-domain mail.acme.com --name acme --primary',
 		})
 	})
 

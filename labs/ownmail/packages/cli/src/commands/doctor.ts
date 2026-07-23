@@ -294,13 +294,9 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		if (opts.fix) {
 			if (project.hostingProvider === 'manual') {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'manual-hosting' }))
-			} else if (
-				project.hostingProvider &&
-				project.hostingProvider !== 'cloudflare' &&
-				project.hostingProvider !== 'vercel'
-			) {
+			} else if (project.hostingProvider === 'local') {
 				results.push(formatWebhookRepairResult({ status: 'skipped', reason: 'non-cloudflare-hosting' }))
-			} else if (!cloudflareOk) {
+			} else if ((project.hostingProvider === 'cloudflare' || !project.hostingProvider) && !cloudflareOk) {
 				results.push({
 					name: 'Instant updates',
 					status: 'skip',
@@ -314,6 +310,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				})
 			} else {
 				const webhook = await setupRealtimeWebhook(project, v3, { attempts: 1, delayMs: 0 })
+				if (webhook.status === 'registered') saveProject(project)
 				results.push(formatWebhookRepairResult(webhook))
 			}
 		}

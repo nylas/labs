@@ -14,6 +14,78 @@ export type VercelProject = { projectId: string; orgId: string }
 export type VercelScope = { id: string; slug: string; name: string; current: boolean }
 export type NetlifySite = { siteId: string }
 
+export async function attachVercelDomain(domain: string, projectId: string, orgId: string): Promise<void> {
+	const hostname = requireAppHostname(domain)
+	const project = requireProviderId(projectId, 'Vercel project ID')
+	const scope = requireVercelScope(orgId)
+	await ensureProviderLogin('vercel')
+	const result = await runProviderCli('vercel', [
+		'domains',
+		'add',
+		hostname,
+		project,
+		'--scope',
+		scope,
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code === 0) return
+	const output = `${result.stdout}\n${result.stderr}`.toLowerCase()
+	if (/already (?:assigned|configured|added).*(?:this|same) project/.test(output)) return
+	if (/already assigned|belongs to another|domain.*conflict|\b409\b/.test(output)) {
+		throw new Error(
+			`Vercel could not attach ${hostname} because it is assigned to another project. Move the domain in Vercel, then retry the same command. OwnMail kept the operation pending and did not move the domain.`,
+		)
+	}
+	throw providerFailure('vercel', `attach ${hostname}`, result, true)
+}
+
+export async function configureNetlifyDomain(
+	domain: string,
+	siteId: string,
+	primary: boolean,
+): Promise<void> {
+	const hostname = requireAppHostname(domain)
+	const site = requireUuid(siteId, 'Netlify site ID')
+	await ensureProviderLogin('netlify')
+	const currentResult = await runProviderCli('netlify', [
+		'api',
+		'getSite',
+		'--data',
+		JSON.stringify({ site_id: site }),
+	])
+	if (currentResult.code !== 0) {
+		throw providerFailure('netlify', 'inspect the custom-domain configuration', currentResult, false)
+	}
+	const current = parseNetlifyDomainState(currentResult.stdout, site)
+	const aliases = new Set(current.domainAliases)
+	aliases.delete(hostname)
+	if (primary && current.customDomain && current.customDomain !== hostname) {
+		aliases.add(current.customDomain)
+	}
+	const body = primary
+		? { custom_domain: hostname, domain_aliases: [...aliases] }
+		: { domain_aliases: [...aliases, hostname] }
+	const updatedResult = await runProviderCli('netlify', [
+		'api',
+		'updateSite',
+		'--data',
+		JSON.stringify({ site_id: site, body }),
+	])
+	if (updatedResult.code !== 0) {
+		throw providerFailure('netlify', `attach ${hostname}`, updatedResult, true)
+	}
+	const updated = parseNetlifyDomainState(updatedResult.stdout, site)
+	const configured = primary
+		? updated.customDomain === hostname
+		: updated.customDomain === hostname || updated.domainAliases.includes(hostname)
+	if (!configured) {
+		throw new Error(
+			`Netlify accepted the domain request, but OwnMail could not verify ${hostname}. Check Domain management in Netlify, then retry the same command.`,
+		)
+	}
+}
+
 export async function listVercelScopes(): Promise<VercelScope[]> {
 	await ensureProviderLogin('vercel')
 	const result = await runProviderCli('vercel', [
@@ -385,6 +457,11 @@ async function ensureProviderLogin(provider: Provider): Promise<void> {
 		provider === 'vercel' ? ['whoami', '--no-color', '--non-interactive'] : ['sites:list', '--json']
 	const checked = await runProviderCli(provider, checkArgs)
 	if (checked.code === 0) return
+	if (!process.stdin.isTTY) {
+		throw new Error(
+			`${providerName(provider)} sign-in is required. Run \`${provider} login\` in an interactive terminal, then retry. No provider settings were changed.`,
+		)
+	}
 	const login = await runProviderCli(provider, ['login'], { interactive: true })
 	if (login.code !== 0) throw providerFailure(provider, 'sign in', login, false)
 }
@@ -519,6 +596,72 @@ function validVercelDisplaySlug(value: unknown): value is string {
 
 function validProviderId(value: unknown): value is string {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{2,128}$/.test(value)
+}
+
+function requireProviderId(value: string, label: string): string {
+	if (!validProviderId(value)) throw new Error(`${label} is invalid; refusing to change domain settings.`)
+	return value
+}
+
+function requireAppHostname(value: string): string {
+	if (!validAppHostname(value)) {
+		throw new Error('The app hostname is invalid; refusing to change provider domain settings.')
+	}
+	return value
+}
+
+function validAppHostname(value: string): boolean {
+	return (
+		value.length >= 4 &&
+		value.length <= 253 &&
+		value.includes('.') &&
+		value
+			.split('.')
+			.every(
+				(label) => label.length >= 1 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
+			)
+	)
+}
+
+function parseNetlifyDomainState(
+	output: string,
+	expectedSiteId: string,
+): {
+	customDomain?: string
+	domainAliases: string[]
+} {
+	const raw = parseJsonOutput(output)
+	if (!isRecord(raw)) {
+		throw new Error('Netlify returned invalid custom-domain details; refusing to overwrite domain settings.')
+	}
+	if ((raw.id ?? raw.site_id) !== expectedSiteId) {
+		throw new Error(
+			'Netlify returned custom-domain details for an unexpected site; refusing to overwrite domain settings.',
+		)
+	}
+	const customDomain =
+		typeof raw.custom_domain === 'string' && validAppHostname(raw.custom_domain.toLowerCase())
+			? raw.custom_domain.toLowerCase()
+			: undefined
+	if (raw.custom_domain !== undefined && raw.custom_domain !== null && customDomain === undefined) {
+		throw new Error(
+			'Netlify returned an invalid primary custom domain; refusing to overwrite domain settings.',
+		)
+	}
+	const rawAliases = raw.domain_aliases
+	if (rawAliases !== undefined && rawAliases !== null && !Array.isArray(rawAliases)) {
+		throw new Error('Netlify returned invalid custom-domain aliases; refusing to overwrite domain settings.')
+	}
+	const domainAliases = (rawAliases ?? []).filter(
+		(value): value is string => typeof value === 'string' && validAppHostname(value.toLowerCase()),
+	)
+	if (domainAliases.length !== (rawAliases ?? []).length || domainAliases.length > 100) {
+		throw new Error('Netlify returned invalid custom-domain aliases; refusing to overwrite domain settings.')
+	}
+	return {
+		...(customDomain ? { customDomain } : {}),
+		domainAliases: domainAliases.map((v) => v.toLowerCase()),
+	}
 }
 
 function requireUuid(value: string, label: string): string {

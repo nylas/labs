@@ -91,7 +91,7 @@ describe('materialize', () => {
 
 	it('patches the wrangler config with worker name, KV, and vars', () => {
 		const { dir, configPath } = materialize(base)
-		expect(mkdirSync).toHaveBeenCalledWith(dir, { recursive: true })
+		expect(mkdirSync).toHaveBeenCalledWith(dirname(dir), { recursive: true, mode: 0o700 })
 		expect(cpSync).toHaveBeenCalled()
 		const [[, contents]] = vi.mocked(writeFileSync).mock.calls
 		const written = JSON.parse(contents as string)
@@ -110,6 +110,20 @@ describe('materialize', () => {
 		const [[, contents]] = vi.mocked(writeFileSync).mock.calls
 		const written = JSON.parse(contents as string)
 		expect(written.routes).toEqual([{ pattern: 'mail.acme.com', custom_domain: true }])
+	})
+
+	it('deduplicates and preserves every attached custom domain route', () => {
+		materialize({
+			...base,
+			appDomain: 'mail.acme.com',
+			appDomains: ['mail.acme.com', 'inbox.acme.com'],
+		})
+		const [[, contents]] = vi.mocked(writeFileSync).mock.calls
+		const written = JSON.parse(contents as string)
+		expect(written.routes).toEqual([
+			{ pattern: 'mail.acme.com', custom_domain: true },
+			{ pattern: 'inbox.acme.com', custom_domain: true },
+		])
 	})
 })
 

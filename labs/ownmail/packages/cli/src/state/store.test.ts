@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthState, ProjectState } from './schema.js'
 
@@ -18,6 +26,7 @@ vi.mock('node:fs', () => ({
 	writeFileSync: vi.fn(),
 	mkdirSync: vi.fn(),
 	readdirSync: vi.fn(),
+	renameSync: vi.fn(),
 	unlinkSync: vi.fn(),
 }))
 
@@ -40,6 +49,7 @@ const mockRead = vi.mocked(readFileSync)
 const mockWrite = vi.mocked(writeFileSync)
 const mockMkdir = vi.mocked(mkdirSync)
 const mockReaddir = vi.mocked(readdirSync)
+const mockRename = vi.mocked(renameSync)
 const mockUnlink = vi.mocked(unlinkSync)
 const mockExists = vi.mocked(existsSync)
 
@@ -97,10 +107,34 @@ describe('saveAuth', () => {
 		saveAuth(validAuth)
 		expect(mockMkdir).toHaveBeenCalledWith('/virtual/config', { recursive: true, mode: 0o700 })
 		expect(mockWrite).toHaveBeenCalledWith(
-			'/virtual/config/auth.json',
+			expect.stringMatching(/^\/virtual\/config\/auth\.json\..+\.tmp$/),
 			`${JSON.stringify(validAuth, null, 2)}\n`,
-			{ mode: 0o600 },
+			{ mode: 0o600, flag: 'wx' },
 		)
+		expect(mockRename).toHaveBeenCalledWith(
+			expect.stringMatching(/^\/virtual\/config\/auth\.json\..+\.tmp$/),
+			'/virtual/config/auth.json',
+		)
+	})
+
+	it('removes a temporary file when an atomic state write fails', () => {
+		mockWrite.mockImplementationOnce(() => {
+			throw new Error('disk full')
+		})
+
+		expect(() => saveAuth(validAuth)).toThrow(/disk full/)
+		expect(mockUnlink).toHaveBeenCalledWith(expect.stringMatching(/^\/virtual\/config\/auth\.json\..+\.tmp$/))
+	})
+
+	it('preserves the write failure if temporary-file cleanup also fails', () => {
+		mockWrite.mockImplementationOnce(() => {
+			throw new Error('disk full')
+		})
+		mockUnlink.mockImplementationOnce(() => {
+			throw new Error('cleanup failed')
+		})
+
+		expect(() => saveAuth(validAuth)).toThrow(/disk full/)
 	})
 })
 
@@ -264,9 +298,15 @@ describe('saveProject', () => {
 		const before = Date.now()
 		saveProject(project)
 		expect(project.updatedAt).toBeGreaterThanOrEqual(before)
-		expect(mockWrite).toHaveBeenCalledWith('/virtual/config/projects/inbox.json', expect.any(String), {
-			mode: 0o600,
-		})
+		expect(mockWrite).toHaveBeenCalledWith(
+			expect.stringMatching(/^\/virtual\/config\/projects\/inbox\.json\..+\.tmp$/),
+			expect.any(String),
+			{ mode: 0o600, flag: 'wx' },
+		)
+		expect(mockRename).toHaveBeenCalledWith(
+			expect.stringMatching(/^\/virtual\/config\/projects\/inbox\.json\..+\.tmp$/),
+			'/virtual/config/projects/inbox.json',
+		)
 	})
 
 	it('does not persist reserved internal project slugs', () => {

@@ -189,8 +189,16 @@ const main = defineCommand({
 				name: nameArg,
 				domain: {
 					type: 'positional',
-					description: 'Domain (zone must be on your Cloudflare account)',
+					description: 'App hostname, such as mail.example.com',
 					required: false,
+				},
+				primary: {
+					type: 'boolean',
+					description: 'Make this the primary app domain for sign-in and Nylas instant updates',
+				},
+				secondary: {
+					type: 'boolean',
+					description: 'Attach as an additional app domain without moving instant updates',
 				},
 			},
 			run: ({ args }) =>
@@ -199,6 +207,8 @@ const main = defineCommand({
 					await runAppDomain({
 						...(typeof args.name === 'string' ? { name: args.name } : {}),
 						...(typeof args.domain === 'string' ? { domain: args.domain } : {}),
+						...(args.primary === true ? { primary: true } : {}),
+						...(args.secondary === true ? { secondary: true } : {}),
 					})
 				}),
 		}),

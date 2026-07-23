@@ -204,8 +204,29 @@ export type Webhook = {
 	callback_url?: string
 	webhook_url?: string
 	status?: string
+	description?: string
 	/** Returned once on create — used to verify X-Nylas-Signature. */
 	webhook_secret?: string
+}
+
+export type WebhookReconcileResult = {
+	webhook: Webhook
+	operation: 'created' | 'updated' | 'unchanged'
+	adopted: boolean
+	previousUrl?: string
+}
+
+export class WebhookReconcileError extends Error {
+	constructor(
+		readonly code:
+			| 'ambiguous-ownmail-destinations'
+			| 'tracked-destination-ownership-mismatch'
+			| 'unrecognized-callback-destination',
+		message: string,
+	) {
+		super(message)
+		this.name = 'WebhookReconcileError'
+	}
 }
 
 export type ListResponse<T> = { request_id: string; data: T[]; next_cursor?: string }
@@ -463,8 +484,8 @@ export class NylasV3Client {
 	}
 
 	// Webhooks
-	async listWebhooks(): Promise<ListResponse<Webhook>> {
-		return this.request('GET', '/v3/webhooks')
+	async listWebhooks(query?: ListQuery): Promise<ListResponse<Webhook>> {
+		return this.request('GET', `/v3/webhooks${toQuery(query)}`)
 	}
 
 	async createWebhook(input: {
@@ -479,17 +500,138 @@ export class NylasV3Client {
 		return this.request('POST', `/v3/webhooks/rotate-secret/${encodeURIComponent(webhookId)}`)
 	}
 
-	/** Creates the webhook if no active one exists for this URL; returns it either way. */
+	async updateWebhook(
+		webhookId: string,
+		input: {
+			trigger_types?: string[]
+			webhook_url?: string
+			description?: string
+			status?: 'active' | 'inactive'
+		},
+	): Promise<ItemResponse<Webhook>> {
+		return this.request('PUT', `/v3/webhooks/${encodeURIComponent(webhookId)}`, input)
+	}
+
+	async deleteWebhook(webhookId: string): Promise<void> {
+		await this.request('DELETE', `/v3/webhooks/${encodeURIComponent(webhookId)}`)
+	}
+
+	/**
+	 * Reconciles OwnMail's one application-level realtime destination.
+	 * A recorded ID is authoritative. Legacy adoption is deliberately limited
+	 * to one destination with OwnMail's description at a known project URL.
+	 */
+	async reconcileWebhook(
+		callbackUrl: string,
+		triggerTypes: string[],
+		options: { webhookId?: string; knownCallbackUrls?: string[] } = {},
+	): Promise<WebhookReconcileResult> {
+		validateWebhookInput(callbackUrl, triggerTypes)
+		const knownUrls = new Set([callbackUrl, ...(options.knownCallbackUrls ?? [])])
+		for (const knownUrl of knownUrls) validateKnownWebhookUrl(knownUrl)
+		let all = listData(await this.listWebhooks())
+		let found = options.webhookId ? all.find((webhook) => webhook.id === options.webhookId) : undefined
+		const foundFromRecordedId = Boolean(found)
+		if (found && (found.description !== 'ownmail realtime' || !knownUrls.has(webhookUrl(found) ?? ''))) {
+			throw new WebhookReconcileError(
+				'tracked-destination-ownership-mismatch',
+				'The recorded webhook destination is not an OwnMail destination for this project.',
+			)
+		}
+		if (!found) {
+			const owned = all.filter(
+				(webhook) => webhook.description === 'ownmail realtime' && knownUrls.has(webhookUrl(webhook) ?? ''),
+			)
+			const atCallback = owned.filter((webhook) => webhookUrl(webhook) === callbackUrl)
+			if (atCallback.length > 1 || (atCallback.length === 0 && owned.length > 1)) {
+				throw new WebhookReconcileError(
+					'ambiguous-ownmail-destinations',
+					'OwnMail found multiple realtime webhooks for this project and could not select one safely.',
+				)
+			}
+			found = atCallback[0] ?? owned[0]
+		}
+		if (!found) {
+			const exact = all.some((webhook) => webhookUrl(webhook) === callbackUrl)
+			if (exact) {
+				throw new WebhookReconcileError(
+					'unrecognized-callback-destination',
+					'The app URL already has an unrecognized webhook; refusing to create a duplicate destination.',
+				)
+			}
+			try {
+				const created = await this.createWebhook({
+					trigger_types: triggerTypes,
+					webhook_url: callbackUrl,
+					description: 'ownmail realtime',
+				})
+				return {
+					webhook: requireReconciledWebhook(created.data, callbackUrl, triggerTypes),
+					operation: 'created',
+					adopted: false,
+				}
+			} catch (err) {
+				if (
+					!(err instanceof NylasApiError) ||
+					(err.status !== 409 && !/already exists|duplicate/i.test(err.message))
+				) {
+					throw err
+				}
+				all = listData(await this.listWebhooks())
+				const winners = all.filter(
+					(webhook) => webhook.description === 'ownmail realtime' && webhookUrl(webhook) === callbackUrl,
+				)
+				if (winners.length !== 1) throw err
+				found = winners[0]
+			}
+		}
+		const selected = found as Webhook
+		const adopted = !foundFromRecordedId
+		const previousUrl = webhookUrl(selected)
+		const triggersMatch = sameStringSet(selected.trigger_types, triggerTypes)
+		const active = selected.status === undefined || selected.status === 'active'
+		let result: WebhookReconcileResult
+		if (webhookUrl(selected) === callbackUrl && triggersMatch && active) {
+			result = {
+				webhook: requireReconciledWebhook(selected, callbackUrl, triggerTypes),
+				operation: 'unchanged',
+				adopted,
+				...(previousUrl ? { previousUrl } : {}),
+			}
+		} else {
+			const updated = await this.updateWebhook(selected.id, {
+				trigger_types: triggerTypes,
+				webhook_url: callbackUrl,
+				description: 'ownmail realtime',
+				status: 'active',
+			})
+			const webhook = requireReconciledWebhook(updated.data, callbackUrl, triggerTypes)
+			if (webhook.id !== selected.id) {
+				throw new Error('Nylas returned an unexpected webhook after update; refusing to record it.')
+			}
+			result = {
+				webhook,
+				operation: 'updated',
+				adopted,
+				...(previousUrl ? { previousUrl } : {}),
+			}
+		}
+		const duplicates = all.filter(
+			(webhook) =>
+				webhook.id !== selected.id &&
+				webhook.description === 'ownmail realtime' &&
+				knownUrls.has(webhookUrl(webhook) ?? ''),
+		)
+		for (const duplicate of duplicates) {
+			await this.deleteWebhook(duplicate.id)
+		}
+		return result
+	}
+
+	/** Backwards-compatible shorthand for callers that do not track reconciliation metadata. */
 	async ensureWebhook(callbackUrl: string, triggerTypes: string[]): Promise<Webhook> {
-		const existing = await this.listWebhooks()
-		const found = listData(existing).find((w) => webhookUrl(w) === callbackUrl && w.status !== 'failed')
-		if (found) return found
-		const created = await this.createWebhook({
-			trigger_types: triggerTypes,
-			webhook_url: callbackUrl,
-			description: 'ownmail realtime',
-		})
-		return created.data
+		const reconciled = await this.reconcileWebhook(callbackUrl, triggerTypes)
+		return reconciled.webhook
 	}
 
 	async listRedirectUris(): Promise<ListResponse<RedirectUri>> {
@@ -624,6 +766,74 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function webhookUrl(webhook: Webhook): string | undefined {
 	return webhook.webhook_url ?? webhook.callback_url
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+	return (
+		left.length === right.length && new Set(left).size === left.length && left.every((v) => right.includes(v))
+	)
+}
+
+function validateWebhookInput(callbackUrl: string, triggerTypes: string[]): void {
+	let url: URL
+	try {
+		url = new URL(callbackUrl)
+	} catch {
+		throw new Error('Webhook callback URL is invalid.')
+	}
+	if (
+		url.protocol !== 'https:' ||
+		url.username ||
+		url.password ||
+		url.port ||
+		url.hash ||
+		url.search ||
+		url.pathname !== '/api/webhooks/nylas'
+	) {
+		throw new Error('Webhook callback URL must be a public HTTPS OwnMail endpoint.')
+	}
+	if (
+		triggerTypes.length < 1 ||
+		triggerTypes.length > 100 ||
+		new Set(triggerTypes).size !== triggerTypes.length ||
+		triggerTypes.some((value) => !/^[a-z][a-z0-9_-]{0,63}\.[a-z][a-z0-9_-]{0,63}$/.test(value))
+	) {
+		throw new Error('Webhook trigger types are invalid.')
+	}
+}
+
+function validateKnownWebhookUrl(callbackUrl: string): void {
+	try {
+		const url = new URL(callbackUrl)
+		if (
+			url.protocol === 'https:' &&
+			!url.username &&
+			!url.password &&
+			!url.port &&
+			!url.hash &&
+			!url.search &&
+			url.pathname === '/api/webhooks/nylas'
+		) {
+			return
+		}
+	} catch {
+		// Fall through to the generic fail-closed error.
+	}
+	throw new Error('A recorded OwnMail webhook callback URL is invalid.')
+}
+
+function requireReconciledWebhook(webhook: Webhook, callbackUrl: string, triggerTypes: string[]): Webhook {
+	if (
+		typeof webhook.id !== 'string' ||
+		!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(webhook.id) ||
+		webhookUrl(webhook) !== callbackUrl ||
+		!Array.isArray(webhook.trigger_types) ||
+		!sameStringSet(webhook.trigger_types, triggerTypes) ||
+		(webhook.status !== undefined && webhook.status !== 'active')
+	) {
+		throw new Error('Nylas returned invalid webhook details; refusing to record them.')
+	}
+	return webhook
 }
 
 function toQuery(query?: ListQuery): string {

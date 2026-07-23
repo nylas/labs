@@ -44,7 +44,7 @@ Log in with your inbox email + password. That's it.
 | `ownmail inbox add` | Add another address on your domain (up to 5 on sandbox) |
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key your app uses, zero downtime |
-| `ownmail app-domain mail.you.com` | Serve the app on your own domain (zone on your Cloudflare) |
+| `ownmail app-domain mail.you.com --primary` | Attach a primary app domain to Cloudflare, Vercel, or Netlify |
 | `ownmail destroy` | Delete a Cloudflare deployment (mail and inbox are kept) |
 
 ## Mail apps (IMAP/SMTP)
@@ -69,9 +69,37 @@ The wizard automates all supported targets:
   stopped to restart on the latest version.
 
 Netlify and local mode use stateless signed-cookie sessions and refresh on
-navigation/focus. OwnMail stores hosted settings with the provider and keeps
-local runtime secrets in the OS credential store. Callback URIs and Nylas
-webhooks are registered automatically after the deployment URL is known.
+navigation, focus, and a low-frequency active-query fallback. OwnMail stores
+hosted settings with the provider and keeps local runtime secrets in the OS
+credential store. Callback URIs and Nylas webhooks are registered automatically
+after the deployment URL is known.
+
+## Add a custom app domain
+
+Your email domain and app domain serve different purposes. The email domain is
+the part after `@` in the hosted mailbox address. The app domain is the browser
+hostname. One app domain is primary: OwnMail uses it for sign-in, status, and
+the single Nylas realtime webhook. Additional app domains do not create
+duplicate event deliveries.
+
+Make a hostname primary:
+
+```bash
+ownmail app-domain mail.example.com --primary
+```
+
+Or attach another hostname while keeping the current primary:
+
+```bash
+ownmail app-domain inbox.example.com --secondary
+```
+
+OwnMail updates the recorded Cloudflare, Vercel, or Netlify project, waits for
+HTTPS, registers the login callback, and reconciles the primary Nylas webhook.
+The provider URL remains available as a fallback. If DNS or TLS is still
+provisioning, check the recorded provider project's Domain settings for required
+DNS records or verification, then retry the exact command OwnMail prints.
+OwnMail resumes the pending setup without creating duplicate routes or webhooks.
 
 ## Local UI development
 

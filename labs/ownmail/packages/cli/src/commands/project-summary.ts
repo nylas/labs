@@ -1,4 +1,4 @@
-import { projectAppUrl } from '../deploy/webhook.js'
+import { projectAppUrl, projectCustomAppUrls } from '../deploy/webhook.js'
 import type { ProjectState, StepId } from '../state/schema.js'
 
 type SetupPhase = { label: string; steps: StepId[] }
@@ -24,6 +24,10 @@ export type ProjectStatusSummary = {
 	inbox: string | null
 	templateVersion: string | null
 	ejected: boolean
+	primaryAppDomain: string | null
+	additionalAppDomains: string[]
+	appDomainStatus: 'none' | 'ready' | 'setup-pending'
+	pendingAppDomain: { domain: string; primary: boolean } | null
 }
 
 export function activeAppUrl(project: ProjectState): string | undefined {
@@ -44,8 +48,8 @@ export function redirectCallbackUrls(project: ProjectState): string[] {
 	if (project.localAppUrl) {
 		urls.add(`${project.localAppUrl}/auth/callback`)
 	}
-	if (project.appDomain) {
-		urls.add(`https://${project.appDomain}/auth/callback`)
+	for (const appUrl of projectCustomAppUrls(project)) {
+		urls.add(`${appUrl}/auth/callback`)
 	}
 	return [...urls]
 }
@@ -66,6 +70,16 @@ export function projectStatusSummary(project: ProjectState): ProjectStatusSummar
 		inbox: project.inboxEmail ?? null,
 		templateVersion: project.templateVersion ?? null,
 		ejected: project.ejected,
+		primaryAppDomain: project.appDomain ?? null,
+		additionalAppDomains: projectCustomAppUrls(project)
+			.map((url) => new URL(url).hostname)
+			.filter((domain) => domain !== project.appDomain && domain !== project.pendingAppDomain?.domain),
+		appDomainStatus: project.pendingAppDomain
+			? 'setup-pending'
+			: projectCustomAppUrls(project).length > 0
+				? 'ready'
+				: 'none',
+		pendingAppDomain: project.pendingAppDomain ?? null,
 	}
 }
 
@@ -97,6 +111,19 @@ function projectStage(
 				? 'Source exported; OwnMail no longer deploys updates.'
 				: 'Source exported; app URL is not recorded.',
 			nextCommand: 'wrangler deploy',
+		}
+	}
+
+	if (project.pendingAppDomain) {
+		const { domain, primary } = project.pendingAppDomain
+		return {
+			stage: 'Custom domain setup pending',
+			health: `https://${domain} is attached, but ${
+				primary ? 'primary-domain activation' : 'additional-domain setup'
+			} is incomplete.`,
+			nextCommand: `npx ownmail app-domain ${domain} --name ${project.slug} --${
+				primary ? 'primary' : 'secondary'
+			}`,
 		}
 	}
 

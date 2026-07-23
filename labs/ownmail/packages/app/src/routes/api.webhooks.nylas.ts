@@ -22,55 +22,63 @@ export const Route = createFileRoute('/api/webhooks/nylas')({
 				return new Response(challenge ?? '', { status: 200 })
 			},
 			POST: async ({ request }) => {
-				const { env, kv } = await platform()
-				const secret = env.NYLAS_WEBHOOK_SECRET
-				if (!secret) return new Response('webhook secret not configured', { status: 401 })
-				const contentLength = Number(request.headers.get('content-length'))
-				if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BODY_BYTES) {
-					return new Response('payload too large', { status: 413 })
-				}
-
-				const signature = request.headers.get('x-nylas-signature') ?? ''
-				const body = await request.text()
-				if (new TextEncoder().encode(body).byteLength > MAX_WEBHOOK_BODY_BYTES) {
-					return new Response('payload too large', { status: 413 })
-				}
-				if (!(await verifySignature(secret, body, signature))) {
-					return new Response('invalid signature', { status: 401 })
-				}
-				if (!kv) return new Response('ok', { status: 200 }) // nowhere to record; authenticated ack
-
 				try {
-					const payload = JSON.parse(body) as {
-						type?: unknown
-						deltas?: { type?: unknown; object_data?: { grant_id?: string } }[]
-						data?: { object?: { grant_id?: string } }
-					}
-					const changes = new Map<string, Set<ChangeDomain>>()
-					const addChange = (grantId: string, type: unknown) => {
-						const domains = changes.get(grantId) ?? new Set<ChangeDomain>()
-						for (const domain of domainsForWebhookType(type)) domains.add(domain)
-						changes.set(grantId, domains)
-					}
-					const fromData = payload.data?.object?.grant_id
-					if (validNylasProviderId(fromData)) addChange(fromData, payload.type)
-					for (const delta of payload.deltas ?? []) {
-						if (validNylasProviderId(delta.object_data?.grant_id)) {
-							addChange(delta.object_data.grant_id, delta.type ?? payload.type)
-						}
-					}
-					if (changes.size > MAX_GRANTS_PER_WEBHOOK) return new Response('too many grants', { status: 400 })
-					await Promise.all(
-						[...changes].map(([grantId, domains]) => bumpChangeVersionsInKv(kv, grantId, domains)),
-					)
+					return await handleWebhookPost(request)
 				} catch {
-					// Malformed payloads are acknowledged so Nylas doesn't retry forever.
+					return new Response('webhook temporarily unavailable', { status: 503 })
 				}
-				return new Response('ok', { status: 200 })
 			},
 		},
 	},
 })
+
+async function handleWebhookPost(request: Request): Promise<Response> {
+	const { env, kv } = await platform()
+	const secret = env.NYLAS_WEBHOOK_SECRET
+	if (!secret) return new Response('webhook temporarily unavailable', { status: 503 })
+	const contentLength = Number(request.headers.get('content-length'))
+	if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BODY_BYTES) {
+		return new Response('payload too large', { status: 413 })
+	}
+
+	const signature = request.headers.get('x-nylas-signature') ?? ''
+	const body = await request.text()
+	if (new TextEncoder().encode(body).byteLength > MAX_WEBHOOK_BODY_BYTES) {
+		return new Response('payload too large', { status: 413 })
+	}
+	if (!(await verifySignature(secret, body, signature))) {
+		return new Response('invalid signature', { status: 401 })
+	}
+	if (!kv) return new Response('ok', { status: 200 }) // nowhere to record; authenticated ack
+
+	let payload: {
+		type?: unknown
+		deltas?: { type?: unknown; object_data?: { grant_id?: string } }[]
+		data?: { object?: { grant_id?: string } }
+	}
+	try {
+		payload = JSON.parse(body) as typeof payload
+	} catch {
+		// A validly signed but malformed event cannot succeed on retry.
+		return new Response('invalid payload', { status: 400 })
+	}
+	const changes = new Map<string, Set<ChangeDomain>>()
+	const addChange = (grantId: string, type: unknown) => {
+		const domains = changes.get(grantId) ?? new Set<ChangeDomain>()
+		for (const domain of domainsForWebhookType(type)) domains.add(domain)
+		changes.set(grantId, domains)
+	}
+	const fromData = payload.data?.object?.grant_id
+	if (validNylasProviderId(fromData)) addChange(fromData, payload.type)
+	for (const delta of payload.deltas ?? []) {
+		if (validNylasProviderId(delta.object_data?.grant_id)) {
+			addChange(delta.object_data.grant_id, delta.type ?? payload.type)
+		}
+	}
+	if (changes.size > MAX_GRANTS_PER_WEBHOOK) return new Response('too many grants', { status: 400 })
+	await Promise.all([...changes].map(([grantId, domains]) => bumpChangeVersionsInKv(kv, grantId, domains)))
+	return new Response('ok', { status: 200 })
+}
 
 function domainsForWebhookType(type: unknown): readonly ChangeDomain[] {
 	if (typeof type !== 'string') return CHANGE_DOMAINS

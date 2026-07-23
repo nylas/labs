@@ -87,8 +87,39 @@ workflow. You stay in charge of the code from there.
 | `ownmail inbox add` | Add another address on your domain |
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
 | `ownmail rotate-key` | Rotate the API key used by the app |
-| `ownmail app-domain mail.example.com` | Serve the app on your own domain |
+| `ownmail app-domain mail.example.com --primary` | Attach a primary app domain to Cloudflare, Vercel, or Netlify |
 | `ownmail destroy` | Remove a Cloudflare deployment without deleting mail data |
+
+## Email domains and app domains
+
+These are separate settings:
+
+- Your **email domain** controls mailbox addresses such as `hello@example.com`.
+- An **app domain** controls the browser URL, such as `mail.example.com`.
+- The **primary app domain** is OwnMail's canonical sign-in, status, and Nylas
+  realtime-webhook URL. Additional app domains also work for sign-in, but do
+  not create duplicate Nylas event destinations.
+
+Attach and promote a primary app domain:
+
+```bash
+ownmail app-domain mail.example.com --primary
+```
+
+Keep the current primary while attaching an alias:
+
+```bash
+ownmail app-domain inbox.example.com --secondary
+```
+
+OwnMail attaches the hostname to the recorded provider project, waits for HTTPS,
+registers the Hosted Auth callback, and reconciles one application-level Nylas
+webhook in place. DNS and certificates can take a few minutes. If setup is
+pending, follow any DNS instructions in the recorded provider project's Domain
+settings, then retry the exact command shown by OwnMail. The existing provider
+URL remains active while the command resumes without duplicating routes,
+callbacks, or webhooks. Each run uses temporary Nylas API access that OwnMail
+revokes when the operation ends.
 
 ## What is in the box
 
@@ -125,10 +156,11 @@ workflow. You stay in charge of the code from there.
 - **Run locally** — production Node build bound only to `localhost`; keep the
   terminal open and press Ctrl+C to stop it.
 
-Netlify and local targets use stateless signed-cookie sessions and poll for new
-mail. Cloudflare and Vercel use shared storage plus Nylas webhooks for instant
-updates. The CLI registers each resulting callback URL automatically. Provider
-CLIs may open a browser the first time you sign in.
+Netlify and local targets use stateless signed-cookie sessions with a periodic
+active-query refresh fallback. Cloudflare and Vercel use shared storage plus
+Nylas webhooks for instant updates. Hosted targets register callback URLs and
+the primary Nylas webhook automatically. Provider CLIs may open a browser the
+first time you sign in.
 
 ## Local development
 

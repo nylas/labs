@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { WEBHOOK_TRIGGER_TYPES } from '../deploy/webhook.js'
 import type { ProjectState } from '../state/schema.js'
 import { runDoctor } from './doctor.js'
 
@@ -376,11 +377,10 @@ describe('runDoctor — healthy project', () => {
 			'https://acme.workers.dev/auth/callback',
 			'https://mail.acme.com/auth/callback',
 		])
-		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith('https://mail.acme.com/api/webhooks/nylas', [
-			'message.created',
-			'message.updated',
-			'thread.replied',
-		])
+		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith(
+			'https://mail.acme.com/api/webhooks/nylas',
+			WEBHOOK_TRIGGER_TYPES,
+		)
 		expect(fetch).toHaveBeenCalledWith('https://mail.acme.com/healthz')
 		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app_1', 'probe-key')
 		const msgs = messages()
@@ -437,11 +437,10 @@ describe('runDoctor — healthy project', () => {
 
 		await runDoctor({ fix: true })
 
-		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith('https://acme.workers.dev/api/webhooks/nylas', [
-			'message.created',
-			'message.updated',
-			'thread.replied',
-		])
+		expect(hoisted.v3.ensureWebhook).toHaveBeenCalledWith(
+			'https://acme.workers.dev/api/webhooks/nylas',
+			WEBHOOK_TRIGGER_TYPES,
+		)
 		expect(putSecret).toHaveBeenCalledWith('worker-1', 'NYLAS_WEBHOOK_SECRET', 'wh-secret')
 		expect(messages().some((m) => m.startsWith('🔧') && m.includes('registered realtime webhook'))).toBe(true)
 	})
@@ -490,7 +489,21 @@ describe('runDoctor — healthy project', () => {
 		expect(messages().some((m) => m.includes('manual hosting uses polling'))).toBe(true)
 	})
 
-	it('reports that Netlify uses polling under --fix', async () => {
+	it('reports that local hosting uses polling under --fix', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({ hostingProvider: 'local', localAppUrl: 'http://localhost:3000' }),
+		)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: null } as never)
+		currentSession.mockResolvedValue({})
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+
+		await runDoctor({ fix: true })
+
+		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
+		expect(messages().some((m) => m.includes('this hosting mode uses polling'))).toBe(true)
+	})
+
+	it('requires Nylas API access to repair Netlify instant updates', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({ hostingProvider: 'netlify', providerAppUrl: 'https://acme.netlify.app' }),
 		)
@@ -501,7 +514,7 @@ describe('runDoctor — healthy project', () => {
 		await runDoctor({ fix: true })
 
 		expect(hoisted.v3.ensureWebhook).not.toHaveBeenCalled()
-		expect(messages().some((message) => message.includes('this hosting mode uses polling'))).toBe(true)
+		expect(messages().some((message) => message.includes('requires Nylas API access'))).toBe(true)
 	})
 
 	it('repairs instant updates on Vercel under --fix', async () => {
