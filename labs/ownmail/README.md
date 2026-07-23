@@ -134,7 +134,7 @@ pnpm test
 pnpm lint
 ```
 
-Node.js 20+ and pnpm 10+ are required.
+Node.js 22.18+ (22.x) or 24.11+, and pnpm 11+ are required.
 
 ### Develop the app UI locally
 

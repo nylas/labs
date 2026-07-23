@@ -25,7 +25,7 @@ pnpm lint           # biome (pnpm lint:fix to auto-fix)
 pnpm typecheck
 ```
 
-- Node ≥ 20, pnpm 10.
+- Node 22.18+ (22.x) or 24.11+, and pnpm 11+.
 - Before making a change, create a new JIRA ticket in the `DEV` project and
   associate it with an Epic. Each change requires its own ticket; do not reuse
   an existing ticket.
