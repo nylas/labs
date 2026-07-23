@@ -139,10 +139,7 @@ function MessageBlock({
 			</div>
 
 			{open ? (
-				// Indent by the avatar column (w-9) plus the header gap (gap-3) so the body
-				// shares the sender/recipient/timestamp left edge — one reading column, with
-				// the avatar as a gutter rather than dead space beside the text.
-				<div className="mt-4 pl-12">
+				<div data-slot="expanded-message-content" className="mt-4 min-w-0">
 					<MessageBody message={message} darkenEmail={darkenEmail} />
 					<MessageAttachments message={message} />
 				</div>
