@@ -10,14 +10,18 @@ ready to inspect, adapt, and take somewhere interesting.
 
 | Project | Description | Stage |
 |---|---|---|
-| [OwnMail](./labs/ownmail) | Put a mailbox and calendar on your own domain, then make it your own | Experiment |
+| [OwnMail](./labs/ownmail) | Launch an inbox on your domain with an app and source you control | Experiment |
 
-## Give your inbox a home
+## Launch an inbox on your domain
 
-OwnMail is a self-hosted mailbox and calendar app for independent builders.
-Start with a guided Cloudflare, Vercel, Netlify, or local deployment, use your
-own domain, and eject the source when you are ready to customize every last
-detail.
+With one guided command, OwnMail creates an email address and a ready-to-use web
+app for mail, calendar, and contacts. Use a domain you control or a
+Nylas-provided `nylas.email` trial subdomain, then deploy the app to your
+Cloudflare, Vercel, or Netlify account—or run it locally.
+
+Nylas hosts the mailbox service through Agent Accounts. Hosted deployments run
+in your provider account, and you can export the complete app source whenever
+you are ready to customize it.
 
 Start from your terminal:
 

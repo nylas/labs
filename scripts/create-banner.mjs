@@ -3,7 +3,7 @@
  * Generates repo/lab banner images (SVG) using the nylas.com design system.
  *
  *   node scripts/create-banner.mjs                      # repo banner → assets/banner.svg
- *   node scripts/create-banner.mjs ownmail "Your inbox. Your domain. No per-seat fees."
+ *   node scripts/create-banner.mjs ownmail "Your domain. A real inbox. One guided command."
  *     → labs/ownmail/assets/banner.svg
  *
  * Design tokens mirror nylas.com (agent-accounts-2026.css --aap-* variables):
@@ -107,7 +107,7 @@ function banner({ kicker, title, subtitle, command }) {
     <g font-family="${T.fontMono}" font-size="17">
       <text x="24" y="76" fill="${T.accent}">$</text>
       <text x="42" y="76" fill="#ffffff">${esc(command)}</text>
-      <text x="24" y="112" fill="${T.textOnDark}">▲ deployed. you own it.</text>
+      <text x="24" y="112" fill="${T.textOnDark}">▲ app live. source available.</text>
     </g>
   </g>
 

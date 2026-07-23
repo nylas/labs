@@ -84,7 +84,7 @@ if (existsSync(resolve(installDir, 'node_modules/@ownmail/app'))) {
 
 const ownmailBin = resolve(installDir, 'node_modules/.bin/ownmail')
 const help = execFileSync(ownmailBin, ['--help'], { encoding: 'utf8' })
-if (!help.includes('Your inbox. Your domain.') || !help.includes('COMMANDS')) {
+if (!help.includes('Launch an inbox on your domain') || !help.includes('COMMANDS')) {
 	throw new Error('Packed OwnMail help output did not contain the expected command summary.')
 }
 

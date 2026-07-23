@@ -115,17 +115,18 @@ export function showSetupHeader(dimensions: TerminalDimensions = process.stdout)
 	// Keep the Clack title short: it is rendered inside a bordered line.
 	p.intro('ownmail')
 	if (isCompactTerminal(dimensions)) {
-		p.log.info('Your inbox. Your domain. We’ll guide you through setup.')
+		p.log.info('Create your email address and launch your mail app. We’ll guide each step.')
 		return
 	}
 	p.note(
 		[
-			'Create a Nylas inbox and deploy a private mailbox + calendar app.',
-			'You’ll connect Nylas and choose hosting; we’ll guide each step.',
-			'Free nylas.email addresses need no DNS changes.',
+			'Create an email address and launch a ready-to-use app for mail, calendar, and contacts.',
+			'Choose your email domain, then run the app in your cloud account or locally.',
+			'Nylas hosts the mailbox service through Agent Accounts.',
+			'Nylas-provided trial addresses need no DNS changes.',
 			'Save the inbox password when prompted — it’s shown once.',
 		].join('\n'),
-		'Your inbox. Your domain.',
+		'Launch an inbox on your domain—with one guided command.',
 	)
 }
 
