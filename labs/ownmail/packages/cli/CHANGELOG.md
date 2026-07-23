@@ -1,5 +1,13 @@
 # ownmail
 
+## 0.7.2
+
+### Patch Changes
+
+- e128a6d: Make OwnMail CLI failures actionable and include upstream request IDs when available.
+- Updated dependencies [e128a6d]
+  - @nylas-labs/cli-kit@0.5.1
+
 ## 0.7.1
 
 ### Patch Changes

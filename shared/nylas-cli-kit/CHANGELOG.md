@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.5.1
+
+### Patch Changes
+
+- e128a6d: Make OwnMail CLI failures actionable and include upstream request IDs when available.
+
 ## 0.5.0
 
 ### Minor Changes
