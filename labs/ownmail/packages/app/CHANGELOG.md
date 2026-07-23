@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.7.3
+
+### Patch Changes
+
+- a0e728f: Keep the create-event composer and its actions within the available viewport height.
+
 ## 0.7.2
 
 ### Patch Changes
