@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildAuthorizeUrl, exchangeCodeForToken, NylasV3Client, nylasPkceS256Challenge } from './v3.js'
+import {
+	buildAuthorizeUrl,
+	exchangeCodeForToken,
+	NylasApiError,
+	NylasV3Client,
+	nylasPkceS256Challenge,
+} from './v3.js'
 
 describe('Hosted auth URLs', () => {
 	it('uses a custom API base URL for authorization requests', () => {
@@ -62,6 +68,59 @@ describe('Hosted auth token exchange', () => {
 			code_verifier: 'verifier-123',
 		})
 	})
+
+	it('retains the request ID from a failed token exchange', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json(
+				{ error: 'invalid_grant', error_description: 'authorization code expired' },
+				{ status: 400, headers: { 'x-request-id': 'req-token-123' } },
+			)
+
+		await expect(
+			exchangeCodeForToken(
+				{
+					region: 'us',
+					clientId: 'app-123',
+					clientSecret: 'secret-123',
+					redirectUri: 'https://mail.example.test/auth/callback',
+					code: 'expired-code',
+				},
+				fetchImpl,
+			),
+		).rejects.toMatchObject({
+			status: 400,
+			requestId: 'req-token-123',
+			type: 'invalid_grant',
+		})
+	})
+
+	it.each([
+		['not json', 'invalid JSON'],
+		['null', 'malformed response'],
+	])('rejects unsafe token response bodies while retaining the request ID', async (body, message) => {
+		const fetchImpl: typeof fetch = async () =>
+			new Response(body, {
+				status: 502,
+				headers: { 'x-request-id': 'req-token-invalid-123' },
+			})
+
+		await expect(
+			exchangeCodeForToken(
+				{
+					region: 'us',
+					clientId: 'app-123',
+					clientSecret: 'secret-123',
+					redirectUri: 'https://mail.example.test/auth/callback',
+					code: 'code',
+				},
+				fetchImpl,
+			),
+		).rejects.toMatchObject({
+			message: expect.stringContaining(message),
+			requestId: 'req-token-invalid-123',
+			type: 'invalid_response',
+		})
+	})
 })
 
 describe('NylasV3Client', () => {
@@ -85,6 +144,67 @@ describe('NylasV3Client', () => {
 
 		expect(requestUrl).toBe('https://api-staging.us.nylas.com/v3/grants')
 		expect(requestHeaders).toMatchObject({ 'User-Agent': 'ownmail' })
+	})
+
+	it('retains a header request ID on JSON API failures without logging the body', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json(
+				{
+					request_id: 'req-body-123',
+					error: { type: 'invalid_request', message: 'sensitive upstream detail' },
+				},
+				{ status: 400, headers: { 'x-nylas-request-id': 'req-header-123' } },
+			)
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		const error = await client.listGrants().catch((caught: unknown) => caught)
+
+		expect(error).toBeInstanceOf(NylasApiError)
+		expect(error).toMatchObject({
+			status: 400,
+			requestId: 'req-header-123',
+			type: 'invalid_request',
+		})
+	})
+
+	it('retains a body request ID on raw response failures', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json(
+				{
+					request_id: 'req-raw-123',
+					error: { type: 'not_found', message: 'missing' },
+				},
+				{ status: 404 },
+			)
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(client.rawRequest('GET', '/v3/raw')).rejects.toMatchObject({
+			status: 404,
+			requestId: 'req-raw-123',
+			type: 'not_found',
+		})
+	})
+
+	it('rejects successful non-JSON API responses with their request ID', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			new Response('not json', {
+				status: 200,
+				headers: { 'x-request-id': 'req-invalid-json-123' },
+			})
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(client.listGrants()).rejects.toMatchObject({
+			status: 200,
+			requestId: 'req-invalid-json-123',
+			type: 'invalid_response',
+		})
+	})
+
+	it('allows empty successful DELETE responses', async () => {
+		const fetchImpl: typeof fetch = async () => new Response(null, { status: 204 })
+		const client = new NylasV3Client('api-key-123', 'us', fetchImpl)
+
+		await expect(client.deleteGrant('grant-123')).resolves.toBeUndefined()
 	})
 
 	it('drops null and scalar members from live list responses', async () => {

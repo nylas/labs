@@ -39,7 +39,12 @@ vi.mock('../steps/provision.js', () => ({
 		}
 	},
 }))
-vi.mock('./shared.js', () => ({ pickExistingProject: vi.fn() }))
+vi.mock('./shared.js', () => ({
+	pickExistingProject: vi.fn(),
+	supportReference: vi.fn((err: { requestId?: string }) =>
+		err.requestId ? `Request ID: ${err.requestId}. Include this ID if you contact Nylas Support.` : undefined,
+	),
+}))
 
 import * as p from '@clack/prompts'
 import { materialize } from '../deploy/materialize.js'
@@ -151,7 +156,9 @@ describe('runAppDomain', () => {
 		vi.mocked(p.text).mockResolvedValue('mail.typed.com')
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
 		vi.mocked(requireGateway).mockReturnValue({
-			createApiKey: vi.fn().mockRejectedValue(new Error('gateway down')),
+			createApiKey: vi
+				.fn()
+				.mockRejectedValue(Object.assign(new Error('gateway down'), { requestId: 'req-redirect-123' })),
 		} as never)
 		await runAppDomain({})
 
@@ -167,6 +174,21 @@ describe('runAppDomain', () => {
 		expect(matInput.vars.NYLAS_API_BASE_URL).toBeUndefined()
 		expect(matInput.vars.INBOX_EMAIL).toBe('')
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not register'))
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Request ID: req-redirect-123'))
+	})
+
+	it('omits the support reference when redirect registration has no request ID', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(project())
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		vi.mocked(requireGateway).mockReturnValue({
+			createApiKey: vi.fn().mockRejectedValue(new Error('gateway down')),
+		} as never)
+
+		await runAppDomain({ domain: 'mail.acme.com' })
+
+		const [[warning]] = vi.mocked(p.log.warn).mock.calls
+		expect(warning).toContain('Could not register')
+		expect(warning).not.toContain('Request ID:')
 	})
 
 	it('throws CancelledError when the domain prompt is cancelled', async () => {

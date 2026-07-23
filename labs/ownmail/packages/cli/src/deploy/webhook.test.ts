@@ -145,4 +145,32 @@ describe('setupRealtimeWebhook', () => {
 			callbackUrl: 'https://acme.vercel.app/api/webhooks/nylas',
 		})
 	})
+
+	it('returns only validated upstream request IDs on failures', async () => {
+		const input = project({ workerName: 'worker', workersDevUrl: 'https://acme.workers.dev' })
+		const withRequestId = await setupRealtimeWebhook(
+			input,
+			{
+				ensureWebhook: vi
+					.fn()
+					.mockRejectedValue(Object.assign(new Error('hidden'), { requestId: 'req-webhook-123' })),
+			} as never,
+			{ checkHealth: false },
+		)
+		const withUnsafeId = await setupRealtimeWebhook(
+			input,
+			{
+				ensureWebhook: vi
+					.fn()
+					.mockRejectedValue(Object.assign(new Error('hidden'), { requestId: 'bad\nid' })),
+			} as never,
+			{ checkHealth: false },
+		)
+
+		expect(withRequestId).toMatchObject({ status: 'failed', requestId: 'req-webhook-123' })
+		expect(withUnsafeId).toEqual({
+			status: 'failed',
+			callbackUrl: 'https://acme.workers.dev/api/webhooks/nylas',
+		})
+	})
 })

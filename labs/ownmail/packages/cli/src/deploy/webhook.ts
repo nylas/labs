@@ -19,7 +19,7 @@ export type RealtimeWebhookResult =
 			status: 'skipped'
 			reason: 'manual-hosting' | 'non-cloudflare-hosting' | 'missing-app-url' | 'unhealthy-app'
 	  }
-	| { status: 'failed'; callbackUrl: string }
+	| { status: 'failed'; callbackUrl: string; requestId?: string }
 
 export type RealtimeWebhookOptions = AppHealthOptions & {
 	checkHealth?: boolean
@@ -59,8 +59,9 @@ export async function setupRealtimeWebhook(
 		if (!secret) return { status: 'failed', callbackUrl }
 		await storeWebhookSecret(project, secret, url)
 		return { status: 'registered', callbackUrl, secretStored: true }
-	} catch {
-		return { status: 'failed', callbackUrl }
+	} catch (err) {
+		const requestId = requestIdFromError(err)
+		return { status: 'failed', callbackUrl, ...(requestId ? { requestId } : {}) }
 	}
 }
 
@@ -127,4 +128,12 @@ function requireWorkerName(project: ProjectState): string {
 		throw new Error('Cloudflare worker name is missing.')
 	}
 	return project.workerName.trim()
+}
+
+function requestIdFromError(err: unknown): string | undefined {
+	if (typeof err !== 'object' || err === null || !('requestId' in err)) return undefined
+	const requestId = err.requestId
+	return typeof requestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(requestId)
+		? requestId
+		: undefined
 }

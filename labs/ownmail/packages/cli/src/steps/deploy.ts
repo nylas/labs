@@ -482,7 +482,7 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 		)
 	} else if (result.status === 'failed') {
 		p.log.warn(
-			'Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor --fix` to retry.',
+			`Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. Run \`npx ownmail doctor --fix\` to retry.${result.requestId ? `\n\nRequest ID: ${result.requestId}. Include this ID if you contact Nylas Support.` : ''}`,
 		)
 	}
 	markStep(ctx.project, 'webhook')

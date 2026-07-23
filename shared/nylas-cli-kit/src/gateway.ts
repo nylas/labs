@@ -10,7 +10,7 @@
 
 import type { DashboardTokens } from './dashboard.js'
 import type { DpopKey } from './dpop.js'
-import { userAgentHeader } from './http.js'
+import { bodyRequestId, responseRequestId, userAgentHeader } from './http.js'
 
 export const GATEWAY_URLS = {
 	us: 'https://dashboard-api-gateway.us.nylas.com/graphql',
@@ -45,6 +45,8 @@ export class GatewayError extends Error {
 	constructor(
 		message: string,
 		readonly errors: GraphqlError[] = [],
+		readonly requestId?: string,
+		readonly status?: number,
 	) {
 		super(message)
 		this.name = 'GatewayError'
@@ -173,19 +175,48 @@ export class GatewayClient {
 		)
 		if (!res.ok) {
 			const text = await res.text()
+			const parsed = parseErrorBody(text)
 			throw new GatewayError(
-				`gateway ${body.operationName} failed with ${res.status}${text ? `: ${formatErrorBody(text)}` : ''}`,
+				`gateway ${body.operationName} failed with ${res.status}${parsed.message ? `: ${parsed.message}` : ''}`,
+				parsed.errors,
+				responseRequestId(res, parsed.body),
+				res.status,
 			)
 		}
-		const result = (await res.json()) as { data?: T; errors?: GraphqlError[] }
+		let parsed: unknown
+		try {
+			parsed = await res.json()
+		} catch {
+			throw new GatewayError(
+				`gateway ${body.operationName} returned invalid JSON`,
+				[],
+				responseRequestId(res),
+				res.status,
+			)
+		}
+		if (!isRecord(parsed)) {
+			throw new GatewayError(
+				`gateway ${body.operationName} returned a malformed response`,
+				[],
+				responseRequestId(res, parsed),
+				res.status,
+			)
+		}
+		const result = parsed as { data?: T; errors?: GraphqlError[] }
 		if (result.errors?.length) {
 			throw new GatewayError(
 				`gateway ${body.operationName} errors: ${result.errors.map(formatGraphqlError).join('; ')}`,
 				result.errors,
+				bodyRequestId(result),
 			)
 		}
 		if (!result.data) {
-			throw new GatewayError(`gateway ${body.operationName} returned no data`)
+			throw new GatewayError(
+				`gateway ${body.operationName} returned no data`,
+				[],
+				bodyRequestId(result),
+				res.status,
+			)
 		}
 		return result.data
 	}
@@ -196,18 +227,33 @@ function formatGraphqlError(error: GraphqlError): string {
 	return error.extensions?.supportId ? `${message} (supportId: ${error.extensions.supportId})` : message
 }
 
-function formatErrorBody(text: string): string {
+function parseErrorBody(text: string): {
+	body?: unknown
+	errors: GraphqlError[]
+	message?: string
+} {
 	try {
 		const parsed = JSON.parse(text) as {
 			errors?: GraphqlError[]
 			error?: { message?: string }
 			message?: string
 		}
-		if (parsed.errors?.length) return parsed.errors.map(formatGraphqlError).join('; ')
-		return parsed.error?.message ?? parsed.message ?? text.slice(0, 500)
+		const errors = Array.isArray(parsed.errors) ? parsed.errors : []
+		const message = errors.length
+			? errors.map(formatGraphqlError).join('; ')
+			: (parsed.error?.message ?? parsed.message)
+		return {
+			body: parsed,
+			errors,
+			...(message ? { message } : {}),
+		}
 	} catch {
-		return text.slice(0, 500)
+		return { errors: [] }
 	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 async function fetchWithTimeout(

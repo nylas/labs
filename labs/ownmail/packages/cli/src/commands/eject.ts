@@ -6,7 +6,7 @@ import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
-import { pickExistingProject } from './shared.js'
+import { pickExistingProject, supportReference } from './shared.js'
 
 /**
  * Hands the user the full app source at the bundled template version, wired to
@@ -48,9 +48,10 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				{ name: `ownmail ${project.slug} (ejected)` },
 			)
 			apiKey = created.apiKey
-		} catch {
+		} catch (err) {
+			const reference = supportReference(err)
 			p.log.warn(
-				'Could not mint a fresh API key (session expired?). Create one in the Nylas dashboard and put it in .dev.vars.',
+				`Could not mint a fresh API key (session expired?). Create one in the Nylas dashboard and put it in .dev.vars.${reference ? `\n\n${reference}` : ''}`,
 			)
 		}
 	}
