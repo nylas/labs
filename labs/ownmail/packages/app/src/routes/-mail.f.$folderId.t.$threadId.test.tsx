@@ -340,6 +340,36 @@ describe('toolbar actions', () => {
 		expect(invalidate).not.toHaveBeenCalled()
 	})
 
+	it('shows pending state only on the star control while a star mutation is in flight', async () => {
+		const user = userEvent.setup()
+		let resolveMutation: ((value: unknown) => void) | undefined
+		updateThreadState.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveMutation = resolve
+				}),
+		)
+		renderThread()
+
+		await user.click(screen.getByRole('button', { name: 'Star' }))
+
+		const star = screen.getByRole('button', { name: 'Starring' })
+		expect(star).toHaveAttribute('aria-busy', 'true')
+		expect(star.querySelector('.animate-spin')).not.toBeNull()
+		for (const label of ['Archive', 'Delete', 'Mark unread']) {
+			const button = screen.getByRole('button', { name: label })
+			expect(button.querySelector('.animate-spin')).toBeNull()
+		}
+
+		fireEvent.click(star)
+		expect(updateThreadState).toHaveBeenCalledTimes(1)
+
+		resolveMutation?.({
+			thread: { id: 't1', starred: true, unread: false, folders: ['work'] },
+		})
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Unstar' })).toBeInTheDocument())
+	})
+
 	it('unstars a starred thread and labels the control accordingly', async () => {
 		const user = userEvent.setup()
 		renderThread(loaderData({ thread: { id: 't1', subject: 'Hi', starred: true, folders: [] } }))

@@ -35,6 +35,8 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	component: ThreadView,
 })
 
+type PendingThreadAction = 'archive' | 'delete' | 'star' | 'unread'
+
 function ThreadView() {
 	const initialDetail = Route.useLoaderData()
 	const { folderId, threadId } = Route.useParams()
@@ -49,7 +51,7 @@ function ThreadView() {
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
 	const [starred, setStarred] = useState(thread.starred)
-	const [acting, setActing] = useState(false)
+	const [pendingAction, setPendingAction] = useState<PendingThreadAction | null>(null)
 	const lastMessage = messages.at(-1)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 
@@ -58,13 +60,17 @@ function ThreadView() {
 	}, [thread.starred])
 
 	const act = useCallback(
-		async (input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) => {
+		async (
+			action: PendingThreadAction,
+			input: { unread?: boolean; starred?: boolean; folder?: string },
+			leave = false,
+		) => {
 			/* v8 ignore next -- every toolbar action is disabled while the request is pending */
-			if (acting) return
+			if (pendingAction) return
 			setError(null)
 			const previousStarred = starred
 			if (typeof input.starred === 'boolean') setStarred(input.starred)
-			setActing(true)
+			setPendingAction(action)
 			try {
 				await updateThread.mutateAsync({ threadId, ...input })
 				if (leave) {
@@ -79,10 +85,10 @@ function ThreadView() {
 				if (typeof input.starred === 'boolean') setStarred(previousStarred)
 				setError('Action failed')
 			} finally {
-				setActing(false)
+				setPendingAction(null)
 			}
 		},
-		[acting, baseFolderId, folderId, navigate, starred, threadId, updateThread],
+		[baseFolderId, folderId, navigate, pendingAction, starred, threadId, updateThread],
 	)
 
 	useEffect(() => {
@@ -93,19 +99,19 @@ function ThreadView() {
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			if (event.key.toLowerCase() === 'e') {
 				event.preventDefault()
-				act({ folder: isArchived ? 'inbox' : 'archive' }, true)
+				act('archive', { folder: isArchived ? 'inbox' : 'archive' }, true)
 			}
 			if (event.key === '#') {
 				event.preventDefault()
-				act({ folder: 'trash' }, true)
+				act('delete', { folder: 'trash' }, true)
 			}
 			if (event.key.toLowerCase() === 's') {
 				event.preventDefault()
-				act({ starred: !starred })
+				act('star', { starred: !starred })
 			}
 			if (event.key.toLowerCase() === 'u') {
 				event.preventDefault()
-				act({ unread: true }, true)
+				act('unread', { unread: true }, true)
 			}
 			if (event.key === 'Escape') {
 				event.preventDefault()
@@ -144,11 +150,20 @@ function ThreadView() {
 					<ArrowLeft className="h-5 w-5" />
 				</button>
 				<IconButton
-					label={acting ? 'Working' : isArchived ? 'Return to inbox' : 'Archive'}
-					disabled={acting}
-					onClick={() => act({ folder: isArchived ? 'inbox' : 'archive' }, true)}
+					label={
+						pendingAction === 'archive'
+							? isArchived
+								? 'Returning to inbox'
+								: 'Archiving'
+							: isArchived
+								? 'Return to inbox'
+								: 'Archive'
+					}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'archive'}
+					onClick={() => act('archive', { folder: isArchived ? 'inbox' : 'archive' }, true)}
 				>
-					{acting ? (
+					{pendingAction === 'archive' ? (
 						<Loader2 className="h-4 w-4 animate-spin" />
 					) : isArchived ? (
 						<Inbox className="h-4 w-4" />
@@ -157,29 +172,42 @@ function ThreadView() {
 					)}
 				</IconButton>
 				<IconButton
-					label={acting ? 'Working' : 'Delete'}
-					disabled={acting}
-					onClick={() => act({ folder: 'trash' }, true)}
+					label={pendingAction === 'delete' ? 'Deleting' : 'Delete'}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'delete'}
+					onClick={() => act('delete', { folder: 'trash' }, true)}
 				>
-					{acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+					{pendingAction === 'delete' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Trash2 className="h-4 w-4" />
+					)}
 				</IconButton>
 				<IconButton
-					label={acting ? 'Working' : starred ? 'Unstar' : 'Star'}
-					disabled={acting}
-					onClick={() => act({ starred: !starred })}
+					label={
+						pendingAction === 'star' ? (starred ? 'Starring' : 'Unstarring') : starred ? 'Unstar' : 'Star'
+					}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'star'}
+					onClick={() => act('star', { starred: !starred })}
 				>
-					{acting ? (
+					{pendingAction === 'star' ? (
 						<Loader2 className="h-4 w-4 animate-spin" />
 					) : (
 						<Star className={cn('h-4 w-4', starred && STAR_FILLED_CLASS)} />
 					)}
 				</IconButton>
 				<IconButton
-					label={acting ? 'Working' : 'Mark unread'}
-					disabled={acting}
-					onClick={() => act({ unread: true }, true)}
+					label={pendingAction === 'unread' ? 'Marking unread' : 'Mark unread'}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'unread'}
+					onClick={() => act('unread', { unread: true }, true)}
 				>
-					{acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MailOpen className="h-4 w-4" />}
+					{pendingAction === 'unread' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<MailOpen className="h-4 w-4" />
+					)}
 				</IconButton>
 
 				{lastMessage ? (
@@ -263,11 +291,13 @@ function IconButton({
 	label,
 	onClick,
 	disabled = false,
+	loading = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
 	disabled?: boolean
+	loading?: boolean
 	children: React.ReactNode
 }) {
 	return (
@@ -277,6 +307,7 @@ function IconButton({
 			aria-label={label}
 			title={label}
 			disabled={disabled}
+			aria-busy={loading || undefined}
 			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 		>
 			{children}
