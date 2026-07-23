@@ -1,5 +1,13 @@
 # @ownmail/app
 
+## 0.7.4
+
+### Patch Changes
+
+- 8a424ec: Add an account setting for automatic HTML email dark mode.
+- 4fe6289: Let expanded email content use the full thread width.
+- b43b82e: Limit star loading feedback to the star toolbar control.
+
 ## 0.7.3
 
 ### Patch Changes
