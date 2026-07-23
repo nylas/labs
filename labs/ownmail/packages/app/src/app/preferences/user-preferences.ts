@@ -6,6 +6,7 @@ const MAX_DISPLAY_NAME_LENGTH = 120
 export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
+	emailDarkMode: boolean
 	primaryTimezone: string
 	secondaryTimezone: string
 }
@@ -38,6 +39,7 @@ export function defaultUserPreferences(): UserPreferences {
 	return {
 		displayName: '',
 		autoSaveContacts: true,
+		emailDarkMode: true,
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
 	}
@@ -62,6 +64,7 @@ function normalizePreferences(value: unknown): UserPreferences {
 	return {
 		displayName,
 		autoSaveContacts: input.autoSaveContacts !== false,
+		emailDarkMode: input.emailDarkMode !== false,
 		primaryTimezone,
 		secondaryTimezone,
 	}

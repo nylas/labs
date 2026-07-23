@@ -95,8 +95,10 @@ describe('/settings', () => {
 
 	it('persists the account name before saving device preferences', async () => {
 		renderSettings()
+		expect(screen.getByLabelText('Darken email content automatically')).toBeChecked()
 		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: ' Ada Lovelace ' } })
 		fireEvent.click(screen.getByLabelText('Save recipients to contacts automatically'))
+		fireEvent.click(screen.getByLabelText('Darken email content automatically'))
 		const [primaryTimezone, secondaryTimezone] = screen.getAllByRole('combobox')
 		fireEvent.change(primaryTimezone, { target: { value: 'UTC' } })
 		fireEvent.change(secondaryTimezone, { target: { value: 'America/Toronto' } })
@@ -107,6 +109,7 @@ describe('/settings', () => {
 		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toEqual({
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
+			emailDarkMode: false,
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',
 		})

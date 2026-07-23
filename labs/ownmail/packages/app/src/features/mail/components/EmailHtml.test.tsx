@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EMAIL_ELEMENT_TAG, LINK_PREVIEW_EVENT } from '../lib/email-render.js'
 import { EmailHtml } from './EmailHtml.js'
@@ -46,45 +46,36 @@ describe('EmailHtml', () => {
 		expect(screen.queryByText('https://preview.example.com/path')).toBeNull()
 	})
 
-	it('hides the auto-dark toggle in light mode', () => {
+	it('does not invert email in light mode', () => {
 		render(<EmailHtml html="<p>x</p>" messageId="m3" />)
-		expect(screen.queryByLabelText('Toggle automatic dark mode for this email')).toBeNull()
+		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 	})
 
-	it('hides the auto-dark toggle when the email brings its own dark styles', () => {
+	it('leaves an adaptive dark stylesheet in control', () => {
 		document.documentElement.classList.add('dark')
 		render(<EmailHtml html="<style>@media (prefers-color-scheme:dark){}</style><p>x</p>" messageId="m4" />)
-		expect(screen.queryByLabelText('Toggle automatic dark mode for this email')).toBeNull()
+		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 	})
 
-	it('auto-darkens by default in dark mode and toggles back to the original colors', () => {
+	it('auto-darkens by default in dark mode, including email with only a color-scheme declaration', () => {
 		document.documentElement.classList.add('dark')
-		render(<EmailHtml html="<p>plain</p>" messageId="m5" />)
-		const el = emailElement()
-		const toggle = screen.getByLabelText('Toggle automatic dark mode for this email')
+		render(<EmailHtml html='<meta name="color-scheme" content="light dark"><p>plain</p>' messageId="m5" />)
+		expect(emailElement()).toHaveAttribute('data-dark-invert')
+	})
 
-		// Default: auto-dark on → element inverted, label reads "Dark".
-		expect(toggle).toHaveAttribute('aria-pressed', 'true')
-		expect(toggle).toHaveTextContent('Dark')
-		expect(el.hasAttribute('data-dark-invert')).toBe(true)
-
-		fireEvent.click(toggle)
-
-		// Toggled off → original colors, inversion attribute removed.
-		expect(toggle).toHaveAttribute('aria-pressed', 'false')
-		expect(toggle).toHaveTextContent('Original')
-		expect(el.hasAttribute('data-dark-invert')).toBe(false)
+	it('preserves original colors when account-level automatic darkening is off', () => {
+		document.documentElement.classList.add('dark')
+		render(<EmailHtml html="<p>plain</p>" messageId="m5-original" darken={false} />)
+		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 	})
 
 	it('reacts to the app switching into dark mode after mount', async () => {
 		render(<EmailHtml html="<p>x</p>" messageId="m6" />)
-		expect(screen.queryByLabelText('Toggle automatic dark mode for this email')).toBeNull()
+		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 
 		act(() => {
 			document.documentElement.classList.add('dark')
 		})
-		await waitFor(() =>
-			expect(screen.getByLabelText('Toggle automatic dark mode for this email')).toBeInTheDocument(),
-		)
+		await waitFor(() => expect(emailElement()).toHaveAttribute('data-dark-invert'))
 	})
 })

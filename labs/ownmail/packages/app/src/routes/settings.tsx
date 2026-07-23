@@ -171,8 +171,23 @@ function SettingsPage() {
 						<section className="border-t border-border pt-6">
 							<div className="flex items-center gap-2">
 								<SettingsIcon className="h-5 w-5 text-muted-foreground" />
-								<h2 className="font-display text-lg font-semibold">Compose and time</h2>
+								<h2 className="font-display text-lg font-semibold">Mail preferences</h2>
 							</div>
+							<label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
+								<input
+									type="checkbox"
+									aria-label="Darken email content automatically"
+									checked={draft.emailDarkMode}
+									onChange={(event) => update({ emailDarkMode: event.target.checked })}
+									className="mt-0.5 h-4 w-4 accent-primary"
+								/>
+								<span>
+									<span className="block text-sm font-medium">Darken email content automatically</span>
+									<span className="mt-0.5 block text-sm text-muted-foreground">
+										When OwnMail uses its dark theme, adapt email bodies that would otherwise stay light.
+									</span>
+								</span>
+							</label>
 							<label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
 								<input
 									type="checkbox"

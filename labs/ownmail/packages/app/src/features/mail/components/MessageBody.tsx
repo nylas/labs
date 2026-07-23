@@ -5,7 +5,13 @@ import { markdownToEmailHtml } from '../lib/markdown-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { EmailHtml } from './EmailHtml.js'
 
-export function MessageBody({ message }: { message: MailMessage }) {
+export function MessageBody({
+	message,
+	darkenEmail = true,
+}: {
+	message: MailMessage
+	darkenEmail?: boolean
+}) {
 	const mounted = useMounted()
 
 	// Only messages attested by our drafts-endpoint fallback can receive OwnMail's
@@ -16,7 +22,7 @@ export function MessageBody({ message }: { message: MailMessage }) {
 	if (draftMarkdown !== undefined) {
 		const html = markdownToEmailHtml(draftMarkdown)
 		if (!mounted) return html ? <HtmlBodyPlaceholder /> : null
-		return <EmailHtml html={html} messageId={message.id} />
+		return <EmailHtml html={html} messageId={message.id} darken={darkenEmail} />
 	}
 
 	if (messageHasHtml(message)) {
@@ -25,7 +31,7 @@ export function MessageBody({ message }: { message: MailMessage }) {
 		// sanitizer and isolated shadow root after the client has mounted.
 		if (!mounted) return <HtmlBodyPlaceholder />
 		/* v8 ignore next -- `?? ''` is unreachable: this branch only runs when messageHasHtml() confirmed message.body is a non-empty string */
-		return <EmailHtml html={message.body ?? ''} messageId={message.id} />
+		return <EmailHtml html={message.body ?? ''} messageId={message.id} darken={darkenEmail} />
 	}
 
 	const text = plainBodyText(message)
