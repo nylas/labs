@@ -1,5 +1,16 @@
 # ownmail
 
+## 0.9.0
+
+### Minor Changes
+
+- 2e40eb4: Add provider-aware primary and additional custom app domains with resumable Nylas webhook reconciliation.
+
+### Patch Changes
+
+- Updated dependencies [2e40eb4]
+  - @nylas-labs/cli-kit@0.6.0
+
 ## 0.8.0
 
 ### Minor Changes
