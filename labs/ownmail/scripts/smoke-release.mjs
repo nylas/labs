@@ -61,6 +61,18 @@ const localPackages = Object.fromEntries(
 	}),
 )
 writeFileSync(
+	join(installDir, 'pnpm-workspace.yaml'),
+	[
+		'packages:',
+		"  - '.'",
+		'overrides:',
+		...Object.entries(localPackages).map(
+			([packageName, tarball]) => `  ${JSON.stringify(packageName)}: ${JSON.stringify(tarball)}`,
+		),
+		'',
+	].join('\n'),
+)
+writeFileSync(
 	join(installDir, 'package.json'),
 	`${JSON.stringify(
 		{
@@ -69,7 +81,6 @@ writeFileSync(
 			version: '0.0.0',
 			packageManager: rootPackage.packageManager,
 			dependencies: localPackages,
-			pnpm: { overrides: localPackages },
 		},
 		null,
 		2,
