@@ -8,7 +8,16 @@ const styles = readFileSync(stylesPath, 'utf8')
 describe('touch editing styles', () => {
 	it('keeps every editable surface at 16px on touch-first devices to prevent iOS focus zoom', () => {
 		expect(styles).toMatch(
-			/@media \(hover: none\) and \(pointer: coarse\)\s*\{\s*input,\s*textarea,\s*select,\s*\[contenteditable="true"\],\s*\.app-input\s*\{\s*font-size: 1rem;/,
+			/@media \(hover: none\) and \(pointer: coarse\)\s*\{\s*input,\s*textarea,\s*select,\s*\[contenteditable\]:not\(\[contenteditable="false"\]\),\s*\.app-input\s*\{\s*font-size: 1rem;/,
 		)
+	})
+
+	it('keeps inline code inside the compose editor at 16px on touch-first devices', () => {
+		const touchCodeRule =
+			/@media \(hover: none\) and \(pointer: coarse\)\s*\{\s*\.markdown-editor code\s*\{\s*font-size: 1rem;/
+		expect(styles).toMatch(touchCodeRule)
+		// The override must appear after the base .markdown-editor code rule so
+		// it wins the cascade at equal specificity.
+		expect(styles.search(touchCodeRule)).toBeGreaterThan(styles.indexOf('.markdown-editor code {'))
 	})
 })
