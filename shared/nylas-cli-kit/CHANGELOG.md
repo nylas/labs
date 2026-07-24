@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.6.0
+
+### Minor Changes
+
+- 2e40eb4: Add provider-aware primary and additional custom app domains with resumable Nylas webhook reconciliation.
+
 ## 0.5.1
 
 ### Patch Changes
