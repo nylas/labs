@@ -64,7 +64,7 @@ export function formatCommandError(err: unknown): string {
 				err,
 			)
 		}
-		return formatServiceError('The Nylas dashboard', err.status, undefined, err)
+		return formatServiceError('The Nylas dashboard', err.status, dashboardErrorCode(err.body), err)
 	}
 	if (err instanceof GatewayError) {
 		const code = err.errors
@@ -125,7 +125,9 @@ function formatServiceError(
 		.join(', ')
 	const suffix = detail ? ` (${detail})` : ''
 	let message: string
-	if (typeof status === 'number' && status >= 200 && status < 300) {
+	if (safeCode === 'SAML_NOT_CONFIGURED') {
+		message = `Enterprise SAML is not configured for this work email${suffix}.\n\nHow to fix: Check the address, then ask your organization administrator to confirm the domain’s Nylas SAML configuration.`
+	} else if (typeof status === 'number' && status >= 200 && status < 300) {
 		message = `${service} returned an invalid response${suffix}.\n\nHow to fix: Update OwnMail, then retry the command. If it continues, contact Nylas Support.`
 	} else if (
 		status === 401 ||
@@ -147,6 +149,14 @@ function formatServiceError(
 		message = `${service} could not complete the request${suffix}.\n\nHow to fix: Run \`npx ownmail doctor\`, then retry. If the session check fails, run \`npx ownmail login\`.`
 	}
 	return withSupportReference(message, err)
+}
+
+function dashboardErrorCode(value: unknown): string | undefined {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+	const error = 'error' in value ? value.error : undefined
+	if (typeof error !== 'object' || error === null || Array.isArray(error)) return undefined
+	const code = 'code' in error ? error.code : undefined
+	return typeof code === 'string' ? code : undefined
 }
 
 function isSafeActionableMessage(message: string): boolean {

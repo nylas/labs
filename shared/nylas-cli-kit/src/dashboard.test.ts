@@ -178,6 +178,77 @@ describe('DashboardAccountClient SSO', () => {
 		})
 	})
 
+	it('starts Enterprise SAML login with a normalized work email', async () => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({
+			request_id: 'req-saml',
+			success: true,
+			data: {
+				flowId: 'flow-saml',
+				verificationUri: 'https://dashboard.test/pages/cli-saml',
+				verificationUriComplete: 'https://dashboard.test/pages/cli-saml?code=ABCD2345',
+				userCode: 'ABCD2345',
+				expiresIn: 600,
+				interval: 5,
+			},
+		})
+
+		await client.ssoStart({
+			loginType: 'saml_SSO',
+			mode: 'login',
+			email: ' User@Acme.com ',
+		})
+
+		const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+		expect(JSON.parse(String(init.body))).toEqual({
+			loginType: 'saml_SSO',
+			mode: 'login',
+			email: 'user@acme.com',
+		})
+	})
+
+	it.each([
+		{
+			name: 'missing SAML email',
+			input: { loginType: 'saml_SSO', mode: 'login' },
+			message: 'valid work email',
+		},
+		{
+			name: 'malformed SAML email',
+			input: { loginType: 'saml_SSO', mode: 'login', email: 'not-an-email' },
+			message: 'valid work email',
+		},
+		{
+			name: 'control characters in SAML email',
+			input: { loginType: 'saml_SSO', mode: 'login', email: 'user\u0000@acme.com' },
+			message: 'valid work email',
+		},
+		{
+			name: 'SAML registration',
+			input: { loginType: 'saml_SSO', mode: 'register', email: 'user@acme.com' },
+			message: 'sign-in only',
+		},
+		{
+			name: 'email supplied to social SSO',
+			input: { loginType: 'google_SSO', mode: 'login', email: 'user@acme.com' },
+			message: 'only be supplied',
+		},
+		{
+			name: 'unsupported SSO provider',
+			input: { loginType: 'oidc_SSO', mode: 'login' },
+			message: 'Unsupported dashboard SSO login type',
+		},
+		{
+			name: 'unsupported SSO mode',
+			input: { loginType: 'google_SSO', mode: 'impersonate' },
+			message: 'Unsupported dashboard SSO mode',
+		},
+	])('rejects $name before making a request', async ({ input, message }) => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({})
+
+		await expect(client.ssoStart(input as never)).rejects.toThrow(message)
+		expect(fetchImpl).not.toHaveBeenCalled()
+	})
+
 	it('unwraps and validates the SSO poll envelope', async () => {
 		const client = await clientWithResponse({
 			request_id: 'req-2',
@@ -206,6 +277,104 @@ describe('DashboardAccountClient SSO', () => {
 		await expect(client.ssoStart({ loginType: 'google_SSO', mode: 'login' })).rejects.toThrow(
 			'malformed response',
 		)
+	})
+
+	it('rejects non-TLS browser URLs except for loopback development', async () => {
+		const insecureClient = await clientWithResponse({
+			request_id: 'req-insecure-url',
+			success: true,
+			data: {
+				flowId: 'flow-1',
+				verificationUri: 'http://login.example.test/device',
+				userCode: 'ABCD',
+				expiresIn: 600,
+				interval: 5,
+			},
+		})
+		const loopbackClient = await clientWithResponse({
+			request_id: 'req-loopback-url',
+			success: true,
+			data: {
+				flowId: 'flow-2',
+				verificationUri: 'http://localhost:3001/pages/cli-saml',
+				userCode: 'ABCD2345',
+				expiresIn: 600,
+				interval: 5,
+			},
+		})
+
+		await expect(insecureClient.ssoStart({ loginType: 'google_SSO', mode: 'login' })).rejects.toThrow(
+			'malformed response',
+		)
+		await expect(
+			loopbackClient.ssoStart({
+				loginType: 'saml_SSO',
+				mode: 'login',
+				email: 'user@acme.com',
+			}),
+		).resolves.toMatchObject({ flowId: 'flow-2' })
+	})
+
+	it.each([
+		{
+			name: 'terminal controls in a browser URL',
+			overrides: { verificationUri: 'https://dashboard.test/device\u001B]0;owned\u0007' },
+		},
+		{
+			name: 'Unicode formatting controls in a browser URL',
+			overrides: { verificationUri: 'https://dashboard.test/device\u202Etxt.exe' },
+		},
+		{
+			name: 'credentials in a browser URL',
+			overrides: { verificationUri: 'https://user:secret@dashboard.test/device' },
+		},
+		{
+			name: 'terminal controls in the browser code',
+			overrides: { userCode: 'ABCD\u001B[2J' },
+		},
+		{
+			name: 'an excessive expiry',
+			overrides: { expiresIn: 86_400 },
+		},
+		{
+			name: 'an excessive polling interval',
+			overrides: { interval: 3_600 },
+		},
+	])('rejects $name before the CLI displays or uses it', async ({ overrides }) => {
+		const client = await clientWithResponse({
+			request_id: 'req-unsafe-display',
+			success: true,
+			data: {
+				flowId: 'flow-1',
+				verificationUri: 'https://dashboard.test/device',
+				userCode: 'ABCD-2345',
+				expiresIn: 600,
+				interval: 5,
+				...overrides,
+			},
+		})
+
+		await expect(client.ssoStart({ loginType: 'google_SSO', mode: 'login' })).rejects.toThrow(
+			'malformed response',
+		)
+	})
+
+	it('canonicalizes a safe browser URL before returning it to display code', async () => {
+		const client = await clientWithResponse({
+			request_id: 'req-canonical-url',
+			success: true,
+			data: {
+				flowId: 'flow-1',
+				verificationUri: 'https://dashboard.test/a path',
+				userCode: 'ABCD-2345',
+				expiresIn: 600,
+				interval: 5,
+			},
+		})
+
+		await expect(client.ssoStart({ loginType: 'google_SSO', mode: 'login' })).resolves.toMatchObject({
+			verificationUri: 'https://dashboard.test/a%20path',
+		})
 	})
 })
 

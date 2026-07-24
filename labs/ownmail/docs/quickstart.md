@@ -3,7 +3,8 @@
 ## What you need
 
 - Node.js 22.12+ (`node -v`)
-- A Nylas account, or a Google, Microsoft, or GitHub account to create one
+- A Nylas account, an organization with Enterprise SAML configured, or a
+  Google, Microsoft, or GitHub account to create one
 - A Cloudflare, Vercel, or Netlify account for hosted deployment; no provider
   account is needed to run locally
 
@@ -18,8 +19,10 @@ npx ownmail
 The wizard walks you through everything:
 
 1. **Sign in to Nylas** — use your existing Nylas email/password or approve a
-   Google, Microsoft, or GitHub browser sign-in. Authenticator-code MFA is
-   supported. New here? Pick "create one (free)" and use the browser flow.
+   Google, Microsoft, GitHub, or Enterprise SAML browser sign-in.
+   Authenticator-code MFA is supported. Enterprise SAML asks for your work
+   email to find your organization. New here? Pick "create one (free)" and use
+   the Google, Microsoft, or GitHub browser flow.
 2. **Pick your address** — a Nylas-provided `you.nylas.email` trial subdomain
    (instant), or your own domain (you'll add a few DNS records; the wizard waits
    and verifies).

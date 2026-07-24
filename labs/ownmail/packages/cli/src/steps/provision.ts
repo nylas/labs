@@ -89,6 +89,7 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 						{ value: 'google_SSO' as const, label: 'Google' },
 						{ value: 'microsoft_SSO' as const, label: 'Microsoft' },
 						{ value: 'github_SSO' as const, label: 'GitHub' },
+						{ value: 'saml_SSO' as const, label: 'Enterprise SAML' },
 					]
 				: [
 						{ value: 'google_SSO' as const, label: 'Google' },
@@ -98,6 +99,14 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	})
 	if (p.isCancel(loginType)) throw new CancelledError()
 
+	const samlSsoInput =
+		loginType === 'saml_SSO'
+			? {
+					loginType,
+					mode: 'login' as const,
+					email: await promptDashboardEmail('Work email for Enterprise SAML', 'you@company.com'),
+				}
+			: undefined
 	const dpop = ctx.dpop ?? (await DpopKey.generate())
 	const dashboard = new DashboardAccountClient(dpop, dashboardAccountUrl(), fetch, OWNMAIL_USER_AGENT)
 	ctx.dpop = dpop
@@ -109,27 +118,25 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 		result = await authorizeWithPassword(dashboard)
 	} else {
 		const spinner = p.spinner()
-		const ssoResult = await dashboard.ssoAuthorize(
-			{ loginType: loginType as SsoLoginType, mode },
-			async (started) => {
-				const url = started.verificationUriComplete ?? started.verificationUri
-				p.note(
-					`Visit this URL to finish signing in:\n\n  ${url}\n\nCode: ${started.userCode}`,
-					'Confirm in browser',
-				)
-				const shouldOpen = await p.confirm({
-					message: 'Open this URL in your browser?',
-					initialValue: true,
+		const ssoInput = samlSsoInput ?? { loginType: loginType as SsoLoginType, mode }
+		const ssoResult = await dashboard.ssoAuthorize(ssoInput, async (started) => {
+			const url = started.verificationUriComplete ?? started.verificationUri
+			p.note(
+				`Visit this URL to finish signing in:\n\n  ${url}\n\nCode: ${started.userCode}`,
+				'Confirm in browser',
+			)
+			const shouldOpen = await p.confirm({
+				message: 'Open this URL in your browser?',
+				initialValue: true,
+			})
+			if (p.isCancel(shouldOpen)) throw new CancelledError()
+			if (shouldOpen) {
+				await open(url).catch(() => {
+					p.log.warn('Could not open your browser automatically. Use the URL above.')
 				})
-				if (p.isCancel(shouldOpen)) throw new CancelledError()
-				if (shouldOpen) {
-					await open(url).catch(() => {
-						p.log.warn('Could not open your browser automatically. Use the URL above.')
-					})
-				}
-				spinner.start('Waiting for you to finish in the browser…')
-			},
-		)
+			}
+			spinner.start('Waiting for you to finish in the browser…')
+		})
 		if (ssoResult.status === 'mfa_required') {
 			spinner.stop('Browser sign-in complete — MFA required')
 			result = await completeDashboardMfa(
@@ -141,7 +148,9 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 			spinner.stop('Browser sign-in did not complete')
 			throw new Error(
 				ssoResult.status === 'access_denied'
-					? 'Sign-in was denied. If this Google, Microsoft, or GitHub email does not have a Nylas dashboard account, re-run ownmail and choose “No — create one (free)”.'
+					? loginType === 'saml_SSO'
+						? 'Enterprise SAML sign-in was denied. Check your work email and ask your organization administrator to confirm your Nylas access, then retry.'
+						: 'Sign-in was denied. If this Google, Microsoft, or GitHub email does not have a Nylas dashboard account, re-run ownmail and choose “No — create one (free)”.'
 					: 'The sign-in link expired before it was confirmed. Re-run ownmail to start a new sign-in.',
 			)
 		} else {
@@ -161,15 +170,19 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	markStep(ctx.project, 'dashboard-auth')
 }
 
-async function authorizeWithPassword(dashboard: DashboardAccountClient): Promise<AuthResponse> {
+async function promptDashboardEmail(message: string, placeholder: string): Promise<string> {
 	const emailInput = await p.text({
-		message: 'Nylas account email',
-		placeholder: 'you@example.com',
+		message,
+		placeholder,
 		validate: (value) =>
 			DASHBOARD_EMAIL_SCHEMA.safeParse(value).success ? undefined : 'Enter a valid email address.',
 	})
 	if (p.isCancel(emailInput)) throw new CancelledError()
-	const email = DASHBOARD_EMAIL_SCHEMA.parse(emailInput).toLowerCase()
+	return DASHBOARD_EMAIL_SCHEMA.parse(emailInput).toLowerCase()
+}
+
+async function authorizeWithPassword(dashboard: DashboardAccountClient): Promise<AuthResponse> {
+	const email = await promptDashboardEmail('Nylas account email', 'you@example.com')
 
 	let password = await p.password({
 		message: 'Nylas account password',

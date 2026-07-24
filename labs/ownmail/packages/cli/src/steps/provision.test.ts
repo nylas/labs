@@ -243,6 +243,8 @@ describe('stepDashboardAuth', () => {
 		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
 
 		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
+		const registerOptions = vi.mocked(p.select).mock.calls[1]?.[0]?.options
+		expect(registerOptions).not.toContainEqual(expect.objectContaining({ value: 'saml_SSO' }))
 	})
 
 	it('logs in with a Nylas email and password without exposing the password', async () => {
@@ -271,6 +273,7 @@ describe('stepDashboardAuth', () => {
 		expect(p.password).toHaveBeenCalledWith(expect.objectContaining({ message: 'Nylas account password' }))
 		expect(ctx.auth?.userToken).toBe('ut')
 		const emailPrompt = vi.mocked(p.text).mock.calls[0]?.[0]
+		expect(emailPrompt?.placeholder).toBe('you@example.com')
 		expect(emailPrompt?.validate?.('invalid')).toBe('Enter a valid email address.')
 		expect(emailPrompt?.validate?.('valid@example.com')).toBeUndefined()
 		const passwordPrompt = vi.mocked(p.password).mock.calls[0]?.[0]
@@ -417,6 +420,60 @@ describe('stepDashboardAuth', () => {
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'dashboard-auth')
 	})
 
+	it('completes Enterprise SAML login using a validated work email', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('saml_SSO' as never)
+		vi.mocked(p.text).mockResolvedValueOnce(' User@Acme.com ')
+		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
+			await onStarted({
+				verificationUri: 'https://dashboard.test/pages/cli-saml',
+				verificationUriComplete: 'https://dashboard.test/pages/cli-saml?code=ABCD2345',
+				userCode: 'ABCD2345',
+			})
+			return {
+				status: 'complete',
+				userToken: 'ut',
+				orgToken: 'ot',
+				user: { publicId: 'user-pub' },
+				organizations: [{ publicId: 'org-pub' }],
+			}
+		})
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
+
+		await stepDashboardAuth(ctx)
+
+		const loginOptions = vi.mocked(p.select).mock.calls[1]?.[0]?.options
+		expect(loginOptions).toContainEqual({ value: 'saml_SSO', label: 'Enterprise SAML' })
+		expect(p.text).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Work email for Enterprise SAML',
+				placeholder: 'you@company.com',
+			}),
+		)
+		const emailPrompt = vi.mocked(p.text).mock.calls[0]?.[0]
+		expect(emailPrompt?.validate?.('invalid')).toBe('Enter a valid email address.')
+		expect(emailPrompt?.validate?.('valid@example.com')).toBeUndefined()
+		expect(ssoAuthorize).toHaveBeenCalledWith(
+			{ loginType: 'saml_SSO', mode: 'login', email: 'user@acme.com' },
+			expect.any(Function),
+		)
+		expect(open).toHaveBeenCalledWith('https://dashboard.test/pages/cli-saml?code=ABCD2345')
+		expect(ctx.auth?.orgPublicId).toBe('org-pub')
+	})
+
+	it('allows cancellation before starting Enterprise SAML home-realm discovery', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('saml_SSO' as never)
+		vi.mocked(p.text).mockResolvedValueOnce(CANCEL as never)
+
+		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
+		expect(DashboardAccountClient).not.toHaveBeenCalled()
+	})
+
 	it('generates a DPoP key, warns on browser-open failure, and handles an org-less result', async () => {
 		const ctx = baseCtx({ auth: null, dpop: null })
 		vi.mocked(p.select).mockResolvedValueOnce('register' as never)
@@ -531,6 +588,24 @@ describe('stepDashboardAuth', () => {
 		})
 
 		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/choose “No — create one \(free\)”/)
+	})
+
+	it('gives organization-specific guidance when Enterprise SAML sign-in is denied', async () => {
+		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
+		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('saml_SSO' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('user@acme.com')
+		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
+			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
+			return { status: 'access_denied' }
+		})
+		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
+			return { ssoAuthorize } as unknown as DashboardAccountClient
+		})
+
+		await expect(stepDashboardAuth(ctx)).rejects.toThrow(
+			/ask your organization administrator to confirm your Nylas access/,
+		)
 	})
 
 	it('explains when the device sign-in link expires', async () => {
