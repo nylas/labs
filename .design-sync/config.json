@@ -1,0 +1,41 @@
+{
+	"pkg": "@ownmail/app",
+	"globalName": "OwnMail",
+	"shape": "package",
+	"projectId": "a054f63d-df12-4e77-b239-dab890b274de",
+	"entry": "labs/ownmail/packages/app/design-sync-entry.tsx",
+	"srcDir": "src",
+	"cssEntry": "dist/client/assets/styles-O0i_Iax_.css",
+	"extraFonts": [
+		"public/fonts/manrope-latin.woff2",
+		"public/fonts/poppins-latin-400.woff2",
+		"public/fonts/poppins-latin-500.woff2",
+		"public/fonts/poppins-latin-600.woff2",
+		"public/fonts/poppins-latin-700.woff2"
+	],
+	"componentSrcMap": {
+		"Button": "src/shared/components/ui/button.tsx",
+		"Badge": "src/shared/components/ui/badge.tsx",
+		"Input": "src/shared/components/ui/input.tsx",
+		"Textarea": "src/shared/components/ui/textarea.tsx",
+		"Dialog": "src/shared/components/ui/dialog.tsx",
+		"Select": "src/shared/components/ui/select.tsx",
+		"ScrollArea": "src/shared/components/ui/scroll-area.tsx",
+		"Tooltip": "src/shared/components/ui/tooltip.tsx"
+	},
+	"dtsPropsFor": {
+		"Button": "/** Visual style. */ variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link'; /** Control height / padding. */ size?: 'default' | 'sm' | 'lg' | 'icon'; /** Render as the child element (Radix Slot) instead of a <button>. */ asChild?: boolean; className?: string; disabled?: boolean; type?: 'button' | 'submit' | 'reset'; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; children?: React.ReactNode;",
+		"Badge": "/** Visual style. */ variant?: 'default' | 'secondary' | 'destructive' | 'outline'; /** Render as the child element (Radix Slot) instead of a <span>. */ asChild?: boolean; className?: string; children?: React.ReactNode;",
+		"Input": "type?: React.HTMLInputTypeAttribute; placeholder?: string; value?: string; defaultValue?: string; disabled?: boolean; readOnly?: boolean; className?: string; onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void; name?: string;",
+		"Textarea": "placeholder?: string; value?: string; defaultValue?: string; rows?: number; disabled?: boolean; readOnly?: boolean; className?: string; onChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void; name?: string;",
+		"Dialog": "/** Controlled open state. */ open?: boolean; /** Uncontrolled initial open state. */ defaultOpen?: boolean; onOpenChange?: (open: boolean) => void; /** Trap focus + block the page behind the overlay (default true). */ modal?: boolean; /** Compose with DialogContent (portalled surface) and DialogTitle. */ children?: React.ReactNode;",
+		"Select": "/** Controlled selected value. */ value?: string; /** Uncontrolled initial value. */ defaultValue?: string; onValueChange?: (value: string) => void; open?: boolean; defaultOpen?: boolean; disabled?: boolean; /** Compose with SelectTrigger + SelectValue and SelectContent > SelectItem. */ children?: React.ReactNode;",
+		"ScrollArea": "className?: string; /** Class applied to the inner scrolling viewport. */ viewportClassName?: string; viewportRef?: React.Ref<HTMLElement>; /** Class for the top/bottom overflow fade gradients. */ overflowIndicatorClassName?: string; 'aria-label'?: string; children?: React.ReactNode;",
+		"Tooltip": "/** Controlled open state. */ open?: boolean; /** Uncontrolled initial open state. */ defaultOpen?: boolean; onOpenChange?: (open: boolean) => void; /** Hover delay before opening, ms (default 200). Bundles its own Provider. */ delayDuration?: number; /** Compose with TooltipTrigger and TooltipContent. */ children?: React.ReactNode;"
+	},
+	"overrides": {
+		"Dialog": { "cardMode": "single", "viewport": "640x440" },
+		"Tooltip": { "cardMode": "single", "viewport": "360x220" }
+	},
+	"readmeHeader": ".design-sync/conventions.md"
+}
