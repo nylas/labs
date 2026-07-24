@@ -302,6 +302,58 @@ describe('formatCommandError', () => {
 		expect(formatted).not.toContain('must-not-print')
 	})
 
+	it('gives safe setup guidance when Enterprise SAML is not configured', () => {
+		const formatted = formatCommandError(
+			new DashboardAccountError(
+				'hidden',
+				400,
+				{
+					error: {
+						code: 'SAML_NOT_CONFIGURED',
+						message: 'sensitive domain-discovery detail',
+					},
+				},
+				'req-saml-123',
+			),
+		)
+
+		expect(formatted).toContain(
+			'Enterprise SAML is not configured for this work email (HTTP 400, SAML_NOT_CONFIGURED).',
+		)
+		expect(formatted).toContain('ask your organization administrator')
+		expect(formatted).toContain('Request ID: req-saml-123.')
+		expect(formatted).not.toContain('sensitive domain-discovery detail')
+	})
+
+	it('drops malformed dashboard error codes and never exposes response details', () => {
+		const formatted = formatCommandError(
+			new DashboardAccountError('hidden', 400, {
+				error: { code: 'SAML_NOT_CONFIGURED\nsecret', message: 'must-not-print' },
+			}),
+		)
+
+		expect(formatted).toContain('The Nylas dashboard rejected the request (HTTP 400).')
+		expect(formatted).not.toContain('secret')
+		expect(formatted).not.toContain('must-not-print')
+	})
+
+	it.each([
+		undefined,
+		null,
+		[],
+		{ error: null },
+		{ error: [] },
+		{ error: 'not-an-object' },
+		{ error: {} },
+		{ error: { code: 123 } },
+	])('fails closed for a malformed dashboard error envelope: %j', (body) => {
+		const formatted = formatCommandError(new DashboardAccountError('hidden', 400, body))
+
+		expect(formatted).toBe(
+			'The Nylas dashboard rejected the request (HTTP 400).\n\nHow to fix: Run `npx ownmail doctor` to check the project state and command inputs, then retry.',
+		)
+	})
+
 	it('uses GraphQL codes when the gateway has no HTTP status', () => {
 		const formatted = formatCommandError(
 			new GatewayError(

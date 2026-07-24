@@ -13,7 +13,7 @@ import { bodyRequestId, responseRequestId, userAgentHeader } from './http.js'
 
 export const DEFAULT_DASHBOARD_ACCOUNT_URL = 'https://dashboard-account.eu.nylas.com'
 
-export type SsoLoginType = 'google_SSO' | 'microsoft_SSO' | 'github_SSO'
+export type SsoLoginType = 'google_SSO' | 'microsoft_SSO' | 'github_SSO' | 'saml_SSO'
 export type SsoMode = 'login' | 'register'
 
 export type DashboardTokens = {
@@ -116,6 +116,12 @@ export type DomainVerificationResult = {
 type Envelope<T> = { request_id: string; success: boolean; data: T }
 type JsonRecord = Record<string, unknown>
 const DEFAULT_HTTP_TIMEOUT_MS = 30_000
+const MAX_SSO_URL_LENGTH = 2_048
+const MAX_SSO_EXPIRES_IN_SECONDS = 3_600
+const MAX_SSO_POLL_INTERVAL_SECONDS = 300
+const SSO_USER_CODE_PATTERN = /^[A-Za-z0-9-]{1,64}$/
+// biome-ignore lint/suspicious/noControlCharactersInRegex: display-bound upstream strings must reject terminal and Unicode formatting controls.
+const UNSAFE_DISPLAY_CONTROL_PATTERN = /[\u0000-\u001F\u007F-\u009F]|\p{Cf}/u
 
 export class DashboardAccountError extends Error {
 	constructor(
@@ -177,10 +183,15 @@ export class DashboardAccountClient {
 		loginType: SsoLoginType
 		mode: SsoMode
 		privacyPolicyAccepted?: boolean
+		email?: string
 	}): Promise<SsoStartResponse> {
+		validateSsoStartInput(input)
 		const body: Record<string, unknown> = { loginType: input.loginType, mode: input.mode }
 		if (input.mode === 'register') {
 			body.privacyPolicyAccepted = input.privacyPolicyAccepted ?? true
+		}
+		if (input.loginType === 'saml_SSO') {
+			body.email = normalizeSamlEmail(input.email)
 		}
 		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/sso/start', { body })
 		return parseSsoStartResponse(data, '/auth/cli/sso/start')
@@ -198,7 +209,12 @@ export class DashboardAccountClient {
 	 * caller (open a browser, print the code), then poll until terminal.
 	 */
 	async ssoAuthorize(
-		input: { loginType: SsoLoginType; mode: SsoMode; orgPublicId?: string },
+		input: {
+			loginType: SsoLoginType
+			mode: SsoMode
+			orgPublicId?: string
+			email?: string
+		},
 		onStarted: (started: SsoStartResponse) => void | Promise<void>,
 		signal?: AbortSignal,
 	): Promise<SsoPollResponse> {
@@ -394,15 +410,59 @@ function unwrapEnvelope<T>(value: unknown, path: string): Envelope<T> {
 	)
 }
 
+function validateSsoStartInput(input: { loginType: SsoLoginType; mode: SsoMode; email?: string }): void {
+	const allowedLoginTypes: readonly string[] = ['google_SSO', 'microsoft_SSO', 'github_SSO', 'saml_SSO']
+	if (!allowedLoginTypes.includes(input.loginType)) {
+		throw new Error('Unsupported dashboard SSO login type.')
+	}
+	if (input.mode !== 'login' && input.mode !== 'register') {
+		throw new Error('Unsupported dashboard SSO mode.')
+	}
+	if (input.loginType === 'saml_SSO') {
+		if (input.mode !== 'login') {
+			throw new Error('Enterprise SAML is available for sign-in only.')
+		}
+		normalizeSamlEmail(input.email)
+	} else if (input.email !== undefined) {
+		throw new Error('A work email may only be supplied for Enterprise SAML.')
+	}
+}
+
+function normalizeSamlEmail(value: string | undefined): string {
+	const email = typeof value === 'string' ? value.trim().toLowerCase() : ''
+	const parts = email.split('@')
+	const [localPart, domain] = parts
+	const domainLabels = domain?.split('.') ?? []
+	if (
+		email.length > 254 ||
+		parts.length !== 2 ||
+		!localPart ||
+		localPart.length > 64 ||
+		!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(localPart) ||
+		localPart.startsWith('.') ||
+		localPart.endsWith('.') ||
+		localPart.includes('..') ||
+		!domain ||
+		domain.length > 253 ||
+		domainLabels.length < 2 ||
+		domainLabels.some(
+			(label) => label.length === 0 || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label),
+		)
+	) {
+		throw new Error('Enter a valid work email for Enterprise SAML.')
+	}
+	return email
+}
+
 function parseSsoStartResponse(value: unknown, path: string): SsoStartResponse {
 	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
 
 	const flowId = readString(value, 'flowId', path)
 	const verificationUri = readUrl(value, 'verificationUri', path)
 	const verificationUriComplete = readOptionalUrl(value, 'verificationUriComplete', path)
-	const userCode = readString(value, 'userCode', path)
-	const expiresIn = readPositiveNumber(value, 'expiresIn', path)
-	const interval = readPositiveNumber(value, 'interval', path)
+	const userCode = readSsoUserCode(value, 'userCode', path)
+	const expiresIn = readPositiveNumber(value, 'expiresIn', path, MAX_SSO_EXPIRES_IN_SECONDS)
+	const interval = readPositiveNumber(value, 'interval', path, MAX_SSO_POLL_INTERVAL_SECONDS)
 
 	return {
 		flowId,
@@ -419,7 +479,7 @@ function parseSsoPollResponse(value: unknown, path: string): SsoPollResponse {
 
 	const status = readString(value, 'status', path)
 	if (status === 'authorization_pending') {
-		const retryAfter = readOptionalPositiveNumber(value, 'retryAfter', path)
+		const retryAfter = readOptionalPositiveNumber(value, 'retryAfter', path, MAX_SSO_POLL_INTERVAL_SECONDS)
 		return retryAfter ? { status, retryAfter } : { status }
 	}
 	if (status === 'access_denied' || status === 'expired_token') return { status }
@@ -566,20 +626,32 @@ function readBoolean(record: JsonRecord, field: string, path: string): boolean {
 	throw new Error(`dashboard-account ${path} returned a malformed response`)
 }
 
-function readPositiveNumber(record: JsonRecord, field: string, path: string): number {
+function readPositiveNumber(record: JsonRecord, field: string, path: string, max: number): number {
 	const value = record[field]
-	if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+	if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= max) return value
 	throw new Error(`dashboard-account ${path} returned a malformed response`)
 }
 
-function readOptionalPositiveNumber(record: JsonRecord, field: string, path: string): number | undefined {
+function readOptionalPositiveNumber(
+	record: JsonRecord,
+	field: string,
+	path: string,
+	max: number,
+): number | undefined {
 	if (!(field in record)) return undefined
-	return readPositiveNumber(record, field, path)
+	return readPositiveNumber(record, field, path, max)
+}
+
+function readSsoUserCode(record: JsonRecord, field: string, path: string): string {
+	const value = readString(record, field, path)
+	if (SSO_USER_CODE_PATTERN.test(value)) return value
+	throw new Error(`dashboard-account ${path} returned a malformed response`)
 }
 
 function readUrl(record: JsonRecord, field: string, path: string): string {
 	const value = readString(record, field, path)
-	if (isHttpUrl(value)) return value
+	const canonical = canonicalHttpUrl(value)
+	if (canonical) return canonical
 	throw new Error(`dashboard-account ${path} returned a malformed response`)
 }
 
@@ -588,16 +660,23 @@ function readOptionalUrl(record: JsonRecord, field: string, path: string): strin
 	const value = record[field]
 	if (typeof value !== 'string') throw new Error(`dashboard-account ${path} returned a malformed response`)
 	if (value.length === 0) return undefined
-	if (isHttpUrl(value)) return value
+	const canonical = canonicalHttpUrl(value)
+	if (canonical) return canonical
 	throw new Error(`dashboard-account ${path} returned a malformed response`)
 }
 
-function isHttpUrl(value: string): boolean {
+function canonicalHttpUrl(value: string): string | undefined {
+	if (value.length > MAX_SSO_URL_LENGTH || UNSAFE_DISPLAY_CONTROL_PATTERN.test(value)) return undefined
 	try {
 		const url = new URL(value)
-		return url.protocol === 'https:' || url.protocol === 'http:'
+		if (url.username || url.password) return undefined
+		const secure =
+			url.protocol === 'https:' ||
+			(url.protocol === 'http:' &&
+				(url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'))
+		return secure ? url.toString() : undefined
 	} catch {
-		return false
+		return undefined
 	}
 }
 
