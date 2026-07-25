@@ -268,7 +268,7 @@
 	input,
 	textarea,
 	select,
-	[contenteditable="true"],
+	[contenteditable]:not([contenteditable="false"]),
 	.app-input {
 		font-size: 1rem;
 	}
@@ -626,6 +626,16 @@
 	background: var(--color-muted);
 	border-radius: 0.25rem;
 	padding: 0.0625rem 0.25rem;
+}
+
+/* Sub-16px text at the caret inside an editable surface can still trigger
+   the iOS focus zoom, so inline code follows the same touch-device minimum
+   as the editable-surface rule above. Placed after the base rule so it wins
+   the cascade at equal specificity. */
+@media (hover: none) and (pointer: coarse) {
+	.markdown-editor code {
+		font-size: 1rem;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
