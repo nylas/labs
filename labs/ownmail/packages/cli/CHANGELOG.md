@@ -1,5 +1,17 @@
 # ownmail
 
+## 0.10.0
+
+### Minor Changes
+
+- 16886e9: Add Enterprise SAML authentication to the OwnMail CLI using the dashboard device flow.
+
+### Patch Changes
+
+- 190d8e8: Replace OwnMail's custom authorization URL and PKCE flow with the supported @nylas/connect backend flow while preserving server-owned grant sessions.
+- Updated dependencies [16886e9]
+  - @nylas-labs/cli-kit@0.7.0
+
 ## 0.9.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.7.0
+
+### Minor Changes
+
+- 16886e9: Add Enterprise SAML authentication to the OwnMail CLI using the dashboard device flow.
+
 ## 0.6.0
 
 ### Minor Changes

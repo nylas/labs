@@ -1,5 +1,21 @@
 # @ownmail/app
 
+## 0.10.0
+
+### Minor Changes
+
+- 190d8e8: Replace OwnMail's custom authorization URL and PKCE flow with the supported @nylas/connect backend flow while preserving server-owned grant sessions.
+
+### Patch Changes
+
+- b761c7f: Pin OwnMail authorization to the Nylas connector so reused applications cannot authenticate through an unrelated configured provider.
+- 8c397af: Polish mail reading and navigation with native composer HTML, reliable dark rendering, clean snippets, thread shortcuts, and accessible app rail interactions.
+- 5bcc2a0: Improve thread reading with faithful sender rendering, full message details, thread controls, readable plain text, and sticky context.
+- 40c902e: Make composer initial focus follow reply and prefilled message context.
+- 2237b74: Prevent unintended iOS Safari zoom when focusing inputs: the touch-device 16px minimum now covers every contenteditable variant (not just `contenteditable="true"`) and inline code spans inside the compose markdown editor. Desktop type scale is unchanged.
+- Updated dependencies [16886e9]
+  - @nylas-labs/cli-kit@0.7.0
+
 ## 0.9.0
 
 ### Minor Changes
