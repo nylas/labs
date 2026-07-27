@@ -59,6 +59,27 @@ import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 const MAX_COMPOSE_ATTACHMENTS = 10
 const MAX_COMPOSE_ATTACHMENT_BYTES = 2 * 1024 * 1024
 
+type ComposeFocusTarget = 'compose-to' | 'compose-subject' | 'compose-body'
+
+function composeFocusTarget({
+	to,
+	subject,
+	isReply,
+}: {
+	to: string
+	subject: string
+	isReply: boolean
+}): ComposeFocusTarget {
+	if (isReply) return 'compose-body'
+	if (!to.trim()) return 'compose-to'
+	if (!subject.trim()) return 'compose-subject'
+	return 'compose-body'
+}
+
+function focusComposeTarget(target: ComposeFocusTarget) {
+	document.getElementById(target)?.focus()
+}
+
 function draftSaveErrorMessage(error: unknown): string {
 	const message =
 		typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
@@ -180,6 +201,7 @@ function Compose() {
 	const draftBody = draft?.body ?? reply?.body ?? ''
 	const replyToMessageId = reply?.replyToMessageId ?? draft?.reply_to_message_id
 	const [body, setBody] = useState(draftBody)
+	const initialFocusTarget = useRef(composeFocusTarget({ to, subject, isReply: Boolean(replyToMessageId) }))
 	const [busy, setBusy] = useState(false)
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
@@ -272,6 +294,7 @@ function Compose() {
 		setBody('')
 		setError(null)
 		dirty.current = true
+		focusComposeTarget('compose-body')
 		navigate({
 			to: '/mail/compose',
 			search: replySearch,
@@ -293,6 +316,7 @@ function Compose() {
 		setBody('')
 		setError(null)
 		dirty.current = true
+		focusComposeTarget('compose-body')
 		navigate({ to: '/mail/compose', search: replySearch })
 	}
 
@@ -311,6 +335,13 @@ function Compose() {
 		setBody(forwardSearch.body ?? '')
 		setError(null)
 		dirty.current = true
+		focusComposeTarget(
+			composeFocusTarget({
+				to: forwardSearch.to ?? '',
+				subject: forwardSearch.subject ?? '',
+				isReply: false,
+			}),
+		)
 		navigate({ to: '/mail/compose', search: forwardSearch })
 	}
 
@@ -521,7 +552,7 @@ function Compose() {
 	}
 
 	useEffect(() => {
-		const timer = setTimeout(() => document.getElementById('compose-to')?.focus(), 0)
+		const timer = setTimeout(() => focusComposeTarget(initialFocusTarget.current), 0)
 		return () => clearTimeout(timer)
 	}, [])
 
