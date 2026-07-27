@@ -542,6 +542,20 @@ describe('ui-model plain-text projection edge cases', () => {
 		expect(messagePreview({ body: '<p>Budget: 1 < 2 > 0</p>' } as Message)).toBe('Budget: 1 < 2 > 0')
 	})
 
+	it('preserves literal type parameters in provider snippets', () => {
+		expect(readableSnippet('Use List<String> today')).toBe('Use List<String> today')
+		expect(readableSnippet('Return Map<Key, Value> from parse<Result>')).toBe(
+			'Return Map<Key, Value> from parse<Result>',
+		)
+		expect(readableSnippet('<p>Use List&lt;String&gt; today</p>')).toBe('Use List<String> today')
+	})
+
+	it('strips vector, math, and legacy email markup from provider snippets', () => {
+		expect(readableSnippet('<svg><path d="M0 0"></path></svg>')).toBe('')
+		expect(readableSnippet('<math><mi>x</mi><mo>+</mo><mn>1</mn></math>')).toBe('x + 1')
+		expect(readableSnippet('<marquee>Hello</marquee><nobr>world</nobr>')).toBe('Hello world')
+	})
+
 	it('skips HTML comments and document declarations in readable snippets', () => {
 		expect(readableSnippet('Hello<!-- provider metadata -->world')).toBe('Hello world')
 		expect(readableSnippet('<!doctype html><p>Hello</p>')).toBe('Hello')

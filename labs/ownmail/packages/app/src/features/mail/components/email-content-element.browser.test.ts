@@ -1,21 +1,23 @@
 // @vitest-environment jsdom
+import { existsSync } from 'node:fs'
 import { type Browser, chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { shadowStyleText } from '../lib/email-render.js'
 import { sanitizeEmailHtml } from '../lib/sanitize-email.js'
 
-describe('email CSS boundary in Chromium', () => {
-	let browser: Browser
+describe.runIf(existsSync(chromium.executablePath()))('email CSS boundary in Chromium', () => {
+	let browser: Browser | undefined
 
 	beforeAll(async () => {
 		browser = await chromium.launch({ headless: true })
 	})
 
 	afterAll(async () => {
-		await browser.close()
+		await browser?.close()
 	})
 
 	it('removes host takeover CSS and contains fixed descendants inside the email surface', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
 		const exploit = ':host{position:fixed!important;inset:0!important;z-index:99999!important}'
 		const sanitized = sanitizeEmailHtml(
 			`<style>${exploit}</style><style>.takeover{position:fixed;inset:0;z-index:99999}</style><div class="takeover">Message</div>`,

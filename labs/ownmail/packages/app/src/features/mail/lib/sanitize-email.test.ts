@@ -51,6 +51,40 @@ describe('sanitizeEmailHtml', () => {
 		expect(out).toBe('<p>Safe content</p>')
 	})
 
+	it('handles adjacent styles independently without reconstructing provider markup', () => {
+		const out = sanitizeEmailHtml(
+			'<style>.first{color:red}</style>' +
+				'<style>:host{position:fixed}</style>' +
+				'<style>.last{color:blue}</style><p>Content</p>',
+		)
+		expect(out).toBe('<style>.first{color:red}</style><style>.last{color:blue}</style><p>Content</p>')
+	})
+
+	it('moves a vetted body-nested style to the detached output without duplicating it', () => {
+		const out = sanitizeEmailHtml(
+			'<section><style media="screen and (max-width:600px)">.card{width:100%}</style><p class="card">Hi</p></section>',
+		)
+		expect(out).toBe(
+			'<style media="screen and (max-width:600px)">.card{width:100%}</style><section><p class="card">Hi</p></section>',
+		)
+	})
+
+	it('uses DOM parsing semantics for malformed style closing markup', () => {
+		const out = sanitizeEmailHtml('<style>.safe{color:red}</style junk><p>After</p>')
+		expect(out).toBe('<style>.safe{color:red}</style><p>After</p>')
+	})
+
+	it('fails closed for nested style-like text containing a host selector', () => {
+		const out = sanitizeEmailHtml('<style>.safe{color:red}<style>:host{position:fixed}</style><p>After</p>')
+		expect(out).toBe('<p>After</p>')
+	})
+
+	it('does not reconstruct malformed split style tags', () => {
+		const out = sanitizeEmailHtml('<sty<style>le>:host{position:fixed}</style><p>Safe</p>')
+		expect(out).not.toContain('<style')
+		expect(out).toContain('Safe')
+	})
+
 	it('fails closed for host selectors hidden with CSS escapes or comments', () => {
 		expect(sanitizeProviderCss(String.raw`:h\6f st { position: fixed }`)).toBe('')
 		expect(sanitizeProviderCss(':h/**/ost { position: fixed }')).toBe('')

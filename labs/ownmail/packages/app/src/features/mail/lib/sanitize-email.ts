@@ -1,8 +1,5 @@
 import DOMPurify from 'dompurify'
 
-const STYLE_BLOCK = /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi
-const BODY_CONTENT = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i
-
 /**
  * Decode CSS escapes only for security inspection. CSS identifiers permit
  * `:h\6f st` and `@\69 mport`, so scanning the source text alone would leave a
@@ -31,19 +28,30 @@ export function sanitizeProviderCss(css: string): string {
 	return css
 }
 
-function sanitizeStyleBlocks(html: string): string {
-	return html.replace(STYLE_BLOCK, (_block, opening: string, css: string, closing: string) => {
-		const safeCss = sanitizeProviderCss(css)
-		return safeCss ? `${opening}${safeCss}${closing}` : ''
-	})
-}
+function renderableFragment(sanitizedDocument: HTMLElement): string {
+	const output = sanitizedDocument.ownerDocument.createElement('div')
+	const approvedStyles: HTMLStyleElement[] = []
 
-function renderableFragment(sanitizedDocument: string): string {
-	const safeDocument = sanitizeStyleBlocks(sanitizedDocument)
-	const styles = safeDocument.match(STYLE_BLOCK)?.join('') ?? ''
-	/* v8 ignore next -- DOMPurify WHOLE_DOCUMENT always emits a body element -- @preserve */
-	const body = BODY_CONTENT.exec(safeDocument)?.[1] ?? ''
-	return styles + body.replace(STYLE_BLOCK, '')
+	for (const style of Array.from(sanitizedDocument.querySelectorAll('style'))) {
+		const safeCss = sanitizeProviderCss(style.textContent)
+		style.remove()
+		if (!safeCss) continue
+
+		// Clone only the already-sanitized element shell, then assign CSS as text.
+		// This avoids reparsing provider markup while preserving safe attributes
+		// such as `media` that affect legitimate newsletter layouts.
+		const approved = style.cloneNode(false) as HTMLStyleElement
+		approved.textContent = safeCss
+		approvedStyles.push(approved)
+	}
+
+	for (const style of approvedStyles) output.appendChild(style)
+	const body = sanitizedDocument.querySelector('body')
+	/* v8 ignore else -- DOMPurify WHOLE_DOCUMENT always returns an HTML body -- @preserve */
+	if (body) {
+		for (const child of Array.from(body.childNodes)) output.appendChild(child.cloneNode(true))
+	}
+	return output.innerHTML
 }
 
 /**
@@ -62,6 +70,7 @@ export function sanitizeEmailHtml(html: string): string {
 		// before our CSS boundary can inspect them. Sanitize the complete document,
 		// then return only vetted styles plus the sanitized body fragment.
 		WHOLE_DOCUMENT: true,
+		RETURN_DOM: true,
 		FORBID_TAGS: [
 			'script',
 			'base',
@@ -80,5 +89,7 @@ export function sanitizeEmailHtml(html: string): string {
 		FORBID_ATTR: ['ping', 'formaction', 'form'],
 		ALLOW_DATA_ATTR: false,
 	})
-	return renderableFragment(sanitized)
+	// DOMPurify's RETURN_DOM + WHOLE_DOCUMENT contract yields the sanitized
+	// document element; its public type is the wider Node interface.
+	return renderableFragment(sanitized as HTMLElement)
 }
