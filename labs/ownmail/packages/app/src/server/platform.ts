@@ -4,7 +4,7 @@ import { Redis } from '@upstash/redis'
  * Platform abstraction: Cloudflare Workers (env + KV via cloudflare:workers)
  * or a Node-ish runtime like Vercel functions (process.env + optional Upstash).
  *
- * Without shared storage the app runs in stateless mode: sessions and PKCE
+ * Without shared storage the app runs in stateless mode: sessions and Connect
  * state live in signed cookies, and the realtime version signal degrades
  * gracefully.
  */

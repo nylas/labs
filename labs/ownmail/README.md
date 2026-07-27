@@ -113,7 +113,7 @@ ownmail app-domain inbox.example.com --secondary
 ```
 
 OwnMail attaches the hostname to the recorded provider project, waits for HTTPS,
-registers the Hosted Auth callback, and reconciles one application-level Nylas
+registers the Nylas Connect callback, and reconciles one application-level Nylas
 webhook in place. DNS and certificates can take a few minutes. If setup is
 pending, follow any DNS instructions in the recorded provider project's Domain
 settings, then retry the exact command shown by OwnMail. The existing provider
@@ -212,7 +212,7 @@ outside that wired surface, such as free/busy, availability, scheduling,
 notetaker, templates, or workflows, should be proven against `dev:local` before
 they are added to the UI.
 
-To test the real hosted-auth and Nylas API flow locally, export the template
+To test the real Nylas Connect and Nylas API flow locally, export the template
 environment variables and run the Node SSR target:
 
 ```bash

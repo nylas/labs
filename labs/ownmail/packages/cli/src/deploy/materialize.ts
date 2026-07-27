@@ -270,7 +270,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 			'Upload `.vercel/output` to any host that supports the Vercel Build Output API.',
 			'The Vercel build uses the official Nitro adapter for TanStack Start.',
 			'',
-			'After the app has a public HTTPS URL, rerun `ownmail` and choose manual hosting again so the CLI can register the hosted-auth callback URL.',
+			'After the app has a public HTTPS URL, rerun `ownmail` and choose manual hosting again so the CLI can register the Nylas Connect callback URL.',
 			'',
 		].join('\n'),
 	)

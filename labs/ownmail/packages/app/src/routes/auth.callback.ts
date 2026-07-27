@@ -2,13 +2,13 @@ import { exchangeCodeForToken } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { platform } from '#server/platform'
-import { addVerifiedSessionAccount, consumePkce, getSession } from '#server/session'
+import { addVerifiedSessionAccount, consumeConnectState, getSession } from '#server/session'
 import { OWNMAIL_USER_AGENT } from '#server/usage-attribution'
 
 export const Route = createFileRoute('/auth/callback')({
 	server: {
 		handlers: {
-			/** Hosted-auth callback: code → grant, then cookie (+KV) session. */
+			/** Nylas Connect callback: code → grant, then cookie (+KV) session. */
 			GET: async ({ request }) => {
 				const { env } = await platform()
 				const url = new URL(request.url)
@@ -17,12 +17,12 @@ export const Route = createFileRoute('/auth/callback')({
 				const error = url.searchParams.get('error')
 				if (error) {
 					if (!state) return loginFailedResponse(callbackFailureMessage(error))
-					const failedAttempt = await consumePkce(request, state)
+					const failedAttempt = await consumeConnectState(request, state)
 					return loginFailedResponse(callbackFailureMessage(error), failedAttempt?.clearCookie)
 				}
 				if (!code || !state) return loginFailedResponse(callbackFailureMessage(null))
-				const pkce = await consumePkce(request, state)
-				if (!pkce) {
+				const connectState = await consumeConnectState(request, state)
+				if (!connectState) {
 					return loginFailedResponse('expired login attempt — please try again')
 				}
 
@@ -35,14 +35,13 @@ export const Route = createFileRoute('/auth/callback')({
 						clientSecret: env.NYLAS_API_KEY,
 						redirectUri: `${url.origin}/auth/callback`,
 						code,
-						codeVerifier: pkce.verifier,
 						userAgent: OWNMAIL_USER_AGENT,
 					})
 					const verifiedEmail = callbackEmail(token.email, env.INBOX_EMAIL, Boolean(existingSession))
 					if (!verifiedEmail) {
 						return loginFailedResponse(
 							'We couldn’t verify the email address for that inbox. Please try again.',
-							pkce.clearCookie,
+							connectState.clearCookie,
 						)
 					}
 					const headers = new Headers({ Location: MAIL_HOME_PATH })
@@ -50,12 +49,12 @@ export const Route = createFileRoute('/auth/callback')({
 						'Set-Cookie',
 						await addVerifiedSessionAccount(request, token.grant_id, verifiedEmail),
 					)
-					headers.append('Set-Cookie', pkce.clearCookie)
+					headers.append('Set-Cookie', connectState.clearCookie)
 					return new Response(null, { status: 302, headers })
 				} catch (err) {
 					reportTokenExchangeFailure(err)
 					// Never surface exchange internals to the browser.
-					return loginFailedResponse(tokenExchangeFailureMessage(err), pkce.clearCookie)
+					return loginFailedResponse(tokenExchangeFailureMessage(err), connectState.clearCookie)
 				}
 			},
 		},

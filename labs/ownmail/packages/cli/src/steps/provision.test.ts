@@ -921,7 +921,7 @@ describe('stepConnector', () => {
 		const ctx = baseCtx({ v3: { ensureConnector } as never })
 
 		await expect(stepConnector(ctx)).rejects.toThrow('connector boom')
-		expect(stop).toHaveBeenCalledWith('Could not configure the hosted-auth connector.')
+		expect(stop).toHaveBeenCalledWith('Could not configure the Nylas Connect connector.')
 		expect(markStep).not.toHaveBeenCalled()
 	})
 })

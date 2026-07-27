@@ -151,7 +151,7 @@ describe('AppRailNav', () => {
 		expect(screen.queryByDisplayValue('grant-b')).toBeNull()
 	})
 
-	it('offers the Hosted Auth proof flow for adding another inbox', () => {
+	it('offers the Nylas Connect proof flow for adding another inbox', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
 		expect(screen.getByRole('link', { name: 'Add inbox' })).toHaveAttribute('href', '/auth')
 	})

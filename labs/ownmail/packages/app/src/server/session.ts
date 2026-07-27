@@ -13,9 +13,9 @@
 import { platform } from './platform.js'
 
 const COOKIE_NAME = 'ownmail_session'
-const PKCE_COOKIE = 'ownmail_pkce'
+const CONNECT_STATE_COOKIE = 'ownmail_connect_state'
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14 // 14 days
-const PKCE_TTL_SECONDS = 600
+const CONNECT_STATE_TTL_SECONDS = 600
 const MAX_SESSION_ACCOUNTS = 10
 const MAX_SESSION_COOKIE_VALUE_LENGTH = 3800
 
@@ -98,7 +98,7 @@ export async function createSession(grantId: string, email: string): Promise<str
 }
 
 /**
- * Adds a mailbox only after Hosted Auth has verified its credentials. Existing
+ * Adds a mailbox only after Nylas Connect has verified its credentials. Existing
  * verified mailboxes remain available and the newly verified mailbox becomes active.
  */
 export async function addVerifiedSessionAccount(
@@ -264,38 +264,38 @@ export async function destroySession(request: Request): Promise<void> {
 	if (id) await kv.delete(`session:${id}`)
 }
 
-// ---- PKCE state (login flow) ---------------------------------------------------
+// ---- Nylas Connect state (login flow) ------------------------------------------
 
 /**
- * Persists one browser-bound PKCE attempt. The signed nonce cookie is always
- * required; KV additionally binds the verifier to the initiating account set.
+ * Persists one browser-bound Nylas Connect attempt. The signed nonce cookie is
+ * always required; KV additionally makes state single-use across the deployment.
  */
-export async function storePkce(request: Request, state: string, verifier: string): Promise<string> {
+export async function storeConnectState(request: Request, state: string): Promise<string> {
+	if (!validConnectState(state)) throw new Error('Invalid Nylas Connect state')
 	const { kv } = await platform()
 	const nonce = base64url(crypto.getRandomValues(new Uint8Array(32)))
 	const identity = await sessionAccountSetIdentity(request)
-	const exp = Math.floor(Date.now() / 1000) + PKCE_TTL_SECONDS
+	const exp = Math.floor(Date.now() / 1000) + CONNECT_STATE_TTL_SECONDS
 	if (kv) {
-		await kv.put(`pkce:${state}`, JSON.stringify({ verifier, nonce, identity }), {
-			expirationTtl: PKCE_TTL_SECONDS,
+		await kv.put(`connect:${state}`, JSON.stringify({ nonce, identity }), {
+			expirationTtl: CONNECT_STATE_TTL_SECONDS,
 		})
 	}
-	const payload = base64url(
-		encoder.encode(JSON.stringify({ s: state, n: nonce, i: identity, ...(!kv ? { v: verifier } : {}), exp })),
-	)
-	return setCookie(PKCE_COOKIE, `${payload}.${await hmac(payload)}`, PKCE_TTL_SECONDS)
+	const payload = base64url(encoder.encode(JSON.stringify({ s: state, n: nonce, i: identity, exp })))
+	return setCookie(CONNECT_STATE_COOKIE, `${payload}.${await hmac(payload)}`, CONNECT_STATE_TTL_SECONDS)
 }
 
-export function clearPkceCookie(): string {
-	return setCookie(PKCE_COOKIE, '', 0)
+export function clearConnectStateCookie(): string {
+	return setCookie(CONNECT_STATE_COOKIE, '', 0)
 }
 
-/** Retrieves + invalidates a verifier only in the browser/session that initiated it. */
-export async function consumePkce(
+/** Retrieves + invalidates state only in the browser/session that initiated it. */
+export async function consumeConnectState(
 	request: Request,
 	state: string,
-): Promise<{ verifier: string; clearCookie: string } | null> {
-	const value = cookieValue(request, PKCE_COOKIE)
+): Promise<{ clearCookie: string } | null> {
+	if (!validConnectState(state)) return null
+	const value = cookieValue(request, CONNECT_STATE_COOKIE)
 	if (!value) return null
 	const [payload, sig] = value.split('.')
 	if (!payload || !sig) return null
@@ -307,7 +307,6 @@ export async function consumePkce(
 			s?: unknown
 			n?: unknown
 			i?: unknown
-			v?: unknown
 			exp?: unknown
 		}
 		if (
@@ -323,23 +322,22 @@ export async function consumePkce(
 		const currentIdentity = await sessionAccountSetIdentity(request)
 		if (!timingSafeEqual(parsed.i, currentIdentity)) return null
 		const { kv } = await platform()
-		let verifier: string
 		if (kv) {
-			const raw = await kv.get(`pkce:${state}`)
+			const raw = await kv.get(`connect:${state}`)
 			if (!raw) return null
-			const stored = parseStoredPkce(raw)
+			const stored = parseStoredConnectState(raw)
 			if (!stored || !timingSafeEqual(stored.nonce, parsed.n) || !timingSafeEqual(stored.identity, parsed.i))
 				return null
-			verifier = stored.verifier
-			await kv.delete(`pkce:${state}`)
-		} else {
-			if (typeof parsed.v !== 'string') return null
-			verifier = parsed.v
+			await kv.delete(`connect:${state}`)
 		}
-		return { verifier, clearCookie: clearPkceCookie() }
+		return { clearCookie: clearConnectStateCookie() }
 	} catch {
 		return null
 	}
+}
+
+function validConnectState(state: string): boolean {
+	return /^[A-Za-z0-9_-]{1,128}$/.test(state)
 }
 
 async function sessionAccountSetIdentity(request: Request): Promise<string> {
@@ -352,13 +350,11 @@ async function sessionAccountSetIdentity(request: Request): Promise<string> {
 	return hmac(`session-accounts:${grantIds}`)
 }
 
-function parseStoredPkce(raw: string): { verifier: string; nonce: string; identity: string } | null {
+function parseStoredConnectState(raw: string): { nonce: string; identity: string } | null {
 	try {
 		const value = JSON.parse(raw) as Record<string, unknown>
-		return typeof value.verifier === 'string' &&
-			typeof value.nonce === 'string' &&
-			typeof value.identity === 'string'
-			? { verifier: value.verifier, nonce: value.nonce, identity: value.identity }
+		return typeof value.nonce === 'string' && typeof value.identity === 'string'
+			? { nonce: value.nonce, identity: value.identity }
 			: null
 	} catch {
 		return null

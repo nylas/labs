@@ -45,7 +45,7 @@ beforeEach(() => {
 })
 
 describe('login route loader', () => {
-	it('shows the login screen with the hosted-auth href for a real anonymous visitor', async () => {
+	it('shows the login screen with the Nylas Connect href for a real anonymous visitor', async () => {
 		usingDevMocks.mockResolvedValue(false)
 		getSession.mockResolvedValue(null)
 
