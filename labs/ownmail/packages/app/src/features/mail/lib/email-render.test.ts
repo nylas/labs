@@ -99,6 +99,16 @@ describe('shadowStyleText', () => {
 		expect(css).toContain('contain:none!important')
 		expect(css).toContain('overflow:visible!important')
 	})
+
+	it('uses zero-specificity email resets so sender rules can override the safe defaults', () => {
+		const css = shadowStyleText()
+
+		expect(css).toContain(':where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}')
+		expect(css).toContain(':where(.email-root) :where(body){margin:0;}')
+		expect(css).toContain(':where(.email-root) :where(img, video, svg){max-width:100%;height:auto;}')
+		expect(css).toContain(':where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;')
+		expect(css).not.toContain('.email-root body{margin:0!important')
+	})
 })
 
 describe('applyEmailHtml', () => {

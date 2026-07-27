@@ -38,7 +38,15 @@ describe('MessageBody (plain text)', () => {
 		const container = document.querySelector('[data-slot="plain-email-content"]')
 		const content = container?.querySelector('p')
 
-		expect(container).toHaveClass('overflow-hidden', 'rounded-xl', 'border', 'bg-card', 'p-5')
+		expect(container).toHaveClass(
+			'w-full',
+			'max-w-[72ch]',
+			'overflow-hidden',
+			'rounded-xl',
+			'border',
+			'bg-card',
+			'p-5',
+		)
 		expect(content).toHaveClass('whitespace-pre-wrap', 'break-words', '[overflow-wrap:anywhere]')
 		expect(content).toHaveTextContent(`First line\n  indented ${longToken}`, { normalizeWhitespace: false })
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()

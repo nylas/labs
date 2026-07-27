@@ -63,7 +63,7 @@ function PlainBody({ text }: { text: string }) {
 	return (
 		<div
 			data-slot="plain-email-content"
-			className="min-w-0 max-w-full space-y-3 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm"
+			className="w-full min-w-0 max-w-[72ch] space-y-3 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm"
 		>
 			{paragraphs.map((paragraph) => (
 				<p

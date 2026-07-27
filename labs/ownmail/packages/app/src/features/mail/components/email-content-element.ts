@@ -7,7 +7,7 @@ import {
 	scaledHeight,
 	shadowStyleText,
 } from '../lib/email-render.js'
-import { sanitizeEmailHtml } from '../lib/sanitize-email.js'
+import { sanitizeEmailDocument } from '../lib/sanitize-email.js'
 
 /**
  * `<ownmail-email>` — a Shadow-DOM custom element that renders sanitized email
@@ -102,7 +102,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		private renderContent(root: HTMLDivElement): void {
-			root.innerHTML = sanitizeEmailHtml(this.html)
+			const documentElement = sanitizeEmailDocument(this.html)
+			root.replaceChildren(...(documentElement ? [documentElement] : []))
 			rewriteAnchors(root)
 			this.measure()
 		}

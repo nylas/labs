@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { sanitizeEmailHtml, sanitizeProviderCss } from './sanitize-email.js'
+import { sanitizeEmailDocument, sanitizeEmailHtml, sanitizeProviderCss } from './sanitize-email.js'
 
 describe('sanitizeEmailHtml', () => {
 	it('returns an empty string unchanged', () => {
@@ -43,6 +43,26 @@ describe('sanitizeEmailHtml', () => {
 	it('keeps ordinary scoped email stylesheet rules', () => {
 		const css = '@media (max-width:600px){.card{width:100%}} .title{color:#434245}'
 		expect(sanitizeEmailHtml(`<style>${css}</style><p class="title">Hi</p>`)).toContain(css)
+	})
+
+	it('preserves safe document, body, and directionality attributes for faithful rendering', () => {
+		const documentElement = sanitizeEmailDocument(`
+			<html lang="ar" dir="rtl">
+				<head><style>body.sender-canvas { background: navy; color: white; }</style></head>
+				<body class="sender-canvas" id="message" style="margin:12px" onload="alert(1)">
+					<p>مرحبا</p>
+				</body>
+			</html>
+		`)
+		const body = documentElement?.querySelector('body')
+
+		expect(documentElement?.getAttribute('lang')).toBe('ar')
+		expect(documentElement?.getAttribute('dir')).toBe('rtl')
+		expect(documentElement?.querySelector('style')?.textContent).toContain('body.sender-canvas')
+		expect(body?.getAttribute('class')).toBe('sender-canvas')
+		expect(body?.getAttribute('id')).toBe('message')
+		expect(body?.getAttribute('style')).toBe('margin:12px')
+		expect(body?.hasAttribute('onload')).toBe(false)
 	})
 
 	it('drops stylesheets that can restyle the custom-element host', () => {
