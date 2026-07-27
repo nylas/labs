@@ -165,8 +165,10 @@ describe('thread header', () => {
 
 	it('renders the subject and its thread labels', () => {
 		renderThread()
-		expect(screen.getByRole('heading', { name: 'Hello' })).toBeInTheDocument()
+		const heading = screen.getByRole('heading', { name: 'Hello' })
+		expect(heading).toBeInTheDocument()
 		expect(screen.getByText('Work')).toBeInTheDocument()
+		expect(heading.closest('header')).toHaveClass('sticky', 'top-0', 'bg-muted', 'dark:bg-background')
 	})
 
 	it('falls back to "(no subject)" and shows no labels for an empty thread', () => {
@@ -241,13 +243,75 @@ describe('message list', () => {
 		renderThread()
 		// senders resolved from name, email, and the unknown fallback
 		expect(screen.getByText('Alice')).toBeInTheDocument()
-		expect(screen.getByText('carol@x.com')).toBeInTheDocument()
+		expect(screen.getAllByText('carol@x.com').length).toBeGreaterThan(0)
 		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
 		// last message expanded → recipient line and HTML body iframe present
 		expect(screen.getByText('to me')).toBeInTheDocument()
 		expect(screen.getByTitle('Email content m2')).toBeInTheDocument()
 		// collapsed earlier message shows its preview
 		expect(screen.getByText('first body line')).toBeInTheDocument()
+	})
+
+	it('expands and collapses every message from the thread overview controls', async () => {
+		const user = userEvent.setup()
+		renderThread()
+		const toggles = () => Array.from(document.querySelectorAll('article button[aria-expanded]'))
+
+		expect(toggles().map((button) => button.getAttribute('aria-expanded'))).toEqual([
+			'false',
+			'false',
+			'true',
+		])
+		await user.click(screen.getByRole('button', { name: 'Expand all' }))
+		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'true')).toBe(true)
+		expect(screen.getByRole('button', { name: 'Expand all' })).toBeDisabled()
+
+		await user.click(screen.getByRole('button', { name: 'Collapse all' }))
+		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'false')).toBe(true)
+		expect(screen.getByRole('button', { name: 'Collapse all' })).toBeDisabled()
+	})
+
+	it('discloses complete available addressing and timestamp details', async () => {
+		const user = userEvent.setup()
+		renderThread(
+			loaderData({
+				messages: [
+					{
+						id: 'm-details',
+						from: [{ name: 'Alice', email: 'alice@x.com' }],
+						to: [{ name: 'Bob', email: 'bob@x.com' }],
+						cc: [{ email: 'cc@x.com' }],
+						bcc: [{ email: 'bcc@x.com' }],
+						reply_to: [{ name: 'Replies', email: 'reply@x.com' }],
+						date: 1_700_000_000,
+						body: 'Detailed message',
+					},
+				],
+			}),
+		)
+		const summary = screen.getByText('Message details')
+		const details = summary.closest('details') as HTMLDetailsElement
+		expect(details.open).toBe(false)
+
+		await user.click(summary)
+		expect(details.open).toBe(true)
+		expect(screen.getByText('Alice <alice@x.com>')).toBeInTheDocument()
+		expect(screen.getByText('Bob <bob@x.com>')).toBeInTheDocument()
+		expect(screen.getByText('cc@x.com')).toBeInTheDocument()
+		expect(screen.getByText('bcc@x.com')).toBeInTheDocument()
+		expect(screen.getByText('Replies <reply@x.com>')).toBeInTheDocument()
+		expect(details.querySelector('time')).toHaveAttribute('datetime', '2023-11-14T22:13:20.000Z')
+	})
+
+	it('omits the details disclosure when a provider message has no metadata', () => {
+		renderThread(
+			loaderData({
+				messages: [{ id: 'm-no-details', body: 'Body without addressing metadata' }],
+			}),
+		)
+
+		expect(screen.queryByText('Message details')).not.toBeInTheDocument()
+		expect(screen.getByText('Body without addressing metadata')).toBeInTheDocument()
 	})
 
 	it('lets expanded message content reclaim the avatar gutter', () => {

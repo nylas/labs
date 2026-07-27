@@ -100,6 +100,18 @@ describe('<ownmail-email> rendering', () => {
 		expect(root?.querySelector('a')?.getAttribute('target')).toBe('_blank')
 	})
 
+	it('mounts the sanitized html/head/body tree instead of flattening sender document semantics', () => {
+		const el = mount(
+			'<html lang="fr"><head><style>body.canvas{background:navy}</style></head><body class="canvas" dir="rtl"><p>Bonjour</p></body></html>',
+		)
+		const root = el.shadowRoot?.querySelector('.email-root')
+
+		expect(root?.querySelector('html')).toHaveAttribute('lang', 'fr')
+		expect(root?.querySelector('head style')?.textContent).toContain('body.canvas')
+		expect(root?.querySelector('body')).toHaveAttribute('class', 'canvas')
+		expect(root?.querySelector('body')).toHaveAttribute('dir', 'rtl')
+	})
+
 	it('keeps OwnMail theme rules after broad provider styles in the shadow cascade', () => {
 		const el = mount('<style>div { filter: none !important; background: white !important; }</style><p>Hi</p>')
 		const children = Array.from(el.shadowRoot?.children ?? [])

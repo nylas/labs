@@ -94,9 +94,10 @@ export function linkPreviewText(href: string): string {
 
 /**
  * Stylesheet injected into the email's shadow root. The shadow boundary already
- * scopes these rules away from the app; they set sane email defaults and the
- * opt-in dark inversion. Inversion flips the whole document, then re-flips media
- * so photos and logos keep their real colors (the classic "smart invert").
+ * scopes these rules away from the app; zero-specificity resets provide stable
+ * defaults without beating sender CSS, while the host rules enforce containment
+ * and opt-in dark inversion. Inversion flips the whole document, then re-flips
+ * media so photos and logos keep their real colors (the classic "smart invert").
  */
 export function shadowStyleText(): string {
 	// Emails are authored for a white canvas, so we always render them on one — that
@@ -109,8 +110,12 @@ export function shadowStyleText(): string {
 	return `
 :host{display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;isolation:isolate;overflow:hidden;}
 .email-root{position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
-.email-root img{max-width:100%;height:auto;}
-.email-root table{max-width:100%;}
+:where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}
+:where(.email-root) :where(html, body){display:block;min-width:0;max-width:100%;}
+:where(.email-root) :where(body){margin:0;}
+:where(.email-root) :where(img, video, svg){max-width:100%;height:auto;}
+:where(.email-root) :where(table){max-width:100%;}
+:where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
 :host([data-dark-invert]){color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root img,
 :host([data-dark-invert]) .email-root video,

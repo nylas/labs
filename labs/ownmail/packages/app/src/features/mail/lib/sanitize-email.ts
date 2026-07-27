@@ -28,28 +28,30 @@ export function sanitizeProviderCss(css: string): string {
 	return css
 }
 
-function renderableFragment(sanitizedDocument: HTMLElement): string {
-	const output = sanitizedDocument.ownerDocument.createElement('div')
-	const approvedStyles: HTMLStyleElement[] = []
-
+function prepareSanitizedDocument(sanitizedDocument: HTMLElement): HTMLElement {
 	for (const style of Array.from(sanitizedDocument.querySelectorAll('style'))) {
 		const safeCss = sanitizeProviderCss(style.textContent)
-		style.remove()
-		if (!safeCss) continue
-
-		// Clone only the already-sanitized element shell, then assign CSS as text.
-		// This avoids reparsing provider markup while preserving safe attributes
-		// such as `media` that affect legitimate newsletter layouts.
-		const approved = style.cloneNode(false) as HTMLStyleElement
-		approved.textContent = safeCss
-		approvedStyles.push(approved)
+		if (!safeCss) {
+			style.remove()
+			continue
+		}
+		style.textContent = safeCss
 	}
+	return sanitizedDocument
+}
 
-	for (const style of approvedStyles) output.appendChild(style)
-	const body = sanitizedDocument.querySelector('body')
+function renderableFragment(sanitizedDocument: HTMLElement): string {
+	const serializedDocument = sanitizedDocument.cloneNode(true) as HTMLElement
+	const output = serializedDocument.ownerDocument.createElement('div')
+
+	for (const style of Array.from(serializedDocument.querySelectorAll('style'))) {
+		style.remove()
+		output.appendChild(style)
+	}
+	const body = serializedDocument.querySelector('body')
 	/* v8 ignore else -- DOMPurify WHOLE_DOCUMENT always returns an HTML body -- @preserve */
 	if (body) {
-		for (const child of Array.from(body.childNodes)) output.appendChild(child.cloneNode(true))
+		for (const child of Array.from(body.childNodes)) output.appendChild(child)
 	}
 	return output.innerHTML
 }
@@ -63,8 +65,12 @@ function renderableFragment(sanitizedDocument: HTMLElement): string {
  * navigation hijacking (`<form>`, `<iframe>`, `<meta>`, `<base>`, …). Normal
  * presentation CSS is retained, but stylesheet blocks that can target the
  * custom-element host or import uninspected CSS are removed after DOMPurify.
+ * The sanitized html/head/body tree is retained so body-scoped selectors,
+ * directionality, classes, and safe inline body presentation still describe the
+ * same document the sender authored.
  */
-export function sanitizeEmailHtml(html: string): string {
+export function sanitizeEmailDocument(html: string): HTMLElement | null {
+	if (!html.trim()) return null
 	const sanitized = DOMPurify.sanitize(html, {
 		// Fragment sanitization discards `<head>` and its legitimate email styles
 		// before our CSS boundary can inspect them. Sanitize the complete document,
@@ -91,5 +97,11 @@ export function sanitizeEmailHtml(html: string): string {
 	})
 	// DOMPurify's RETURN_DOM + WHOLE_DOCUMENT contract yields the sanitized
 	// document element; its public type is the wider Node interface.
-	return renderableFragment(sanitized as HTMLElement)
+	return prepareSanitizedDocument(sanitized as HTMLElement)
+}
+
+/** Serializable form used by tests and browser-only consumers that need markup. */
+export function sanitizeEmailHtml(html: string): string {
+	const sanitizedDocument = sanitizeEmailDocument(html)
+	return sanitizedDocument ? renderableFragment(sanitizedDocument) : ''
 }

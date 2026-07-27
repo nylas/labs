@@ -1,5 +1,5 @@
 import { ChevronDown, Download, Paperclip } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
 import { labelBadgeClass } from '#shared/lib/color-tone'
@@ -16,6 +16,10 @@ import { MessageBody } from './MessageBody.js'
  */
 export function ThreadConversation({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
 	const [preferences] = useUserPreferences()
+	const latestMessageId = messages.at(-1)?.id
+	const [openMessageIds, setOpenMessageIds] = useState<Set<string>>(
+		() => new Set(latestMessageId ? [latestMessageId] : []),
+	)
 	const labels = threadLabels(thread)
 	const threadAttachments = useMemo(
 		() =>
@@ -26,19 +30,58 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 			),
 		[messages],
 	)
+	const allMessagesOpen = messages.length > 0 && messages.every((message) => openMessageIds.has(message.id))
+	const allMessagesClosed = messages.every((message) => !openMessageIds.has(message.id))
+
+	useEffect(() => {
+		setOpenMessageIds(new Set(latestMessageId ? [latestMessageId] : []))
+	}, [latestMessageId])
+
+	function toggleMessage(messageId: string) {
+		setOpenMessageIds((current) => {
+			const next = new Set(current)
+			if (next.has(messageId)) next.delete(messageId)
+			else next.add(messageId)
+			return next
+		})
+	}
 
 	return (
 		<div data-slot="thread-conversation" className="min-h-full bg-muted dark:bg-background">
-			<header className="border-b border-border px-5 py-5 lg:px-8">
-				<div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-					<h1 className="font-display text-xl font-semibold text-balance lg:text-2xl">
-						{thread.subject || '(no subject)'}
-					</h1>
-					{labels.map((label) => (
-						<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
-							{label.name}
-						</span>
-					))}
+			<header className="sticky top-0 z-10 border-b border-border bg-muted px-5 py-5 dark:bg-background lg:px-8">
+				<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+					<div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
+						<h1 className="min-w-0 font-display text-xl font-semibold text-balance [overflow-wrap:anywhere] lg:text-2xl">
+							{thread.subject || '(no subject)'}
+						</h1>
+						{labels.map((label) => (
+							<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
+								{label.name}
+							</span>
+						))}
+					</div>
+
+					{messages.length > 1 ? (
+						<fieldset className="flex min-w-0 shrink-0 items-center gap-1 border-0 p-0">
+							<legend className="sr-only">Message display controls</legend>
+							<button
+								type="button"
+								onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
+								disabled={allMessagesOpen}
+								className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+							>
+								Expand all
+							</button>
+							<button
+								type="button"
+								onClick={() => setOpenMessageIds(new Set())}
+								disabled={allMessagesClosed}
+								className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+							>
+								Collapse all
+							</button>
+						</fieldset>
+					) : null}
 				</div>
 
 				{threadAttachments.length > 0 ? (
@@ -55,7 +98,8 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 					<MessageBlock
 						key={message.id}
 						message={message}
-						defaultOpen={index === messages.length - 1}
+						open={openMessageIds.has(message.id)}
+						onToggle={() => toggleMessage(message.id)}
 						isLast={index === messages.length - 1}
 						darkenEmail={preferences.emailDarkMode}
 					/>
@@ -67,16 +111,18 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 
 function MessageBlock({
 	message,
-	defaultOpen,
+	open,
+	onToggle,
 	isLast,
 	darkenEmail,
 }: {
 	message: MailMessage
-	defaultOpen: boolean
+	open: boolean
+	onToggle: () => void
 	isLast: boolean
 	darkenEmail: boolean
 }) {
-	const [open, setOpen] = useState(defaultOpen)
+	const contentId = useId()
 	const from = message.from?.[0]
 	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
@@ -86,9 +132,10 @@ function MessageBlock({
 			<div className="flex items-start gap-2">
 				<button
 					type="button"
-					onClick={() => setOpen((value) => !value)}
+					onClick={onToggle}
 					className="min-w-0 flex-1 text-left"
 					aria-expanded={open}
+					aria-controls={contentId}
 				>
 					{/*
 					 * The sender-identity row is a single line in every state, so the avatar
@@ -139,13 +186,58 @@ function MessageBlock({
 			</div>
 
 			{open ? (
-				<div data-slot="expanded-message-content" className="mt-4 min-w-0">
+				<div id={contentId} data-slot="expanded-message-content" className="mt-4 min-w-0">
+					<MessageDetails message={message} />
 					<MessageBody message={message} darkenEmail={darkenEmail} />
 					<MessageAttachments message={message} />
 				</div>
 			) : null}
 		</article>
 	)
+}
+
+const MESSAGE_ADDRESS_FIELDS = [
+	['from', 'From'],
+	['to', 'To'],
+	['cc', 'Cc'],
+	['bcc', 'Bcc'],
+	['reply_to', 'Reply-To'],
+] as const
+
+function MessageDetails({ message }: { message: MailMessage }) {
+	const addressRows = MESSAGE_ADDRESS_FIELDS.flatMap(([field, label]) => {
+		const participants = message[field]
+		return participants?.length ? [{ label, value: participants.map(formatParticipant).join(', ') }] : []
+	})
+	if (addressRows.length === 0 && !message.date) return null
+
+	return (
+		<details data-slot="message-details" className="mb-3 text-xs text-muted-foreground">
+			<summary className="w-fit cursor-pointer rounded-sm font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+				Message details
+			</summary>
+			<dl className="mt-2 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border border-border bg-card/60 p-3">
+				{addressRows.map((row) => (
+					<div key={row.label} className="contents">
+						<dt className="font-medium text-foreground">{row.label}</dt>
+						<dd className="min-w-0 [overflow-wrap:anywhere]">{row.value}</dd>
+					</div>
+				))}
+				{message.date ? (
+					<div className="contents">
+						<dt className="font-medium text-foreground">Date</dt>
+						<dd>
+							<ClientMessageTime epochSeconds={message.date} />
+						</dd>
+					</div>
+				) : null}
+			</dl>
+		</details>
+	)
+}
+
+function formatParticipant(participant: { email: string; name?: string }): string {
+	return participant.name ? `${participant.name} <${participant.email}>` : participant.email
 }
 
 function MessageAttachments({ message }: { message: MailMessage }) {
