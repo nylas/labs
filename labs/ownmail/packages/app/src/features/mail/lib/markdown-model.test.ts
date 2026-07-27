@@ -292,32 +292,31 @@ describe('markdownToEmailHtml', () => {
 		expect(markdownToEmailHtml(' \n ')).toBe('')
 	})
 
-	it('wraps paragraphs in an inline-styled base container', () => {
-		const html = markdownToEmailHtml('hello')
-		expect(html).toContain('<div style="font-family:Arial')
-		expect(html).toContain('<p style="margin:0 0 12px;">hello</p>')
+	it('uses native semantic HTML without presentation styles or a wrapper canvas', () => {
+		expect(markdownToEmailHtml('hello')).toBe('<p>hello</p>')
+		expect(markdownToEmailHtml('hello')).not.toContain('style=')
 	})
 
 	it('skips blank separator lines', () => {
 		const html = markdownToEmailHtml('a\n\nb')
-		expect(html).toContain('<p style="margin:0 0 12px;">a</p><p style="margin:0 0 12px;">b</p>')
+		expect(html).toBe('<p>a</p><p>b</p>')
 	})
 
-	it('renders headings with their own styles', () => {
-		expect(markdownToEmailHtml('# A')).toContain('<h1 style="margin:16px 0 12px;font-size:22px')
-		expect(markdownToEmailHtml('## B')).toContain('<h2 style=')
-		expect(markdownToEmailHtml('### C')).toContain('<h3 style=')
+	it('renders semantic headings without forcing typography', () => {
+		expect(markdownToEmailHtml('# A')).toBe('<h1>A</h1>')
+		expect(markdownToEmailHtml('## B')).toBe('<h2>B</h2>')
+		expect(markdownToEmailHtml('### C')).toBe('<h3>C</h3>')
 	})
 
 	it('merges adjacent bullets into one list', () => {
 		const html = markdownToEmailHtml('- a\n- b')
 		expect(html.match(/<ul/g)).toHaveLength(1)
-		expect(html).toContain('<li style="margin:0 0 4px;">a</li><li style="margin:0 0 4px;">b</li>')
+		expect(html).toContain('<li>a</li><li>b</li>')
 	})
 
 	it('merges numbered runs and only stamps start when it is not 1', () => {
-		expect(markdownToEmailHtml('1. a\n2. b')).toContain('<ol style=')
-		expect(markdownToEmailHtml('3. a\n4. b')).toContain('<ol start="3" style=')
+		expect(markdownToEmailHtml('1. a\n2. b')).toContain('<ol>')
+		expect(markdownToEmailHtml('3. a\n4. b')).toContain('<ol start="3">')
 	})
 
 	it('splits a list when the marker kind changes', () => {
@@ -341,13 +340,13 @@ describe('markdownToEmailHtml', () => {
 	})
 
 	it('flushes a trailing list and a trailing quote', () => {
-		expect(markdownToEmailHtml('p\n- a')).toContain('</ul></div>')
-		expect(markdownToEmailHtml('p\n> q')).toContain('</blockquote></div>')
+		expect(markdownToEmailHtml('p\n- a')).toBe('<p>p</p><ul><li>a</li></ul>')
+		expect(markdownToEmailHtml('p\n> q')).toBe('<p>p</p><blockquote>q</blockquote>')
 	})
 
-	it('styles inline code and links for mail clients', () => {
+	it('keeps inline code and links semantic and native-looking', () => {
 		const html = markdownToEmailHtml('`x` and [a](https://x.dev)')
-		expect(html).toContain('<code style="font-family:Consolas')
-		expect(html).toContain('<a href="https://x.dev" style="color:#2563eb;">a</a>')
+		expect(html).toBe('<p><code>x</code> and <a href="https://x.dev">a</a></p>')
+		expect(html).not.toMatch(/(?:background|color|font|style)=?/i)
 	})
 })

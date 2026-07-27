@@ -48,7 +48,7 @@ vi.mock('#app/components/AppRail', () => ({
 	AppRailLogo: ({ appName }: { appName: string }) => <div data-testid="logo">{appName}</div>,
 	AppRailNav: (props: any) => (
 		<div data-testid="railnav" data-email={props.email}>
-			<button type="button" onClick={props.onOpenCommandPalette}>
+			<button type="button" aria-label="Open command palette" onClick={props.onOpenCommandPalette}>
 				rail-open-palette
 			</button>
 		</div>
@@ -190,6 +190,8 @@ describe('MailRouteScreen — layout wiring', () => {
 
 	it('opens and closes the command palette', () => {
 		renderScreen()
+		expect(screen.queryByText('Commands')).toBeNull()
+		expect(screen.getAllByRole('button', { name: 'Open command palette' })).toHaveLength(1)
 		expect(screen.queryByTestId('palette')).toBeNull()
 		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
 		expect(screen.getByTestId('palette')).toBeInTheDocument()

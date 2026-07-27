@@ -84,18 +84,23 @@ function loaderData(overrides: any = {}): any {
 	}
 }
 
-function renderThread(data: any = loaderData(), search: any = {}) {
+function renderThread(
+	data: any = loaderData(),
+	search: any = {},
+	params = { folderId: 'inbox', threadId: 't1' },
+) {
 	Route.useLoaderData = vi.fn(() => data)
-	Route.useParams = vi.fn(() => ({ folderId: 'inbox', threadId: 't1' }))
+	Route.useParams = vi.fn(() => params)
 	Route.useSearch = vi.fn(() => search)
 	const Component = Route.options.component
-	return render(
-		<QueryClientProvider
-			client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}
-		>
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+	const screen = () => (
+		<QueryClientProvider client={queryClient}>
 			<Component />
-		</QueryClientProvider>,
+		</QueryClientProvider>
 	)
+	const rendered = render(screen())
+	return { ...rendered, rerenderThread: () => rendered.rerender(screen()) }
 }
 
 // --- loader & validateSearch --------------------------------------------
@@ -198,6 +203,20 @@ describe('thread header', () => {
 // --- message list -------------------------------------------------------
 
 describe('message list', () => {
+	it('resets the conversation scroll position before painting a newly selected thread', () => {
+		const params = { folderId: 'inbox', threadId: 't1' }
+		const { rerenderThread } = renderThread(loaderData(), {}, params)
+		const viewport = screen.getByRole('region', { name: 'Thread conversation' })
+		viewport.scrollTop = 480
+
+		params.threadId = 't2'
+		rerenderThread()
+
+		const nextViewport = screen.getByRole('region', { name: 'Thread conversation' })
+		expect(nextViewport).not.toBe(viewport)
+		expect(nextViewport.scrollTop).toBe(0)
+	})
+
 	it('offers a separate raw email download for each individual message', () => {
 		renderThread(
 			loaderData({
@@ -547,6 +566,111 @@ describe('keyboard shortcuts', () => {
 		})
 		input.remove()
 		expect(updateThreadState).not.toHaveBeenCalled()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('opens a reply to the latest message on "r"', async () => {
+		renderThread()
+		await act(async () => {
+			fireEvent.keyDown(document.body, { key: 'r' })
+		})
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({
+					folderId: 'inbox',
+					threadId: 't1',
+					replyToMessageId: 'm2',
+					to: 'carol@x.com',
+				}),
+			}),
+		)
+	})
+
+	it('falls back to the event target when a reply event has no composed path', () => {
+		renderThread()
+		const event = new KeyboardEvent('keydown', { key: 'r', bubbles: true, cancelable: true })
+		Object.defineProperty(event, 'composedPath', { value: () => [] })
+
+		document.body.dispatchEvent(event)
+
+		expect(event.defaultPrevented).toBe(true)
+		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+	})
+
+	it('does not open a reply from interactive controls, with modifiers, or while a dialog is open', async () => {
+		renderThread()
+		const input = document.createElement('input')
+		const textarea = document.createElement('textarea')
+		const select = document.createElement('select')
+		const button = document.createElement('button')
+		const anchor = document.createElement('a')
+		const summary = document.createElement('summary')
+		const editable = document.createElement('div')
+		const dialog = document.createElement('div')
+		Object.defineProperty(editable, 'isContentEditable', { value: true, configurable: true })
+		anchor.href = '/safe-test-target'
+		dialog.setAttribute('role', 'dialog')
+		document.body.append(input, textarea, select, button, anchor, summary, editable)
+
+		await act(async () => {
+			for (const control of [input, textarea, select, button, anchor, summary, editable]) {
+				fireEvent.keyDown(control, { key: 'r' })
+			}
+			fireEvent.keyDown(document.body, { key: 'r', repeat: true })
+			fireEvent.keyDown(document.body, { key: 'r', metaKey: true })
+			fireEvent.keyDown(document.body, { key: 'r', ctrlKey: true })
+			fireEvent.keyDown(document.body, { key: 'r', altKey: true })
+			fireEvent.keyDown(document.body, { key: 'R', shiftKey: true })
+			document.body.appendChild(dialog)
+			fireEvent.keyDown(document.body, { key: 'r' })
+			fireEvent.keyDown(document.body, { key: 'e' })
+		})
+
+		for (const control of [input, textarea, select, button, anchor, summary, editable]) control.remove()
+		dialog.remove()
+		expect(navigate).not.toHaveBeenCalled()
+		expect(updateThreadState).not.toHaveBeenCalled()
+	})
+
+	it('respects a previously prevented reply shortcut', () => {
+		renderThread()
+		const event = new KeyboardEvent('keydown', { key: 'r', bubbles: true, cancelable: true })
+		event.preventDefault()
+
+		document.body.dispatchEvent(event)
+
+		expect(event.defaultPrevented).toBe(true)
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('ignores reply shortcuts retargeted from interactive HTML-email shadow content', () => {
+		renderThread()
+		const email = screen.getByTitle('Email content m2')
+		const emailRoot = email.shadowRoot?.querySelector('.email-root')
+		const anchor = document.createElement('a')
+		anchor.href = 'https://example.com'
+		emailRoot?.appendChild(anchor)
+		let retargetedTarget: EventTarget | null = null
+		window.addEventListener(
+			'keydown',
+			(event) => {
+				retargetedTarget = event.target
+			},
+			{ once: true },
+		)
+
+		anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true, composed: true }))
+
+		expect(retargetedTarget).toBe(email)
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('does nothing on "r" when the thread has no message to reply to', async () => {
+		renderThread(loaderData({ messages: [] }))
+		await act(async () => {
+			fireEvent.keyDown(document.body, { key: 'r' })
+		})
 		expect(navigate).not.toHaveBeenCalled()
 	})
 

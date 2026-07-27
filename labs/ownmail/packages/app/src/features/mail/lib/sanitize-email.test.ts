@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { sanitizeEmailHtml } from './sanitize-email.js'
+import { sanitizeEmailHtml, sanitizeProviderCss } from './sanitize-email.js'
 
 describe('sanitizeEmailHtml', () => {
 	it('returns an empty string unchanged', () => {
@@ -38,5 +38,67 @@ describe('sanitizeEmailHtml', () => {
 		expect(out).toContain('href="https://ok.com"')
 		expect(out).toContain('src="https://ok.com/a.png"')
 		expect(out).toContain('style="color:red"')
+	})
+
+	it('keeps ordinary scoped email stylesheet rules', () => {
+		const css = '@media (max-width:600px){.card{width:100%}} .title{color:#434245}'
+		expect(sanitizeEmailHtml(`<style>${css}</style><p class="title">Hi</p>`)).toContain(css)
+	})
+
+	it('drops stylesheets that can restyle the custom-element host', () => {
+		const exploit = ':host{position:fixed!important;inset:0!important;z-index:99999!important}'
+		const out = sanitizeEmailHtml(`<style>${exploit}</style><p>Safe content</p>`)
+		expect(out).toBe('<p>Safe content</p>')
+	})
+
+	it('handles adjacent styles independently without reconstructing provider markup', () => {
+		const out = sanitizeEmailHtml(
+			'<style>.first{color:red}</style>' +
+				'<style>:host{position:fixed}</style>' +
+				'<style>.last{color:blue}</style><p>Content</p>',
+		)
+		expect(out).toBe('<style>.first{color:red}</style><style>.last{color:blue}</style><p>Content</p>')
+	})
+
+	it('moves a vetted body-nested style to the detached output without duplicating it', () => {
+		const out = sanitizeEmailHtml(
+			'<section><style media="screen and (max-width:600px)">.card{width:100%}</style><p class="card">Hi</p></section>',
+		)
+		expect(out).toBe(
+			'<style media="screen and (max-width:600px)">.card{width:100%}</style><section><p class="card">Hi</p></section>',
+		)
+	})
+
+	it('uses DOM parsing semantics for malformed style closing markup', () => {
+		const out = sanitizeEmailHtml('<style>.safe{color:red}</style junk><p>After</p>')
+		expect(out).toBe('<style>.safe{color:red}</style><p>After</p>')
+	})
+
+	it('fails closed for nested style-like text containing a host selector', () => {
+		const out = sanitizeEmailHtml('<style>.safe{color:red}<style>:host{position:fixed}</style><p>After</p>')
+		expect(out).toBe('<p>After</p>')
+	})
+
+	it('does not reconstruct malformed split style tags', () => {
+		const out = sanitizeEmailHtml('<sty<style>le>:host{position:fixed}</style><p>Safe</p>')
+		expect(out).not.toContain('<style')
+		expect(out).toContain('Safe')
+	})
+
+	it('fails closed for host selectors hidden with CSS escapes or comments', () => {
+		expect(sanitizeProviderCss(String.raw`:h\6f st { position: fixed }`)).toBe('')
+		expect(sanitizeProviderCss(':h/**/ost { position: fixed }')).toBe('')
+		expect(sanitizeProviderCss(':host/**/-context(.dark) { position: fixed }')).toBe('')
+	})
+
+	it('replaces invalid CSS escape code points during security inspection', () => {
+		const css = String.raw`.label-\110000 { color: red }`
+		expect(sanitizeProviderCss(css)).toBe(css)
+	})
+
+	it('drops imported stylesheets before they can load uninspected rules', () => {
+		expect(sanitizeProviderCss('@import url("https://evil.example/host.css"); p { color: red }')).toBe('')
+		expect(sanitizeProviderCss('@im/**/port "https://evil.example/host.css";')).toBe('')
+		expect(sanitizeProviderCss(String.raw`@\69 mport "https://evil.example/host.css";`)).toBe('')
 	})
 })

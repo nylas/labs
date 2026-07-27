@@ -232,15 +232,6 @@ export function MailRouteScreen({
 									)}
 								</div>
 							</form>
-							<button
-								type="button"
-								onClick={openPalette}
-								className="hidden shrink-0 items-center gap-2 border-r border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:flex"
-								aria-label="Open command palette"
-							>
-								<span className="hidden lg:inline">Commands</span>
-								<kbd className="kbd">⌘K</kbd>
-							</button>
 							<div className="hidden shrink-0 items-center px-3 text-xs text-muted-foreground xl:flex">
 								<kbd className="kbd">C</kbd>
 								<span className="ml-1.5">compose</span>

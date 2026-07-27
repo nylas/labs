@@ -80,9 +80,15 @@ export function threadRouteFolderId(thread: MailThread): MailFolderId {
 }
 
 export function messagePreview(message: MailMessage): string {
-	if (message.snippet) return message.snippet
+	if (message.snippet) return readableSnippet(message.snippet)
 	if (!message.body) return ''
 	return plainTextFromHtml(message.body)
+}
+
+/** Project provider-supplied snippets onto one readable, tag-free text line. */
+export function readableSnippet(snippet: string | null | undefined): string {
+	if (!snippet) return ''
+	return plainTextFromHtml(snippet)
 }
 
 export function collapsedMessagePreview(message: MailMessage): string {
@@ -90,7 +96,7 @@ export function collapsedMessagePreview(message: MailMessage): string {
 }
 
 export function messageBodyParagraphs(message: MailMessage): string[] {
-	const source = message.body ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
+	const source = message.body ? plainTextFromHtml(message.body, true) : readableSnippet(message.snippet)
 	return source
 		.split(/\n{2,}/)
 		.map((paragraph) =>
@@ -110,11 +116,165 @@ export function messageHasHtml(message: MailMessage): boolean {
 
 function plainTextFromHtml(html: string, preserveParagraphs = false): string {
 	const paragraphBreak = preserveParagraphs ? '\n\n' : ' '
-	const text = decodeHtmlEntities(htmlTextContent(html, paragraphBreak)).replace(/\u00a0/g, ' ')
+	const source = hasHtmlMarkup(html) ? htmlTextContent(html, paragraphBreak) : html
+	const text = decodeHtmlEntities(source).replace(/\u00a0/g, ' ')
 	return text
 		.replace(/[ \t]+/g, ' ')
 		.replace(preserveParagraphs ? /\n{3,}/g : /\s+/g, preserveParagraphs ? '\n\n' : ' ')
 		.trim()
+}
+
+const HTML_MARKUP_TAGS = new Set([
+	'a',
+	'abbr',
+	'acronym',
+	'address',
+	'applet',
+	'area',
+	'article',
+	'aside',
+	'audio',
+	'b',
+	'base',
+	'bdi',
+	'bdo',
+	'big',
+	'blockquote',
+	'body',
+	'br',
+	'button',
+	'canvas',
+	'caption',
+	'center',
+	'cite',
+	'code',
+	'col',
+	'colgroup',
+	'data',
+	'datalist',
+	'dd',
+	'del',
+	'details',
+	'dfn',
+	'dialog',
+	'dir',
+	'div',
+	'dl',
+	'dt',
+	'em',
+	'embed',
+	'fieldset',
+	'figcaption',
+	'figure',
+	'font',
+	'footer',
+	'form',
+	'frame',
+	'frameset',
+	'h1',
+	'h2',
+	'h3',
+	'h4',
+	'h5',
+	'h6',
+	'head',
+	'header',
+	'hgroup',
+	'hr',
+	'html',
+	'i',
+	'iframe',
+	'img',
+	'input',
+	'ins',
+	'kbd',
+	'label',
+	'legend',
+	'li',
+	'link',
+	'main',
+	'map',
+	'mark',
+	'marquee',
+	'math',
+	'menu',
+	'meta',
+	'meter',
+	'nav',
+	'nobr',
+	'noembed',
+	'noframes',
+	'noscript',
+	'object',
+	'ol',
+	'optgroup',
+	'option',
+	'output',
+	'p',
+	'param',
+	'picture',
+	'plaintext',
+	'pre',
+	'progress',
+	'q',
+	'rb',
+	'rp',
+	'rt',
+	'rtc',
+	'ruby',
+	's',
+	'samp',
+	'script',
+	'search',
+	'section',
+	'select',
+	'small',
+	'slot',
+	'source',
+	'span',
+	'strike',
+	'strong',
+	'style',
+	'sub',
+	'summary',
+	'sup',
+	'svg',
+	'table',
+	'tbody',
+	'td',
+	'template',
+	'textarea',
+	'tfoot',
+	'th',
+	'thead',
+	'time',
+	'title',
+	'tr',
+	'track',
+	'tt',
+	'u',
+	'ul',
+	'var',
+	'video',
+	'wbr',
+	'xmp',
+])
+
+function hasHtmlMarkup(value: string): boolean {
+	let cursor = 0
+	while (cursor < value.length) {
+		const start = value.indexOf('<', cursor)
+		if (start === -1) return false
+		const end = htmlTokenEnd(value, start)
+		if (end === -1) return false
+		const tag = value.slice(start + 1, end)
+		const trimmed = tag.trimStart()
+		const tagName = htmlTagName(tag)
+		if ((tagName && HTML_MARKUP_TAGS.has(tagName)) || trimmed.startsWith('!') || trimmed.startsWith('?'))
+			return true
+		cursor = end + 1
+	}
+	return false
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -138,13 +298,24 @@ function htmlTextContent(html: string, paragraphBreak: string): string {
 			break
 		}
 		text += html.slice(cursor, tagStart)
-		const tagEnd = html.indexOf('>', tagStart + 1)
+		const tagEnd = htmlTokenEnd(html, tagStart)
 		if (tagEnd === -1) {
 			text += html.slice(tagStart)
 			break
 		}
 		const tag = html.slice(tagStart + 1, tagEnd)
 		const tagName = htmlTagName(tag)
+		if (!tagName) {
+			const trimmed = tag.trimStart()
+			if (trimmed.startsWith('!') || trimmed.startsWith('?')) {
+				text += ' '
+				cursor = tagEnd + 1
+				continue
+			}
+			text += '<'
+			cursor = tagStart + 1
+			continue
+		}
 		if (tagName === 'script' || tagName === 'style') {
 			cursor = afterRawTextElement(html, tagEnd + 1, tagName)
 			text += ' '
@@ -163,40 +334,64 @@ function afterRawTextElement(html: string, cursor: number, tagName: 'script' | '
 	while (next < html.length) {
 		const closeStart = html.indexOf('<', next)
 		if (closeStart === -1) return html.length
-		const closeEnd = html.indexOf('>', closeStart + 1)
+		if (!isRawTextClosingCandidate(html, closeStart, tagName)) {
+			next = closeStart + 1
+			continue
+		}
+		const closeEnd = htmlTokenEnd(html, closeStart)
 		if (closeEnd === -1) return html.length
-		const tag = html.slice(closeStart + 1, closeEnd)
-		if (isClosingTag(tag, tagName)) return closeEnd + 1
-		next = closeEnd + 1
+		return closeEnd + 1
 	}
 	return html.length
 }
 
+function isRawTextClosingCandidate(html: string, tagStart: number, tagName: 'script' | 'style'): boolean {
+	let index = tagStart + 1
+	while (index < html.length && isAsciiWhitespace(html.charCodeAt(index))) index++
+	if (html[index] !== '/') return false
+	index++
+	while (index < html.length && isAsciiWhitespace(html.charCodeAt(index))) index++
+	if (html.slice(index, index + tagName.length).toLowerCase() !== tagName) return false
+	const next = html.charCodeAt(index + tagName.length)
+	return Number.isNaN(next) || next === 47 || next === 62 || isAsciiWhitespace(next)
+}
+
+function htmlTokenEnd(html: string, tagStart: number): number {
+	if (html.startsWith('<!--', tagStart)) {
+		const commentEnd = html.indexOf('-->', tagStart + 4)
+		return commentEnd === -1 ? html.length : commentEnd + 2
+	}
+
+	let quote = ''
+	for (let index = tagStart + 1; index < html.length; index++) {
+		const character = html[index]
+		if (quote) {
+			if (character === quote) quote = ''
+			continue
+		}
+		if (character === '"' || character === "'") quote = character
+		else if (character === '>') return index
+	}
+	return -1
+}
+
 function htmlTagName(tag: string): string {
 	let index = 0
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
 	if (tag[index] === '/') index++
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
 	const start = index
+	if (!isAsciiLetter(tag.charCodeAt(index))) return ''
 	while (index < tag.length && isTagNameChar(tag.charCodeAt(index))) index++
 	return tag.slice(start, index).toLowerCase()
 }
 
-function isClosingTag(tag: string, tagName: string): boolean {
-	let index = 0
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
-	if (tag[index] !== '/') return false
-	index++
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
-	if (tag.slice(index, index + tagName.length).toLowerCase() !== tagName) return false
-	const next = tag.charCodeAt(index + tagName.length)
-	return Number.isNaN(next) || next === 47 || isAsciiWhitespace(next)
+function isClosingTag(tag: string): boolean {
+	return tag[0] === '/'
 }
 
 function isClosingBlockTag(tag: string, tagName: string): boolean {
 	const headingLevel = tagName[1]
 	return (
-		isClosingTag(tag, tagName) &&
+		isClosingTag(tag) &&
 		(tagName === 'p' ||
 			tagName === 'div' ||
 			tagName === 'li' ||
@@ -215,6 +410,10 @@ function isAsciiWhitespace(code: number): boolean {
 
 function isTagNameChar(code: number): boolean {
 	return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function isAsciiLetter(code: number): boolean {
+	return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
 }
 
 function decodeNamedEntity(body: string): string | undefined {

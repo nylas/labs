@@ -16,9 +16,9 @@
  * headings, `- `/`* ` bullets, `1. ` numbered items, `> ` quotes, `**bold**`,
  * `*italic*`/`_italic_`, `` `code` ``, `[text](url)` and `\` escapes.
  *
- * `markdownToEmailHtml` serialises the same syntax to HTML for outgoing mail:
- * every element carries inline styles (no `<style>` block, no classes), which
- * is the form that survives Gmail, Outlook and friends intact.
+ * `markdownToEmailHtml` serialises the same syntax to small, semantic HTML for
+ * outgoing mail. It deliberately leaves typography and colors to the receiving
+ * client so a simple note still looks like a native email there.
  */
 
 export type LineKind = 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'number' | 'quote'
@@ -396,26 +396,13 @@ export function wrapLink(source: string, start: number, end: number): { source: 
 
 // ---- email HTML ----------------------------------------------------------------
 
-const EMAIL = {
-	base: 'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;',
-	p: 'margin:0 0 12px;',
-	h1: 'margin:16px 0 12px;font-size:22px;line-height:1.3;font-weight:bold;',
-	h2: 'margin:16px 0 12px;font-size:18px;line-height:1.3;font-weight:bold;',
-	h3: 'margin:16px 0 12px;font-size:16px;line-height:1.3;font-weight:bold;',
-	list: 'margin:0 0 12px;padding:0 0 0 24px;',
-	li: 'margin:0 0 4px;',
-	quote: 'margin:0 0 12px;padding:0 0 0 12px;border-left:3px solid #d1d5db;color:#6b7280;',
-	code: 'font-family:Consolas,Menlo,monospace;font-size:13px;background-color:#f3f4f6;padding:1px 4px;border-radius:3px;',
-	link: 'color:#2563eb;',
-} as const
-
-const EMAIL_INLINE: InlineStyles = { code: EMAIL.code, link: EMAIL.link }
-
 /**
  * Serialise markdown to HTML for an outgoing email. Adjacent list items merge
  * into one list, adjacent quote lines merge into one blockquote, and blank
- * lines only separate blocks. Everything is inline-styled so it renders the
- * same across mail clients; returns '' when the message is effectively empty.
+ * lines only separate blocks. The output contains semantic structure only: no
+ * forced font, foreground/background color, sizing, or spacing. That lets each
+ * receiving client apply its native message presentation and dark-mode rules.
+ * Returns '' when the message is effectively empty.
  */
 export function markdownToEmailHtml(source: string): string {
 	if (markdownIsEmpty(source)) return ''
@@ -425,12 +412,12 @@ export function markdownToEmailHtml(source: string): string {
 	const flushList = () => {
 		if (!list) return
 		const start = list.tag === 'ol' && list.start !== 1 ? ` start="${list.start}"` : ''
-		parts.push(`<${list.tag}${start} style="${EMAIL.list}">${list.items.join('')}</${list.tag}>`)
+		parts.push(`<${list.tag}${start}>${list.items.join('')}</${list.tag}>`)
 		list = null
 	}
 	const flushQuote = () => {
 		if (quote.length === 0) return
-		parts.push(`<blockquote style="${EMAIL.quote}">${quote.join('<br>')}</blockquote>`)
+		parts.push(`<blockquote>${quote.join('<br>')}</blockquote>`)
 		quote = []
 	}
 	for (const line of source.split('\n')) {
@@ -442,25 +429,23 @@ export function markdownToEmailHtml(source: string): string {
 				flushList()
 				list = { tag, start: info.ordinal, items: [] }
 			}
-			list.items.push(`<li style="${EMAIL.li}">${renderLine(line, EMAIL_INLINE).html}</li>`)
+			list.items.push(`<li>${renderLine(line).html}</li>`)
 			continue
 		}
 		flushList()
 		if (info.kind === 'quote') {
-			quote.push(renderLine(line, EMAIL_INLINE).html)
+			quote.push(renderLine(line).html)
 			continue
 		}
 		flushQuote()
 		if (line === '') continue
 		if (info.kind === 'paragraph') {
-			parts.push(`<p style="${EMAIL.p}">${renderLine(line, EMAIL_INLINE).html}</p>`)
+			parts.push(`<p>${renderLine(line).html}</p>`)
 		} else {
-			parts.push(
-				`<${info.kind} style="${EMAIL[info.kind]}">${renderLine(line, EMAIL_INLINE).html}</${info.kind}>`,
-			)
+			parts.push(`<${info.kind}>${renderLine(line).html}</${info.kind}>`)
 		}
 	}
 	flushList()
 	flushQuote()
-	return `<div style="${EMAIL.base}">${parts.join('')}</div>`
+	return parts.join('')
 }

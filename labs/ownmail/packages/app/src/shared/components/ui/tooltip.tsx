@@ -9,10 +9,14 @@ export function TooltipProvider({
 	return <TooltipPrimitive.Provider data-slot="tooltip-provider" delayDuration={delayDuration} {...props} />
 }
 
+type TooltipProps = React.ComponentProps<typeof TooltipPrimitive.Root> & {
+	delayDuration?: number
+}
+
 /** Self-contained tooltip (bundles its own Provider) so callers don't need a root provider. */
-export function Tooltip(props: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+export function Tooltip({ delayDuration, ...props }: TooltipProps) {
 	return (
-		<TooltipProvider>
+		<TooltipProvider delayDuration={delayDuration}>
 			<TooltipPrimitive.Root data-slot="tooltip" {...props} />
 		</TooltipProvider>
 	)

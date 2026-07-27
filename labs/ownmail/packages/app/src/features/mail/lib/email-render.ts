@@ -101,18 +101,20 @@ export function linkPreviewText(href: string): string {
 export function shadowStyleText(): string {
 	// Emails are authored for a white canvas, so we always render them on one — that
 	// keeps minimally-styled mail (plain <p> text) readable in either theme. Dark mode
-	// is a single filter on that whole canvas: white bg → dark, dark text → light. The
-	// background must live on the *inverted* element (not a separate layer), or the
-	// filter flips it the wrong way. Media is re-inverted so photos keep true colors.
+	// filters the custom-element host rather than `.email-root`, because provider
+	// styles live in this shadow tree and commonly use broad selectors such as `div`.
+	// The host is outside those selectors, so a hard-coded white newsletter cannot
+	// cancel the transform. Layout/paint containment also bounds positioned provider
+	// content to the message surface. Media is re-inverted so photos keep true colors.
 	return `
-:host{display:block;}
-.email-root{background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
+:host{display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;isolation:isolate;overflow:hidden;}
+.email-root{position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
 .email-root img{max-width:100%;height:auto;}
 .email-root table{max-width:100%;}
-:host([data-dark-invert]) .email-root{filter:invert(1) hue-rotate(180deg);}
+:host([data-dark-invert]){color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root img,
 :host([data-dark-invert]) .email-root video,
-:host([data-dark-invert]) .email-root [style*="background-image"]{filter:invert(1) hue-rotate(180deg);}
+:host([data-dark-invert]) .email-root [style*="background-image"]{filter:invert(1) hue-rotate(180deg)!important;}
 `.trim()
 }
 

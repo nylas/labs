@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Check, KeyRound, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
+import { Check, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
@@ -280,6 +280,19 @@ function SettingsPage() {
 						<p className="border-t border-border pt-6 text-xs text-muted-foreground">
 							OwnMail v{OWNMAIL_VERSION}
 						</p>
+
+						<section className="border-t border-border pt-6">
+							<h2 className="font-display text-lg font-semibold">Sign out</h2>
+							<p className="mt-1 text-sm text-muted-foreground">
+								End your session on this device. Your connected inboxes and settings will be preserved.
+							</p>
+							<form action="/logout" method="post" className="mt-4">
+								<Button type="submit" variant="destructive">
+									<LogOut className="h-4 w-4" />
+									Sign out
+								</Button>
+							</form>
+						</section>
 					</div>
 				</main>
 			</div>

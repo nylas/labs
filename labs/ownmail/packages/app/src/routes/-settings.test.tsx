@@ -99,6 +99,18 @@ describe('/settings', () => {
 		expect(screen.getByText(/^OwnMail v[0-9A-Za-z][0-9A-Za-z.-]*$/)).toBeInTheDocument()
 	})
 
+	it('places sign out last in settings as a destructive POST action', () => {
+		renderSettings()
+
+		const headings = screen.getAllByRole('heading', { level: 2 })
+		expect(headings.at(-1)).toHaveTextContent('Sign out')
+		const signOut = screen.getByRole('button', { name: 'Sign out' })
+		expect(signOut).toHaveAttribute('type', 'submit')
+		expect(signOut).toHaveClass('bg-destructive')
+		expect(signOut.closest('form')).toHaveAttribute('action', '/logout')
+		expect(signOut.closest('form')).toHaveAttribute('method', 'post')
+	})
+
 	it('persists the account name before saving device preferences', async () => {
 		renderSettings()
 		expect(screen.getByLabelText('Darken email content automatically')).toBeChecked()
