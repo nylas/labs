@@ -30,7 +30,7 @@ type AppDomainOptions = {
 }
 
 /**
- * Attaches a domain to the hosted mailbox app, registers Hosted Auth, and
+ * Attaches a domain to the hosted mailbox app, registers Nylas Connect, and
  * moves the one application-level realtime webhook when the domain is primary.
  * The previous primary remains active until the new origin is healthy.
  */
@@ -239,7 +239,7 @@ function preflightProject(project: ProjectState): void {
 	}
 	if (project.hostingProvider === 'manual') {
 		throw new Error(
-			'OwnMail cannot automate custom domains for manual hosting. Configure the domain, Hosted Auth callback, and Nylas webhook in your hosting and Nylas dashboards.',
+			'OwnMail cannot automate custom domains for manual hosting. Configure the domain, Nylas Connect callback, and Nylas webhook in your hosting and Nylas dashboards.',
 		)
 	}
 	requireApplicationId(project)

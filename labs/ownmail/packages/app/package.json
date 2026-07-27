@@ -68,6 +68,7 @@
 	},
 	"dependencies": {
 		"@nylas-labs/cli-kit": "workspace:*",
+		"@nylas/connect": "^1.2.5",
 		"@radix-ui/react-dialog": "^1.1.21",
 		"@radix-ui/react-scroll-area": "^1.2.16",
 		"@radix-ui/react-select": "^2.3.5",

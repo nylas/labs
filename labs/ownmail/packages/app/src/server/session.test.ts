@@ -3,14 +3,14 @@ import type { KvLike } from './platform.js'
 import {
 	addVerifiedSessionAccount,
 	clearSessionCookie,
-	consumePkce,
+	consumeConnectState,
 	createReferenceDevSessionCookie,
 	createSession,
 	destroySession,
 	getSession,
 	hasReferenceDevSessionCookie,
 	sessionAccountSummaries,
-	storePkce,
+	storeConnectState,
 	switchSessionAccount,
 } from './session.js'
 
@@ -57,8 +57,8 @@ function cookieFromSetCookie(setCookie: string): string {
 	return setCookie.slice('ownmail_session='.length, setCookie.indexOf(';'))
 }
 
-function pkceCookieFromSetCookie(setCookie: string): string {
-	return setCookie.slice('ownmail_pkce='.length, setCookie.indexOf(';'))
+function connectCookieFromSetCookie(setCookie: string): string {
+	return setCookie.slice('ownmail_connect_state='.length, setCookie.indexOf(';'))
 }
 
 beforeEach(() => {
@@ -335,85 +335,93 @@ describe('KV-backed sessions', () => {
 		expect(kv.store.size).toBe(0)
 	})
 
-	it('persists PKCE verifiers server-side and binds them to a signed browser nonce', async () => {
+	it('persists Nylas Connect state server-side and binds it to a signed browser nonce', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
-		const cookie = await storePkce(req(), 'state-1', 'verifier-1')
-		expect(cookie).toContain('ownmail_pkce=')
-		expect(kv.store.get('pkce:state-1')).toContain('"verifier":"verifier-1"')
+		const cookie = await storeConnectState(req(), 'state-1')
+		expect(cookie).toContain('ownmail_connect_state=')
+		expect(kv.store.get('connect:state-1')).toContain('"nonce"')
 	})
 
-	it('consumes and invalidates a stored PKCE verifier exactly once', async () => {
+	it('consumes and invalidates stored Nylas Connect state exactly once', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
-		const cookie = await storePkce(req(), 'state-1', 'verifier-1')
+		const cookie = await storeConnectState(req(), 'state-1')
 
-		const result = await consumePkce(req(`ownmail_pkce=${pkceCookieFromSetCookie(cookie)}`), 'state-1')
-		expect(result).toEqual({ verifier: 'verifier-1', clearCookie: expect.stringContaining('Max-Age=0') })
-		expect(kv.store.has('pkce:state-1')).toBe(false)
+		const result = await consumeConnectState(
+			req(`ownmail_connect_state=${connectCookieFromSetCookie(cookie)}`),
+			'state-1',
+		)
+		expect(result).toEqual({ clearCookie: expect.stringContaining('Max-Age=0') })
+		expect(kv.store.has('connect:state-1')).toBe(false)
 		// A second consume finds nothing.
-		expect(await consumePkce(req(), 'state-1')).toBeNull()
+		expect(await consumeConnectState(req(), 'state-1')).toBeNull()
 	})
 
 	it('does not let one browser consume another browser’s KV-backed auth attempt', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
-		const cookieA = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
-		const cookieB = pkceCookieFromSetCookie(await storePkce(req(), 'state-b', 'verifier-b'))
+		const cookieA = connectCookieFromSetCookie(await storeConnectState(req(), 'state-a'))
+		const cookieB = connectCookieFromSetCookie(await storeConnectState(req(), 'state-b'))
 
-		expect(await consumePkce(req(`ownmail_pkce=${cookieB}`), 'state-a')).toBeNull()
-		expect(kv.store.has('pkce:state-a')).toBe(true)
-		expect(await consumePkce(req(`ownmail_pkce=${cookieA}`), 'state-a')).toEqual({
-			verifier: 'verifier-a',
+		expect(await consumeConnectState(req(`ownmail_connect_state=${cookieB}`), 'state-a')).toBeNull()
+		expect(kv.store.has('connect:state-a')).toBe(true)
+		expect(await consumeConnectState(req(`ownmail_connect_state=${cookieA}`), 'state-a')).toEqual({
 			clearCookie: expect.stringContaining('Max-Age=0'),
 		})
 	})
 
-	it.each(['not-json{', JSON.stringify({ verifier: 'verifier-a', nonce: 'nonce-a' })])(
-		'rejects a malformed server-side PKCE record without consuming it (%s)',
+	it.each(['not-json{', JSON.stringify({ nonce: 'nonce-a' })])(
+		'rejects a malformed server-side Connect record without consuming it (%s)',
 		async (record) => {
 			const kv = makeKv()
 			usePlatform(kv)
-			const cookie = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
-			kv.store.set('pkce:state-a', record)
+			const cookie = connectCookieFromSetCookie(await storeConnectState(req(), 'state-a'))
+			kv.store.set('connect:state-a', record)
 
-			expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-a')).toBeNull()
-			expect(kv.store.has('pkce:state-a')).toBe(true)
+			expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-a')).toBeNull()
+			expect(kv.store.has('connect:state-a')).toBe(true)
 		},
 	)
 
-	it('rejects a browser-bound attempt whose server-side verifier has expired or been evicted', async () => {
+	it('rejects a browser-bound attempt whose server-side state has expired or been evicted', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
-		const cookie = pkceCookieFromSetCookie(await storePkce(req(), 'state-a', 'verifier-a'))
-		kv.store.delete('pkce:state-a')
+		const cookie = connectCookieFromSetCookie(await storeConnectState(req(), 'state-a'))
+		kv.store.delete('connect:state-a')
 
-		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-a')).toBeNull()
+		expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-a')).toBeNull()
 	})
 
 	it('rejects an add-inbox callback from a different verified account set without burning state', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
 		const sessionA = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
-		const attempt = pkceCookieFromSetCookie(
-			await storePkce(req(`ownmail_session=${sessionA}`), 'state-add', 'verifier-add'),
+		const attempt = connectCookieFromSetCookie(
+			await storeConnectState(req(`ownmail_session=${sessionA}`), 'state-add'),
 		)
 		const sessionB = cookieFromSetCookie(await createSession('grant-b', 'b@ownmail.com'))
 
 		expect(
-			await consumePkce(req(`ownmail_session=${sessionB}; ownmail_pkce=${attempt}`), 'state-add'),
+			await consumeConnectState(
+				req(`ownmail_session=${sessionB}; ownmail_connect_state=${attempt}`),
+				'state-add',
+			),
 		).toBeNull()
-		expect(kv.store.has('pkce:state-add')).toBe(true)
+		expect(kv.store.has('connect:state-add')).toBe(true)
 		expect(
-			await consumePkce(req(`ownmail_session=${sessionA}; ownmail_pkce=${attempt}`), 'state-add'),
-		).toEqual({ verifier: 'verifier-add', clearCookie: expect.stringContaining('Max-Age=0') })
+			await consumeConnectState(
+				req(`ownmail_session=${sessionA}; ownmail_connect_state=${attempt}`),
+				'state-add',
+			),
+		).toEqual({ clearCookie: expect.stringContaining('Max-Age=0') })
 	})
 })
 
 describe('stateless sessions (no KV)', () => {
 	beforeEach(() => usePlatform(null))
 
-	it('starts a verified account session when Hosted Auth completes without an existing session', async () => {
+	it('starts a verified account session when Nylas Connect completes without an existing session', async () => {
 		const cookie = cookieFromSetCookie(
 			await addVerifiedSessionAccount(req(), 'grant-first', 'first@ownmail.com'),
 		)
@@ -612,84 +620,90 @@ describe('stateless sessions (no KV)', () => {
 		await expect(destroySession(req('ownmail_session=whatever'))).resolves.toBeUndefined()
 	})
 
-	it('stores PKCE state in a signed, short-lived cookie', async () => {
-		const cookie = await storePkce(req(), 'state-x', 'verifier-x')
-		expect(cookie).toContain('ownmail_pkce=')
+	it('stores Nylas Connect state in a signed, short-lived cookie', async () => {
+		const cookie = await storeConnectState(req(), 'state-x')
+		expect(cookie).toContain('ownmail_connect_state=')
 		expect(cookie).toContain('Max-Age=600')
 	})
 
-	it('consumes the PKCE cookie, returns a clear-cookie, and matches the expected state', async () => {
-		const stored = await storePkce(req(), 'state-x', 'verifier-x')
-		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
-		const result = await consumePkce(req(`ownmail_pkce=${value}`), 'state-x')
-		expect(result?.verifier).toBe('verifier-x')
+	it('consumes the Connect cookie, returns a clear-cookie, and matches the expected state', async () => {
+		const stored = await storeConnectState(req(), 'state-x')
+		const value = connectCookieFromSetCookie(stored)
+		const result = await consumeConnectState(req(`ownmail_connect_state=${value}`), 'state-x')
 		expect(result?.clearCookie).toContain('Max-Age=0')
 	})
 
-	it('returns null consuming PKCE when no cookie is present', async () => {
-		expect(await consumePkce(req(), 'state-x')).toBeNull()
+	it('returns null consuming Connect state when no cookie is present', async () => {
+		expect(await consumeConnectState(req(), 'state-x')).toBeNull()
 	})
 
-	it('rejects a PKCE cookie missing its signature', async () => {
-		expect(await consumePkce(req('ownmail_pkce=payloadonly'), 'state-x')).toBeNull()
+	it('rejects a Connect cookie missing its signature', async () => {
+		expect(await consumeConnectState(req('ownmail_connect_state=payloadonly'), 'state-x')).toBeNull()
 	})
 
-	it('rejects a PKCE cookie with a bad signature', async () => {
-		const stored = await storePkce(req(), 'state-x', 'verifier-x')
-		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
+	it('rejects a Connect cookie with a bad signature', async () => {
+		const stored = await storeConnectState(req(), 'state-x')
+		const value = connectCookieFromSetCookie(stored)
 		const [payload] = value.split('.')
-		expect(await consumePkce(req(`ownmail_pkce=${payload}.bad`), 'state-x')).toBeNull()
+		expect(await consumeConnectState(req(`ownmail_connect_state=${payload}.bad`), 'state-x')).toBeNull()
 	})
 
-	it('rejects a PKCE cookie whose payload is not base64-decodable', async () => {
+	it('rejects a Connect cookie whose payload is not base64-decodable', async () => {
 		const { signRaw } = await buildStatelessSession()
 		const raw = '@@@bad@@@'
 		const cookie = `${raw}.${await signRaw(raw)}`
-		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-x')).toBeNull()
+		expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-x')).toBeNull()
 	})
 
-	it('rejects a PKCE cookie whose signed state does not match the request state', async () => {
-		const stored = await storePkce(req(), 'state-other', 'verifier-x')
-		const value = stored.slice('ownmail_pkce='.length, stored.indexOf(';'))
-		expect(await consumePkce(req(`ownmail_pkce=${value}`), 'state-x')).toBeNull()
+	it('rejects a Connect cookie whose signed state does not match the request state', async () => {
+		const stored = await storeConnectState(req(), 'state-other')
+		const value = connectCookieFromSetCookie(stored)
+		expect(await consumeConnectState(req(`ownmail_connect_state=${value}`), 'state-x')).toBeNull()
 	})
 
-	it('rejects a signed PKCE cookie after its server-enforced expiry', async () => {
+	it('rejects a signed Connect cookie after its server-enforced expiry', async () => {
 		const { signRaw } = await buildStatelessSession()
 		const raw = b64url(
 			JSON.stringify({
 				s: 'state-x',
 				n: 'nonce-x',
 				i: 'anonymous',
-				v: 'verifier-x',
 				exp: Math.floor(Date.now() / 1000) - 1,
 			}),
 		)
 		const cookie = `${raw}.${await signRaw(raw)}`
 
-		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-x')).toBeNull()
+		expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-x')).toBeNull()
 	})
 
-	it('rejects a stateless PKCE cookie without an embedded verifier', async () => {
-		const { signRaw } = await buildStatelessSession()
-		const raw = b64url(
-			JSON.stringify({
-				s: 'state-x',
-				n: 'nonce-x',
-				i: 'anonymous',
-				exp: Math.floor(Date.now() / 1000) + 60,
-			}),
-		)
-		const cookie = `${raw}.${await signRaw(raw)}`
+	it.each(['state with spaces', 'a'.repeat(129), 'state/with/slashes'])(
+		'rejects invalid callback state before reading cookies (%s)',
+		async (state) => {
+			expect(await consumeConnectState(req('ownmail_connect_state=payload.signature'), state)).toBeNull()
+		},
+	)
 
-		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-x')).toBeNull()
+	it.each(['state with spaces', 'a'.repeat(129), 'state/with/slashes'])(
+		'refuses to store invalid Nylas Connect state (%s)',
+		async (state) => {
+			await expect(storeConnectState(req(), state)).rejects.toThrow('Invalid Nylas Connect state')
+		},
+	)
+
+	it('consumes valid stateless Connect state without exposing token material', async () => {
+		const stored = await storeConnectState(req(), 'state-x')
+		const value = connectCookieFromSetCookie(stored)
+
+		expect(await consumeConnectState(req(`ownmail_connect_state=${value}`), 'state-x')).toEqual({
+			clearCookie: expect.stringContaining('Max-Age=0'),
+		})
 	})
 
-	it('rejects a PKCE cookie whose payload is valid base64 but not JSON', async () => {
+	it('rejects a Connect cookie whose payload is valid base64 but not JSON', async () => {
 		const { signRaw } = await buildStatelessSession()
 		const raw = b64url('not json at all')
 		const cookie = `${raw}.${await signRaw(raw)}`
-		expect(await consumePkce(req(`ownmail_pkce=${cookie}`), 'state-x')).toBeNull()
+		expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-x')).toBeNull()
 	})
 })
 

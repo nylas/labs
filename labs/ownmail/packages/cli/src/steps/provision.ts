@@ -403,17 +403,17 @@ function apiKeyNameSuffix(): string {
 	return new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
 }
 
-/** 03b/05a — Ensure the application has a `nylas` connector (hosted auth requires it). */
+/** 03b/05a — Ensure the application has the `nylas` connector required by Nylas Connect. */
 export async function stepConnector(ctx: StepContext): Promise<void> {
 	const spinner = p.spinner()
-	spinner.start('Checking hosted-auth connector…')
+	spinner.start('Checking Nylas Connect connector…')
 	try {
 		await requireV3(ctx).ensureConnector('nylas')
 	} catch (err) {
-		spinner.stop('Could not configure the hosted-auth connector.')
+		spinner.stop('Could not configure the Nylas Connect connector.')
 		throw err
 	}
-	spinner.stop('Hosted-auth connector ready.')
+	spinner.stop('Nylas Connect connector ready.')
 	markStep(ctx.project, 'connector')
 }
 

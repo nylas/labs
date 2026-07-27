@@ -1,15 +1,20 @@
-import { buildAuthorizeUrl, generatePkcePair } from '@nylas-labs/cli-kit/v3'
+import { NylasConnect } from '@nylas/connect'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { platform, usingDevMocks } from '#server/platform'
-import { createReferenceDevSessionCookie, getSession, storePkce, switchSessionAccount } from '#server/session'
+import {
+	createReferenceDevSessionCookie,
+	getSession,
+	storeConnectState,
+	switchSessionAccount,
+} from '#server/session'
 
 const MAX_SWITCH_BODY_BYTES = 1024
 
 export const Route = createFileRoute('/auth')({
 	server: {
 		handlers: {
-			/** Kicks off Nylas Hosted Auth (provider "nylas") with PKCE. */
+			/** Kicks off the backend Nylas Connect flow without exposing tokens to the browser. */
 			GET: async ({ request }) => {
 				const { env } = await platform()
 				if (await usingDevMocks()) {
@@ -22,27 +27,33 @@ export const Route = createFileRoute('/auth')({
 					return configurationErrorResponse('NYLAS_CLIENT_ID is not configured for this deployment.')
 				}
 
-				const origin = new URL(request.url).origin
+				const redirectUri = `${new URL(request.url).origin}/auth/callback`
 				const state = crypto.randomUUID()
-				const pkce = await generatePkcePair()
-				const pkceCookie = await storePkce(request, state, pkce.verifier)
 				const existingSession = await getSession(request)
-
-				const url = buildAuthorizeUrl({
-					region: env.NYLAS_REGION,
-					baseUrl: env.NYLAS_API_BASE_URL,
-					clientId: env.NYLAS_CLIENT_ID,
-					redirectUri: `${origin}/auth/callback`,
-					provider: 'nylas',
-					state,
-					codeChallenge: pkce.challenge,
-					...(!existingSession && env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
-				})
-				const headers = new Headers({ Location: url })
-				headers.set('Set-Cookie', pkceCookie)
+				let authUrl: string
+				try {
+					const connect = new NylasConnect({
+						clientId: env.NYLAS_CLIENT_ID.trim(),
+						redirectUri,
+						apiUrl: env.NYLAS_API_BASE_URL ?? `https://api.${env.NYLAS_REGION}.nylas.com`,
+						persistTokens: false,
+						autoHandleCallback: false,
+						logLevel: 'off',
+					})
+					const { url } = await connect.getAuthUrl({
+						state,
+						...(!existingSession && env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
+					})
+					authUrl = url
+				} catch {
+					return configurationErrorResponse('Nylas Connect is not configured correctly for this deployment.')
+				}
+				const connectStateCookie = await storeConnectState(request, state)
+				const headers = new Headers({ Location: authUrl })
+				headers.set('Set-Cookie', connectStateCookie)
 				return new Response(null, { status: 302, headers })
 			},
-			/** Switches only to an inbox previously verified through this session's Hosted Auth flow. */
+			/** Switches only to an inbox previously verified through this session's Nylas Connect flow. */
 			POST: async ({ request }) => {
 				if (request.headers.get('origin') !== new URL(request.url).origin) {
 					return new Response('Forbidden', { status: 403 })

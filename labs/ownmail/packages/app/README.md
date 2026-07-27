@@ -27,6 +27,10 @@ Guided Vercel deployments use an Upstash Redis resource connected through the
 Vercel Marketplace. Other Node deployments remain stateless unless both
 `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are configured.
 
+Sign-in uses `@nylas/connect` to start the authorization flow. OwnMail exchanges
+the callback code and stores the verified grant in its server-owned session, so
+API credentials and bearer tokens are never persisted in browser storage.
+
 ## Start simple, then take control
 
 ```bash

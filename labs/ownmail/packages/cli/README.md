@@ -60,7 +60,7 @@ ownmail app-domain inbox.example.com --secondary
 ```
 
 OwnMail updates the recorded Cloudflare, Vercel, or Netlify project, registers
-the Hosted Auth callback, and reconciles a single Nylas webhook on the primary
+the Nylas Connect callback, and reconciles a single Nylas webhook on the primary
 domain. If provider DNS verification or TLS is pending, follow the Domain
 settings guidance and retry the exact resume command shown by OwnMail. The
 previous app URL stays active until promotion completes.
