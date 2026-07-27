@@ -55,8 +55,9 @@ vi.mock('#server/fns', () => ({
 // Focus coverage on mail.compose.tsx: the "To" autocomplete and the error banner
 // are their own units, so they are replaced with minimal stand-ins.
 vi.mock('#shared/components/RecipientInput', () => ({
-	RecipientInput: ({ value, onChange, placeholder }: any) => (
+	RecipientInput: ({ id, value, onChange, placeholder }: any) => (
 		<input
+			id={id}
 			aria-label="To"
 			value={value}
 			placeholder={placeholder}
@@ -68,8 +69,9 @@ vi.mock('#shared/components/RecipientInput', () => ({
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
 vi.mock('#features/mail/components/MarkdownEditor', () => ({
-	MarkdownEditor: ({ value, onChange, placeholder }: any) => (
+	MarkdownEditor: ({ id, value, onChange, placeholder }: any) => (
 		<textarea
+			id={id}
 			placeholder={placeholder ?? 'Write your message...'}
 			value={value}
 			onChange={(event) => onChange(event.target.value)}
@@ -357,6 +359,61 @@ describe('mail.compose composer prefill', () => {
 	})
 })
 
+describe('mail.compose initial focus', () => {
+	it('focuses the recipient field for a brand-new message', async () => {
+		renderCompose()
+
+		await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('To')))
+	})
+
+	it('focuses the body when replying, even when reply metadata is incomplete', async () => {
+		renderCompose({
+			loader: { reply: { to: '', subject: '', body: '', replyToMessageId: 'm9' } },
+		})
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByPlaceholderText('Write your message...')),
+		)
+	})
+
+	it('focuses the subject when a new message already has recipients', async () => {
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: '', body: '' } } })
+
+		await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Subject')))
+	})
+
+	it('focuses the body when a non-reply message already has recipients and a subject', async () => {
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hello', body: '' } } })
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByPlaceholderText('Write your message...')),
+		)
+	})
+
+	it('focuses the first missing field when reopening a draft', async () => {
+		renderCompose({ loader: { draft: { id: 'd0', to: [], subject: 'Saved subject', body: 'Saved body' } } })
+
+		await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('To')))
+	})
+
+	it('focuses the body when reopening a complete draft', async () => {
+		renderCompose({
+			loader: {
+				draft: {
+					id: 'd0',
+					to: [{ email: 'a@b.com' }],
+					subject: 'Saved subject',
+					body: 'Saved body',
+				},
+			},
+		})
+
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByPlaceholderText('Write your message...')),
+		)
+	})
+})
+
 describe('mail.compose thread list', () => {
 	it('uses the starred cache key for the starred pseudo-folder', () => {
 		renderCompose({ loader: { folderId: 'starred' } })
@@ -542,18 +599,21 @@ describe('mail.compose selected backdrop', () => {
 		renderCompose({ loader: selectedLoader() })
 		fireEvent.click(screen.getByRole('button', { name: 'Reply' }))
 		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+		expect(document.activeElement).toBe(screen.getByPlaceholderText('Write your message...'))
 	})
 
 	it('starts a reply-all seeded from the latest message and mailbox address', () => {
 		renderCompose({ loader: selectedLoader() })
 		fireEvent.click(screen.getByRole('button', { name: 'Reply all' }))
 		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+		expect(document.activeElement).toBe(screen.getByPlaceholderText('Write your message...'))
 	})
 
 	it('starts a forward seeded from the latest message', () => {
 		renderCompose({ loader: selectedLoader() })
 		fireEvent.click(screen.getByRole('button', { name: 'Forward' }))
 		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+		expect(document.activeElement).toBe(screen.getByLabelText('To'))
 	})
 
 	it('badges unread count and toggles a row star while a conversation is open', async () => {
