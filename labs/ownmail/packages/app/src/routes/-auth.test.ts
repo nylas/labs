@@ -84,7 +84,7 @@ describe('/auth', () => {
 		expect(connectMocks.createClient).not.toHaveBeenCalled()
 	})
 
-	it('starts backend Nylas Connect with a login hint and browser-bound state', async () => {
+	it('starts backend Nylas Connect pinned to the Nylas connector with a login hint and browser-bound state', async () => {
 		usingDevMocks.mockResolvedValue(false)
 		platform.mockResolvedValue({
 			env: {
@@ -111,6 +111,7 @@ describe('/auth', () => {
 		})
 		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
 			expect.objectContaining({
+				provider: 'nylas',
 				state: expect.any(String),
 				loginHint: 'ada@ownmail.com',
 			}),
@@ -133,6 +134,9 @@ describe('/auth', () => {
 			expect.objectContaining({ apiUrl: 'https://api.eu.nylas.com' }),
 		)
 		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'nylas', state: expect.any(String) }),
+		)
+		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
 			expect.not.objectContaining({ loginHint: expect.anything() }),
 		)
 	})
@@ -147,6 +151,9 @@ describe('/auth', () => {
 
 		await GET({ request: req() })
 
+		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'nylas', state: expect.any(String) }),
+		)
 		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
 			expect.not.objectContaining({ loginHint: expect.anything() }),
 		)

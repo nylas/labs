@@ -1,4 +1,4 @@
-import { NylasConnect } from '@nylas/connect'
+import { NylasConnect, type Provider } from '@nylas/connect'
 import { createFileRoute } from '@tanstack/react-router'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { platform, usingDevMocks } from '#server/platform'
@@ -10,6 +10,9 @@ import {
 } from '#server/session'
 
 const MAX_SWITCH_BODY_BYTES = 1024
+// Agent Accounts uses the valid `nylas` connector value, which @nylas/connect 1.2.5
+// forwards at runtime but does not yet include in its OAuth-provider type union.
+const OWNMAIL_CONNECTOR = 'nylas' as Provider
 
 export const Route = createFileRoute('/auth')({
 	server: {
@@ -41,6 +44,7 @@ export const Route = createFileRoute('/auth')({
 						logLevel: 'off',
 					})
 					const { url } = await connect.getAuthUrl({
+						provider: OWNMAIL_CONNECTOR,
 						state,
 						...(!existingSession && env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
 					})
