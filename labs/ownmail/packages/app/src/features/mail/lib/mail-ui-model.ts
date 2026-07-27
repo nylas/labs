@@ -265,7 +265,7 @@ function hasHtmlMarkup(value: string): boolean {
 	while (cursor < value.length) {
 		const start = value.indexOf('<', cursor)
 		if (start === -1) return false
-		const end = value.indexOf('>', start + 1)
+		const end = htmlTokenEnd(value, start)
 		if (end === -1) return false
 		const tag = value.slice(start + 1, end)
 		const trimmed = tag.trimStart()
@@ -298,7 +298,7 @@ function htmlTextContent(html: string, paragraphBreak: string): string {
 			break
 		}
 		text += html.slice(cursor, tagStart)
-		const tagEnd = html.indexOf('>', tagStart + 1)
+		const tagEnd = htmlTokenEnd(html, tagStart)
 		if (tagEnd === -1) {
 			text += html.slice(tagStart)
 			break
@@ -334,13 +334,45 @@ function afterRawTextElement(html: string, cursor: number, tagName: 'script' | '
 	while (next < html.length) {
 		const closeStart = html.indexOf('<', next)
 		if (closeStart === -1) return html.length
-		const closeEnd = html.indexOf('>', closeStart + 1)
+		if (!isRawTextClosingCandidate(html, closeStart, tagName)) {
+			next = closeStart + 1
+			continue
+		}
+		const closeEnd = htmlTokenEnd(html, closeStart)
 		if (closeEnd === -1) return html.length
-		const tag = html.slice(closeStart + 1, closeEnd)
-		if (isClosingTag(tag, tagName)) return closeEnd + 1
-		next = closeEnd + 1
+		return closeEnd + 1
 	}
 	return html.length
+}
+
+function isRawTextClosingCandidate(html: string, tagStart: number, tagName: 'script' | 'style'): boolean {
+	let index = tagStart + 1
+	while (index < html.length && isAsciiWhitespace(html.charCodeAt(index))) index++
+	if (html[index] !== '/') return false
+	index++
+	while (index < html.length && isAsciiWhitespace(html.charCodeAt(index))) index++
+	if (html.slice(index, index + tagName.length).toLowerCase() !== tagName) return false
+	const next = html.charCodeAt(index + tagName.length)
+	return Number.isNaN(next) || next === 47 || next === 62 || isAsciiWhitespace(next)
+}
+
+function htmlTokenEnd(html: string, tagStart: number): number {
+	if (html.startsWith('<!--', tagStart)) {
+		const commentEnd = html.indexOf('-->', tagStart + 4)
+		return commentEnd === -1 ? html.length : commentEnd + 2
+	}
+
+	let quote = ''
+	for (let index = tagStart + 1; index < html.length; index++) {
+		const character = html[index]
+		if (quote) {
+			if (character === quote) quote = ''
+			continue
+		}
+		if (character === '"' || character === "'") quote = character
+		else if (character === '>') return index
+	}
+	return -1
 }
 
 function htmlTagName(tag: string): string {
@@ -352,21 +384,14 @@ function htmlTagName(tag: string): string {
 	return tag.slice(start, index).toLowerCase()
 }
 
-function isClosingTag(tag: string, tagName: string): boolean {
-	let index = 0
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
-	if (tag[index] !== '/') return false
-	index++
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
-	if (tag.slice(index, index + tagName.length).toLowerCase() !== tagName) return false
-	const next = tag.charCodeAt(index + tagName.length)
-	return Number.isNaN(next) || next === 47 || isAsciiWhitespace(next)
+function isClosingTag(tag: string): boolean {
+	return tag[0] === '/'
 }
 
 function isClosingBlockTag(tag: string, tagName: string): boolean {
 	const headingLevel = tagName[1]
 	return (
-		isClosingTag(tag, tagName) &&
+		isClosingTag(tag) &&
 		(tagName === 'p' ||
 			tagName === 'div' ||
 			tagName === 'li' ||

@@ -558,7 +558,19 @@ describe('ui-model plain-text projection edge cases', () => {
 
 	it('skips HTML comments and document declarations in readable snippets', () => {
 		expect(readableSnippet('Hello<!-- provider metadata -->world')).toBe('Hello world')
+		expect(readableSnippet('Hello<!-- x > y -->world')).toBe('Hello world')
+		expect(
+			readableSnippet('Hello<!--[if mso]><table><tr><td>hidden</td></tr></table><![endif]-->world'),
+		).toBe('Hello world')
+		expect(readableSnippet('Hello<!-- unfinished > comment')).toBe('Hello')
 		expect(readableSnippet('<!doctype html><p>Hello</p>')).toBe('Hello')
+	})
+
+	it('honors quoted greater-than characters when scanning HTML tags', () => {
+		expect(readableSnippet('<span title="a > b">Hello</span><a href="https://x.test?q=1>0">world</a>')).toBe(
+			'Hello world',
+		)
+		expect(readableSnippet("<span title='a > b'>Hello</span>")).toBe('Hello')
 	})
 
 	it('falls back to the snippet and then to nothing when a message has no body', () => {
@@ -590,6 +602,13 @@ describe('ui-model plain-text projection edge cases', () => {
 		expect(messagePreview({ body: '<p>a</p><script>hidden< / script ><p>b</p>' } as Message)).toBe('a b')
 		// Raw-text run that ends on an unclosed inner tag: scan exhausts the string, dropping the rest.
 		expect(messagePreview({ body: '<p>a</p><script>x<span>' } as Message)).toBe('a')
+		expect(messagePreview({ body: '<p>a</p><script>data<' } as Message)).toBe('a')
+		expect(messagePreview({ body: '<p>a</p><script>data</script' } as Message)).toBe('a')
+	})
+
+	it('finds raw-text closing tags after CSS and JavaScript less-than literals', () => {
+		expect(readableSnippet('<style>.x::before{content:"<"}</style><p>Hello</p>')).toBe('Hello')
+		expect(readableSnippet('<script>if (a < b) alert("<tag>")</script><p>Hello</p>')).toBe('Hello')
 	})
 
 	it('keeps invalid tag-like text with whitespace after the opening bracket literal', () => {

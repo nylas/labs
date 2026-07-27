@@ -58,4 +58,57 @@ describe.runIf(existsSync(chromium.executablePath()))('email CSS boundary in Chr
 
 		expect(result).toEqual({ position: 'static', inset: 'auto', zIndex: 'auto', childContained: true })
 	})
+
+	it('scales an 800px child to the full visible width of a 400px host', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		await page.setContent('<ownmail-email style="display:block;width:400px;margin:80px"></ownmail-email>')
+		const result = await page.locator('ownmail-email').evaluate((host, ownmailCss) => {
+			const shadow = host.attachShadow({ mode: 'open' })
+			const root = document.createElement('div')
+			root.className = 'email-root'
+			root.style.padding = '0'
+			const wide = document.createElement('div')
+			wide.style.width = '800px'
+			wide.style.height = '80px'
+			wide.style.background = 'rgb(255, 0, 0)'
+			root.append(wide)
+			shadow.append(root)
+			const style = document.createElement('style')
+			style.textContent = ownmailCss
+			shadow.append(style)
+
+			const naturalWidth = root.scrollWidth
+			const scale = Math.min(1, host.clientWidth / naturalWidth)
+			root.style.transformOrigin = 'top left'
+			root.style.transform = `scale(${scale})`
+			;(host as HTMLElement).style.height = `${Math.ceil(root.scrollHeight * scale)}px`
+
+			const hostRect = host.getBoundingClientRect()
+			const wideRect = wide.getBoundingClientRect()
+			const hit = shadow.elementFromPoint(hostRect.right - 1, hostRect.top + 10)
+			return {
+				naturalWidth,
+				scale,
+				visibleWidth: wideRect.width,
+				visibleAtRightEdge: hit === wide,
+				rootOverflow: getComputedStyle(root).overflow,
+				rootContain: getComputedStyle(root).contain,
+				hostOverflow: getComputedStyle(host).overflow,
+				hostContain: getComputedStyle(host).contain,
+			}
+		}, shadowStyleText())
+		await page.close()
+
+		expect(result).toEqual({
+			naturalWidth: 800,
+			scale: 0.5,
+			visibleWidth: 400,
+			visibleAtRightEdge: true,
+			rootOverflow: 'visible',
+			rootContain: 'none',
+			hostOverflow: 'hidden',
+			hostContain: 'layout paint',
+		})
+	})
 })

@@ -54,6 +54,7 @@ describe('computeScale', () => {
 
 	it('shrinks content wider than the pane to fit', () => {
 		expect(computeScale(600, 300)).toBe(0.5)
+		expect(computeScale(800, 400)).toBe(0.5)
 	})
 })
 
@@ -94,6 +95,9 @@ describe('shadowStyleText', () => {
 		expect(css).toContain('z-index:auto!important')
 		expect(css).toContain('contain:layout paint')
 		expect(css).toContain('overflow:hidden')
+		expect(css).toContain('.email-root{')
+		expect(css).toContain('contain:none!important')
+		expect(css).toContain('overflow:visible!important')
 	})
 })
 

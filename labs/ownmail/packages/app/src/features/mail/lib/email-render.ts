@@ -108,7 +108,7 @@ export function shadowStyleText(): string {
 	// content to the message surface. Media is re-inverted so photos keep true colors.
 	return `
 :host{display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;isolation:isolate;overflow:hidden;}
-.email-root{position:relative!important;inset:auto!important;z-index:auto!important;contain:layout paint;isolation:isolate;overflow:hidden;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
+.email-root{position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
 .email-root img{max-width:100%;height:auto;}
 .email-root table{max-width:100%;}
 :host([data-dark-invert]){color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
