@@ -100,6 +100,13 @@ describe('<ownmail-email> rendering', () => {
 		expect(root?.querySelector('a')?.getAttribute('target')).toBe('_blank')
 	})
 
+	it('keeps OwnMail theme rules after broad provider styles in the shadow cascade', () => {
+		const el = mount('<style>div { filter: none !important; background: white !important; }</style><p>Hi</p>')
+		const children = Array.from(el.shadowRoot?.children ?? [])
+		expect(children.at(-1)?.tagName).toBe('STYLE')
+		expect(children.at(-1)?.textContent).toContain(':host([data-dark-invert])')
+	})
+
 	it('applies html set after the element is already connected', () => {
 		const el = mount()
 		el.emailHtml = '<p>Later</p>'

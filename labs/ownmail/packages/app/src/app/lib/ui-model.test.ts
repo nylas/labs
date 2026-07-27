@@ -31,6 +31,7 @@ import {
 	messageBodyParagraphs,
 	messageHasHtml,
 	messagePreview,
+	readableSnippet,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
@@ -118,6 +119,14 @@ describe('ui-model mail helpers', () => {
 		expect(initials('Ada Lovelace')).toBe('AL')
 		expect(initials('ada.lovelace@example.com')).toBe('AL')
 		expect(messagePreview({ body: '<p>Hello <strong>there</strong></p>' } as Message)).toBe('Hello there')
+	})
+
+	it('projects provider snippets and OwnMail draft envelopes onto readable text', () => {
+		expect(readableSnippet('<p>This is a <strong>test</strong></p>')).toBe('This is a test')
+		expect(readableSnippet('<pre data-ownmail-markdown="1">This is a test</pre>')).toBe('This is a test')
+		expect(readableSnippet('<pre data-ownmail-markdown="1">**ready** &amp; waiting</pre>')).toBe(
+			'**ready** & waiting',
+		)
 	})
 
 	it('uses the first body paragraph for collapsed message previews', () => {
@@ -517,8 +526,25 @@ describe('ui-model sidebar and sender fallbacks', () => {
 })
 
 describe('ui-model plain-text projection edge cases', () => {
-	it('returns the provider snippet verbatim when present, before parsing any body', () => {
+	it('prefers a readable provider snippet before parsing any body', () => {
 		expect(messagePreview({ snippet: 'Quick note', body: '<p>ignored</p>' } as Message)).toBe('Quick note')
+		expect(messagePreview({ snippet: '<p>Quick <b>note</b></p>', body: '<p>ignored</p>' } as Message)).toBe(
+			'Quick note',
+		)
+	})
+
+	it('preserves ordinary less-than and greater-than comparisons as plaintext', () => {
+		expect(readableSnippet('1 < 2')).toBe('1 < 2')
+		expect(readableSnippet('1 < 2 > 0')).toBe('1 < 2 > 0')
+		expect(readableSnippet('1 < 2 > 3 < 4 >')).toBe('1 < 2 > 3 < 4 >')
+		expect(readableSnippet('x < y > z')).toBe('x < y > z')
+		expect(messagePreview({ body: 'Budget: 1 < 2 > 0' } as Message)).toBe('Budget: 1 < 2 > 0')
+		expect(messagePreview({ body: '<p>Budget: 1 < 2 > 0</p>' } as Message)).toBe('Budget: 1 < 2 > 0')
+	})
+
+	it('skips HTML comments and document declarations in readable snippets', () => {
+		expect(readableSnippet('Hello<!-- provider metadata -->world')).toBe('Hello world')
+		expect(readableSnippet('<!doctype html><p>Hello</p>')).toBe('Hello')
 	})
 
 	it('falls back to the snippet and then to nothing when a message has no body', () => {
@@ -546,13 +572,14 @@ describe('ui-model plain-text projection edge cases', () => {
 		expect(messagePreview({ body: '<p>a</p><script>x<span>y</span>z</script><p>b</p>' } as Message)).toBe(
 			'a b',
 		)
+		// Obfuscated raw-text closers are recognized so their hidden content cannot leak into the preview.
+		expect(messagePreview({ body: '<p>a</p><script>hidden< / script ><p>b</p>' } as Message)).toBe('a b')
 		// Raw-text run that ends on an unclosed inner tag: scan exhausts the string, dropping the rest.
 		expect(messagePreview({ body: '<p>a</p><script>x<span>' } as Message)).toBe('a')
 	})
 
-	it('tolerates whitespace inside opening and closing tags', () => {
-		// The hand-rolled tag scanner skips ASCII whitespace before/after names and slashes.
-		expect(messagePreview({ body: '<p>a</p>< p >b</ p >c< /p >d' } as Message)).toBe('a b c d')
+	it('keeps invalid tag-like text with whitespace after the opening bracket literal', () => {
+		expect(messagePreview({ body: '<p>a</p>< p >b</ p >c< /p >d' } as Message)).toBe('a < p >b</ p >c< /p >d')
 	})
 
 	it('only breaks paragraphs on real heading levels h1–h6', () => {

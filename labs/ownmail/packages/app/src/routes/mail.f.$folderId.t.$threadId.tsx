@@ -37,6 +37,36 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 
 type PendingThreadAction = 'archive' | 'delete' | 'star' | 'unread'
 
+const REPLY_SHORTCUT_INTERACTIVE_SELECTOR = [
+	'input',
+	'textarea',
+	'select',
+	'button',
+	'a',
+	'summary',
+	'[contenteditable]:not([contenteditable="false"])',
+	'[role="button"]',
+	'[role="link"]',
+	'[role="textbox"]',
+	'[role="combobox"]',
+	'[role="menuitem"]',
+	'[role="option"]',
+	'[role="switch"]',
+	'[role="tab"]',
+	'ownmail-email',
+].join(',')
+
+function shouldIgnoreReplyShortcut(event: KeyboardEvent): boolean {
+	if (event.defaultPrevented) return true
+	const composedPath = event.composedPath()
+	const path = composedPath.length > 0 ? composedPath : [event.target]
+	return path.some(
+		(node) =>
+			node instanceof HTMLElement &&
+			(node.isContentEditable || node.matches(REPLY_SHORTCUT_INTERACTIVE_SELECTOR)),
+	)
+}
+
 function ThreadView() {
 	const initialDetail = Route.useLoaderData()
 	const { folderId, threadId } = Route.useParams()
@@ -58,6 +88,14 @@ function ThreadView() {
 	const [pendingAction, setPendingAction] = useState<PendingThreadAction | null>(null)
 	const lastMessage = messages.at(-1)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
+	const reply = useCallback(() => {
+		/* v8 ignore next -- every exposed reply entry point requires a latest message -- @preserve */
+		if (!lastMessage) return
+		navigate({
+			to: '/mail/compose',
+			search: { folderId, threadId, ...replyDraftSearch(lastMessage) },
+		})
+	}, [folderId, lastMessage, navigate, threadId])
 
 	useEffect(() => {
 		setStarred(thread.starred)
@@ -98,11 +136,22 @@ function ThreadView() {
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
+			const key = event.key.toLowerCase()
+			if (key === 'r') {
+				const isModified = event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
+				if (isModified || shouldIgnoreReplyShortcut(event)) return
+				if (document.querySelector('[role="dialog"]') || !lastMessage) return
+				event.preventDefault()
+				reply()
+				return
+			}
+
 			const target = event.target as HTMLElement | null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
-			if (event.key.toLowerCase() === 'e') {
+			if (document.querySelector('[role="dialog"]')) return
+			if (key === 'e') {
 				event.preventDefault()
 				act('archive', { folder: isArchived ? 'inbox' : 'archive' }, true)
 			}
@@ -110,11 +159,11 @@ function ThreadView() {
 				event.preventDefault()
 				act('delete', { folder: 'trash' }, true)
 			}
-			if (event.key.toLowerCase() === 's') {
+			if (key === 's') {
 				event.preventDefault()
 				act('star', { starred: !starred })
 			}
-			if (event.key.toLowerCase() === 'u') {
+			if (key === 'u') {
 				event.preventDefault()
 				act('unread', { unread: true }, true)
 			}
@@ -129,7 +178,7 @@ function ThreadView() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, baseFolderId, folderId, isArchived, navigate, starred])
+	}, [act, baseFolderId, folderId, isArchived, lastMessage, navigate, reply, starred])
 
 	useEffect(() => {
 		if (markedRead) {
@@ -217,15 +266,7 @@ function ThreadView() {
 
 				{lastMessage ? (
 					<div className="ml-auto hidden items-center gap-1 sm:flex">
-						<ActionButton
-							label="Reply"
-							onClick={() =>
-								navigate({
-									to: '/mail/compose',
-									search: { folderId, threadId, ...replyDraftSearch(lastMessage) },
-								})
-							}
-						>
+						<ActionButton label="Reply" onClick={reply}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
 						<ActionButton
@@ -260,6 +301,7 @@ function ThreadView() {
 			{error ? <ErrorBanner message={error} /> : null}
 
 			<ScrollArea
+				key={threadId}
 				aria-label="Thread conversation"
 				className="min-h-0 flex-1"
 				overflowIndicatorClassName="from-muted/80 dark:from-background/80"
@@ -271,16 +313,7 @@ function ThreadView() {
 				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
 					<button
 						type="button"
-						onClick={() =>
-							navigate({
-								to: '/mail/compose',
-								search: {
-									folderId,
-									threadId,
-									...replyDraftSearch(lastMessage),
-								},
-							})
-						}
+						onClick={reply}
 						className="flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground"
 					>
 						<Reply className="h-4 w-4 shrink-0" />

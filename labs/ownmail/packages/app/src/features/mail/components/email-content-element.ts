@@ -71,12 +71,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private ensureShadow(): HTMLDivElement {
 			if (this.contentRoot) return this.contentRoot
 			const shadow = this.attachShadow({ mode: 'open' })
-			const style = document.createElement('style')
-			style.textContent = shadowStyleText()
 			const root = document.createElement('div')
 			root.className = 'email-root'
-			shadow.appendChild(style)
 			shadow.appendChild(root)
+			const style = document.createElement('style')
+			style.textContent = shadowStyleText()
+			// Keep OwnMail's containment and dark-mode rules last in the shadow
+			// cascade. Sanitized email styles may contain broad selectors such as
+			// `div`, but they must not disable the reader's safety boundary or theme.
+			shadow.appendChild(style)
 			this.contentRoot = root
 			shadow.addEventListener('pointerover', this.handleEnter)
 			shadow.addEventListener('focusin', this.handleEnter)

@@ -4,7 +4,12 @@ import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tan
 import { Loader2, Reply, Star } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
-import { draftRecipientName, mailFolderTitle, threadTimestamp } from '#features/mail/lib/mail-ui-model'
+import {
+	draftRecipientName,
+	mailFolderTitle,
+	readableSnippet,
+	threadTimestamp,
+} from '#features/mail/lib/mail-ui-model'
 import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import {
 	draftsQueryOptions,
@@ -373,7 +378,7 @@ function DraftRow({ draft, navActive }: { draft: Draft; navActive: boolean }) {
 				) : null}
 			</div>
 			<p className="truncate text-sm text-foreground/80">{draft.subject || '(no subject)'}</p>
-			<p className="min-w-0 truncate text-xs text-muted-foreground">{draft.snippet}</p>
+			<p className="min-w-0 truncate text-xs text-muted-foreground">{readableSnippet(draft.snippet)}</p>
 		</Link>
 	)
 }

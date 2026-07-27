@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
-import { Calendar, LogOut, Mail, Moon, Plus, Search, Sun, Users } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { Calendar, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
 import { APP_RAIL_WIDTH_CLASS, CHROME_ROW_CLASS } from '../config/layout.js'
@@ -132,39 +133,32 @@ export function AppRailNav({
 			<div className="mt-auto flex flex-col items-center gap-0.5 px-2 pb-3 pt-2">
 				<div className="app-rail-divider" aria-hidden="true" />
 				{accounts.length > 1 ? <DesktopAccountSwitcher accounts={accounts} /> : null}
-				<a
-					href="/auth"
-					className="app-rail-item app-rail-item-utility"
-					aria-label="Add inbox"
-					title="Add inbox"
-				>
-					<Plus className="h-[17px] w-[17px]" />
-				</a>
+				<RailTooltip label="Add inbox">
+					<a href="/auth" className="app-rail-item app-rail-item-utility" aria-label="Add inbox">
+						<Plus className="h-[17px] w-[17px]" />
+					</a>
+				</RailTooltip>
 				<RailButton onClick={toggleTheme} ariaLabel={themeToggleLabel(mounted, isDark)}>
 					{mounted && isDark ? <Sun className="h-[17px] w-[17px]" /> : <Moon className="h-[17px] w-[17px]" />}
 				</RailButton>
-				<RailButton onClick={onOpenCommandPalette} ariaLabel="Open command palette" title="⌘K">
-					<Search className="h-[17px] w-[17px]" />
+				<RailButton onClick={onOpenCommandPalette} ariaLabel="Open command palette" shortcut="⌘K">
+					<Command className="h-[17px] w-[17px]" />
 				</RailButton>
-				<form action="/logout" method="post" className="contents">
-					<RailButton type="submit" ariaLabel="Sign out">
-						<LogOut className="h-[17px] w-[17px]" />
-					</RailButton>
-				</form>
-				<Link
-					to={SETTINGS_PATH}
-					className={cn(
-						'app-rail-account mt-1',
-						active === 'settings' && 'ring-2 ring-primary ring-offset-2',
-					)}
-					title={`Account settings · ${accountLabel}`}
-					aria-label={`Account settings for ${accountLabel}`}
-					aria-current={active === 'settings' ? 'page' : undefined}
-				>
-					<span className="app-rail-account-inner">
-						<span className="app-rail-account-initials">{initials(effectiveDisplayName || email)}</span>
-					</span>
-				</Link>
+				<RailTooltip label="Account settings">
+					<Link
+						to={SETTINGS_PATH}
+						className={cn(
+							'app-rail-account mt-1',
+							active === 'settings' && 'ring-2 ring-primary ring-offset-2',
+						)}
+						aria-label={`Account settings for ${accountLabel}`}
+						aria-current={active === 'settings' ? 'page' : undefined}
+					>
+						<span className="app-rail-account-inner">
+							<span className="app-rail-account-initials">{initials(effectiveDisplayName || email)}</span>
+						</span>
+					</Link>
+				</RailTooltip>
 			</div>
 		</nav>
 	)
@@ -250,11 +244,8 @@ export function AppRailMobileNav({
 						onNavigate()
 						onOpenCommandPalette?.()
 					}}
-					icon={<Search className="h-5 w-5" />}
+					icon={<Command className="h-5 w-5" />}
 				/>
-				<form action="/logout" method="post">
-					<MobileNavButton label="Sign out" type="submit" icon={<LogOut className="h-5 w-5" />} />
-				</form>
 				<Link
 					to={SETTINGS_PATH}
 					onClick={onNavigate}
@@ -278,22 +269,38 @@ export function AppRailMobileNav({
 
 function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[] }) {
 	const active = accounts.find((account) => account.active)
+	const detailsRef = useRef<HTMLDetailsElement>(null)
+
+	useEffect(() => {
+		function closeOnExternalInteraction(event: Event) {
+			const details = detailsRef.current
+			if (details?.open && !details.contains(event.target as Node)) details.open = false
+		}
+		document.addEventListener('pointerdown', closeOnExternalInteraction)
+		document.addEventListener('focusin', closeOnExternalInteraction)
+		return () => {
+			document.removeEventListener('pointerdown', closeOnExternalInteraction)
+			document.removeEventListener('focusin', closeOnExternalInteraction)
+		}
+	}, [])
+
 	if (!active) return null
 	const localPart = active.email.split('@')[0] || active.email
 	return (
-		<details className="group relative">
-			<summary
-				className="flex min-h-11 w-11 cursor-pointer list-none flex-col items-center justify-center rounded-md border border-border bg-card px-1 text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
-				aria-label={`Switch inbox. Current inbox: ${active.email}`}
-				title={`Current inbox: ${active.email}`}
-			>
-				<span className="text-[10px] font-bold leading-none" aria-hidden="true">
-					{initials(active.email)}
-				</span>
-				<span className="mt-1 block max-w-9 truncate text-[8px] leading-none" aria-hidden="true">
-					{localPart}
-				</span>
-			</summary>
+		<details ref={detailsRef} className="group relative">
+			<RailTooltip label={`Switch inbox · Current: ${active.email}`}>
+				<summary
+					className="flex min-h-11 w-11 cursor-pointer list-none flex-col items-center justify-center rounded-md border border-border bg-card px-1 text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+					aria-label={`Switch inbox. Current inbox: ${active.email}`}
+				>
+					<span className="text-[10px] font-bold leading-none" aria-hidden="true">
+						{initials(active.email)}
+					</span>
+					<span className="mt-1 block max-w-9 truncate text-[8px] leading-none" aria-hidden="true">
+						{localPart}
+					</span>
+				</summary>
+			</RailTooltip>
 			<div className="absolute bottom-0 left-[calc(100%+0.5rem)] z-50 w-64 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
 				<p className="px-2 py-1 text-xs font-semibold text-muted-foreground">Switch inbox</p>
 				{accounts.map((account) => (
@@ -303,6 +310,10 @@ function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[]
 							name="account"
 							value={account.handle}
 							aria-current={account.active ? 'true' : undefined}
+							onClick={() => {
+								/* v8 ignore next -- mounted account action owns this ref -- @preserve */
+								if (detailsRef.current) detailsRef.current.open = false
+							}}
 							className={cn(
 								'flex min-h-11 min-w-0 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted',
 								account.active && 'bg-muted font-medium',
@@ -377,42 +388,64 @@ function RailLink({
 	children: ReactNode
 }) {
 	return (
-		<Link
-			to={to}
-			aria-label={ariaLabel}
-			aria-current={isActive ? 'page' : undefined}
-			title={label}
-			className={cn('app-rail-item', isActive && 'app-rail-item-active')}
-		>
-			{isActive ? <span className="app-rail-item-indicator" aria-hidden="true" /> : null}
-			{children}
-		</Link>
+		<RailTooltip label={label}>
+			<Link
+				to={to}
+				aria-label={ariaLabel}
+				aria-current={isActive ? 'page' : undefined}
+				className={cn('app-rail-item', isActive && 'app-rail-item-active')}
+			>
+				{isActive ? <span className="app-rail-item-indicator" aria-hidden="true" /> : null}
+				{children}
+			</Link>
+		</RailTooltip>
 	)
 }
 
 function RailButton({
 	children,
 	ariaLabel,
-	title,
+	shortcut,
 	onClick,
 	type = 'button',
 }: {
 	children: ReactNode
 	ariaLabel: string
-	title?: string
+	shortcut?: string
 	onClick?: () => void
 	type?: 'button' | 'submit'
 }) {
 	return (
-		<button
-			type={type}
-			onClick={onClick}
-			className="app-rail-item app-rail-item-utility"
-			aria-label={ariaLabel}
-			title={title}
-		>
-			{children}
-		</button>
+		<RailTooltip label={ariaLabel} shortcut={shortcut}>
+			<button
+				type={type}
+				onClick={onClick}
+				className="app-rail-item app-rail-item-utility"
+				aria-label={ariaLabel}
+			>
+				{children}
+			</button>
+		</RailTooltip>
+	)
+}
+
+function RailTooltip({
+	label,
+	shortcut,
+	children,
+}: {
+	label: string
+	shortcut?: string
+	children: ReactNode
+}) {
+	return (
+		<Tooltip delayDuration={800}>
+			<TooltipTrigger asChild>{children}</TooltipTrigger>
+			<TooltipContent side="right" className="flex items-center gap-2">
+				<span>{label}</span>
+				{shortcut ? <kbd className="opacity-70">{shortcut}</kbd> : null}
+			</TooltipContent>
+		</Tooltip>
 	)
 }
 

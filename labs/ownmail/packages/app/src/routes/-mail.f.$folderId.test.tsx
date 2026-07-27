@@ -314,6 +314,29 @@ describe('MailFolderRouteScreen — drafts', () => {
 		expect(screen.getAllByText('date')).toHaveLength(1)
 	})
 
+	it('renders draft snippets as readable text rather than stored HTML envelopes', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={
+					[
+						{
+							id: 'd-markdown',
+							to: [{ email: 'grace@example.com' }],
+							subject: 'Draft',
+							snippet: '<pre data-ownmail-markdown="1">This is a test</pre>',
+						},
+					] as unknown as Draft[]
+				}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(screen.getByText('This is a test')).toBeInTheDocument()
+		expect(screen.queryByText(/data-ownmail-markdown/)).toBeNull()
+	})
+
 	it('links drafts to the composer with the draft id', () => {
 		routerState = { location: { pathname: '/mail/f/drafts' }, matches: [] }
 		render(

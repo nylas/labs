@@ -80,9 +80,15 @@ export function threadRouteFolderId(thread: MailThread): MailFolderId {
 }
 
 export function messagePreview(message: MailMessage): string {
-	if (message.snippet) return message.snippet
+	if (message.snippet) return readableSnippet(message.snippet)
 	if (!message.body) return ''
 	return plainTextFromHtml(message.body)
+}
+
+/** Project provider-supplied snippets onto one readable, tag-free text line. */
+export function readableSnippet(snippet: string | null | undefined): string {
+	if (!snippet) return ''
+	return plainTextFromHtml(snippet)
 }
 
 export function collapsedMessagePreview(message: MailMessage): string {
@@ -90,7 +96,7 @@ export function collapsedMessagePreview(message: MailMessage): string {
 }
 
 export function messageBodyParagraphs(message: MailMessage): string[] {
-	const source = message.body ? plainTextFromHtml(message.body, true) : (message.snippet ?? '')
+	const source = message.body ? plainTextFromHtml(message.body, true) : readableSnippet(message.snippet)
 	return source
 		.split(/\n{2,}/)
 		.map((paragraph) =>
@@ -110,11 +116,27 @@ export function messageHasHtml(message: MailMessage): boolean {
 
 function plainTextFromHtml(html: string, preserveParagraphs = false): string {
 	const paragraphBreak = preserveParagraphs ? '\n\n' : ' '
-	const text = decodeHtmlEntities(htmlTextContent(html, paragraphBreak)).replace(/\u00a0/g, ' ')
+	const source = hasHtmlMarkup(html) ? htmlTextContent(html, paragraphBreak) : html
+	const text = decodeHtmlEntities(source).replace(/\u00a0/g, ' ')
 	return text
 		.replace(/[ \t]+/g, ' ')
 		.replace(preserveParagraphs ? /\n{3,}/g : /\s+/g, preserveParagraphs ? '\n\n' : ' ')
 		.trim()
+}
+
+function hasHtmlMarkup(value: string): boolean {
+	let cursor = 0
+	while (cursor < value.length) {
+		const start = value.indexOf('<', cursor)
+		if (start === -1) return false
+		const end = value.indexOf('>', start + 1)
+		if (end === -1) return false
+		const tag = value.slice(start + 1, end)
+		const trimmed = tag.trimStart()
+		if (htmlTagName(tag) || trimmed.startsWith('!') || trimmed.startsWith('?')) return true
+		cursor = end + 1
+	}
+	return false
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -145,6 +167,17 @@ function htmlTextContent(html: string, paragraphBreak: string): string {
 		}
 		const tag = html.slice(tagStart + 1, tagEnd)
 		const tagName = htmlTagName(tag)
+		if (!tagName) {
+			const trimmed = tag.trimStart()
+			if (trimmed.startsWith('!') || trimmed.startsWith('?')) {
+				text += ' '
+				cursor = tagEnd + 1
+				continue
+			}
+			text += '<'
+			cursor = tagStart + 1
+			continue
+		}
 		if (tagName === 'script' || tagName === 'style') {
 			cursor = afterRawTextElement(html, tagEnd + 1, tagName)
 			text += ' '
@@ -174,10 +207,9 @@ function afterRawTextElement(html: string, cursor: number, tagName: 'script' | '
 
 function htmlTagName(tag: string): string {
 	let index = 0
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
 	if (tag[index] === '/') index++
-	while (index < tag.length && isAsciiWhitespace(tag.charCodeAt(index))) index++
 	const start = index
+	if (!isAsciiLetter(tag.charCodeAt(index))) return ''
 	while (index < tag.length && isTagNameChar(tag.charCodeAt(index))) index++
 	return tag.slice(start, index).toLowerCase()
 }
@@ -215,6 +247,10 @@ function isAsciiWhitespace(code: number): boolean {
 
 function isTagNameChar(code: number): boolean {
 	return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function isAsciiLetter(code: number): boolean {
+	return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
 }
 
 function decodeNamedEntity(body: string): string | undefined {

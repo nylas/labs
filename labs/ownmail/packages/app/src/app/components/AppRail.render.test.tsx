@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { THEME_STORAGE_KEY } from '../config/theme.js'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from './AppRail.js'
@@ -74,11 +74,30 @@ describe('AppRailNav', () => {
 		expect(document.documentElement.classList.contains('dark')).toBe(false)
 	})
 
-	it('invokes the command palette opener from the search button', () => {
+	it('invokes the command palette opener from the command button', () => {
 		const onOpen = vi.fn()
 		render(<AppRailNav email="ada@ownmail.com" active="mail" onOpenCommandPalette={onOpen} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
+		const commandButton = screen.getByRole('button', { name: 'Open command palette' })
+		expect(commandButton.querySelector('svg')).toHaveClass('lucide-command')
+		fireEvent.click(commandButton)
 		expect(onOpen).toHaveBeenCalledTimes(1)
+	})
+
+	it('shows accessible shadcn tooltips for rail icons and surfaces command shortcuts', async () => {
+		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
+
+		fireEvent.focus(screen.getByRole('link', { name: 'Calendar' }))
+		await waitFor(() =>
+			expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveTextContent('Calendar'),
+		)
+
+		fireEvent.blur(screen.getByRole('link', { name: 'Calendar' }))
+		fireEvent.focus(screen.getByRole('button', { name: 'Open command palette' }))
+		await waitFor(() => {
+			const tooltip = document.querySelector('[data-slot="tooltip-content"]')
+			expect(tooltip).toHaveTextContent('Open command palette')
+			expect(tooltip).toHaveTextContent('⌘K')
+		})
 	})
 
 	it('combines display name and email into the account settings label when a name is provided', () => {
@@ -113,12 +132,9 @@ describe('AppRailNav', () => {
 		expect(screen.getByRole('link', { name: 'Account settings for ada@ownmail.com' })).toBeInTheDocument()
 	})
 
-	it('exposes a sign-out submit control inside a logout form', () => {
+	it('keeps sign out out of the global rail so it can live under settings', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
-		const signOut = screen.getByRole('button', { name: 'Sign out' })
-		expect(signOut).toHaveAttribute('type', 'submit')
-		expect(signOut.closest('form')).toHaveAttribute('action', '/logout')
-		expect(signOut.closest('form')).toHaveAttribute('method', 'post')
+		expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
 	})
 
 	it('offers touch-sized full inbox labels while submitting only opaque handles on desktop', () => {
@@ -134,7 +150,7 @@ describe('AppRailNav', () => {
 		)
 
 		const switcher = screen.getByLabelText('Switch inbox. Current inbox: support-europe-long@ownmail.com')
-		expect(switcher).toHaveAttribute('title', 'Current inbox: support-europe-long@ownmail.com')
+		expect(switcher).not.toHaveAttribute('title')
 		expect(switcher).toHaveClass('min-h-11', 'w-11')
 		const target = screen.getByRole('button', { name: 'support-americas-long@ownmail.com' })
 		expect(target).toHaveAttribute('name', 'account')
@@ -149,6 +165,63 @@ describe('AppRailNav', () => {
 		expect(target.closest('form')).toHaveAttribute('action', '/auth')
 		expect(target.closest('form')).toHaveAttribute('method', 'post')
 		expect(screen.queryByDisplayValue('grant-b')).toBeNull()
+	})
+
+	it('describes the current inbox in the desktop switcher tooltip', async () => {
+		render(
+			<AppRailNav
+				email="ada@ownmail.com"
+				active="mail"
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+
+		fireEvent.focus(screen.getByLabelText('Switch inbox. Current inbox: ada@ownmail.com'))
+		await waitFor(() =>
+			expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveTextContent(
+				'Switch inbox · Current: ada@ownmail.com',
+			),
+		)
+	})
+
+	it('dismisses the desktop inbox switcher on outside interaction and after selection', () => {
+		render(
+			<AppRailNav
+				email="ada@ownmail.com"
+				active="mail"
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+		const summary = screen.getByLabelText('Switch inbox. Current inbox: ada@ownmail.com')
+		const details = summary.closest('details')
+		expect(details).not.toHaveAttribute('open')
+
+		fireEvent.click(summary)
+		expect(details).toHaveAttribute('open')
+		fireEvent.pointerDown(summary)
+		expect(details).toHaveAttribute('open')
+		fireEvent.pointerDown(document.body)
+		expect(details).not.toHaveAttribute('open')
+
+		fireEvent.click(summary)
+		expect(details).toHaveAttribute('open')
+		const outsideControl = document.createElement('button')
+		document.body.appendChild(outsideControl)
+		fireEvent.focusIn(outsideControl)
+		expect(details).not.toHaveAttribute('open')
+		outsideControl.remove()
+
+		fireEvent.click(summary)
+		const target = screen.getByRole('button', { name: 'grace@ownmail.com' })
+		target.closest('form')?.addEventListener('submit', (event) => event.preventDefault())
+		fireEvent.click(target)
+		expect(details).not.toHaveAttribute('open')
 	})
 
 	it('offers the Nylas Connect proof flow for adding another inbox', () => {
@@ -242,6 +315,10 @@ describe('AppRailMobileNav', () => {
 		).toHaveAttribute('aria-current', 'page')
 		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
 		expect(onNavigate).toHaveBeenCalledTimes(1)
+		expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
+		expect(screen.getByRole('button', { name: 'Open command palette' }).querySelector('svg')).toHaveClass(
+			'lucide-command',
+		)
 	})
 
 	it('shows the verified inbox switcher in mobile navigation', () => {

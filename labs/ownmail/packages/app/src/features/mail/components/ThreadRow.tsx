@@ -3,6 +3,7 @@ import { ClientListDate } from '#shared/components/ClientTime'
 import { labelBadgeClass } from '#shared/lib/color-tone'
 import { cn } from '#shared/lib/utils'
 import {
+	readableSnippet,
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
 	threadLabels,
@@ -77,7 +78,9 @@ export function ThreadRowContent({
 				{thread.subject || '(no subject)'}
 			</p>
 			<div className="flex items-center gap-2">
-				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{thread.snippet}</p>
+				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+					{readableSnippet(thread.snippet)}
+				</p>
 				{labels.map((label) => (
 					<span key={label.id} className={cn('shrink-0', labelBadgeClass(label.tone))}>
 						{label.name}

@@ -27,6 +27,19 @@ describe('emailSupportsDarkMode', () => {
 	it('returns false for an email with no dark-mode signals', () => {
 		expect(emailSupportsDarkMode('<p>Just some plain text</p>')).toBe(false)
 	})
+
+	it('treats the supplied Slack-style hard-coded white canvas as light-only', () => {
+		// Regression distilled from message-89f72564-5f08-4548-8f4b-bdb140b7acaf.eml:
+		// the real message has responsive media rules but no adaptive color rule.
+		const slackLightOnly = `
+			<style>
+				body { background: #fff; color: #434245; }
+				@media only screen and (max-width: 600px) { .sm_full_width { width: 100% !important; } }
+			</style>
+			<table class="background_main" style="background-color:#ffffff;color:#434245"><tr><td>Trial</td></tr></table>
+		`
+		expect(emailSupportsDarkMode(slackLightOnly)).toBe(false)
+	})
 })
 
 describe('computeScale', () => {
@@ -70,6 +83,17 @@ describe('shadowStyleText', () => {
 		expect(css).toContain(':host')
 		expect(css).toContain('data-dark-invert')
 		expect(css).toContain('invert(1)')
+		expect(css).toContain(':host([data-dark-invert]){color-scheme:dark;filter:invert(1)')
+		expect(css).not.toContain(':host([data-dark-invert]) .email-root{filter:')
+	})
+
+	it('contains provider layout and pins host positioning below the untrusted CSS cascade', () => {
+		const css = shadowStyleText()
+		expect(css).toContain('position:static!important')
+		expect(css).toContain('inset:auto!important')
+		expect(css).toContain('z-index:auto!important')
+		expect(css).toContain('contain:layout paint')
+		expect(css).toContain('overflow:hidden')
 	})
 })
 
