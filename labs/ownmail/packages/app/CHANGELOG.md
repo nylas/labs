@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.10.1
+
+### Patch Changes
+
+- e62f266: Show immediate progress feedback during loader-backed navigation.
+- a60ba58: Improve message reading hierarchy with anchored details and responsive full-width content.
+
 ## 0.10.0
 
 ### Minor Changes
