@@ -185,6 +185,27 @@ describe('FolderView (route component)', () => {
 })
 
 describe('MailFolderRouteScreen — thread list', () => {
+	it('gives an open message the full tablet reader width and restores the list on wide screens', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t1' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId' }],
+		}
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+
+		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
+		expect(listPane).toHaveClass('hidden', 'xl:flex')
+		expect(listPane).not.toHaveClass('md:flex')
+		expect(screen.getByTestId('thread-outlet')).toBeInTheDocument()
+	})
+
 	it('shows the empty state when a real folder has no threads', () => {
 		render(
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,

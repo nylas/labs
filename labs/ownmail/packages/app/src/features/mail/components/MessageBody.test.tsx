@@ -31,22 +31,17 @@ describe('MessageBody (plain text)', () => {
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()
 	})
 
-	it('renders literal content in a bounded, safely wrapping plaintext container', () => {
+	it('renders literal content in a full-width region with a bounded, safely wrapping prose measure', () => {
 		const longToken = 'x'.repeat(200)
 		const text = `First line\r\n  indented ${longToken}`
 		render(<MessageBody message={message({ id: 'm-contained', body: text })} />)
 		const container = document.querySelector('[data-slot="plain-email-content"]')
+		const prose = document.querySelector('[data-slot="plain-email-prose"]')
 		const content = container?.querySelector('p')
 
-		expect(container).toHaveClass(
-			'w-full',
-			'max-w-[72ch]',
-			'overflow-hidden',
-			'rounded-xl',
-			'border',
-			'bg-card',
-			'p-5',
-		)
+		expect(container).toHaveClass('w-full', 'min-w-0')
+		expect(container).not.toHaveClass('max-w-[72ch]', 'rounded-xl', 'border', 'bg-card', 'p-5')
+		expect(prose).toHaveClass('max-w-[72ch]', 'space-y-3')
 		expect(content).toHaveClass('whitespace-pre-wrap', 'break-words', '[overflow-wrap:anywhere]')
 		expect(content).toHaveTextContent(`First line\n  indented ${longToken}`, { normalizeWhitespace: false })
 		expect(document.querySelector(EMAIL_ELEMENT_TAG)).toBeNull()

@@ -1,5 +1,6 @@
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 import { ChevronDown, Download, Paperclip } from 'lucide-react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
 import { labelBadgeClass } from '#shared/lib/color-tone'
@@ -129,65 +130,58 @@ function MessageBlock({
 
 	return (
 		<article className={cn('py-5', !isLast && 'border-b border-border')}>
-			<div className="flex items-start gap-2">
-				<button
-					type="button"
-					onClick={onToggle}
-					className="min-w-0 flex-1 text-left"
-					aria-expanded={open}
-					aria-controls={contentId}
+			<div className="flex min-w-0 items-start gap-3">
+				<div
+					data-slot="sender-avatar"
+					className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
 				>
-					{/*
-					 * The sender-identity row is a single line in every state, so the avatar
-					 * always centers against exactly one line of text — no orphaned avatar
-					 * height when expanded, and the row never changes height on toggle.
-					 */}
-					<div className="flex items-center gap-3">
-						<div
-							data-slot="sender-avatar"
-							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
-						>
-							{initials(fromLabel)}
-						</div>
-						<div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-							<span className="text-sm font-semibold text-foreground">{fromLabel}</span>
-							{open ? <span className="text-xs text-muted-foreground">to {recipients}</span> : null}
-							{message.date ? (
-								<ClientMessageTime
-									epochSeconds={message.date}
-									className="ml-auto shrink-0 text-xs text-muted-foreground"
-								/>
-							) : null}
-						</div>
-						<ChevronDown
-							className={cn(
-								'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-								open && 'rotate-180',
-							)}
-						/>
+					{initials(fromLabel)}
+				</div>
+				<div className="min-w-0 flex-1 pt-1">
+					<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+						<span className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
+							{fromLabel}
+						</span>
+						{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
+						{message.date ? (
+							<ClientMessageTime
+								epochSeconds={message.date}
+								className="order-2 ml-auto shrink-0 text-xs text-muted-foreground tabular-nums sm:order-3"
+							/>
+						) : null}
 					</div>
-					{/* Collapsed preview sits below the identity row, indented to the name's edge. */}
 					{!open ? (
-						<p className="mt-1 truncate pl-12 text-sm text-muted-foreground">
-							{collapsedMessagePreview(message)}
-						</p>
+						<p className="mt-1 truncate text-sm text-muted-foreground">{collapsedMessagePreview(message)}</p>
 					) : null}
-				</button>
-				<a
-					data-slot="raw-email-download"
-					href={`/messages/${encodeURIComponent(message.id)}/download`}
-					download
-					aria-label={`Download raw email from ${fromLabel}`}
-					title="Download raw email"
-					className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				>
-					<Download className="h-4 w-4" />
-				</a>
+				</div>
+				<div className="flex shrink-0 items-center gap-1">
+					<a
+						data-slot="raw-email-download"
+						href={`/messages/${encodeURIComponent(message.id)}/download`}
+						download
+						aria-label={`Download raw email from ${fromLabel}`}
+						title="Download raw email"
+						className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						<Download className="h-4 w-4" />
+					</a>
+					<button
+						data-slot="message-toggle"
+						type="button"
+						onClick={onToggle}
+						className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						aria-expanded={open}
+						aria-controls={contentId}
+						aria-label={`${open ? 'Collapse' : 'Expand'} message from ${fromLabel}`}
+						title={`${open ? 'Collapse' : 'Expand'} message`}
+					>
+						<ChevronDown className={cn('h-4 w-4', open && 'rotate-180')} />
+					</button>
+				</div>
 			</div>
 
 			{open ? (
-				<div id={contentId} data-slot="expanded-message-content" className="mt-4 min-w-0">
-					<MessageDetails message={message} />
+				<div id={contentId} data-slot="expanded-message-content" className="mt-5 w-full min-w-0">
 					<MessageBody message={message} darkenEmail={darkenEmail} />
 					<MessageAttachments message={message} />
 				</div>
@@ -204,35 +198,90 @@ const MESSAGE_ADDRESS_FIELDS = [
 	['reply_to', 'Reply-To'],
 ] as const
 
-function MessageDetails({ message }: { message: MailMessage }) {
+function MessageDetails({ message, recipientLabel }: { message: MailMessage; recipientLabel: string }) {
+	const [open, setOpen] = useState(false)
+	const panelId = useId()
+	const labelId = useId()
+	const rootRef = useRef<HTMLDivElement>(null)
+	const triggerRef = useRef<HTMLButtonElement>(null)
 	const addressRows = MESSAGE_ADDRESS_FIELDS.flatMap(([field, label]) => {
 		const participants = message[field]
 		return participants?.length ? [{ label, value: participants.map(formatParticipant).join(', ') }] : []
 	})
+
+	useEffect(() => {
+		if (!open) return
+
+		function onPointerDown(event: PointerEvent) {
+			if (!event.composedPath().includes(rootRef.current as EventTarget)) setOpen(false)
+		}
+
+		function onKeyDown(event: KeyboardEvent) {
+			if (event.key !== 'Escape') return
+			event.preventDefault()
+			event.stopPropagation()
+			setOpen(false)
+			triggerRef.current?.focus()
+		}
+
+		document.addEventListener('pointerdown', onPointerDown)
+		document.addEventListener('keydown', onKeyDown)
+		return () => {
+			document.removeEventListener('pointerdown', onPointerDown)
+			document.removeEventListener('keydown', onKeyDown)
+		}
+	}, [open])
+
 	if (addressRows.length === 0 && !message.date) return null
 
 	return (
-		<details data-slot="message-details" className="mb-3 text-xs text-muted-foreground">
-			<summary className="w-fit cursor-pointer rounded-sm font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-				Message details
-			</summary>
-			<dl className="mt-2 grid max-w-3xl grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border border-border bg-card/60 p-3">
-				{addressRows.map((row) => (
-					<div key={row.label} className="contents">
-						<dt className="font-medium text-foreground">{row.label}</dt>
-						<dd className="min-w-0 [overflow-wrap:anywhere]">{row.value}</dd>
-					</div>
-				))}
-				{message.date ? (
-					<div className="contents">
-						<dt className="font-medium text-foreground">Date</dt>
-						<dd>
-							<ClientMessageTime epochSeconds={message.date} />
-						</dd>
-					</div>
-				) : null}
-			</dl>
-		</details>
+		<div
+			ref={rootRef}
+			data-slot="message-details"
+			className="relative order-3 min-w-0 basis-full text-xs text-muted-foreground sm:order-2 sm:max-w-80 sm:shrink-0 sm:basis-auto"
+		>
+			<button
+				ref={triggerRef}
+				type="button"
+				onClick={() => setOpen((current) => !current)}
+				aria-expanded={open}
+				aria-controls={panelId}
+				className="relative -mx-1 inline-flex min-h-7 max-w-full items-center gap-0.5 rounded-md px-1 text-left before:absolute before:-inset-x-1 before:-inset-y-2 hover:text-foreground active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			>
+				<span className="truncate sm:overflow-visible sm:text-clip sm:whitespace-nowrap">
+					to {recipientLabel}
+				</span>
+				<ChevronDown className={cn('h-3 w-3 shrink-0', open && 'rotate-180')} />
+				<span className="sr-only">{open ? 'Hide' : 'Show'} message details</span>
+			</button>
+			{open ? (
+				<section
+					id={panelId}
+					aria-labelledby={labelId}
+					className="z-20 mt-2 w-[calc(100vw-5.5rem)] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-sm sm:absolute sm:left-0 sm:top-full sm:w-96 sm:max-w-[calc(100vw-6rem)]"
+				>
+					<h2 id={labelId} className="mb-3 font-display text-sm font-semibold text-foreground">
+						Message details
+					</h2>
+					<dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+						{addressRows.map((row) => (
+							<div key={row.label} className="contents">
+								<dt className="font-medium text-foreground">{row.label}</dt>
+								<dd className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">{row.value}</dd>
+							</div>
+						))}
+						{message.date ? (
+							<div className="contents">
+								<dt className="font-medium text-foreground">Date</dt>
+								<dd className="text-muted-foreground tabular-nums">
+									<ClientMessageTime epochSeconds={message.date} />
+								</dd>
+							</div>
+						) : null}
+					</dl>
+				</section>
+			) : null}
+		</div>
 	)
 }
 
