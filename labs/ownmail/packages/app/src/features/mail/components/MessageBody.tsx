@@ -61,18 +61,17 @@ function plainBodyText(message: MailMessage): string {
 function PlainBody({ text }: { text: string }) {
 	const paragraphs = text.split(/\n{2,}/)
 	return (
-		<div
-			data-slot="plain-email-content"
-			className="w-full min-w-0 max-w-[72ch] space-y-3 overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm"
-		>
-			{paragraphs.map((paragraph) => (
-				<p
-					key={paragraph.slice(0, 48)}
-					className="whitespace-pre-wrap break-words text-[0.9375rem] leading-[1.7] text-foreground [overflow-wrap:anywhere]"
-				>
-					{paragraph}
-				</p>
-			))}
+		<div data-slot="plain-email-content" className="w-full min-w-0">
+			<div data-slot="plain-email-prose" className="max-w-[72ch] space-y-3">
+				{paragraphs.map((paragraph) => (
+					<p
+						key={paragraph.slice(0, 48)}
+						className="whitespace-pre-wrap break-words text-base leading-relaxed text-foreground [overflow-wrap:anywhere]"
+					>
+						{paragraph}
+					</p>
+				))}
+			</div>
 		</div>
 	)
 }

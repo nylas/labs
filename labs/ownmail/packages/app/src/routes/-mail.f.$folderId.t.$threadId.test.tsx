@@ -255,7 +255,7 @@ describe('message list', () => {
 	it('expands and collapses every message from the thread overview controls', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const toggles = () => Array.from(document.querySelectorAll('article button[aria-expanded]'))
+		const toggles = () => Array.from(document.querySelectorAll('[data-slot="message-toggle"]'))
 
 		expect(toggles().map((button) => button.getAttribute('aria-expanded'))).toEqual([
 			'false',
@@ -289,18 +289,58 @@ describe('message list', () => {
 				],
 			}),
 		)
-		const summary = screen.getByText('Message details')
-		const details = summary.closest('details') as HTMLDetailsElement
-		expect(details.open).toBe(false)
+		const trigger = screen.getByRole('button', { name: /Show message details/ })
+		expect(trigger).toHaveTextContent('to Bob')
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('heading', { name: 'Message details' })).not.toBeInTheDocument()
 
-		await user.click(summary)
-		expect(details.open).toBe(true)
+		await user.click(trigger)
+		expect(trigger).toHaveAttribute('aria-expanded', 'true')
+		const heading = screen.getByRole('heading', { name: 'Message details' })
+		const panel = heading.closest('section')
+		expect(panel).toHaveClass('sm:absolute', 'sm:top-full', 'bg-popover')
 		expect(screen.getByText('Alice <alice@x.com>')).toBeInTheDocument()
 		expect(screen.getByText('Bob <bob@x.com>')).toBeInTheDocument()
 		expect(screen.getByText('cc@x.com')).toBeInTheDocument()
 		expect(screen.getByText('bcc@x.com')).toBeInTheDocument()
 		expect(screen.getByText('Replies <reply@x.com>')).toBeInTheDocument()
-		expect(details.querySelector('time')).toHaveAttribute('datetime', '2023-11-14T22:13:20.000Z')
+		expect(panel?.querySelector('time')).toHaveAttribute('datetime', '2023-11-14T22:13:20.000Z')
+
+		await user.keyboard('x')
+		expect(trigger).toHaveAttribute('aria-expanded', 'true')
+		await user.click(screen.getByText('Alice <alice@x.com>'))
+		expect(trigger).toHaveAttribute('aria-expanded', 'true')
+		await user.click(document.body)
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+		await user.click(trigger)
+		await user.keyboard('{Escape}')
+		expect(trigger).toHaveFocus()
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('heading', { name: 'Message details' })).not.toBeInTheDocument()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('shows addressing details without inventing a date when the provider omits it', async () => {
+		const user = userEvent.setup()
+		renderThread(
+			loaderData({
+				messages: [
+					{
+						id: 'm-undated',
+						from: [{ name: 'Alice', email: 'alice@x.com' }],
+						to: [{ name: 'Bob', email: 'bob@x.com' }],
+						body: 'Undated message',
+					},
+				],
+			}),
+		)
+
+		await user.click(screen.getByRole('button', { name: /Show message details/ }))
+		const panel = screen.getByRole('heading', { name: 'Message details' }).closest('section')
+		const labels = Array.from(panel?.querySelectorAll('dt') ?? [], (node) => node.textContent)
+		expect(labels).toEqual(['From', 'To'])
+		expect(panel?.querySelector('time')).toBeNull()
 	})
 
 	it('omits the details disclosure when a provider message has no metadata', () => {
@@ -318,14 +358,14 @@ describe('message list', () => {
 		renderThread()
 		const content = document.querySelector('[data-slot="expanded-message-content"]')
 
-		expect(content).toHaveClass('mt-4', 'min-w-0')
+		expect(content).toHaveClass('mt-5', 'w-full', 'min-w-0')
 		expect(content).not.toHaveClass('pl-12')
 	})
 
 	it('toggles a collapsed message open and back, rendering its (empty) body and no attachments', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const toggle = screen.getByText('(unknown sender)').closest('button') as HTMLButtonElement
+		const toggle = screen.getByRole('button', { name: 'Expand message from (unknown sender)' })
 		expect(toggle.getAttribute('aria-expanded')).toBe('false')
 		await user.click(toggle)
 		expect(toggle.getAttribute('aria-expanded')).toBe('true')

@@ -263,8 +263,8 @@ export function MailFolderRouteScreen({
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none',
-					hasThread ? 'hidden' : 'flex',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:w-[22rem] md:max-w-[22rem] md:flex-none',
+					hasThread ? 'hidden xl:flex' : 'flex',
 				)}
 			>
 				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
