@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { createRootRoute, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router'
+import { createRootRoute, HeadContent, Link, Outlet, Scripts, useRouterState } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
@@ -106,11 +106,23 @@ function RootComponent() {
 				/>
 			</head>
 			<body suppressHydrationWarning>
+				<NavigationProgress />
 				<OwnmailQueryProvider>
 					<Outlet />
 				</OwnmailQueryProvider>
 				<Scripts />
 			</body>
 		</html>
+	)
+}
+
+function NavigationProgress() {
+	const navigationPending = useRouterState({ select: (state) => state.isLoading })
+	if (!navigationPending) return null
+
+	return (
+		<div className="navigation-progress" role="progressbar" aria-label="Loading page">
+			<div className="navigation-progress-bar" aria-hidden="true" />
+		</div>
 	)
 }

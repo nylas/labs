@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const routerState = vi.hoisted(() => ({ isLoading: false }))
 
 vi.mock('@tanstack/react-router', () => ({
 	createRootRoute: (opts: any) => ({ options: opts }),
 	HeadContent: () => null,
 	Outlet: () => null,
 	Scripts: () => null,
-	useRouterState: (options: { select: (state: { location: { pathname: string } }) => unknown }) =>
-		options.select({ location: { pathname: '/' } }),
+	useRouterState: (options: {
+		select: (state: { isLoading: boolean; location: { pathname: string } }) => unknown
+	}) => options.select({ isLoading: routerState.isLoading, location: { pathname: '/' } }),
 	Link: ({ to, children, ...rest }: any) => (
 		<a href={to} {...rest}>
 			{children}
@@ -27,7 +30,10 @@ vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 import { Route } from './__root.js'
 
-afterEach(cleanup)
+afterEach(() => {
+	routerState.isLoading = false
+	cleanup()
+})
 
 describe('root route', () => {
 	it('loads the validated deployment site name for document metadata', async () => {
@@ -59,6 +65,17 @@ describe('root route', () => {
 		expect(script?.innerHTML).toContain("localStorage.getItem('theme')")
 		// Both theme-color metas ship so the browser chrome matches light and dark.
 		expect(document.head.querySelectorAll('meta[name="theme-color"]').length).toBe(2)
+	})
+
+	it('shows non-blocking progress while a route navigation is pending', () => {
+		routerState.isLoading = true
+		const RootComponent = Route.options.component
+		const { rerender } = render(<RootComponent />)
+
+		expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument()
+		routerState.isLoading = false
+		rerender(<RootComponent />)
+		expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument()
 	})
 
 	it('renders a not-found page with a route back home so bad URLs are recoverable, not a dead end', () => {
