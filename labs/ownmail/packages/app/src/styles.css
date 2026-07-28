@@ -532,6 +532,24 @@
 	animation: fade-in 140ms ease;
 }
 
+.navigation-progress {
+	position: fixed;
+	inset: 0 0 auto;
+	z-index: 100;
+	height: 0.1875rem;
+	overflow: hidden;
+	pointer-events: none;
+	background: color-mix(in oklch, var(--color-primary), transparent 82%);
+}
+
+.navigation-progress-bar {
+	height: 100%;
+	width: 40%;
+	background: var(--color-primary);
+	box-shadow: 0 0 0.5rem color-mix(in oklch, var(--color-primary), transparent 35%);
+	animation: navigation-progress 900ms ease-in-out infinite;
+}
+
 @keyframes palette-in {
 	from {
 		opacity: 0;
@@ -549,6 +567,15 @@
 	}
 	to {
 		opacity: 1;
+	}
+}
+
+@keyframes navigation-progress {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
 	}
 }
 
@@ -639,6 +666,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.navigation-progress-bar {
+		width: 100%;
+		animation: none;
+	}
+
 	*,
 	*::before,
 	*::after {

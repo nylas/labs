@@ -21,3 +21,11 @@ describe('touch editing styles', () => {
 		expect(styles.search(touchCodeRule)).toBeGreaterThan(styles.indexOf('.markdown-editor code {'))
 	})
 })
+
+describe('navigation progress styles', () => {
+	it('keeps pending navigation visible without motion when reduced motion is requested', () => {
+		expect(styles).toMatch(
+			/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.navigation-progress-bar\s*\{\s*width: 100%;\s*animation: none;/,
+		)
+	})
+})
