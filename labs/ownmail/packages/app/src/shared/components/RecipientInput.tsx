@@ -18,6 +18,7 @@ export function RecipientInput({
 	className,
 	id = 'recipient-input',
 	label = 'Recipients',
+	disabled = false,
 }: {
 	value: string
 	onChange: (next: string) => void
@@ -25,6 +26,7 @@ export function RecipientInput({
 	className?: string
 	id?: string
 	label?: string
+	disabled?: boolean
 }) {
 	const tokens = valueToTokens(value)
 	const [draft, setDraft] = useState('')
@@ -50,7 +52,7 @@ export function RecipientInput({
 	useEffect(() => {
 		const requestId = ++searchRequestId.current
 		if (timer.current) clearTimeout(timer.current)
-		if (query.length < 2) {
+		if (disabled || query.length < 2) {
 			setSuggestions([])
 			setOpen(false)
 			return
@@ -71,7 +73,7 @@ export function RecipientInput({
 			/* v8 ignore else -- @preserve this cleanup exists only after the effect schedules a timer */
 			if (timer.current) clearTimeout(timer.current)
 		}
-	}, [query])
+	}, [disabled, query])
 
 	function commit(raw: string) {
 		onChange(tokensToValue(addToken(tokens, raw)))
@@ -125,7 +127,7 @@ export function RecipientInput({
 	return (
 		// The width class lives on the root so the absolutely-positioned suggestion
 		// list (w-full) spans the whole field instead of just the typed content.
-		<div className={cn('relative', className)}>
+		<div className={cn('relative', className)} aria-disabled={disabled || undefined}>
 			<label className="sr-only" htmlFor={id}>
 				{label}
 			</label>
@@ -138,12 +140,13 @@ export function RecipientInput({
 						<span className="max-w-[12rem] truncate">{token}</span>
 						<button
 							type="button"
+							disabled={disabled}
 							aria-label={`Remove ${token}`}
 							onMouseDown={(e) => {
 								e.preventDefault()
 								removeAt(index)
 							}}
-							className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+							className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 						>
 							<X className="h-3 w-3" />
 						</button>
@@ -167,6 +170,7 @@ export function RecipientInput({
 					autoComplete="off"
 					autoCapitalize="none"
 					enterKeyHint="next"
+					disabled={disabled}
 				/>
 			</div>
 			{open ? (
@@ -175,6 +179,7 @@ export function RecipientInput({
 						<li key={suggestion.email}>
 							<button
 								type="button"
+								disabled={disabled}
 								data-highlighted={index === highlight ? 'true' : undefined}
 								onMouseEnter={() => setHighlight(index)}
 								onMouseDown={(e) => {

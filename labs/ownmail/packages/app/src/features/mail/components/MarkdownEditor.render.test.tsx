@@ -94,6 +94,18 @@ describe('MarkdownEditor rendering', () => {
 		expect(screen.queryByRole('button')).not.toBeInTheDocument()
 	})
 
+	it('becomes read-only without exposing editing handlers', () => {
+		const onChange = vi.fn()
+		const { container } = render(<MarkdownEditor value="Locked" onChange={onChange} readOnly />)
+		const editor = container.querySelector('[role="textbox"]') as HTMLElement
+		expect(editor).toHaveAttribute('contenteditable', 'false')
+		expect(editor).toHaveAttribute('aria-readonly', 'true')
+		fireEvent.input(editor)
+		fireEvent.paste(editor)
+		fireEvent.keyDown(editor, { key: 'x' })
+		expect(onChange).not.toHaveBeenCalled()
+	})
+
 	it('seeds markdown as a fully rendered preview', () => {
 		const { editor } = setup('# Hi\n**bold** x')
 		expect(editor.innerHTML).toBe('<h1>Hi</h1><p><strong>bold</strong> x</p>')

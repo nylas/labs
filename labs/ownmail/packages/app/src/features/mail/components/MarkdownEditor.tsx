@@ -22,6 +22,7 @@ interface MarkdownEditorProps {
 	placeholder?: string
 	className?: string
 	ariaLabel?: string
+	readOnly?: boolean
 }
 
 interface SourceSelection {
@@ -51,6 +52,7 @@ export function MarkdownEditor({
 	placeholder = 'Write your message...',
 	className,
 	ariaLabel = 'Message body',
+	readOnly = false,
 }: MarkdownEditorProps) {
 	const ref = useRef<HTMLDivElement>(null)
 	const source = useRef('')
@@ -367,31 +369,44 @@ export function MarkdownEditor({
 				<div
 					id={id}
 					ref={ref}
-					contentEditable
+					contentEditable={!readOnly}
 					suppressContentEditableWarning
 					role="textbox"
 					tabIndex={0}
 					aria-multiline="true"
 					aria-label={ariaLabel}
+					aria-readonly={readOnly || undefined}
 					spellCheck
-					onInput={onInput}
-					onCompositionStart={() => {
-						composing.current = true
-					}}
-					onCompositionEnd={() => {
-						composing.current = false
-						// Apply the syntax re-highlight deferred during composition.
-						onInput()
-					}}
-					onKeyDown={onKeyDown}
-					onPaste={onPaste}
+					onInput={readOnly ? undefined : onInput}
+					onCompositionStart={
+						readOnly
+							? undefined
+							: () => {
+									composing.current = true
+								}
+					}
+					onCompositionEnd={
+						readOnly
+							? undefined
+							: () => {
+									composing.current = false
+									// Apply the syntax re-highlight deferred during composition.
+									onInput()
+								}
+					}
+					onKeyDown={readOnly ? undefined : onKeyDown}
+					onPaste={readOnly ? undefined : onPaste}
 					onCopy={(event) => onCopyOrCut(event, false)}
-					onCut={(event) => onCopyOrCut(event, true)}
-					onMouseDown={() => {
-						dragging.current = true
-					}}
+					onCut={readOnly ? undefined : (event) => onCopyOrCut(event, true)}
+					onMouseDown={
+						readOnly
+							? undefined
+							: () => {
+									dragging.current = true
+								}
+					}
 					onBlur={onBlur}
-					className="markdown-editor min-h-full px-3 py-3 text-sm leading-relaxed outline-none"
+					className="markdown-editor min-h-full px-3 py-3 text-sm leading-relaxed outline-none aria-readonly:cursor-wait aria-readonly:opacity-70"
 				/>
 			</div>
 		</div>

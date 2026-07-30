@@ -30,6 +30,7 @@ function Harness({
 	className,
 	label,
 	id,
+	disabled,
 }: {
 	initial?: string
 	onChangeSpy?: (next: string) => void
@@ -37,6 +38,7 @@ function Harness({
 	className?: string
 	label?: string
 	id?: string
+	disabled?: boolean
 }) {
 	const [value, setValue] = useState(initial)
 	return (
@@ -50,6 +52,7 @@ function Harness({
 			className={className}
 			{...(label ? { label } : {})}
 			{...(id ? { id } : {})}
+			disabled={disabled}
 		/>
 	)
 }
@@ -83,6 +86,13 @@ describe('RecipientInput', () => {
 		expect(input.id).toBe('guest-field')
 		// className styles the chip container, not the inner input.
 		expect(input.closest('.wide')).not.toBeNull()
+	})
+
+	it('disables recipient editing and token removal', () => {
+		render(<Harness initial="mina@example.com" disabled />)
+		expect(field()).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Remove mina@example.com' })).toBeDisabled()
+		expect(field().closest('[aria-disabled="true"]')).not.toBeNull()
 	})
 
 	it('renders existing recipients as chips and hides the placeholder', () => {
