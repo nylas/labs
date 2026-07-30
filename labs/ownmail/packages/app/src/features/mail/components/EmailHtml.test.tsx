@@ -18,6 +18,7 @@ describe('EmailHtml', () => {
 		render(<EmailHtml html="<p>Newsletter body</p>" messageId="m1" />)
 		const el = emailElement()
 		expect(el).not.toBeNull()
+		expect(document.querySelector('[data-slot="html-email-placeholder"]')).toBeNull()
 		expect(el.getAttribute('title')).toBe('Email content m1')
 		expect(el.shadowRoot?.querySelector('.email-root')?.innerHTML).toContain('Newsletter body')
 	})

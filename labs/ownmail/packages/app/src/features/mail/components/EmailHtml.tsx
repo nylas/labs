@@ -1,4 +1,4 @@
-import { type Ref, useEffect, useMemo, useRef, useState } from 'react'
+import { type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
 	applyDarkInvert,
 	applyEmailHtml,
@@ -22,8 +22,8 @@ const OwnmailEmail = EMAIL_ELEMENT_TAG as unknown as (props: {
 
 /** Tracks the app's dark theme (the `.dark` class the theme toggle sets on <html>). */
 function useIsDark(): boolean {
-	const [isDark, setIsDark] = useState(false)
-	useEffect(() => {
+	const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+	useLayoutEffect(() => {
 		const root = document.documentElement
 		const update = () => setIsDark(root.classList.contains('dark'))
 		update()
@@ -60,28 +60,35 @@ export function EmailHtml({
 	const supportsDark = useMemo(() => emailSupportsDarkMode(html), [html])
 	const invert = darken && isDark && !supportsDark
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		ensureEmailElementDefined()
 		setReady(true)
 	}, [])
 
 	// `ready` re-runs these once the custom element has mounted and `ref.current` is
 	// set (the linter can't see the ref dependency, so it is used explicitly here).
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (ready) applyEmailHtml(ref.current, html)
 	}, [ready, html])
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (ready) applyDarkInvert(ref.current, invert)
 	}, [ready, invert])
 
 	useEffect(() => subscribeLinkPreview(ready ? ref.current : null, setPreview), [ready])
 
 	return (
-		<div className="relative">
+		<div className="relative" aria-busy={ready ? undefined : true}>
 			{ready ? (
 				<OwnmailEmail ref={ref} title={`Email content ${messageId}`} className="block w-full" />
-			) : null}
+			) : (
+				<div
+					data-slot="html-email-placeholder"
+					role="status"
+					aria-label="Loading email content"
+					className="min-h-24 min-w-0 max-w-full rounded-xl border border-border bg-muted/40"
+				/>
+			)}
 
 			{preview && preview.href !== null ? (
 				// Anchored next to the pointer (not a fixed corner) so the reader sees the

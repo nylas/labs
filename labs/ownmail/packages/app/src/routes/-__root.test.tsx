@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const routerState = vi.hoisted(() => ({ isLoading: false }))
@@ -33,6 +33,7 @@ import { Route } from './__root.js'
 afterEach(() => {
 	routerState.isLoading = false
 	cleanup()
+	vi.useRealTimers()
 })
 
 describe('root route', () => {
@@ -67,14 +68,34 @@ describe('root route', () => {
 		expect(document.head.querySelectorAll('meta[name="theme-color"]').length).toBe(2)
 	})
 
-	it('shows non-blocking progress while a route navigation is pending', () => {
+	it('does not flash progress for a fast route navigation', () => {
+		vi.useFakeTimers()
 		routerState.isLoading = true
 		const RootComponent = Route.options.component
 		const { rerender } = render(<RootComponent />)
 
-		expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument()
+		expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument()
+		act(() => vi.advanceTimersByTime(100))
 		routerState.isLoading = false
 		rerender(<RootComponent />)
+		act(() => vi.advanceTimersByTime(500))
+		expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument()
+	})
+
+	it('shows progress for slower navigation without a one-frame disappearance', () => {
+		vi.useFakeTimers()
+		routerState.isLoading = true
+		const RootComponent = Route.options.component
+		const { rerender } = render(<RootComponent />)
+
+		act(() => vi.advanceTimersByTime(150))
+		expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument()
+
+		routerState.isLoading = false
+		rerender(<RootComponent />)
+		act(() => vi.advanceTimersByTime(299))
+		expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument()
+		act(() => vi.advanceTimersByTime(1))
 		expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument()
 	})
 
