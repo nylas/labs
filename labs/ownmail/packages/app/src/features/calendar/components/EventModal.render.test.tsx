@@ -575,6 +575,35 @@ describe('EventModal — new event', () => {
 		resolveSave({ eventId: 'x' })
 	})
 
+	it('does not dismiss the composer with Escape while a save is in flight', async () => {
+		const user = userEvent.setup()
+		const onClose = vi.fn()
+		let resolveSave: (value: unknown) => void = () => {}
+		createEvent.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await screen.findByRole('button', { name: 'Saving...' })
+		fireEvent.keyDown(window, { key: 'Escape' })
+		expect(onClose).not.toHaveBeenCalled()
+
+		resolveSave({ eventId: 'x' })
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
+	})
+
 	it('closes without saving via Cancel', async () => {
 		const user = userEvent.setup()
 		const onClose = vi.fn()

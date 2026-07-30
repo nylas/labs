@@ -178,11 +178,11 @@ export function EventModal({
 	useEffect(() => {
 		if (event) return
 		function onKey(keyEvent: KeyboardEvent) {
-			if (keyEvent.key === 'Escape') onClose(false)
+			if (keyEvent.key === 'Escape' && !busy) onClose(false)
 		}
 		window.addEventListener('keydown', onKey)
 		return () => window.removeEventListener('keydown', onKey)
-	}, [event, onClose])
+	}, [busy, event, onClose])
 
 	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
 	const eventCalendar = event ? calendars.find((calendar) => calendar.id === event.calendar_id) : undefined
