@@ -55,13 +55,14 @@ vi.mock('#server/fns', () => ({
 // Focus coverage on mail.compose.tsx: the "To" autocomplete and the error banner
 // are their own units, so they are replaced with minimal stand-ins.
 vi.mock('#shared/components/RecipientInput', () => ({
-	RecipientInput: ({ id, value, onChange, placeholder }: any) => (
+	RecipientInput: ({ id, value, onChange, placeholder, disabled }: any) => (
 		<input
 			id={id}
 			aria-label="To"
 			value={value}
 			placeholder={placeholder}
-			onChange={(event) => onChange(event.target.value)}
+			disabled={disabled}
+			onChange={disabled ? undefined : (event) => onChange(event.target.value)}
 		/>
 	),
 }))
@@ -69,12 +70,13 @@ vi.mock('#shared/components/RecipientInput', () => ({
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
 vi.mock('#features/mail/components/MarkdownEditor', () => ({
-	MarkdownEditor: ({ id, value, onChange, placeholder }: any) => (
+	MarkdownEditor: ({ id, value, onChange, placeholder, readOnly }: any) => (
 		<textarea
 			id={id}
 			placeholder={placeholder ?? 'Write your message...'}
 			value={value}
-			onChange={(event) => onChange(event.target.value)}
+			readOnly={readOnly}
+			onChange={readOnly ? undefined : (event) => onChange(event.target.value)}
 		/>
 	),
 }))
@@ -839,6 +841,42 @@ describe('mail.compose window controls', () => {
 				params: { folderId: 'inbox' },
 			}),
 		)
+	})
+
+	it('prevents edits while close persistence is in flight', async () => {
+		let resolveSave: (value: { draftId: string }) => void = () => {}
+		saveDraft.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderCompose({ loader: { folderId: 'inbox' } })
+		const recipient = screen.getByLabelText('To')
+		const subject = screen.getByLabelText('Subject')
+		const body = screen.getByPlaceholderText('Write your message...')
+		fireEvent.change(recipient, { target: { value: 'before@example.com' } })
+		fireEvent.change(subject, { target: { value: 'Before close' } })
+		fireEvent.change(body, { target: { value: 'Before close body' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+		await waitFor(() => expect(screen.getByText('Saving…')).toBeInTheDocument())
+		expect(recipient).toBeDisabled()
+		expect(subject).toBeDisabled()
+		expect(body).toHaveAttribute('readonly')
+		fireEvent.change(recipient, { target: { value: 'lost@example.com' } })
+		fireEvent.change(subject, { target: { value: 'Lost subject' } })
+		fireEvent.change(body, { target: { value: 'Lost body' } })
+
+		expect(saveDraft).toHaveBeenCalledWith({
+			data: {
+				to: 'before@example.com',
+				subject: 'Before close',
+				body: markdownToDraftBody('Before close body'),
+			},
+		})
+		resolveSave({ draftId: 'locked-draft' })
+		await waitFor(() => expect(navigate).toHaveBeenCalled())
 	})
 })
 

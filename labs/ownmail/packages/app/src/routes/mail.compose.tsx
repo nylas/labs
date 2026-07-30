@@ -814,6 +814,7 @@ function Compose() {
 									onChange={setTo}
 									placeholder="recipient@email.com"
 									className="flex-1"
+									disabled={closing}
 								/>
 							</div>
 							<label
@@ -824,13 +825,20 @@ function Compose() {
 								<input
 									id="compose-subject"
 									value={subject}
+									disabled={closing}
 									onChange={(event) => setSubject(event.target.value)}
-									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-wait disabled:opacity-60"
 								/>
 							</label>
 						</div>
 
-						<MarkdownEditor id="compose-body" value={body} onChange={setBody} className="min-h-0 flex-1" />
+						<MarkdownEditor
+							id="compose-body"
+							value={body}
+							onChange={setBody}
+							readOnly={closing}
+							className="min-h-0 flex-1"
+						/>
 
 						{attachments.length ? (
 							<div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
@@ -846,9 +854,10 @@ function Compose() {
 										</span>
 										<button
 											type="button"
+											disabled={closing}
 											onClick={() => removeAttachment(index)}
 											aria-label={`Remove ${attachment.filename}`}
-											className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+											className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 										>
 											<X className="h-3.5 w-3.5" />
 										</button>
