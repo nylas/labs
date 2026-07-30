@@ -48,4 +48,14 @@ describe('ThreadConversation rendering', () => {
 
 		expect(layoutStates).toEqual(['true', 'true'])
 	})
+
+	it('keeps the mobile timestamp on a dedicated one-line row', () => {
+		const datedMessage = { ...message('m1'), date: 1_700_000_000 }
+		const { container } = render(<ThreadConversation thread={thread('t1')} messages={[datedMessage]} />)
+		const timestamps = container.querySelectorAll('time')
+
+		expect(timestamps).toHaveLength(2)
+		expect(timestamps[0]).toHaveClass('hidden', 'sm:inline-block', 'order-3')
+		expect(timestamps[1]).toHaveClass('basis-full', 'whitespace-nowrap', 'pl-12', 'sm:hidden')
+	})
 })
