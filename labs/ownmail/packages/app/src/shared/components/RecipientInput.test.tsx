@@ -266,25 +266,42 @@ describe('RecipientInput', () => {
 		expect(onChangeSpy).toHaveBeenLastCalledWith('b@acme.com')
 	})
 
-	it('commits a valid draft on blur but leaves an empty draft alone', async () => {
+	it('commits a valid draft synchronously on blur but leaves an empty draft alone', () => {
 		const onChangeSpy = vi.fn()
 		render(<Harness onChangeSpy={onChangeSpy} />)
 		const input = field()
 
 		// Empty draft: blur only closes, never commits.
 		fireEvent.blur(input)
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(150)
-		})
 		expect(onChangeSpy).not.toHaveBeenCalled()
 
 		// Non-empty draft: blur commits it as a chip.
 		fireEvent.change(input, { target: { value: 'late@acme.com' } })
 		fireEvent.blur(input)
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(150)
-		})
 		expect(onChangeSpy).toHaveBeenCalledWith('late@acme.com')
+	})
+
+	it('updates controlled recipients before an external close click snapshots them', () => {
+		const close = vi.fn()
+		function CloseHarness() {
+			const [value, setValue] = useState('')
+			return (
+				<>
+					<RecipientInput value={value} onChange={setValue} />
+					<button type="button" onClick={() => close(value)}>
+						Close
+					</button>
+				</>
+			)
+		}
+
+		render(<CloseHarness />)
+		fireEvent.change(field(), { target: { value: 'last@example.com' } })
+		// Browsers dispatch blur before the click that moves focus to Close.
+		fireEvent.blur(field())
+		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+		expect(close).toHaveBeenCalledWith('last@example.com')
 	})
 
 	it('reschedules the lookup as the draft changes', async () => {

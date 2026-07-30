@@ -38,14 +38,9 @@ export function RecipientInput({
 	// request id so a slow response for an earlier draft cannot replace the
 	// suggestions for what the user is currently typing.
 	const searchRequestId = useRef(0)
-	// Mirror the draft so the debounced blur handler reads the latest value,
-	// not the stale one captured when blur fired (a pick clears it in between).
-	const draftRef = useRef('')
-
 	const query = draft.trim()
 
 	function setDraftValue(next: string) {
-		draftRef.current = next
 		setDraft(next)
 	}
 
@@ -157,12 +152,12 @@ export function RecipientInput({
 					value={draft}
 					onChange={onInputChange}
 					onKeyDown={onKeyDown}
-					onBlur={() =>
-						setTimeout(() => {
-							if (draftRef.current.trim()) commit(draftRef.current)
-							setOpen(false)
-						}, 150)
-					}
+					onBlur={() => {
+						// Blur runs before an external button's click. Commit now so Close
+						// snapshots the visible recipient instead of an older controlled value.
+						if (draft.trim()) commit(draft)
+						setOpen(false)
+					}}
 					placeholder={tokens.length ? '' : (placeholder ?? 'To (comma-separated)')}
 					className="min-h-0 w-auto min-w-[8rem] flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
 					type="email"
