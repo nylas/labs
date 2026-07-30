@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { formatListDate } from '../lib/presentation.js'
+import { cn } from '../lib/utils.js'
 
 const MESSAGE_TIME_OPTIONS: Intl.DateTimeFormatOptions = {
 	weekday: 'short',
@@ -20,8 +21,8 @@ export function ClientListDate({ epochSeconds, className }: { epochSeconds?: num
 	if (!epochSeconds) return null
 
 	return (
-		<span className={className} suppressHydrationWarning>
-			{label}
+		<span className={cn('inline-block min-w-14 text-right tabular-nums', className)} suppressHydrationWarning>
+			{label || '\u00a0'}
 		</span>
 	)
 }
@@ -36,14 +37,20 @@ export function ClientMessageTime({ epochSeconds, className }: { epochSeconds: n
 	}, [epochSeconds])
 
 	return (
-		<time dateTime={iso} className={className} suppressHydrationWarning>
-			{label}
+		<time
+			dateTime={iso}
+			className={cn('inline-block min-w-40 whitespace-nowrap text-right tabular-nums', className)}
+			suppressHydrationWarning
+		>
+			{label || '\u00a0'}
 		</time>
 	)
 }
 
 export function useMounted(): boolean {
-	const [mounted, setMounted] = useState(false)
-	useEffect(() => setMounted(true), [])
-	return mounted
+	return useSyncExternalStore(subscribeToClient, clientSnapshot, serverSnapshot)
 }
+
+const subscribeToClient = () => () => {}
+const clientSnapshot = () => true
+const serverSnapshot = () => false

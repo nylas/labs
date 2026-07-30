@@ -141,7 +141,7 @@ function MessageBlock({
 
 	return (
 		<article className={cn('py-5', !isLast && 'border-b border-border')}>
-			<div className="flex min-w-0 items-start gap-3">
+			<div className="flex min-w-0 flex-wrap items-start gap-x-3">
 				<div
 					data-slot="sender-avatar"
 					className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
@@ -157,7 +157,7 @@ function MessageBlock({
 						{message.date ? (
 							<ClientMessageTime
 								epochSeconds={message.date}
-								className="order-2 ml-auto shrink-0 text-xs text-muted-foreground tabular-nums sm:order-3"
+								className="order-3 ml-auto hidden shrink-0 text-xs text-muted-foreground tabular-nums sm:inline-block"
 							/>
 						) : null}
 					</div>
@@ -189,6 +189,12 @@ function MessageBlock({
 						<ChevronDown className={cn('h-4 w-4', open && 'rotate-180')} />
 					</button>
 				</div>
+				{message.date ? (
+					<ClientMessageTime
+						epochSeconds={message.date}
+						className="mt-1 basis-full whitespace-nowrap pl-12 text-right text-xs leading-5 text-muted-foreground sm:hidden"
+					/>
+				) : null}
 			</div>
 
 			{open ? (

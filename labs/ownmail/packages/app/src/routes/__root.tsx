@@ -2,6 +2,7 @@
 import { createRootRoute, HeadContent, Link, Outlet, Scripts, useRouterState } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
@@ -118,7 +119,36 @@ function RootComponent() {
 
 function NavigationProgress() {
 	const navigationPending = useRouterState({ select: (state) => state.isLoading })
-	if (!navigationPending) return null
+	const [visible, setVisible] = useState(false)
+	const visibleSince = useRef<number | null>(null)
+
+	useEffect(() => {
+		let timer: ReturnType<typeof setTimeout> | undefined
+		if (navigationPending) {
+			if (!visible) {
+				timer = setTimeout(() => {
+					visibleSince.current = Date.now()
+					setVisible(true)
+				}, 150)
+			}
+		} else if (visible) {
+			// `visible` is only set in the same callback that records this timestamp.
+			const elapsed = Date.now() - (visibleSince.current as number)
+			timer = setTimeout(
+				() => {
+					visibleSince.current = null
+					setVisible(false)
+				},
+				Math.max(0, 300 - elapsed),
+			)
+		}
+
+		return () => {
+			if (timer !== undefined) clearTimeout(timer)
+		}
+	}, [navigationPending, visible])
+
+	if (!visible) return null
 
 	return (
 		<div className="navigation-progress" role="progressbar" aria-label="Loading page">
