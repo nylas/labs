@@ -811,6 +811,35 @@ describe('mail.compose window controls', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 		expect(navigate).toHaveBeenCalledWith({ to: '/mail/f/$folderId', params: { folderId: 'inbox' } })
 	})
+
+	it('flushes the latest draft before closing', async () => {
+		let resolveSave: (value: { draftId: string }) => void = () => {}
+		saveDraft.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderCompose({ loader: { folderId: 'inbox' } })
+		fireEvent.change(screen.getByPlaceholderText('Write your message...'), {
+			target: { value: 'Latest draft text' },
+		})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+		await waitFor(() =>
+			expect(saveDraft).toHaveBeenCalledWith({
+				data: { to: '', subject: '', body: markdownToDraftBody('Latest draft text') },
+			}),
+		)
+		expect(navigate).not.toHaveBeenCalled()
+		resolveSave({ draftId: 'flushed-draft' })
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/f/$folderId',
+				params: { folderId: 'inbox' },
+			}),
+		)
+	})
 })
 
 describe('mail.compose editing', () => {
@@ -914,6 +943,38 @@ describe('mail.compose attachments', () => {
 		} finally {
 			if (original) Object.defineProperty(globalThis.crypto, 'randomUUID', original)
 		}
+	})
+
+	it('blocks sending until the selected attachment finishes processing', async () => {
+		let resolveFile: (value: ArrayBuffer) => void = () => {}
+		const pending = new File([new Uint8Array([1, 2, 3])], 'pending.txt')
+		Object.defineProperty(pending, 'arrayBuffer', {
+			value: () =>
+				new Promise<ArrayBuffer>((resolve) => {
+					resolveFile = resolve
+				}),
+			configurable: true,
+		})
+		const { container } = renderCompose({
+			loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'body' } },
+		})
+
+		fireEvent.change(fileInput(container), { target: { files: [pending] } })
+
+		const attaching = await screen.findByRole('button', { name: 'Attaching...' })
+		expect(attaching).toBeDisabled()
+		fireEvent.click(attaching)
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+
+		resolveFile(new Uint8Array([1, 2, 3]).buffer)
+		expect(await screen.findByText('pending.txt')).toBeInTheDocument()
+		const send = screen.getByRole('button', { name: 'Send' })
+		expect(send).not.toBeDisabled()
+		fireEvent.click(send)
+
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(saveDraft.mock.calls[0][0].data.attachments).toHaveLength(1)
 	})
 })
 
