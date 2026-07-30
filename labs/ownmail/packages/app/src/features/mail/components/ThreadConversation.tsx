@@ -16,6 +16,21 @@ import { MessageBody } from './MessageBody.js'
  * and search results so there is a single reading-pane implementation.
  */
 export function ThreadConversation({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
+	const latestMessageId = messages.at(-1)?.id
+
+	// Reset expansion state as part of the conversation identity so a thread swap
+	// cannot paint once with the previous thread's open message IDs. Including the
+	// latest message also preserves the existing behaviour when a new reply arrives.
+	return (
+		<ThreadConversationContent
+			key={JSON.stringify([thread.id, latestMessageId])}
+			thread={thread}
+			messages={messages}
+		/>
+	)
+}
+
+function ThreadConversationContent({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
 	const [preferences] = useUserPreferences()
 	const latestMessageId = messages.at(-1)?.id
 	const [openMessageIds, setOpenMessageIds] = useState<Set<string>>(
@@ -33,10 +48,6 @@ export function ThreadConversation({ thread, messages }: { thread: MailThread; m
 	)
 	const allMessagesOpen = messages.length > 0 && messages.every((message) => openMessageIds.has(message.id))
 	const allMessagesClosed = messages.every((message) => !openMessageIds.has(message.id))
-
-	useEffect(() => {
-		setOpenMessageIds(new Set(latestMessageId ? [latestMessageId] : []))
-	}, [latestMessageId])
 
 	function toggleMessage(messageId: string) {
 		setOpenMessageIds((current) => {
