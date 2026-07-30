@@ -26,7 +26,8 @@ describe('ClientMessageTime', () => {
 		render(<ClientMessageTime epochSeconds={1_700_000_000} />)
 		const time = document.querySelector('time')
 		expect(time?.getAttribute('datetime')).toBe(new Date(1_700_000_000 * 1000).toISOString())
-		expect(time).toHaveClass('min-w-40', 'text-right')
+		expect(time).toHaveClass('w-28', 'sm:w-auto', 'sm:min-w-40', 'text-right')
+		expect(time).not.toHaveClass('min-w-40')
 	})
 })
 

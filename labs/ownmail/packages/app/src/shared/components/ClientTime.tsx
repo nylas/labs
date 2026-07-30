@@ -39,7 +39,7 @@ export function ClientMessageTime({ epochSeconds, className }: { epochSeconds: n
 	return (
 		<time
 			dateTime={iso}
-			className={cn('inline-block min-w-40 text-right tabular-nums', className)}
+			className={cn('inline-block w-28 text-right tabular-nums sm:w-auto sm:min-w-40', className)}
 			suppressHydrationWarning
 		>
 			{label || '\u00a0'}
