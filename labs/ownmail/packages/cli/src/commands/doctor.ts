@@ -1,8 +1,10 @@
 import * as p from '@clack/prompts'
 import { type GatewayApiKey, NylasV3Client } from '@nylas-labs/cli-kit'
+import { DEPLOYMENT_API_KEY_LIFETIME_DAYS, TEMPORARY_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { setupRealtimeWebhook } from '../deploy/webhook.js'
 import { putSecret, wranglerLoggedIn } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
 import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
@@ -82,7 +84,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					project.applicationId,
 					{
 						name: `ownmail doctor ${new Date().toISOString()}`,
-						expiresIn: 3600,
+						expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 					},
 				)
 				probeKeyId = key.id
@@ -393,6 +395,7 @@ async function repairApiKey(
 	try {
 		created = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, applicationId, {
 			name: `ownmail ${project.slug} (doctor repair ${new Date().toISOString().slice(0, 10)})`,
+			expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 		})
 	} catch (err) {
 		return {
@@ -430,6 +433,13 @@ async function repairApiKey(
 		}
 	}
 
+	let retainedInKeyring = true
+	try {
+		storePendingSecret(project, 'apiKey', created.apiKey, { allowLocalFallback: false })
+	} catch {
+		clearPendingSecret(project, 'apiKey')
+		retainedInKeyring = false
+	}
 	project.apiKeyId = created.id
 	saveProject(project)
 	if (issue.oldKeyId && issue.oldKeyId !== created.id) {
@@ -449,7 +459,9 @@ async function repairApiKey(
 	return {
 		name: 'Nylas API key',
 		status: 'pass',
-		detail: 'rotated and stored in Cloudflare',
+		detail: retainedInKeyring
+			? 'rotated and stored in Cloudflare and the OS credential store'
+			: 'rotated and stored in Cloudflare; the OS credential store was unavailable',
 		fixed: true,
 	}
 }

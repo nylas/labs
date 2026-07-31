@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
+import { TEMPORARY_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { cloudflareFailure, runWrangler } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
 import { clearPendingSecrets, pendingSecretLabels } from '../state/pending-secrets.js'
@@ -33,6 +34,7 @@ export async function runGrants(opts: { name?: string }): Promise<void> {
 	}
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail grants ${Date.now()}`,
+		expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 	})
 	const v3 = new NylasV3Client(
 		key.apiKey,

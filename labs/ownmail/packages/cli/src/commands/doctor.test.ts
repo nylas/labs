@@ -67,8 +67,16 @@ vi.mock('../state/store.js', () => ({
 	saveProject: vi.fn(),
 }))
 
+vi.mock('../state/pending-secrets.js', () => ({
+	clearPendingSecret: vi.fn((project: ProjectState) => {
+		delete project.pendingSecrets.apiKey
+	}),
+	storePendingSecret: vi.fn(),
+}))
+
 import * as p from '@clack/prompts'
 import { putSecret, wranglerLoggedIn } from '../deploy/wrangler.js'
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
@@ -157,10 +165,41 @@ describe('runDoctor — healthy project', () => {
 
 		expect(putSecret).toHaveBeenCalledWith('worker-1', 'NYLAS_API_KEY', 'nyk_replacement')
 		expect(saveProject).toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 'key_2' }))
+		expect(storePendingSecret).toHaveBeenCalledWith(expect.anything(), 'apiKey', 'nyk_replacement', {
+			allowLocalFallback: false,
+		})
 		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app_1', 'key_1')
 		expect(messages().some((m) => m.startsWith('🔧') && m.includes('rotated and stored in Cloudflare'))).toBe(
 			true,
 		)
+	})
+
+	it('repairs the deployed key even when the OS credential store is unavailable', async () => {
+		const project = makeProject({
+			applicationId: 'app_1',
+			workerName: 'worker-1',
+			hostingProvider: 'cloudflare',
+			pendingSecrets: { apiKey: 'obsolete' },
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(project)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		createApiKey.mockResolvedValue({
+			id: 'key_2',
+			apiKey: 'nyk_replacement',
+			status: 'active',
+			name: 'repair',
+		})
+		vi.mocked(storePendingSecret).mockImplementationOnce(() => {
+			throw new Error('keyring unavailable')
+		})
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(clearPendingSecret).toHaveBeenCalledWith(project, 'apiKey')
+		expect(messages().some((message) => message.includes('credential store was unavailable'))).toBe(true)
 	})
 
 	it('reports an expired API key without exposing key material', async () => {

@@ -1,6 +1,8 @@
 import * as p from '@clack/prompts'
 import { GatewayError } from '@nylas-labs/cli-kit'
+import { DEPLOYMENT_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { CloudflareNoChangeError, putSecret } from '../deploy/wrangler.js'
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { pickExistingProject, supportReference } from './shared.js'
@@ -23,6 +25,7 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 	spinner.start('Minting a fresh API key…')
 	const created = await gateway.createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail ${project.slug} (rotated ${new Date().toISOString().slice(0, 10)})`,
+		expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 	})
 	spinner.stop('New key minted.')
 
@@ -50,6 +53,14 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 
 	const oldKeyId = project.apiKeyId
 	project.apiKeyId = created.id
+	try {
+		storePendingSecret(project, 'apiKey', created.apiKey, { allowLocalFallback: false })
+	} catch {
+		clearPendingSecret(project, 'apiKey')
+		p.log.warn(
+			'The rotated key is active, but OwnMail could not retain it in the OS credential store. A later setup resume will need to rotate it again.',
+		)
+	}
 	saveProject(project)
 
 	if (oldKeyId && oldKeyId !== created.id) {

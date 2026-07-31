@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts'
 import { type Grant, NylasV3Client } from '@nylas-labs/cli-kit'
+import { TEMPORARY_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { apiBaseUrl } from '../nylas-env.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { CancelledError } from '../steps/provision.js'
@@ -26,6 +27,7 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail inbox-add ${Date.now()}`,
+		expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 	})
 	const v3 = new NylasV3Client(
 		key.apiKey,
@@ -84,6 +86,7 @@ export async function runInboxResetPassword(opts: { name?: string; email?: strin
 
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail password-reset ${Date.now()}`,
+		expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 	})
 	const v3 = new NylasV3Client(
 		key.apiKey,

@@ -97,7 +97,7 @@ function storageLabel(secret: PendingSecretValue): string {
 function pendingSecretLabel(name: PendingSecretName): string {
 	switch (name) {
 		case 'apiKey':
-			return 'Nylas API key awaiting deploy'
+			return 'Nylas API key'
 		case 'clientSecret':
 			return 'Legacy Nylas application client secret'
 		case 'appPassword':

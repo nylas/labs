@@ -176,7 +176,7 @@ describe('runCleanupSecrets', () => {
 		await runCleanupSecrets({})
 
 		const [[warning]] = vi.mocked(p.log.warn).mock.calls
-		expect(warning).toContain('Nylas API key awaiting deploy')
+		expect(warning).toContain('Nylas API key')
 		expect(warning).toContain('Legacy Nylas application client secret')
 		expect(warning).toContain('Inbox password awaiting final verification')
 		expect(warning).not.toContain('nyk_secret')

@@ -122,6 +122,7 @@ export class GatewayClient {
 		tokens: DashboardTokens,
 		region: Region,
 		appId: string,
+		/** `expiresIn` is measured in days by the Nylas API. */
 		options?: { name?: string; expiresIn?: number },
 	): Promise<GatewayCreatedApiKey> {
 		const data = await this.query<{ createApiKey: GatewayCreatedApiKey }>(tokens, region, {

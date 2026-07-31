@@ -148,7 +148,7 @@ vi.mock('@nylas-labs/cli-kit', () => ({
 	NylasV3Client: class {},
 }))
 
-import { clearPendingSecret, clearPendingSecrets, storePendingSecret } from '../state/pending-secrets.js'
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 	return {
@@ -479,6 +479,55 @@ describe('stepDeploy (cloudflare)', () => {
 		expect(putSecret).toHaveBeenCalledTimes(2)
 		expect(putSecret).toHaveBeenCalledWith('worker', 'NYLAS_API_KEY', 'secret-key')
 		expect(putSecret).toHaveBeenCalledWith('worker', 'SESSION_SECRET', expect.any(String))
+	})
+
+	it('revokes the previous key only after the replacement is installed', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://plain.workers.dev')
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				workerName: 'worker',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.auth = { userToken: 'user-token', dpopPrivateJwk: {} }
+		ctx.gateway = { revokeApiKey } as never
+
+		await stepDeploy(ctx)
+
+		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 'user-token' }, 'us', 'client-id', 'old-key')
+		expect(vi.mocked(putSecret).mock.invocationCallOrder[0]).toBeLessThan(
+			revokeApiKey.mock.invocationCallOrder[0],
+		)
+		expect(ctx.project.pendingApiKeyRotation).toBeUndefined()
+	})
+
+	it('keeps rotation state when the previous key cannot be revoked', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://plain.workers.dev')
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				workerName: 'worker',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.auth = { userToken: 'user-token', dpopPrivateJwk: {} }
+		ctx.gateway = { revokeApiKey: vi.fn().mockRejectedValue(new Error('offline')) } as never
+
+		await stepDeploy(ctx)
+
+		expect(ctx.project.pendingApiKeyRotation).toEqual({
+			previousKeyId: 'old-key',
+			replacementKeyId: 'new-key',
+		})
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('retry on the next deployment'))
 	})
 
 	it('throws when the pending API key is missing at deploy time', async () => {
@@ -1119,7 +1168,8 @@ describe('stepVerify', () => {
 		await stepVerify(ctx)
 		expect(fetchMock).toHaveBeenCalledWith('https://app.workers.dev/healthz', expect.any(Object))
 		expect(fetchMock).toHaveBeenCalledTimes(1)
-		expect(clearPendingSecrets).toHaveBeenCalledWith(ctx.project)
+		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey')
+		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'appPassword')
 		expect(ctx.project.pendingSecrets).toEqual({})
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'verify')
 		expect(p.note).toHaveBeenCalledWith(
@@ -1129,6 +1179,29 @@ describe('stepVerify', () => {
 		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('IMAP:'), '🎉 Done')
 		expect(p.note).toHaveBeenCalledWith(expect.stringContaining('SMTP:'), '🎉 Done')
 		expect(open).toHaveBeenCalledWith('https://app.workers.dev')
+		vi.unstubAllGlobals()
+	})
+
+	it('retains a deployed API key only by OS-keyring reference', async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true })
+		vi.stubGlobal('fetch', fetchMock)
+		vi.mocked(p.confirm).mockResolvedValueOnce(false)
+		const apiKeyReference = {
+			storage: 'keyring' as const,
+			service: 'ownmail',
+			account: 'my-inbox:1:apiKey',
+		}
+		const ctx = makeCtx(
+			makeProject({
+				workersDevUrl: 'https://app.workers.dev',
+				pendingSecrets: { apiKey: apiKeyReference, appPassword: 'one-time-password' },
+			}),
+		)
+
+		await stepVerify(ctx)
+
+		expect(ctx.project.pendingSecrets).toEqual({ apiKey: apiKeyReference })
+		expect(clearPendingSecret).not.toHaveBeenCalledWith(ctx.project, 'apiKey')
 		vi.unstubAllGlobals()
 	})
 
@@ -1205,7 +1278,7 @@ describe('stepVerify', () => {
 		await expect(stepVerify(ctx)).rejects.toThrow(
 			'npx vercel logs --deployment https://acme.vercel.app --level error --expand',
 		)
-		expect(clearPendingSecrets).not.toHaveBeenCalled()
+		expect(clearPendingSecret).not.toHaveBeenCalledWith(ctx.project, 'apiKey')
 		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'verify')
 		vi.unstubAllGlobals()
 	})
@@ -1247,6 +1320,6 @@ describe('stepVerify', () => {
 		await stepVerify(ctx)
 		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'clientSecret')
 		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'appPassword')
-		expect(clearPendingSecrets).not.toHaveBeenCalled()
+		expect(clearPendingSecret).not.toHaveBeenCalledWith(ctx.project, 'apiKey')
 	})
 })

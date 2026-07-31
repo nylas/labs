@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
+import { DEPLOYMENT_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { loadManifest, templateRoot } from '../deploy/materialize.js'
 import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
@@ -48,7 +49,10 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				tokens(ctx),
 				project.region,
 				project.applicationId,
-				{ name: `ownmail ${project.slug} (ejected)` },
+				{
+					name: `ownmail ${project.slug} (ejected)`,
+					expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
+				},
 			)
 			apiKey = created.apiKey
 		} catch (err) {

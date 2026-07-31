@@ -106,6 +106,12 @@ export const ProjectStateSchema = z.object({
 
 	applicationId: z.string().optional(),
 	apiKeyId: z.string().optional(),
+	pendingApiKeyRotation: z
+		.object({
+			previousKeyId: z.string().min(1),
+			replacementKeyId: z.string().min(1),
+		})
+		.optional(),
 
 	domainId: z.string().optional(),
 	domainAddress: z.string().optional(),
@@ -147,7 +153,7 @@ export const ProjectStateSchema = z.object({
 
 	completedSteps: z.array(StepIdSchema).default([]),
 
-	/** One-time setup secrets, preferably by OS keyring reference; scrubbed after verification. */
+	/** Resumable setup secrets. A deployed API key is retained only by OS-keyring reference. */
 	pendingSecrets: z
 		.object({
 			apiKey: PendingSecretValueSchema.optional(),

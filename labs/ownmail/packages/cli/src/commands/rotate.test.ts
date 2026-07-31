@@ -23,6 +23,12 @@ vi.mock('../deploy/wrangler.js', () => ({
 	CloudflareNoChangeError: class CloudflareNoChangeError extends Error {},
 	putSecret: vi.fn(),
 }))
+vi.mock('../state/pending-secrets.js', () => ({
+	clearPendingSecret: vi.fn((project: ProjectState) => {
+		delete project.pendingSecrets.apiKey
+	}),
+	storePendingSecret: vi.fn(),
+}))
 vi.mock('../state/store.js', () => ({ saveProject: vi.fn() }))
 vi.mock('../steps/context.js', () => ({
 	createContext: vi.fn(),
@@ -39,6 +45,7 @@ vi.mock('./shared.js', () => ({
 import * as p from '@clack/prompts'
 import { GatewayError } from '@nylas-labs/cli-kit'
 import { CloudflareNoChangeError, putSecret } from '../deploy/wrangler.js'
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
 import { pickExistingProject } from './shared.js'
@@ -98,6 +105,30 @@ describe('runRotateKey', () => {
 		expect(saveProject).toHaveBeenCalledWith(proj)
 		expect(gw.revokeApiKey).toHaveBeenCalledWith({ userToken: 't' }, 'us', 'app-1', 'old-key')
 		expect(p.log.step).toHaveBeenCalledWith('Old key revoked.')
+		expect(storePendingSecret).toHaveBeenCalledWith(proj, 'apiKey', 'nyk_new', {
+			allowLocalFallback: false,
+		})
+	})
+
+	it('clears an obsolete secret reference when the rotated key cannot be retained', async () => {
+		const proj = project({
+			workerName: 'w1',
+			applicationId: 'app-1',
+			apiKeyId: 'old-key',
+			pendingSecrets: { apiKey: 'nyk_old' },
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		vi.mocked(requireGateway).mockReturnValue(gateway() as never)
+		vi.mocked(storePendingSecret).mockImplementationOnce(() => {
+			throw new Error('keyring unavailable')
+		})
+
+		await runRotateKey({})
+
+		expect(clearPendingSecret).toHaveBeenCalledWith(proj, 'apiKey')
+		expect(proj.pendingSecrets.apiKey).toBeUndefined()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('OS credential store'))
 	})
 
 	it('skips revocation when there was no previous key', async () => {
