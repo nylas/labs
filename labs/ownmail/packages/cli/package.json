@@ -1,6 +1,6 @@
 {
 	"name": "ownmail",
-	"version": "0.11.0",
+	"version": "0.11.1",
 	"description": "Launch an inbox on your domain with a ready-to-use mail, calendar, and contacts app you can deploy and customize.",
 	"license": "MIT",
 	"homepage": "https://github.com/nylas/labs/tree/main/labs/ownmail#readme",
