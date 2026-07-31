@@ -797,7 +797,11 @@ describe('stepApiKey', () => {
 
 	it('rebuilds the v3 client from a pending key on resume without minting a new one', async () => {
 		const createApiKey = vi.fn()
-		const listApiKeys = vi.fn().mockResolvedValue([{ id: 'key-1', status: 'active' }])
+		const listApiKeys = vi
+			.fn()
+			.mockResolvedValue([
+				{ id: 'key-1', status: 'active', expiresAt: Date.now() + 31 * 24 * 60 * 60 * 1_000 },
+			])
 		const ctx = baseCtx({
 			project: baseProject({
 				applicationId: 'app-1',

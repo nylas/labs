@@ -361,11 +361,16 @@ async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
 
 async function stepLocalDeploy(ctx: StepContext): Promise<void> {
 	const manifest = loadManifest()
-	if (
+	const healthyCurrentServer =
 		ctx.project.localAppUrl &&
 		ctx.project.templateVersion === manifest.templateVersion &&
 		(await checkAppHealth(ctx.project.localAppUrl, { attempts: 1, delayMs: 0, timeoutMs: 1000 }))
-	) {
+	if (healthyCurrentServer && ctx.project.pendingApiKeyRotation) {
+		throw new Error(
+			`The local server for "${ctx.project.slug}" is still using the previous Nylas API key. Stop it with Ctrl+C in its terminal, then retry \`npx ownmail\` to install the replacement.`,
+		)
+	}
+	if (healthyCurrentServer) {
 		p.log.info(`Local web server is already running at ${ctx.project.localAppUrl}.`)
 		markStep(ctx.project, 'deploy')
 		return
@@ -462,6 +467,18 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 		if (p.isCancel(url)) throw new CancelledError()
 		ctx.project.manualAppUrl = normalizeUrl(url)
 		saveProject(ctx.project)
+	}
+	if (ctx.project.pendingApiKeyRotation) {
+		const uploaded = await p.confirm({
+			message: 'Have you uploaded this updated bundle and installed its replacement Nylas API key?',
+			initialValue: false,
+		})
+		if (p.isCancel(uploaded)) throw new CancelledError()
+		if (!uploaded) {
+			p.cancel('Keep the previous deployment running. Re-run ownmail after uploading the updated bundle.')
+			throw new CancelledError()
+		}
+		await finalizePendingApiKeyRotation(ctx)
 	}
 
 	markStep(ctx.project, 'deploy')

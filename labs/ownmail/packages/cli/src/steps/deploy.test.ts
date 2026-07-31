@@ -757,6 +757,25 @@ describe('stepDeploy (additional providers)', () => {
 		expect(startLocalServer).not.toHaveBeenCalled()
 	})
 
+	it('requires a healthy local server to stop before installing a rotated key', async () => {
+		stubHealthyApp()
+		const ctx = makeCtx(
+			makeProject({
+				...base,
+				hostingProvider: 'local',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				localAppUrl: 'http://localhost:3000',
+				templateVersion: '1.0.0',
+			}),
+		)
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/still using the previous Nylas API key/)
+
+		expect(startLocalServer).not.toHaveBeenCalled()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
 	it('rejects an unknown recorded provider', async () => {
 		const ctx = makeCtx(
 			makeProject({ ...base, hostingProvider: 'unknown' as ProjectState['hostingProvider'] }),
@@ -814,6 +833,74 @@ describe('stepDeploy (manual)', () => {
 		expect(exportArg.apiBaseUrl).toBeUndefined()
 		expect(exportArg.apiKey).toBe('secret-key')
 		expect(p.confirm).not.toHaveBeenCalled()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('requires upload confirmation before finalizing a manual key rotation', async () => {
+		vi.mocked(p.confirm).mockResolvedValueOnce(false)
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				manualDeployDir: '/existing/dir',
+				manualAppUrl: 'https://already.example.com',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.auth = { userToken: 'user-token', dpopPrivateJwk: {} }
+		ctx.gateway = { revokeApiKey } as never
+
+		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(revokeApiKey).not.toHaveBeenCalled()
+		expect(ctx.project.pendingApiKeyRotation).toBeDefined()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('keeps a manual key rotation pending when upload confirmation is cancelled', async () => {
+		vi.mocked(p.confirm).mockResolvedValueOnce(false)
+		vi.mocked(p.isCancel).mockReturnValueOnce(true)
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				manualAppUrl: 'https://already.example.com',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+
+		await expect(stepDeploy(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(ctx.project.pendingApiKeyRotation).toBeDefined()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('revokes the previous key after confirming a manual rotation upload', async () => {
+		vi.mocked(p.confirm).mockResolvedValueOnce(true)
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				hostingProvider: 'manual',
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				manualDeployDir: '/existing/dir',
+				manualAppUrl: 'https://already.example.com',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.auth = { userToken: 'user-token', dpopPrivateJwk: {} }
+		ctx.gateway = { revokeApiKey } as never
+
+		await stepDeploy(ctx)
+
+		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 'user-token' }, 'us', 'client-id', 'old-key')
+		expect(ctx.project.pendingApiKeyRotation).toBeUndefined()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
 	})
 
