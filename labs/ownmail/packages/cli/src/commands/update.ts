@@ -15,26 +15,35 @@ import {
 	deployVercel,
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
+	setNetlifyEnvironment,
+	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { projectAppDomains } from '../state/app-domains.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
+import type { ProjectState } from '../state/schema.js'
+import { configuredSiteName } from '../state/site-name.js'
 import { configDir, saveProject } from '../state/store.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
 import { pickExistingProject } from './shared.js'
 
 /**
- * Config-preserving redeploy. `npx ownmail update` (via npx) always runs the
+ * Config-preserving redeploy. `npx ownmail app update` (via npx) always runs the
  * latest published CLI, which bundles the matching template — versions move in
  * lockstep (changesets fixed group), so "update the CLI" == "update the
  * template". User config survives because it lives only in project state and
  * Cloudflare vars/secrets, never in template code.
  */
 export async function runUpdate(opts: { name?: string }): Promise<void> {
-	p.intro('ownmail update')
+	p.intro('ownmail app update')
 	const project = await pickExistingProject(opts.name)
+	await redeployProject(project)
+}
 
+export async function redeployProject(
+	project: Awaited<ReturnType<typeof pickExistingProject>>,
+): Promise<void> {
 	if (project.ejected) {
 		throw new Error(
 			`"${project.slug}" is ejected — you own its source now. Update it with \`wrangler deploy\` from your project directory.`,
@@ -99,6 +108,7 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 			NYLAS_REGION: project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 			APP_NAME: project.slug,
+			OWNMAIL_SITE_NAME: configuredSiteName(project),
 			INBOX_EMAIL: project.inboxEmail ?? '',
 			TEMPLATE_VERSION: manifest.templateVersion,
 		},
@@ -110,7 +120,7 @@ export async function runUpdate(opts: { name?: string }): Promise<void> {
 		saveProject(project)
 		spinner.stop(`Updated: ${url} (template ${manifest.templateVersion})`)
 	} catch (err) {
-		spinner.stop('Cloudflare update needs attention; retry `npx ownmail update` when ready.')
+		spinner.stop('Cloudflare update needs attention; retry `npx ownmail app update` when ready.')
 		throw err
 	}
 	p.outro('Secrets and sessions were untouched.')
@@ -138,6 +148,11 @@ async function updateNodeProvider(
 				orgId: project.vercelOrgId,
 			})
 			await ensureVercelRealtimeStore(materialized.dir, `${project.slug}-realtime`, project.region)
+			await setVercelEnvironment(
+				materialized.dir,
+				updateEnvironment(project, manifest.templateVersion),
+				new Set(),
+			)
 			url = await deployVercel(materialized.dir, project.vercelOrgId)
 		} else {
 			if (!project.netlifySiteId) {
@@ -145,6 +160,11 @@ async function updateNodeProvider(
 					`"${project.slug}" is missing its recorded Netlify site. Run \`npx ownmail\` to repair it.`,
 				)
 			}
+			await setNetlifyEnvironment(
+				materialized.dir,
+				project.netlifySiteId,
+				updateEnvironment(project, manifest.templateVersion),
+			)
 			url = await deployNetlify(materialized.dir, project.netlifySiteId)
 		}
 		project.providerAppUrl = url
@@ -152,7 +172,7 @@ async function updateNodeProvider(
 		saveProject(project)
 		if (provider === 'vercel' && !(await checkAppHealth(url))) {
 			throw new Error(
-				`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail update --name ${project.slug}\`.`,
+				`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail app update --name ${project.slug}\`.`,
 			)
 		}
 		spinner.stop(`Updated: ${url} (template ${manifest.templateVersion})`)
@@ -171,7 +191,7 @@ async function updateLocalProject(project: Awaited<ReturnType<typeof pickExistin
 		(await checkAppHealth(project.localAppUrl, { attempts: 1, delayMs: 0, timeoutMs: 1000 }))
 	) {
 		throw new Error(
-			`The local server for "${project.slug}" is still running. Stop it with Ctrl+C in its terminal, then retry \`npx ownmail update\`.`,
+			`The local server for "${project.slug}" is still running. Stop it with Ctrl+C in its terminal, then retry \`npx ownmail app update\`.`,
 		)
 	}
 	const apiKey = readPendingSecret(project, 'apiKey')
@@ -198,6 +218,7 @@ async function updateLocalProject(project: Awaited<ReturnType<typeof pickExistin
 			NYLAS_REGION: project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 			APP_NAME: project.slug,
+			OWNMAIL_SITE_NAME: configuredSiteName(project),
 			INBOX_EMAIL: project.inboxEmail,
 			TEMPLATE_VERSION: manifest.templateVersion,
 		},
@@ -208,6 +229,24 @@ async function updateLocalProject(project: Awaited<ReturnType<typeof pickExistin
 	project.templateVersion = manifest.templateVersion
 	saveProject(project)
 	p.outro(`Updated local server: ${url}. Keep this terminal open; press Ctrl+C to stop it.`)
+}
+
+function updateEnvironment(project: ProjectState, templateVersion: string): Record<string, string> {
+	const apiBaseUrl = deployedApiBaseUrl(project.region)
+	return {
+		NYLAS_CLIENT_ID: requireNylasClientId(project.applicationId),
+		NYLAS_REGION: project.region,
+		...(apiBaseUrl ? { NYLAS_API_BASE_URL: apiBaseUrl } : {}),
+		APP_NAME: project.slug,
+		OWNMAIL_SITE_NAME: configuredSiteName(project),
+		INBOX_EMAIL: requireInboxEmail(project.inboxEmail),
+		TEMPLATE_VERSION: templateVersion,
+	}
+}
+
+function requireInboxEmail(value: string | undefined): string {
+	if (!value?.trim()) throw new Error('Inbox email is missing; re-run `npx ownmail`.')
+	return value.trim()
 }
 
 function requireNylasClientId(value: string | undefined): string {

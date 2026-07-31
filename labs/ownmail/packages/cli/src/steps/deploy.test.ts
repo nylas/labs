@@ -997,7 +997,7 @@ describe('stepWebhook', () => {
 		await stepWebhook(ctx)
 		const [[warning]] = vi.mocked(p.log.warn).mock.calls
 		expect(warning).toContain('Couldn’t set up instant updates.')
-		expect(warning).toContain('npx ownmail doctor')
+		expect(warning).toContain('npx ownmail project doctor')
 		expect(warning).toContain('Request ID: req-webhook-123')
 		expect(warning).not.toContain('unable.verify.webhook_url')
 		expect(markStep).not.toHaveBeenCalled()

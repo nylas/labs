@@ -34,7 +34,7 @@ API credentials and bearer tokens are never persisted in browser storage.
 ## Start simple, then take control
 
 ```bash
-ownmail eject ./my-ownmail
+ownmail app eject ./my-ownmail
 cd my-ownmail
 pnpm install
 pnpm dev

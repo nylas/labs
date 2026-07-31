@@ -25,7 +25,7 @@ type ApiKeyIssue = {
 
 /** Re-checks every external dependency of a project; repairs only with --fix. */
 export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise<void> {
-	p.intro('ownmail doctor')
+	p.intro('ownmail project doctor')
 	const stateIssues = listProjectStateIssues(opts.name)
 	let project: ProjectState
 	try {
@@ -65,7 +65,9 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	results.push({
 		name: 'Nylas session',
 		status: sessionOk ? 'pass' : 'fail',
-		detail: sessionOk ? 'valid' : withSupportReference('expired — run `npx ownmail login`', sessionError),
+		detail: sessionOk
+			? 'valid'
+			: withSupportReference('expired — run `npx ownmail auth login`', sessionError),
 	})
 
 	// 2. API access. Plain doctor is read-only, so it only uses an existing client.
@@ -101,7 +103,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					name: 'Temporary API access',
 					status: 'fail',
 					detail: withSupportReference(
-						'could not create a temporary API key; API checks and repairs were skipped — run `npx ownmail login`, then retry',
+						'could not create a temporary API key; API checks and repairs were skipped — run `npx ownmail auth login`, then retry',
 						err,
 					),
 				})
@@ -111,7 +113,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				name: 'Nylas API checks',
 				status: 'skip',
 				detail:
-					'read-only mode cannot create a temporary API key; run `npx ownmail doctor --fix` to allow API checks and repairs',
+					'read-only mode cannot create a temporary API key; run `npx ownmail project doctor --fix` to allow API checks and repairs',
 			})
 		}
 	}
@@ -138,7 +140,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					name: 'Nylas API key',
 					status: 'fail',
 					detail: withSupportReference(
-						'could not check key status — run `npx ownmail login`, then retry',
+						'could not check key status — run `npx ownmail auth login`, then retry',
 						err,
 					),
 				})
@@ -150,7 +152,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 			results.push({
 				name: 'Nylas API key',
 				status: 'fail',
-				detail: `${apiKeyIssue.detail} — run \`npx ownmail doctor --fix\` to rotate it`,
+				detail: `${apiKeyIssue.detail} — run \`npx ownmail project doctor --fix\` to rotate it`,
 			})
 		}
 	}
@@ -184,7 +186,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					name: 'Domain',
 					status: 'fail',
 					detail: withSupportReference(
-						'could not fetch domain state — run `npx ownmail login`, then retry',
+						'could not fetch domain state — run `npx ownmail auth login`, then retry',
 						err,
 					),
 				})
@@ -209,7 +211,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				results.push({
 					name: `Inbox ${project.inboxEmail ?? ''}`,
 					status: 'skip',
-					detail: 'requires Nylas API access; run `npx ownmail doctor --fix` to check it',
+					detail: 'requires Nylas API access; run `npx ownmail project doctor --fix` to check it',
 				})
 			}
 		}
@@ -233,7 +235,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 								? 'registered'
 								: opts.fix
 									? `registered missing callbacks: ${missing.join(', ')}`
-									: `missing callbacks: ${missing.join(', ')} — run \`npx ownmail doctor --fix\``,
+									: `missing callbacks: ${missing.join(', ')} — run \`npx ownmail project doctor --fix\``,
 						...(missing.length > 0 && opts.fix ? { fixed: true } : {}),
 					})
 				} catch (err) {
@@ -247,7 +249,8 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				results.push({
 					name: 'Login redirect URIs',
 					status: 'skip',
-					detail: 'requires Nylas API access; run `npx ownmail doctor --fix` to check and repair them',
+					detail:
+						'requires Nylas API access; run `npx ownmail project doctor --fix` to check and repair them',
 				})
 			}
 		}
@@ -306,7 +309,8 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 				results.push({
 					name: 'Instant updates',
 					status: 'skip',
-					detail: 'requires Nylas API access; rerun `npx ownmail doctor --fix` after API access is available',
+					detail:
+						'requires Nylas API access; rerun `npx ownmail project doctor --fix` after API access is available',
 				})
 			} else {
 				const webhook = await setupRealtimeWebhook(project, v3, { attempts: 1, delayMs: 0 })
@@ -382,7 +386,7 @@ async function repairApiKey(
 		return {
 			name: 'Nylas API key',
 			status: 'fail',
-			detail: `${issue.detail} — authenticate Cloudflare, then rerun \`npx ownmail doctor --fix\``,
+			detail: `${issue.detail} — authenticate Cloudflare, then rerun \`npx ownmail project doctor --fix\``,
 		}
 	}
 	let created: GatewayApiKey & { apiKey: string }
@@ -395,7 +399,7 @@ async function repairApiKey(
 			name: 'Nylas API key',
 			status: 'fail',
 			detail: withSupportReference(
-				`${issue.detail} — could not create a replacement key; try \`npx ownmail login\``,
+				`${issue.detail} — could not create a replacement key; try \`npx ownmail auth login\``,
 				err,
 			),
 		}

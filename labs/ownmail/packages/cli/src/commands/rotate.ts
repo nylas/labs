@@ -10,13 +10,13 @@ import { pickExistingProject, supportReference } from './shared.js'
  * Order matters — the worker never sees a gap, and the old key dies last.
  */
 export async function runRotateKey(opts: { name?: string }): Promise<void> {
-	p.intro('ownmail rotate-key')
+	p.intro('ownmail auth rotate-key')
 	const project = await pickExistingProject(opts.name)
 	if (!project.workerName || !project.applicationId) {
 		throw new Error('This project hasn’t deployed yet — run `npx ownmail` first.')
 	}
 	const ctx = await createContext(project)
-	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail login` first.')
+	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail auth login` first.')
 	const gateway = requireGateway(ctx)
 
 	const spinner = p.spinner()
@@ -44,7 +44,7 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 			throw err
 		}
 		throw new Error(
-			'OwnMail could not confirm the Cloudflare key swap. The new Nylas key was left active because Cloudflare may already be using it. Do not retry immediately: check your Cloudflare Worker and the Nylas dashboard to identify the key in use, then revoke only the unused key before retrying `npx ownmail rotate-key`.',
+			'OwnMail could not confirm the Cloudflare key swap. The new Nylas key was left active because Cloudflare may already be using it. Do not retry immediately: check your Cloudflare Worker and the Nylas dashboard to identify the key in use, then revoke only the unused key before retrying `npx ownmail auth rotate-key`.',
 		)
 	}
 

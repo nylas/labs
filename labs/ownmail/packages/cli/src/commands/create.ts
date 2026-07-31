@@ -1,6 +1,7 @@
 import * as p from '@clack/prompts'
 import { defaultProjectRegion, ownmailNylasEnvironment } from '../nylas-env.js'
 import type { ProjectState } from '../state/schema.js'
+import { normalizeSiteName } from '../state/site-name.js'
 import { listProjects, loadProject, newProject, saveProject } from '../state/store.js'
 import { createContext, type StepContext } from '../steps/context.js'
 import {
@@ -23,6 +24,7 @@ import {
 	stepGrant,
 	stepOrg,
 } from '../steps/provision.js'
+import { stepSiteName } from '../steps/site-name.js'
 
 type Step = {
 	id: ProjectState['completedSteps'][number]
@@ -58,6 +60,7 @@ const SETUP_PHASES: SetupPhase[] = [
 			{ id: 'hosting', run: stepHostingProvider },
 			{ id: 'cf-auth', run: stepCfAuth },
 			{ id: 'domain-plan', run: stepDomainPlan },
+			{ id: 'site-name', run: stepSiteName },
 			{ id: 'plan-confirmed', run: stepConfirmPlan },
 		],
 	},
@@ -86,10 +89,15 @@ const SETUP_PHASES: SetupPhase[] = [
 	},
 ]
 
-export async function runCreate(opts: { name?: string; region?: 'us' | 'eu' }): Promise<void> {
+export async function runCreate(opts: {
+	name?: string
+	region?: 'us' | 'eu'
+	siteName?: string
+}): Promise<void> {
 	showSetupHeader()
 
 	const project = await resolveProject(opts)
+	applyRequestedSiteName(project, opts.siteName)
 	showResumePoint(project)
 	const ctx = await createContext(project)
 
@@ -149,14 +157,16 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 	}
 	const hosting = hostingLabel(ctx.project.hostingProvider)
 	const emailDomain = ctx.project.domainAddress ?? ctx.project.plannedDomainAddress
-	if (!emailDomain || !ctx.project.hostingProvider) {
+	const siteName = ctx.project.siteName
+	if (!emailDomain || !ctx.project.hostingProvider || !siteName) {
 		throw new Error(
-			'Setup plan is incomplete — re-run ownmail to choose an email domain and hosting provider.',
+			'Setup plan is incomplete — re-run ownmail to choose an email domain, app name, and hosting provider.',
 		)
 	}
 	p.note(
 		[
 			`Project:      ${ctx.project.slug}`,
+			`App name:     ${siteName}`,
 			`Region:       ${ctx.project.region.toUpperCase()}`,
 			`Email domain: ${emailDomain}`,
 			`Hosting:      ${hosting}`,
@@ -168,6 +178,18 @@ async function stepConfirmPlan(ctx: StepContext): Promise<void> {
 	const confirmed = await p.confirm({ message: 'Create these OwnMail resources?', initialValue: true })
 	if (p.isCancel(confirmed) || !confirmed) throw new CancelledError()
 	markPlanConfirmed(ctx.project)
+}
+
+function applyRequestedSiteName(project: ProjectState, requested: string | undefined): void {
+	if (requested === undefined) return
+	const siteName = normalizeSiteName(requested)
+	if (project.completedSteps.includes('deploy') && siteName !== project.siteName) {
+		throw new Error(
+			`This app is already deployed. Rename it with \`npx ownmail app name <app-name> --name ${project.slug}\`.`,
+		)
+	}
+	project.siteName = siteName
+	saveProject(project)
 }
 
 function hostingLabel(provider: ProjectState['hostingProvider']): string {

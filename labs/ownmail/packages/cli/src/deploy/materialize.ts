@@ -48,6 +48,7 @@ export type Materialized = {
 
 export type ManualExportInput = {
 	slug: string
+	siteName: string
 	region: 'us' | 'eu'
 	apiBaseUrl?: string
 	applicationId: string
@@ -229,6 +230,7 @@ export function exportManualBundle(input: ManualExportInput): string {
 			`NYLAS_REGION=${input.region}`,
 			...(input.apiBaseUrl ? [`NYLAS_API_BASE_URL=${input.apiBaseUrl}`] : []),
 			`APP_NAME=${input.slug}`,
+			`OWNMAIL_SITE_NAME=${input.siteName}`,
 			`INBOX_EMAIL=${input.inboxEmail}`,
 			`TEMPLATE_VERSION=${input.templateVersion}`,
 			'',

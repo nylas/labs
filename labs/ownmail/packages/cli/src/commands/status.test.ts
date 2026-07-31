@@ -101,7 +101,7 @@ describe('runStatus', () => {
 		const [[body]] = vi.mocked(p.note).mock.calls
 		expect(body).toContain('stage:    Custom domain setup pending')
 		expect(body).toContain('pending app domain: mail.acme.com (--secondary)')
-		expect(body).toContain('next:     npx ownmail app-domain mail.acme.com --name acme --secondary')
+		expect(body).toContain('next:     npx ownmail app domain mail.acme.com --name acme --secondary')
 	})
 
 	it('labels a pending primary-domain promotion', async () => {

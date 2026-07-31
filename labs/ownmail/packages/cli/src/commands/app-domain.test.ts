@@ -465,7 +465,7 @@ describe('runAppDomain', () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(proj)
 
 		await expect(runAppDomain({ domain: 'second.acme.com', primary: true })).rejects.toThrow(
-			/app-domain first\.acme\.com.*--primary/s,
+			/app domain first\.acme\.com.*--primary/s,
 		)
 
 		expect(hoisted.createApiKey).not.toHaveBeenCalled()
@@ -481,7 +481,7 @@ describe('runAppDomain', () => {
 		)
 
 		await expect(runAppDomain({ domain: 'second.acme.com', secondary: true })).rejects.toThrow(
-			/app-domain first\.acme\.com.*--secondary/s,
+			/app domain first\.acme\.com.*--secondary/s,
 		)
 	})
 
@@ -526,7 +526,7 @@ describe('runAppDomain', () => {
 
 	it('requires explicit input in noninteractive mode', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(project())
-		await expect(runAppDomain({})).rejects.toThrow(/Usage: ownmail app-domain/)
+		await expect(runAppDomain({})).rejects.toThrow(/Usage: ownmail app domain/)
 
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			project({ appDomain: 'old.acme.com', appDomains: ['old.acme.com'] }),

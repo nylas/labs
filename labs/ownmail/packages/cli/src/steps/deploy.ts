@@ -41,6 +41,7 @@ import {
 	readPendingSecret,
 	storePendingSecret,
 } from '../state/pending-secrets.js'
+import { configuredSiteName } from '../state/site-name.js'
 import { configDir, markStep, saveProject } from '../state/store.js'
 import { requireV3, type StepContext } from './context.js'
 import { CancelledError } from './provision.js'
@@ -240,6 +241,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 			NYLAS_REGION: ctx.project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 			APP_NAME: ctx.project.slug,
+			OWNMAIL_SITE_NAME: configuredSiteName(ctx.project),
 			INBOX_EMAIL: ctx.project.inboxEmail ?? '',
 			TEMPLATE_VERSION: manifest.templateVersion,
 		},
@@ -418,6 +420,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 	const apiKey = requirePendingApiKey(ctx)
 	const exported = exportManualBundle({
 		slug: ctx.project.slug,
+		siteName: configuredSiteName(ctx.project),
 		region: ctx.project.region,
 		...(runtimeApiBaseUrl ? { apiBaseUrl: runtimeApiBaseUrl } : {}),
 		applicationId,
@@ -478,21 +481,21 @@ export async function stepWebhook(ctx: StepContext): Promise<void> {
 
 	if (result.status === 'skipped' && result.reason === 'missing-app-url') {
 		p.log.warn(
-			'Couldn’t set up instant updates because OwnMail does not have a public HTTPS app URL yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor` to inspect project state, then `npx ownmail doctor --fix` to retry.',
+			'Couldn’t set up instant updates because OwnMail does not have a public HTTPS app URL yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail project doctor` to inspect project state, then `npx ownmail project doctor --fix` to retry.',
 		)
 	} else if (result.status === 'skipped' && result.reason === 'unhealthy-app') {
 		p.log.warn(
-			'Couldn’t set up instant updates because the deployed app is not reachable yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail doctor --fix` after the app is healthy to retry.',
+			'Couldn’t set up instant updates because the deployed app is not reachable yet. Your app still works; new mail may take a little longer to appear. Run `npx ownmail project doctor --fix` after the app is healthy to retry.',
 		)
 	} else if (result.status === 'failed') {
 		const recovery =
 			result.reason === 'ambiguous-ownmail-destinations'
-				? 'OwnMail found more than one eligible destination. In the Nylas Dashboard, remove obsolete “ownmail realtime” webhooks for this project, then run `npx ownmail doctor --fix`.'
+				? 'OwnMail found more than one eligible destination. In the Nylas Dashboard, remove obsolete “ownmail realtime” webhooks for this project, then run `npx ownmail project doctor --fix`.'
 				: result.reason === 'tracked-destination-ownership-mismatch'
-					? 'The recorded destination no longer matches this OwnMail project. Run `npx ownmail doctor` to inspect the project before changing webhooks.'
+					? 'The recorded destination no longer matches this OwnMail project. Run `npx ownmail project doctor` to inspect the project before changing webhooks.'
 					: result.reason === 'unrecognized-callback-destination'
-						? 'A different webhook already uses this callback URL. Review Webhooks in the Nylas Dashboard, then run `npx ownmail doctor --fix`.'
-						: 'Run `npx ownmail doctor --fix` to retry.'
+						? 'A different webhook already uses this callback URL. Review Webhooks in the Nylas Dashboard, then run `npx ownmail project doctor --fix`.'
+						: 'Run `npx ownmail project doctor --fix` to retry.'
 		p.log.warn(
 			`Couldn’t set up instant updates. Your app still works; new mail may take a little longer to appear. ${recovery}${result.requestId ? `\n\nRequest ID: ${result.requestId}. Include this ID if you contact Nylas Support.` : ''}`,
 		)
@@ -536,11 +539,11 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 	spinner.stop(healthy ? 'Your app is live!' : 'App deployed, but the health check hasn’t passed yet.')
 	if (!healthy && ctx.project.hostingProvider === 'vercel') {
 		throw new Error(
-			`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail update --name ${ctx.project.slug}\`.`,
+			`Vercel deployed the mailbox app, but its health check did not pass. View Runtime Logs in the Vercel dashboard or run \`npx vercel logs --deployment ${url} --level error --expand\`. Fix the runtime error, then retry \`npx ownmail app update --name ${ctx.project.slug}\`.`,
 		)
 	}
 	if (!healthy) {
-		p.log.warn(`Give it a minute, then visit ${url}. If it stays down, run: npx ownmail doctor`)
+		p.log.warn(`Give it a minute, then visit ${url}. If it stays down, run: npx ownmail project doctor`)
 	}
 
 	// One-time setup secrets are no longer needed once everything downstream ran.
@@ -563,9 +566,9 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 			'SMTP:              smtp.nylas.email:465 (SSL) or 587 (STARTTLS)',
 			'',
 			'Reset password:    npx ownmail inbox reset-password',
-			'Update later:      npx ownmail update',
-			'Get the source:    npx ownmail eject',
-			'Cleanup pending:   npx ownmail cleanup-secrets',
+			'Update later:      npx ownmail app update',
+			'Get the source:    npx ownmail app eject',
+			'Cleanup pending:   npx ownmail project cleanup',
 		].join('\n'),
 		'🎉 Done',
 	)
@@ -598,6 +601,7 @@ function runtimeEnvironment(
 		NYLAS_REGION: ctx.project.region,
 		...(apiBaseUrl ? { NYLAS_API_BASE_URL: apiBaseUrl } : {}),
 		APP_NAME: ctx.project.slug,
+		OWNMAIL_SITE_NAME: configuredSiteName(ctx.project),
 		INBOX_EMAIL: requireProjectValue(ctx.project.inboxEmail, 'Inbox email'),
 		TEMPLATE_VERSION: templateVersion,
 	}

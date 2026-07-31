@@ -22,7 +22,7 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 		throw new Error('This project has no domain yet — run `npx ownmail` first.')
 	}
 	const ctx = await createContext(project)
-	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail login` first.')
+	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail auth login` first.')
 
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail inbox-add ${Date.now()}`,
@@ -80,7 +80,7 @@ export async function runInboxResetPassword(opts: { name?: string; email?: strin
 		throw new Error('This project has no Nylas application yet — run `npx ownmail` first.')
 	}
 	const ctx = await createContext(project)
-	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail login` first.')
+	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail auth login` first.')
 
 	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail password-reset ${Date.now()}`,

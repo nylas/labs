@@ -32,6 +32,12 @@ vi.mock('../steps/context.js', () => ({
 	createContext: vi.fn(async (project: ProjectState) => ({ project }) as never),
 }))
 
+vi.mock('../steps/site-name.js', () => ({
+	stepSiteName: vi.fn(async (ctx: { project: ProjectState }) => {
+		ctx.project.siteName ??= 'Acme Mail'
+	}),
+}))
+
 vi.mock('../steps/deploy.js', () => ({
 	stepHostingProvider: vi.fn(async (ctx: { project: ProjectState }) => {
 		ctx.project.hostingProvider ??= 'cloudflare'
@@ -71,6 +77,7 @@ import * as p from '@clack/prompts'
 import { ownmailNylasEnvironment } from '../nylas-env.js'
 import { listProjects, loadProject, newProject, saveProject } from '../state/store.js'
 import { CancelledError, stepApp, stepDashboardAuth, stepDomainPlan, stepGrant } from '../steps/provision.js'
+import { stepSiteName } from '../steps/site-name.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 	return {
@@ -120,6 +127,33 @@ describe('runCreate — resolveProject', () => {
 
 		expect(newProject).toHaveBeenCalledWith('newco', 'eu')
 		expect(p.outro).toHaveBeenCalled()
+	})
+
+	it('normalizes a setup app-name override and refuses to silently rename a deployment', async () => {
+		const fresh = makeProject({ slug: 'newco' })
+		vi.mocked(loadProject).mockReturnValueOnce(null)
+		vi.mocked(newProject).mockReturnValueOnce(fresh)
+
+		await runCreate({ name: 'newco', siteName: '  Newco   Inbox ' })
+
+		expect(fresh.siteName).toBe('Newco Inbox')
+		expect(saveProject).toHaveBeenCalledWith(fresh)
+
+		vi.mocked(loadProject).mockReturnValueOnce(
+			makeProject({ slug: 'live', siteName: 'Live Mail', completedSteps: ['deploy'] }),
+		)
+		await expect(runCreate({ name: 'live', siteName: 'Different Mail' })).rejects.toThrow(/ownmail app name/)
+
+		const unchanged = makeProject({
+			slug: 'live',
+			siteName: 'Live Mail',
+			applicationId: 'app-1',
+			hostingProvider: 'cloudflare',
+			completedSteps: ['deploy'],
+		})
+		vi.mocked(loadProject).mockReturnValueOnce(unchanged)
+		await runCreate({ name: 'live', siteName: 'Live Mail' })
+		expect(saveProject).toHaveBeenCalledWith(unchanged)
 	})
 
 	it('requires choosing the project name in the guide when --name is omitted', async () => {
@@ -416,6 +450,19 @@ describe('runCreate — step machine', () => {
 		await expect(runCreate({ name: 'acme' })).rejects.toThrow(/Setup plan is incomplete/)
 	})
 
+	it('fails closed when the app-name step does not record a validated name', async () => {
+		vi.mocked(stepSiteName).mockImplementationOnce(async () => undefined)
+		vi.mocked(loadProject).mockReturnValue(
+			makeProject({
+				slug: 'acme',
+				hostingProvider: 'cloudflare',
+				domainAddress: 'existing.example.com',
+			}),
+		)
+
+		await expect(runCreate({ name: 'acme' })).rejects.toThrow(/Setup plan is incomplete/)
+	})
+
 	it('describes manual hosting in the creation summary', async () => {
 		vi.mocked(loadProject).mockReturnValue(
 			makeProject({
@@ -501,6 +548,7 @@ describe('runCreate — step machine', () => {
 			'dashboard-auth',
 			'org',
 			'domain-plan',
+			'site-name',
 			'plan-confirmed',
 			'app',
 			'api-key',

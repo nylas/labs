@@ -28,7 +28,9 @@ npx ownmail
 ```
 
 The setup wizard walks you through sign-in, inbox creation, domain setup, and
-deployment. You can re-run the CLI at any time; setup steps are resumable.
+deployment. It proposes an app name from the selected email domain and lets you
+edit it before deployment. You can re-run the CLI at any time; setup steps are
+resumable.
 
 ![OwnMail's local mock inbox with The Dispatch open, divided diagonally between light and dark modes](./assets/screenshots/ownmail-mail-modes.png)
 
@@ -53,7 +55,7 @@ app source into a directory you control whenever you want to tune the UI, add a
 feature, or choose a different deployment path:
 
 ```bash
-ownmail eject ./my-ownmail
+ownmail app eject ./my-ownmail
 ```
 
 The ejected project includes the deployable app and its local-development
@@ -79,16 +81,35 @@ workflow. You stay in charge of the code from there.
 | Command | What it does |
 |---|---|
 | `ownmail` | Create or resume an OwnMail deployment |
-| `ownmail status` | Show your OwnMail projects |
-| `ownmail update` | Redeploy the latest app version |
-| `ownmail doctor` | Check configuration and repair common issues |
-| `ownmail grants` | List inboxes connected to your Nylas app |
-| `ownmail eject [dir]` | Copy the app source into a directory you control and customize it freely |
+| `ownmail app name [name]` | Show or change the name displayed in the deployed app |
+| `ownmail app update` | Redeploy the latest app version |
+| `ownmail app eject [dir]` | Copy the app source into a directory you control and customize it freely |
+| `ownmail project status` | Show your OwnMail projects |
+| `ownmail project doctor` | Check configuration and repair common issues |
+| `ownmail inbox list` | List inboxes connected to your Nylas app |
 | `ownmail inbox add` | Add another address on your domain |
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
-| `ownmail rotate-key` | Rotate the API key used by the app |
-| `ownmail app-domain mail.example.com --primary` | Attach a primary app domain to Cloudflare, Vercel, or Netlify |
-| `ownmail destroy` | Remove a Cloudflare deployment without deleting mail data |
+| `ownmail auth rotate-key` | Rotate the API key used by the app |
+| `ownmail app domain mail.example.com --primary` | Attach a primary app domain to Cloudflare, Vercel, or Netlify |
+| `ownmail app destroy` | Remove a Cloudflare deployment without deleting mail data |
+
+Run `ownmail <group> --help` to explore related functionality. The earlier flat
+commands remain as hidden compatibility aliases.
+
+## App name and app identity
+
+During setup, OwnMail derives a friendly default from the email domain:
+`smart-team.nylas.email` becomes **Smart Team Mail**, while
+`mail.your-company.com` becomes **Your Company Mail**. Override it during setup
+or rename an existing deployment later:
+
+```bash
+ownmail app name "Smart Team Inbox" --name smart-team
+```
+
+This changes the visible navigation brand, sign-in screen, browser title, and
+install metadata. It does not rename provider resources, the local project key,
+the email domain, or any inbox address.
 
 ## Email domains and app domains
 
@@ -103,13 +124,13 @@ These are separate settings:
 Attach and promote a primary app domain:
 
 ```bash
-ownmail app-domain mail.example.com --primary
+ownmail app domain mail.example.com --primary
 ```
 
 Keep the current primary while attaching an alias:
 
 ```bash
-ownmail app-domain inbox.example.com --secondary
+ownmail app domain inbox.example.com --secondary
 ```
 
 OwnMail attaches the hostname to the recorded provider project, waits for HTTPS,
