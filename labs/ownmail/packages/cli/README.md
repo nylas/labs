@@ -118,7 +118,9 @@ From there, the source and local-development workflow are yours to shape.
 
 Do not commit generated passwords, API keys, session secrets, or deployment
 credentials. OwnMail stores hosted app secrets with the selected provider and
-keeps local runtime secrets in the OS credential store.
+keeps reusable deployment and local runtime secrets in the OS credential store.
+Deployment API keys expire after one year and rotate when fewer than 30 days
+remain; temporary diagnostic keys expire after one day.
 
 ## License
 

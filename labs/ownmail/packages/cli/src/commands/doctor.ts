@@ -1,8 +1,10 @@
 import * as p from '@clack/prompts'
 import { type GatewayApiKey, NylasV3Client } from '@nylas-labs/cli-kit'
+import { DEPLOYMENT_API_KEY_LIFETIME_DAYS, TEMPORARY_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { setupRealtimeWebhook } from '../deploy/webhook.js'
 import { putSecret, wranglerLoggedIn } from '../deploy/wrangler.js'
 import { apiBaseUrl } from '../nylas-env.js'
+import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
 import { listProjectStateIssues, saveProject } from '../state/store.js'
 import { createContext, requireDashboard, requireGateway, tokens } from '../steps/context.js'
@@ -82,7 +84,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 					project.applicationId,
 					{
 						name: `ownmail doctor ${new Date().toISOString()}`,
-						expiresIn: 3600,
+						expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 					},
 				)
 				probeKeyId = key.id
@@ -158,6 +160,23 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	}
 
 	try {
+		// Confirm provider access and repair an unusable deployed key before any
+		// downstream API checks. The context may have been created from that old key.
+		const cloudflareLoginRequired = needsCloudflareLogin(project)
+		let cloudflareOk = !cloudflareLoginRequired
+		if (cloudflareLoginRequired) {
+			cloudflareOk = await wranglerLoggedIn()
+			results.push({
+				name: 'Cloudflare login',
+				status: cloudflareOk ? 'pass' : 'fail',
+				detail: cloudflareOk ? 'authenticated' : 'run any ownmail deploy command to log in',
+			})
+		}
+		if (apiKeyIssue && opts.fix) {
+			results.push(await repairApiKey(project, ctx, cloudflareOk, apiKeyIssue))
+			v3 = ctx.v3
+		}
+
 		// 4. Domain verification
 		if (project.domainId && sessionOk) {
 			try {
@@ -256,19 +275,6 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		}
 
 		// 7. Hosting + app health
-		const cloudflareLoginRequired = needsCloudflareLogin(project)
-		let cloudflareOk = !cloudflareLoginRequired
-		if (cloudflareLoginRequired) {
-			cloudflareOk = await wranglerLoggedIn()
-			results.push({
-				name: 'Cloudflare login',
-				status: cloudflareOk ? 'pass' : 'fail',
-				detail: cloudflareOk ? 'authenticated' : 'run any ownmail deploy command to log in',
-			})
-		}
-		if (apiKeyIssue && opts.fix) {
-			results.push(await repairApiKey(project, ctx, cloudflareOk, apiKeyIssue))
-		}
 		const url = activeAppUrl(project)
 		let appHealthy = false
 		if (url) {
@@ -393,6 +399,7 @@ async function repairApiKey(
 	try {
 		created = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, applicationId, {
 			name: `ownmail ${project.slug} (doctor repair ${new Date().toISOString().slice(0, 10)})`,
+			expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 		})
 	} catch (err) {
 		return {
@@ -430,8 +437,22 @@ async function repairApiKey(
 		}
 	}
 
+	let retainedInKeyring = true
+	try {
+		storePendingSecret(project, 'apiKey', created.apiKey, { allowLocalFallback: false })
+	} catch {
+		clearPendingSecret(project, 'apiKey')
+		retainedInKeyring = false
+	}
 	project.apiKeyId = created.id
 	saveProject(project)
+	ctx.v3 = new NylasV3Client(
+		created.apiKey,
+		project.region,
+		fetch,
+		apiBaseUrl(project.region),
+		OWNMAIL_USER_AGENT,
+	)
 	if (issue.oldKeyId && issue.oldKeyId !== created.id) {
 		try {
 			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, issue.oldKeyId)
@@ -449,7 +470,9 @@ async function repairApiKey(
 	return {
 		name: 'Nylas API key',
 		status: 'pass',
-		detail: 'rotated and stored in Cloudflare',
+		detail: retainedInKeyring
+			? 'rotated and stored in Cloudflare and the OS credential store'
+			: 'rotated and stored in Cloudflare; the OS credential store was unavailable',
 		fixed: true,
 	}
 }

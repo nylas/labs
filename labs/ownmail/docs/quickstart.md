@@ -57,6 +57,13 @@ Use `ownmail --help` to see command groups and `ownmail app --help`,
 `ownmail inbox --help`, `ownmail project --help`, or `ownmail auth --help` to
 explore a group. Existing flat command names remain available for compatibility.
 
+OwnMail deployment API keys expire after one year. The CLI keeps the installed
+key only in your OS credential store, validates it when setup is resumed, and
+reuses it while it is active with more than 30 days remaining. When rotation is
+needed, OwnMail installs the replacement before revoking the previous key.
+One-off diagnostic keys expire after one day. You can rotate early with
+`ownmail auth rotate-key`.
+
 ## Mail apps (IMAP/SMTP)
 
 Your inbox also works in Apple Mail, Outlook, or Thunderbird:

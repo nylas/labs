@@ -797,9 +797,18 @@ describe('stepApiKey', () => {
 
 	it('rebuilds the v3 client from a pending key on resume without minting a new one', async () => {
 		const createApiKey = vi.fn()
+		const listApiKeys = vi
+			.fn()
+			.mockResolvedValue([
+				{ id: 'key-1', status: 'active', expiresAt: Date.now() + 31 * 24 * 60 * 60 * 1_000 },
+			])
 		const ctx = baseCtx({
-			project: baseProject({ pendingSecrets: { apiKey: 'existing-key' } }),
-			gateway: { createApiKey } as never,
+			project: baseProject({
+				applicationId: 'app-1',
+				apiKeyId: 'key-1',
+				pendingSecrets: { apiKey: 'existing-key' },
+			}),
+			gateway: { createApiKey, listApiKeys } as never,
 		})
 
 		await stepApiKey(ctx)
@@ -826,7 +835,9 @@ describe('stepApiKey', () => {
 		await stepApiKey(ctx)
 
 		expect(ctx.project.apiKeyId).toBe('key-1')
-		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_secret')
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_secret', {
+			allowLocalFallback: true,
+		})
 		expect(ctx.project.pendingSecrets.apiKey).toEqual({
 			storage: 'keyring',
 			service: 'ownmail',
@@ -840,6 +851,70 @@ describe('stepApiKey', () => {
 			OWNMAIL_USER_AGENT,
 		)
 		expect(saveProject).toHaveBeenCalled()
+	})
+
+	it('stages a bounded replacement when the tracked key is near expiry', async () => {
+		const createApiKey = vi.fn().mockResolvedValue({ id: 'key-2', apiKey: 'nyk_fresh' })
+		const listApiKeys = vi
+			.fn()
+			.mockResolvedValue([{ id: 'key-1', status: 'active', expiresAt: Date.now() + 24 * 60 * 60 * 1000 }])
+		const ctx = baseCtx({
+			project: baseProject({
+				applicationId: 'app-1',
+				apiKeyId: 'key-1',
+				completedSteps: ['deploy'],
+				pendingSecrets: { apiKey: 'nyk_old' },
+			}),
+			gateway: { createApiKey, listApiKeys } as never,
+		})
+
+		await stepApiKey(ctx)
+
+		expect(createApiKey).toHaveBeenCalledWith(
+			expect.anything(),
+			'us',
+			'app-1',
+			expect.objectContaining({ expiresIn: 365 }),
+		)
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_fresh', {
+			allowLocalFallback: false,
+		})
+		expect(ctx.project.pendingApiKeyRotation).toEqual({
+			previousKeyId: 'key-1',
+			replacementKeyId: 'key-2',
+		})
+	})
+
+	it('revokes an unused replacement when durable secure storage is unavailable', async () => {
+		const createApiKey = vi.fn().mockResolvedValue({ id: 'key-2', apiKey: 'nyk_fresh' })
+		const revokeApiKey = vi.fn()
+		vi.mocked(storePendingSecret).mockImplementationOnce(() => {
+			throw new Error('keyring unavailable')
+		})
+		const ctx = baseCtx({
+			project: baseProject({ applicationId: 'app-1', completedSteps: ['deploy'] }),
+			gateway: { createApiKey, revokeApiKey } as never,
+		})
+
+		await expect(stepApiKey(ctx)).rejects.toThrow('keyring unavailable')
+		expect(revokeApiKey).toHaveBeenCalledWith(expect.anything(), 'us', 'app-1', 'key-2')
+		expect(ctx.project.apiKeyId).toBeUndefined()
+	})
+
+	it('warns when an unused replacement cannot be revoked after secure-storage failure', async () => {
+		vi.mocked(storePendingSecret).mockImplementationOnce(() => {
+			throw new Error('keyring unavailable')
+		})
+		const ctx = baseCtx({
+			project: baseProject({ applicationId: 'app-1', completedSteps: ['deploy'] }),
+			gateway: {
+				createApiKey: vi.fn().mockResolvedValue({ id: 'key-2', apiKey: 'nyk_fresh' }),
+				revokeApiKey: vi.fn().mockRejectedValue(new Error('offline')),
+			} as never,
+		})
+
+		await expect(stepApiKey(ctx)).rejects.toThrow('keyring unavailable')
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('unused replacement'))
 	})
 
 	it('clears an unreadable pending API key reference and mints a fresh key', async () => {
@@ -857,11 +932,11 @@ describe('stepApiKey', () => {
 		await stepApiKey(ctx)
 
 		expect(clearPendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey')
-		expect(p.log.warn).toHaveBeenCalledWith(
-			expect.stringContaining('Could not read the pending Nylas API key'),
-		)
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not read the Nylas API key'))
 		expect(createApiKey).toHaveBeenCalled()
-		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_fresh')
+		expect(storePendingSecret).toHaveBeenCalledWith(ctx.project, 'apiKey', 'nyk_fresh', {
+			allowLocalFallback: true,
+		})
 	})
 
 	it('warns when a fresh API key falls back to local pending storage', async () => {

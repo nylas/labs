@@ -35,15 +35,10 @@ import {
 } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl, resourceNameSuffix } from '../nylas-env.js'
 import { projectAppDomains } from '../state/app-domains.js'
-import {
-	clearPendingSecret,
-	clearPendingSecrets,
-	readPendingSecret,
-	storePendingSecret,
-} from '../state/pending-secrets.js'
+import { clearPendingSecret, readPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 import { configuredSiteName } from '../state/site-name.js'
 import { configDir, markStep, saveProject } from '../state/store.js'
-import { requireV3, type StepContext } from './context.js'
+import { requireGateway, requireV3, type StepContext, tokens } from './context.js'
 import { CancelledError } from './provision.js'
 
 export async function stepHostingProvider(ctx: StepContext): Promise<void> {
@@ -269,6 +264,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 		spinner.stop('Cloudflare could not finish secret setup; your project can be resumed.')
 		throw err
 	}
+	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }
 
@@ -306,6 +302,7 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 	} finally {
 		rmSync(dir, { recursive: true, force: true })
 	}
+	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }
 
@@ -358,16 +355,22 @@ async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
 	} finally {
 		rmSync(dir, { recursive: true, force: true })
 	}
+	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }
 
 async function stepLocalDeploy(ctx: StepContext): Promise<void> {
 	const manifest = loadManifest()
-	if (
+	const healthyCurrentServer =
 		ctx.project.localAppUrl &&
 		ctx.project.templateVersion === manifest.templateVersion &&
 		(await checkAppHealth(ctx.project.localAppUrl, { attempts: 1, delayMs: 0, timeoutMs: 1000 }))
-	) {
+	if (healthyCurrentServer && ctx.project.pendingApiKeyRotation) {
+		throw new Error(
+			`The local server for "${ctx.project.slug}" is still using the previous Nylas API key. Stop it with Ctrl+C in its terminal, then retry \`npx ownmail\` to install the replacement.`,
+		)
+	}
+	if (healthyCurrentServer) {
 		p.log.info(`Local web server is already running at ${ctx.project.localAppUrl}.`)
 		markStep(ctx.project, 'deploy')
 		return
@@ -403,6 +406,7 @@ async function stepLocalDeploy(ctx: StepContext): Promise<void> {
 		spinner.stop('The local web server could not start; your project can be resumed.')
 		throw error
 	}
+	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }
 
@@ -440,7 +444,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 			'',
 			'Upload this bundle to your hosting provider.',
 			'Set the variables from .env.example; deployment-only secret values are in secrets.env.',
-			'Do not commit secrets.env. OwnMail clears matching keyring/local pending secrets after verification.',
+			'Do not commit secrets.env. OwnMail clears one-time setup secrets after verification.',
 		].join('\n'),
 		'Manual Deploy',
 	)
@@ -463,6 +467,18 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 		if (p.isCancel(url)) throw new CancelledError()
 		ctx.project.manualAppUrl = normalizeUrl(url)
 		saveProject(ctx.project)
+	}
+	if (ctx.project.pendingApiKeyRotation) {
+		const uploaded = await p.confirm({
+			message: 'Have you uploaded this updated bundle and installed its replacement Nylas API key?',
+			initialValue: false,
+		})
+		if (p.isCancel(uploaded)) throw new CancelledError()
+		if (!uploaded) {
+			p.cancel('Keep the previous deployment running. Re-run ownmail after uploading the updated bundle.')
+			throw new CancelledError()
+		}
+		await finalizePendingApiKeyRotation(ctx)
 	}
 
 	markStep(ctx.project, 'deploy')
@@ -547,11 +563,18 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 	}
 
 	// One-time setup secrets are no longer needed once everything downstream ran.
+	// Keep a deployment API key only when it is backed by the OS keyring so a
+	// later setup resume can validate and reuse it without creating another key.
 	if (ctx.project.hostingProvider === 'local') {
 		clearPendingSecret(ctx.project, 'clientSecret')
 		clearPendingSecret(ctx.project, 'appPassword')
 	} else {
-		clearPendingSecrets(ctx.project)
+		clearPendingSecret(ctx.project, 'clientSecret')
+		clearPendingSecret(ctx.project, 'appPassword')
+		clearPendingSecret(ctx.project, 'sessionSecret')
+		if (typeof ctx.project.pendingSecrets.apiKey === 'string') {
+			clearPendingSecret(ctx.project, 'apiKey')
+		}
 	}
 	saveProject(ctx.project)
 
@@ -580,6 +603,26 @@ export async function stepVerify(ctx: StepContext): Promise<void> {
 		} catch {
 			p.log.warn(`Could not open the browser automatically. Visit ${url} when you’re ready.`)
 		}
+	}
+}
+
+async function finalizePendingApiKeyRotation(ctx: StepContext): Promise<void> {
+	const rotation = ctx.project.pendingApiKeyRotation
+	if (!rotation || rotation.replacementKeyId !== ctx.project.apiKeyId) return
+	try {
+		await requireGateway(ctx).revokeApiKey(
+			tokens(ctx),
+			ctx.project.region,
+			requireNylasClientId(ctx.project.applicationId),
+			rotation.previousKeyId,
+		)
+		delete ctx.project.pendingApiKeyRotation
+		saveProject(ctx.project)
+		p.log.info('Replaced the previous Nylas API key after the new key was installed.')
+	} catch {
+		p.log.warn(
+			'The new Nylas API key is installed, but the previous key could not be revoked. OwnMail will retry on the next deployment.',
+		)
 	}
 }
 

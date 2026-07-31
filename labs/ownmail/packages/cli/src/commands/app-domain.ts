@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts'
 import { NylasV3Client } from '@nylas-labs/cli-kit'
+import { TEMPORARY_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
 import { checkAppHealth } from '../deploy/app-health.js'
 import { loadManifest, materialize } from '../deploy/materialize.js'
 import { attachVercelDomain, configureNetlifyDomain } from '../deploy/provider-cli.js'
@@ -82,7 +83,7 @@ async function runAppDomainLocked(project: ProjectState, opts: AppDomainOptions)
 	try {
 		const key = await gateway.createApiKey(tokens(ctx), project.region, requireApplicationId(project), {
 			name: `ownmail app-domain ${new Date().toISOString()}`,
-			expiresIn: 3600,
+			expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 		})
 		temporaryKeyId = key.id
 		const v3 = new NylasV3Client(

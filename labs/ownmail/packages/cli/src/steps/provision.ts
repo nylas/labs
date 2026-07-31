@@ -12,6 +12,7 @@ import {
 } from '@nylas-labs/cli-kit'
 import open from 'open'
 import { z } from 'zod'
+import { DEPLOYMENT_API_KEY_LIFETIME_DAYS, reusableApiKey } from '../api-key-lifecycle.js'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import {
 	clearPendingSecret,
@@ -350,53 +351,70 @@ function appDisplayName(app: GatewayApplication): string {
 	return app.branding?.name?.trim() || app.applicationId
 }
 
-/** 04 — Mint an API key (re-mint on resume is safe; old keys stay valid until revoked). */
+/** 04 — Reuse the tracked deployment key, or stage a bounded replacement. */
 export async function stepApiKey(ctx: StepContext): Promise<void> {
-	const pendingApiKey = readPendingSecret(ctx.project, 'apiKey')
-	if (pendingApiKey) {
-		ctx.v3 = new NylasV3Client(
-			pendingApiKey,
-			ctx.project.region,
-			fetch,
-			apiBaseUrl(ctx.project.region),
-			OWNMAIL_USER_AGENT,
-		)
-		markStep(ctx.project, 'api-key')
-		return
-	}
-	if (hasPendingSecret(ctx.project, 'apiKey')) {
-		clearPendingSecret(ctx.project, 'apiKey')
-		saveProject(ctx.project)
-		p.log.warn('Could not read the pending Nylas API key from local secure storage; minting a fresh one.')
-	}
-
 	const gateway = requireGateway(ctx)
 	const applicationId = ctx.project.applicationId
 	if (!applicationId) throw new Error('Nylas application unavailable — rerun ownmail setup')
+
+	const pendingApiKey = readPendingSecret(ctx.project, 'apiKey')
+	if (pendingApiKey) {
+		const keys = await gateway.listApiKeys(tokens(ctx), ctx.project.region, applicationId)
+		if (reusableApiKey(keys, ctx.project.apiKeyId)) {
+			ctx.v3 = nylasClient(pendingApiKey, ctx.project.region)
+			markStep(ctx.project, 'api-key')
+			return
+		}
+		p.log.info('The tracked Nylas API key needs rotation; preparing a bounded replacement.')
+	}
+	if (!pendingApiKey && hasPendingSecret(ctx.project, 'apiKey')) {
+		clearPendingSecret(ctx.project, 'apiKey')
+		saveProject(ctx.project)
+		p.log.warn('Could not read the Nylas API key from local secure storage; preparing a replacement.')
+	}
+
 	const spinner = p.spinner()
 	spinner.start('Creating a Nylas API key…')
 	let created: Awaited<ReturnType<typeof gateway.createApiKey>>
 	try {
 		created = await gateway.createApiKey(tokens(ctx), ctx.project.region, applicationId, {
 			name: `ownmail ${ctx.project.slug} ${apiKeyNameSuffix()}`,
+			expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 		})
 	} catch (err) {
 		spinner.stop('Could not create a Nylas API key.')
 		throw err
 	}
 	spinner.stop('Nylas API key created.')
+	const previousKeyId = ctx.project.pendingApiKeyRotation?.previousKeyId ?? ctx.project.apiKeyId
+	let stored: PendingSecretStoreResult
+	try {
+		stored = storePendingSecret(ctx.project, 'apiKey', created.apiKey, {
+			allowLocalFallback: !ctx.project.completedSteps.includes('deploy'),
+		})
+	} catch (storageError) {
+		try {
+			await gateway.revokeApiKey(tokens(ctx), ctx.project.region, applicationId, created.id)
+		} catch {
+			p.log.warn('Could not revoke an unused replacement Nylas API key. Revoke it in the Nylas dashboard.')
+		}
+		throw storageError
+	}
 	ctx.project.apiKeyId = created.id
-	const stored = storePendingSecret(ctx.project, 'apiKey', created.apiKey)
+	if (previousKeyId && previousKeyId !== created.id) {
+		ctx.project.pendingApiKeyRotation = {
+			previousKeyId,
+			replacementKeyId: created.id,
+		}
+	}
 	warnIfLocalPendingSecret(stored, 'Nylas API key')
-	ctx.v3 = new NylasV3Client(
-		created.apiKey,
-		ctx.project.region,
-		fetch,
-		apiBaseUrl(ctx.project.region),
-		OWNMAIL_USER_AGENT,
-	)
+	ctx.v3 = nylasClient(created.apiKey, ctx.project.region)
 	saveProject(ctx.project)
 	markStep(ctx.project, 'api-key')
+}
+
+function nylasClient(apiKey: string, region: Region): NylasV3Client {
+	return new NylasV3Client(apiKey, region, fetch, apiBaseUrl(region), OWNMAIL_USER_AGENT)
 }
 
 function apiKeyNameSuffix(): string {

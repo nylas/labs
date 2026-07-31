@@ -85,7 +85,7 @@ describe('pending setup secrets', () => {
 		expect(readPendingSecret(state, 'apiKey')).toBe('nyk_secret')
 		expect(hasPendingSecret(state, 'apiKey')).toBe(true)
 		expect(hasPendingSecret(state, 'appPassword')).toBe(false)
-		expect(pendingSecretLabels(state)).toEqual(['Nylas API key awaiting deploy (OS keyring)'])
+		expect(pendingSecretLabels(state)).toEqual(['Nylas API key (OS keyring)'])
 	})
 
 	it('falls back to the local project file when the keyring is unavailable', () => {
@@ -145,7 +145,7 @@ describe('pending setup secrets', () => {
 		storePendingSecret(state, 'appPassword', 'Sup3rSecret!!x')
 
 		expect(pendingSecretLabels(state)).toEqual([
-			'Nylas API key awaiting deploy (OS keyring)',
+			'Nylas API key (OS keyring)',
 			'Legacy Nylas application client secret (local project file)',
 			'Inbox password awaiting final verification (OS keyring)',
 		])
