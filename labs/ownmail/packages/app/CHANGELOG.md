@@ -1,5 +1,14 @@
 # @ownmail/app
 
+## 0.10.2
+
+### Patch Changes
+
+- 40fe468: Prevent mail threads from flashing a collapsed state while switching conversations.
+- 5cf11b7: Prevent compose edits from being lost while close persistence is in progress.
+- 2b60637: Prevent thread content flashes by stabilizing client-rendered email, timestamps, and navigation progress.
+- b7667f9: Prevent draft, attachment, and event actions from crossing unfinished async work.
+
 ## 0.10.1
 
 ### Patch Changes
