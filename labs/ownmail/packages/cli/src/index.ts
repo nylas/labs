@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { type ArgsDef, type CommandDef, type CommandMeta, defineCommand, runMain } from 'citty'
@@ -298,4 +299,13 @@ export const main = defineCommand({
 	},
 })
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runMain(main)
+if (isExecutedEntrypoint(process.argv[1])) runMain(main)
+
+function isExecutedEntrypoint(entry: string | undefined): boolean {
+	if (!entry) return false
+	try {
+		return import.meta.url === pathToFileURL(realpathSync(entry)).href
+	} catch {
+		return false
+	}
+}
