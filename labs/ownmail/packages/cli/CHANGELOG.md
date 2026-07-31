@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.11.1
+
+### Patch Changes
+
+- 67cfdbb: Reuse active deployment API keys and rotate them with bounded lifetimes.
+
 ## 0.11.0
 
 ### Minor Changes
