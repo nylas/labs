@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.11.0
+
+### Minor Changes
+
+- 8662013: Add domain-inferred app naming and a grouped, discoverable CLI command structure with compatible legacy aliases and reliable execution through package-manager symlinks.
+
 ## 0.10.2
 
 ## 0.10.1
