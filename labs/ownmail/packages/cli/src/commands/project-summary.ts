@@ -1,5 +1,6 @@
 import { projectAppUrl, projectCustomAppUrls } from '../deploy/webhook.js'
 import type { ProjectState, StepId } from '../state/schema.js'
+import { configuredSiteName } from '../state/site-name.js'
 
 type SetupPhase = { label: string; steps: StepId[] }
 
@@ -13,6 +14,7 @@ const SETUP_PHASES: SetupPhase[] = [
 
 export type ProjectStatusSummary = {
 	slug: string
+	appName: string
 	region: ProjectState['region']
 	stage: string
 	health: string
@@ -59,6 +61,7 @@ export function projectStatusSummary(project: ProjectState): ProjectStatusSummar
 	const stage = projectStage(project, appUrl)
 	return {
 		slug: project.slug,
+		appName: configuredSiteName(project),
 		region: project.region,
 		stage: stage.stage,
 		health: stage.health,
@@ -121,7 +124,7 @@ function projectStage(
 			health: `https://${domain} is attached, but ${
 				primary ? 'primary-domain activation' : 'additional-domain setup'
 			} is incomplete.`,
-			nextCommand: `npx ownmail app-domain ${domain} --name ${project.slug} --${
+			nextCommand: `npx ownmail app domain ${domain} --name ${project.slug} --${
 				primary ? 'primary' : 'secondary'
 			}`,
 		}
@@ -141,7 +144,7 @@ function projectStage(
 		return {
 			stage: 'Live',
 			health: 'Setup complete.',
-			nextCommand: 'npx ownmail update',
+			nextCommand: 'npx ownmail app update',
 		}
 	}
 

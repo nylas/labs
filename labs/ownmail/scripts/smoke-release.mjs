@@ -95,8 +95,18 @@ if (existsSync(resolve(installDir, 'node_modules/@ownmail/app'))) {
 
 const ownmailBin = resolve(installDir, 'node_modules/.bin/ownmail')
 const help = execFileSync(ownmailBin, ['--help'], { encoding: 'utf8' })
-if (!help.includes('Launch an inbox on your domain') || !help.includes('COMMANDS')) {
-	throw new Error('Packed OwnMail help output did not contain the expected command summary.')
+for (const expected of [
+	'Launch and customize an inbox on your domain.',
+	'COMMANDS',
+	'Customize, deploy, and export the mailbox app',
+	'List and manage mailbox accounts',
+	'Inspect, repair, and remove OwnMail project state',
+	'Manage Nylas login and app credentials',
+	'Use ownmail <command> --help for more information about a command.',
+]) {
+	if (!help.includes(expected)) {
+		throw new Error(`Packed OwnMail help output did not contain ${JSON.stringify(expected)}.`)
+	}
 }
 
 const version = execFileSync(ownmailBin, ['--version'], { encoding: 'utf8' }).trim()

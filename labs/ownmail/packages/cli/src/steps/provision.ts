@@ -916,7 +916,7 @@ async function showInboxPassword(email: string, appPassword: string): Promise<vo
 function warnIfLocalPendingSecret(result: PendingSecretStoreResult, label: string): void {
 	if (result.storage === 'keyring') return
 	p.log.warn(
-		`Could not use the OS keyring for the ${label}. OwnMail saved a temporary pending copy in the permission-restricted local project file and will clear it after verification. If you abandon setup, run \`npx ownmail cleanup-secrets\`.`,
+		`Could not use the OS keyring for the ${label}. OwnMail saved a temporary pending copy in the permission-restricted local project file and will clear it after verification. If you abandon setup, run \`npx ownmail project cleanup\`.`,
 	)
 }
 

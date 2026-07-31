@@ -59,7 +59,7 @@ describe('projectStatusSummary', () => {
 			appDomainStatus: 'ready',
 			hosting: 'Cloudflare Workers',
 			appUrl: 'https://mail.acme.com',
-			nextCommand: 'npx ownmail update',
+			nextCommand: 'npx ownmail app update',
 			domainVerified: true,
 		})
 	})
@@ -81,7 +81,7 @@ describe('projectStatusSummary', () => {
 			pendingAppDomain: { domain: 'mail.acme.com', primary: true },
 			stage: 'Custom domain setup pending',
 			health: 'https://mail.acme.com is attached, but primary-domain activation is incomplete.',
-			nextCommand: 'npx ownmail app-domain mail.acme.com --name acme --primary',
+			nextCommand: 'npx ownmail app domain mail.acme.com --name acme --primary',
 		})
 	})
 

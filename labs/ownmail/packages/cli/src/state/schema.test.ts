@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { AuthStateSchema, ProjectSlugSchema, ProjectStateSchema, StepIdSchema } from './schema.js'
+import {
+	AuthStateSchema,
+	ProjectSlugSchema,
+	ProjectStateSchema,
+	SiteNameSchema,
+	StepIdSchema,
+} from './schema.js'
 
 /**
  * The schemas are the single source of truth for what persists to disk. If a
@@ -28,6 +34,18 @@ describe('StepIdSchema', () => {
 	it('accepts known step ids and rejects unknown ones', () => {
 		expect(StepIdSchema.parse('deploy')).toBe('deploy')
 		expect(StepIdSchema.safeParse('not-a-step').success).toBe(false)
+	})
+})
+
+describe('SiteNameSchema', () => {
+	it('normalizes a safe app name', () => {
+		expect(SiteNameSchema.parse('  Acme   Mail ')).toBe('Acme Mail')
+	})
+
+	it('rejects markup, control characters, and excessive length', () => {
+		expect(SiteNameSchema.safeParse('<b>Acme</b>').success).toBe(false)
+		expect(SiteNameSchema.safeParse('Acme\nMail').success).toBe(false)
+		expect(SiteNameSchema.safeParse('x'.repeat(81)).success).toBe(false)
 	})
 })
 

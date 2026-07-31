@@ -14,7 +14,7 @@ const LOGIN_PROJECT_SLUG = '__login__'
 
 /** Force a fresh dashboard login. */
 export async function runLogin(): Promise<void> {
-	p.intro('ownmail login')
+	p.intro('ownmail auth login')
 	clearAuth()
 	const ctx = await createContext(newProject(LOGIN_PROJECT_SLUG, 'us'))
 	ctx.auth = null
@@ -25,7 +25,7 @@ export async function runLogin(): Promise<void> {
 
 /** List agent-account inboxes on the project's application. */
 export async function runGrants(opts: { name?: string }): Promise<void> {
-	p.intro('ownmail grants')
+	p.intro('ownmail inbox list')
 	const project = await pickExistingProject(opts.name)
 	const ctx = await createContext(project)
 	if (!ctx.auth || !project.applicationId) {
@@ -57,7 +57,7 @@ export async function runGrants(opts: { name?: string }): Promise<void> {
 
 /** Scrub one-time plaintexts retained only to resume an unfinished setup. */
 export async function runCleanupSecrets(opts: { name?: string }): Promise<void> {
-	p.intro('ownmail cleanup-secrets')
+	p.intro('ownmail project cleanup')
 	const project = await pickExistingProject(opts.name)
 	const labels = pendingSecretLabels(project)
 	if (labels.length === 0) {
@@ -88,7 +88,7 @@ export async function runCleanupSecrets(opts: { name?: string }): Promise<void> 
 
 /** Delete the local project record, optionally deleting the hosted Cloudflare app first. */
 export async function runDeleteProject(opts: { name?: string; hosted?: boolean }): Promise<void> {
-	p.intro('ownmail delete')
+	p.intro('ownmail project delete')
 	const project = await pickExistingProject(opts.name)
 	const deleteHosted = opts.hosted === true
 	if (deleteHosted && project.hostingProvider && project.hostingProvider !== 'cloudflare') {
@@ -141,7 +141,7 @@ export async function runDeleteProject(opts: { name?: string; hosted?: boolean }
 
 /** Tear down the Cloudflare side of a project (Nylas resources are kept). */
 export async function runDestroy(opts: { name?: string }): Promise<void> {
-	p.intro('ownmail destroy')
+	p.intro('ownmail app destroy')
 	const project = await pickExistingProject(opts.name)
 	if (project.hostingProvider && project.hostingProvider !== 'cloudflare') {
 		throw nonCloudflareDeleteError(project)
@@ -180,7 +180,7 @@ export async function runDestroy(opts: { name?: string }): Promise<void> {
 
 function nonCloudflareDeleteError(project: ProjectState): Error {
 	return new Error(
-		`OwnMail cannot delete this ${project.hostingProvider} deployment automatically. Remove or stop it from the provider dashboard or local server terminal, then run \`npx ownmail delete --name ${project.slug}\` to remove local project state. Nothing was deleted.`,
+		`OwnMail cannot delete this ${project.hostingProvider} deployment automatically. Remove or stop it from the provider dashboard or local server terminal, then run \`npx ownmail project delete --name ${project.slug}\` to remove local project state. Nothing was deleted.`,
 	)
 }
 

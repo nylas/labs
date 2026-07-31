@@ -29,6 +29,8 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	deployNetlify: vi.fn(),
 	ensureVercelProject: vi.fn(),
 	ensureVercelRealtimeStore: vi.fn(),
+	setNetlifyEnvironment: vi.fn(),
+	setVercelEnvironment: vi.fn(),
 }))
 
 vi.mock('../deploy/wrangler.js', () => ({
@@ -69,6 +71,8 @@ import {
 	deployVercel,
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
+	setNetlifyEnvironment,
+	setVercelEnvironment,
 } from '../deploy/provider-cli.js'
 import { deploy } from '../deploy/wrangler.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
@@ -125,7 +129,7 @@ beforeEach(() => {
 	vi.mocked(deployNetlify).mockResolvedValue('https://acme.netlify.app')
 	vi.mocked(findLocalPort).mockResolvedValue(3000)
 	vi.mocked(startLocalServer).mockResolvedValue('http://localhost:3000')
-	vi.mocked(checkAppHealth).mockResolvedValue(false)
+	vi.mocked(checkAppHealth).mockReset().mockResolvedValue(false)
 	vi.mocked(readPendingSecret).mockImplementation((_project, name) =>
 		name === 'apiKey' ? 'nyk_secret' : 'session_secret',
 	)
@@ -203,7 +207,7 @@ describe('runUpdate — redeploy', () => {
 		await expect(runUpdate({})).rejects.toThrow(/could not deploy/)
 
 		expect(spinner.stop).toHaveBeenCalledWith(
-			'Cloudflare update needs attention; retry `npx ownmail update` when ready.',
+			'Cloudflare update needs attention; retry `npx ownmail app update` when ready.',
 		)
 		expect(saveProject).not.toHaveBeenCalled()
 	})
@@ -306,9 +310,12 @@ describe('runUpdate — Node providers', () => {
 	it('redeploys a linked Vercel project without rotating settings', async () => {
 		const project = makeProject({
 			hostingProvider: 'vercel',
+			applicationId: 'app_1',
+			inboxEmail: 'hi@acme.com',
 			vercelProjectId: 'prj_1',
 			vercelOrgId: 'team_1',
 			providerAppUrl: 'https://old.vercel.app',
+			siteName: 'Acme Inbox',
 		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
 		vi.mocked(checkAppHealth).mockResolvedValueOnce(true)
@@ -318,6 +325,11 @@ describe('runUpdate — Node providers', () => {
 			orgId: 'team_1',
 		})
 		expect(ensureVercelRealtimeStore).toHaveBeenCalledWith('/tmp/vercel', 'acme-realtime', 'us')
+		expect(setVercelEnvironment).toHaveBeenCalledWith(
+			'/tmp/vercel',
+			expect.objectContaining({ OWNMAIL_SITE_NAME: 'Acme Inbox', INBOX_EMAIL: 'hi@acme.com' }),
+			new Set(),
+		)
 		expect(project.providerAppUrl).toBe('https://acme.vercel.app')
 	})
 
@@ -325,6 +337,8 @@ describe('runUpdate — Node providers', () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
 			makeProject({
 				hostingProvider: 'vercel',
+				applicationId: 'app_1',
+				inboxEmail: 'hi@acme.com',
 				vercelProjectId: 'prj_1',
 				vercelOrgId: 'team_1',
 			}),
@@ -344,19 +358,58 @@ describe('runUpdate — Node providers', () => {
 	})
 
 	it('redeploys a recorded Netlify site', async () => {
+		vi.mocked(deployedApiBaseUrl).mockReturnValueOnce('https://api-staging.example.com')
 		const project = makeProject({
 			hostingProvider: 'netlify',
+			applicationId: 'app_1',
+			inboxEmail: 'hi@acme.com',
 			netlifySiteId: '123e4567-e89b-42d3-a456-426614174000',
 		})
 		vi.mocked(pickExistingProject).mockResolvedValue(project)
 		await runUpdate({})
 		expect(deployNetlify).toHaveBeenCalledWith('/tmp/netlify', project.netlifySiteId)
+		expect(setNetlifyEnvironment).toHaveBeenCalledWith(
+			'/tmp/netlify',
+			project.netlifySiteId,
+			expect.objectContaining({
+				NYLAS_API_BASE_URL: 'https://api-staging.example.com',
+				OWNMAIL_SITE_NAME: 'ownmail',
+			}),
+		)
 		expect(project.providerAppUrl).toBe('https://acme.netlify.app')
+	})
+
+	it('fails closed before changing provider settings when required runtime identity is missing', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValueOnce(
+			makeProject({
+				hostingProvider: 'vercel',
+				vercelProjectId: 'prj_1',
+				vercelOrgId: 'team_1',
+				inboxEmail: 'hi@acme.com',
+			}),
+		)
+		await expect(runUpdate({})).rejects.toThrow(/client ID is missing/)
+
+		vi.mocked(pickExistingProject).mockResolvedValueOnce(
+			makeProject({
+				hostingProvider: 'vercel',
+				vercelProjectId: 'prj_1',
+				vercelOrgId: 'team_1',
+				applicationId: 'app_1',
+			}),
+		)
+		await expect(runUpdate({})).rejects.toThrow(/Inbox email is missing/)
+		expect(deployVercel).not.toHaveBeenCalled()
 	})
 
 	it('stops the provider spinner on a failed redeploy', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(
-			makeProject({ hostingProvider: 'netlify', netlifySiteId: '123e4567-e89b-42d3-a456-426614174000' }),
+			makeProject({
+				hostingProvider: 'netlify',
+				applicationId: 'app_1',
+				inboxEmail: 'hi@acme.com',
+				netlifySiteId: '123e4567-e89b-42d3-a456-426614174000',
+			}),
 		)
 		vi.mocked(deployNetlify).mockRejectedValueOnce(new Error('failed'))
 		await expect(runUpdate({})).rejects.toThrow('failed')

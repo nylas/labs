@@ -23,14 +23,16 @@ The wizard walks you through everything:
    Authenticator-code MFA is supported. Enterprise SAML asks for your work
    email to find your organization. New here? Pick "create one (free)" and use
    the Google, Microsoft, or GitHub browser flow.
-2. **Pick your address** — a Nylas-provided `you.nylas.email` trial subdomain
+2. **Choose hosting** — Cloudflare Workers, Vercel, Netlify, or a loopback-only
+   local web server. The hosted options guide you through provider sign-in.
+3. **Pick your address** — a Nylas-provided `you.nylas.email` trial subdomain
    (instant), or your own domain (you'll add a few DNS records; the wizard waits
    and verifies).
-3. **Name your inbox** — e.g. `contact@you.nylas.email`, and save the
+4. **Name your app** — accept the friendly name inferred from the domain (for
+   example, `you.nylas.email` becomes **You Mail**) or enter your own.
+5. **Name your inbox** — e.g. `contact@you.nylas.email`, and save the
    generated password (shown exactly once).
-4. **Choose hosting** — Cloudflare Workers, Vercel, Netlify, or a loopback-only
-   local web server. The hosted options guide you through provider sign-in.
-5. Done — the CLI reports the hosted URL or `http://localhost:<port>`.
+6. Done — the CLI reports the hosted URL or `http://localhost:<port>`.
 
 Log in with your inbox email + password. That's it.
 
@@ -39,16 +41,21 @@ Log in with your inbox email + password. That's it.
 | Command | What it does |
 |---|---|
 | `ownmail` | Create — or resume — a project (safe to re-run any time) |
-| `ownmail status` | Show your projects |
-| `ownmail update` | Redeploy with the latest app version (settings survive) |
-| `ownmail doctor` | Health-check everything and fix what it can |
-| `ownmail grants` | List the inboxes on your Nylas app |
-| `ownmail eject [dir]` | Get the full source code and own it from there |
+| `ownmail app name [name]` | Show or change the name displayed in the app |
+| `ownmail app update` | Redeploy with the latest app version (settings survive) |
+| `ownmail app eject [dir]` | Get the full source code and own it from there |
+| `ownmail project status` | Show your projects |
+| `ownmail project doctor` | Health-check everything and fix what it can |
+| `ownmail inbox list` | List the inboxes on your Nylas app |
 | `ownmail inbox add` | Add another address on your domain (up to 5 on sandbox) |
 | `ownmail inbox reset-password [email]` | Reset an inbox password |
-| `ownmail rotate-key` | Rotate the API key your app uses, zero downtime |
-| `ownmail app-domain mail.you.com --primary` | Attach a primary app domain to Cloudflare, Vercel, or Netlify |
-| `ownmail destroy` | Delete a Cloudflare deployment (mail and inbox are kept) |
+| `ownmail auth rotate-key` | Rotate the API key your app uses, zero downtime |
+| `ownmail app domain mail.you.com --primary` | Attach a primary app domain to Cloudflare, Vercel, or Netlify |
+| `ownmail app destroy` | Delete a Cloudflare deployment (mail and inbox are kept) |
+
+Use `ownmail --help` to see command groups and `ownmail app --help`,
+`ownmail inbox --help`, `ownmail project --help`, or `ownmail auth --help` to
+explore a group. Existing flat command names remain available for compatibility.
 
 ## Mail apps (IMAP/SMTP)
 
@@ -68,7 +75,7 @@ The wizard automates all supported targets:
   Upstash Redis resource for durable sessions and webhook-driven instant updates.
 - Netlify deploys static client assets plus a Node fetch function.
 - Local mode starts the same production Node build on loopback. Keep that
-  terminal open; press Ctrl+C to stop it. Run `npx ownmail update` after it has
+  terminal open; press Ctrl+C to stop it. Run `npx ownmail app update` after it has
   stopped to restart on the latest version.
 
 Netlify and local mode use stateless signed-cookie sessions and refresh on
@@ -88,13 +95,13 @@ duplicate event deliveries.
 Make a hostname primary:
 
 ```bash
-ownmail app-domain mail.example.com --primary
+ownmail app domain mail.example.com --primary
 ```
 
 Or attach another hostname while keeping the current primary:
 
 ```bash
-ownmail app-domain inbox.example.com --secondary
+ownmail app domain inbox.example.com --secondary
 ```
 
 OwnMail updates the recorded Cloudflare, Vercel, or Netlify project, waits for

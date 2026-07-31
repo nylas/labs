@@ -15,6 +15,30 @@ export const ProjectSlugSchema = z
 		'Project names must use 3-40 lowercase letters, digits, and hyphens.',
 	)
 
+export const DEFAULT_SITE_NAME = 'ownmail'
+export const SiteNameSchema = z
+	.string()
+	.refine(
+		(value) =>
+			[...value].every((character) => {
+				const codePoint = character.codePointAt(0) as number
+				return codePoint > 0x1f && codePoint !== 0x7f
+			}),
+		'App names cannot contain control characters.',
+	)
+	.trim()
+	.transform((value) => value.replace(/\s+/g, ' '))
+	.pipe(
+		z
+			.string()
+			.min(1, 'App names cannot be empty.')
+			.max(80, 'App names must be 80 characters or fewer.')
+			.regex(
+				/^[\p{L}\p{N}][\p{L}\p{N} .,'&()!_-]*$/u,
+				"App names may use letters, numbers, spaces, and . , ' & ( ) ! _ -.",
+			),
+	)
+
 /**
  * Persistent CLI state. Two files under ~/.config/ownmail (0600):
  * - auth.json: dashboard session + DPoP private key
@@ -40,6 +64,7 @@ export const StepIdSchema = z.enum([
 	'dashboard-auth',
 	'org',
 	'domain-plan',
+	'site-name',
 	'plan-confirmed',
 	'app',
 	'connector',
@@ -71,6 +96,7 @@ export type PendingSecretName = z.infer<typeof PendingSecretNameSchema>
 
 export const ProjectStateSchema = z.object({
 	slug: ProjectSlugSchema,
+	siteName: SiteNameSchema.optional(),
 	createdAt: z.number(),
 	updatedAt: z.number(),
 

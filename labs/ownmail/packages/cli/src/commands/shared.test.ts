@@ -139,7 +139,7 @@ describe('runTopLevel', () => {
 			throw new Error('boom')
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail project doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail auth login` to refresh your session.',
 		)
 		expect(process.exitCode).toBe(1)
 	})
@@ -149,7 +149,7 @@ describe('runTopLevel', () => {
 			throw new Error('gateway V3_ApiKeys errors: INVALID SESSION')
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail login`, then retry your command.',
+			'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail auth login`, then retry your command.',
 		)
 		expect(process.exitCode).toBe(1)
 	})
@@ -186,7 +186,7 @@ describe('runTopLevel', () => {
 			throw new Error('Vercel leaked raw provider detail')
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail project doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail auth login` to refresh your session.',
 		)
 	})
 
@@ -225,7 +225,7 @@ describe('runTopLevel', () => {
 			throw 'plain string'
 		})
 		expect(p.log.error).toHaveBeenCalledWith(
-			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail project doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail auth login` to refresh your session.',
 		)
 		expect(process.exitCode).toBe(1)
 	})
@@ -234,7 +234,7 @@ describe('runTopLevel', () => {
 describe('formatCommandError', () => {
 	it('explains a Nylas authentication failure and includes its request ID', () => {
 		expect(formatCommandError(new NylasApiError('secret upstream detail', 401, 'req-auth-123'))).toBe(
-			'The Nylas API rejected the current credentials (HTTP 401).\n\nHow to fix: Run `npx ownmail login`, then retry the command.\n\nRequest ID: req-auth-123. Include this ID if you contact Nylas Support.',
+			'The Nylas API rejected the current credentials (HTTP 401).\n\nHow to fix: Run `npx ownmail auth login`, then retry the command.\n\nRequest ID: req-auth-123. Include this ID if you contact Nylas Support.',
 		)
 	})
 
@@ -276,7 +276,7 @@ describe('formatCommandError', () => {
 			new NylasApiError('hidden', 418, undefined, 'unsafe\ninternal-detail'),
 		)
 		expect(formatted).toBe(
-			'The Nylas API could not complete the request (HTTP 418).\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the session check fails, run `npx ownmail login`.',
+			'The Nylas API could not complete the request (HTTP 418).\n\nHow to fix: Run `npx ownmail project doctor`, then retry. If the session check fails, run `npx ownmail auth login`.',
 		)
 	})
 
@@ -350,7 +350,7 @@ describe('formatCommandError', () => {
 		const formatted = formatCommandError(new DashboardAccountError('hidden', 400, body))
 
 		expect(formatted).toBe(
-			'The Nylas dashboard rejected the request (HTTP 400).\n\nHow to fix: Run `npx ownmail doctor` to check the project state and command inputs, then retry.',
+			'The Nylas dashboard rejected the request (HTTP 400).\n\nHow to fix: Run `npx ownmail project doctor` to check the project state and command inputs, then retry.',
 		)
 	})
 
@@ -369,7 +369,7 @@ describe('formatCommandError', () => {
 
 	it('omits empty service details and support references', () => {
 		expect(formatCommandError(new GatewayError('hidden'))).toBe(
-			'The Nylas dashboard could not complete the request.\n\nHow to fix: Run `npx ownmail doctor`, then retry. If the session check fails, run `npx ownmail login`.',
+			'The Nylas dashboard could not complete the request.\n\nHow to fix: Run `npx ownmail project doctor`, then retry. If the session check fails, run `npx ownmail auth login`.',
 		)
 	})
 
@@ -390,7 +390,7 @@ describe('formatCommandError', () => {
 
 	it('rejects control characters and non-actionable provider text from plain errors', () => {
 		const fallback =
-			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.'
+			'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail project doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail auth login` to refresh your session.'
 		expect(formatCommandError(new Error('Vercel leaked raw provider detail; check token\rsecret'))).toBe(
 			fallback,
 		)

@@ -15,6 +15,7 @@ import {
 } from '../state/app-domains.js'
 import { acquireProjectLock } from '../state/project-lock.js'
 import type { ProjectState } from '../state/schema.js'
+import { configuredSiteName } from '../state/site-name.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { ensureCloudflareAuth } from '../steps/deploy.js'
@@ -35,7 +36,7 @@ type AppDomainOptions = {
  * The previous primary remains active until the new origin is healthy.
  */
 export async function runAppDomain(opts: AppDomainOptions): Promise<void> {
-	p.intro('ownmail app-domain')
+	p.intro('ownmail app domain')
 	if (opts.primary && opts.secondary) {
 		throw new Error('Choose either --primary or --secondary, not both.')
 	}
@@ -53,7 +54,7 @@ async function runAppDomainLocked(project: ProjectState, opts: AppDomainOptions)
 	const domain = await resolveDomain(opts.domain, project.slug)
 	const primary = await resolveDomainRole(project, domain, opts)
 	assertProjectAppDomainCapacity(project, domain)
-	const retryCommand = `npx ownmail app-domain ${domain} --name ${project.slug} --${
+	const retryCommand = `npx ownmail app domain ${domain} --name ${project.slug} --${
 		primary ? 'primary' : 'secondary'
 	}`
 	const currentPrimary = project.appDomain ? `https://${project.appDomain}` : project.providerAppUrl
@@ -73,7 +74,7 @@ async function runAppDomainLocked(project: ProjectState, opts: AppDomainOptions)
 	const ctx = await createContext(project)
 	if (!ctx.auth) {
 		throw new Error(
-			`Nylas sign-in is required to register login and instant-update callbacks. Run \`npx ownmail login\`, then retry. No provider changes were made.`,
+			`Nylas sign-in is required to register login and instant-update callbacks. Run \`npx ownmail auth login\`, then retry. No provider changes were made.`,
 		)
 	}
 	const gateway = requireGateway(ctx)
@@ -163,7 +164,7 @@ async function runAppDomainLocked(project: ProjectState, opts: AppDomainOptions)
 
 async function resolveDomain(value: string | undefined, slug: string): Promise<string> {
 	if (!value && !process.stdin.isTTY) {
-		throw new Error(`Usage: ownmail app-domain <hostname> --name ${slug}`)
+		throw new Error(`Usage: ownmail app domain <hostname> --name ${slug}`)
 	}
 	let entered = value
 	if (!entered) {
@@ -189,7 +190,7 @@ async function resolveDomainRole(
 	if (project.pendingAppDomain && project.pendingAppDomain.domain !== domain) {
 		const pending = project.pendingAppDomain
 		throw new Error(
-			`Finish the pending setup for ${pending.domain} before adding another domain:\nnpx ownmail app-domain ${pending.domain} --name ${project.slug} --${
+			`Finish the pending setup for ${pending.domain} before adding another domain:\nnpx ownmail app domain ${pending.domain} --name ${project.slug} --${
 				pending.primary ? 'primary' : 'secondary'
 			}`,
 		)
@@ -255,19 +256,19 @@ function preflightProject(project: ProjectState): void {
 		)
 	}
 	if (project.hostingProvider === 'vercel' && (!project.vercelProjectId || !project.vercelOrgId)) {
-		throw new Error('Vercel project details are missing. Run `npx ownmail update` to repair them first.')
+		throw new Error('Vercel project details are missing. Run `npx ownmail app update` to repair them first.')
 	}
 	if (project.hostingProvider === 'netlify' && !project.netlifySiteId) {
-		throw new Error('Netlify site details are missing. Run `npx ownmail update` to repair them first.')
+		throw new Error('Netlify site details are missing. Run `npx ownmail app update` to repair them first.')
 	}
 	if ((project.hostingProvider === 'cloudflare' || !project.hostingProvider) && !project.workersDevUrl) {
-		throw new Error('The Cloudflare app URL is missing. Run `npx ownmail update` to repair it first.')
+		throw new Error('The Cloudflare app URL is missing. Run `npx ownmail app update` to repair it first.')
 	}
 	if (
 		(project.hostingProvider === 'vercel' || project.hostingProvider === 'netlify') &&
 		!project.providerAppUrl
 	) {
-		throw new Error('The hosted app URL is missing. Run `npx ownmail update` to repair it first.')
+		throw new Error('The hosted app URL is missing. Run `npx ownmail app update` to repair it first.')
 	}
 }
 
@@ -296,6 +297,7 @@ async function attachDomain(project: ProjectState, domain: string): Promise<void
 			NYLAS_REGION: project.region,
 			...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 			APP_NAME: project.slug,
+			OWNMAIL_SITE_NAME: configuredSiteName(project),
 			INBOX_EMAIL: project.inboxEmail ?? '',
 			TEMPLATE_VERSION: manifest.templateVersion,
 		},

@@ -29,19 +29,46 @@ Enterprise SAML provider. Enterprise SAML sign-in uses a work email to discover
 the organization, then completes securely in the browser. Account creation
 continues through the browser-based provider flow.
 
+Setup proposes the name shown in the app from your email domain—for example,
+`acme.nylas.email` becomes **Acme Mail** and `mail.your-company.com` becomes
+**Your Company Mail**—and lets you edit it before anything is deployed. For a
+non-interactive setup, pass `--site-name "Acme Inbox"`.
+
 ## Common commands
 
 ```bash
-ownmail status
-ownmail update
-ownmail doctor
+ownmail project status
+ownmail app name "Acme Mail"
+ownmail app update
+ownmail project doctor
 ownmail inbox add
-ownmail app-domain mail.example.com --primary
-ownmail eject
+ownmail app domain mail.example.com --primary
+ownmail app eject
 ```
 
-Run `ownmail --help` or `ownmail <command> --help` for the complete command
-reference.
+Run `ownmail --help` to discover the `app`, `inbox`, `project`, and `auth`
+groups, then explore a group with commands such as `ownmail app --help` or
+`ownmail project doctor --help`. The earlier flat command names remain available
+as compatibility aliases for scripts.
+
+## Customize the app name
+
+Show the configured name (and a domain-derived suggestion for older projects):
+
+```bash
+ownmail app name --name acme
+```
+
+Change the name and redeploy the recorded Cloudflare, Vercel, Netlify, or local
+app:
+
+```bash
+ownmail app name "Acme Inbox" --name acme
+```
+
+The name is used in the app navigation, sign-in screen, browser title, and
+install metadata. It does not rename the CLI project, provider project, worker,
+email domain, or inbox address.
 
 ## Custom app domains
 
@@ -50,13 +77,13 @@ from the email domain used after `@` in mailbox addresses. Attach the canonical
 sign-in and realtime-update hostname with:
 
 ```bash
-ownmail app-domain mail.example.com --primary
+ownmail app domain mail.example.com --primary
 ```
 
 Attach another working sign-in hostname without moving Nylas instant updates:
 
 ```bash
-ownmail app-domain inbox.example.com --secondary
+ownmail app domain inbox.example.com --secondary
 ```
 
 OwnMail updates the recorded Cloudflare, Vercel, or Netlify project, registers
@@ -71,7 +98,7 @@ Want to change the experience, host it differently, or turn it into something
 only you would build? Copy the app into a directory you control:
 
 ```bash
-ownmail eject ./my-ownmail
+ownmail app eject ./my-ownmail
 ```
 
 From there, the source and local-development workflow are yours to shape.

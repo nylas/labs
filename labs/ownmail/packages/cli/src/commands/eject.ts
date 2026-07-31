@@ -5,6 +5,7 @@ import { loadManifest, templateRoot } from '../deploy/materialize.js'
 import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { projectAppDomains } from '../state/app-domains.js'
+import { configuredSiteName } from '../state/site-name.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway, tokens } from '../steps/context.js'
 import { OWNMAIL_VERSION } from '../usage-attribution.js'
@@ -16,7 +17,7 @@ import { pickExistingProject, supportReference } from './shared.js'
  * resources but never deploys this project again.
  */
 export async function runEject(opts: { name?: string; dir?: string }): Promise<void> {
-	p.intro('ownmail eject')
+	p.intro('ownmail app eject')
 	const project = await pickExistingProject(opts.name)
 	if (project.ejected) throw new Error(`"${project.slug}" is already ejected.`)
 	if (!project.applicationId?.trim()) {
@@ -138,6 +139,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 					NYLAS_REGION: project.region,
 					...(runtimeApiBaseUrl ? { NYLAS_API_BASE_URL: runtimeApiBaseUrl } : {}),
 					APP_NAME: project.slug,
+					OWNMAIL_SITE_NAME: configuredSiteName(project),
 					INBOX_EMAIL: project.inboxEmail ?? '',
 					TEMPLATE_VERSION: manifest.templateVersion,
 				},
@@ -173,7 +175,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 			'',
 			'Deployed secrets (`NYLAS_API_KEY`, `SESSION_SECRET`) already live on the worker;',
 			'`.dev.vars` only feeds local dev. Manage Nylas resources (inboxes, domains) with',
-			'`npx ownmail grants` / the Nylas dashboard as before.',
+			'`npx ownmail inbox list` / the Nylas dashboard as before.',
 			'',
 			'Template changelog: https://github.com/nylas/nylas-labs/tree/main/labs/ownmail',
 			'',

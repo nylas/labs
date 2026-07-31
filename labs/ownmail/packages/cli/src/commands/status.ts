@@ -17,6 +17,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
 	}
 	for (const summary of summaries) {
 		const lines = [
+			`app name: ${summary.appName}`,
 			`stage:    ${summary.stage}`,
 			`health:   ${summary.health}`,
 			`region:   ${summary.region}`,

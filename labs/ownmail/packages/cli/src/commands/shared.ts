@@ -16,7 +16,9 @@ const UNSAFE_CONTROL_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]|\p{Cf}
 export async function pickExistingProject(name?: string): Promise<ProjectState> {
 	if (name) {
 		const project = loadProject(name)
-		if (!project) throw new Error(`No project named "${name}". Run \`npx ownmail status\` to list projects.`)
+		if (!project) {
+			throw new Error(`No project named "${name}". Run \`npx ownmail project status\` to list projects.`)
+		}
 		return project
 	}
 	const projects = listProjects()
@@ -26,7 +28,7 @@ export async function pickExistingProject(name?: string): Promise<ProjectState> 
 	if (projects.length === 1) {
 		const [project] = projects
 		if (project) return project
-		throw new Error('Could not load the project. Run `npx ownmail status` and retry.')
+		throw new Error('Could not load the project. Run `npx ownmail project status` and retry.')
 	}
 	const picked = await p.select({
 		message: 'Which project?',
@@ -37,7 +39,9 @@ export async function pickExistingProject(name?: string): Promise<ProjectState> 
 	})
 	if (p.isCancel(picked)) throw new CancelledError()
 	const project = loadProject(picked)
-	if (!project) throw new Error('The selected project no longer exists. Run `npx ownmail status` and retry.')
+	if (!project) {
+		throw new Error('The selected project no longer exists. Run `npx ownmail project status` and retry.')
+	}
 	return project
 }
 
@@ -85,13 +89,13 @@ export function formatCommandError(err: unknown): string {
 	}
 	if (/\b(invalid session|not logged in|unauthorized|forbidden)\b/i.test(message)) {
 		return withSupportReference(
-			'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail login`, then retry your command.',
+			'Your Nylas session is invalid or has expired.\n\nHow to fix: Run `npx ownmail auth login`, then retry your command.',
 			err,
 		)
 	}
 	if (/\bno project(?:s)?\b|no Nylas application|no domain yet/i.test(message)) {
 		return withSupportReference(
-			'Your local OwnMail project is incomplete or unavailable.\n\nHow to fix: Run `npx ownmail status` to find your project, or run `npx ownmail` to create or resume one.',
+			'Your local OwnMail project is incomplete or unavailable.\n\nHow to fix: Run `npx ownmail project status` to find your project, or run `npx ownmail` to create or resume one.',
 			err,
 		)
 	}
@@ -102,7 +106,7 @@ export function formatCommandError(err: unknown): string {
 		)
 	}
 	return withSupportReference(
-		'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail login` to refresh your session.',
+		'The command could not be completed safely.\n\nHow to fix: Run `npx ownmail project doctor` to identify the failed dependency, then retry. If the problem continues, run `npx ownmail auth login` to refresh your session.',
 		err,
 	)
 }
@@ -134,19 +138,19 @@ function formatServiceError(
 		status === 403 ||
 		/(?:auth|forbidden|invalid.?session|unauthorized)/i.test(safeCode)
 	) {
-		message = `${service} rejected the current credentials${suffix}.\n\nHow to fix: Run \`npx ownmail login\`, then retry the command.`
+		message = `${service} rejected the current credentials${suffix}.\n\nHow to fix: Run \`npx ownmail auth login\`, then retry the command.`
 	} else if (status === 404) {
-		message = `${service} could not find a resource recorded by this project${suffix}.\n\nHow to fix: Run \`npx ownmail doctor --fix\` to reconcile local and remote state, then retry.`
+		message = `${service} could not find a resource recorded by this project${suffix}.\n\nHow to fix: Run \`npx ownmail project doctor --fix\` to reconcile local and remote state, then retry.`
 	} else if (status === 409 || /conflict|already.?exists/i.test(safeCode)) {
-		message = `${service} reported a resource conflict${suffix}.\n\nHow to fix: Run \`npx ownmail doctor\` to identify the conflicting resource, then retry the same command so OwnMail can resume safely.`
+		message = `${service} reported a resource conflict${suffix}.\n\nHow to fix: Run \`npx ownmail project doctor\` to identify the conflicting resource, then retry the same command so OwnMail can resume safely.`
 	} else if (status === 429 || /rate|limit|quota/i.test(safeCode)) {
 		message = `${service} is rate limiting the request${suffix}.\n\nHow to fix: Wait a few minutes, then retry the same command.`
 	} else if (typeof status === 'number' && status >= 500) {
 		message = `${service} is temporarily unavailable${suffix}.\n\nHow to fix: Check the Nylas status page, wait briefly, then retry the command.`
 	} else if (status === 400 || status === 422) {
-		message = `${service} rejected the request${suffix}.\n\nHow to fix: Run \`npx ownmail doctor\` to check the project state and command inputs, then retry.`
+		message = `${service} rejected the request${suffix}.\n\nHow to fix: Run \`npx ownmail project doctor\` to check the project state and command inputs, then retry.`
 	} else {
-		message = `${service} could not complete the request${suffix}.\n\nHow to fix: Run \`npx ownmail doctor\`, then retry. If the session check fails, run \`npx ownmail login\`.`
+		message = `${service} could not complete the request${suffix}.\n\nHow to fix: Run \`npx ownmail project doctor\`, then retry. If the session check fails, run \`npx ownmail auth login\`.`
 	}
 	return withSupportReference(message, err)
 }
