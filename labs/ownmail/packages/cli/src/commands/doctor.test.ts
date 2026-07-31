@@ -202,6 +202,41 @@ describe('runDoctor — healthy project', () => {
 		expect(messages().some((message) => message.includes('credential store was unavailable'))).toBe(true)
 	})
 
+	it('uses the repaired key client for API checks in the same doctor run', async () => {
+		const staleV3 = {
+			listGrants: vi.fn().mockRejectedValue(new Error('expired key')),
+		}
+		vi.mocked(pickExistingProject).mockResolvedValue(
+			makeProject({
+				applicationId: 'app_1',
+				workerName: 'worker-1',
+				hostingProvider: 'cloudflare',
+				grantId: 'grant_1',
+				inboxEmail: 'contact@acme.com',
+			}),
+		)
+		vi.mocked(createContext).mockResolvedValue({
+			auth: { userToken: 't' },
+			v3: staleV3,
+		} as never)
+		currentSession.mockResolvedValue({})
+		listApiKeys.mockResolvedValue([{ id: 'key_1', status: 'revoked' }])
+		createApiKey.mockResolvedValue({
+			id: 'key_2',
+			apiKey: 'nyk_replacement',
+			status: 'active',
+			name: 'repair',
+		})
+		hoisted.v3.listGrants.mockResolvedValue({ data: [{ id: 'grant_1', grant_status: 'valid' }] })
+		vi.stubGlobal('fetch', vi.fn())
+
+		await runDoctor({ fix: true })
+
+		expect(staleV3.listGrants).not.toHaveBeenCalled()
+		expect(hoisted.v3.listGrants).toHaveBeenCalledWith({ limit: 200 })
+		expect(messages().some((message) => message.includes('grant valid'))).toBe(true)
+	})
+
 	it('reports an expired API key without exposing key material', async () => {
 		vi.mocked(pickExistingProject).mockResolvedValue(makeProject({ applicationId: 'app_1' }))
 		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' }, v3: hoisted.v3 } as never)

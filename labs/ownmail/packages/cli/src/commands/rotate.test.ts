@@ -108,6 +108,101 @@ describe('runRotateKey', () => {
 		expect(storePendingSecret).toHaveBeenCalledWith(proj, 'apiKey', 'nyk_new', {
 			allowLocalFallback: false,
 		})
+		expect(proj.pendingApiKeyRotation).toBeUndefined()
+	})
+
+	it('reconciles a pending predecessor before rotating the installed key', async () => {
+		const proj = project({
+			workerName: 'w1',
+			applicationId: 'app-1',
+			apiKeyId: 'current-key',
+			pendingApiKeyRotation: {
+				previousKeyId: 'pending-old-key',
+				replacementKeyId: 'current-key',
+			},
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+
+		await runRotateKey({})
+
+		expect(gw.revokeApiKey).toHaveBeenNthCalledWith(1, { userToken: 't' }, 'us', 'app-1', 'pending-old-key')
+		expect(gw.revokeApiKey).toHaveBeenNthCalledWith(2, { userToken: 't' }, 'us', 'app-1', 'current-key')
+		expect(gw.revokeApiKey.mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(putSecret).mock.invocationCallOrder[0],
+		)
+		expect(proj.pendingApiKeyRotation).toBeUndefined()
+	})
+
+	it('does not mint another key while predecessor revocation is still failing', async () => {
+		const proj = project({
+			workerName: 'w1',
+			applicationId: 'app-1',
+			apiKeyId: 'current-key',
+			pendingApiKeyRotation: {
+				previousKeyId: 'pending-old-key',
+				replacementKeyId: 'current-key',
+			},
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway({ revokeApiKey: vi.fn().mockRejectedValue(new Error('offline')) })
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+
+		await expect(runRotateKey({})).rejects.toThrow(/previously pending old key/)
+
+		expect(gw.createApiKey).not.toHaveBeenCalled()
+		expect(putSecret).not.toHaveBeenCalled()
+		expect(proj.pendingApiKeyRotation).toEqual({
+			previousKeyId: 'pending-old-key',
+			replacementKeyId: 'current-key',
+		})
+	})
+
+	it('includes the request ID when pending predecessor revocation fails', async () => {
+		const proj = project({
+			workerName: 'w1',
+			applicationId: 'app-1',
+			apiKeyId: 'current-key',
+			pendingApiKeyRotation: {
+				previousKeyId: 'pending-old-key',
+				replacementKeyId: 'current-key',
+			},
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		vi.mocked(requireGateway).mockReturnValue(
+			gateway({
+				revokeApiKey: vi.fn().mockRejectedValue(new GatewayError('hidden detail', 'req-pending-revoke-123')),
+			}) as never,
+		)
+
+		const error = await runRotateKey({}).catch((cause: unknown) => cause)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toContain('Request ID: req-pending-revoke-123')
+		expect((error as Error).message).not.toContain('hidden detail')
+	})
+
+	it('rejects inconsistent pending rotation state before minting', async () => {
+		const proj = project({
+			workerName: 'w1',
+			applicationId: 'app-1',
+			apiKeyId: 'different-key',
+			pendingApiKeyRotation: {
+				previousKeyId: 'pending-old-key',
+				replacementKeyId: 'current-key',
+			},
+		})
+		vi.mocked(pickExistingProject).mockResolvedValue(proj)
+		vi.mocked(createContext).mockResolvedValue({ auth: { userToken: 't' } } as never)
+		const gw = gateway()
+		vi.mocked(requireGateway).mockReturnValue(gw as never)
+
+		await expect(runRotateKey({})).rejects.toThrow(/inconsistent API-key rotation state/)
+
+		expect(gw.createApiKey).not.toHaveBeenCalled()
 	})
 
 	it('clears an obsolete secret reference when the rotated key cannot be retained', async () => {
@@ -232,6 +327,10 @@ describe('runRotateKey', () => {
 		await runRotateKey({})
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('Request ID: req-revoke-123'))
 		expect(p.log.warn).not.toHaveBeenCalledWith(expect.stringContaining('403 forbidden'))
+		expect(proj.pendingApiKeyRotation).toEqual({
+			previousKeyId: 'old-key',
+			replacementKeyId: 'new-key',
+		})
 	})
 
 	it('does not expose arbitrary non-gateway errors on revocation failure', async () => {

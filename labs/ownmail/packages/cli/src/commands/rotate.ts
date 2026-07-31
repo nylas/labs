@@ -20,6 +20,30 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 	const ctx = await createContext(project)
 	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail auth login` first.')
 	const gateway = requireGateway(ctx)
+	const pendingRotation = project.pendingApiKeyRotation
+	if (pendingRotation) {
+		if (pendingRotation.replacementKeyId !== project.apiKeyId) {
+			throw new Error(
+				'OwnMail found inconsistent API-key rotation state. Run `npx ownmail project doctor` before rotating again.',
+			)
+		}
+		try {
+			await gateway.revokeApiKey(
+				tokens(ctx),
+				project.region,
+				project.applicationId,
+				pendingRotation.previousKeyId,
+			)
+			delete project.pendingApiKeyRotation
+			saveProject(project)
+			p.log.step('Previously pending old key revoked.')
+		} catch (err) {
+			const reference = err instanceof GatewayError ? supportReference(err) : undefined
+			throw new Error(
+				`OwnMail could not revoke the previously pending old key. Retry before rotating again.${reference ? `\n\n${reference}` : ''}`,
+			)
+		}
+	}
 
 	const spinner = p.spinner()
 	spinner.start('Minting a fresh API key…')
@@ -61,11 +85,21 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 			'The rotated key is active, but OwnMail could not retain it in the OS credential store. A later setup resume will need to rotate it again.',
 		)
 	}
+	if (oldKeyId && oldKeyId !== created.id) {
+		project.pendingApiKeyRotation = {
+			previousKeyId: oldKeyId,
+			replacementKeyId: created.id,
+		}
+	} else {
+		delete project.pendingApiKeyRotation
+	}
 	saveProject(project)
 
 	if (oldKeyId && oldKeyId !== created.id) {
 		try {
 			await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, oldKeyId)
+			delete project.pendingApiKeyRotation
+			saveProject(project)
 			p.log.step('Old key revoked.')
 		} catch (err) {
 			const reference = err instanceof GatewayError ? supportReference(err) : undefined

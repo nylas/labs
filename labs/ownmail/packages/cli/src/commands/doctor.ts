@@ -160,6 +160,23 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	}
 
 	try {
+		// Confirm provider access and repair an unusable deployed key before any
+		// downstream API checks. The context may have been created from that old key.
+		const cloudflareLoginRequired = needsCloudflareLogin(project)
+		let cloudflareOk = !cloudflareLoginRequired
+		if (cloudflareLoginRequired) {
+			cloudflareOk = await wranglerLoggedIn()
+			results.push({
+				name: 'Cloudflare login',
+				status: cloudflareOk ? 'pass' : 'fail',
+				detail: cloudflareOk ? 'authenticated' : 'run any ownmail deploy command to log in',
+			})
+		}
+		if (apiKeyIssue && opts.fix) {
+			results.push(await repairApiKey(project, ctx, cloudflareOk, apiKeyIssue))
+			v3 = ctx.v3
+		}
+
 		// 4. Domain verification
 		if (project.domainId && sessionOk) {
 			try {
@@ -258,19 +275,6 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		}
 
 		// 7. Hosting + app health
-		const cloudflareLoginRequired = needsCloudflareLogin(project)
-		let cloudflareOk = !cloudflareLoginRequired
-		if (cloudflareLoginRequired) {
-			cloudflareOk = await wranglerLoggedIn()
-			results.push({
-				name: 'Cloudflare login',
-				status: cloudflareOk ? 'pass' : 'fail',
-				detail: cloudflareOk ? 'authenticated' : 'run any ownmail deploy command to log in',
-			})
-		}
-		if (apiKeyIssue && opts.fix) {
-			results.push(await repairApiKey(project, ctx, cloudflareOk, apiKeyIssue))
-		}
 		const url = activeAppUrl(project)
 		let appHealthy = false
 		if (url) {
@@ -442,6 +446,13 @@ async function repairApiKey(
 	}
 	project.apiKeyId = created.id
 	saveProject(project)
+	ctx.v3 = new NylasV3Client(
+		created.apiKey,
+		project.region,
+		fetch,
+		apiBaseUrl(project.region),
+		OWNMAIL_USER_AGENT,
+	)
 	if (issue.oldKeyId && issue.oldKeyId !== created.id) {
 		try {
 			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, issue.oldKeyId)
