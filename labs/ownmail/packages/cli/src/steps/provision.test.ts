@@ -1114,7 +1114,7 @@ describe('stepDomain', () => {
 
 	it('resumes verification for an existing custom domain', async () => {
 		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
-		const verifyDomain = vi.fn().mockResolvedValue({ status: 'verified' })
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'done' })
 		const ctx = baseCtx({
 			project: baseProject({
 				domainId: 'custom-1',
@@ -1165,7 +1165,7 @@ describe('stepDomain', () => {
 		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
 		const getInboxDomain = vi.fn().mockRejectedValue(new Error('refresh unavailable'))
 		const verifyDomain = vi.fn((_tokens: unknown, _domainId: string, { type }: { type: string }) =>
-			Promise.resolve({ status: type === 'ownership' || type === 'mx' ? 'verified' : 'pending' }),
+			Promise.resolve({ status: type === 'ownership' || type === 'mx' ? 'done' : 'pending' }),
 		)
 		const ctx = baseCtx({
 			project: baseProject({
@@ -1189,6 +1189,122 @@ describe('stepDomain', () => {
 			}),
 		)
 		expect(ctx.project.domainVerified).toBe(true)
+	})
+
+	it('accepts the documented done verification success status', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockRejectedValue(new Error('refresh unavailable'))
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'done' })
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce('manual' as never)
+
+		await stepDomain(ctx)
+
+		expect(verifyDomain).toHaveBeenCalledTimes(5)
+		expect(ctx.project.domainVerified).toBe(true)
+	})
+
+	it.each([
+		{ label: 'not_ok', status: 'not_ok' },
+		{ label: 'ok', status: 'ok' },
+		{ label: 'pending', status: 'pending' },
+		{ label: 'success', status: 'success' },
+		{ label: 'verified', status: 'verified' },
+		{ label: 'unverified', status: 'unverified' },
+		{ label: 'unsuccessful', status: 'unsuccessful' },
+		{ label: 'uppercase done', status: 'DONE' },
+		{ label: 'whitespace-padded done', status: ' done ' },
+		{ label: 'oversized string', status: 'd'.repeat(256) },
+		{ label: 'unknown future_state', status: 'future_state' },
+		{ label: 'missing', status: undefined },
+		{ label: 'null', status: null },
+		{ label: 'boolean', status: true },
+		{ label: 'number', status: 1 },
+		{ label: 'object', status: {} },
+		{ label: 'array', status: [] },
+	])(
+		'fails closed for the $label verification status when the authoritative refresh is unavailable',
+		async ({ status }) => {
+			const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+			const getInboxDomain = vi.fn().mockRejectedValue(new Error('refresh unavailable'))
+			const verifyDomain = vi.fn().mockResolvedValue({ status })
+			const ctx = baseCtx({
+				project: baseProject({
+					domainId: 'custom-1',
+					domainAddress: 'mail.acme.com',
+					domainBranded: false,
+					domainVerified: false,
+				}),
+				dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+			})
+			vi.mocked(p.select)
+				.mockResolvedValueOnce('manual' as never)
+				.mockResolvedValueOnce(CANCEL as never)
+
+			await expect(stepDomain(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+			expect(verifyDomain).toHaveBeenCalledTimes(5)
+			expect(p.select).toHaveBeenCalledTimes(2)
+			const spinners = vi.mocked(p.spinner).mock.results.map((result) => result.value)
+			expect(spinners[0]?.stop).toHaveBeenCalledWith(expect.stringContaining('Still waiting on'))
+			expect(ctx.project.domainVerified).toBe(false)
+		},
+	)
+
+	it('fails closed when authoritative verification flags are not booleans', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockResolvedValue({
+			verifiedOwnership: 'true',
+			verifiedMx: 1,
+			verifiedSpf: null,
+			verifiedDkim: {},
+			verifiedFeedback: [],
+		})
+		const verifyDomain = vi.fn()
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
+
+		await expect(stepDomain(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(verifyDomain).not.toHaveBeenCalled()
+		expect(ctx.project.domainVerified).toBe(false)
+	})
+
+	it('fails closed when the authoritative verification state is an array', async () => {
+		const domainInfo = vi.fn().mockResolvedValue({ attempt: null })
+		const getInboxDomain = vi.fn().mockResolvedValue([true, true])
+		const verifyDomain = vi.fn()
+		const ctx = baseCtx({
+			project: baseProject({
+				domainId: 'custom-1',
+				domainAddress: 'mail.acme.com',
+				domainBranded: false,
+				domainVerified: false,
+			}),
+			dashboard: { domainInfo, getInboxDomain, verifyDomain } as never,
+		})
+		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
+
+		await expect(stepDomain(ctx)).rejects.toBeInstanceOf(CancelledError)
+
+		expect(verifyDomain).not.toHaveBeenCalled()
+		expect(ctx.project.domainVerified).toBe(false)
 	})
 
 	it('returns to the verification choice after an unsuccessful manual retry', async () => {
@@ -1536,7 +1652,7 @@ describe('stepDomain', () => {
 			.mockResolvedValueOnce({ attempt: { options: { host: 'h', type: 'MX' } } })
 			.mockRejectedValueOnce(new Error('not ready'))
 			.mockResolvedValueOnce({ attempt: { options: { host: 'h', type: 'CNAME', value: 'v' } } })
-		const verifyDomain = vi.fn().mockResolvedValue({ status: 'verified' })
+		const verifyDomain = vi.fn().mockResolvedValue({ status: 'done' })
 		const ctx = baseCtx({
 			dashboard: { listInboxDomains, createInboxDomain, domainInfo, verifyDomain } as never,
 		})
@@ -1566,7 +1682,7 @@ describe('stepDomain', () => {
 		// First sweep: still pending (regex miss). Second sweep: all verified.
 		const verifyDomain = vi
 			.fn()
-			.mockResolvedValue({ status: 'verified' })
+			.mockResolvedValue({ status: 'done' })
 			.mockResolvedValueOnce({ status: 'pending' })
 			.mockResolvedValueOnce({ status: 'pending' })
 			.mockResolvedValueOnce({ status: 'pending' })

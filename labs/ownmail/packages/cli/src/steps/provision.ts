@@ -5,7 +5,6 @@ import {
 	DpopKey,
 	type GatewayApplication,
 	GatewayClient,
-	type InboxDomain,
 	NylasV3Client,
 	type Region,
 	type SsoLoginType,
@@ -34,6 +33,7 @@ const DASHBOARD_EMAIL_SCHEMA = z.string().trim().max(254).email()
 const DASHBOARD_PASSWORD_SCHEMA = z.string().min(1).max(1024)
 const DASHBOARD_MFA_CODE_SCHEMA = z.string().regex(/^[0-9]{6}$/)
 const DOMAIN_VERIFICATION_CHECKS = ['ownership', 'mx', 'spf', 'dkim', 'feedback'] as const
+const DOMAIN_VERIFICATION_STATUS_MAX_LENGTH = 16
 const DOMAIN_POLL_INTERVAL_MS = 30_000
 const DOMAIN_POLL_TIMEOUT_MS = 30 * 60 * 1000
 
@@ -698,7 +698,7 @@ async function runDomainVerificationSweep(
 	for (const type of [...pending]) {
 		try {
 			const result = await dashboard.verifyDomain(tokens(ctx), domainId, { type }, ctx.project.region)
-			if (/verified|success|ok/i.test(result.status)) pending.delete(type)
+			if (isSuccessfulDomainVerificationStatus(result.status)) pending.delete(type)
 		} catch {
 			// A later authoritative domain refresh can still observe a completed check.
 		}
@@ -722,24 +722,30 @@ async function refreshDomainVerificationState(
 	}
 }
 
-function updatePendingDomainChecks(
-	pending: Set<DomainVerificationCheck>,
-	domain: Pick<
-		InboxDomain,
-		'verifiedOwnership' | 'verifiedMx' | 'verifiedSpf' | 'verifiedDkim' | 'verifiedFeedback'
-	>,
-): void {
-	const verified: Record<DomainVerificationCheck, boolean> = {
-		ownership: domain.verifiedOwnership,
-		mx: domain.verifiedMx,
-		spf: domain.verifiedSpf,
-		dkim: domain.verifiedDkim,
-		feedback: domain.verifiedFeedback,
+function updatePendingDomainChecks(pending: Set<DomainVerificationCheck>, domain: unknown): void {
+	const fields: Record<DomainVerificationCheck, string> = {
+		ownership: 'verifiedOwnership',
+		mx: 'verifiedMx',
+		spf: 'verifiedSpf',
+		dkim: 'verifiedDkim',
+		feedback: 'verifiedFeedback',
 	}
 	for (const type of DOMAIN_VERIFICATION_CHECKS) {
-		if (verified[type]) pending.delete(type)
+		if (readVerifiedDomainFlag(domain, fields[type])) pending.delete(type)
 		else pending.add(type)
 	}
+}
+
+function isSuccessfulDomainVerificationStatus(status: unknown): boolean {
+	return (
+		typeof status === 'string' && status.length <= DOMAIN_VERIFICATION_STATUS_MAX_LENGTH && status === 'done'
+	)
+}
+
+function readVerifiedDomainFlag(domain: unknown, field: string): boolean {
+	return typeof domain === 'object' && domain !== null && !Array.isArray(domain)
+		? (domain as Record<string, unknown>)[field] === true
+		: false
 }
 
 function finishDomainVerification(ctx: StepContext, domain: string, logSuccess = true): void {
@@ -824,8 +830,8 @@ function adoptDomain(
 	saveProject(ctx.project)
 }
 
-function isFullyVerified(d: { verifiedOwnership: boolean; verifiedMx: boolean }): boolean {
-	return d.verifiedOwnership && d.verifiedMx
+function isFullyVerified(domain: unknown): boolean {
+	return readVerifiedDomainFlag(domain, 'verifiedOwnership') && readVerifiedDomainFlag(domain, 'verifiedMx')
 }
 
 /** 06 — Create the Agent Account mailbox grant with an app password. */
