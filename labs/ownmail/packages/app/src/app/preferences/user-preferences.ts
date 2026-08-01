@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-const STORAGE_KEY = 'ownmail:user-preferences:v1'
+export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
 
 export type UserPreferences = {
@@ -74,7 +74,9 @@ export function readUserPreferences(): UserPreferences {
 	/* v8 ignore next -- exercised during server rendering, outside jsdom's browser environment. -- @preserve */
 	if (typeof window === 'undefined') return defaultUserPreferences()
 	try {
-		return normalizePreferences(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null'))
+		return normalizePreferences(
+			JSON.parse(window.localStorage.getItem(USER_PREFERENCES_STORAGE_KEY) ?? 'null'),
+		)
 	} catch {
 		return defaultUserPreferences()
 	}
@@ -85,7 +87,7 @@ export function writeUserPreferences(value: UserPreferences): UserPreferences {
 	/* v8 ignore else -- @preserve writes only run from browser interactions; server rendering never persists preferences */
 	if (typeof window !== 'undefined') {
 		try {
-			window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
+			window.localStorage.setItem(USER_PREFERENCES_STORAGE_KEY, JSON.stringify(normalized))
 			window.dispatchEvent(new Event('ownmail:user-preferences'))
 		} catch {
 			// Preferences are an enhancement; private browsing/storage policies must not break mail.
@@ -98,7 +100,11 @@ export function useUserPreferences(): [UserPreferences, (next: UserPreferences) 
 	const [preferences, setPreferences] = useState(defaultUserPreferences)
 
 	useEffect(() => {
-		const update = () => setPreferences(readUserPreferences())
+		const update = (event?: Event) => {
+			if (event instanceof StorageEvent && event.key !== null && event.key !== USER_PREFERENCES_STORAGE_KEY)
+				return
+			setPreferences(readUserPreferences())
+		}
 		update()
 		window.addEventListener('storage', update)
 		window.addEventListener('ownmail:user-preferences', update)

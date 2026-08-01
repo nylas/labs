@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -124,8 +124,8 @@ describe('/settings', () => {
 			screen.getByLabelText('Confirm new password'),
 		]) {
 			expect(field).toHaveClass('min-h-11')
-				expect(field).not.toHaveClass('h-9')
-			}
+			expect(field).not.toHaveClass('h-9')
+		}
 	})
 
 	it('accepts a later display-name save when preference storage is unavailable', async () => {
@@ -247,6 +247,28 @@ describe('/settings', () => {
 		expect(save).not.toHaveAttribute('aria-busy')
 	})
 
+	it('keeps a pending settings save active across unrelated storage changes', async () => {
+		let resolveSave: (value: { displayName: string }) => void = () => {}
+		updateMailboxDisplayName.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada B.' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() => expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1))
+
+		act(() => {
+			window.dispatchEvent(new StorageEvent('storage', { key: 'theme', newValue: 'dark' }))
+		})
+		resolveSave({ displayName: 'Ada B.' })
+
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(screen.getByLabelText('Display name')).toHaveValue('Ada B.')
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
+	})
+
 	it('keeps a failed settings revision available for retry', async () => {
 		updateMailboxDisplayName
 			.mockRejectedValueOnce(new Error('private provider detail'))
@@ -293,7 +315,7 @@ describe('/settings', () => {
 					secondaryTimezone: '',
 				}),
 			)
-			window.dispatchEvent(new Event('ownmail:user-preferences'))
+			window.dispatchEvent(new StorageEvent('storage', { key: 'ownmail:user-preferences:v1' }))
 			if (outcome === 'success') resolveSave({ displayName: 'Ada B.' })
 			else rejectSave(new Error('private provider detail'))
 			await waitFor(() =>

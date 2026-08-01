@@ -6,6 +6,7 @@ import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	availableTimezones,
 	isSupportedTimezone,
+	USER_PREFERENCES_STORAGE_KEY,
 	type UserPreferences,
 	useUserPreferences,
 } from '#app/preferences/user-preferences'
@@ -87,7 +88,9 @@ function SettingsPage() {
 	}, [preferences])
 
 	useEffect(() => {
-		const invalidatePendingSave = () => {
+		const invalidatePendingSave = (event: Event) => {
+			if (event instanceof StorageEvent && event.key !== null && event.key !== USER_PREFERENCES_STORAGE_KEY)
+				return
 			settingsRevisionRef.current += 1
 		}
 		window.addEventListener('storage', invalidatePendingSave)
