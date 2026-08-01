@@ -21,6 +21,12 @@ export type ContactForm = {
 	phoneNumbers: FormPhone[]
 }
 
+export type ContactFormValidation =
+	| { field: 'identity'; message: 'Add a name, company, or email.' }
+	| { field: 'email'; index: number; message: 'Enter a valid email address.' }
+
+const CONTACT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 /** The name shown in the list/detail: full name, else company, else first email. */
 export function contactDisplayName(contact: Contact): string {
 	const name = [contact.given_name, contact.surname].filter(Boolean).join(' ').trim()
@@ -107,6 +113,23 @@ export function formToFields(form: ContactForm): ContactFieldsInput {
 		emails: form.emails,
 		phoneNumbers: form.phoneNumbers,
 	}
+}
+
+/** Returns actionable validation for locally knowable form errors only. */
+export function validateContactForm(form: ContactForm): ContactFormValidation | null {
+	for (const [index, row] of form.emails.entries()) {
+		const email = row.email.trim()
+		if (email && !CONTACT_EMAIL_RE.test(email)) {
+			return { field: 'email', index, message: 'Enter a valid email address.' }
+		}
+	}
+
+	const hasIdentity =
+		Boolean(form.givenName.trim()) ||
+		Boolean(form.surname.trim()) ||
+		Boolean(form.companyName.trim()) ||
+		form.emails.some((row) => Boolean(row.email.trim()))
+	return hasIdentity ? null : { field: 'identity', message: 'Add a name, company, or email.' }
 }
 
 /** The selected contact id encoded in a `/contacts/<id>` URL, or undefined. */

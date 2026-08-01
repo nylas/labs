@@ -12,6 +12,7 @@ import {
 	removeAt,
 	replaceAt,
 	sortContacts,
+	validateContactForm,
 } from './contacts-model.js'
 
 const base: Contact = { id: 'c1' }
@@ -141,6 +142,29 @@ describe('form model', () => {
 			emails: [{ email: '', type: '' }],
 			phoneNumbers: [],
 		})
+	})
+
+	it('provides actionable validation for blank identity and malformed email input', () => {
+		const blank = emptyContactForm()
+		expect(validateContactForm(blank)).toEqual({
+			field: 'identity',
+			message: 'Add a name, company, or email.',
+		})
+
+		expect(
+			validateContactForm({
+				...blank,
+				givenName: 'Ada',
+				emails: [{ email: 'not-an-email', type: '' }],
+			}),
+		).toEqual({ field: 'email', index: 0, message: 'Enter a valid email address.' })
+	})
+
+	it('accepts contacts identified by a name, company, or valid email', () => {
+		const blank = emptyContactForm()
+		expect(validateContactForm({ ...blank, givenName: 'Ada' })).toBeNull()
+		expect(validateContactForm({ ...blank, companyName: 'Engines' })).toBeNull()
+		expect(validateContactForm({ ...blank, emails: [{ email: 'ada@x.com', type: '' }] })).toBeNull()
 	})
 })
 
