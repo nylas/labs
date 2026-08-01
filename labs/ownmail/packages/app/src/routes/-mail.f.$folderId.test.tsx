@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The route hooks and Link/Outlet are stubbed so we can exercise the loader and the
@@ -182,6 +182,107 @@ describe('FolderView (route component)', () => {
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
 	})
+
+	it('cancels a query-backed pagination success across an inbox-to-work-to-inbox transition', async () => {
+		let folderId = 'inbox'
+		let settled = false
+		let resolvePage: (value: { threads: Thread[]; nextCursor?: string }) => void = () => {}
+		getThreads.mockReturnValue(
+			new Promise((resolve) => {
+				resolvePage = resolve
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		Route.useLoaderData = vi.fn(() => ({
+			threads: [thread({ id: `${folderId}-row`, subject: `${folderId} message` })],
+			drafts: [],
+			folders: [],
+			nextCursor: 'shared-cursor',
+		}))
+		Route.useParams = vi.fn(() => ({ folderId }))
+		Route.useSearch = vi.fn(() => ({}))
+		const Component = Route.options.component
+		const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'inbox', pageToken: 'shared-cursor' } }),
+		)
+		folderId = 'work'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		folderId = 'inbox'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		resolvePage({
+			threads: [thread({ id: 'stale-row', subject: 'Stale inbox message' })],
+			nextCursor: undefined,
+		})
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.queryByText('Stale inbox message')).toBeNull()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('cancels a query-backed pagination failure across an inbox-to-work-to-inbox transition', async () => {
+		let folderId = 'inbox'
+		let settled = false
+		let rejectPage: (reason?: unknown) => void = () => {}
+		getThreads.mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectPage = reject
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		Route.useLoaderData = vi.fn(() => ({
+			threads: [thread({ id: `${folderId}-row`, subject: `${folderId} message` })],
+			drafts: [],
+			folders: [],
+			nextCursor: 'shared-cursor',
+		}))
+		Route.useParams = vi.fn(() => ({ folderId }))
+		Route.useSearch = vi.fn(() => ({}))
+		const Component = Route.options.component
+		const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+		await waitFor(() => expect(getThreads).toHaveBeenCalledTimes(1))
+		folderId = 'work'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		folderId = 'inbox'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		rejectPage(new Error('provider-secret-detail'))
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
 })
 
 describe('MailFolderRouteScreen — thread list', () => {
@@ -302,10 +403,11 @@ describe('MailFolderRouteScreen — drafts', () => {
 				drafts={[]}
 				folders={[]}
 				folderId="drafts"
-				nextCursor={undefined}
+				nextCursor="ignored-draft-cursor"
 			/>,
 		)
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Load more/ })).toBeNull()
 	})
 
 	it('renders draft rows with recipient, subject fallback, and only a date when present', () => {
@@ -377,6 +479,242 @@ describe('MailFolderRouteScreen — drafts', () => {
 })
 
 describe('MailFolderRouteScreen — pagination', () => {
+	it('keeps pagination discoverable when an empty folder page has a continuation cursor', async () => {
+		getThreads.mockResolvedValue({
+			threads: [thread({ id: 'older', subject: 'Older message' })],
+			nextCursor: undefined,
+		})
+		render(
+			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor="cursor-1" />,
+		)
+
+		const emptyState = screen.getByText('More messages may be available').closest('div')
+		expect(emptyState).toContainElement(screen.getByRole('button', { name: 'Load more messages' }))
+		expect(screen.queryByText('All caught up')).toBeNull()
+		fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'inbox', pageToken: 'cursor-1' } }),
+		)
+		expect(await screen.findByText('Older message')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Load more/ })).toBeNull()
+	})
+
+	it('continues through an empty page when another cursor remains', async () => {
+		getThreads.mockResolvedValueOnce({ threads: [], nextCursor: 'cursor-2' }).mockResolvedValueOnce({
+			threads: [thread({ id: 'older', subject: 'Found on the next page' })],
+			nextCursor: undefined,
+		})
+		render(
+			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="work" nextCursor="cursor-1" />,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+		await waitFor(() => expect(getThreads).toHaveBeenCalledTimes(1))
+		expect(screen.getByText('More messages may be available')).toBeInTheDocument()
+		fireEvent.click(await screen.findByRole('button', { name: 'Load more messages' }))
+
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenNthCalledWith(2, {
+				data: { folderId: 'work', pageToken: 'cursor-2' },
+			}),
+		)
+		expect(await screen.findByText('Found on the next page')).toBeInTheDocument()
+	})
+
+	it('makes the first pagination activation synchronously single-flight with clear pending state', async () => {
+		let resolvePage: (value: { threads: Thread[]; nextCursor?: string }) => void = () => {}
+		getThreads.mockReturnValue(
+			new Promise((resolve) => {
+				resolvePage = resolve
+			}),
+		)
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'page1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="cursor-1"
+			/>,
+		)
+
+		const button = screen.getByRole('button', { name: 'Load more messages' })
+		button.focus()
+		act(() => {
+			button.click()
+			button.click()
+		})
+
+		const pending = await screen.findByRole('button', { name: 'Loading more messages…' })
+		expect(getThreads).toHaveBeenCalledTimes(1)
+		expect(pending).toBeEnabled()
+		expect(pending).toHaveAttribute('aria-disabled', 'true')
+		expect(pending).toHaveAttribute('aria-busy', 'true')
+		expect(pending).toHaveFocus()
+		expect(pending.querySelector('.animate-spin')).not.toBeNull()
+		fireEvent.click(pending)
+		expect(getThreads).toHaveBeenCalledTimes(1)
+		resolvePage({ threads: [], nextCursor: 'cursor-2' })
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Load more messages' })).toBeEnabled())
+	})
+
+	it('shows generic retry guidance, preserves focus and rows, and clears feedback after success', async () => {
+		getThreads.mockRejectedValueOnce(new Error('provider-secret-detail')).mockResolvedValueOnce({
+			threads: [thread({ id: 'page2', subject: 'Recovered message' })],
+			nextCursor: undefined,
+		})
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'page1', subject: 'Existing message' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="cursor-1"
+			/>,
+		)
+
+		const button = screen.getByRole('button', { name: 'Load more messages' })
+		button.focus()
+		fireEvent.click(button)
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not load more messages. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByText('Existing message')).toBeInTheDocument()
+		const retry = screen.getByRole('button', { name: 'Try loading more messages' })
+		expect(retry).toHaveFocus()
+		expect(retry).toHaveAttribute('aria-describedby', 'folder-pagination-error')
+
+		fireEvent.click(retry)
+		expect(await screen.findByRole('button', { name: 'Loading more messages…' })).toHaveAttribute(
+			'aria-disabled',
+			'true',
+		)
+		await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+		expect(await screen.findByText('Recovered message')).toBeInTheDocument()
+		expect(screen.getByText('Existing message')).toBeInTheDocument()
+	})
+
+	it('renders managed pagination failures as static retry guidance', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'page1' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="cursor-1"
+				loadMoreError
+				onLoadMore={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		)
+
+		expect(screen.getByRole('alert')).toHaveTextContent('Could not load more messages.')
+		expect(screen.getByRole('button', { name: 'Try loading more messages' })).toBeEnabled()
+	})
+
+	it('ignores a stale pagination success after an inbox-to-work-to-inbox transition', async () => {
+		let resolvePage: (value: { threads: Thread[]; nextCursor?: string }) => void = () => {}
+		let settled = false
+		getThreads.mockReturnValue(
+			new Promise((resolve) => {
+				resolvePage = resolve
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		const view = render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'inbox-row', subject: 'Inbox message' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="shared-cursor"
+			/>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+		expect(await screen.findByRole('button', { name: 'Loading more messages…' })).toHaveAttribute(
+			'aria-disabled',
+			'true',
+		)
+		view.rerender(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'work-row', subject: 'Work message' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="work"
+				nextCursor="shared-cursor"
+			/>,
+		)
+		view.rerender(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'replacement-inbox-row', subject: 'Replacement inbox message' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="shared-cursor"
+			/>,
+		)
+		resolvePage({
+			threads: [thread({ id: 'stale-row', subject: 'Stale inbox message' })],
+			nextCursor: undefined,
+		})
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.getByText('Replacement inbox message')).toBeInTheDocument()
+		expect(screen.queryByText('Stale inbox message')).toBeNull()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('ignores a stale pagination failure after an inbox-to-work-to-inbox transition', async () => {
+		let rejectPage: (reason?: unknown) => void = () => {}
+		let settled = false
+		getThreads.mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectPage = reject
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		const view = render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'inbox-row' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="shared-cursor"
+			/>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+		view.rerender(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'work-row', subject: 'Work message' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="work"
+				nextCursor="shared-cursor"
+			/>,
+		)
+		view.rerender(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 'replacement-inbox-row', subject: 'Replacement inbox message' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor="shared-cursor"
+			/>,
+		)
+		rejectPage(new Error('provider-secret-detail'))
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByText('Replacement inbox message')).toBeInTheDocument()
+	})
+
 	it('delegates managed pagination to the query-backed route wrapper', async () => {
 		const onLoadMore = vi.fn().mockResolvedValue(undefined)
 		render(

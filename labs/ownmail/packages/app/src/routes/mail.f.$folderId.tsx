@@ -1,8 +1,8 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
 import {
 	draftRecipientName,
@@ -58,7 +58,7 @@ function FolderView() {
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
 	const updateThread = useUpdateThreadMutation()
-	const filters = folderId === 'starred' ? { starred: true } : { folderId }
+	const queryClient = useQueryClient()
 	const folderQuery = useQuery({
 		...foldersQueryOptions(
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
@@ -74,8 +74,15 @@ function FolderView() {
 		initialData: loaderData.drafts.map(toMailDraft),
 		enabled: folderId === 'drafts',
 	})
+	const threadListOptions = useMemo(
+		() =>
+			threadListQueryOptions(folderId === 'starred' ? { starred: true } : { folderId }, (input) =>
+				getThreads({ data: input }),
+			),
+		[folderId],
+	)
 	const threadsQuery = useInfiniteQuery({
-		...threadListQueryOptions(filters, (input) => getThreads({ data: input })),
+		...threadListOptions,
 		initialData: {
 			pages: [
 				{
@@ -87,8 +94,27 @@ function FolderView() {
 		},
 		enabled: folderId !== 'drafts',
 	})
+	useEffect(
+		() => () => {
+			void queryClient
+				.cancelQueries({ queryKey: threadListOptions.queryKey, exact: true }, { revert: true, silent: true })
+				.catch(
+					/* v8 ignore next -- @preserve cancellation is a best-effort lifecycle cleanup with no user-facing failure */
+					() => {},
+				)
+		},
+		[queryClient, threadListOptions.queryKey],
+	)
 	const threads = dedupeThreads(threadsQuery.data.pages.flatMap((page) => page.threads))
 	const nextCursor = threadsQuery.data.pages.at(-1)?.nextCursor
+
+	async function loadMoreThreads() {
+		try {
+			await threadsQuery.fetchNextPage({ cancelRefetch: false })
+		} catch {
+			// The route screen renders static retry guidance; never expose provider details.
+		}
+	}
 
 	return (
 		<MailFolderRouteScreen
@@ -99,7 +125,8 @@ function FolderView() {
 			baseFolderId={baseFolderId}
 			nextCursor={nextCursor}
 			loadingMore={threadsQuery.isFetchingNextPage}
-			onLoadMore={() => threadsQuery.fetchNextPage().then(() => undefined)}
+			loadMoreError={threadsQuery.isFetchNextPageError}
+			onLoadMore={loadMoreThreads}
 			onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
 		/>
 	)
@@ -117,12 +144,14 @@ export function MailFolderRouteScreen({
 	baseFolderId,
 	nextCursor: initialCursor,
 	loadingMore: managedLoadingMore,
+	loadMoreError: managedLoadMoreError,
 	onLoadMore,
 	onUpdateThread,
 }: MailFolderRouteData & {
 	folderId: string
 	baseFolderId?: string
 	loadingMore?: boolean
+	loadMoreError?: boolean
 	onLoadMore?: () => Promise<void>
 	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
 }) {
@@ -131,9 +160,19 @@ export function MailFolderRouteScreen({
 	const [extraThreads, setExtraThreads] = useState<Thread[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [localLoadingMore, setLocalLoadingMore] = useState(false)
+	const [localLoadMoreError, setLocalLoadMoreError] = useState(false)
 	const [cursor, setCursor] = useState(-1)
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
+	const loadMorePendingRef = useRef(false)
+	const folderIdentity = JSON.stringify([folderId, initialCursor])
+	const folderGenerationRef = useRef({ identity: folderIdentity, generation: 0 })
+	if (folderGenerationRef.current.identity !== folderIdentity) {
+		folderGenerationRef.current = {
+			identity: folderIdentity,
+			generation: folderGenerationRef.current.generation + 1,
+		}
+	}
 	const hasThread = useRouterState({
 		select: (state) =>
 			state.location.pathname.includes('/t/') ||
@@ -142,7 +181,8 @@ export function MailFolderRouteScreen({
 				(match) => match.routeId === '/mail/f/$folderId/t/$threadId',
 			),
 	})
-	const loadingMore = managedLoadingMore ?? localLoadingMore
+	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
+	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
 	const threads = useMemo(
 		() => (onLoadMore ? initialThreads : dedupeThreads([...initialThreads, ...extraThreads])),
 		[extraThreads, initialThreads, onLoadMore],
@@ -183,8 +223,11 @@ export function MailFolderRouteScreen({
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset paginated threads and the keyboard cursor when the folder changes
 	useEffect(() => {
+		loadMorePendingRef.current = false
 		setExtraThreads([])
 		setNextCursor(initialCursor)
+		setLocalLoadingMore(false)
+		setLocalLoadMoreError(false)
 		setCursor(-1)
 	}, [folderId, initialCursor])
 
@@ -238,26 +281,61 @@ export function MailFolderRouteScreen({
 	}, [cursor, navItems.length, openItem])
 
 	async function loadMore() {
-		/* v8 ignore next -- defensive guard: the Load-more button only renders when a cursor exists, is disabled while loading, and never appears in the drafts folder, so this early return is unreachable from the UI -- @preserve */
-		if (!nextCursor || loadingMore || folderId === 'drafts') return
-		if (onLoadMore) {
-			await onLoadMore()
-			return
-		}
+		if (!nextCursor || loadMorePendingRef.current || loadingMore || folderId === 'drafts') return
+		const actionGeneration = folderGenerationRef.current.generation
+		loadMorePendingRef.current = true
+		setLocalLoadMoreError(false)
 		setLocalLoadingMore(true)
 		try {
+			if (onLoadMore) {
+				await onLoadMore()
+				return
+			}
 			const res = await getThreads({
 				data: {
 					...(folderId === 'starred' ? { starred: true } : { folderId }),
 					pageToken: nextCursor,
 				},
 			})
+			if (folderGenerationRef.current.generation !== actionGeneration) return
 			setExtraThreads((current) => [...current, ...res.threads])
 			setNextCursor(res.nextCursor)
+		} catch {
+			if (folderGenerationRef.current.generation === actionGeneration) setLocalLoadMoreError(true)
 		} finally {
-			setLocalLoadingMore(false)
+			if (folderGenerationRef.current.generation === actionGeneration) {
+				loadMorePendingRef.current = false
+				setLocalLoadingMore(false)
+			}
 		}
 	}
+	const paginationControls = nextCursor ? (
+		<div className="w-full border-t border-border p-3">
+			{loadMoreFailed ? (
+				<p id="folder-pagination-error" role="alert" className="mb-2 text-center text-xs text-destructive">
+					Could not load more messages. Check your connection, then try again.
+				</p>
+			) : null}
+			<button
+				type="button"
+				onClick={() => void loadMore()}
+				aria-disabled={loadingMore || undefined}
+				aria-busy={loadingMore}
+				aria-describedby={loadMoreFailed ? 'folder-pagination-error' : undefined}
+				className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+			>
+				{loadingMore ? (
+					<>
+						<Loader2 className="h-4 w-4 animate-spin" /> Loading more messages…
+					</>
+				) : loadMoreFailed ? (
+					'Try loading more messages'
+				) : (
+					'Load more messages'
+				)}
+			</button>
+		</div>
+	) : null
 
 	return (
 		<>
@@ -290,7 +368,7 @@ export function MailFolderRouteScreen({
 							))
 						)
 					) : sortedThreads.length === 0 ? (
-						<EmptyState />
+						<EmptyState moreAvailable={Boolean(nextCursor)}>{paginationControls}</EmptyState>
 					) : (
 						<>
 							{sortedThreads.map((thread, index) => (
@@ -303,24 +381,7 @@ export function MailFolderRouteScreen({
 									onUpdateThread={onUpdateThread}
 								/>
 							))}
-							{nextCursor ? (
-								<div className="border-t border-border p-3">
-									<button
-										type="button"
-										onClick={loadMore}
-										disabled={loadingMore}
-										className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
-									>
-										{loadingMore ? (
-											<>
-												<Loader2 className="h-4 w-4 animate-spin" /> Loading…
-											</>
-										) : (
-											'Load more'
-										)}
-									</button>
-								</div>
-							) : null}
+							{paginationControls}
 						</>
 					)}
 				</ScrollArea>
@@ -346,11 +407,16 @@ export function MailFolderRouteScreen({
 	)
 }
 
-function EmptyState() {
+function EmptyState({ moreAvailable = false, children }: { moreAvailable?: boolean; children?: ReactNode }) {
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-			<p className="font-display text-sm font-semibold text-foreground">All caught up</p>
-			<p className="text-sm text-muted-foreground">No messages in this folder.</p>
+			<p className="font-display text-sm font-semibold text-foreground">
+				{moreAvailable ? 'More messages may be available' : 'All caught up'}
+			</p>
+			<p className="text-sm text-muted-foreground">
+				{moreAvailable ? 'Load the next page to keep looking.' : 'No messages in this folder.'}
+			</p>
+			{children}
 		</div>
 	)
 }
