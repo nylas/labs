@@ -121,9 +121,7 @@ export const saveComposeRecipients = createServerFn({ method: 'POST' })
 			throw new Error('Invalid recipients')
 		}
 		const normalized = parseRecipientEmails(emails.join(','), { required: false })
-		if (normalized.length !== emails.length || normalized.some((email) => email.length > 320)) {
-			throw new Error('Invalid recipients')
-		}
+		if (normalized.length !== emails.length) throw new Error('Invalid recipients')
 		return { emails: [...new Set(normalized.map((email) => email.toLowerCase()))] }
 	})
 	.handler(async ({ data }) => {

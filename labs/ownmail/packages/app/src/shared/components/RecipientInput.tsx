@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { searchContacts } from '#server/fns'
 import { addToken, moveHighlight, removeTokenAt, tokensToValue, valueToTokens } from '../lib/contact-token.js'
 import { cn } from '../lib/utils.js'
@@ -11,37 +11,57 @@ import { Input } from './ui/input.js'
  * one. Keeps the comma-separated `value: string` contract so compose drafts and
  * calendar guests can share it unchanged.
  */
-export function RecipientInput({
-	value,
-	onChange,
-	placeholder,
-	className,
-	id = 'recipient-input',
-	label = 'Recipients',
-	disabled = false,
-}: {
+export type RecipientInputHandle = {
+	getCurrentValue: () => string
+}
+
+type RecipientInputProps = {
 	value: string
 	onChange: (next: string) => void
+	onEdit?: () => void
 	placeholder?: string
 	className?: string
 	id?: string
 	label?: string
 	disabled?: boolean
-}) {
+	invalid?: boolean
+	describedBy?: string
+}
+
+export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputProps>(function RecipientInput(
+	{
+		value,
+		onChange,
+		onEdit,
+		placeholder,
+		className,
+		id = 'recipient-input',
+		label = 'Recipients',
+		disabled = false,
+		invalid = false,
+		describedBy,
+	},
+	ref,
+) {
 	const tokens = valueToTokens(value)
 	const [draft, setDraft] = useState('')
 	const [suggestions, setSuggestions] = useState<{ email: string; name?: string }[]>([])
 	const [open, setOpen] = useState(false)
 	const [highlight, setHighlight] = useState(0)
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const currentValueRef = useRef(value)
 	// Contact lookups can finish out of order. Keep a monotonically increasing
 	// request id so a slow response for an earlier draft cannot replace the
 	// suggestions for what the user is currently typing.
 	const searchRequestId = useRef(0)
 	const query = draft.trim()
+	currentValueRef.current = query ? tokensToValue(addToken(tokens, query)) : value
+	useImperativeHandle(ref, () => ({ getCurrentValue: () => currentValueRef.current }), [])
 
 	function setDraftValue(next: string) {
+		currentValueRef.current = next.trim() ? tokensToValue(addToken(tokens, next)) : value
 		setDraft(next)
+		onEdit?.()
 	}
 
 	useEffect(() => {
@@ -71,14 +91,20 @@ export function RecipientInput({
 	}, [disabled, query])
 
 	function commit(raw: string) {
-		onChange(tokensToValue(addToken(tokens, raw)))
-		setDraftValue('')
+		const next = tokensToValue(addToken(tokens, raw))
+		currentValueRef.current = next
+		onChange(next)
+		onEdit?.()
+		setDraft('')
 		setSuggestions([])
 		setOpen(false)
 	}
 
 	function removeAt(index: number) {
-		onChange(tokensToValue(removeTokenAt(tokens, index)))
+		const next = tokensToValue(removeTokenAt(tokens, index))
+		currentValueRef.current = next
+		onChange(next)
+		onEdit?.()
 	}
 
 	function onInputChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -88,8 +114,12 @@ export function RecipientInput({
 			const cut = next.lastIndexOf(',')
 			let nextTokens = tokens
 			for (const part of next.slice(0, cut).split(',')) nextTokens = addToken(nextTokens, part)
-			onChange(tokensToValue(nextTokens))
-			setDraftValue(next.slice(cut + 1).trimStart())
+			const committed = tokensToValue(nextTokens)
+			const remainder = next.slice(cut + 1).trimStart()
+			currentValueRef.current = remainder ? tokensToValue(addToken(nextTokens, remainder)) : committed
+			onChange(committed)
+			onEdit?.()
+			setDraft(remainder)
 			return
 		}
 		setDraftValue(next)
@@ -101,7 +131,7 @@ export function RecipientInput({
 			setHighlight(moveHighlight(highlight, event.key === 'ArrowDown' ? 1 : -1, suggestions.length))
 			return
 		}
-		if (event.key === 'Enter') {
+		if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
 			const picked = open ? suggestions[highlight] : undefined
 			if (picked || draft.trim()) {
 				event.preventDefault()
@@ -166,6 +196,8 @@ export function RecipientInput({
 					autoCapitalize="none"
 					enterKeyHint="next"
 					disabled={disabled}
+					aria-invalid={invalid || undefined}
+					aria-describedby={describedBy}
 				/>
 			</div>
 			{open ? (
@@ -198,4 +230,4 @@ export function RecipientInput({
 			) : null}
 		</div>
 	)
-}
+})

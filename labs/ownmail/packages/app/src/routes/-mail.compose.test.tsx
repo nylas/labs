@@ -39,6 +39,7 @@ const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
+const recipientInputMock = vi.hoisted(() => ({ keepDraftLocal: false }))
 vi.mock('#server/fns', () => ({
 	getDraft: (a: any) => getDraft(a),
 	getFolders: (a: any) => getFolders(a),
@@ -54,18 +55,41 @@ vi.mock('#server/fns', () => ({
 
 // Focus coverage on mail.compose.tsx: the "To" autocomplete and the error banner
 // are their own units, so they are replaced with minimal stand-ins.
-vi.mock('#shared/components/RecipientInput', () => ({
-	RecipientInput: ({ id, value, onChange, placeholder, disabled }: any) => (
-		<input
-			id={id}
-			aria-label="To"
-			value={value}
-			placeholder={placeholder}
-			disabled={disabled}
-			onChange={disabled ? undefined : (event) => onChange(event.target.value)}
-		/>
-	),
-}))
+vi.mock('#shared/components/RecipientInput', async () => {
+	const React = await vi.importActual<typeof import('react')>('react')
+	return {
+		RecipientInput: React.forwardRef(function MockRecipientInput(
+			{ id, value, onChange, onEdit, placeholder, disabled, invalid, describedBy }: any,
+			ref,
+		) {
+			const [localDraft, setLocalDraft] = React.useState<string | null>(null)
+			const currentValue = React.useRef(value)
+			currentValue.current = localDraft ?? value
+			React.useImperativeHandle(ref, () => ({ getCurrentValue: () => currentValue.current }), [])
+			return (
+				<input
+					id={id}
+					aria-label="To"
+					aria-invalid={invalid || undefined}
+					aria-describedby={describedBy}
+					value={localDraft ?? value}
+					placeholder={placeholder}
+					disabled={disabled}
+					onChange={
+						disabled
+							? undefined
+							: (event) => {
+									currentValue.current = event.target.value
+									if (recipientInputMock.keepDraftLocal) setLocalDraft(event.target.value)
+									else onChange(event.target.value)
+									onEdit?.()
+								}
+					}
+				/>
+			)
+		}),
+	}
+})
 // The markdown editor is a unit of its own (see MarkdownEditor.render.test.tsx);
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
@@ -93,6 +117,7 @@ afterEach(() => {
 })
 beforeEach(() => {
 	vi.clearAllMocks()
+	recipientInputMock.keepDraftLocal = false
 	window.localStorage.removeItem('ownmail:user-preferences:v1')
 	getThreads.mockResolvedValue({ threads: [] })
 	getFolders.mockResolvedValue([])
@@ -1331,6 +1356,121 @@ describe('mail.compose attachments', () => {
 })
 
 describe('mail.compose send', () => {
+	it('blocks a recipient-less send with focused, accessible guidance before persistence', async () => {
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Add at least one recipient before sending.')
+		const to = screen.getByLabelText('To')
+		expect(to).toHaveFocus()
+		expect(to).toHaveAttribute('aria-invalid', 'true')
+		expect(to).toHaveAttribute('aria-describedby', 'compose-recipient-error')
+		expect(guidance).toHaveAttribute('id', 'compose-recipient-error')
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+		expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+	})
+
+	it('identifies malformed recipients without reflecting them and clears guidance after correction', async () => {
+		renderCompose({
+			loader: { reply: { to: 'valid@example.com, not-an-email', subject: 'Hi', body: 'body' } },
+		})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Enter a valid email address for each recipient before sending.')
+		expect(guidance).not.toHaveTextContent('not-an-email')
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'valid@example.com' } })
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(to).not.toHaveAttribute('aria-invalid')
+		expect(to).not.toHaveAttribute('aria-describedby')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+	})
+
+	it('rejects an overlong recipient with static guidance and no mutation', async () => {
+		const overlong = `${'a'.repeat(316)}@x.co`
+		renderCompose({ loader: { reply: { to: overlong, subject: 'Hi', body: 'body' } } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Enter a valid email address for each recipient before sending.')
+		expect(guidance).not.toHaveTextContent(overlong)
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
+	it('applies recipient validation to the keyboard send shortcut', async () => {
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		to.focus()
+
+		fireEvent.keyDown(to, { key: 'Enter', ctrlKey: true })
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Add at least one recipient before sending.')
+		expect(to).toHaveFocus()
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
+	it('sends the visible uncommitted recipient through the imperative input seam', async () => {
+		recipientInputMock.keepDraftLocal = true
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'visible@example.com' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		await waitFor(() => expect(sendDraft).toHaveBeenCalledTimes(1))
+		expect(saveDraft).toHaveBeenCalledWith({
+			data: { to: 'visible@example.com', subject: 'Hi', body: markdownToDraftBody('body') },
+		})
+		expect(sendDraft.mock.calls[0][0].data.to).toBe('visible@example.com')
+	})
+
+	it.each([
+		['Control', { ctrlKey: true }],
+		['Command', { metaKey: true }],
+	])('sends an uncommitted recipient once with the %s+Enter shortcut', async (_name, modifier) => {
+		recipientInputMock.keepDraftLocal = true
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'shortcut@example.com' } })
+		to.focus()
+
+		fireEvent.keyDown(to, { key: 'Enter', ...modifier })
+
+		await waitFor(() => expect(sendDraft).toHaveBeenCalledTimes(1))
+		expect(saveDraft).toHaveBeenCalledTimes(1)
+		expect(saveDraft.mock.calls[0][0].data.to).toBe('shortcut@example.com')
+		expect(sendDraft.mock.calls[0][0].data.to).toBe('shortcut@example.com')
+	})
+
+	it('blocks a malformed uncommitted recipient from the keyboard path', async () => {
+		recipientInputMock.keepDraftLocal = true
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'private-invalid-value' } })
+		to.focus()
+
+		fireEvent.keyDown(to, { key: 'Enter', ctrlKey: true })
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Enter a valid email address for each recipient before sending.')
+		expect(guidance).not.toHaveTextContent('private-invalid-value')
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
 	it('saves then sends the same provider draft as email-ready HTML', async () => {
 		// The composer state holds markdown source; the backing draft is updated
 		// to inline-styled HTML before the provider sends that exact draft.
@@ -1452,6 +1592,19 @@ describe('mail.compose send', () => {
 })
 
 describe('mail.compose save draft', () => {
+	it('continues to save drafts without recipients', async () => {
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'draft body' } } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+		await waitFor(() =>
+			expect(saveDraft).toHaveBeenCalledWith({
+				data: { to: '', subject: 'Hi', body: markdownToDraftBody('draft body') },
+			}),
+		)
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
 	it('saves immediately when Save draft is clicked', async () => {
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))

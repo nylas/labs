@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { useState } from 'react'
+import { createRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RecipientInput } from './RecipientInput.js'
+import { RecipientInput, type RecipientInputHandle } from './RecipientInput.js'
 
 // Contact lookup is a server function; stub it so the debounce/UI behaviour is
 // what's under test, not the network.
@@ -77,6 +77,20 @@ describe('RecipientInput', () => {
 		// Typing a partial fragment does not commit a recipient yet.
 		expect(onChangeSpy).not.toHaveBeenCalled()
 		expect(input.value).toBe('a')
+		fireEvent.change(input, { target: { value: '' } })
+		expect(input.value).toBe('')
+	})
+
+	it('forwards invalid-state semantics and reports draft edits', () => {
+		const onEdit = vi.fn()
+		render(
+			<RecipientInput value="" onChange={vi.fn()} onEdit={onEdit} invalid describedBy="recipient-guidance" />,
+		)
+		const input = field()
+		expect(input).toHaveAttribute('aria-invalid', 'true')
+		expect(input).toHaveAttribute('aria-describedby', 'recipient-guidance')
+		fireEvent.change(input, { target: { value: 'a' } })
+		expect(onEdit).toHaveBeenCalledTimes(1)
 	})
 
 	it('honours a custom placeholder, className, id, and label', () => {
@@ -231,6 +245,18 @@ describe('RecipientInput', () => {
 		fireEvent.change(input, { target: { value: 'solo@acme.com' } })
 		fireEvent.keyDown(input, { key: 'Enter' })
 		expect(onChangeSpy).toHaveBeenCalledWith('solo@acme.com')
+	})
+
+	it('exposes an uncommitted recipient to a parent keyboard submit without consuming the shortcut', () => {
+		const onChangeSpy = vi.fn()
+		const ref = createRef<RecipientInputHandle>()
+		render(<RecipientInput ref={ref} value="first@example.com" onChange={onChangeSpy} />)
+		const input = field()
+		fireEvent.change(input, { target: { value: 'second@example.com' } })
+
+		expect(ref.current?.getCurrentValue()).toBe('first@example.com, second@example.com')
+		expect(fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })).toBe(true)
+		expect(onChangeSpy).not.toHaveBeenCalled()
 	})
 
 	it('Enter with an empty draft and no list does nothing', () => {
