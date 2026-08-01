@@ -106,6 +106,9 @@ describe('ThreadConversation rendering', () => {
 				'focus-visible:outline-none',
 				'focus-visible:ring-[3px]',
 				'focus-visible:ring-ring',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
 			)
 			expect(link).toHaveAttribute('href', '/attachments/attachment-1?message_id=m1')
 			expect(link).toHaveAttribute('download', 'project-plan.pdf')
