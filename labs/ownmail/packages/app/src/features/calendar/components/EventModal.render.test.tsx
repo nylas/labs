@@ -104,6 +104,9 @@ describe('EventModal — new event', () => {
 			'focus-visible:ring-ring',
 			'focus-visible:ring-offset-2',
 			'focus-visible:ring-offset-background',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
 		)
 		const cancel = screen.getByRole('button', { name: 'Cancel' })
 		const save = screen.getByRole('button', { name: 'Save event' })
@@ -114,6 +117,9 @@ describe('EventModal — new event', () => {
 				'focus-visible:ring-ring',
 				'focus-visible:ring-offset-2',
 				'focus-visible:ring-offset-background',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
 			)
 		}
 		expect(save.parentElement).toHaveClass('flex-wrap')
@@ -304,6 +310,9 @@ describe('EventModal — new event', () => {
 			'focus-visible:ring-ring',
 			'focus-visible:ring-offset-2',
 			'focus-visible:ring-offset-background',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
 		)
 		await user.click(monday)
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
@@ -830,6 +839,9 @@ describe('EventModal — existing event', () => {
 				'focus-visible:ring-ring',
 				'focus-visible:ring-offset-2',
 				'focus-visible:ring-offset-background',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
 			)
 		}
 		const close = screen.getByRole('button', { name: 'Close' })
@@ -840,6 +852,9 @@ describe('EventModal — existing event', () => {
 			'focus-visible:ring-ring',
 			'focus-visible:ring-offset-2',
 			'focus-visible:ring-offset-background',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
 		)
 		for (const name of ['✓ Yes', '? Maybe', '✗ No', 'Edit', 'Delete', 'Done']) {
 			expectTouchAction(screen.getByRole('button', { name }))
