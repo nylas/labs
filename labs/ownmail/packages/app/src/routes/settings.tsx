@@ -6,7 +6,6 @@ import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	availableTimezones,
 	isSupportedTimezone,
-	readUserPreferences,
 	type UserPreferences,
 	useUserPreferences,
 } from '#app/preferences/user-preferences'
@@ -87,6 +86,18 @@ function SettingsPage() {
 		setDraft(preferences)
 	}, [preferences])
 
+	useEffect(() => {
+		const invalidatePendingSave = () => {
+			settingsRevisionRef.current += 1
+		}
+		window.addEventListener('storage', invalidatePendingSave)
+		window.addEventListener('ownmail:user-preferences', invalidatePendingSave)
+		return () => {
+			window.removeEventListener('storage', invalidatePendingSave)
+			window.removeEventListener('ownmail:user-preferences', invalidatePendingSave)
+		}
+	}, [])
+
 	const normalizedDraft = normalizeSettingsPreferences(displayName, draft, preferences.primaryTimezone)
 	const persistedSettings = normalizeSettingsPreferences(
 		persistedDisplayName,
@@ -108,7 +119,6 @@ function SettingsPage() {
 		savePendingRef.current = true
 		const revision = settingsRevisionRef.current
 		const snapshot = { ...normalizedDraft }
-		const persistedPreferencesSnapshot = { ...preferences }
 		setSaveStatus(null)
 		setSaving(true)
 		try {
@@ -116,11 +126,7 @@ function SettingsPage() {
 				snapshot.displayName === persistedDisplayName
 					? { displayName: persistedDisplayName }
 					: await updateMailboxDisplayName({ data: { displayName: snapshot.displayName } })
-			if (
-				settingsRevisionRef.current !== revision ||
-				!preferencesMatch(readUserPreferences(), persistedPreferencesSnapshot)
-			)
-				return
+			if (settingsRevisionRef.current !== revision) return
 			savePreferences({
 				...snapshot,
 				displayName: account.displayName,
@@ -129,10 +135,7 @@ function SettingsPage() {
 			setPersistedDisplayName(account.displayName)
 			setSaveStatus({ kind: 'success', message: 'Settings saved.' })
 		} catch {
-			if (
-				settingsRevisionRef.current === revision &&
-				preferencesMatch(readUserPreferences(), persistedPreferencesSnapshot)
-			) {
+			if (settingsRevisionRef.current === revision) {
 				setSaveStatus({
 					kind: 'error',
 					message: 'We could not save your settings. Check the display name and try again.',

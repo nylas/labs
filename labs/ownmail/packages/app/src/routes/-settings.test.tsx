@@ -65,7 +65,10 @@ beforeEach(() => {
 	}))
 })
 
-afterEach(cleanup)
+afterEach(() => {
+	cleanup()
+	vi.restoreAllMocks()
+})
 
 describe('/settings', () => {
 	it('loads account information and the server-owned password capability', async () => {
@@ -121,8 +124,30 @@ describe('/settings', () => {
 			screen.getByLabelText('Confirm new password'),
 		]) {
 			expect(field).toHaveClass('min-h-11')
-			expect(field).not.toHaveClass('h-9')
-		}
+				expect(field).not.toHaveClass('h-9')
+			}
+	})
+
+	it('accepts a later display-name save when preference storage is unavailable', async () => {
+		const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new Error('storage unavailable')
+		})
+		renderSettings()
+		fireEvent.click(screen.getByLabelText('Darken email content automatically'))
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(screen.getByLabelText('Darken email content automatically')).not.toBeChecked()
+		expect(window.localStorage.getItem('ownmail:user-preferences:v1')).toBeNull()
+
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Grace' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
+		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: 'Grace' } })
+		expect(screen.getByLabelText('Display name')).toHaveValue('Grace')
+		setItem.mockRestore()
 	})
 
 	it('shows the running OwnMail version', () => {
