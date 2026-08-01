@@ -225,6 +225,8 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 	const labelId = useId()
 	const rootRef = useRef<HTMLDivElement>(null)
 	const triggerRef = useRef<HTMLButtonElement>(null)
+	const pointerStartedInsideRef = useRef(false)
+	const clearPointerGuardTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 	const addressRows = MESSAGE_ADDRESS_FIELDS.flatMap(([field, label]) => {
 		const participants = message[field]
 		return participants?.length ? [{ label, value: participants.map(formatParticipant).join(', ') }] : []
@@ -234,6 +236,26 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 		if (!open) return
 
 		function onPointerDown(event: PointerEvent) {
+			clearTimeout(clearPointerGuardTimerRef.current)
+			pointerStartedInsideRef.current = event.composedPath().includes(rootRef.current as EventTarget)
+			if (!pointerStartedInsideRef.current) setOpen(false)
+		}
+
+		function onPointerUp() {
+			clearPointerGuardTimerRef.current = setTimeout(() => {
+				pointerStartedInsideRef.current = false
+				clearPointerGuardTimerRef.current = undefined
+			}, 0)
+		}
+
+		function onPointerCancel() {
+			clearTimeout(clearPointerGuardTimerRef.current)
+			clearPointerGuardTimerRef.current = undefined
+			pointerStartedInsideRef.current = false
+		}
+
+		function onFocusIn(event: FocusEvent) {
+			if (pointerStartedInsideRef.current) return
 			if (!event.composedPath().includes(rootRef.current as EventTarget)) setOpen(false)
 		}
 
@@ -246,10 +268,19 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 		}
 
 		document.addEventListener('pointerdown', onPointerDown)
+		document.addEventListener('pointerup', onPointerUp)
+		document.addEventListener('pointercancel', onPointerCancel)
+		document.addEventListener('focusin', onFocusIn)
 		document.addEventListener('keydown', onKeyDown)
 		return () => {
 			document.removeEventListener('pointerdown', onPointerDown)
+			document.removeEventListener('pointerup', onPointerUp)
+			document.removeEventListener('pointercancel', onPointerCancel)
+			document.removeEventListener('focusin', onFocusIn)
 			document.removeEventListener('keydown', onKeyDown)
+			clearTimeout(clearPointerGuardTimerRef.current)
+			clearPointerGuardTimerRef.current = undefined
+			pointerStartedInsideRef.current = false
 		}
 	}, [open])
 
