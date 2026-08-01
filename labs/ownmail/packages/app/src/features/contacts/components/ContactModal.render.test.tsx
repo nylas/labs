@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactModal } from './ContactModal.js'
@@ -146,10 +146,13 @@ describe('ContactModal — create', () => {
 		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
 
-		expect(
-			await screen.findByText('Could not save contact. Check your connection, then try again.'),
-		).toBeInTheDocument()
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not save contact. Check your connection, then try again.',
+		)
 		expect(onClose).not.toHaveBeenCalled()
+		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'retry@x.com' } })
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Add contact' })).toBeEnabled()
 	})
 
 	it('shows a generic message when the failure is not an Error', async () => {
@@ -184,6 +187,35 @@ describe('ContactModal — create', () => {
 		expect(onClose).not.toHaveBeenCalled()
 		resolve({ contactId: 'contact-new' })
 		await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+	})
+
+	it('submits once and locks every contact control while the save is in flight', async () => {
+		let resolve: (value: { contactId: string }) => void = () => {}
+		createContact.mockReturnValue(
+			new Promise<{ contactId: string }>((done) => {
+				resolve = done
+			}),
+		)
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
+		const submit = screen.getByRole('button', { name: 'Add contact' })
+
+		act(() => {
+			submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+
+		await waitFor(() => expect(createContact).toHaveBeenCalledTimes(1))
+		expect(await screen.findByRole('button', { name: 'Saving...' })).toBeDisabled()
+		expect(screen.getByLabelText('Email 1')).toBeDisabled()
+		expect(screen.getByLabelText('Email 1 type')).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Add email' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Remove email 1' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+		expect(document.querySelector('fieldset')).toHaveAttribute('aria-busy', 'true')
+
+		await act(async () => resolve({ contactId: 'contact-new' }))
 	})
 })
 
