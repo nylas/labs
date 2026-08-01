@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Check, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
@@ -40,6 +40,7 @@ function SettingsPage() {
 	const [confirmPassword, setConfirmPassword] = useState('')
 	const [passwordStatus, setPasswordStatus] = useState<string | null>(null)
 	const [resettingPassword, setResettingPassword] = useState(false)
+	const passwordEditRevision = useRef(0)
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const timezones = useMemo(availableTimezones, [])
 
@@ -91,14 +92,17 @@ function SettingsPage() {
 			setPasswordStatus('The passwords do not match.')
 			return
 		}
+		const submittedRevision = passwordEditRevision.current
 		setResettingPassword(true)
 		try {
 			await resetMailboxPassword({ data: { password } })
+			if (passwordEditRevision.current !== submittedRevision) return
 			setPassword('')
 			setConfirmPassword('')
 			setPasswordStatus('Password updated.')
 		} catch {
-			setPasswordStatus('We could not update your password. Check the requirements and try again.')
+			if (passwordEditRevision.current === submittedRevision)
+				setPasswordStatus('We could not update your password. Check the requirements and try again.')
 		} finally {
 			setResettingPassword(false)
 		}
@@ -251,13 +255,21 @@ function SettingsPage() {
 										id="settings-password"
 										label="New password"
 										value={password}
-										onChange={setPassword}
+										onChange={(value) => {
+											passwordEditRevision.current += 1
+											setPassword(value)
+											setPasswordStatus(null)
+										}}
 									/>
 									<PasswordField
 										id="settings-confirm-password"
 										label="Confirm new password"
 										value={confirmPassword}
-										onChange={setConfirmPassword}
+										onChange={(value) => {
+											passwordEditRevision.current += 1
+											setConfirmPassword(value)
+											setPasswordStatus(null)
+										}}
 									/>
 									<div className="flex items-center gap-3">
 										<Button type="submit" disabled={resettingPassword || !password || !confirmPassword}>

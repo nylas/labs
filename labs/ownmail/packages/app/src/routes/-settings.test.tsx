@@ -170,10 +170,13 @@ describe('/settings', () => {
 		expect(resetMailboxPassword).not.toHaveBeenCalled()
 
 		fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: password } })
+		expect(screen.queryByRole('status')).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
 		await waitFor(() => expect(resetMailboxPassword).toHaveBeenCalledWith({ data: { password } }))
 		expect(screen.getByRole('status')).toHaveTextContent('Password updated.')
 		expect(screen.getByLabelText('New password')).toHaveValue('')
+		fireEvent.change(screen.getByLabelText('New password'), { target: { value: password } })
+		expect(screen.queryByRole('status')).not.toBeInTheDocument()
 	})
 
 	it('keeps password failures generic', async () => {
@@ -185,5 +188,39 @@ describe('/settings', () => {
 		expect(await screen.findByRole('status')).toHaveTextContent(
 			'We could not update your password. Check the requirements and try again.',
 		)
+		fireEvent.change(screen.getByLabelText('New password'), { target: { value: `${password}!` } })
+		expect(screen.queryByRole('status')).not.toBeInTheDocument()
 	})
+
+	it.each(['success', 'failure'] as const)(
+		'ignores stale %s feedback when password fields change during the request',
+		async (outcome) => {
+			let resolveReset: (value: { ok: true }) => void = () => {}
+			let rejectReset: (reason: Error) => void = () => {}
+			resetMailboxPassword.mockReturnValue(
+				new Promise((resolve, reject) => {
+					resolveReset = resolve
+					rejectReset = reject
+				}),
+			)
+			renderSettings(true)
+			const newPassword = screen.getByLabelText('New password')
+			const confirmPassword = screen.getByLabelText('Confirm new password')
+			fireEvent.change(newPassword, { target: { value: password } })
+			fireEvent.change(confirmPassword, { target: { value: password } })
+			fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
+			await waitFor(() => expect(resetMailboxPassword).toHaveBeenCalledTimes(1))
+
+			const revisedPassword = `${password}!`
+			fireEvent.change(newPassword, { target: { value: revisedPassword } })
+			fireEvent.change(confirmPassword, { target: { value: revisedPassword } })
+			if (outcome === 'success') resolveReset({ ok: true })
+			else rejectReset(new Error('provider detail'))
+
+			await waitFor(() => expect(screen.getByRole('button', { name: 'Update password' })).toBeEnabled())
+			expect(newPassword).toHaveValue(revisedPassword)
+			expect(confirmPassword).toHaveValue(revisedPassword)
+			expect(screen.queryByRole('status')).not.toBeInTheDocument()
+		},
+	)
 })
