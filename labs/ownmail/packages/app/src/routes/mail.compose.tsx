@@ -5,6 +5,7 @@ import {
 	Archive,
 	Forward,
 	Inbox,
+	Maximize2,
 	Minus,
 	Paperclip,
 	Reply,
@@ -786,10 +787,11 @@ function Compose() {
 						<button
 							type="button"
 							onClick={() => setMinimized((value) => !value)}
-							aria-label="Minimize"
+							aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
+							aria-expanded={!minimized}
 							className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-background/20"
 						>
-							<Minus className="h-4 w-4" />
+							{minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
 						</button>
 						<button
 							type="button"

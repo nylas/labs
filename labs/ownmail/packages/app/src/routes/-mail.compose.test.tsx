@@ -773,13 +773,28 @@ describe('mail.compose window controls', () => {
 		expect(panel).toHaveClass('h-[min(32rem,calc(100dvh-1rem))]')
 	})
 
-	it('minimizes and restores the composer body', () => {
-		renderCompose({ loader: { reply: { to: 'a@b.com', subject: '', body: '' } } })
-		expect(screen.getByPlaceholderText('Write your message...')).toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Minimize' }))
+	it('exposes accurate controls while minimizing and restoring the composer body', () => {
+		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Original', body: 'Original body' } } })
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: 'edited@example.com' } })
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Edited subject' } })
+		fireEvent.change(screen.getByPlaceholderText('Write your message...'), {
+			target: { value: 'Edited body' },
+		})
+		const minimize = screen.getByRole('button', { name: 'Minimize composer' })
+		expect(minimize).toHaveAttribute('aria-expanded', 'true')
+		expect(minimize.querySelector('svg')).toHaveClass('lucide-minus')
+		fireEvent.click(minimize)
+		expect(screen.queryByLabelText('To')).not.toBeInTheDocument()
+		expect(screen.queryByLabelText('Subject')).not.toBeInTheDocument()
 		expect(screen.queryByPlaceholderText('Write your message...')).not.toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Minimize' }))
-		expect(screen.getByPlaceholderText('Write your message...')).toBeInTheDocument()
+		const restore = screen.getByRole('button', { name: 'Restore composer' })
+		expect(restore).toHaveAttribute('aria-expanded', 'false')
+		expect(restore.querySelector('svg')).toHaveClass('lucide-maximize-2')
+		fireEvent.click(restore)
+		expect(screen.getByLabelText('To')).toHaveValue('edited@example.com')
+		expect(screen.getByLabelText('Subject')).toHaveValue('Edited subject')
+		expect(screen.getByPlaceholderText('Write your message...')).toHaveValue('Edited body')
+		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveAttribute('aria-expanded', 'true')
 	})
 
 	it('goes back in browser history when there is a prior compose entry', () => {
