@@ -138,6 +138,30 @@ describe('ContactModal — create', () => {
 		expect(screen.queryByLabelText('Phone 1')).not.toBeInTheDocument()
 	})
 
+	it('identifies contact fields for browser autofill', () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+
+		expect(screen.getByLabelText('First name', { selector: 'input' })).toHaveAttribute(
+			'autocomplete',
+			'given-name',
+		)
+		expect(screen.getByLabelText('Last name', { selector: 'input' })).toHaveAttribute(
+			'autocomplete',
+			'family-name',
+		)
+		expect(screen.getByLabelText('Company', { selector: 'input' })).toHaveAttribute(
+			'autocomplete',
+			'organization',
+		)
+		expect(screen.getByLabelText('Job title', { selector: 'input' })).toHaveAttribute(
+			'autocomplete',
+			'organization-title',
+		)
+		expect(screen.getByLabelText('Email 1')).toHaveAttribute('autocomplete', 'email')
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		expect(screen.getByLabelText('Phone 1')).toHaveAttribute('autocomplete', 'tel')
+	})
+
 	it('surfaces a save error and keeps the dialog open', async () => {
 		createContact.mockRejectedValue(new Error('QUOTA: too many contacts'))
 		const onClose = vi.fn()
