@@ -35,6 +35,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
+import { validateRecipientEmails } from '#features/mail/lib/recipients'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
 import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
 import {
@@ -52,7 +53,7 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getDraft, getFolders, getThreadMessages, getThreads, saveComposeRecipients } from '#server/fns'
-import { RecipientInput } from '#shared/components/RecipientInput'
+import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
 import { cn } from '#shared/lib/utils'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
@@ -86,7 +87,7 @@ function draftSaveErrorMessage(error: unknown): string {
 		typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
 			? error.message
 			: ''
-	if (message.startsWith('Invalid recipient:'))
+	if (message.startsWith('Invalid recipient'))
 		return 'Enter a valid email address for each recipient before saving.'
 	return 'Could not save the draft. Your changes are still here; check your connection and try again.'
 }
@@ -207,6 +208,7 @@ function Compose() {
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [recipientError, setRecipientError] = useState<string | null>(null)
 	const dirty = useRef(false)
 	const submitting = useRef(false)
 	const discarding = useRef(false)
@@ -214,6 +216,7 @@ function Compose() {
 	const draftQueue = useRef<Promise<void>>(Promise.resolve())
 	const draftQueuePending = useRef(0)
 	const attachmentInputRef = useRef<HTMLInputElement>(null)
+	const recipientInputRef = useRef<RecipientInputHandle>(null)
 	const attachmentsRef = useRef<ComposeAttachment[]>([])
 	const attachmentTask = useRef<Promise<boolean>>(Promise.resolve(true))
 	const attachingRef = useRef(false)
@@ -300,6 +303,7 @@ function Compose() {
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
+		setRecipientError(null)
 		dirty.current = true
 		focusComposeTarget('compose-body')
 		navigate({
@@ -322,6 +326,7 @@ function Compose() {
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
+		setRecipientError(null)
 		dirty.current = true
 		focusComposeTarget('compose-body')
 		navigate({ to: '/mail/compose', search: replySearch })
@@ -341,6 +346,7 @@ function Compose() {
 		setSubject(forwardSearch.subject ?? '')
 		setBody(forwardSearch.body ?? '')
 		setError(null)
+		setRecipientError(null)
 		dirty.current = true
 		focusComposeTarget(
 			composeFocusTarget({
@@ -537,12 +543,27 @@ function Compose() {
 	}
 
 	const submit = useCallback(async () => {
+		const currentTo = recipientInputRef.current?.getCurrentValue() ?? to
+		const recipientValidation = validateRecipientEmails(currentTo, { required: true })
+		if (recipientValidation.error) {
+			setRecipientError(
+				recipientValidation.error === 'required'
+					? 'Add at least one recipient before sending.'
+					: 'Enter a valid email address for each recipient before sending.',
+			)
+			setError(null)
+			focusComposeTarget('compose-to')
+			return
+		}
+
+		setRecipientError(null)
+		if (currentTo !== to) setTo(currentTo)
 		submitting.current = true
 		setBusy(true)
 		setError(null)
 		try {
 			const id = await queueDraftPersistence({
-				to,
+				to: currentTo,
 				subject,
 				body,
 				attachments: attachmentsRef.current,
@@ -550,7 +571,7 @@ function Compose() {
 			})
 			await sendDraftMutation.mutateAsync({
 				draftId: id,
-				to,
+				to: currentTo,
 				subject,
 				// The editor holds markdown; outgoing mail carries inline-styled HTML.
 				body: markdownToEmailHtml(body),
@@ -561,10 +582,7 @@ function Compose() {
 			if (preferences.autoSaveContacts) {
 				void saveComposeRecipients({
 					data: {
-						emails: to
-							.split(',')
-							.map((email) => email.trim())
-							.filter(Boolean),
+						emails: recipientValidation.emails,
 					},
 				})
 					.then((receipt) => {
@@ -808,16 +826,31 @@ function Compose() {
 				{!minimized ? (
 					<>
 						<div className="flex flex-col">
-							<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
-								<span className="w-14 shrink-0 text-muted-foreground">To</span>
-								<RecipientInput
-									id="compose-to"
-									value={to}
-									onChange={setTo}
-									placeholder="recipient@email.com"
-									className="flex-1"
-									disabled={closing}
-								/>
+							<div className="border-b border-border px-3 py-2 text-sm">
+								<div className="flex items-center gap-2">
+									<span className="w-14 shrink-0 text-muted-foreground">To</span>
+									<RecipientInput
+										ref={recipientInputRef}
+										id="compose-to"
+										value={to}
+										onChange={setTo}
+										onEdit={() => setRecipientError(null)}
+										placeholder="recipient@email.com"
+										className="flex-1"
+										disabled={closing}
+										invalid={Boolean(recipientError)}
+										describedBy={recipientError ? 'compose-recipient-error' : undefined}
+									/>
+								</div>
+								{recipientError ? (
+									<p
+										id="compose-recipient-error"
+										role="alert"
+										className="mt-1 pl-16 text-xs text-destructive"
+									>
+										{recipientError}
+									</p>
+								) : null}
 							</div>
 							<label
 								htmlFor="compose-subject"
