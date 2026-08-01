@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mailKeys } from '#features/mail/state/mail-queries'
@@ -700,6 +700,347 @@ describe('/mail/search thread detail', () => {
 				data: { threadId: 'th-archive', folder: 'inbox' },
 			}),
 		)
+	})
+
+	it('keeps an unscoped selected conversation in the unscoped search identity', () => {
+		seedDetail({
+			thread: {
+				id: 'th-unscoped',
+				subject: 'Unscoped detail',
+				starred: false,
+				has_attachments: false,
+				folders: ['inbox'],
+			},
+			messages,
+		})
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useSearch = vi.fn(() => ({ q: 'hello', threadId: 'th-unscoped' }))
+		Route.useLoaderData = vi.fn(() => ({ ...initial, folderId: undefined }))
+
+		renderRoute()
+
+		expect(screen.getByText('Unscoped detail')).toBeInTheDocument()
+		expect(screen.getByRole('heading', { level: 1, name: 'Search results' })).toBeInTheDocument()
+	})
+
+	it.each([
+		{
+			label: 'Archive',
+			busyLabel: 'Archiving',
+			pendingLabels: ['Archiving', 'Delete', 'Star'],
+			folder: 'archive',
+			threadFolders: ['inbox'],
+		},
+		{
+			label: 'Return to inbox',
+			busyLabel: 'Returning to inbox',
+			pendingLabels: ['Returning to inbox', 'Delete', 'Star'],
+			folder: 'inbox',
+			threadFolders: ['archive'],
+		},
+		{
+			label: 'Delete',
+			busyLabel: 'Deleting',
+			pendingLabels: ['Archive', 'Deleting', 'Star'],
+			folder: 'trash',
+			threadFolders: ['inbox'],
+		},
+	])('makes $label single-flight and navigates only after success', async (scenario) => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		fns.updateThreadState.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveMutation = resolve
+				}),
+		)
+		seedDetail({
+			thread: {
+				id: 'th-pending',
+				subject: 'Pending action',
+				starred: false,
+				has_attachments: false,
+				folders: scenario.threadFolders,
+			},
+			messages,
+		})
+		renderRoute()
+
+		fireEvent.click(screen.getByTitle(scenario.label))
+		const pending = await screen.findByRole('button', { name: scenario.busyLabel })
+		expect(pending).toBeEnabled()
+		expect(pending).toHaveAttribute('aria-disabled', 'true')
+		expect(pending).toHaveAttribute('aria-busy', 'true')
+		expect(pending.querySelector('.animate-spin')).not.toBeNull()
+		for (const label of scenario.pendingLabels) {
+			const control = screen.getByTitle(label)
+			if (label === scenario.busyLabel) expect(control).toBeEnabled()
+			else expect(control).toBeDisabled()
+		}
+		expect(h.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
+
+		fireEvent.click(pending)
+		expect(fns.updateThreadState).toHaveBeenCalledTimes(1)
+		resolveMutation?.({
+			thread: {
+				id: 'th-pending',
+				starred: false,
+				unread: false,
+				folders: [scenario.folder],
+			},
+		})
+		await waitFor(() =>
+			expect(h.navigate).toHaveBeenCalledWith({
+				to: '/mail/search',
+				search: { q: 'hello', folderId: 'work' },
+			}),
+		)
+	})
+
+	it('accepts only the first same-batch activation before the pending state renders', async () => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		fns.updateThreadState.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveMutation = resolve
+				}),
+		)
+		seedDetail({
+			thread: {
+				id: 'th-same-batch',
+				subject: 'Same batch action',
+				starred: false,
+				has_attachments: false,
+				folders: ['inbox'],
+			},
+			messages,
+		})
+		renderRoute()
+
+		const archive = screen.getByTitle('Archive')
+		act(() => {
+			archive.click()
+			archive.click()
+		})
+
+		await waitFor(() => expect(fns.updateThreadState).toHaveBeenCalledTimes(1))
+		const pending = await screen.findByRole('button', { name: 'Archiving' })
+		expect(pending).toBeEnabled()
+		expect(pending).toHaveAttribute('aria-disabled', 'true')
+		resolveMutation?.({
+			thread: { id: 'th-same-batch', starred: false, unread: false, folders: ['archive'] },
+		})
+		await waitFor(() =>
+			expect(h.navigate).toHaveBeenCalledWith({
+				to: '/mail/search',
+				search: { q: 'hello', folderId: 'work' },
+			}),
+		)
+	})
+
+	it.each([
+		{ label: 'Archive', restoredLabel: 'Archive', starred: false, folders: ['inbox'] },
+		{ label: 'Return to inbox', restoredLabel: 'Return to inbox', starred: false, folders: ['archive'] },
+		{ label: 'Delete', restoredLabel: 'Delete', starred: false, folders: ['inbox'] },
+		{ label: 'Star', restoredLabel: 'Star', starred: false, folders: ['inbox'] },
+		{ label: 'Unstar', restoredLabel: 'Unstar', starred: true, folders: ['inbox'] },
+	])('recovers $label with a generic error and the prior state', async (scenario) => {
+		const user = userEvent.setup()
+		fns.updateThreadState.mockRejectedValueOnce(new Error('provider-secret-detail'))
+		seedDetail({
+			thread: {
+				id: 'th-failure',
+				subject: 'Failure recovery',
+				starred: scenario.starred,
+				has_attachments: false,
+				folders: scenario.folders,
+			},
+			messages,
+		})
+		renderRoute()
+
+		await user.click(screen.getByTitle(scenario.label))
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Action failed')
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByTitle(scenario.restoredLabel)).toBeEnabled()
+		expect(h.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
+	})
+
+	it.each([
+		{ outcome: 'success', reject: false },
+		{ outcome: 'failure', reject: true },
+	])('keeps keyboard focus on Star after mutation $outcome', async ({ reject }) => {
+		const user = userEvent.setup()
+		if (reject) fns.updateThreadState.mockRejectedValueOnce(new Error('provider-secret-detail'))
+		seedDetail({
+			thread: {
+				id: `th-focus-${reject ? 'failure' : 'success'}`,
+				subject: 'Focus retention',
+				starred: false,
+				has_attachments: false,
+				folders: ['inbox'],
+			},
+			messages,
+		})
+		renderRoute()
+
+		const star = screen.getByTitle('Star')
+		star.focus()
+		expect(star).toHaveFocus()
+		await user.keyboard('{Enter}')
+
+		if (reject) {
+			expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+			expect(screen.getByTitle('Star')).toHaveFocus()
+		} else {
+			expect(await screen.findByTitle('Unstar')).toHaveFocus()
+		}
+	})
+
+	it('clears a prior failure and succeeds on retry', async () => {
+		const user = userEvent.setup()
+		fns.updateThreadState.mockRejectedValueOnce(new Error('first failure'))
+		seedDetail({
+			thread: {
+				id: 'th-retry',
+				subject: 'Retry action',
+				starred: false,
+				has_attachments: false,
+				folders: ['inbox'],
+			},
+			messages,
+		})
+		renderRoute()
+
+		await user.click(screen.getByTitle('Archive'))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+		await user.click(screen.getByTitle('Archive'))
+
+		await waitFor(() => expect(fns.updateThreadState).toHaveBeenCalledTimes(2))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/mail/search',
+			search: { q: 'hello', folderId: 'work' },
+		})
+	})
+
+	it('ignores a completed leave action when delimiter values collide across reader identities', async () => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		let mutationSettled = false
+		fns.updateThreadState.mockImplementationOnce(() =>
+			new Promise((resolve) => {
+				resolveMutation = resolve
+			}).finally(() => {
+				mutationSettled = true
+			}),
+		)
+		let selectedId = 'th:old'
+		let selectedQuery = 'hello'
+		const routeData = () => ({
+			folders: [],
+			folderId: 'work',
+			threads: [],
+			selected: {
+				thread: {
+					id: selectedId,
+					subject: selectedId === 'th:old' ? 'Old result' : 'New result',
+					starred: selectedId === 'th',
+					has_attachments: false,
+					folders: ['inbox'],
+				},
+				messages: [],
+				mailboxEmail: 'me@x.com',
+			},
+		})
+		Route.useSearch = vi.fn(() => ({ q: selectedQuery, folderId: 'work', threadId: selectedId }))
+		Route.useLoaderData = vi.fn(routeData)
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const Comp = Route.options.component as () => JSX.Element
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Comp />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByTitle('Archive'))
+		const archiving = await screen.findByRole('button', { name: 'Archiving' })
+		expect(archiving).toBeEnabled()
+		expect(archiving).toHaveAttribute('aria-disabled', 'true')
+		selectedId = 'th'
+		selectedQuery = 'old:hello'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Comp />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByText('New result')).toBeInTheDocument()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+
+		resolveMutation?.({
+			thread: { id: 'th:old', starred: false, unread: false, folders: ['archive'] },
+		})
+		await waitFor(() => expect(mutationSettled).toBe(true))
+		expect(h.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+	})
+
+	it('ignores a failed action after another result replaces the reader', async () => {
+		let rejectMutation: ((reason?: unknown) => void) | undefined
+		let mutationSettled = false
+		fns.updateThreadState.mockImplementationOnce(() =>
+			new Promise((_resolve, reject) => {
+				rejectMutation = reject
+			}).finally(() => {
+				mutationSettled = true
+			}),
+		)
+		let selectedId = 'th-old-failure'
+		const routeData = () => ({
+			folders: [],
+			folderId: 'work',
+			threads: [],
+			selected: {
+				thread: {
+					id: selectedId,
+					subject: selectedId === 'th-old-failure' ? 'Old failed result' : 'New safe result',
+					starred: selectedId === 'th-new-safe',
+					has_attachments: false,
+					folders: ['inbox'],
+				},
+				messages: [],
+				mailboxEmail: 'me@x.com',
+			},
+		})
+		Route.useSearch = vi.fn(() => ({ q: 'hello', folderId: 'work', threadId: selectedId }))
+		Route.useLoaderData = vi.fn(routeData)
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const Comp = Route.options.component as () => JSX.Element
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Comp />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByTitle('Star'))
+		const starring = await screen.findByRole('button', { name: 'Starring' })
+		expect(starring).toBeEnabled()
+		expect(starring).toHaveAttribute('aria-disabled', 'true')
+		selectedId = 'th-new-safe'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Comp />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByText('New safe result')).toBeInTheDocument()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+
+		rejectMutation?.(new Error('provider-secret-detail'))
+		await waitFor(() => expect(mutationSettled).toBe(true))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+		expect(h.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/search' }))
 	})
 
 	it('offers complete mobile response actions with search-reader compose context', async () => {
