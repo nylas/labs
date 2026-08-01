@@ -113,7 +113,9 @@ describe('root route', () => {
 
 		expect(getByText('We couldn’t load this page.')).toBeTruthy()
 		expect(getByText('Check your connection and try again. If it persists, sign in again.')).toBeTruthy()
-		expect(getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login')
+		const signInAgain = getByRole('button', { name: 'Sign in again' })
+		expect(signInAgain.closest('form')).toHaveAttribute('action', '/logout')
+		expect(signInAgain.closest('form')).toHaveAttribute('method', 'post')
 		expect(() => fireEvent.click(getByRole('button', { name: 'Retry' }))).not.toThrow()
 	})
 })
