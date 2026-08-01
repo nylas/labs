@@ -249,13 +249,197 @@ describe('/mail/search results list', () => {
 		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Search results')
 	})
 
-	it('hydrates the first result page with its continuation cursor', () => {
+	it('offers a full-width accessible control when the first page has a continuation cursor', () => {
 		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
 		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
 
 		renderRoute()
 
 		expect(screen.getByText('Hello there')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Load more search results' })).toHaveClass('min-h-11', 'w-full')
+	})
+
+	it('can continue from an empty page that has a continuation cursor', async () => {
+		const user = userEvent.setup()
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, threads: [], nextCursor: 'cursor-2' }))
+		fns.getThreads.mockResolvedValue({
+			threads: [{ ...initial.threads[0], id: 'page-2', subject: 'Found on the next page' }],
+		})
+		renderRoute()
+
+		const status = screen.getByRole('status')
+		expect(status).toHaveTextContent('More messages may be available')
+		expect(status).toHaveTextContent('Load the next page to continue searching.')
+		expect(status).toHaveClass('min-h-0', 'flex-1')
+		expect(status).not.toHaveClass('h-full')
+		expect(status.parentElement).toHaveClass('flex', 'flex-col')
+		await user.click(screen.getByRole('button', { name: 'Load more search results' }))
+
+		expect(await screen.findByText('Found on the next page')).toBeInTheDocument()
+		expect(fns.getThreads).toHaveBeenCalledWith({
+			data: { q: 'hello', folderId: 'work', pageToken: 'cursor-2' },
+		})
+	})
+
+	it('loads a scoped next page, dedupes results, preserves date order, and opens an appended row by keyboard', async () => {
+		const user = userEvent.setup()
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
+		fns.getThreads.mockResolvedValue({
+			threads: [
+				{
+					...initial.threads[0],
+					subject: 'Updated duplicate',
+				},
+				{
+					...initial.threads[1],
+					id: 'page-2',
+					subject: 'Newest appended result',
+					latest_message_sent_date: Math.floor(Date.now() / 1000) + 86_400,
+				},
+			],
+		})
+
+		const { container } = renderRoute()
+		await user.click(screen.getByRole('button', { name: 'Load more search results' }))
+
+		await waitFor(() =>
+			expect(fns.getThreads).toHaveBeenCalledWith({
+				data: { q: 'hello', folderId: 'work', pageToken: 'cursor-2' },
+			}),
+		)
+		expect(await screen.findByText('Newest appended result')).toBeInTheDocument()
+		expect(screen.getAllByText('Updated duplicate')).toHaveLength(1)
+		expect(screen.queryByText('Hello there')).not.toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Load more search results' })).not.toBeInTheDocument()
+
+		const rows = container.querySelectorAll('[data-nav-row]')
+		expect(rows[0]).toHaveTextContent('Newest appended result')
+		expect(rows[1]).toHaveTextContent('Updated duplicate')
+
+		for (const row of rows) (row as HTMLElement).tabIndex = 0
+		const lastRow = rows[rows.length - 1] as HTMLElement
+		lastRow.focus()
+		await user.keyboard('{Home}')
+		await waitFor(() =>
+			expect(container.querySelector('[data-nav-cursor="true"]')).toHaveTextContent('Newest appended result'),
+		)
+		await user.keyboard('{Enter}')
+		expect(h.navigate).toHaveBeenLastCalledWith({
+			to: '/mail/search',
+			search: { q: 'hello', folderId: 'work', threadId: 'page-2' },
+		})
+	})
+
+	it('prevents duplicate next-page requests while loading', async () => {
+		const user = userEvent.setup()
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
+		let resolvePage: ((value: { threads: never[] }) => void) | undefined
+		fns.getThreads.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolvePage = resolve
+				}),
+		)
+		renderRoute()
+
+		const loadMore = screen.getByRole('button', { name: 'Load more search results' })
+		await user.dblClick(loadMore)
+
+		expect(fns.getThreads).toHaveBeenCalledTimes(1)
+		expect(screen.getByRole('button', { name: 'Loading more search results…' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Loading more search results…' })).toHaveAttribute(
+			'aria-busy',
+			'true',
+		)
+		resolvePage?.({ threads: [] })
+		await waitFor(() =>
+			expect(screen.queryByRole('button', { name: 'Loading more search results…' })).not.toBeInTheDocument(),
+		)
+	})
+
+	it('keeps current results and offers a generic retry after a next-page failure', async () => {
+		const user = userEvent.setup()
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
+		fns.getThreads.mockRejectedValueOnce(new Error('provider secret: cursor-2')).mockResolvedValueOnce({
+			threads: [{ ...initial.threads[1], id: 'recovered', subject: 'Recovered result' }],
+		})
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'Load more search results' }))
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not load more results. Check your connection, then try again.',
+		)
+		expect(screen.getByText('Older thread')).toBeInTheDocument()
+		expect(screen.queryByText(/provider secret/i)).not.toBeInTheDocument()
+		const retry = screen.getByRole('button', { name: 'Try loading more search results' })
+		expect(retry).toBeEnabled()
+		expect(retry).toHaveAttribute('aria-describedby', 'search-pagination-error')
+
+		await user.click(retry)
+
+		expect(await screen.findByText('Recovered result')).toBeInTheDocument()
+		expect(fns.getThreads).toHaveBeenCalledTimes(2)
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+	})
+
+	it('uses the starred filter when loading more starred search results', async () => {
+		const user = userEvent.setup()
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, folderId: 'starred', nextCursor: 'cursor-2' }))
+		fns.getThreads.mockResolvedValue({ threads: [] })
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'Load more search results' }))
+
+		await waitFor(() =>
+			expect(fns.getThreads).toHaveBeenCalledWith({
+				data: { q: 'hello', starred: true, pageToken: 'cursor-2' },
+			}),
+		)
+	})
+
+	it('keeps a late page from an old query identity out of the current search', async () => {
+		const user = userEvent.setup()
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
+		let resolveOldPage: ((value: { threads: any[] }) => void) | undefined
+		fns.getThreads.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveOldPage = resolve
+				}),
+		)
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const firstSearch = renderRoute(client)
+		await user.click(screen.getByRole('button', { name: 'Load more search results' }))
+		await waitFor(() => expect(fns.getThreads).toHaveBeenCalledTimes(1))
+
+		firstSearch.unmount()
+		Route.useSearch = vi.fn(() => ({ q: 'different', threadId: undefined }))
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: 'work',
+			selected: null,
+			threads: [{ ...initial.threads[1], id: 'current', subject: 'Current query result' }],
+		}))
+		renderRoute(client)
+		resolveOldPage?.({
+			threads: [{ ...initial.threads[1], id: 'late-old', subject: 'Late old result' }],
+		})
+
+		await waitFor(() => {
+			const oldData = client.getQueryData(mailKeys.threadList({ q: 'hello', folderId: 'work' })) as {
+				pages: unknown[]
+			}
+			expect(oldData.pages).toHaveLength(2)
+		})
+		expect(screen.getByText('Current query result')).toBeInTheDocument()
+		expect(screen.queryByText('Late old result')).not.toBeInTheDocument()
 	})
 
 	it('toggling a row star persists the new state through the mutation gateway', async () => {

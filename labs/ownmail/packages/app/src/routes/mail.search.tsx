@@ -1,7 +1,7 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import { Archive, ArrowLeft, Forward, Inbox, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
@@ -106,13 +106,17 @@ function SearchResults() {
 		...(initial.selected ? { initialData: toMailThreadDetail(initial.selected) } : {}),
 		enabled: hasSearchQuery && Boolean(threadId),
 	})
-	const threads = hasSearchQuery
-		? ([
-				...new Map(
-					threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
-				).values(),
-			] as Thread[])
-		: []
+	const threads = useMemo(
+		() =>
+			hasSearchQuery
+				? ([
+						...new Map(
+							threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
+						).values(),
+					] as Thread[])
+				: [],
+		[hasSearchQuery, threadsQuery.data.pages],
+	)
 	const folders = foldersQuery.data
 	const folderId = initial.folderId
 	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
@@ -125,6 +129,15 @@ function SearchResults() {
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const title = folderId ? mailFolderTitle(folderId, folders) : 'Search results'
+	const canLoadMore = hasSearchQuery && threadsQuery.hasNextPage
+
+	async function loadMoreSearchResults() {
+		try {
+			await threadsQuery.fetchNextPage({ cancelRefetch: false })
+		} catch {
+			// The query state renders generic retry guidance; never expose provider details.
+		}
+	}
 
 	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
 	useEffect(() => {
@@ -212,21 +225,36 @@ function SearchResults() {
 					) : null}
 				</div>
 
-				<div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+				<div
+					ref={listScrollRef}
+					className={cn(
+						'min-h-0 flex-1 overflow-y-auto',
+						sortedThreads.length === 0 && canLoadMore && 'flex flex-col',
+					)}
+				>
 					{sortedThreads.length === 0 ? (
 						<div
 							key={q}
 							role="status"
 							aria-live="polite"
 							aria-atomic="true"
-							className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center"
+							className={cn(
+								'flex flex-col items-center justify-center gap-1 px-6 text-center',
+								canLoadMore ? 'min-h-0 flex-1 py-6' : 'h-full',
+							)}
 						>
 							<p className="font-display text-sm font-semibold text-foreground">
-								{hasSearchQuery ? 'No messages found' : 'Search your mail'}
+								{hasSearchQuery
+									? canLoadMore
+										? 'More messages may be available'
+										: 'No messages found'
+									: 'Search your mail'}
 							</p>
 							<p className="text-sm text-muted-foreground">
 								{hasSearchQuery
-									? 'Try different keywords or clear the search.'
+									? canLoadMore
+										? 'Load the next page to continue searching.'
+										: 'Try different keywords or clear the search.'
 									: 'Enter keywords above to find messages.'}
 							</p>
 						</div>
@@ -242,6 +270,37 @@ function SearchResults() {
 							/>
 						))
 					)}
+					{canLoadMore ? (
+						<div className="border-t border-border p-3">
+							{threadsQuery.isFetchNextPageError ? (
+								<p
+									id="search-pagination-error"
+									role="alert"
+									className="mb-2 text-center text-xs text-destructive"
+								>
+									Could not load more results. Check your connection, then try again.
+								</p>
+							) : null}
+							<button
+								type="button"
+								onClick={() => void loadMoreSearchResults()}
+								disabled={threadsQuery.isFetchingNextPage}
+								aria-busy={threadsQuery.isFetchingNextPage}
+								aria-describedby={threadsQuery.isFetchNextPageError ? 'search-pagination-error' : undefined}
+								className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
+							>
+								{threadsQuery.isFetchingNextPage ? (
+									<>
+										<Loader2 className="h-4 w-4 animate-spin" /> Loading more search results…
+									</>
+								) : threadsQuery.isFetchNextPageError ? (
+									'Try loading more search results'
+								) : (
+									'Load more search results'
+								)}
+							</button>
+						</div>
+					) : null}
 				</div>
 			</section>
 			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden md:flex')}>
