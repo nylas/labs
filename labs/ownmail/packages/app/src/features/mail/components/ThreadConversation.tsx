@@ -81,7 +81,7 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 								onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
 								disabled={allMessagesOpen}
 								aria-label={`Expand all ${messages.length} messages`}
-								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
+								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
 							>
 								Expand all
 							</button>
@@ -90,7 +90,7 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 								onClick={() => setOpenMessageIds(new Set())}
 								disabled={allMessagesClosed}
 								aria-label={`Collapse all ${messages.length} messages`}
-								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
+								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
 							>
 								Collapse all
 							</button>

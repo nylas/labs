@@ -69,9 +69,23 @@ describe('ThreadConversation rendering', () => {
 		const collapse = screen.getByRole('button', { name: 'Collapse all 3 messages' })
 
 		expect(expand).toHaveTextContent('Expand all')
-		expect(expand).toHaveClass('min-h-11', 'focus-visible:ring-[3px]', 'focus-visible:ring-ring/40')
+		expect(expand).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
+		)
 		expect(collapse).toHaveTextContent('Collapse all')
-		expect(collapse).toHaveClass('min-h-11', 'focus-visible:ring-[3px]', 'focus-visible:ring-ring/40')
+		expect(collapse).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
+		)
 
 		fireEvent.click(expand)
 		expect(expand).toBeDisabled()
