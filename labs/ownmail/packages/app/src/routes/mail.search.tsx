@@ -30,6 +30,8 @@ import { getFolders, getThreadMessages, getThreads } from '#server/fns'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
 
+type PendingSearchThreadAction = 'archive' | 'restore' | 'delete' | 'star'
+
 export const Route = createFileRoute('/mail/search')({
 	validateSearch: (search): { q: string; folderId?: string; threadId?: string } => ({
 		q: String(search.q ?? ''),
@@ -305,7 +307,12 @@ function SearchResults() {
 			</section>
 			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden md:flex')}>
 				{selected ? (
-					<SearchThreadDetail selected={selected} q={q} folderId={folderId} />
+					<SearchThreadDetail
+						key={JSON.stringify([selected.thread.id, q, folderId ?? null])}
+						selected={selected}
+						q={q}
+						folderId={folderId}
+					/>
 				) : (
 					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
@@ -398,6 +405,20 @@ function SearchThreadDetail({
 	const lastMessage = selected.messages.at(-1)
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
+	const [error, setError] = useState<string | null>(null)
+	const [starred, setStarred] = useState(selected.thread.starred)
+	const [pendingAction, setPendingAction] = useState<PendingSearchThreadAction | null>(null)
+	const pendingActionRef = useRef<PendingSearchThreadAction | null>(null)
+	const currentReaderRef = useRef(true)
+
+	useEffect(() => {
+		currentReaderRef.current = true
+		return () => {
+			currentReaderRef.current = false
+		}
+	}, [])
+
+	useEffect(() => setStarred(selected.thread.starred), [selected.thread.starred])
 	const reply = () => {
 		/* v8 ignore next -- every exposed search reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
@@ -453,13 +474,33 @@ function SearchThreadDetail({
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [router, searchList])
 
-	async function act(input: { unread?: boolean; starred?: boolean; folder?: string }, leave = false) {
-		await updateThread.mutateAsync({ threadId: selected.thread.id, ...input })
-		if (leave) {
-			await router.navigate({
-				to: '/mail/search',
-				search: searchList,
-			})
+	async function act(
+		action: PendingSearchThreadAction,
+		input: { starred?: boolean; folder?: string },
+		leave = false,
+	) {
+		if (pendingActionRef.current) return
+		pendingActionRef.current = action
+		setError(null)
+		const previousStarred = starred
+		if (typeof input.starred === 'boolean') setStarred(input.starred)
+		setPendingAction(action)
+		try {
+			await updateThread.mutateAsync({ threadId: selected.thread.id, ...input })
+			if (!currentReaderRef.current) return
+			if (leave) {
+				await router.navigate({
+					to: '/mail/search',
+					search: searchList,
+				})
+			}
+		} catch {
+			if (!currentReaderRef.current) return
+			if (typeof input.starred === 'boolean') setStarred(previousStarred)
+			setError('Action failed')
+		} finally {
+			pendingActionRef.current = null
+			if (currentReaderRef.current) setPendingAction(null)
 		}
 	}
 
@@ -475,19 +516,54 @@ function SearchThreadDetail({
 					<ArrowLeft className="h-5 w-5" />
 				</Link>
 				<IconButton
-					label={isArchived ? 'Return to inbox' : 'Archive'}
-					onClick={() => act({ folder: isArchived ? 'inbox' : 'archive' }, true)}
+					label={
+						pendingAction === 'archive'
+							? 'Archiving'
+							: pendingAction === 'restore'
+								? 'Returning to inbox'
+								: isArchived
+									? 'Return to inbox'
+									: 'Archive'
+					}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'archive' || pendingAction === 'restore'}
+					onClick={() =>
+						act(isArchived ? 'restore' : 'archive', { folder: isArchived ? 'inbox' : 'archive' }, true)
+					}
 				>
-					{isArchived ? <Inbox className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-				</IconButton>
-				<IconButton label="Delete" onClick={() => act({ folder: 'trash' }, true)}>
-					<Trash2 className="h-4 w-4" />
+					{pendingAction === 'archive' || pendingAction === 'restore' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : isArchived ? (
+						<Inbox className="h-4 w-4" />
+					) : (
+						<Archive className="h-4 w-4" />
+					)}
 				</IconButton>
 				<IconButton
-					label={selected.thread.starred ? 'Unstar' : 'Star'}
-					onClick={() => act({ starred: !selected.thread.starred })}
+					label={pendingAction === 'delete' ? 'Deleting' : 'Delete'}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'delete'}
+					onClick={() => act('delete', { folder: 'trash' }, true)}
 				>
-					<Star className={cn('h-4 w-4', selected.thread.starred && STAR_FILLED_CLASS)} />
+					{pendingAction === 'delete' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Trash2 className="h-4 w-4" />
+					)}
+				</IconButton>
+				<IconButton
+					label={
+						pendingAction === 'star' ? (starred ? 'Starring' : 'Unstarring') : starred ? 'Unstar' : 'Star'
+					}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'star'}
+					onClick={() => act('star', { starred: !starred })}
+				>
+					{pendingAction === 'star' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Star className={cn('h-4 w-4', starred && STAR_FILLED_CLASS)} />
+					)}
 				</IconButton>
 
 				{lastMessage ? (
@@ -504,6 +580,11 @@ function SearchThreadDetail({
 					</div>
 				) : null}
 			</div>
+			{error ? (
+				<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+					{error}
+				</p>
+			) : null}
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<ThreadConversation thread={selected.thread} messages={selected.messages} />
@@ -529,10 +610,14 @@ function SearchThreadDetail({
 function IconButton({
 	label,
 	onClick,
+	disabled = false,
+	loading = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
+	disabled?: boolean
+	loading?: boolean
 	children: React.ReactNode
 }) {
 	return (
@@ -541,7 +626,10 @@ function IconButton({
 			onClick={onClick}
 			aria-label={label}
 			title={label}
-			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+			disabled={disabled && !loading}
+			aria-disabled={disabled || undefined}
+			aria-busy={loading || undefined}
+			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 		>
 			{children}
 		</button>
