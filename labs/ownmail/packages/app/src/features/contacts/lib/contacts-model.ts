@@ -115,6 +115,31 @@ export function formToFields(form: ContactForm): ContactFieldsInput {
 	}
 }
 
+/**
+ * Compares the contact values that would survive server normalization.
+ * Whitespace-only edits and empty repeatable rows are not meaningful changes,
+ * while ordering and every persisted value remain significant.
+ */
+export function contactFormsEqual(left: ContactForm, right: ContactForm): boolean {
+	return JSON.stringify(comparableContactForm(left)) === JSON.stringify(comparableContactForm(right))
+}
+
+function comparableContactForm(form: ContactForm) {
+	return {
+		givenName: form.givenName.trim(),
+		surname: form.surname.trim(),
+		companyName: form.companyName.trim(),
+		jobTitle: form.jobTitle.trim(),
+		notes: form.notes.trim(),
+		emails: form.emails
+			.map((entry) => ({ email: entry.email.trim(), type: entry.type }))
+			.filter((entry) => entry.email),
+		phoneNumbers: form.phoneNumbers
+			.map((entry) => ({ number: entry.number.trim(), type: entry.type }))
+			.filter((entry) => entry.number),
+	}
+}
+
 /** Returns actionable validation for locally knowable form errors only. */
 export function validateContactForm(form: ContactForm): ContactFormValidation | null {
 	for (const [index, row] of form.emails.entries()) {

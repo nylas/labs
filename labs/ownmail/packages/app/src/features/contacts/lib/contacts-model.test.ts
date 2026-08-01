@@ -2,6 +2,7 @@ import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
 import {
 	contactDisplayName,
+	contactFormsEqual,
 	contactIdFromPath,
 	contactPrimaryEmail,
 	contactSubtitle,
@@ -142,6 +143,25 @@ describe('form model', () => {
 			emails: [{ email: '', type: '' }],
 			phoneNumbers: [],
 		})
+	})
+
+	it('compares persisted form meaning instead of transient blank rows and whitespace', () => {
+		const initial = { ...emptyContactForm(), givenName: ' Ada ' }
+		expect(
+			contactFormsEqual(initial, {
+				...initial,
+				givenName: 'Ada',
+				emails: [],
+				phoneNumbers: [{ number: '  ', type: 'work' }],
+			}),
+		).toBe(true)
+		expect(contactFormsEqual(initial, { ...initial, givenName: 'Grace' })).toBe(false)
+		expect(
+			contactFormsEqual(
+				{ ...initial, emails: [{ email: 'ada@x.com', type: 'work' }] },
+				{ ...initial, emails: [{ email: 'ada@x.com', type: 'home' }] },
+			),
+		).toBe(false)
 	})
 
 	it('provides actionable validation for blank identity and malformed email input', () => {

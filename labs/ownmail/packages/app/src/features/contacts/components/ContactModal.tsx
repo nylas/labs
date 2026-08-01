@@ -1,6 +1,6 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { Plus, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { Input } from '#shared/components/ui/input'
 import { Textarea } from '#shared/components/ui/textarea'
@@ -8,6 +8,7 @@ import { cn } from '#shared/lib/utils'
 import {
 	type ContactForm,
 	type ContactFormValidation,
+	contactFormsEqual,
 	contactToForm,
 	emptyContactForm,
 	formToFields,
@@ -30,14 +31,54 @@ export function ContactModal({
 	contact: Contact | null
 	onClose: (changed: boolean, contactId?: string) => void
 }) {
-	const [form, setForm] = useState<ContactForm>(() => (contact ? contactToForm(contact) : emptyContactForm()))
+	const [initialForm] = useState<ContactForm>(() => (contact ? contactToForm(contact) : emptyContactForm()))
+	const [form, setForm] = useState<ContactForm>(initialForm)
 	const [busy, setBusy] = useState(false)
+	const [confirmingDiscard, setConfirmingDiscard] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [validation, setValidation] = useState<ContactFormValidation | null>(null)
+	const busyRef = useRef(false)
+	const closedRef = useRef(false)
+	const restoreFocusTargetRef = useRef<HTMLElement | null>(null)
+	const cancelButtonRef = useRef<HTMLButtonElement>(null)
+	const continueEditingButtonRef = useRef<HTMLButtonElement>(null)
 	const givenNameRef = useRef<HTMLInputElement>(null)
 	const emailRefs = useRef<Array<HTMLInputElement | null>>([])
 	const createMutation = useCreateContactMutation()
 	const updateMutation = useUpdateContactMutation(contact)
+	const dirty = !contactFormsEqual(form, initialForm)
+
+	useEffect(() => {
+		if (confirmingDiscard) {
+			continueEditingButtonRef.current?.focus()
+		} else if (restoreFocusTargetRef.current) {
+			const target = restoreFocusTargetRef.current
+			restoreFocusTargetRef.current = null
+			target.focus()
+		}
+	}, [confirmingDiscard])
+
+	function finishClose(changed: boolean, contactId?: string) {
+		if (closedRef.current) return
+		closedRef.current = true
+		if (contactId === undefined) onClose(changed)
+		else onClose(changed, contactId)
+	}
+
+	function requestClose(focusTarget?: HTMLElement) {
+		if (busyRef.current || closedRef.current) return
+		if (dirty) {
+			const activeElement = document.activeElement as HTMLElement
+			restoreFocusTargetRef.current = focusTarget ?? activeElement
+			setConfirmingDiscard(true)
+			return
+		}
+		finishClose(false)
+	}
+
+	function continueEditing() {
+		setConfirmingDiscard(false)
+	}
 
 	function patch(next: Partial<ContactForm>) {
 		setForm((current) => ({ ...current, ...next }))
@@ -56,6 +97,8 @@ export function ContactModal({
 	}
 
 	async function save() {
+		/* v8 ignore next -- native disabled state prevents repeated UI submission; the ref closes same-batch gaps -- @preserve */
+		if (busyRef.current || closedRef.current) return
 		setError(null)
 		const nextValidation = validateContactForm(form)
 		if (nextValidation) {
@@ -65,18 +108,20 @@ export function ContactModal({
 			return
 		}
 		setValidation(null)
+		busyRef.current = true
 		setBusy(true)
 		try {
 			const fields = formToFields(form)
 			if (contact) {
 				await updateMutation.mutateAsync(fields)
-				onClose(true, contact.id)
+				finishClose(true, contact.id)
 			} else {
 				const created = await createMutation.mutateAsync(fields)
-				onClose(true, created.contactId)
+				finishClose(true, created.contactId)
 			}
 		} catch {
 			setError('Could not save contact. Check your connection, then try again.')
+			busyRef.current = false
 			setBusy(false)
 		}
 	}
@@ -85,32 +130,61 @@ export function ContactModal({
 		<Dialog
 			open
 			onOpenChange={(next) => {
-				/* v8 ignore next -- while saving, the dialog cannot be dismissed -- @preserve */
-				if (!next && !busy) onClose(false)
+				/* v8 ignore next -- this controlled, always-open dialog only emits false dismissal requests -- @preserve */
+				if (next) return
+				if (confirmingDiscard) {
+					continueEditing()
+					return
+				}
+				requestClose()
 			}}
 		>
-			<DialogContent className={CONTACT_DIALOG_PANEL_CLASS}>
-				<div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+			<DialogContent
+				className={CONTACT_DIALOG_PANEL_CLASS}
+				{...(confirmingDiscard
+					? {
+							role: 'alertdialog' as const,
+							'aria-labelledby': 'contact-discard-title',
+							'aria-describedby': 'contact-discard-description',
+						}
+					: {})}
+				/* v8 ignore next -- Radix owns the native pointer-outside event; explicit overlay tests cover dismissal -- @preserve */
+				onPointerDownOutside={(event) => event.preventDefault()}
+				onBackdropClick={confirmingDiscard ? continueEditing : () => requestClose()}
+			>
+				{confirmingDiscard ? (
+					<DiscardConfirmation
+						continueButtonRef={continueEditingButtonRef}
+						onContinue={continueEditing}
+						onDiscard={() => finishClose(false)}
+					/>
+				) : null}
+
+				<div
+					hidden={confirmingDiscard}
+					className="flex items-center justify-between gap-3 border-b border-border px-5 py-4"
+				>
 					<DialogTitle className="text-lg font-semibold">
 						{contact ? 'Edit contact' : 'New contact'}
 					</DialogTitle>
 					<button
 						type="button"
-						onClick={() => onClose(false)}
+						onClick={(event) => requestClose(event.currentTarget)}
 						disabled={busy}
 						aria-label="Close"
-						className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-50"
 					>
 						<X className="h-4 w-4" />
 					</button>
 				</div>
 
-				<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+				<div hidden={confirmingDiscard} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
 					<div className="grid grid-cols-2 gap-3">
 						<Field id="contact-given-name" label="First name">
 							<Input
 								ref={givenNameRef}
 								id="contact-given-name"
+								disabled={busy}
 								value={form.givenName}
 								aria-invalid={validation?.field === 'identity' || undefined}
 								aria-describedby={validation?.field === 'identity' ? 'contact-form-validation' : undefined}
@@ -123,6 +197,7 @@ export function ContactModal({
 						<Field id="contact-surname" label="Last name">
 							<Input
 								id="contact-surname"
+								disabled={busy}
 								value={form.surname}
 								onChange={(e) => {
 									patch({ surname: e.target.value })
@@ -133,6 +208,7 @@ export function ContactModal({
 						<Field id="contact-company" label="Company">
 							<Input
 								id="contact-company"
+								disabled={busy}
 								value={form.companyName}
 								onChange={(e) => {
 									patch({ companyName: e.target.value })
@@ -143,6 +219,7 @@ export function ContactModal({
 						<Field id="contact-job-title" label="Job title">
 							<Input
 								id="contact-job-title"
+								disabled={busy}
 								value={form.jobTitle}
 								onChange={(e) => patch({ jobTitle: e.target.value })}
 							/>
@@ -152,6 +229,7 @@ export function ContactModal({
 					<RowGroup
 						legend="Email"
 						addLabel="Add email"
+						disabled={busy}
 						onAdd={() => patch({ emails: [...form.emails, { email: '', type: '' }] })}
 					>
 						{form.emails.map((row, index) => (
@@ -163,6 +241,7 @@ export function ContactModal({
 									}}
 									id={`contact-email-${index}`}
 									type="email"
+									disabled={busy}
 									aria-label={`Email ${index + 1}`}
 									aria-invalid={
 										validation?.field === 'email' && validation.index === index ? true : undefined
@@ -182,11 +261,13 @@ export function ContactModal({
 								/>
 								<TypeSelect
 									label={`Email ${index + 1} type`}
+									disabled={busy}
 									value={row.type}
 									onChange={(type) => patch({ emails: replaceAt(form.emails, index, { ...row, type }) })}
 								/>
 								<RemoveRowButton
 									label={`Remove email ${index + 1}`}
+									disabled={busy}
 									onClick={() => {
 										patch({ emails: removeAt(form.emails, index) })
 										setValidation(null)
@@ -199,6 +280,7 @@ export function ContactModal({
 					<RowGroup
 						legend="Phone"
 						addLabel="Add phone"
+						disabled={busy}
 						onAdd={() => patch({ phoneNumbers: [...form.phoneNumbers, { number: '', type: '' }] })}
 					>
 						{form.phoneNumbers.map((row, index) => (
@@ -206,6 +288,7 @@ export function ContactModal({
 							<div key={index} className="flex items-center gap-2">
 								<Input
 									type="tel"
+									disabled={busy}
 									aria-label={`Phone ${index + 1}`}
 									placeholder="+1 555 0100"
 									value={row.number}
@@ -221,6 +304,7 @@ export function ContactModal({
 								/>
 								<TypeSelect
 									label={`Phone ${index + 1} type`}
+									disabled={busy}
 									value={row.type}
 									onChange={(type) =>
 										patch({ phoneNumbers: replaceAt(form.phoneNumbers, index, { ...row, type }) })
@@ -228,6 +312,7 @@ export function ContactModal({
 								/>
 								<RemoveRowButton
 									label={`Remove phone ${index + 1}`}
+									disabled={busy}
 									onClick={() => patch({ phoneNumbers: removeAt(form.phoneNumbers, index) })}
 								/>
 							</div>
@@ -237,6 +322,7 @@ export function ContactModal({
 					<Field id="contact-notes" label="Notes">
 						<Textarea
 							id="contact-notes"
+							disabled={busy}
 							value={form.notes}
 							onChange={(e) => patch({ notes: e.target.value })}
 							className="min-h-20"
@@ -257,12 +343,16 @@ export function ContactModal({
 					) : null}
 				</div>
 
-				<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+				<div
+					hidden={confirmingDiscard}
+					className="flex items-center justify-end gap-2 border-t border-border px-5 py-3"
+				>
 					<button
+						ref={cancelButtonRef}
 						type="button"
-						onClick={() => onClose(false)}
+						onClick={(event) => requestClose(event.currentTarget)}
 						disabled={busy}
-						className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+						className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
 					>
 						Cancel
 					</button>
@@ -270,13 +360,51 @@ export function ContactModal({
 						type="button"
 						disabled={busy}
 						onClick={save}
-						className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+						className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
 					>
 						{busy ? 'Saving...' : contact ? 'Save changes' : 'Add contact'}
 					</button>
 				</div>
 			</DialogContent>
 		</Dialog>
+	)
+}
+
+function DiscardConfirmation({
+	continueButtonRef,
+	onContinue,
+	onDiscard,
+}: {
+	continueButtonRef: React.RefObject<HTMLButtonElement | null>
+	onContinue: () => void
+	onDiscard: () => void
+}) {
+	return (
+		<div className="p-5">
+			<h2 id="contact-discard-title" className="text-lg font-semibold">
+				Discard unsaved changes?
+			</h2>
+			<p id="contact-discard-description" className="mt-2 text-sm leading-6 text-muted-foreground">
+				Your contact changes have not been saved. You can keep editing or discard them.
+			</p>
+			<div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+				<button
+					ref={continueButtonRef}
+					type="button"
+					onClick={onContinue}
+					className="min-h-11 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+				>
+					Continue editing
+				</button>
+				<button
+					type="button"
+					onClick={onDiscard}
+					className="min-h-11 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90"
+				>
+					Discard changes
+				</button>
+			</div>
+		</div>
 	)
 }
 
@@ -294,11 +422,13 @@ function Field({ id, label, children }: { id: string; label: string; children: R
 function RowGroup({
 	legend,
 	addLabel,
+	disabled,
 	onAdd,
 	children,
 }: {
 	legend: string
 	addLabel: string
+	disabled: boolean
 	onAdd: () => void
 	children: React.ReactNode
 }) {
@@ -308,8 +438,9 @@ function RowGroup({
 				<span className="text-xs font-medium text-muted-foreground">{legend}</span>
 				<button
 					type="button"
+					disabled={disabled}
 					onClick={onAdd}
-					className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+					className="flex min-h-11 items-center gap-1 px-2 text-xs font-medium text-primary hover:underline disabled:opacity-50"
 				>
 					<Plus className="h-3.5 w-3.5" /> {addLabel}
 				</button>
@@ -322,19 +453,22 @@ function RowGroup({
 function TypeSelect({
 	label,
 	value,
+	disabled,
 	onChange,
 }: {
 	label: string
 	value: string
+	disabled: boolean
 	onChange: (value: string) => void
 }) {
 	return (
 		<select
 			aria-label={label}
 			value={value}
+			disabled={disabled}
 			onChange={(e) => onChange(e.target.value)}
 			className={cn(
-				'h-9 rounded-md border border-border bg-card px-2 text-sm text-muted-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40',
+				'h-11 rounded-md border border-border bg-card px-2 text-sm text-muted-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40',
 			)}
 		>
 			{FIELD_TYPES.map((type) => (
@@ -346,13 +480,22 @@ function TypeSelect({
 	)
 }
 
-function RemoveRowButton({ label, onClick }: { label: string; onClick: () => void }) {
+function RemoveRowButton({
+	label,
+	disabled,
+	onClick,
+}: {
+	label: string
+	disabled: boolean
+	onClick: () => void
+}) {
 	return (
 		<button
 			type="button"
 			aria-label={label}
+			disabled={disabled}
 			onClick={onClick}
-			className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
 		>
 			<X className="h-4 w-4" />
 		</button>

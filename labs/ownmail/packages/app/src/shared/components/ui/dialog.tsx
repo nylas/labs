@@ -19,11 +19,14 @@ export function DialogOverlay({ className, ...props }: React.ComponentProps<type
 export function DialogContent({
 	className,
 	children,
+	onBackdropClick,
 	...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+	onBackdropClick?: React.MouseEventHandler<HTMLDivElement>
+}) {
 	return (
 		<DialogPrimitive.Portal>
-			<DialogOverlay />
+			<DialogOverlay onClick={onBackdropClick} />
 			<DialogPrimitive.Content
 				data-slot="dialog-content"
 				className={cn(
