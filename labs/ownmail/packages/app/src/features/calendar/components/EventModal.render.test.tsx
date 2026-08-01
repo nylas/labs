@@ -912,7 +912,9 @@ describe('EventModal — existing event', () => {
 				onClose={onClose}
 			/>,
 		)
-		await user.click(screen.getByRole('button', { name: /Delete/ }))
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		expect(deleteEvent).not.toHaveBeenCalled()
+		await user.click(screen.getByRole('button', { name: 'Delete event' }))
 		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
 		// Missing calendar_id falls back to the passed calendarId.
 		expect(deleteEvent).toHaveBeenCalledWith({
@@ -920,10 +922,9 @@ describe('EventModal — existing event', () => {
 		})
 	})
 
-	it('surfaces a delete failure (non-Error) without closing', async () => {
+	it('cancels event deletion and returns focus without mutating', async () => {
 		const user = userEvent.setup()
 		const onClose = vi.fn()
-		deleteEvent.mockRejectedValueOnce('boom')
 		render(
 			<EventModal
 				event={timedEvent()}
@@ -934,11 +935,108 @@ describe('EventModal — existing event', () => {
 				onClose={onClose}
 			/>,
 		)
-		await user.click(screen.getByRole('button', { name: /Delete/ }))
-		expect(
-			await screen.findByText('Could not delete the event. Check your connection, then try again.'),
-		).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		expect(screen.getByRole('group', { name: /Delete this event\?/ })).toBeInTheDocument()
+		expect(screen.getByText('This action cannot be undone.')).toBeInTheDocument()
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus())
+		expect(deleteEvent).not.toHaveBeenCalled()
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Delete' })).toHaveFocus())
+		expect(screen.queryByRole('group', { name: /Delete this event\?/ })).not.toBeInTheDocument()
+		expect(deleteEvent).not.toHaveBeenCalled()
 		expect(onClose).not.toHaveBeenCalled()
+	})
+
+	it('uses Escape to cancel confirmation before dismissing the event', async () => {
+		const user = userEvent.setup()
+		const onClose = vi.fn()
+		render(
+			<EventModal
+				event={timedEvent()}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus())
+		await user.keyboard('{Escape}')
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Delete' })).toHaveFocus())
+		expect(deleteEvent).not.toHaveBeenCalled()
+		expect(onClose).not.toHaveBeenCalled()
+	})
+
+	it('locks confirmation while deletion is pending', async () => {
+		const user = userEvent.setup()
+		const onClose = vi.fn()
+		let resolveDelete: (value: { ok: true }) => void = () => {}
+		deleteEvent.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveDelete = resolve
+			}),
+		)
+		render(
+			<EventModal
+				event={timedEvent()}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		const confirmDelete = screen.getByRole('button', { name: 'Delete event' })
+		fireEvent.click(confirmDelete)
+		fireEvent.click(confirmDelete)
+		await waitFor(() => expect(deleteEvent).toHaveBeenCalledTimes(1))
+		expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+		await user.keyboard('{Escape}')
+		expect(screen.getByRole('group', { name: /Delete this event\?/ })).toBeInTheDocument()
+		expect(onClose).not.toHaveBeenCalled()
+
+		resolveDelete({ ok: true })
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
+		expect(deleteEvent).toHaveBeenCalledTimes(1)
+	})
+
+	it('surfaces a delete failure (non-Error) without closing', async () => {
+		const user = userEvent.setup()
+		const onClose = vi.fn()
+		deleteEvent.mockRejectedValueOnce('boom')
+		let resolveRetry: (value: { ok: true }) => void = () => {}
+		deleteEvent.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveRetry = resolve
+			}),
+		)
+		render(
+			<EventModal
+				event={timedEvent()}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+			/>,
+		)
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		await user.click(screen.getByRole('button', { name: 'Delete event' }))
+		expect(await screen.findByRole('alert')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Delete event' })).toBeEnabled()
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+		expect(onClose).not.toHaveBeenCalled()
+
+		await user.click(screen.getByRole('button', { name: 'Delete event' }))
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled()
+		expect(deleteEvent).toHaveBeenCalledTimes(2)
+		resolveRetry({ ok: true })
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
 	})
 
 	it('surfaces a delete failure message from a thrown Error', async () => {
@@ -954,7 +1052,8 @@ describe('EventModal — existing event', () => {
 				onClose={vi.fn()}
 			/>,
 		)
-		await user.click(screen.getByRole('button', { name: /Delete/ }))
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		await user.click(screen.getByRole('button', { name: 'Delete event' }))
 		expect(
 			await screen.findByText('Could not delete the event. Check your connection, then try again.'),
 		).toBeInTheDocument()
