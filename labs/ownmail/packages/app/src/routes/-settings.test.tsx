@@ -93,6 +93,27 @@ describe('/settings', () => {
 		expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
 	})
 
+	it('gives every editable text and select field a touch-friendly height', () => {
+		renderSettings(true)
+
+		const fixedHeightFields = [
+			screen.getByLabelText('Display name'),
+			screen.getByRole('combobox', { name: /Primary timezone/ }),
+			screen.getByRole('combobox', { name: /Secondary timezone/ }),
+		]
+		for (const field of fixedHeightFields) {
+			expect(field).toHaveClass('h-11')
+			expect(field).not.toHaveClass('h-9')
+		}
+		for (const field of [
+			screen.getByLabelText('New password'),
+			screen.getByLabelText('Confirm new password'),
+		]) {
+			expect(field).toHaveClass('min-h-11')
+			expect(field).not.toHaveClass('h-9')
+		}
+	})
+
 	it('shows the running OwnMail version', () => {
 		renderSettings()
 
