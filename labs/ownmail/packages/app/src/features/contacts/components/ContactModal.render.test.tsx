@@ -89,6 +89,7 @@ describe('ContactModal — create', () => {
 		const onClose = vi.fn()
 		render(<ContactModal contact={null} onClose={onClose} />)
 
+		expect(screen.getByRole('dialog', { name: 'New contact' })).toBeInTheDocument()
 		expect(screen.getByText('New contact')).toBeInTheDocument()
 		const setField = (label: string, value: string) =>
 			fireEvent.change(screen.getByLabelText(label as string, { selector: 'input' }), {
@@ -168,11 +169,21 @@ describe('ContactModal — create', () => {
 				resolve = r
 			}),
 		)
-		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
 		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
-		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
+		const save = screen.getByRole('button', { name: 'Add contact' })
+		fireEvent.click(save)
+		fireEvent.click(save)
 		expect(await screen.findByRole('button', { name: 'Saving...' })).toBeDisabled()
+		expect(screen.getByLabelText('Email 1')).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Add phone' })).toBeDisabled()
+		fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+		expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument()
+		expect(createContact).toHaveBeenCalledTimes(1)
+		expect(onClose).not.toHaveBeenCalled()
 		resolve({ contactId: 'contact-new' })
+		await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
 	})
 })
 
@@ -193,7 +204,7 @@ describe('ContactModal — edit', () => {
 		const onClose = vi.fn()
 		render(<ContactModal contact={existing} onClose={onClose} />)
 
-		expect(screen.getByText('Edit contact')).toBeInTheDocument()
+		expect(screen.getByRole('dialog', { name: 'Edit contact' })).toBeInTheDocument()
 		expect(
 			(screen.getByLabelText('First name' as string, { selector: 'input' }) as HTMLInputElement).value,
 		).toBe('Ada')
@@ -235,5 +246,116 @@ describe('ContactModal — dismissal', () => {
 		render(<ContactModal contact={null} onClose={onClose} />)
 		fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
 		expect(onClose).toHaveBeenCalledWith(false)
+	})
+
+	it('asks before dirty Cancel, preserves values, and restores editor focus', async () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
+		const firstName = screen.getByLabelText('First name', { selector: 'input' })
+		fireEvent.change(firstName, { target: { value: 'Grace' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+		expect(onClose).not.toHaveBeenCalled()
+		expect(screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toHaveAccessibleDescription(
+			'Your contact changes have not been saved. You can keep editing or discard them.',
+		)
+		expect(screen.getByRole('button', { name: 'Continue editing' })).toHaveFocus()
+		fireEvent.click(screen.getByRole('button', { name: 'Continue editing' }))
+		expect(await screen.findByLabelText('First name', { selector: 'input' })).toHaveValue('Grace')
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus())
+		expect(onClose).not.toHaveBeenCalled()
+	})
+
+	it('discards dirty create changes once without saving', () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
+		fireEvent.change(screen.getByLabelText('Notes', { selector: 'textarea' }), {
+			target: { value: 'private draft note' },
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+		const discard = screen.getByRole('button', { name: 'Discard changes' })
+		fireEvent.click(discard)
+		fireEvent.click(discard)
+
+		expect(onClose).toHaveBeenCalledTimes(1)
+		expect(onClose).toHaveBeenCalledWith(false)
+		expect(createContact).not.toHaveBeenCalled()
+	})
+
+	it('restores focus to the close button that invoked confirmation', async () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
+			target: { value: 'Grace' },
+		})
+		const close = screen.getByRole('button', { name: 'Close' })
+		fireEvent.click(close)
+		fireEvent.click(screen.getByRole('button', { name: 'Continue editing' }))
+
+		await waitFor(() => expect(close).toHaveFocus())
+	})
+
+	it('intercepts Escape for dirty edit forms and lets Escape cancel the confirmation', async () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={existing} onClose={onClose} />)
+		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
+			target: { value: 'Ada B.' },
+		})
+		const firstName = screen.getByLabelText('First name', { selector: 'input' })
+		firstName.focus()
+
+		fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+		expect(screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+		fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+
+		expect(await screen.findByLabelText('First name', { selector: 'input' })).toHaveValue('Ada B.')
+		await waitFor(() => expect(firstName).toHaveFocus())
+		expect(onClose).not.toHaveBeenCalled()
+		expect(updateContact).not.toHaveBeenCalled()
+	})
+
+	it('intercepts backdrop dismissal for dirty forms', () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
+		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
+			target: { value: 'Grace' },
+		})
+		const firstName = screen.getByLabelText('First name', { selector: 'input' })
+		firstName.focus()
+		const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]')
+		expect(overlay).not.toBeNull()
+
+		fireEvent.click(overlay as HTMLElement)
+
+		expect(screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+		expect(onClose).not.toHaveBeenCalled()
+
+		const confirmationOverlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]')
+		fireEvent.click(confirmationOverlay as HTMLElement)
+		expect(screen.getByLabelText('First name', { selector: 'input' })).toHaveValue('Grace')
+		expect(firstName).toHaveFocus()
+		expect(onClose).not.toHaveBeenCalled()
+	})
+
+	it('gives repeatable-field controls 44px touch targets', () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		expect(screen.getByRole('button', { name: 'Add email' })).toHaveClass('min-h-11')
+		expect(screen.getByLabelText('Email 1 type')).toHaveClass('h-11')
+		expect(screen.getByRole('button', { name: 'Remove email 1' })).toHaveClass('h-11', 'w-11')
+	})
+
+	it('treats whitespace and transient blank rows as pristine', () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
+		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
+			target: { value: '   ' },
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		fireEvent.change(screen.getByLabelText('Phone 1 type'), { target: { value: 'work' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+		expect(onClose).toHaveBeenCalledWith(false)
+		expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument()
 	})
 })
