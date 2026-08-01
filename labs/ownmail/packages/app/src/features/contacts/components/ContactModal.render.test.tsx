@@ -157,11 +157,11 @@ describe('ContactModal — create', () => {
 			'autocomplete',
 			'organization-title',
 		)
-		expect(screen.getByLabelText('Email 1')).toHaveAttribute('autocomplete', 'section-contact-email-1 email')
+		expect(screen.getByLabelText('Email 1')).toHaveAttribute('autocomplete', 'email')
 		fireEvent.click(screen.getByRole('button', { name: 'Add email' }))
 		expect(screen.getByLabelText('Email 2')).toHaveAttribute('autocomplete', 'section-contact-email-2 email')
 		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
-		expect(screen.getByLabelText('Phone 1')).toHaveAttribute('autocomplete', 'section-contact-phone-1 tel')
+		expect(screen.getByLabelText('Phone 1')).toHaveAttribute('autocomplete', 'tel')
 		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
 		expect(screen.getByLabelText('Phone 2')).toHaveAttribute('autocomplete', 'section-contact-phone-2 tel')
 	})
