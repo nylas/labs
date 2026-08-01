@@ -1,5 +1,17 @@
 # @ownmail/app
 
+## 0.11.2
+
+### Patch Changes
+
+- 4bcbb2b: Confirm intent before deleting calendar events.
+- dac9e9d: Synchronize theme controls across OwnMail.
+- 24ec05e: Provide actionable contact form validation.
+- 3376d8b: Make the minimized composer restore action accurate and accessible.
+- 1281e5f: Clear stale password feedback when either password field changes.
+- d796a5d: Clarify unscoped mail search results and no-match recovery.
+- 50edf32: Hide raw email download for unsent OwnMail drafts.
+
 ## 0.11.1
 
 ## 0.11.0
