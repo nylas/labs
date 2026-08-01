@@ -213,7 +213,7 @@ describe('ContactModal — create', () => {
 		expect(screen.getByRole('button', { name: 'Remove email 1' })).toBeDisabled()
 		expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
 		expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
-		expect(document.querySelector('fieldset')).toHaveAttribute('aria-busy', 'true')
+		expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true')
 
 		await act(async () => resolve({ contactId: 'contact-new' }))
 	})

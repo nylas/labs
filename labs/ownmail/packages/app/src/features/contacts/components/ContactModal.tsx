@@ -44,7 +44,6 @@ export function ContactModal({
 	const continueEditingButtonRef = useRef<HTMLButtonElement>(null)
 	const givenNameRef = useRef<HTMLInputElement>(null)
 	const emailRefs = useRef<Array<HTMLInputElement | null>>([])
-	const saveInFlight = useRef(false)
 	const createMutation = useCreateContactMutation()
 	const updateMutation = useUpdateContactMutation(contact)
 	const dirty = !contactFormsEqual(form, initialForm)
@@ -143,6 +142,7 @@ export function ContactModal({
 		>
 			<DialogContent
 				className={CONTACT_DIALOG_PANEL_CLASS}
+				aria-busy={busy || undefined}
 				{...(confirmingDiscard
 					? {
 							role: 'alertdialog' as const,
@@ -317,8 +317,9 @@ export function ContactModal({
 									disabled={busy}
 									onClick={() => patch({ phoneNumbers: removeAt(form.phoneNumbers, index) })}
 								/>
-							</Field>
-						</div>
+							</div>
+						))}
+					</RowGroup>
 
 					<Field id="contact-notes" label="Notes">
 						<Textarea
@@ -336,47 +337,15 @@ export function ContactModal({
 							role="alert"
 							className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
 						>
-							{form.emails.map((row, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
-								<div key={index} className="flex items-center gap-2">
-									<Input
-										ref={(node) => {
-											emailRefs.current[index] = node
-										}}
-										id={`contact-email-${index}`}
-										type="email"
-										aria-label={`Email ${index + 1}`}
-										aria-invalid={
-											validation?.field === 'email' && validation.index === index ? true : undefined
-										}
-										aria-describedby={
-											validation?.field === 'email' && validation.index === index
-												? 'contact-form-validation'
-												: undefined
-										}
-										placeholder="name@example.com"
-										value={row.email}
-										onChange={(e) => {
-											patch({ emails: replaceAt(form.emails, index, { ...row, email: e.target.value }) })
-											clearEmailValidation(index)
-										}}
-										className="flex-1"
-									/>
-									<TypeSelect
-										label={`Email ${index + 1} type`}
-										value={row.type}
-										onChange={(type) => patch({ emails: replaceAt(form.emails, index, { ...row, type }) })}
-									/>
-									<RemoveRowButton
-										label={`Remove email ${index + 1}`}
-										onClick={() => {
-											patch({ emails: removeAt(form.emails, index) })
-											setValidation(null)
-										}}
-									/>
-								</div>
-							))}
-						</RowGroup>
+							{validation.message}
+						</p>
+					) : null}
+					{error ? (
+						<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+							{error}
+						</p>
+					) : null}
+				</div>
 
 				<div
 					hidden={confirmingDiscard}
