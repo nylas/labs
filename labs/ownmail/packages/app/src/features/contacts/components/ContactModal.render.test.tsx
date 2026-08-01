@@ -138,6 +138,37 @@ describe('ContactModal — create', () => {
 		expect(screen.queryByLabelText('Phone 1')).not.toBeInTheDocument()
 	})
 
+	it('provides touch-friendly, focus-visible contact controls', () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+
+		expect(screen.getByLabelText('First name', { selector: 'input' })).toHaveClass('h-11')
+		expect(screen.getByLabelText('Email 1')).toHaveClass('h-11')
+		expect(screen.getByLabelText('Email 1 type')).toHaveClass('h-11')
+		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
+			'h-11',
+			'w-11',
+			'focus-visible:ring-[3px]',
+		)
+		expect(screen.getByRole('button', { name: 'Add email' })).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+		)
+		expect(screen.getByRole('button', { name: 'Remove email 1' })).toHaveClass(
+			'h-11',
+			'w-11',
+			'focus-visible:ring-[3px]',
+		)
+		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('min-h-11', 'focus-visible:ring-[3px]')
+		expect(screen.getByRole('button', { name: 'Add contact' })).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		expect(screen.getByLabelText('Phone 1')).toHaveClass('h-11')
+		expect(screen.getByLabelText('Phone 1 type')).toHaveClass('h-11')
+		expect(screen.getByRole('button', { name: 'Remove phone 1' })).toHaveClass('h-11', 'w-11')
+	})
+
 	it('surfaces a save error and keeps the dialog open', async () => {
 		createContact.mockRejectedValue(new Error('QUOTA: too many contacts'))
 		const onClose = vi.fn()

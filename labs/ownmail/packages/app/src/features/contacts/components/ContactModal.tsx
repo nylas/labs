@@ -188,6 +188,7 @@ export function ContactModal({
 								value={form.givenName}
 								aria-invalid={validation?.field === 'identity' || undefined}
 								aria-describedby={validation?.field === 'identity' ? 'contact-form-validation' : undefined}
+								className="h-11"
 								onChange={(e) => {
 									patch({ givenName: e.target.value })
 									clearIdentityValidation()
@@ -199,6 +200,7 @@ export function ContactModal({
 								id="contact-surname"
 								disabled={busy}
 								value={form.surname}
+								className="h-11"
 								onChange={(e) => {
 									patch({ surname: e.target.value })
 									clearIdentityValidation()
@@ -210,6 +212,7 @@ export function ContactModal({
 								id="contact-company"
 								disabled={busy}
 								value={form.companyName}
+								className="h-11"
 								onChange={(e) => {
 									patch({ companyName: e.target.value })
 									clearIdentityValidation()
@@ -221,6 +224,7 @@ export function ContactModal({
 								id="contact-job-title"
 								disabled={busy}
 								value={form.jobTitle}
+								className="h-11"
 								onChange={(e) => patch({ jobTitle: e.target.value })}
 							/>
 						</Field>
@@ -257,7 +261,7 @@ export function ContactModal({
 										patch({ emails: replaceAt(form.emails, index, { ...row, email: e.target.value }) })
 										clearEmailValidation(index)
 									}}
-									className="flex-1"
+									className="h-11 flex-1"
 								/>
 								<TypeSelect
 									label={`Email ${index + 1} type`}
@@ -300,7 +304,7 @@ export function ContactModal({
 											}),
 										})
 									}
-									className="flex-1"
+									className="h-11 flex-1"
 								/>
 								<TypeSelect
 									label={`Phone ${index + 1} type`}
