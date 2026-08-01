@@ -62,9 +62,11 @@ function AppError() {
 				>
 					Retry
 				</button>
-				<Link to="/login" className="rounded-lg border border-border px-4 py-2 text-sm font-medium">
-					Sign in
-				</Link>
+				<form action="/logout" method="post">
+					<button type="submit" className="rounded-lg border border-border px-4 py-2 text-sm font-medium">
+						Sign in again
+					</button>
+				</form>
 			</div>
 		</div>
 	)
