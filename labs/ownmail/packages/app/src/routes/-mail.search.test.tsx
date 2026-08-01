@@ -518,6 +518,66 @@ describe('/mail/search thread detail', () => {
 		)
 	})
 
+	it('offers complete mobile response actions with search-reader compose context', async () => {
+		const user = userEvent.setup()
+		seedDetail({
+			thread: {
+				id: 'th-mobile',
+				subject: 'Mobile actions',
+				starred: false,
+				has_attachments: false,
+				folders: ['inbox'],
+			},
+			messages: [
+				{
+					id: 'm-mobile',
+					from: [{ email: 'sender@x.com' }],
+					to: [{ email: 'me@x.com' }, { email: 'other@x.com' }],
+					cc: [{ email: 'cc@x.com' }],
+					body: 'Mobile body',
+				},
+			],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+		const group = screen.getByRole('group', { name: 'Thread response actions' })
+		const reply = screen.getByRole('button', { name: 'Reply to thread' })
+		const replyAll = screen.getByRole('button', { name: 'Reply all to thread' })
+		const forward = screen.getByRole('button', { name: 'Forward thread' })
+
+		expect(group).toHaveClass('grid-cols-3', 'pr-14', 'sm:hidden')
+		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
+		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveClass('hidden', 'sm:flex')
+
+		await user.click(reply)
+		expect(h.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({
+					folderId: 'inbox',
+					threadId: 'th-mobile',
+					replyToMessageId: 'm-mobile',
+				}),
+			}),
+		)
+
+		await user.click(replyAll)
+		const replyAllCall = h.navigate.mock.calls.at(-1)?.[0]
+		expect(replyAllCall.search.to).toContain('sender@x.com')
+		expect(replyAllCall.search.to).toContain('other@x.com')
+		expect(replyAllCall.search.to).toContain('cc@x.com')
+		expect(replyAllCall.search.to).not.toContain('me@x.com')
+
+		await user.click(forward)
+		expect(h.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({ folderId: 'inbox', threadId: 'th-mobile', to: '' }),
+			}),
+		)
+		expect(h.navigate.mock.calls.at(-1)?.[0].search.body).toContain('Forwarded message')
+	})
+
 	it('hides all reply actions and refreshes on a marked-read thread with no messages', async () => {
 		const user = userEvent.setup()
 		seedDetail({
@@ -540,6 +600,7 @@ describe('/mail/search thread detail', () => {
 		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Reply all' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Forward' })).toBeNull()
+		expect(screen.queryByRole('group', { name: 'Thread response actions' })).toBeNull()
 
 		// Unstar (thread already starred) updates state without leaving the view.
 		await user.click(screen.getByLabelText('Unstar'))

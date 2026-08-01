@@ -642,6 +642,49 @@ describe('compose navigation', () => {
 		)
 	})
 
+	it('offers complete mobile response actions with the same compose payloads', async () => {
+		const user = userEvent.setup()
+		renderThread(composeData())
+		const group = screen.getByRole('group', { name: 'Thread response actions' })
+		const reply = screen.getByRole('button', { name: 'Reply to thread' })
+		const replyAll = screen.getByRole('button', { name: 'Reply all to thread' })
+		const forward = screen.getByRole('button', { name: 'Forward thread' })
+
+		expect(group).toHaveClass('grid-cols-3', 'pr-14', 'sm:hidden')
+		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
+		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveClass('hidden', 'sm:flex')
+
+		await user.click(reply)
+		expect(navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', to: 'reply@x.com' }),
+			}),
+		)
+
+		replyAll.focus()
+		await user.keyboard('{Enter}')
+		const replyAllCall = navigate.mock.calls.at(-1)?.[0]
+		expect(replyAllCall).toEqual(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', replyToMessageId: 'mL' }),
+			}),
+		)
+		expect(replyAllCall.search.to).toContain('sender@x.com')
+		expect(replyAllCall.search.to).not.toContain('me@x.com')
+
+		forward.focus()
+		await user.keyboard(' ')
+		expect(navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', to: '' }),
+			}),
+		)
+		expect(navigate.mock.calls.at(-1)?.[0].search.body).toContain('Forwarded message')
+	})
+
 	it('hides the reply affordances entirely when the thread has no messages', () => {
 		renderThread(
 			loaderData({
@@ -651,6 +694,7 @@ describe('compose navigation', () => {
 		)
 		expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+		expect(screen.queryByRole('group', { name: 'Thread response actions' })).not.toBeInTheDocument()
 	})
 })
 

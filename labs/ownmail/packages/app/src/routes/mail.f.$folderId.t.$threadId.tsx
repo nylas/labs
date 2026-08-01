@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
 	forwardDraftSearch,
 	replyAllDraftSearch,
@@ -94,6 +95,26 @@ function ThreadView() {
 		navigate({
 			to: '/mail/compose',
 			search: { folderId, threadId, ...replyDraftSearch(lastMessage) },
+		})
+	}, [folderId, lastMessage, navigate, threadId])
+	const replyAll = useCallback(() => {
+		/* v8 ignore next -- every exposed reply-all entry point requires a latest message -- @preserve */
+		if (!lastMessage) return
+		navigate({
+			to: '/mail/compose',
+			search: {
+				folderId,
+				threadId,
+				...replyAllDraftSearch(lastMessage, mailboxEmail),
+			},
+		})
+	}, [folderId, lastMessage, mailboxEmail, navigate, threadId])
+	const forward = useCallback(() => {
+		/* v8 ignore next -- every exposed forward entry point requires a latest message -- @preserve */
+		if (!lastMessage) return
+		navigate({
+			to: '/mail/compose',
+			search: { folderId, threadId, ...forwardDraftSearch(lastMessage) },
 		})
 	}, [folderId, lastMessage, navigate, threadId])
 
@@ -269,30 +290,10 @@ function ThreadView() {
 						<ActionButton label="Reply" onClick={reply}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton
-							label="Reply all"
-							onClick={() =>
-								navigate({
-									to: '/mail/compose',
-									search: {
-										folderId,
-										threadId,
-										...replyAllDraftSearch(lastMessage, mailboxEmail),
-									},
-								})
-							}
-						>
+						<ActionButton label="Reply all" onClick={replyAll}>
 							<ReplyAll className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton
-							label="Forward"
-							onClick={() =>
-								navigate({
-									to: '/mail/compose',
-									search: { folderId, threadId, ...forwardDraftSearch(lastMessage) },
-								})
-							}
-						>
+						<ActionButton label="Forward" onClick={forward}>
 							<Forward className="h-4 w-4" />
 						</ActionButton>
 					</div>
@@ -311,10 +312,11 @@ function ThreadView() {
 
 			{lastMessage ? (
 				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
+					<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
 					<button
 						type="button"
 						onClick={reply}
-						className="flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground"
+						className="hidden w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground sm:flex"
 					>
 						<Reply className="h-4 w-4 shrink-0" />
 						<span>Write a reply…</span>
