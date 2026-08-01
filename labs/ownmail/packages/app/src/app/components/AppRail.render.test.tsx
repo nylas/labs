@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { THEME_STORAGE_KEY } from '../config/theme.js'
+import { THEME_CHANGE_EVENT, THEME_STORAGE_KEY } from '../config/theme.js'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from './AppRail.js'
+import { CommandPalette } from './CommandPalette.js'
 
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({ children, to, ...rest }: any) => (
@@ -10,6 +11,7 @@ vi.mock('@tanstack/react-router', () => ({
 			{children}
 		</a>
 	),
+	useNavigate: () => vi.fn(),
 }))
 
 afterEach(() => {
@@ -258,6 +260,106 @@ describe('AppRailNav', () => {
 		expect(screen.getByLabelText('Switch inbox. Current inbox: @ownmail.com')).toHaveTextContent(
 			'@ownmail.com',
 		)
+	})
+})
+
+describe('theme control synchronization', () => {
+	it('updates the desktop rail after the command palette changes theme', () => {
+		const onClose = vi.fn()
+		const view = render(
+			<>
+				<AppRailNav email="ada@ownmail.com" active="mail" />
+				<CommandPalette open onClose={onClose} />
+			</>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Switch to dark mode' }))
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+		expect(onClose).toHaveBeenCalledTimes(1)
+		view.rerender(
+			<>
+				<AppRailNav email="ada@ownmail.com" active="mail" />
+				<CommandPalette open={false} onClose={onClose} />
+			</>,
+		)
+		const lightModeControl = screen.getByRole('button', { name: 'Switch to light mode' })
+		expect(lightModeControl.querySelector('svg')).toHaveClass('lucide-sun')
+
+		fireEvent.click(lightModeControl)
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
+		expect(document.documentElement.classList.contains('light')).toBe(true)
+		expect(screen.getByRole('button', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
+			'lucide-moon',
+		)
+	})
+
+	it('updates the mounted command palette after a rail theme change', () => {
+		const onClose = vi.fn()
+		const view = render(
+			<>
+				<AppRailNav email="ada@ownmail.com" active="mail" />
+				<CommandPalette open={false} onClose={onClose} />
+			</>,
+		)
+		const railControl = screen.getByRole('button', { name: 'Switch to dark mode' })
+
+		view.rerender(
+			<>
+				<AppRailNav email="ada@ownmail.com" active="mail" />
+				<CommandPalette open onClose={onClose} />
+			</>,
+		)
+		expect(screen.getByRole('button', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
+			'lucide-moon',
+		)
+
+		fireEvent.click(railControl)
+
+		const paletteControl = screen.getByRole('button', { name: 'Switch to light mode' })
+		expect(paletteControl.querySelector('svg')).toHaveClass('lucide-sun')
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+		expect(onClose).not.toHaveBeenCalled()
+	})
+
+	it('keeps mounted desktop and mobile theme controls in sync', () => {
+		render(
+			<>
+				<AppRailNav email="ada@ownmail.com" active="mail" />
+				<AppRailMobileNav email="ada@ownmail.com" active="mail" onNavigate={vi.fn()} />
+			</>,
+		)
+
+		const darkModeControls = screen.getAllByRole('button', { name: 'Switch to dark mode' })
+		expect(darkModeControls).toHaveLength(2)
+		expect(
+			darkModeControls.every((control) => control.querySelector('svg')?.classList.contains('lucide-moon')),
+		).toBe(true)
+		fireEvent.click(darkModeControls[0])
+		const lightModeControls = screen.getAllByRole('button', { name: 'Switch to light mode' })
+		expect(lightModeControls).toHaveLength(2)
+		expect(
+			lightModeControls.every((control) => control.querySelector('svg')?.classList.contains('lucide-sun')),
+		).toBe(true)
+
+		fireEvent.click(lightModeControls[1])
+		const restoredDarkModeControls = screen.getAllByRole('button', { name: 'Switch to dark mode' })
+		expect(restoredDarkModeControls).toHaveLength(2)
+		expect(
+			restoredDarkModeControls.every((control) =>
+				control.querySelector('svg')?.classList.contains('lucide-moon'),
+			),
+		).toBe(true)
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
+	})
+
+	it('removes the same-window theme subscription on unmount', () => {
+		const removeEventListener = vi.spyOn(window, 'removeEventListener')
+		const view = render(<AppRailNav email="ada@ownmail.com" active="mail" />)
+
+		view.unmount()
+
+		expect(removeEventListener).toHaveBeenCalledWith(THEME_CHANGE_EVENT, expect.any(Function))
+		removeEventListener.mockRestore()
 	})
 })
 

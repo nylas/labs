@@ -1,11 +1,12 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Calendar, Mail, Moon, Pencil, Search, Users } from 'lucide-react'
+import { Calendar, Mail, Moon, Pencil, Search, Sun, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MAIL_FOLDERS } from '#features/mail/lib/mail-ui-model'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { cn } from '#shared/lib/utils'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH } from '../config/route-paths.js'
-import { ROOT_BACKGROUND_CLASS, THEME_STORAGE_KEY, themeClassName } from '../config/theme.js'
+import { themeToggleLabel, toggleTheme } from '../config/theme.js'
+import { useThemeToggleState } from '../lib/use-theme-toggle-state.js'
 
 type Command = {
 	id: string
@@ -27,6 +28,7 @@ export function CommandPalette({
 	const navigate = useNavigate()
 	const [query, setQuery] = useState('')
 	const [activeIndex, setActiveIndex] = useState(0)
+	const { isDark, mounted } = useThemeToggleState()
 	const inputRef = useRef<HTMLInputElement>(null)
 	const listRef = useRef<HTMLDivElement>(null)
 
@@ -80,21 +82,13 @@ export function CommandPalette({
 			})),
 			{
 				id: 'theme',
-				label: 'Toggle light / dark theme',
-				icon: <Moon className="h-4 w-4" />,
-				run: () => {
-					const isDark = document.documentElement.classList.contains('dark')
-					const nextDark = !isDark
-					const next = themeClassName(nextDark)
-					const previous = nextDark ? 'light' : 'dark'
-					document.documentElement.classList.add(ROOT_BACKGROUND_CLASS, next)
-					document.documentElement.classList.remove(previous)
-					localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
-				},
+				label: themeToggleLabel(mounted, isDark),
+				icon: mounted && isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />,
+				run: toggleTheme,
 			},
 		]
 		return list
-	}, [navigate, onFocusSearch])
+	}, [isDark, mounted, navigate, onFocusSearch])
 
 	const filtered = useMemo(() => {
 		const needle = query.trim().toLowerCase()
