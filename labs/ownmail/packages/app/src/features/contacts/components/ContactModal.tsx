@@ -1,17 +1,19 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { Plus, X } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { Input } from '#shared/components/ui/input'
 import { Textarea } from '#shared/components/ui/textarea'
 import { cn } from '#shared/lib/utils'
 import {
 	type ContactForm,
+	type ContactFormValidation,
 	contactToForm,
 	emptyContactForm,
 	formToFields,
 	removeAt,
 	replaceAt,
+	validateContactForm,
 } from '../lib/contacts-model.js'
 import { useCreateContactMutation, useUpdateContactMutation } from '../state/contacts-state.js'
 
@@ -31,6 +33,9 @@ export function ContactModal({
 	const [form, setForm] = useState<ContactForm>(() => (contact ? contactToForm(contact) : emptyContactForm()))
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [validation, setValidation] = useState<ContactFormValidation | null>(null)
+	const givenNameRef = useRef<HTMLInputElement>(null)
+	const emailRefs = useRef<Array<HTMLInputElement | null>>([])
 	const createMutation = useCreateContactMutation()
 	const updateMutation = useUpdateContactMutation(contact)
 
@@ -38,9 +43,29 @@ export function ContactModal({
 		setForm((current) => ({ ...current, ...next }))
 	}
 
+	function clearIdentityValidation() {
+		setValidation((current) => (current?.field === 'identity' ? null : current))
+	}
+
+	function clearEmailValidation(index: number) {
+		setValidation((current) =>
+			current?.field === 'identity' || (current?.field === 'email' && current.index === index)
+				? null
+				: current,
+		)
+	}
+
 	async function save() {
-		setBusy(true)
 		setError(null)
+		const nextValidation = validateContactForm(form)
+		if (nextValidation) {
+			setValidation(nextValidation)
+			if (nextValidation.field === 'identity') givenNameRef.current?.focus()
+			else emailRefs.current[nextValidation.index]?.focus()
+			return
+		}
+		setValidation(null)
+		setBusy(true)
 		try {
 			const fields = formToFields(form)
 			if (contact) {
@@ -84,23 +109,35 @@ export function ContactModal({
 					<div className="grid grid-cols-2 gap-3">
 						<Field id="contact-given-name" label="First name">
 							<Input
+								ref={givenNameRef}
 								id="contact-given-name"
 								value={form.givenName}
-								onChange={(e) => patch({ givenName: e.target.value })}
+								aria-invalid={validation?.field === 'identity' || undefined}
+								aria-describedby={validation?.field === 'identity' ? 'contact-form-validation' : undefined}
+								onChange={(e) => {
+									patch({ givenName: e.target.value })
+									clearIdentityValidation()
+								}}
 							/>
 						</Field>
 						<Field id="contact-surname" label="Last name">
 							<Input
 								id="contact-surname"
 								value={form.surname}
-								onChange={(e) => patch({ surname: e.target.value })}
+								onChange={(e) => {
+									patch({ surname: e.target.value })
+									clearIdentityValidation()
+								}}
 							/>
 						</Field>
 						<Field id="contact-company" label="Company">
 							<Input
 								id="contact-company"
 								value={form.companyName}
-								onChange={(e) => patch({ companyName: e.target.value })}
+								onChange={(e) => {
+									patch({ companyName: e.target.value })
+									clearIdentityValidation()
+								}}
 							/>
 						</Field>
 						<Field id="contact-job-title" label="Job title">
@@ -121,13 +158,26 @@ export function ContactModal({
 							// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
 							<div key={index} className="flex items-center gap-2">
 								<Input
+									ref={(node) => {
+										emailRefs.current[index] = node
+									}}
+									id={`contact-email-${index}`}
 									type="email"
 									aria-label={`Email ${index + 1}`}
+									aria-invalid={
+										validation?.field === 'email' && validation.index === index ? true : undefined
+									}
+									aria-describedby={
+										validation?.field === 'email' && validation.index === index
+											? 'contact-form-validation'
+											: undefined
+									}
 									placeholder="name@example.com"
 									value={row.email}
-									onChange={(e) =>
+									onChange={(e) => {
 										patch({ emails: replaceAt(form.emails, index, { ...row, email: e.target.value }) })
-									}
+										clearEmailValidation(index)
+									}}
 									className="flex-1"
 								/>
 								<TypeSelect
@@ -137,7 +187,10 @@ export function ContactModal({
 								/>
 								<RemoveRowButton
 									label={`Remove email ${index + 1}`}
-									onClick={() => patch({ emails: removeAt(form.emails, index) })}
+									onClick={() => {
+										patch({ emails: removeAt(form.emails, index) })
+										setValidation(null)
+									}}
 								/>
 							</div>
 						))}
@@ -190,6 +243,15 @@ export function ContactModal({
 						/>
 					</Field>
 
+					{validation ? (
+						<p
+							id="contact-form-validation"
+							role="alert"
+							className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
+						>
+							{validation.message}
+						</p>
+					) : null}
 					{error ? (
 						<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
 					) : null}

@@ -40,6 +40,51 @@ const existing: Contact = {
 }
 
 describe('ContactModal — create', () => {
+	it('blocks a blank contact with focused, actionable identity guidance', async () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
+		const notes = screen.getByLabelText('Notes', { selector: 'textarea' })
+		fireEvent.change(notes, { target: { value: 'Keep this draft value' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
+
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Add a name, company, or email.')
+		const firstName = screen.getByLabelText('First name', { selector: 'input' })
+		expect(firstName).toHaveFocus()
+		expect(firstName).toHaveAttribute('aria-invalid', 'true')
+		expect(firstName).toHaveAttribute('aria-describedby', 'contact-form-validation')
+		expect(notes).toHaveValue('Keep this draft value')
+		expect(createContact).not.toHaveBeenCalled()
+		expect(onClose).not.toHaveBeenCalled()
+
+		fireEvent.change(firstName, { target: { value: 'Grace' } })
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(firstName).not.toHaveAttribute('aria-invalid')
+	})
+
+	it('blocks malformed email, clears stale guidance, and submits after correction', async () => {
+		const onClose = vi.fn()
+		render(<ContactModal contact={null} onClose={onClose} />)
+		const email = screen.getByLabelText('Email 1')
+		fireEvent.change(email, { target: { value: 'not-an-email' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email address.')
+		expect(email).toHaveFocus()
+		expect(email).toHaveAttribute('aria-invalid', 'true')
+		expect(email).toHaveAttribute('aria-describedby', 'contact-form-validation')
+		expect(createContact).not.toHaveBeenCalled()
+
+		fireEvent.change(email, { target: { value: 'grace@x.com' } })
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(email).not.toHaveAttribute('aria-invalid')
+		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true, 'contact-new'))
+		expect(createContact).toHaveBeenCalledTimes(1)
+	})
+
 	it('creates a contact from the entered fields and reports the new id', async () => {
 		const onClose = vi.fn()
 		render(<ContactModal contact={null} onClose={onClose} />)
@@ -132,6 +177,18 @@ describe('ContactModal — create', () => {
 })
 
 describe('ContactModal — edit', () => {
+	it('blocks an invalid edited email without calling update', async () => {
+		render(<ContactModal contact={existing} onClose={vi.fn()} />)
+		const email = screen.getByLabelText('Email 1')
+		fireEvent.change(email, { target: { value: 'ada-at-example' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email address.')
+		expect(email).toHaveFocus()
+		expect(updateContact).not.toHaveBeenCalled()
+	})
+
 	it('prefills the form and sends the full field set on save', async () => {
 		const onClose = vi.fn()
 		render(<ContactModal contact={existing} onClose={onClose} />)
