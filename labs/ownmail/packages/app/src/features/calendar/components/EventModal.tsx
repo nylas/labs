@@ -127,7 +127,12 @@ export function EventModal({
 	const [editing, setEditing] = useState(false)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const titleInputRef = useRef<HTMLInputElement>(null)
+	const deleteButtonRef = useRef<HTMLButtonElement>(null)
+	const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
+	const deletePendingRef = useRef(false)
+	const wasConfirmingDelete = useRef(false)
 	const createMutation = useCreateEventMutation()
 	const updateMutation = useUpdateEventMutation(event)
 	const deleteMutation = useDeleteEventMutation(event?.id ?? '')
@@ -308,7 +313,11 @@ export function EventModal({
 	async function remove() {
 		/* v8 ignore next -- remove() is only wired to the delete button, which renders only when event is present -- @preserve */
 		if (!event) return
+		/* v8 ignore next -- @preserve the disabled confirmation button prevents repeat UI activation; this guard also closes same-tick re-entry */
+		if (deletePendingRef.current) return
+		deletePendingRef.current = true
 		setBusy(true)
+		setError(null)
 		try {
 			await deleteMutation.mutateAsync({
 				eventId: event.id,
@@ -316,6 +325,7 @@ export function EventModal({
 			})
 			onClose(true)
 		} catch {
+			deletePendingRef.current = false
 			setError('Could not delete the event. Check your connection, then try again.')
 			setBusy(false)
 		}
@@ -341,6 +351,21 @@ export function EventModal({
 	useEffect(() => {
 		if (!event) titleInputRef.current?.focus({ preventScroll: true })
 	}, [event])
+	useEffect(() => {
+		if (confirmingDelete) cancelDeleteButtonRef.current?.focus()
+		else if (wasConfirmingDelete.current) deleteButtonRef.current?.focus()
+		wasConfirmingDelete.current = confirmingDelete
+	}, [confirmingDelete])
+
+	function beginDelete() {
+		setError(null)
+		setConfirmingDelete(true)
+	}
+
+	function cancelDelete() {
+		setError(null)
+		setConfirmingDelete(false)
+	}
 
 	if (event && times) {
 		const when = times.allDay ? 'All day' : `${fmtCompactTime(times.start)} – ${fmtCompactTime(times.end)}`
@@ -353,7 +378,10 @@ export function EventModal({
 				open
 				onOpenChange={(next) => {
 					/* v8 ignore else -- @preserve the controlled open dialog only requests dismissal; busy or open requests are intentional no-ops */
-					if (!next && !busy) onClose(false)
+					if (!next && !busy) {
+						if (confirmingDelete) cancelDelete()
+						else onClose(false)
+					}
 				}}
 			>
 				<DialogContent className={EVENT_DIALOG_PANEL_CLASS}>
@@ -458,52 +486,95 @@ export function EventModal({
 									</div>
 								) : null}
 								{error ? (
-									<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+									<p
+										className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
+										role={confirmingDelete ? 'alert' : undefined}
+									>
+										{error}
+									</p>
 								) : null}
 							</div>
 
 							<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
-								{canRsvp
-									? (['yes', 'maybe', 'no'] as const).map((status) => (
-											<button
-												key={status}
-												type="button"
-												disabled={busy}
-												onClick={() => rsvp(status)}
-												className="rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted"
+								{confirmingDelete ? (
+									<fieldset
+										className="flex w-full flex-wrap items-center justify-end gap-2"
+										aria-describedby="event-delete-confirm-description"
+									>
+										<legend className="mr-auto min-w-48">
+											<span className="block text-sm font-semibold text-foreground">Delete this event?</span>
+											<span
+												id="event-delete-confirm-description"
+												className="block text-xs text-muted-foreground"
 											>
-												{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
-											</button>
-										))
-									: null}
-								{!event.read_only ? (
-									<>
+												This action cannot be undone.
+											</span>
+										</legend>
 										<button
+											ref={cancelDeleteButtonRef}
 											type="button"
+											onClick={cancelDelete}
 											disabled={busy}
-											onClick={() => setEditing(true)}
-											className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+											className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
 										>
-											<Pencil className="h-4 w-4" /> Edit
+											Cancel
 										</button>
 										<button
 											type="button"
-											disabled={busy}
 											onClick={remove}
-											className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+											disabled={busy}
+											aria-describedby="event-delete-confirm-description"
+											className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
 										>
-											<Trash2 className="h-4 w-4" /> Delete
+											<Trash2 className="h-4 w-4" /> {busy ? 'Deleting…' : 'Delete event'}
+										</button>
+									</fieldset>
+								) : (
+									<>
+										{canRsvp
+											? (['yes', 'maybe', 'no'] as const).map((status) => (
+													<button
+														key={status}
+														type="button"
+														disabled={busy}
+														onClick={() => rsvp(status)}
+														className="rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted"
+													>
+														{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
+													</button>
+												))
+											: null}
+										{!event.read_only ? (
+											<>
+												<button
+													type="button"
+													disabled={busy}
+													onClick={() => setEditing(true)}
+													className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+												>
+													<Pencil className="h-4 w-4" /> Edit
+												</button>
+												<button
+													ref={deleteButtonRef}
+													type="button"
+													disabled={busy}
+													onClick={beginDelete}
+													className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+												>
+													<Trash2 className="h-4 w-4" /> Delete
+												</button>
+											</>
+										) : null}
+										<button
+											type="button"
+											onClick={() => onClose(false)}
+											disabled={busy}
+											className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
+										>
+											Done
 										</button>
 									</>
-								) : null}
-								<button
-									type="button"
-									onClick={() => onClose(false)}
-									disabled={busy}
-									className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
-								>
-									Done
-								</button>
+								)}
 							</div>
 						</>
 					)}
