@@ -140,33 +140,54 @@ describe('ContactModal — create', () => {
 
 	it('provides touch-friendly, focus-visible contact controls', () => {
 		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		const expectFocusFallback = (control: HTMLElement) =>
+			expect(control).toHaveClass(
+				'focus-visible:ring-[3px]',
+				'focus-visible:ring-ring',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
+			)
 
 		expect(screen.getByLabelText('First name', { selector: 'input' })).toHaveClass('h-11')
 		expect(screen.getByLabelText('Email 1')).toHaveClass('h-11')
-		expect(screen.getByLabelText('Email 1 type')).toHaveClass('h-11')
-		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
-			'h-11',
-			'w-11',
-			'focus-visible:ring-[3px]',
-		)
-		expect(screen.getByRole('button', { name: 'Add email' })).toHaveClass(
-			'min-h-11',
-			'focus-visible:ring-[3px]',
-		)
-		expect(screen.getByRole('button', { name: 'Remove email 1' })).toHaveClass(
-			'h-11',
-			'w-11',
-			'focus-visible:ring-[3px]',
-		)
-		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('min-h-11', 'focus-visible:ring-[3px]')
-		expect(screen.getByRole('button', { name: 'Add contact' })).toHaveClass(
-			'min-h-11',
-			'focus-visible:ring-[3px]',
-		)
+		const emailType = screen.getByLabelText('Email 1 type')
+		expect(emailType).toHaveClass('h-11')
+		expectFocusFallback(emailType)
+		const close = screen.getByRole('button', { name: 'Close' })
+		expect(close).toHaveClass('h-11', 'w-11')
+		expectFocusFallback(close)
+		const addEmail = screen.getByRole('button', { name: 'Add email' })
+		expect(addEmail).toHaveClass('min-h-11')
+		expectFocusFallback(addEmail)
+		const removeEmail = screen.getByRole('button', { name: 'Remove email 1' })
+		expect(removeEmail).toHaveClass('h-11', 'w-11')
+		expectFocusFallback(removeEmail)
+		const cancel = screen.getByRole('button', { name: 'Cancel' })
+		expect(cancel).toHaveClass('min-h-11')
+		expectFocusFallback(cancel)
+		const addContact = screen.getByRole('button', { name: 'Add contact' })
+		expect(addContact).toHaveClass('min-h-11')
+		expectFocusFallback(addContact)
 		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
 		expect(screen.getByLabelText('Phone 1')).toHaveClass('h-11')
-		expect(screen.getByLabelText('Phone 1 type')).toHaveClass('h-11')
-		expect(screen.getByRole('button', { name: 'Remove phone 1' })).toHaveClass('h-11', 'w-11')
+		const phoneType = screen.getByLabelText('Phone 1 type')
+		expect(phoneType).toHaveClass('h-11')
+		expectFocusFallback(phoneType)
+		const removePhone = screen.getByRole('button', { name: 'Remove phone 1' })
+		expect(removePhone).toHaveClass('h-11', 'w-11')
+		expectFocusFallback(removePhone)
+
+		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
+			target: { value: 'Ada' },
+		})
+		fireEvent.click(cancel)
+		const continueEditing = screen.getByRole('button', { name: 'Continue editing' })
+		const discardChanges = screen.getByRole('button', { name: 'Discard changes' })
+		for (const action of [continueEditing, discardChanges]) {
+			expect(action).toHaveClass('min-h-11')
+			expectFocusFallback(action)
+		}
 	})
 
 	it('surfaces a save error and keeps the dialog open', async () => {
