@@ -605,122 +605,141 @@ function MonthGrid({
 	const { start, end } = viewRange('month', anchor)
 	const days: Date[] = []
 	for (let d = new Date(start); d < end; d = addDays(d, 1)) days.push(new Date(d))
+	const weeks = Array.from({ length: 6 }, (_, index) => days.slice(index * 7, index * 7 + 7))
+	const visibleDayIds = new Set(days.map(ymd))
 	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
 	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="grid grid-cols-7 border-b border-border">
-				{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
-					<div
-						key={label}
-						className="px-2 py-2 text-center text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-					>
-						{label}
-					</div>
-				))}
-			</div>
-			{/* biome-ignore lint/a11y/useSemanticElements: The calendar uses ARIA grid keyboard navigation with roving tab stops. */}
-			<div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6" role="grid" aria-label="Month calendar">
-				{days.map((day) => {
-					const inMonth = day.getMonth() === anchor.getMonth()
-					const dayEvents = eventsOnDay(events, day, timeZone)
-					const iso = ymd(day)
-					return (
-						/* biome-ignore lint/a11y/useSemanticElements: Each interactive date is an ARIA gridcell in the calendar grid. */
-						<div
-							key={day.toISOString()}
-							onClick={() => onPickDay(day)}
-							onKeyDown={(event) => {
-								const next = moveCalendarDay(day, event.key)
-								if (!next) return
-								event.preventDefault()
-								setActiveDay(next)
-								requestAnimationFrame(() =>
-									document.querySelector<HTMLElement>(`[data-month-calendar-day="${ymd(next)}"]`)?.focus(),
-								)
-							}}
-							role="gridcell"
-							aria-label={day.toLocaleDateString(undefined, {
-								weekday: 'long',
-								month: 'long',
-								day: 'numeric',
-								year: 'numeric',
-							})}
-							aria-selected={ymd(day) === ymd(activeDay)}
-							tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
-							data-month-calendar-day={iso}
-							className={cn(
-								'group relative flex min-h-0 cursor-pointer flex-col gap-1 border-r border-b border-border p-1.5 transition-colors hover:bg-muted/40',
-								!inMonth && 'bg-muted/30',
-							)}
+		/* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: The native table structure provides the required row and cell ownership for this interactive ARIA grid. */
+		<table className="flex min-h-0 flex-1 flex-col" role="grid" aria-label="Month calendar">
+			<thead className="block shrink-0">
+				<tr className="grid grid-cols-7 border-b border-border">
+					{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+						<th
+							key={label}
+							scope="col"
+							className="px-2 py-2 text-center text-xs font-semibold tracking-wide text-muted-foreground uppercase"
 						>
-							<div className="pointer-events-none relative z-10 flex items-center justify-center">
-								<span
+							{label}
+						</th>
+					))}
+				</tr>
+			</thead>
+			<tbody className="flex min-h-0 flex-1 flex-col">
+				{weeks.map((week) => (
+					<tr key={week[0]?.toISOString()} className="grid min-h-0 flex-1 grid-cols-7">
+						{week.map((day) => {
+							const inMonth = day.getMonth() === anchor.getMonth()
+							const dayEvents = eventsOnDay(events, day, timeZone)
+							const iso = ymd(day)
+							return (
+								<td
+									key={day.toISOString()}
+									onClick={() => onPickDay(day)}
+									onFocus={() => setActiveDay(day)}
+									onKeyDown={(event) => {
+										if (event.target !== event.currentTarget) return
+										if (event.key === 'Enter' || event.key === ' ') {
+											event.preventDefault()
+											onPickDay(day)
+											return
+										}
+										const next = moveCalendarDay(day, event.key)
+										if (!next) return
+										event.preventDefault()
+										if (!visibleDayIds.has(ymd(next))) return
+										setActiveDay(next)
+										requestAnimationFrame(() =>
+											document
+												.querySelector<HTMLElement>(`[data-month-calendar-day="${ymd(next)}"]`)
+												?.focus(),
+										)
+									}}
+									// biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: This focusable table cell is an interactive day in the ARIA grid.
+									role="gridcell"
+									aria-label={day.toLocaleDateString(undefined, {
+										weekday: 'long',
+										month: 'long',
+										day: 'numeric',
+										year: 'numeric',
+									})}
+									aria-selected={ymd(day) === ymd(activeDay)}
+									tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
+									data-month-calendar-day={iso}
 									className={cn(
-										'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
-										iso === todayIso && 'bg-primary text-primary-foreground',
-										iso !== todayIso && !inMonth && 'text-muted-foreground/60',
-										iso !== todayIso && inMonth && 'text-foreground',
+										'group relative flex min-h-0 cursor-pointer flex-col gap-1 border-r border-b border-border p-1.5 transition-colors hover:bg-muted/40',
+										!inMonth && 'bg-muted/30',
 									)}
 								>
-									{day.getDate()}
-								</span>
-							</div>
-							<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
-								{dayEvents.slice(0, 3).map((event, index) => {
-									const times = eventTimes(event)
-									/* v8 ignore next -- eventsOnDay excludes records without parsed times -- @preserve */
-									if (!times) return null
-									const tone = eventTone(event, index, calendarById.get(event.calendar_id))
-									const allDay = times.allDay
-									const preview = isNewEventPreview(event)
-									return (
-										<button
-											key={event.id}
-											type="button"
-											onClick={(clickEvent) => {
-												clickEvent.stopPropagation()
-												if (!preview) onPickEvent(event)
-											}}
-											disabled={preview}
+									<div className="pointer-events-none relative z-10 flex items-center justify-center">
+										<span
 											className={cn(
-												'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
-												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
-												preview && 'border border-dashed border-primary/70 opacity-70',
+												'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
+												iso === todayIso && 'bg-primary text-primary-foreground',
+												iso !== todayIso && !inMonth && 'text-muted-foreground/60',
+												iso !== todayIso && inMonth && 'text-foreground',
 											)}
 										>
-											{!allDay ? (
-												<span className={cn('h-2 w-2 shrink-0 rounded-full', eventDotClass(tone))} />
-											) : null}
-											{!allDay ? (
-												<span className="shrink-0 tabular-nums text-muted-foreground">
-													{fmtTime(times.start, timeZone)}
-												</span>
-											) : null}
-											<span
-												className={cn(
-													'truncate font-medium',
-													allDay ? 'text-primary-foreground' : 'text-foreground',
-												)}
-											>
-												{event.title || '(untitled)'}
+											{day.getDate()}
+										</span>
+									</div>
+									<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
+										{dayEvents.slice(0, 3).map((event, index) => {
+											const times = eventTimes(event)
+											/* v8 ignore next -- eventsOnDay excludes records without parsed times -- @preserve */
+											if (!times) return null
+											const tone = eventTone(event, index, calendarById.get(event.calendar_id))
+											const allDay = times.allDay
+											const preview = isNewEventPreview(event)
+											return (
+												<button
+													key={event.id}
+													type="button"
+													onClick={(clickEvent) => {
+														clickEvent.stopPropagation()
+														if (!preview) onPickEvent(event)
+													}}
+													disabled={preview}
+													className={cn(
+														'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
+														allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
+														preview && 'border border-dashed border-primary/70 opacity-70',
+													)}
+												>
+													{!allDay ? (
+														<span className={cn('h-2 w-2 shrink-0 rounded-full', eventDotClass(tone))} />
+													) : null}
+													{!allDay ? (
+														<span className="shrink-0 tabular-nums text-muted-foreground">
+															{fmtTime(times.start, timeZone)}
+														</span>
+													) : null}
+													<span
+														className={cn(
+															'truncate font-medium',
+															allDay ? 'text-primary-foreground' : 'text-foreground',
+														)}
+													>
+														{event.title || '(untitled)'}
+													</span>
+												</button>
+											)
+										})}
+										{dayEvents.length > 3 ? (
+											<span className="px-1.5 text-left text-xs font-medium text-muted-foreground">
+												+{dayEvents.length - 3} more
 											</span>
-										</button>
-									)
-								})}
-								{dayEvents.length > 3 ? (
-									<span className="px-1.5 text-left text-xs font-medium text-muted-foreground">
-										+{dayEvents.length - 3} more
-									</span>
-								) : null}
-							</div>
-						</div>
-					)
-				})}
-			</div>
-		</div>
+										) : null}
+									</div>
+								</td>
+							)
+						})}
+					</tr>
+				))}
+			</tbody>
+		</table>
 	)
 }
 
