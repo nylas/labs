@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.11.2
+
+### Patch Changes
+
+- 9e0c283: Fail closed on negative or malformed custom-domain verification statuses.
+
 ## 0.11.1
 
 ### Patch Changes
