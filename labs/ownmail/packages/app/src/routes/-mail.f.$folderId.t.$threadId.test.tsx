@@ -402,6 +402,7 @@ describe('message list', () => {
 		expect(root?.querySelector('h1')?.textContent).toBe('Heading')
 		expect(root?.querySelector('strong')?.textContent).toBe('ready')
 		expect(root?.textContent).not.toContain('# Heading')
+		expect(screen.queryByRole('link', { name: 'Download raw email from me@x.com' })).not.toBeInTheDocument()
 	})
 })
 
