@@ -37,19 +37,23 @@ export const Route = createFileRoute('/mail/search')({
 	}),
 	loaderDeps: ({ search }) => ({ q: search.q, folderId: search.folderId, threadId: search.threadId }),
 	loader: async ({ deps }) => {
+		const hasSearchQuery = deps.q.trim().length > 0
+		const emptyResults: Awaited<ReturnType<typeof getThreads>> = { threads: [] }
 		const [folders, res, selected] = await Promise.all([
 			getFolders(),
-			getThreads({
-				data: {
-					q: deps.q,
-					...(deps.folderId === 'starred'
-						? { starred: true }
-						: deps.folderId
-							? { folderId: deps.folderId }
-							: {}),
-				},
-			}),
-			deps.threadId ? getThreadMessages({ data: { threadId: deps.threadId } }) : null,
+			hasSearchQuery
+				? getThreads({
+						data: {
+							q: deps.q,
+							...(deps.folderId === 'starred'
+								? { starred: true }
+								: deps.folderId
+									? { folderId: deps.folderId }
+									: {}),
+						},
+					})
+				: Promise.resolve(emptyResults),
+			hasSearchQuery && deps.threadId ? getThreadMessages({ data: { threadId: deps.threadId } }) : null,
 		])
 		return { ...res, folders, folderId: deps.folderId, selected }
 	},
@@ -59,6 +63,7 @@ export const Route = createFileRoute('/mail/search')({
 function SearchResults() {
 	const initial = Route.useLoaderData()
 	const { q, threadId } = Route.useSearch()
+	const hasSearchQuery = q.trim().length > 0
 	const router = useRouter()
 	const queryClient = useQueryClient()
 	const filters = {
@@ -82,6 +87,7 @@ function SearchResults() {
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated search screen and query-option tests */
 			(input) => getThreads({ data: input }),
 		),
+		enabled: hasSearchQuery,
 		initialData: {
 			pages: [
 				{
@@ -97,16 +103,18 @@ function SearchResults() {
 			getThreadMessages({ data: { threadId: id } }),
 		),
 		...(initial.selected ? { initialData: toMailThreadDetail(initial.selected) } : {}),
-		enabled: Boolean(threadId),
+		enabled: hasSearchQuery && Boolean(threadId),
 	})
-	const threads = [
-		...new Map(
-			threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
-		).values(),
-	] as Thread[]
+	const threads = hasSearchQuery
+		? ([
+				...new Map(
+					threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
+				).values(),
+			] as Thread[])
+		: []
 	const folders = foldersQuery.data
 	const folderId = initial.folderId
-	const selected = selectedQuery.data as typeof initial.selected
+	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
 	const [cursor, setCursor] = useState(-1)
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
@@ -115,7 +123,7 @@ function SearchResults() {
 		[threads],
 	)
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
-	const title = mailFolderTitle(folderId ?? 'inbox', folders)
+	const title = folderId ? mailFolderTitle(folderId, folders) : 'Search results'
 
 	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
 	useEffect(() => {
@@ -205,9 +213,21 @@ function SearchResults() {
 
 				<div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
 					{sortedThreads.length === 0 ? (
-						<div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-							<p className="font-display text-sm font-semibold text-foreground">Nothing here</p>
-							<p className="text-sm text-muted-foreground">This view is empty.</p>
+						<div
+							key={q}
+							role="status"
+							aria-live="polite"
+							aria-atomic="true"
+							className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center"
+						>
+							<p className="font-display text-sm font-semibold text-foreground">
+								{hasSearchQuery ? 'No messages found' : 'Search your mail'}
+							</p>
+							<p className="text-sm text-muted-foreground">
+								{hasSearchQuery
+									? 'Try different keywords or clear the search.'
+									: 'Enter keywords above to find messages.'}
+							</p>
 						</div>
 					) : (
 						sortedThreads.map((thread) => (

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mailKeys } from '#features/mail/state/mail-queries'
 
 const h = vi.hoisted(() => ({
 	navigate: vi.fn(),
@@ -45,12 +46,12 @@ vi.mock('#server/fns', () => fns)
 
 import { Route } from './mail.search.js'
 
-function renderRoute() {
+function renderRoute(
+	client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }),
+) {
 	const Comp = Route.options.component as () => JSX.Element
 	return render(
-		<QueryClientProvider
-			client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}
-		>
+		<QueryClientProvider client={client}>
 			<Comp />
 		</QueryClientProvider>,
 	)
@@ -140,6 +141,19 @@ describe('/mail/search loader', () => {
 		expect(fns.getThreads).toHaveBeenCalledWith({ data: { q: 'z' } })
 		expect(result.folderId).toBeUndefined()
 	})
+
+	it('does not turn a blank query into an unfiltered mailbox request', async () => {
+		fns.getFolders.mockResolvedValue([])
+		fns.getThreads.mockResolvedValue({ threads: [{ id: 'existing-mailbox-thread' }] })
+
+		const result = await Route.options.loader({
+			deps: { q: '   ', folderId: undefined, threadId: 'existing-mailbox-thread' },
+		})
+
+		expect(fns.getThreads).not.toHaveBeenCalled()
+		expect(fns.getThreadMessages).not.toHaveBeenCalled()
+		expect(result).toMatchObject({ threads: [], selected: null })
+	})
 })
 
 describe('/mail/search results list', () => {
@@ -226,6 +240,15 @@ describe('/mail/search results list', () => {
 		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Starred')
 	})
 
+	it('labels unscoped results as search results instead of inbox', () => {
+		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
+		Route.useLoaderData = vi.fn(() => ({ ...initial, folderId: undefined }))
+
+		renderRoute()
+
+		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Search results')
+	})
+
 	it('hydrates the first result page with its continuation cursor', () => {
 		const initial = (Route.useLoaderData as ReturnType<typeof vi.fn>)()
 		Route.useLoaderData = vi.fn(() => ({ ...initial, nextCursor: 'cursor-2' }))
@@ -249,7 +272,7 @@ describe('/mail/search results list', () => {
 })
 
 describe('/mail/search empty results', () => {
-	it('shows the empty-state copy and no unread badge when nothing matches', () => {
+	it('shows search-specific recovery copy and no unread badge when a query has no matches', () => {
 		Route.useSearch = vi.fn(() => ({ q: 'nomatch', threadId: undefined }))
 		Route.useLoaderData = vi.fn(() => ({
 			folders: [],
@@ -260,10 +283,60 @@ describe('/mail/search empty results', () => {
 
 		renderRoute()
 
-		// Undefined folder scope defaults the title to the inbox.
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Inbox')
+		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Search results')
 		expect(screen.queryByText(/unread$/)).toBeNull()
-		expect(screen.getByText('Nothing here')).toBeTruthy()
+		expect(screen.getByText('No messages found')).toBeInTheDocument()
+		expect(screen.getByText('Try different keywords or clear the search.')).toBeInTheDocument()
+		expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
+		expect(screen.getByRole('status')).toHaveAttribute('aria-atomic', 'true')
+		expect(screen.queryByText('Nothing here')).not.toBeInTheDocument()
+		expect(screen.queryByText('This view is empty.')).not.toBeInTheDocument()
+	})
+
+	it('prompts for keywords when an empty-query deep link has no results', () => {
+		Route.useSearch = vi.fn(() => ({ q: '   ', threadId: undefined }))
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: undefined,
+			selected: null,
+			threads: [],
+		}))
+
+		renderRoute()
+
+		expect(screen.getByText('Search your mail')).toBeInTheDocument()
+		expect(screen.getByText('Enter keywords above to find messages.')).toBeInTheDocument()
+		expect(screen.queryByText('No messages found')).not.toBeInTheDocument()
+		expect(screen.getByRole('status')).toBeInTheDocument()
+		expect(fns.getThreads).not.toHaveBeenCalled()
+	})
+
+	it('ignores cached list and detail data when a blank query retains a thread id', () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		queryClient.setQueryData(mailKeys.threadList({ q: '   ' }), {
+			pages: [{ threads: [{ id: 'cached-list', subject: 'Cached list result' }] }],
+			pageParams: [undefined],
+		})
+		queryClient.setQueryData(mailKeys.threadDetail('cached-detail'), {
+			thread: { id: 'cached-detail', subject: 'Cached conversation', folders: ['inbox'] },
+			messages: [],
+			mailboxEmail: 'me@example.com',
+		})
+		Route.useSearch = vi.fn(() => ({ q: '   ', threadId: 'cached-detail' }))
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: undefined,
+			selected: null,
+			threads: [],
+		}))
+
+		renderRoute(queryClient)
+
+		expect(screen.getByRole('status')).toHaveTextContent('Search your mail')
+		expect(screen.queryByText('Cached list result')).not.toBeInTheDocument()
+		expect(screen.queryByText('Cached conversation')).not.toBeInTheDocument()
+		expect(fns.getThreads).not.toHaveBeenCalled()
+		expect(fns.getThreadMessages).not.toHaveBeenCalled()
 	})
 
 	it('omits the folder key from a result link when the search is unscoped', () => {
