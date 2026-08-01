@@ -97,6 +97,26 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		expect(screen.getByRole('heading', { name: 'New event' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
+			'h-11',
+			'w-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'focus-visible:ring-offset-2',
+			'focus-visible:ring-offset-background',
+		)
+		const cancel = screen.getByRole('button', { name: 'Cancel' })
+		const save = screen.getByRole('button', { name: 'Save event' })
+		for (const action of [cancel, save, screen.getByRole('button', { name: 'Work' })]) {
+			expect(action).toHaveClass(
+				'min-h-11',
+				'focus-visible:ring-[3px]',
+				'focus-visible:ring-ring',
+				'focus-visible:ring-offset-2',
+				'focus-visible:ring-offset-background',
+			)
+		}
+		expect(save.parentElement).toHaveClass('flex-wrap')
 		await waitFor(() => expect(screen.getByPlaceholderText('Add title')).toHaveFocus())
 	})
 
@@ -276,8 +296,16 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		await user.selectOptions(screen.getByLabelText('Repeat'), 'weekly')
-		expect(screen.getByRole('button', { name: 'Mon' })).toBeInTheDocument()
-		await user.click(screen.getByRole('button', { name: 'Mon' }))
+		const monday = screen.getByRole('button', { name: 'Mon' })
+		expect(monday).toHaveClass(
+			'min-h-11',
+			'min-w-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'focus-visible:ring-offset-2',
+			'focus-visible:ring-offset-background',
+		)
+		await user.click(monday)
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
 		await waitFor(() => expect(createEvent).toHaveBeenCalled())
 		expect(createEvent.mock.calls[0][0].data.recurrence).toMatchObject({
@@ -779,6 +807,53 @@ describe('EventModal — existing event', () => {
 		expect(screen.getByText('Weekly sync')).toBeInTheDocument()
 		// Timed events show a start–end range rather than "All day".
 		expect(screen.queryByText('All day')).toBeNull()
+	})
+
+	it('keeps event actions touch-friendly, focus-visible, and able to wrap', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={timedEvent()}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work calendar"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+
+		const expectTouchAction = (button: HTMLElement) => {
+			expect(button).toHaveClass(
+				'min-h-11',
+				'focus-visible:outline-none',
+				'focus-visible:ring-[3px]',
+				'focus-visible:ring-ring',
+				'focus-visible:ring-offset-2',
+				'focus-visible:ring-offset-background',
+			)
+		}
+		const close = screen.getByRole('button', { name: 'Close' })
+		expect(close).toHaveClass(
+			'h-11',
+			'w-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'focus-visible:ring-offset-2',
+			'focus-visible:ring-offset-background',
+		)
+		for (const name of ['✓ Yes', '? Maybe', '✗ No', 'Edit', 'Delete', 'Done']) {
+			expectTouchAction(screen.getByRole('button', { name }))
+		}
+		expect(screen.getByRole('button', { name: 'Done' }).parentElement).toHaveClass('flex-wrap')
+
+		await user.click(screen.getByRole('button', { name: 'Edit' }))
+		expectTouchAction(screen.getByRole('button', { name: 'Cancel' }))
+		expectTouchAction(screen.getByRole('button', { name: 'Save changes' }))
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+		await user.click(screen.getByRole('button', { name: 'Delete' }))
+		expectTouchAction(screen.getByRole('button', { name: 'Cancel' }))
+		expectTouchAction(screen.getByRole('button', { name: 'Delete event' }))
 	})
 
 	it('shows "All day" and the untitled fallback for a bare all-day event', () => {
