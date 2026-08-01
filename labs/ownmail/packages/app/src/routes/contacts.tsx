@@ -1,7 +1,7 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Menu, Plus, Search } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Loader2, Menu, Plus, Search } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
@@ -39,17 +39,25 @@ type ContactsInfo = {
 
 function ContactsLayout() {
 	const { info, contacts, nextCursor } = Route.useLoaderData()
-	const contactsQuery = useContactsPages({ contacts, ...(nextCursor ? { nextCursor } : {}) })
+	const initialPage = useMemo(
+		() => ({ contacts, ...(nextCursor ? { nextCursor } : {}) }),
+		[contacts, nextCursor],
+	)
+	const contactsQuery = useContactsPages(initialPage)
 	const { q } = Route.useSearch()
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	async function loadMoreContacts() {
+		await contactsQuery.fetchNextPage({ cancelRefetch: false })
+	}
 	return (
 		<ContactsShell
 			info={info}
 			contacts={flattenContactPages(contactsQuery.data)}
 			nextCursor={contactsQuery.hasNextPage ? contactsQuery.data.pages.at(-1)?.nextCursor : undefined}
 			loadingMore={contactsQuery.isFetchingNextPage}
-			onLoadMore={() => contactsQuery.fetchNextPage()}
+			loadMoreError={contactsQuery.isFetchNextPageError}
+			onLoadMore={loadMoreContacts}
 			query={q ?? ''}
 			selectedId={contactIdFromPath(pathname)}
 			onQueryChange={(next) => navigate({ to: '/contacts', search: next ? { q: next } : {}, replace: true })}
@@ -65,6 +73,7 @@ export function ContactsShell({
 	selectedId,
 	onQueryChange,
 	loadingMore: controlledLoadingMore,
+	loadMoreError: controlledLoadMoreError,
 	onLoadMore,
 }: {
 	info: ContactsInfo
@@ -74,15 +83,30 @@ export function ContactsShell({
 	selectedId?: string
 	onQueryChange: (query: string) => void
 	loadingMore?: boolean
+	loadMoreError?: boolean
 	onLoadMore?: () => Promise<unknown>
 }) {
 	const [extra, setExtra] = useState<Contact[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [localLoadingMore, setLocalLoadingMore] = useState(false)
-	const loadingMore = controlledLoadingMore ?? localLoadingMore
+	const [localLoadMoreError, setLocalLoadMoreError] = useState(false)
+	const loadingMore = Boolean(controlledLoadingMore || localLoadingMore)
+	const loadMoreFailed = !loadingMore && Boolean(controlledLoadMoreError || localLoadMoreError)
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const [cursor, setCursor] = useState(-1)
+	const loadMorePendingRef = useRef(false)
+	const listGenerationRef = useRef({ contacts, initialCursor, generation: 0 })
+	if (
+		listGenerationRef.current.contacts !== contacts ||
+		listGenerationRef.current.initialCursor !== initialCursor
+	) {
+		listGenerationRef.current = {
+			contacts,
+			initialCursor,
+			generation: listGenerationRef.current.generation + 1,
+		}
+	}
 
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
@@ -93,11 +117,14 @@ export function ContactsShell({
 	// `contacts` dep is the trigger even though the body doesn't read it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when a new contacts page arrives
 	useEffect(() => {
+		loadMorePendingRef.current = false
 		setExtra([])
 		setNextCursor(initialCursor)
+		setLocalLoadingMore(false)
+		setLocalLoadMoreError(false)
 	}, [contacts, initialCursor])
 
-	const all = useMemo(() => sortContacts([...contacts, ...extra]), [contacts, extra])
+	const all = useMemo(() => sortContacts(dedupeContacts([...contacts, ...extra])), [contacts, extra])
 	const filtered = useMemo(() => filterContacts(all, query), [all, query])
 	// Preserve the active search when following a contact link so the list stays filtered.
 	const linkSearch = query ? { q: query } : {}
@@ -147,26 +174,56 @@ export function ContactsShell({
 	/* v8 ignore stop -- @preserve */
 
 	async function loadMore() {
-		// Only reachable from the paged button, which renders solely when a cursor
-		// exists and is disabled while a fetch is in flight — no re-entry guard needed.
-		if (onLoadMore) {
-			await onLoadMore().catch(
-				/* v8 ignore next -- @preserve managed pagination failures leave the existing retry control available */
-				() => {},
-			)
-			return
-		}
+		if (!nextCursor || loadMorePendingRef.current || loadingMore) return
+		const actionGeneration = listGenerationRef.current.generation
+		loadMorePendingRef.current = true
+		setLocalLoadMoreError(false)
 		setLocalLoadingMore(true)
 		try {
+			if (onLoadMore) {
+				await onLoadMore()
+				return
+			}
 			const res = await getContacts({ data: { pageToken: nextCursor } })
+			if (listGenerationRef.current.generation !== actionGeneration) return
 			setExtra((prev) => [...prev, ...res.contacts])
 			setNextCursor(res.nextCursor)
 		} catch {
-			// The button remains available for a retry.
+			if (listGenerationRef.current.generation === actionGeneration) setLocalLoadMoreError(true)
 		} finally {
-			setLocalLoadingMore(false)
+			if (listGenerationRef.current.generation === actionGeneration) {
+				loadMorePendingRef.current = false
+				setLocalLoadingMore(false)
+			}
 		}
 	}
+	const paginationControls = nextCursor ? (
+		<div className="w-full border-t border-border p-3">
+			{loadMoreFailed ? (
+				<p id="contacts-pagination-error" role="alert" className="mb-2 text-center text-xs text-destructive">
+					Could not load more contacts. Check your connection, then try again.
+				</p>
+			) : null}
+			<button
+				type="button"
+				onClick={() => void loadMore()}
+				aria-disabled={loadingMore || undefined}
+				aria-busy={loadingMore}
+				aria-describedby={loadMoreFailed ? 'contacts-pagination-error' : undefined}
+				className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-center text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 aria-disabled:cursor-wait aria-disabled:opacity-60"
+			>
+				{loadingMore ? (
+					<>
+						<Loader2 className="h-4 w-4 animate-spin" /> Loading more contacts…
+					</>
+				) : loadMoreFailed ? (
+					'Try loading more contacts'
+				) : (
+					'Load more contacts'
+				)}
+			</button>
+		</div>
+	) : null
 
 	const railNavProps = {
 		email: info.email,
@@ -228,33 +285,26 @@ export function ContactsShell({
 					)}
 				>
 					{filtered.length === 0 ? (
-						<p className="px-4 py-8 text-center text-sm text-muted-foreground">
-							{query ? 'No contacts match your search.' : 'No contacts yet.'}
-						</p>
+						<ContactsEmptyState query={query} moreAvailable={Boolean(nextCursor)}>
+							{paginationControls}
+						</ContactsEmptyState>
 					) : (
-						<ul className="min-h-0 flex-1 overflow-y-auto py-1">
-							{filtered.map((contact) => (
-								<li key={contact.id}>
-									<ContactListItem
-										contact={contact}
-										active={contact.id === selectedId}
-										keyboardActive={cursor === filtered.indexOf(contact)}
-										search={linkSearch}
-									/>
-								</li>
-							))}
-						</ul>
+						<>
+							<ul className="min-h-0 flex-1 overflow-y-auto py-1">
+								{filtered.map((contact, index) => (
+									<li key={contact.id}>
+										<ContactListItem
+											contact={contact}
+											active={contact.id === selectedId}
+											keyboardActive={cursor === index}
+											search={linkSearch}
+										/>
+									</li>
+								))}
+							</ul>
+							{paginationControls}
+						</>
 					)}
-					{nextCursor ? (
-						<button
-							type="button"
-							onClick={loadMore}
-							disabled={loadingMore}
-							className="border-t border-border py-2.5 text-center text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
-						>
-							{loadingMore ? 'Loading…' : 'Load more'}
-						</button>
-					) : null}
 				</div>
 
 				<div className={cn('min-w-0 flex-1 overflow-y-auto', !selectedId && 'hidden md:block')}>
@@ -267,6 +317,36 @@ export function ContactsShell({
 			<Sheet open={navigationOpen} onClose={() => setNavigationOpen(false)} title="Navigation">
 				<AppRailMobileNav {...railNavProps} onNavigate={() => setNavigationOpen(false)} />
 			</Sheet>
+		</div>
+	)
+}
+
+function dedupeContacts(contacts: Contact[]): Contact[] {
+	return [...new Map(contacts.map((contact) => [contact.id, contact])).values()]
+}
+
+function ContactsEmptyState({
+	query,
+	moreAvailable,
+	children,
+}: {
+	query: string
+	moreAvailable: boolean
+	children?: ReactNode
+}) {
+	return (
+		<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+			<p className="text-sm font-medium text-foreground">
+				{query
+					? 'No contacts match your search.'
+					: moreAvailable
+						? 'More contacts may be available'
+						: 'No contacts yet.'}
+			</p>
+			{moreAvailable ? (
+				<p className="text-sm text-muted-foreground">Load the next page to keep looking.</p>
+			) : null}
+			{children}
 		</div>
 	)
 }

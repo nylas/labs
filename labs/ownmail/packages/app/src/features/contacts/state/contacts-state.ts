@@ -7,6 +7,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import type { ContactFieldsInput } from '#features/contacts/server/contact-input'
 import { createContact, deleteContact, getContact, getContacts, updateContact } from '#server/fns'
 
@@ -75,7 +76,8 @@ function contactsInitialData(page: ContactsPage): ContactsPages {
 /** The route loader supplies the first page; subsequent pages live in one deduplicated cache. */
 export function useContactsPages(initialPage: ContactsPage) {
 	const queryClient = useQueryClient()
-	return useInfiniteQuery({
+	const loaderPageRef = useRef(initialPage)
+	const query = useInfiniteQuery({
 		queryKey: contactsKeys.list(),
 		queryFn: async ({ pageParam }) =>
 			reconcileContactPage(
@@ -91,6 +93,24 @@ export function useContactsPages(initialPage: ContactsPage) {
 			pages: data.pages.map((page, index) => reconcileContactPage(queryClient, page, index === 0)),
 		}),
 	})
+	useEffect(() => {
+		if (loaderPageRef.current !== initialPage) {
+			loaderPageRef.current = initialPage
+			queryClient.setQueryData(
+				contactsKeys.list(),
+				contactsInitialData(reconcileContactPage(queryClient, initialPage, true)),
+			)
+		}
+		return () => {
+			void queryClient
+				.cancelQueries({ queryKey: contactsKeys.list(), exact: true }, { revert: true, silent: true })
+				.catch(
+					/* v8 ignore next -- @preserve cancellation is best-effort lifecycle cleanup with no user-facing failure */
+					() => {},
+				)
+		}
+	}, [initialPage, queryClient])
+	return query
 }
 
 export function useContact(contactId: string, initialData: Contact) {
