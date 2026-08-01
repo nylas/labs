@@ -1,17 +1,18 @@
 import { ArrowRight, Calendar, Loader2, Mail, ShieldCheck } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { Button } from '#shared/components/ui/button'
 
 export function LoginScreen({ signInHref, siteName }: { signInHref: string; siteName: string }) {
 	const [connecting, setConnecting] = useState(false)
+	const redirectPendingRef = useRef(false)
 
 	function handleSignIn() {
-		/* v8 ignore next -- defensive double-submit guard; the button is disabled while connecting, so this is unreachable via the UI -- @preserve */
-		if (connecting) return
+		if (redirectPendingRef.current) return
+		redirectPendingRef.current = true
 		setConnecting(true)
 		window.setTimeout(() => {
 			window.location.assign(signInHref)
-		}, 900)
+		}, 0)
 	}
 
 	return (
@@ -48,8 +49,9 @@ export function LoginScreen({ signInHref, siteName }: { signInHref: string; site
 					<Button
 						type="button"
 						onClick={handleSignIn}
-						disabled={connecting}
-						className="group h-auto w-full rounded-lg py-3.5 font-semibold"
+						aria-disabled={connecting}
+						aria-busy={connecting || undefined}
+						className="group h-auto min-h-11 w-full rounded-lg py-3.5 font-semibold aria-disabled:pointer-events-none aria-disabled:opacity-50"
 					>
 						{connecting ? (
 							<>
