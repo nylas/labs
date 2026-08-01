@@ -4,6 +4,7 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
 import {
 	forwardDraftSearch,
@@ -338,6 +339,42 @@ function SearchThreadDetail({
 	const lastMessage = selected.messages.at(-1)
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
+	const reply = () => {
+		/* v8 ignore next -- every exposed search reply entry point requires a latest message -- @preserve */
+		if (!lastMessage) return
+		router.navigate({
+			to: '/mail/compose',
+			search: {
+				folderId: routeFolderId,
+				threadId: selected.thread.id,
+				...replyDraftSearch(lastMessage),
+			},
+		})
+	}
+	const replyAll = () => {
+		/* v8 ignore next -- every exposed search reply-all entry point requires a latest message -- @preserve */
+		if (!lastMessage) return
+		router.navigate({
+			to: '/mail/compose',
+			search: {
+				folderId: routeFolderId,
+				threadId: selected.thread.id,
+				...replyAllDraftSearch(lastMessage, selected.mailboxEmail),
+			},
+		})
+	}
+	const forward = () => {
+		/* v8 ignore next -- every exposed search forward entry point requires a latest message -- @preserve */
+		if (!lastMessage) return
+		router.navigate({
+			to: '/mail/compose',
+			search: {
+				folderId: routeFolderId,
+				threadId: selected.thread.id,
+				...forwardDraftSearch(lastMessage),
+			},
+		})
+	}
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
@@ -396,49 +433,13 @@ function SearchThreadDetail({
 
 				{lastMessage ? (
 					<div className="ml-auto hidden items-center gap-1 sm:flex">
-						<ActionButton
-							label="Reply"
-							onClick={() =>
-								router.navigate({
-									to: '/mail/compose',
-									search: {
-										folderId: routeFolderId,
-										threadId: selected.thread.id,
-										...replyDraftSearch(lastMessage),
-									},
-								})
-							}
-						>
+						<ActionButton label="Reply" onClick={reply}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton
-							label="Reply all"
-							onClick={() =>
-								router.navigate({
-									to: '/mail/compose',
-									search: {
-										folderId: routeFolderId,
-										threadId: selected.thread.id,
-										...replyAllDraftSearch(lastMessage, selected.mailboxEmail),
-									},
-								})
-							}
-						>
+						<ActionButton label="Reply all" onClick={replyAll}>
 							<ReplyAll className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton
-							label="Forward"
-							onClick={() =>
-								router.navigate({
-									to: '/mail/compose',
-									search: {
-										folderId: routeFolderId,
-										threadId: selected.thread.id,
-										...forwardDraftSearch(lastMessage),
-									},
-								})
-							}
-						>
+						<ActionButton label="Forward" onClick={forward}>
 							<Forward className="h-4 w-4" />
 						</ActionButton>
 					</div>
@@ -451,19 +452,11 @@ function SearchThreadDetail({
 
 			{lastMessage ? (
 				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
+					<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
 					<button
 						type="button"
-						onClick={() =>
-							router.navigate({
-								to: '/mail/compose',
-								search: {
-									folderId: routeFolderId,
-									threadId: selected.thread.id,
-									...replyDraftSearch(lastMessage),
-								},
-							})
-						}
-						className="flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground"
+						onClick={reply}
+						className="hidden w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground sm:flex"
 					>
 						<Reply className="h-4 w-4 shrink-0" />
 						<span>Write a reply…</span>
