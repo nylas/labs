@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.11.3
+
+### Patch Changes
+
+- 00240cb: Expose Reply all and Forward on mobile thread readers.
+- f9b1302: Let users load all pages of mail search results.
+
 ## 0.11.2
 
 ### Patch Changes
