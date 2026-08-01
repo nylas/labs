@@ -132,17 +132,23 @@ describe('CommandPalette', () => {
 	})
 
 	it('toggles the theme both directions and persists the choice', () => {
-		const { rerender } = render(<CommandPalette open={true} onClose={vi.fn()} />)
+		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		// From light -> dark.
-		fireEvent.click(screen.getByText('Toggle light / dark theme'))
+		const darkModeCommand = screen.getByRole('button', { name: 'Switch to dark mode' })
+		expect(darkModeCommand.querySelector('svg')).toHaveClass('lucide-moon')
+		fireEvent.click(darkModeCommand)
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
 		expect(document.documentElement.classList.contains('dark')).toBe(true)
 
-		// Reopen and go dark -> light.
-		rerender(<CommandPalette open={true} onClose={vi.fn()} />)
-		fireEvent.click(screen.getByText('Toggle light / dark theme'))
+		// The still-mounted command immediately offers the inverse action.
+		const lightModeCommand = screen.getByRole('button', { name: 'Switch to light mode' })
+		expect(lightModeCommand.querySelector('svg')).toHaveClass('lucide-sun')
+		fireEvent.click(lightModeCommand)
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
 		expect(document.documentElement.classList.contains('light')).toBe(true)
+		expect(screen.getByRole('button', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
+			'lucide-moon',
+		)
 	})
 
 	it('delegates the search command to the focus-search handler when provided', () => {

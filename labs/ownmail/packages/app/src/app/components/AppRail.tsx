@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -11,13 +11,8 @@ import {
 	MAIL_HOME_PATH,
 	SETTINGS_PATH,
 } from '../config/route-paths.js'
-import {
-	initialThemeIsDark,
-	ROOT_BACKGROUND_CLASS,
-	THEME_STORAGE_KEY,
-	themeClassName,
-	themeToggleLabel,
-} from '../config/theme.js'
+import { themeToggleLabel, toggleTheme } from '../config/theme.js'
+import { useThemeToggleState } from '../lib/use-theme-toggle-state.js'
 import { useUserPreferences } from '../preferences/user-preferences.js'
 
 export type MailboxAccountOption = {
@@ -78,24 +73,8 @@ export function AppRailNav({
 	active,
 	onOpenCommandPalette,
 }: AppRailNavProps) {
-	const [isDark, setIsDark] = useState(false)
-	const [mounted, setMounted] = useState(false)
+	const { isDark, mounted } = useThemeToggleState()
 	const [preferences] = useUserPreferences()
-
-	useEffect(() => {
-		const saved = localStorage.getItem(THEME_STORAGE_KEY)
-		const nextDark = initialThemeIsDark(saved)
-		applyThemeClass(nextDark)
-		setIsDark(nextDark)
-		setMounted(true)
-	}, [])
-
-	function toggleTheme() {
-		const nextDark = !isDark
-		applyThemeClass(nextDark)
-		localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
-		setIsDark(nextDark)
-	}
 
 	const effectiveDisplayName = displayName || preferences.displayName
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
@@ -177,24 +156,8 @@ export function AppRailMobileNav({
 	onOpenCommandPalette,
 	onNavigate,
 }: AppRailMobileNavProps) {
-	const [isDark, setIsDark] = useState(false)
-	const [mounted, setMounted] = useState(false)
+	const { isDark, mounted } = useThemeToggleState()
 	const [preferences] = useUserPreferences()
-
-	useEffect(() => {
-		const saved = localStorage.getItem(THEME_STORAGE_KEY)
-		const nextDark = initialThemeIsDark(saved)
-		applyThemeClass(nextDark)
-		setIsDark(nextDark)
-		setMounted(true)
-	}, [])
-
-	function toggleTheme() {
-		const nextDark = !isDark
-		applyThemeClass(nextDark)
-		localStorage.setItem(THEME_STORAGE_KEY, nextDark ? 'dark' : 'light')
-		setIsDark(nextDark)
-	}
 
 	const effectiveDisplayName = displayName || preferences.displayName
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
@@ -499,11 +462,4 @@ function MobileNavButton({
 			<span>{label}</span>
 		</button>
 	)
-}
-
-function applyThemeClass(isDark: boolean): void {
-	const next = themeClassName(isDark)
-	const previous = isDark ? 'light' : 'dark'
-	document.documentElement.classList.add(ROOT_BACKGROUND_CLASS, next)
-	document.documentElement.classList.remove(previous)
 }
