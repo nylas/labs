@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
-import { render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
+
+afterEach(cleanup)
 
 function thread(id: string): MailThread {
 	return { id, subject: `Thread ${id}`, starred: false }
@@ -57,5 +59,26 @@ describe('ThreadConversation rendering', () => {
 		expect(timestamps).toHaveLength(2)
 		expect(timestamps[0]).toHaveClass('hidden', 'sm:inline-block', 'order-3')
 		expect(timestamps[1]).toHaveClass('basis-full', 'whitespace-nowrap', 'pl-12', 'sm:hidden')
+	})
+
+	it('makes multi-message display controls descriptive, touch-friendly, and stateful', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2'), message('m3')]} />,
+		)
+		const expand = screen.getByRole('button', { name: 'Expand all 3 messages' })
+		const collapse = screen.getByRole('button', { name: 'Collapse all 3 messages' })
+
+		expect(expand).toHaveTextContent('Expand all')
+		expect(expand).toHaveClass('min-h-11', 'focus-visible:ring-[3px]', 'focus-visible:ring-ring/40')
+		expect(collapse).toHaveTextContent('Collapse all')
+		expect(collapse).toHaveClass('min-h-11', 'focus-visible:ring-[3px]', 'focus-visible:ring-ring/40')
+
+		fireEvent.click(expand)
+		expect(expand).toBeDisabled()
+		expect(screen.getAllByRole('button', { name: /Collapse message from/ })).toHaveLength(3)
+
+		fireEvent.click(collapse)
+		expect(collapse).toBeDisabled()
+		expect(screen.getAllByRole('button', { name: /Expand message from/ })).toHaveLength(3)
 	})
 })

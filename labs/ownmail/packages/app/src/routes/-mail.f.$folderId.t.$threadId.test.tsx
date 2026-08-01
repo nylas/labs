@@ -262,13 +262,13 @@ describe('message list', () => {
 			'false',
 			'true',
 		])
-		await user.click(screen.getByRole('button', { name: 'Expand all' }))
+		await user.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
 		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'true')).toBe(true)
-		expect(screen.getByRole('button', { name: 'Expand all' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Expand all 3 messages' })).toBeDisabled()
 
-		await user.click(screen.getByRole('button', { name: 'Collapse all' }))
+		await user.click(screen.getByRole('button', { name: 'Collapse all 3 messages' }))
 		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'false')).toBe(true)
-		expect(screen.getByRole('button', { name: 'Collapse all' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Collapse all 3 messages' })).toBeDisabled()
 	})
 
 	it('discloses complete available addressing and timestamp details', async () => {
