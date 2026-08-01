@@ -597,6 +597,110 @@ describe('month view', () => {
 		})
 	})
 
+	it.each([
+		['Enter', 'Enter'],
+		['Space', ' '],
+	])('opens the focused day with %s', (_label, key) => {
+		renderMonth()
+		const day = document.querySelector<HTMLElement>('[data-month-calendar-day="2024-06-20"]')
+		expect(day).not.toBeNull()
+		day?.focus()
+		fireEvent.focus(day as HTMLElement)
+		fireEvent.keyDown(day as HTMLElement, { key })
+		expect(h.navigate).toHaveBeenCalledTimes(1)
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'day' },
+			search: { date: '2024-06-20' },
+		})
+	})
+
+	it('keeps keyboard event activation scoped to the child event', () => {
+		renderMonth()
+		const event = screen.getByRole('button', { name: /Meeting/ })
+		fireEvent.keyDown(event, { key: 'Enter' })
+		fireEvent.click(event)
+		expect(screen.getByTestId('event-modal').dataset.event).toBe('m2')
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('opens the newly focused day after arrow-key navigation', () => {
+		renderMonth()
+		const day = document.querySelector<HTMLElement>('[data-month-calendar-day="2024-06-20"]')
+		day?.focus()
+		fireEvent.keyDown(day as HTMLElement, { key: 'ArrowRight' })
+		vi.runOnlyPendingTimers()
+		const nextDay = document.querySelector<HTMLElement>('[data-month-calendar-day="2024-06-21"]')
+		expect(nextDay).toHaveFocus()
+		fireEvent.keyDown(nextDay as HTMLElement, { key: 'Enter' })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'day' },
+			search: { date: '2024-06-21' },
+		})
+	})
+
+	it('exposes column headers and six owned week rows', () => {
+		renderMonth()
+		const grid = screen.getByRole('grid', { name: 'Month calendar' })
+		const rows = within(grid).getAllByRole('row')
+		expect(rows).toHaveLength(7)
+		expect(within(rows[0] as HTMLElement).getAllByRole('columnheader')).toHaveLength(7)
+		const cells = within(grid).getAllByRole('gridcell')
+		expect(cells).toHaveLength(42)
+		expect(cells.every((cell) => cell.parentElement?.tagName === 'TR')).toBe(true)
+	})
+
+	it.each([
+		['ArrowLeft', 'first'],
+		['ArrowUp', 'first'],
+		['ArrowRight', 'last'],
+		['ArrowDown', 'last'],
+	] as const)('keeps one active day when %s reaches the %s rendered boundary', (key, edge) => {
+		renderMonth()
+		const grid = screen.getByRole('grid', { name: 'Month calendar' })
+		const cells = within(grid).getAllByRole('gridcell')
+		const day = edge === 'first' ? cells[0] : cells.at(-1)
+		expect(day).toBeDefined()
+		day?.focus()
+		fireEvent.focus(day as HTMLElement)
+		fireEvent.keyDown(day as HTMLElement, { key })
+		vi.runOnlyPendingTimers()
+		expect(day).toHaveFocus()
+		expect(cells.filter((cell) => cell.tabIndex === 0)).toEqual([day])
+		fireEvent.keyDown(day as HTMLElement, { key: 'Enter' })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'day' },
+			search: { date: day?.dataset.monthCalendarDay },
+		})
+	})
+
+	it.each(['PageUp', 'PageDown'])(
+		'retains the active rendered day when %s points outside the grid',
+		(key) => {
+			renderMonth()
+			const grid = screen.getByRole('grid', { name: 'Month calendar' })
+			const day = within(grid).getByRole('gridcell', { name: /Thursday, June 20, 2024/ })
+			day.focus()
+			fireEvent.focus(day)
+			fireEvent.keyDown(day, { key })
+			vi.runOnlyPendingTimers()
+			expect(day).toHaveFocus()
+			expect(
+				within(grid)
+					.getAllByRole('gridcell')
+					.filter((cell) => cell.tabIndex === 0),
+			).toEqual([day])
+			fireEvent.keyDown(day, { key: ' ' })
+			expect(h.navigate).toHaveBeenCalledWith({
+				to: '/calendar/$view',
+				params: { view: 'day' },
+				search: { date: '2024-06-20' },
+			})
+		},
+	)
+
 	it('marks today and the anchor date distinctly in the mini calendar', () => {
 		renderMonth()
 		const miniToday = screen.getAllByText('15').find((el) => el.tagName === 'BUTTON')
