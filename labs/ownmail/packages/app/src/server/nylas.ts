@@ -1,7 +1,7 @@
 import { type GrantScopedClient, NylasV3Client } from '@nylas-labs/cli-kit/v3'
 import { createDevMailbox, devMailboxEmail, devMailboxName } from './dev-mocks.js'
 import { platform, usingDevMocks } from './platform.js'
-import { getSession, slideSessionExpiry } from './session.js'
+import { getSession, type Session, slideSessionExpiry } from './session.js'
 import { OWNMAIL_USER_AGENT } from './usage-attribution.js'
 
 let client: NylasV3Client | null = null
@@ -41,11 +41,29 @@ export async function mailboxFromRequest(request: Request): Promise<{
 	}
 	const session = await getSession(request)
 	if (!session) return null
-	const refreshCookie = await slideSessionExpiry(request, session)
+	const refreshCookie = await slideRefreshCookie(request, session)
 	return {
 		mailbox: (await nylas()).forGrant(session.grantId),
 		grantId: session.grantId,
 		email: session.email,
 		...(refreshCookie ? { refreshCookie } : {}),
+	}
+}
+
+/**
+ * Sliding the deadline is best-effort. The session was already validated above, so a
+ * store that can still read but not write (transient outage, quota, rate limit) must
+ * not turn every mail, calendar, and contact request into a failure — report the write
+ * failure and serve the request on the deadline the session already has.
+ */
+async function slideRefreshCookie(request: Request, session: Session): Promise<string | null> {
+	try {
+		return await slideSessionExpiry(request, session)
+	} catch (error) {
+		// Name only, never the message: store errors can echo back key material.
+		console.error('OwnMail session refresh failed', {
+			error: error instanceof Error ? error.name : typeof error,
+		})
+		return null
 	}
 }

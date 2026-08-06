@@ -143,4 +143,42 @@ describe('mailboxFromRequest()', () => {
 		expect(slideSessionExpiryMock).toHaveBeenCalledWith(request, session)
 		expect(result?.refreshCookie).toBe('ownmail_session=next; Max-Age=1209600')
 	})
+
+	/**
+	 * The session was already validated before the slide runs, so a store that can read
+	 * but not write must not take mail, calendar, and contacts down with it. Extending
+	 * the deadline is a convenience; serving an authenticated request is not.
+	 */
+	it('still serves the request when the session refresh write fails', async () => {
+		usingDevMocksMock.mockResolvedValue(false)
+		getSessionMock.mockResolvedValue({ grantId: 'grant-xyz', email: 'user@ownmail.com', createdAt: 0 })
+		slideSessionExpiryMock.mockRejectedValue(new Error('KV write quota exceeded'))
+		const scoped = { scoped: true }
+		forGrant.mockReturnValue(scoped)
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const { mailboxFromRequest } = await import('./nylas.js')
+
+		const result = await mailboxFromRequest(req())
+
+		expect(result).toEqual({ mailbox: scoped, grantId: 'grant-xyz', email: 'user@ownmail.com' })
+		// No cookie to send, but the request goes through on the existing deadline.
+		expect(result).not.toHaveProperty('refreshCookie')
+		// Operators still hear about it — without the message, which can echo key material.
+		expect(consoleError).toHaveBeenCalledWith('OwnMail session refresh failed', { error: 'Error' })
+		consoleError.mockRestore()
+	})
+
+	it('reports a non-Error refresh failure by type rather than swallowing it', async () => {
+		usingDevMocksMock.mockResolvedValue(false)
+		getSessionMock.mockResolvedValue({ grantId: 'grant-xyz', email: 'user@ownmail.com', createdAt: 0 })
+		slideSessionExpiryMock.mockRejectedValue('upstash: 429')
+		const scoped = { scoped: true }
+		forGrant.mockReturnValue(scoped)
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const { mailboxFromRequest } = await import('./nylas.js')
+
+		expect((await mailboxFromRequest(req()))?.grantId).toBe('grant-xyz')
+		expect(consoleError).toHaveBeenCalledWith('OwnMail session refresh failed', { error: 'string' })
+		consoleError.mockRestore()
+	})
 })

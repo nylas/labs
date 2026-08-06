@@ -119,16 +119,17 @@ export async function addVerifiedSessionAccount(
 		) ?? []
 	if (accounts.length >= MAX_SESSION_ACCOUNTS) throw new Error('Too many inboxes in this session')
 	const createdAt = current?.createdAt ?? Date.now()
+	// Invalidate the superseded record *before* minting its replacement, so an
+	// in-flight refresh finds the old key already gone and declines to slide it.
+	if (current) await destroySession(request)
 	// Verifying a mailbox is activity: the window restarts from now rather than
 	// keeping the deadline set at the user's very first login.
-	const cookie = await persistSession({
+	return persistSession({
 		accounts: [...accounts, { grantId, email: email.trim() }],
 		activeGrantId: grantId,
 		createdAt,
 		expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
 	})
-	if (current) await destroySession(request)
-	return cookie
 }
 
 /** Selects an already verified mailbox. A client-provided grant id is never accepted. */
@@ -144,14 +145,15 @@ export async function switchSessionAccount(request: Request, handle: string): Pr
 		}
 	}
 	if (!selected) return null
-	const cookie = await persistSession({
+	// Same ordering as above: the record being switched away from dies first, so an
+	// in-flight refresh cannot write it back and undo the switch.
+	await destroySession(request)
+	return persistSession({
 		accounts: current.accounts,
 		activeGrantId: selected.grantId,
 		createdAt: current.createdAt,
 		expiresAt: current.expiresAt,
 	})
-	await destroySession(request)
-	return cookie
 }
 
 export async function sessionAccountSummaries(
@@ -174,11 +176,19 @@ async function accountHandle(grantId: string): Promise<string> {
 
 /**
  * Extends the session deadline on authenticated activity, at most once per
- * SESSION_SLIDE_INTERVAL_SECONDS. Returns a Set-Cookie header value when the
- * window moved (the cookie Max-Age has to move with it, and in stateless mode the
- * cookie *is* the record), or null when the throttle says the write isn't due yet.
+ * SESSION_SLIDE_INTERVAL_SECONDS. Returns a Set-Cookie header value when the window
+ * moved (the cookie Max-Age has to move with it), or null when the throttle says the
+ * write isn't due yet — or when the session must not be extended at all.
  *
- * The caller passes the session it already resolved, so sliding costs no extra read.
+ * A refresh must never outlive a session mutation. A `/logout` or account switch that
+ * happens while a request is in flight deletes the record; if this slide then wrote the
+ * old record back and its response landed last, the browser would adopt a resurrected
+ * cookie — the user would stay signed in after signing out. So the slide re-reads the
+ * record and refuses to re-create a key that is gone. KV offers no compare-and-swap, so
+ * this narrows the race to the microtask between that read and the write rather than
+ * closing it; the mutating paths delete before they persist to keep that window minimal.
+ *
+ * The caller passes the session it already resolved, so sliding costs one read, not two.
  */
 export async function slideSessionExpiry(request: Request, session: Session): Promise<string | null> {
 	// Only the request's own cookie may be extended — never mint a record for a
@@ -188,8 +198,17 @@ export async function slideSessionExpiry(request: Request, session: Session): Pr
 	const now = Date.now()
 	const extendedAt = session.expiresAt - SESSION_TTL_SECONDS * 1000
 	if (now - extendedAt < SESSION_SLIDE_INTERVAL_SECONDS * 1000) return null
-	// KV mode: reuse the existing id so the slide is a single idempotent write and
-	// concurrent requests can't strand orphan records or invalidate each other's cookie.
+	const { kv } = await platform()
+	// Stateless mode: the cookie *is* the record, so there is no server-side state a
+	// logout could invalidate and no way to tell a live session from a just-destroyed
+	// one. A reissued cookie racing behind a logout would silently restore it, so
+	// decline: KV-less deployments keep the fixed window from their last sign-in.
+	if (!kv) return null
+	const id = value.split('.')[0]
+	// Re-read immediately before the write, as close to it as possible.
+	if (!(await kv.get(`session:${id}`))) return null
+	// Reuse the existing id so the slide is a single idempotent write and concurrent
+	// requests can't strand orphan records or invalidate each other's cookie.
 	return persistSession(
 		{
 			accounts: session.accounts,
@@ -197,7 +216,7 @@ export async function slideSessionExpiry(request: Request, session: Session): Pr
 			createdAt: session.createdAt,
 			expiresAt: now + SESSION_TTL_SECONDS * 1000,
 		},
-		value.split('.')[0],
+		id,
 	)
 }
 

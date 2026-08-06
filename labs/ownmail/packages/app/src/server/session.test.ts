@@ -782,38 +782,65 @@ describe('sliding session expiry', () => {
 		expect(await getSession(request)).toBeNull()
 	})
 
-	it('reissues a stateless cookie carrying the new expiry, since the cookie is the record', async () => {
+	/**
+	 * Without KV there is no server-side record, so nothing a logout does can invalidate
+	 * a signed cookie — a refresh that landed after the logout would hand the browser a
+	 * fresh, still-valid cookie and quietly sign the user back in. Not sliding is the
+	 * only outcome we can actually guarantee, so KV-less deployments keep the fixed
+	 * 14-day window that runs from their last sign-in.
+	 */
+	it('never reissues a stateless cookie, which no logout could invalidate', async () => {
 		usePlatform(null)
 		const original = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
 
 		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
 		const [request, session] = await sessionFor(original)
-		const refreshed = (await slideSessionExpiry(request, session)) as string
-		const slidCookie = cookieFromSetCookie(refreshed)
 
-		expect(refreshed).toContain(`Max-Age=${TTL_MS / 1000}`)
-		expect(refreshed).toContain('HttpOnly')
-		expect(refreshed).toContain('Secure')
-		expect(refreshed).toContain('SameSite=Lax')
-		// A different signed payload: the exp inside the cookie moved, not just Max-Age.
-		expect(slidCookie).not.toBe(original)
-
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// The original window is untouched: still valid now, still gone at 14 days.
+		expect((await getSession(req(`ownmail_session=${original}`)))?.grantId).toBe('grant-a')
 		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
 		expect(await getSession(req(`ownmail_session=${original}`))).toBeNull()
-		expect((await getSession(req(`ownmail_session=${slidCookie}`)))?.grantId).toBe('grant-a')
-
-		// And the slid cookie still dies 14 days after that activity.
-		vi.setSystemTime(new Date(START.getTime() + DAY_MS + TTL_MS + 2_000))
-		expect(await getSession(req(`ownmail_session=${slidCookie}`))).toBeNull()
 	})
 
-	it('leaves a stateless session alone inside the throttle window', async () => {
-		usePlatform(null)
+	/**
+	 * The resurrection race: a request reads the session, the user hits `/logout` and the
+	 * record is deleted, and only then does the slide reach its write. Writing the old
+	 * record back under the same id would leave a logged-out user authenticated as soon
+	 * as the browser applied the refresh response's cookie.
+	 */
+	it('leaves the user logged out when a logout lands mid-slide', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
 		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
 
-		vi.setSystemTime(new Date(START.getTime() + DAY_MS - 1_000))
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
 		const [request, session] = await sessionFor(cookie)
+		const writesBeforeLogout = kv.puts.length
+		// The concurrent logout wins the race to KV.
+		await destroySession(request)
+
 		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// No cookie to resurrect the session with, and no record behind it either.
+		expect(kv.puts.length).toBe(writesBeforeLogout)
+		expect(kv.store.size).toBe(0)
+		expect(await getSession(request)).toBeNull()
+	})
+
+	/** Same race against an account switch: the slide must not restore the old inbox. */
+	it('does not undo an account switch that lands mid-slide', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		const switched = cookieFromSetCookie(await addVerifiedSessionAccount(request, 'grant-b', 'b@ownmail.com'))
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// The pre-switch cookie stays dead and the switched-to inbox stays active.
+		expect(await getSession(req(`ownmail_session=${cookie}`))).toBeNull()
+		expect((await getSession(req(`ownmail_session=${switched}`)))?.grantId).toBe('grant-b')
 	})
 
 	it('never mints a record for a request that carries no session cookie', async () => {
