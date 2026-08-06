@@ -186,6 +186,7 @@ export function ContactModal({
 							<Input
 								ref={givenNameRef}
 								id="contact-given-name"
+								autoComplete="given-name"
 								disabled={busy}
 								value={form.givenName}
 								aria-invalid={validation?.field === 'identity' || undefined}
@@ -200,6 +201,7 @@ export function ContactModal({
 						<Field id="contact-surname" label="Last name">
 							<Input
 								id="contact-surname"
+								autoComplete="family-name"
 								disabled={busy}
 								value={form.surname}
 								className="h-11"
@@ -212,6 +214,7 @@ export function ContactModal({
 						<Field id="contact-company" label="Company">
 							<Input
 								id="contact-company"
+								autoComplete="organization"
 								disabled={busy}
 								value={form.companyName}
 								className="h-11"
@@ -224,6 +227,7 @@ export function ContactModal({
 						<Field id="contact-job-title" label="Job title">
 							<Input
 								id="contact-job-title"
+								autoComplete="organization-title"
 								disabled={busy}
 								value={form.jobTitle}
 								className="h-11"
@@ -246,7 +250,9 @@ export function ContactModal({
 										emailRefs.current[index] = node
 									}}
 									id={`contact-email-${index}`}
+									name={`contact-email-${index}`}
 									type="email"
+									autoComplete={index === 0 ? 'email' : `section-contact-email-${index + 1} email`}
 									disabled={busy}
 									aria-label={`Email ${index + 1}`}
 									aria-invalid={
@@ -293,7 +299,10 @@ export function ContactModal({
 							// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
 							<div key={index} className="flex items-center gap-2">
 								<Input
+									id={`contact-phone-${index}`}
+									name={`contact-phone-${index}`}
 									type="tel"
+									autoComplete={index === 0 ? 'tel' : `section-contact-phone-${index + 1} tel`}
 									disabled={busy}
 									aria-label={`Phone ${index + 1}`}
 									placeholder="+1 555 0100"
