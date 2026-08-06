@@ -106,6 +106,7 @@ import {
 	ensureKvNamespace,
 	putSecret,
 	runWrangler,
+	workerHasSecret,
 	wranglerLoggedIn,
 	wranglerLogin,
 } from './wrangler.js'
@@ -310,6 +311,39 @@ describe('ensureKvNamespace', () => {
 		spawnCtl.queue.push({ code: 0, stdout: 'created, but no id here' })
 		spawnCtl.queue.push({ code: 1, stderr: 'network timeout' })
 		await expect(ensureKvNamespace('mykv')).rejects.toThrow(/result may be unknown/)
+	})
+})
+
+describe('workerHasSecret', () => {
+	it('reports an existing secret from the names Cloudflare returns', async () => {
+		spawnCtl.queue.push({
+			code: 0,
+			stdout: JSON.stringify([
+				{ name: 'NYLAS_API_KEY', type: 'secret_text' },
+				{ name: 'SESSION_SECRET', type: 'secret_text' },
+			]),
+		})
+		expect(await workerHasSecret('worker', 'SESSION_SECRET')).toBe(true)
+		expect(spawnCtl.calls[0]?.args).toEqual(expect.arrayContaining(['secret', 'list', '--name', 'worker']))
+	})
+
+	it('reports a missing secret on a worker that has never held one', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '[]' })
+		expect(await workerHasSecret('worker', 'SESSION_SECRET')).toBe(false)
+	})
+
+	it('fails closed when Cloudflare rejects the secret inventory request', async () => {
+		spawnCtl.queue.push({ code: 1, stderr: 'permission denied' })
+		await expect(workerHasSecret('worker', 'SESSION_SECRET')).rejects.toThrow(
+			/current credentials were rejected/,
+		)
+	})
+
+	it('fails closed when the secret inventory is unparseable', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: 'not json' })
+		await expect(workerHasSecret('worker', 'SESSION_SECRET')).rejects.toThrow(
+			/unreadable deployment secret inventory/,
+		)
 	})
 })
 

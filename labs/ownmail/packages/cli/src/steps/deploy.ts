@@ -20,9 +20,11 @@ import {
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
 	listVercelScopes,
+	netlifyHasEnvironmentVariable,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
+	vercelHasEnvironmentVariable,
 } from '../deploy/provider-cli.js'
 import { projectAppUrl, setupRealtimeWebhook } from '../deploy/webhook.js'
 import {
@@ -30,6 +32,7 @@ import {
 	deploy,
 	ensureKvNamespace,
 	putSecret,
+	workerHasSecret,
 	wranglerLoggedIn,
 	wranglerLogin,
 } from '../deploy/wrangler.js'
@@ -257,7 +260,12 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	spinner.start('Locking in secrets…')
 	try {
 		await putSecret(workerName, 'NYLAS_API_KEY', apiKey)
-		await putSecret(workerName, 'SESSION_SECRET', randomBytes(32).toString('base64url'))
+		// Session cookies are HMAC-signed with SESSION_SECRET, so replacing it on a
+		// redeploy would invalidate every signed-in user's cookie. Mint one only
+		// when the worker has none yet.
+		if (!(await workerHasSecret(workerName, 'SESSION_SECRET'))) {
+			await putSecret(workerName, 'SESSION_SECRET', newSessionSecret())
+		}
 		saveProject(ctx.project)
 		spinner.stop('Secrets stored in Cloudflare (never on disk).')
 	} catch (err) {
@@ -271,7 +279,6 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 	const manifest = loadManifest()
 	const apiKey = requirePendingApiKey(ctx)
-	const sessionSecret = randomBytes(32).toString('base64url')
 	const existingProject =
 		ctx.project.vercelProjectId && ctx.project.vercelOrgId
 			? { projectId: ctx.project.vercelProjectId, orgId: ctx.project.vercelOrgId }
@@ -286,6 +293,11 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 		ctx.project.vercelOrgId = linked.orgId
 		saveProject(ctx.project)
 		await ensureVercelRealtimeStore(dir, `${ctx.project.slug}-realtime`, ctx.project.region)
+		// Keep the session secret the project already runs on; replacing it would
+		// invalidate every signed-in user's HMAC-signed cookie.
+		const sessionSecret = (await vercelHasEnvironmentVariable(dir, 'SESSION_SECRET'))
+			? null
+			: newSessionSecret()
 		await setVercelEnvironment(
 			dir,
 			runtimeEnvironment(ctx, manifest.templateVersion, apiKey, sessionSecret),
@@ -330,7 +342,6 @@ async function selectVercelScope(ctx: StepContext): Promise<string> {
 async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
 	const manifest = loadManifest()
 	const apiKey = requirePendingApiKey(ctx)
-	const sessionSecret = randomBytes(32).toString('base64url')
 	const { dir } = materializeNetlify(ctx.project.slug)
 	const spinner = p.spinner()
 	spinner.start('Deploying your mailbox app to Netlify…')
@@ -338,6 +349,11 @@ async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
 		const site = await ensureNetlifySite(dir, `${ctx.project.slug}-ownmail`, ctx.project.netlifySiteId)
 		ctx.project.netlifySiteId = site.siteId
 		saveProject(ctx.project)
+		// Keep the session secret the site already runs on; replacing it would
+		// invalidate every signed-in user's HMAC-signed cookie.
+		const sessionSecret = (await netlifyHasEnvironmentVariable(dir, site.siteId, 'SESSION_SECRET'))
+			? null
+			: newSessionSecret()
 		await setNetlifyEnvironment(
 			dir,
 			site.siteId,
@@ -380,7 +396,7 @@ async function stepLocalDeploy(ctx: StepContext): Promise<void> {
 	storePendingSecret(ctx.project, 'apiKey', apiKey, { allowLocalFallback: false })
 	let sessionSecret = readPendingSecret(ctx.project, 'sessionSecret')
 	if (!sessionSecret) {
-		sessionSecret = randomBytes(32).toString('base64url')
+		sessionSecret = newSessionSecret()
 		storePendingSecret(ctx.project, 'sessionSecret', sessionSecret, { allowLocalFallback: false })
 	}
 	saveProject(ctx.project)
@@ -432,7 +448,7 @@ async function stepManualDeploy(ctx: StepContext): Promise<void> {
 		templateVersion: manifest.templateVersion,
 		targetDir,
 		apiKey,
-		sessionSecret: randomBytes(32).toString('base64url'),
+		sessionSecret: newSessionSecret(),
 	})
 	ctx.project.manualDeployDir = exported
 	ctx.project.templateVersion = manifest.templateVersion
@@ -630,16 +646,25 @@ function appUrl(ctx: StepContext): string | undefined {
 	return projectAppUrl(ctx.project)
 }
 
+/** A fresh 32-byte CSPRNG session secret; only ever handed to the hosting provider. */
+function newSessionSecret(): string {
+	return randomBytes(32).toString('base64url')
+}
+
+/**
+ * `sessionSecret` is null when the provider already holds one. Omitting the key
+ * leaves the deployed value in place instead of overwriting it.
+ */
 function runtimeEnvironment(
 	ctx: StepContext,
 	templateVersion: string,
 	apiKey: string,
-	sessionSecret: string,
+	sessionSecret: string | null,
 ): Record<string, string> {
 	const apiBaseUrl = deployedApiBaseUrl(ctx.project.region)
 	return {
 		NYLAS_API_KEY: apiKey,
-		SESSION_SECRET: sessionSecret,
+		...(sessionSecret ? { SESSION_SECRET: sessionSecret } : {}),
 		NYLAS_CLIENT_ID: requireNylasClientId(ctx.project.applicationId),
 		NYLAS_REGION: ctx.project.region,
 		...(apiBaseUrl ? { NYLAS_API_BASE_URL: apiBaseUrl } : {}),

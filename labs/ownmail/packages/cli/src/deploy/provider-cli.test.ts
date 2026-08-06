@@ -59,9 +59,11 @@ import {
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
 	listVercelScopes,
+	netlifyHasEnvironmentVariable,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
+	vercelHasEnvironmentVariable,
 } from './provider-cli.js'
 
 type FakeResult = {
@@ -417,7 +419,7 @@ describe('Vercel provider CLI', () => {
 		expect(spawnedArgs(0)).toContain('--yes')
 		expect(spawnedArgs(1)).not.toContain('--sensitive')
 		expect(stdinValue(0)).toBe('secret-value\n')
-		expect(JSON.stringify(hoisted.spawn.mock.calls)).not.toContain('secret-value')
+		expect(allSpawnedArgsText()).not.toContain('secret-value')
 	})
 
 	it('reuses an available Upstash store already connected to the Vercel project', async () => {
@@ -743,8 +745,8 @@ describe('Netlify provider CLI', () => {
 		)
 		expect(spawnedArgs(1)).toEqual(expect.arrayContaining(['env:set', 'NYLAS_API_KEY', '--secret']))
 		expect(spawnedArgs(2)).toEqual(expect.arrayContaining(['env:set', 'SESSION_SECRET', '--secret']))
-		expect(JSON.stringify(hoisted.spawn.mock.calls)).not.toContain('api-secret')
-		expect(JSON.stringify(hoisted.spawn.mock.calls)).not.toContain('session-secret')
+		expect(allSpawnedArgsText()).not.toContain('api-secret')
+		expect(allSpawnedArgsText()).not.toContain('session-secret')
 	})
 
 	it('removes the temporary file when secret protection fails', async () => {
@@ -862,6 +864,84 @@ describe('safe provider failures', () => {
 	})
 })
 
+describe('deployment settings inventories', () => {
+	const siteId = '123e4567-e89b-42d3-a456-426614174000'
+
+	it('detects an existing Vercel setting from names alone', async () => {
+		queueCli({
+			code: 0,
+			stdout: JSON.stringify({
+				envs: [
+					{ key: 'NYLAS_API_KEY', type: 'sensitive' },
+					// Vercel withholds the value of a sensitive setting; the name is enough.
+					{ key: 'SESSION_SECRET', type: 'sensitive' },
+				],
+			}),
+		})
+
+		await expect(vercelHasEnvironmentVariable('/tmp/app', 'SESSION_SECRET')).resolves.toBe(true)
+
+		expect(spawnedArgs(0)).toEqual(
+			expect.arrayContaining(['env', 'ls', 'production', '--format', 'json', '--cwd', '/tmp/app']),
+		)
+	})
+
+	it('reports a missing Vercel setting on a freshly linked project', async () => {
+		queueCli({ code: 0, stdout: JSON.stringify({ envs: [] }) })
+		await expect(vercelHasEnvironmentVariable('/tmp/app', 'SESSION_SECRET')).resolves.toBe(false)
+	})
+
+	it('fails closed when Vercel rejects the settings inventory request', async () => {
+		queueCli({ code: 1, stderr: 'network failure' })
+		await expect(vercelHasEnvironmentVariable('/tmp/app', 'SESSION_SECRET')).rejects.toThrow(
+			/could not inspect deployment settings/,
+		)
+	})
+
+	it.each([
+		['no json at all', 'not json'],
+		['a non-array listing', JSON.stringify({ envs: 'nope' })],
+		['an oversized listing', JSON.stringify({ envs: Array.from({ length: 1001 }, () => ({ key: 'A' })) })],
+		['a non-object entry', JSON.stringify({ envs: ['SESSION_SECRET'] })],
+		['an entry without a name', JSON.stringify({ envs: [{ type: 'sensitive' }] })],
+	])('refuses to replace secrets when Vercel returns %s', async (_label, stdout) => {
+		queueCli({ code: 0, stdout })
+		await expect(vercelHasEnvironmentVariable('/tmp/app', 'SESSION_SECRET')).rejects.toThrow(
+			/invalid deployment settings inventory/,
+		)
+	})
+
+	it('detects an existing Netlify setting without reading its value', async () => {
+		// Netlify withholds the value of a secret variable; the key is enough.
+		queueCli({ code: 0, stdout: JSON.stringify({ NYLAS_API_KEY: null, SESSION_SECRET: null }) })
+
+		await expect(netlifyHasEnvironmentVariable('/tmp/app', siteId, 'SESSION_SECRET')).resolves.toBe(true)
+
+		expect(spawnedArgs(0)).toEqual(
+			expect.arrayContaining(['env:list', '--context', 'production', '--json', '--site', siteId]),
+		)
+	})
+
+	it('reports a missing Netlify setting on a freshly created site', async () => {
+		queueCli({ code: 0, stdout: '{}' })
+		await expect(netlifyHasEnvironmentVariable('/tmp/app', siteId, 'SESSION_SECRET')).resolves.toBe(false)
+	})
+
+	it('fails closed when Netlify rejects the settings inventory request', async () => {
+		queueCli({ code: 1, stderr: 'network failure' })
+		await expect(netlifyHasEnvironmentVariable('/tmp/app', siteId, 'SESSION_SECRET')).rejects.toThrow(
+			/could not inspect deployment settings/,
+		)
+	})
+
+	it('refuses to replace secrets when the Netlify inventory is unreadable', async () => {
+		queueCli({ code: 0, stdout: 'not json' })
+		await expect(netlifyHasEnvironmentVariable('/tmp/app', siteId, 'SESSION_SECRET')).rejects.toThrow(
+			/invalid deployment settings inventory/,
+		)
+	})
+})
+
 function queueCli(...results: FakeResult[]): void {
 	for (const result of results) hoisted.spawn.mockImplementationOnce(() => fakeChild(result))
 }
@@ -892,6 +972,16 @@ function fakeChild(result: FakeResult) {
 		child.emit('close', result.code)
 	})
 	return child
+}
+
+/**
+ * Every spawned argv, and only the argv. Process arguments are world-readable
+ * (`ps`), so secret values must never appear there — but the inherited
+ * environment is not part of that claim, and serializing it made this assertion
+ * trip on unrelated CI variables such as a branch name in `GITHUB_HEAD_REF`.
+ */
+function allSpawnedArgsText(): string {
+	return JSON.stringify(hoisted.spawn.mock.calls.map((call) => call[1]))
 }
 
 function spawnedArgs(index: number): string[] {
