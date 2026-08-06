@@ -1,6 +1,6 @@
 import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
-import { getRequest } from '@tanstack/react-start/server'
+import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '#app/config/route-paths'
 import { mailboxFromRequest } from './nylas.js'
 
@@ -8,6 +8,9 @@ export async function requireMailbox() {
 	const request = getRequest()
 	const resolved = await mailboxFromRequest(request)
 	if (!resolved) throw redirect({ to: LOGIN_PATH })
+	// Authenticated activity slides the session deadline; the refreshed cookie carries
+	// the new Max-Age so the browser keeps it past the original 14-day window.
+	if (resolved.refreshCookie) setResponseHeader('set-cookie', resolved.refreshCookie)
 	return resolved
 }
 

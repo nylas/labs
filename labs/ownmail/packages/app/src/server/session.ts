@@ -15,6 +15,11 @@ import { platform } from './platform.js'
 const COOKIE_NAME = 'ownmail_session'
 const CONNECT_STATE_COOKIE = 'ownmail_connect_state'
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14 // 14 days
+/**
+ * Sliding-window throttle: the 14-day deadline only moves once a day of activity
+ * has elapsed, so a continuously used session costs at most one KV write per day.
+ */
+const SESSION_SLIDE_INTERVAL_SECONDS = 60 * 60 * 24 // 1 day
 const CONNECT_STATE_TTL_SECONDS = 600
 const MAX_SESSION_ACCOUNTS = 10
 const MAX_SESSION_COOKIE_VALUE_LENGTH = 3800
@@ -114,11 +119,13 @@ export async function addVerifiedSessionAccount(
 		) ?? []
 	if (accounts.length >= MAX_SESSION_ACCOUNTS) throw new Error('Too many inboxes in this session')
 	const createdAt = current?.createdAt ?? Date.now()
+	// Verifying a mailbox is activity: the window restarts from now rather than
+	// keeping the deadline set at the user's very first login.
 	const cookie = await persistSession({
 		accounts: [...accounts, { grantId, email: email.trim() }],
 		activeGrantId: grantId,
 		createdAt,
-		expiresAt: current?.expiresAt ?? createdAt + SESSION_TTL_SECONDS * 1000,
+		expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
 	})
 	if (current) await destroySession(request)
 	return cookie
@@ -165,13 +172,42 @@ async function accountHandle(grantId: string): Promise<string> {
 	return hmac(`account:${grantId}`)
 }
 
-async function persistSession(record: StoredSession): Promise<string> {
+/**
+ * Extends the session deadline on authenticated activity, at most once per
+ * SESSION_SLIDE_INTERVAL_SECONDS. Returns a Set-Cookie header value when the
+ * window moved (the cookie Max-Age has to move with it, and in stateless mode the
+ * cookie *is* the record), or null when the throttle says the write isn't due yet.
+ *
+ * The caller passes the session it already resolved, so sliding costs no extra read.
+ */
+export async function slideSessionExpiry(request: Request, session: Session): Promise<string | null> {
+	// Only the request's own cookie may be extended — never mint a record for a
+	// request that carries no session.
+	const value = cookieValue(request, COOKIE_NAME)
+	if (!value) return null
+	const now = Date.now()
+	const extendedAt = session.expiresAt - SESSION_TTL_SECONDS * 1000
+	if (now - extendedAt < SESSION_SLIDE_INTERVAL_SECONDS * 1000) return null
+	// KV mode: reuse the existing id so the slide is a single idempotent write and
+	// concurrent requests can't strand orphan records or invalidate each other's cookie.
+	return persistSession(
+		{
+			accounts: session.accounts,
+			activeGrantId: session.grantId,
+			createdAt: session.createdAt,
+			expiresAt: now + SESSION_TTL_SECONDS * 1000,
+		},
+		value.split('.')[0],
+	)
+}
+
+async function persistSession(record: StoredSession, existingId?: string): Promise<string> {
 	if (!validStoredSession(record)) throw new Error('Invalid session')
 	const remainingTtl = Math.ceil((record.expiresAt - Date.now()) / 1000)
 	if (remainingTtl <= 0) throw new Error('Session expired')
 	const { kv } = await platform()
 	if (kv) {
-		const id = base64url(crypto.getRandomValues(new Uint8Array(32)))
+		const id = existingId ?? base64url(crypto.getRandomValues(new Uint8Array(32)))
 		await kv.put(`session:${id}`, JSON.stringify(record), { expirationTtl: Math.max(60, remainingTtl) })
 		return setCookie(COOKIE_NAME, `${id}.${await hmac(id)}`, remainingTtl)
 	}

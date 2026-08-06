@@ -1,7 +1,7 @@
 import { type GrantScopedClient, NylasV3Client } from '@nylas-labs/cli-kit/v3'
 import { createDevMailbox, devMailboxEmail, devMailboxName } from './dev-mocks.js'
 import { platform, usingDevMocks } from './platform.js'
-import { getSession } from './session.js'
+import { getSession, slideSessionExpiry } from './session.js'
 import { OWNMAIL_USER_AGENT } from './usage-attribution.js'
 
 let client: NylasV3Client | null = null
@@ -26,6 +26,8 @@ export async function mailboxFromRequest(request: Request): Promise<{
 	grantId: string
 	email: string
 	displayName?: string
+	/** Set-Cookie value the caller must send when activity slid the session deadline. */
+	refreshCookie?: string
 } | null> {
 	const { env } = await platform()
 	if (await usingDevMocks()) {
@@ -39,9 +41,11 @@ export async function mailboxFromRequest(request: Request): Promise<{
 	}
 	const session = await getSession(request)
 	if (!session) return null
+	const refreshCookie = await slideSessionExpiry(request, session)
 	return {
 		mailbox: (await nylas()).forGrant(session.grantId),
 		grantId: session.grantId,
 		email: session.email,
+		...(refreshCookie ? { refreshCookie } : {}),
 	}
 }

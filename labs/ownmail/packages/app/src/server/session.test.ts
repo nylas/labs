@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KvLike } from './platform.js'
 import {
 	addVerifiedSessionAccount,
@@ -9,7 +9,9 @@ import {
 	destroySession,
 	getSession,
 	hasReferenceDevSessionCookie,
+	type Session,
 	sessionAccountSummaries,
+	slideSessionExpiry,
 	storeConnectState,
 	switchSessionAccount,
 } from './session.js'
@@ -704,6 +706,140 @@ describe('stateless sessions (no KV)', () => {
 		const raw = b64url('not json at all')
 		const cookie = `${raw}.${await signRaw(raw)}`
 		expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-x')).toBeNull()
+	})
+})
+
+/**
+ * The 14-day window is a *sliding* one: it must survive continuous use, but re-persisting
+ * on every request would put a KV write in the hot path of every authenticated call. The
+ * throttle is the whole point of these tests — extend after a day of use, never before.
+ */
+describe('sliding session expiry', () => {
+	const DAY_MS = 24 * 60 * 60 * 1000
+	const TTL_MS = 14 * DAY_MS
+	const START = new Date('2026-03-01T00:00:00.000Z')
+
+	beforeEach(() => {
+		vi.useFakeTimers()
+		vi.setSystemTime(START)
+	})
+	afterEach(() => vi.useRealTimers())
+
+	async function sessionFor(cookie: string): Promise<[Request, Session]> {
+		const request = req(`ownmail_session=${cookie}`)
+		return [request, (await getSession(request)) as Session]
+	}
+
+	it('extends the KV deadline after a day of use, with one write against the same record', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const writesAfterLogin = kv.puts.length
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		const refreshed = (await slideSessionExpiry(request, session)) as string
+
+		// Cookie Max-Age moves too, or the browser would still drop it on the old deadline.
+		expect(refreshed).toContain(`Max-Age=${TTL_MS / 1000}`)
+		// The opaque pointer is unchanged, so the slide is one idempotent write, not a rotation.
+		expect(cookieFromSetCookie(refreshed)).toBe(cookie)
+		expect(kv.puts.length).toBe(writesAfterLogin + 1)
+		expect(kv.puts.at(-1)?.options?.expirationTtl).toBe(TTL_MS / 1000)
+
+		// Past the original 14-day deadline the actively used session is still valid.
+		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
+		expect((await getSession(request))?.grantId).toBe('grant-a')
+	})
+
+	it('does not touch KV for a session used again inside the once-a-day throttle window', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const writesAfterLogin = kv.puts.length
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS - 1_000))
+		const [request, session] = await sessionFor(cookie)
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		expect(kv.puts.length).toBe(writesAfterLogin)
+	})
+
+	it('still expires an idle KV session 14 days after its last activity', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		// One burst of activity on day 2, then the user goes quiet.
+		vi.setSystemTime(new Date(START.getTime() + 2 * DAY_MS))
+		const [request, session] = await sessionFor(cookie)
+		const lastActivity = Date.now()
+		expect(await slideSessionExpiry(request, session)).toBeTruthy()
+
+		vi.setSystemTime(new Date(lastActivity + TTL_MS - 1_000))
+		expect(await getSession(request)).not.toBeNull()
+		vi.setSystemTime(new Date(lastActivity + TTL_MS + 1))
+		expect(await getSession(request)).toBeNull()
+	})
+
+	it('reissues a stateless cookie carrying the new expiry, since the cookie is the record', async () => {
+		usePlatform(null)
+		const original = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(original)
+		const refreshed = (await slideSessionExpiry(request, session)) as string
+		const slidCookie = cookieFromSetCookie(refreshed)
+
+		expect(refreshed).toContain(`Max-Age=${TTL_MS / 1000}`)
+		expect(refreshed).toContain('HttpOnly')
+		expect(refreshed).toContain('Secure')
+		expect(refreshed).toContain('SameSite=Lax')
+		// A different signed payload: the exp inside the cookie moved, not just Max-Age.
+		expect(slidCookie).not.toBe(original)
+
+		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
+		expect(await getSession(req(`ownmail_session=${original}`))).toBeNull()
+		expect((await getSession(req(`ownmail_session=${slidCookie}`)))?.grantId).toBe('grant-a')
+
+		// And the slid cookie still dies 14 days after that activity.
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + TTL_MS + 2_000))
+		expect(await getSession(req(`ownmail_session=${slidCookie}`))).toBeNull()
+	})
+
+	it('leaves a stateless session alone inside the throttle window', async () => {
+		usePlatform(null)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS - 1_000))
+		const [request, session] = await sessionFor(cookie)
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+	})
+
+	it('never mints a record for a request that carries no session cookie', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		vi.setSystemTime(new Date(START.getTime() + 2 * DAY_MS))
+		const [, session] = await sessionFor(cookie)
+		const writesAfterLogin = kv.puts.length
+
+		expect(await slideSessionExpiry(req(), session)).toBeNull()
+		expect(kv.puts.length).toBe(writesAfterLogin)
+	})
+
+	it('restarts the window when a newly verified mailbox joins an older session', async () => {
+		usePlatform(null)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + 10 * DAY_MS))
+		const joined = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-b', 'b@ownmail.com'),
+		)
+
+		// The deadline runs from the re-auth, not from the very first login.
+		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
+		expect((await getSession(req(`ownmail_session=${joined}`)))?.grantId).toBe('grant-b')
 	})
 })
 
