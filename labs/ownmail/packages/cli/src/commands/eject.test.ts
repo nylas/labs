@@ -25,6 +25,7 @@ vi.mock('@clack/prompts', () => ({
 
 vi.mock('../deploy/materialize.js', () => ({
 	loadManifest: vi.fn(),
+	templateRateLimits: vi.fn(),
 	templateRoot: vi.fn(() => ROOT),
 }))
 
@@ -51,7 +52,7 @@ vi.mock('./shared.js', () => ({
 
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import * as p from '@clack/prompts'
-import { loadManifest } from '../deploy/materialize.js'
+import { loadManifest, templateRateLimits } from '../deploy/materialize.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
@@ -75,6 +76,17 @@ function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
 		...overrides,
 	} as ProjectState
 }
+
+/**
+ * Stands in for whatever the template's wrangler config declares. The list is
+ * deliberately not a copy of today's real one — it carries an extra binding —
+ * because eject must pass the shared source through rather than restate it.
+ */
+const TEMPLATE_RATE_LIMITS = [
+	{ name: 'SIGNIN_EMAIL_LIMITER', namespace_id: '1001', simple: { limit: 5, period: 60 } },
+	{ name: 'SIGNIN_IP_LIMITER', namespace_id: '1002', simple: { limit: 20, period: 60 } },
+	{ name: 'SIGNIN_TOTP_LIMITER', namespace_id: '1003', simple: { limit: 3, period: 10 } },
+]
 
 const createApiKey = vi.fn()
 
@@ -100,6 +112,7 @@ beforeEach(() => {
 		kvBindings: [],
 		migrations: [],
 	})
+	vi.mocked(templateRateLimits).mockReturnValue(TEMPLATE_RATE_LIMITS)
 	vi.mocked(deployedApiBaseUrl).mockReturnValue(undefined)
 	vi.mocked(p.confirm).mockResolvedValue(true as never)
 	createApiKey.mockResolvedValue({ apiKey: 'nyk_minted' })
@@ -258,5 +271,39 @@ describe('runEject — writes the project', () => {
 		expect(writtenFile('wrangler.jsonc')).toContain('"id": ""')
 		expect(writtenFile('wrangler.jsonc')).toContain('NYLAS_API_BASE_URL')
 		expect(cpSync).not.toHaveBeenCalledWith(join(ROOT, 'public'), expect.anything(), expect.anything())
+	})
+})
+
+/**
+ * An ejected project is the documented way to take ownership of the code, and
+ * its sign-in form is the same one the template ships. The Cloudflare rate-limit
+ * bindings are the only atomic brute-force control in front of that form — UAS
+ * applies none to `POST /v3/connect/login/nylas` — and without them the limiter
+ * silently degrades to per-instance counting. So eject has to hand over the
+ * template's bindings, all of them, unchanged.
+ */
+describe('runEject — sign-in brute-force protection survives ejection', () => {
+	it('carries every rate-limit binding the template declares, not a fixed pair', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject())
+
+		await runEject({})
+
+		const written = JSON.parse(writtenFile('wrangler.jsonc') ?? '{}')
+		// Deep equality against the shared source: a binding added to the template
+		// shows up here with no change to eject, and a restated list fails.
+		expect(written.ratelimits).toEqual(templateRateLimits())
+		expect(written.ratelimits).toHaveLength(TEMPLATE_RATE_LIMITS.length)
+	})
+
+	it('aborts before touching anything when the template declares none', async () => {
+		vi.mocked(pickExistingProject).mockResolvedValue(makeProject())
+		vi.mocked(templateRateLimits).mockImplementation(() => {
+			throw new Error('The bundled app build declares no rate-limit bindings')
+		})
+
+		await expect(runEject({})).rejects.toThrow(/no rate-limit bindings/)
+		expect(createApiKey).not.toHaveBeenCalled()
+		expect(writeFileSync).not.toHaveBeenCalled()
+		expect(saveProject).not.toHaveBeenCalled()
 	})
 })
