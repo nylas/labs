@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.12.0
+
+### Patch Changes
+
+- 5a967bd: Reuse the deployed session secret on Cloudflare, Vercel, and Netlify so redeploys no longer sign every user out.
+
 ## 0.11.4
 
 ## 0.11.3
