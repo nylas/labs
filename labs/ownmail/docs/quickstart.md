@@ -86,7 +86,13 @@ The wizard automates all supported targets:
   stopped to restart on the latest version.
 
 Netlify and local mode use stateless signed-cookie sessions and refresh on
-navigation, focus, and a low-frequency active-query fallback. OwnMail stores
+navigation, focus, and a low-frequency active-query fallback. Sessions last 14
+days. On Cloudflare and Upstash-backed Vercel that window *slides*: it moves
+forward while you keep using the app, so an active mailbox stays signed in.
+Stateless targets have no server-side record to revoke, so a refreshed cookie
+could outlive a sign-out — they keep a fixed 14-day window running from the last
+sign-in instead. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` on a
+Netlify or local deployment to get sliding sessions there too. OwnMail stores
 hosted settings with the provider and keeps local runtime secrets in the OS
 credential store. Callback URIs and Nylas webhooks are registered automatically
 after the deployment URL is known.

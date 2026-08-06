@@ -4,12 +4,9 @@
  */
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { NylasApiError } from '@nylas-labs/cli-kit/v3'
-import { redirect } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
-import { getRequest } from '@tanstack/react-start/server'
-import { LOGIN_PATH } from '#app/config/route-paths'
 import { signalLocalChange } from '#server/change-version'
-import { mailboxFromRequest } from '#server/nylas'
+import { requireMailbox } from '#server/mailbox-boundary'
 import { isRenderableCalendarEvent } from '../lib/calendar.js'
 import {
 	type CreateEventInput,
@@ -23,12 +20,6 @@ import {
 	type RsvpEventInput,
 	type UpdateEventInput,
 } from './calendar-input.js'
-
-async function requireMailbox() {
-	const resolved = await mailboxFromRequest(getRequest())
-	if (!resolved) throw redirect({ to: LOGIN_PATH })
-	return resolved
-}
 
 function friendly(err: unknown): Error {
 	if (err instanceof NylasApiError && (err.status === 401 || err.status === 403))

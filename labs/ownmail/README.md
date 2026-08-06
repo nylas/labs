@@ -182,7 +182,11 @@ revokes when the operation ends.
 
 Netlify and local targets use stateless signed-cookie sessions with a periodic
 active-query refresh fallback. Cloudflare and Vercel use shared storage plus
-Nylas webhooks for instant updates. Hosted targets register callback URLs and
+Nylas webhooks for instant updates. Shared storage is also what makes the 14-day
+session window *sliding* — it moves forward while you keep using the app.
+Stateless targets have no server-side record a sign-out could revoke, so they
+keep a fixed window running from the last sign-in; set the Upstash environment
+variables to enable sliding sessions there. Hosted targets register callback URLs and
 the primary Nylas webhook automatically. Provider CLIs may open a browser the
 first time you sign in.
 

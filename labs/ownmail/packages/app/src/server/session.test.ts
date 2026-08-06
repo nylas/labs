@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KvLike } from './platform.js'
 import {
 	addVerifiedSessionAccount,
@@ -9,7 +9,9 @@ import {
 	destroySession,
 	getSession,
 	hasReferenceDevSessionCookie,
+	type Session,
 	sessionAccountSummaries,
+	slideSessionExpiry,
 	storeConnectState,
 	switchSessionAccount,
 } from './session.js'
@@ -169,7 +171,7 @@ describe('KV-backed sessions', () => {
 
 			const switched = (await switchSessionAccount(request, handle)) as string
 
-			expect(kv.puts.at(-1)?.options?.expirationTtl).toBe(60)
+			expect(kv.puts.findLast((put) => put.key.startsWith('session:'))?.options?.expirationTtl).toBe(60)
 			expect(switched).toContain('Max-Age=30')
 			const switchedCookie = cookieFromSetCookie(switched)
 			vi.setSystemTime(new Date(expiresAt + 1))
@@ -325,7 +327,49 @@ describe('KV-backed sessions', () => {
 		expect(kv.store.size).toBe(1)
 
 		await destroySession(req(`ownmail_session=${cookieValue}`))
+		// The record is gone; only the short-lived revocation tombstone remains.
+		expect([...kv.store.keys()]).toEqual([`revoked:${cookieValue.split('.')[0]}`])
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
+	})
+
+	/**
+	 * `/logout` is reachable without a valid session, so the tombstone it writes is a
+	 * key name derived from client input. Signing has to be checked first, or anyone
+	 * could POST random cookies in a loop and mint unbounded KV keys — burning write
+	 * quota and storage — while an oversized value could make logout throw before the
+	 * response clears the cookie.
+	 */
+	it('writes no tombstone for a session cookie it did not sign', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const realId = 'a'.repeat(43)
+		const forged = [
+			`ownmail_session=${realId}.not-the-real-signature`, // right shape, bad HMAC
+			`ownmail_session=${'b'.repeat(4000)}.${'c'.repeat(4000)}`, // oversized
+			'ownmail_session=short.sig', // wrong id shape
+			'ownmail_session=nodotseparator',
+		]
+
+		for (const cookie of forged) await destroySession(req(cookie))
+
+		// Nothing written, nothing named by the caller — and no throw for the caller to
+		// trip over, so the route still clears the client cookie.
+		expect(kv.puts).toEqual([])
 		expect(kv.store.size).toBe(0)
+	})
+
+	it('refuses to slide a session cookie it did not sign', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const session = (await getSession(req(`ownmail_session=${cookie}`))) as Session
+		const writesAfterLogin = kv.puts.length
+
+		// A valid session object paired with a cookie whose signature does not check out:
+		// the id is client input, so it must never reach a KV key.
+		const forged = req(`ownmail_session=${'z'.repeat(43)}.${cookie.split('.')[1]}`)
+		expect(await slideSessionExpiry(forged, { ...session, expiresAt: Date.now() })).toBeNull()
+		expect(kv.puts.length).toBe(writesAfterLogin)
 	})
 
 	it('is a no-op on destroy when there is no session cookie to look up', async () => {
@@ -704,6 +748,307 @@ describe('stateless sessions (no KV)', () => {
 		const raw = b64url('not json at all')
 		const cookie = `${raw}.${await signRaw(raw)}`
 		expect(await consumeConnectState(req(`ownmail_connect_state=${cookie}`), 'state-x')).toBeNull()
+	})
+})
+
+/**
+ * The 14-day window is a *sliding* one: it must survive continuous use, but re-persisting
+ * on every request would put a KV write in the hot path of every authenticated call. The
+ * throttle is the whole point of these tests — extend after a day of use, never before.
+ */
+describe('sliding session expiry', () => {
+	const DAY_MS = 24 * 60 * 60 * 1000
+	const TTL_MS = 14 * DAY_MS
+	const START = new Date('2026-03-01T00:00:00.000Z')
+
+	beforeEach(() => {
+		vi.useFakeTimers()
+		vi.setSystemTime(START)
+	})
+	afterEach(() => vi.useRealTimers())
+
+	async function sessionFor(cookie: string): Promise<[Request, Session]> {
+		const request = req(`ownmail_session=${cookie}`)
+		return [request, (await getSession(request)) as Session]
+	}
+
+	it('extends the KV deadline after a day of use, with one write against the same record', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const writesAfterLogin = kv.puts.length
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		const refreshed = (await slideSessionExpiry(request, session)) as string
+
+		// Cookie Max-Age moves too, or the browser would still drop it on the old deadline.
+		expect(refreshed).toContain(`Max-Age=${TTL_MS / 1000}`)
+		// The opaque pointer is unchanged, so the slide is one idempotent write, not a rotation.
+		expect(cookieFromSetCookie(refreshed)).toBe(cookie)
+		expect(kv.puts.length).toBe(writesAfterLogin + 1)
+		expect(kv.puts.at(-1)?.options?.expirationTtl).toBe(TTL_MS / 1000)
+
+		// Past the original 14-day deadline the actively used session is still valid.
+		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
+		expect((await getSession(request))?.grantId).toBe('grant-a')
+	})
+
+	it('does not touch KV for a session used again inside the once-a-day throttle window', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const writesAfterLogin = kv.puts.length
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS - 1_000))
+		const [request, session] = await sessionFor(cookie)
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		expect(kv.puts.length).toBe(writesAfterLogin)
+	})
+
+	it('still expires an idle KV session 14 days after its last activity', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		// One burst of activity on day 2, then the user goes quiet.
+		vi.setSystemTime(new Date(START.getTime() + 2 * DAY_MS))
+		const [request, session] = await sessionFor(cookie)
+		const lastActivity = Date.now()
+		expect(await slideSessionExpiry(request, session)).toBeTruthy()
+
+		vi.setSystemTime(new Date(lastActivity + TTL_MS - 1_000))
+		expect(await getSession(request)).not.toBeNull()
+		vi.setSystemTime(new Date(lastActivity + TTL_MS + 1))
+		expect(await getSession(request)).toBeNull()
+	})
+
+	/**
+	 * Without KV there is no server-side record, so nothing a logout does can invalidate
+	 * a signed cookie — a refresh that landed after the logout would hand the browser a
+	 * fresh, still-valid cookie and quietly sign the user back in. Not sliding is the
+	 * only outcome we can actually guarantee, so KV-less deployments keep the fixed
+	 * 14-day window that runs from their last sign-in.
+	 */
+	it('never reissues a stateless cookie, which no logout could invalidate', async () => {
+		usePlatform(null)
+		const original = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(original)
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// The original window is untouched: still valid now, still gone at 14 days.
+		expect((await getSession(req(`ownmail_session=${original}`)))?.grantId).toBe('grant-a')
+		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
+		expect(await getSession(req(`ownmail_session=${original}`))).toBeNull()
+	})
+
+	/**
+	 * The resurrection race: a request reads the session, the user hits `/logout` and the
+	 * record is deleted, and only then does the slide reach its write. Writing the old
+	 * record back under the same id would leave a logged-out user authenticated as soon
+	 * as the browser applied the refresh response's cookie. The tombstone the logout
+	 * leaves behind is what the slide checks, so ordering can stay write-then-delete.
+	 */
+	it('leaves the user logged out when a logout lands mid-slide', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		// The concurrent logout wins the race to KV.
+		await destroySession(request)
+		const sessionWritesBefore = kv.puts.filter((put) => put.key.startsWith('session:')).length
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// No cookie to resurrect the session with, and no record written behind it.
+		expect(kv.puts.filter((put) => put.key.startsWith('session:')).length).toBe(sessionWritesBefore)
+		expect([...kv.store.keys()].some((key) => key.startsWith('session:'))).toBe(false)
+		expect(await getSession(request)).toBeNull()
+	})
+
+	/**
+	 * The tombstone is written *before* the record is deleted. Written after, it would
+	 * leave open the exact window it exists to close — a slide that checked in between
+	 * would see neither a tombstone nor, later, a record to stop it.
+	 */
+	it('tombstones a destroyed session id before deleting the record', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const request = req(`ownmail_session=${cookie}`)
+		const order: string[] = []
+		const realPut = kv.put
+		const realDelete = kv.delete
+		kv.put = async (key, value, options) => {
+			order.push(`put ${key.split(':')[0]}`)
+			return realPut(key, value, options)
+		}
+		kv.delete = async (key) => {
+			order.push(`delete ${key.split(':')[0]}`)
+			return realDelete(key)
+		}
+
+		await destroySession(request)
+
+		expect(order).toEqual(['put revoked', 'delete session'])
+		// And it outlives any request that could still be in flight.
+		expect(kv.puts.at(-1)?.options?.expirationTtl).toBeGreaterThanOrEqual(60)
+	})
+
+	/**
+	 * The narrow case the pre-check alone cannot catch: the tombstone lands *after* the
+	 * slide reads it but before the write completes. The post-write check is what closes
+	 * it — the slide removes the record it just created and issues no cookie, so the
+	 * logout still wins even though the write technically happened.
+	 */
+	it('deletes the record it just wrote when a logout lands between the two checks', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const id = cookie.split('.')[0]
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		// Absent on the pre-check, present by the post-check: the logout landed in between.
+		const realGet = kv.get
+		let revocationReads = 0
+		kv.get = async (key) => {
+			if (!key.startsWith('revoked:')) return realGet(key)
+			revocationReads += 1
+			return revocationReads === 1 ? null : '1'
+		}
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// The write did happen — proving this is the post-check cleaning up, not the
+		// pre-check bailing out — and the record is gone again.
+		expect(kv.puts.some((put) => put.key === `session:${id}`)).toBe(true)
+		expect(kv.store.has(`session:${id}`)).toBe(false)
+	})
+
+	/**
+	 * The cleanup must only ever remove the slide's *own* write. If another writer put a
+	 * record under this id in the meantime, deleting it would turn a race fix into the
+	 * session-destroying bug it replaced.
+	 */
+	it('leaves a record another writer replaced ours with alone while still issuing no cookie', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const id = cookie.split('.')[0]
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		const realGet = kv.get
+		let revocationReads = 0
+		kv.get = async (key) => {
+			if (!key.startsWith('revoked:')) return realGet(key)
+			revocationReads += 1
+			return revocationReads === 1 ? null : '1'
+		}
+		// Someone else rewrites this id immediately after our write lands.
+		const replacement = JSON.stringify({ replaced: 'by another writer' })
+		const realPut = kv.put
+		kv.put = async (key, value, options) => {
+			await realPut(key, value, options)
+			if (key === `session:${id}`) kv.store.set(key, replacement)
+		}
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// No cookie either way, but the other writer's record survives untouched.
+		expect(kv.store.get(`session:${id}`)).toBe(replacement)
+	})
+
+	/** Same race against an account switch: the slide must not restore the old inbox. */
+	it('does not undo an account switch that lands mid-slide', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		const switched = cookieFromSetCookie(await addVerifiedSessionAccount(request, 'grant-b', 'b@ownmail.com'))
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// The pre-switch cookie stays dead and the switched-to inbox stays active.
+		expect(await getSession(req(`ownmail_session=${cookie}`))).toBeNull()
+		expect((await getSession(req(`ownmail_session=${switched}`)))?.grantId).toBe('grant-b')
+	})
+
+	/**
+	 * Closing the resurrection race must not open a data-loss one. The replacement record
+	 * is written first and the old one destroyed only once that write is durable, so a
+	 * transient store failure costs the user a failed action — never their session.
+	 */
+	it('leaves the original session intact and usable when adding an inbox fails to persist', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const request = req(`ownmail_session=${cookie}`)
+		// Only the record write fails. Everything else still works, so this catches an
+		// ordering that destroys the old record before the replacement is durable.
+		const realPut = kv.put
+		kv.put = async (key, value, options) => {
+			if (key.startsWith('session:')) throw new Error('KV write quota exceeded')
+			return realPut(key, value, options)
+		}
+
+		await expect(addVerifiedSessionAccount(request, 'grant-b', 'b@ownmail.com')).rejects.toThrow()
+
+		// Still signed in on the inbox they had, and not tombstoned into a dead end.
+		expect((await getSession(request))?.grantId).toBe('grant-a')
+		expect(kv.store.has(`session:${cookie.split('.')[0]}`)).toBe(true)
+	})
+
+	it('leaves the original session intact and usable when an account switch fails to persist', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const joined = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-b', 'b@ownmail.com'),
+		)
+		const request = req(`ownmail_session=${joined}`)
+		const summaries = (await sessionAccountSummaries(request)) as { email: string; handle: string }[]
+		const target = summaries.find((entry) => entry.email === 'a@ownmail.com') as { handle: string }
+		const realPut = kv.put
+		kv.put = async (key, value, options) => {
+			if (key.startsWith('session:')) throw new Error('KV write timeout')
+			return realPut(key, value, options)
+		}
+
+		await expect(switchSessionAccount(request, target.handle)).rejects.toThrow()
+
+		// A failed switch leaves the user where they were, not signed out.
+		expect((await getSession(request))?.grantId).toBe('grant-b')
+	})
+
+	it('never mints a record for a request that carries no session cookie', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		vi.setSystemTime(new Date(START.getTime() + 2 * DAY_MS))
+		const [, session] = await sessionFor(cookie)
+		const writesAfterLogin = kv.puts.length
+
+		expect(await slideSessionExpiry(req(), session)).toBeNull()
+		expect(kv.puts.length).toBe(writesAfterLogin)
+	})
+
+	it('restarts the window when a newly verified mailbox joins an older session', async () => {
+		usePlatform(null)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+
+		vi.setSystemTime(new Date(START.getTime() + 10 * DAY_MS))
+		const joined = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-b', 'b@ownmail.com'),
+		)
+
+		// The deadline runs from the re-auth, not from the very first login.
+		vi.setSystemTime(new Date(START.getTime() + TTL_MS + 1_000))
+		expect((await getSession(req(`ownmail_session=${joined}`)))?.grantId).toBe('grant-b')
 	})
 })
 

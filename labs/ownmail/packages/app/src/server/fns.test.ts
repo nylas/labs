@@ -20,7 +20,11 @@ vi.mock('@tanstack/react-start', () => ({
 }))
 
 const getRequestMock = vi.fn()
-vi.mock('@tanstack/react-start/server', () => ({ getRequest: () => getRequestMock() }))
+const setResponseHeaderMock = vi.fn()
+vi.mock('@tanstack/react-start/server', () => ({
+	getRequest: () => getRequestMock(),
+	setResponseHeader: (name: string, value: string) => setResponseHeaderMock(name, value),
+}))
 
 // redirect() must be identifiable when thrown from an unauthenticated call.
 class RedirectSignal extends Error {
@@ -91,6 +95,7 @@ beforeEach(() => {
 		}),
 	})
 	usingDevMocksMock.mockReset().mockResolvedValue(false)
+	setResponseHeaderMock.mockReset()
 	mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
 	mailbox.listFolders.mockResolvedValue({ data: [] })
 	mailbox.updateThread.mockImplementation(async (threadId, fields) => ({
@@ -217,6 +222,23 @@ describe('requireMailbox (auth gate)', () => {
 	it('redirects unauthenticated callers to the login page', async () => {
 		mailboxFromRequestMock.mockResolvedValue(null)
 		await expect(fns.getFolders.handler({})).rejects.toMatchObject({ to: LOGIN_PATH })
+	})
+
+	it('sends the refreshed session cookie when activity slid the expiry', async () => {
+		resolveMailbox({ refreshCookie: 'ownmail_session=slid; Max-Age=1209600' })
+		mailbox.listFolders.mockResolvedValue({ data: [] })
+
+		await fns.getFolders.handler({})
+		// Without the Set-Cookie the browser would still drop the session on the old deadline.
+		expect(setResponseHeaderMock).toHaveBeenCalledWith('set-cookie', 'ownmail_session=slid; Max-Age=1209600')
+	})
+
+	it('leaves the response headers untouched when the expiry was not due to slide', async () => {
+		resolveMailbox()
+		mailbox.listFolders.mockResolvedValue({ data: [] })
+
+		await fns.getFolders.handler({})
+		expect(setResponseHeaderMock).not.toHaveBeenCalled()
 	})
 })
 

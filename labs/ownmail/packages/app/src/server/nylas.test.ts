@@ -15,7 +15,11 @@ vi.mock('./platform.js', () => ({
 }))
 
 const getSessionMock = vi.fn()
-vi.mock('./session.js', () => ({ getSession: (r: Request) => getSessionMock(r) }))
+const slideSessionExpiryMock = vi.fn()
+vi.mock('./session.js', () => ({
+	getSession: (r: Request) => getSessionMock(r),
+	slideSessionExpiry: (r: Request, s: unknown) => slideSessionExpiryMock(r, s),
+}))
 
 const devMailbox = { kind: 'dev-mailbox' }
 const devMailboxNameMock = vi.fn()
@@ -52,6 +56,7 @@ beforeEach(() => {
 	platformMock.mockReset().mockResolvedValue({ env: ENV, kv: null, runtime: 'node' })
 	usingDevMocksMock.mockReset()
 	getSessionMock.mockReset()
+	slideSessionExpiryMock.mockReset().mockResolvedValue(null)
 	devMailboxNameMock.mockReset()
 	clientCtor.mockReset()
 	forGrant.mockReset()
@@ -120,5 +125,60 @@ describe('mailboxFromRequest()', () => {
 		const result = await mailboxFromRequest(req())
 		expect(forGrant).toHaveBeenCalledWith('grant-xyz')
 		expect(result).toEqual({ mailbox: scoped, grantId: 'grant-xyz', email: 'user@ownmail.com' })
+		// No refresh cookie when the sliding-window throttle says a write isn't due.
+		expect(result).not.toHaveProperty('refreshCookie')
+	})
+
+	it('hands back the refreshed cookie when activity slid the session deadline', async () => {
+		usingDevMocksMock.mockResolvedValue(false)
+		const session = { grantId: 'grant-xyz', email: 'user@ownmail.com', createdAt: 0 }
+		getSessionMock.mockResolvedValue(session)
+		slideSessionExpiryMock.mockResolvedValue('ownmail_session=next; Max-Age=1209600')
+		forGrant.mockReturnValue({ scoped: true })
+		const { mailboxFromRequest } = await import('./nylas.js')
+
+		const request = req()
+		const result = await mailboxFromRequest(request)
+		// The already-resolved session is reused, so sliding costs no extra read.
+		expect(slideSessionExpiryMock).toHaveBeenCalledWith(request, session)
+		expect(result?.refreshCookie).toBe('ownmail_session=next; Max-Age=1209600')
+	})
+
+	/**
+	 * The session was already validated before the slide runs, so a store that can read
+	 * but not write must not take mail, calendar, and contacts down with it. Extending
+	 * the deadline is a convenience; serving an authenticated request is not.
+	 */
+	it('still serves the request when the session refresh write fails', async () => {
+		usingDevMocksMock.mockResolvedValue(false)
+		getSessionMock.mockResolvedValue({ grantId: 'grant-xyz', email: 'user@ownmail.com', createdAt: 0 })
+		slideSessionExpiryMock.mockRejectedValue(new Error('KV write quota exceeded'))
+		const scoped = { scoped: true }
+		forGrant.mockReturnValue(scoped)
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const { mailboxFromRequest } = await import('./nylas.js')
+
+		const result = await mailboxFromRequest(req())
+
+		expect(result).toEqual({ mailbox: scoped, grantId: 'grant-xyz', email: 'user@ownmail.com' })
+		// No cookie to send, but the request goes through on the existing deadline.
+		expect(result).not.toHaveProperty('refreshCookie')
+		// Operators still hear about it — without the message, which can echo key material.
+		expect(consoleError).toHaveBeenCalledWith('OwnMail session refresh failed', { error: 'Error' })
+		consoleError.mockRestore()
+	})
+
+	it('reports a non-Error refresh failure by type rather than swallowing it', async () => {
+		usingDevMocksMock.mockResolvedValue(false)
+		getSessionMock.mockResolvedValue({ grantId: 'grant-xyz', email: 'user@ownmail.com', createdAt: 0 })
+		slideSessionExpiryMock.mockRejectedValue('upstash: 429')
+		const scoped = { scoped: true }
+		forGrant.mockReturnValue(scoped)
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const { mailboxFromRequest } = await import('./nylas.js')
+
+		expect((await mailboxFromRequest(req()))?.grantId).toBe('grant-xyz')
+		expect(consoleError).toHaveBeenCalledWith('OwnMail session refresh failed', { error: 'string' })
+		consoleError.mockRestore()
 	})
 })

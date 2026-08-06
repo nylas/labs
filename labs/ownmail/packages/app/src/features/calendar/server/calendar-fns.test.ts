@@ -24,8 +24,10 @@ vi.mock('@tanstack/react-start', () => ({
 	},
 }))
 
+const { setResponseHeader } = vi.hoisted(() => ({ setResponseHeader: vi.fn() }))
 vi.mock('@tanstack/react-start/server', () => ({
 	getRequest: () => new Request('http://ownmail.local/'),
+	setResponseHeader: (name: string, value: string) => setResponseHeader(name, value),
 }))
 
 // redirect() is thrown as a control-flow signal; model it as an error carrying the target.
