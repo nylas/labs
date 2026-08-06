@@ -58,8 +58,11 @@ describe('requestAgentAccountCallback', () => {
 		expect(url).toBe('https://api.us.nylas.com/v3/connect/login/nylas')
 		expect(init.method).toBe('POST')
 		expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
-		// A redirect would mean this is not the JSON contract; never follow one with credentials attached.
-		expect(init.redirect).toBe('error')
+		// A redirect would mean this is not the JSON contract; never follow one with credentials
+		// attached. It must also be a mode workerd accepts — these tests run under node, which
+		// tolerates `error`, while workerd rejects it at Request construction and broke every
+		// sign-in. Only `follow` and `manual` exist there, and `follow` would send the password on.
+		expect(init.redirect).toBe('manual')
 		expect(JSON.parse(init.body as string)).toEqual({
 			public_application_id: 'client-123',
 			email: 'ada@ownmail.com',
@@ -125,6 +128,16 @@ describe('requestAgentAccountCallback', () => {
 		for (const call of (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls) {
 			expect(JSON.stringify(call)).not.toContain('correct horse battery staple')
 		}
+	})
+
+	it('refuses a redirect instead of replaying the credentials at its target', async () => {
+		const fetchImpl = vi.fn(
+			async () => new Response(null, { status: 302, headers: { Location: 'https://elsewhere.test/login' } }),
+		)
+
+		expect(await requestAgentAccountCallback(input, fetchImpl as unknown as typeof fetch)).toBeNull()
+		// The 3xx comes back unfollowed under `manual`; nothing may chase it.
+		expect(fetchImpl).toHaveBeenCalledTimes(1)
 	})
 
 	it('gives up on a provider that never answers instead of hanging the sign-in', async () => {
