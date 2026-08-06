@@ -360,7 +360,7 @@ function AttachmentLink({ attachment, messageId }: { attachment: Attachment; mes
 		<a
 			data-slot="thread-attachment"
 			href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`}
-			className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
+			className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid dark:bg-muted/40 dark:hover:bg-muted"
 			download={attachment.filename}
 		>
 			<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
