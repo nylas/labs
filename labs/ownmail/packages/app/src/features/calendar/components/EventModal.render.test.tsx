@@ -1240,15 +1240,86 @@ describe('EventModal — editing an existing event', () => {
 		})
 	})
 
-	it('cancels editing and returns to the read view without calling updateEvent', async () => {
+	it('cancels editing, restores focus, and discards every changed text field', async () => {
 		const user = userEvent.setup()
 		renderEdit()
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
-		expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument()
+
+		// Draft values are deliberately short: only the discard is asserted, and every
+		// keystroke re-renders the modal, which is slow enough to matter on CI.
+		await user.clear(screen.getByLabelText('Title'))
+		await user.type(screen.getByLabelText('Title'), 'draft')
+		await user.clear(screen.getByLabelText('Location'))
+		await user.type(screen.getByLabelText('Location'), 'draft')
+		await user.clear(screen.getByLabelText('Description'))
+		await user.type(screen.getByLabelText('Description'), 'draft')
+
 		await user.click(screen.getByRole('button', { name: 'Cancel' }))
-		// Back to the read view: the Edit affordance and event title heading return.
-		expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
+
+		const edit = screen.getByRole('button', { name: /Edit/ })
+		await waitFor(() => expect(edit).toHaveFocus())
 		expect(screen.getByRole('heading', { name: 'Team Sync' })).toBeInTheDocument()
+		expect(updateEvent).not.toHaveBeenCalled()
+
+		await user.click(edit)
+		expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
+		expect(screen.getByLabelText('Location')).toHaveValue('Room 5')
+		expect(screen.getByLabelText('Description')).toHaveValue('Weekly sync')
+	})
+
+	it('discards changed start and end times when editing is canceled', async () => {
+		const user = userEvent.setup()
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+
+		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
+		await user.click(await screen.findByRole('option', { name: '1 PM' }))
+		await user.click(screen.getByRole('combobox', { name: 'End time' }))
+		await user.click(await screen.findByRole('option', { name: '2 PM' }))
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+		const edit = screen.getByRole('button', { name: /Edit/ })
+		await waitFor(() => expect(edit).toHaveFocus())
+		await user.click(edit)
+		expect(screen.getByRole('combobox', { name: 'Start time' })).toHaveTextContent('10 AM')
+		expect(screen.getByRole('combobox', { name: 'End time' })).toHaveTextContent('11 AM')
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('discards changes on every repeated edit-and-cancel cycle', async () => {
+		const user = userEvent.setup()
+		renderEdit()
+
+		for (const draftTitle of ['first', 'second']) {
+			await user.click(screen.getByRole('button', { name: /Edit/ }))
+			expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
+			await user.clear(screen.getByLabelText('Title'))
+			await user.type(screen.getByLabelText('Title'), draftTitle)
+			await user.click(screen.getByRole('button', { name: 'Cancel' }))
+			await waitFor(() => expect(screen.getByRole('button', { name: /Edit/ })).toHaveFocus())
+		}
+
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('restores empty values when optional persisted event fields are absent', async () => {
+		const user = userEvent.setup()
+		renderEdit({ title: undefined, location: undefined, description: undefined })
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		expect(screen.getByLabelText('Title')).toHaveValue('')
+		expect(screen.getByLabelText('Location')).toHaveValue('')
+		expect(screen.getByLabelText('Description')).toHaveValue('')
+
+		await user.type(screen.getByLabelText('Title'), 'draft')
+		await user.type(screen.getByLabelText('Location'), 'draft')
+		await user.type(screen.getByLabelText('Description'), 'draft')
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+
+		expect(screen.getByLabelText('Title')).toHaveValue('')
+		expect(screen.getByLabelText('Location')).toHaveValue('')
+		expect(screen.getByLabelText('Description')).toHaveValue('')
 		expect(updateEvent).not.toHaveBeenCalled()
 	})
 
@@ -1301,6 +1372,29 @@ describe('EventModal — editing an existing event', () => {
 			await screen.findByText('Could not save the event. Check your connection, then try again.'),
 		).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled()
+	})
+
+	it('clears a failed edit and its error when Cancel is chosen', async () => {
+		const user = userEvent.setup()
+		updateEvent.mockRejectedValueOnce(new Error('provider details'))
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		await user.clear(screen.getByLabelText('Title'))
+		await user.type(screen.getByLabelText('Title'), 'Failed draft')
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		expect(
+			await screen.findByText('Could not save the event. Check your connection, then try again.'),
+		).toBeInTheDocument()
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+		expect(screen.queryByText('Could not save the event. Check your connection, then try again.')).toBeNull()
+		const edit = screen.getByRole('button', { name: /Edit/ })
+		await waitFor(() => expect(edit).toHaveFocus())
+		await user.click(edit)
+		expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
+		expect(screen.queryByText('Could not save the event. Check your connection, then try again.')).toBeNull()
+		expect(screen.queryByText(/provider details/i)).toBeNull()
 	})
 
 	it('shows a generic message when a non-Error is thrown on update', async () => {

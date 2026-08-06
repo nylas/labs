@@ -129,9 +129,11 @@ export function EventModal({
 	const [error, setError] = useState<string | null>(null)
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const titleInputRef = useRef<HTMLInputElement>(null)
+	const editButtonRef = useRef<HTMLButtonElement>(null)
 	const deleteButtonRef = useRef<HTMLButtonElement>(null)
 	const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
 	const deletePendingRef = useRef(false)
+	const wasEditing = useRef(false)
 	const wasConfirmingDelete = useRef(false)
 	const createMutation = useCreateEventMutation()
 	const updateMutation = useUpdateEventMutation(event)
@@ -352,6 +354,10 @@ export function EventModal({
 		if (!event) titleInputRef.current?.focus({ preventScroll: true })
 	}, [event])
 	useEffect(() => {
+		if (!editing && wasEditing.current) editButtonRef.current?.focus()
+		wasEditing.current = editing
+	}, [editing])
+	useEffect(() => {
 		if (confirmingDelete) cancelDeleteButtonRef.current?.focus()
 		else if (wasConfirmingDelete.current) deleteButtonRef.current?.focus()
 		wasConfirmingDelete.current = confirmingDelete
@@ -368,6 +374,29 @@ export function EventModal({
 	}
 
 	if (event && times) {
+		const persistedEvent = event
+		const persistedTimes = times
+
+		function resetEditDraft() {
+			setTitle(persistedEvent.title ?? '')
+			setLocation(persistedEvent.location ?? '')
+			setDescription(persistedEvent.description ?? '')
+			setStartHour(initialHours.startHour)
+			setEndHour(initialHours.endHour)
+			setAllDay(persistedTimes.allDay)
+			setError(null)
+		}
+
+		function beginEdit() {
+			resetEditDraft()
+			setEditing(true)
+		}
+
+		function cancelEdit() {
+			resetEditDraft()
+			setEditing(false)
+		}
+
 		const when = times.allDay ? 'All day' : `${fmtCompactTime(times.start)} – ${fmtCompactTime(times.end)}`
 		const attendeeText = event.participants
 			?.map((participant) => participant.name || participant.email)
@@ -440,7 +469,7 @@ export function EventModal({
 							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
 								<button
 									type="button"
-									onClick={() => setEditing(false)}
+									onClick={cancelEdit}
 									disabled={busy}
 									className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 								>
@@ -547,9 +576,10 @@ export function EventModal({
 										{!event.read_only ? (
 											<>
 												<button
+													ref={editButtonRef}
 													type="button"
 													disabled={busy}
-													onClick={() => setEditing(true)}
+													onClick={beginEdit}
 													className="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 												>
 													<Pencil className="h-4 w-4" /> Edit
