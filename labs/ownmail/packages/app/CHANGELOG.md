@@ -1,5 +1,24 @@
 # @ownmail/app
 
+## 0.12.0
+
+### Minor Changes
+
+- 0f4abda: Sign in from OwnMail's own login form instead of the Nylas-hosted credential screen. Credentials are posted server-side and every rejected credential returns one generic message.
+
+  Sign-in attempts are rate-limited per mailbox and per client address, using an atomic counter on every path so a parallel burst cannot slip past: Cloudflare deployments use two new edge rate-limit bindings (`SIGNIN_EMAIL_LIMITER`, `SIGNIN_IP_LIMITER`, declared in `wrangler.jsonc` and carried through by `ownmail deploy` — no account resource to provision), and Redis-backed deployments use `INCR` with a separate `EXPIRE`. Cloudflare KV is deliberately not used for counting: it has no atomic increment and is eventually consistent. Two limitations are worth knowing: Cloudflare's binding supports only a 10s or 60s period, so the Workers budgets are per minute rather than per 15 minutes, and it is enforced per Cloudflare location rather than globally. A deployment with neither an edge limiter nor Redis falls back to per-instance counting, which bounds an attack against a single instance but not the deployment as a whole.
+
+### Patch Changes
+
+- a571068: Make thread attachment downloads easier to tap and clearly focus-visible.
+- ac529b5: Make contact editor controls touch-friendly and visibly keyboard-focused.
+- 9b38feb: Discard unsaved calendar edits when Cancel is selected.
+- 076b781: Make settings saves single-flight, no-op aware, focus-safe, and revision-safe.
+- e1f4867: Make error recovery actions touch-friendly and visibly keyboard-focused.
+- 9b3f29f: Help browsers autofill contact names, organizations, email addresses, and phone numbers.
+- c5777fc: Keep signed-in mailboxes signed in: on deployments with shared storage (Cloudflare KV, or Vercel with its Upstash Redis resource) the session deadline now slides forward on activity instead of expiring 14 days after the first login. Netlify and local deployments keep sessions in a signed cookie with nothing server-side to revoke, so a refreshed cookie could outlive a sign-out; they keep the fixed 14-day window running from the last sign-in. Configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to enable sliding sessions there.
+- 458768f: Make contact saves single-flight, lock pending edits, and clear announced errors on retry.
+
 ## 0.11.4
 
 ### Patch Changes
