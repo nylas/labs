@@ -146,6 +146,32 @@ describe('/settings', () => {
 		expect(screen.getByText('Password changes are disabled by your administrator.')).toBeInTheDocument()
 	})
 
+	it('keeps the saved timezone when the selected zone cannot be resolved', async () => {
+		// A stored zone can be dropped from the tz database, and the value can be edited by
+		// hand or by a browser autofill heuristic. Neither may blank out the clock preview
+		// nor be written back to preferences, or the settings page becomes unusable.
+		renderSettings()
+		const savedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+		const [primaryTimezone] = screen.getAllByRole('combobox')
+		expect(primaryTimezone).toHaveValue(savedTimezone)
+
+		primaryTimezone.append(new Option('Stale zone', 'Mars/Olympus_Mons'))
+		fireEvent.change(primaryTimezone, { target: { value: 'Mars/Olympus_Mons' } })
+		// Guard: without this the fallback below could silently never run.
+		expect(primaryTimezone).toHaveValue('Mars/Olympus_Mons')
+		// The preview keeps showing a real clock (rendered from the saved zone) instead of
+		// throwing out of render.
+		expect(primaryTimezone.parentElement?.lastElementChild).toHaveTextContent(/\d{1,2}:\d{2}/)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() =>
+			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+				primaryTimezone: savedTimezone,
+			}),
+		)
+		expect(primaryTimezone).toHaveValue(savedTimezone)
+	})
+
 	it('does not adopt an account name when the server mutation fails', async () => {
 		updateMailboxDisplayName.mockRejectedValue(new Error('upstream detail'))
 		renderSettings()
