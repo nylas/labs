@@ -81,6 +81,7 @@ export function ContactModal({
 	}
 
 	function patch(next: Partial<ContactForm>) {
+		setError(null)
 		setForm((current) => ({ ...current, ...next }))
 	}
 
@@ -141,6 +142,7 @@ export function ContactModal({
 		>
 			<DialogContent
 				className={CONTACT_DIALOG_PANEL_CLASS}
+				aria-busy={busy || undefined}
 				{...(confirmingDiscard
 					? {
 							role: 'alertdialog' as const,
@@ -343,7 +345,9 @@ export function ContactModal({
 						</p>
 					) : null}
 					{error ? (
-						<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+						<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+							{error}
+						</p>
 					) : null}
 				</div>
 
