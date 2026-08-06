@@ -135,15 +135,23 @@ describe('LoginScreen', () => {
 		expect(alert.textContent).not.toMatch(/account|exists|unknown|sorry/i)
 		expect(screen.getByLabelText('Email')).toHaveAttribute('aria-describedby', 'signin-error')
 		expect(screen.getByLabelText('App password')).toHaveAttribute('aria-describedby', 'signin-error')
-		expect(container.querySelector('.min-h-14')).toBeInTheDocument()
+		expect(container.querySelector('.min-h-16')).toBeInTheDocument()
 	})
 
-	it('reserves the message slot before any failure so the form cannot jump', () => {
-		const { container } = renderScreen()
+	/**
+	 * Zero layout shift depends on the slot being the same box in both renders —
+	 * only its contents change. Measured in a real browser at 1280px and 390px:
+	 * the email field's top does not move between the clean and failed states.
+	 */
+	it('reserves an identical message slot whether or not a failure is showing', () => {
+		const clean = renderScreen().container.querySelector('form')?.firstElementChild
+		cleanup()
+		const failed = renderScreen({ error: 'invalid' }).container.querySelector('form')?.firstElementChild
 
-		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-		// Same reserved slot as the failure render: nothing moves when it fills.
-		expect(container.querySelector('.min-h-14')).toBeInTheDocument()
+		expect(clean?.className).toBe(failed?.className)
+		expect(clean?.className).toContain('min-h-16')
+		expect(clean?.children).toHaveLength(0)
+		expect(failed?.children).toHaveLength(1)
 	})
 
 	it('moves focus to the field the visitor has to correct', () => {
@@ -156,7 +164,10 @@ describe('LoginScreen', () => {
 		renderScreen({ error: 'rate-limit' })
 
 		const alert = screen.getByRole('alert')
-		expect(alert).toHaveTextContent('Too many attempts. Try again in 15 minutes.')
+		expect(alert).toHaveTextContent('Too many attempts. Wait a few minutes and try again.')
+		// The lockout window depends on the deployment's limiter, so the copy
+		// must not promise a specific duration it cannot keep.
+		expect(alert.textContent).not.toMatch(/\d+ minutes/)
 		expect(alert.textContent).not.toMatch(/@|account|mailbox|exists/i)
 	})
 
@@ -177,6 +188,21 @@ describe('LoginScreen', () => {
 		const heading = screen.getByRole('heading')
 		expect(heading).toHaveClass('[overflow-wrap:anywhere]')
 		expect(heading.firstElementChild).toHaveClass(expected)
+	})
+
+	/**
+	 * The derived hue is unpredictable, so it gets the page's only colour. A
+	 * tinted or branded button would pair it with a second unplanned hue at every
+	 * install; a neutral surface also guarantees the contrast a derived hue can't.
+	 */
+	it('keeps the primary action neutral so the derived accent is the only colour', () => {
+		renderScreen()
+
+		const submit = screen.getByRole('button', { name: 'Open mail' })
+		expect(submit).toHaveClass('bg-foreground', 'text-background')
+		expect(submit.className).not.toContain('bg-primary')
+		// The focus ring may carry the accent; the surface must not.
+		expect(submit.className).not.toMatch(/bg-\[[^\]]*signin-accent/)
 	})
 })
 

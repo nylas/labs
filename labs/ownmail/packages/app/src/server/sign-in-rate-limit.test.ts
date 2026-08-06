@@ -1,60 +1,101 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { KvLike } from './platform.js'
+import type { KvLike, RateLimiterBinding } from './platform.js'
 
 /**
- * The limiter resolves its counter store through platform(), so each test picks
- * the store deliberately: a shared store with an atomic counter, a shared store
- * without one, no store at all, and a store that fails. Those four cases carry
- * different security guarantees.
+ * This limiter is the only brute-force control in the sign-in path — UAS applies
+ * none to `POST /v3/connect/login/nylas` — so these tests are written against
+ * the property that matters: attempts arriving *together* must not be able to
+ * exceed the budget. Each supported store is exercised deliberately, because
+ * they carry different atomicity guarantees.
  */
 const platformMock = vi.fn()
 vi.mock('./platform.js', () => ({ platform: () => platformMock() }))
 
 const { clientIp, signInAttemptIsRateLimited } = await import('./sign-in-rate-limit.js')
 
-type CountingKv = KvLike & { puts: { key: string; ttl?: number }[] }
+type RecordingKv = KvLike & { gets: string[]; puts: string[]; expires: { key: string; seconds: number }[] }
 
-function atomicKv(): CountingKv {
+/** Redis semantics: INCR is atomic and returns the caller's own count. */
+function redisKv(): RecordingKv {
 	const counters = new Map<string, number>()
-	const puts: { key: string; ttl?: number }[] = []
-	return {
-		puts,
-		get: async (key) => counters.get(key)?.toString() ?? null,
-		put: async (key, _value, options) => {
-			puts.push({ key, ttl: options?.expirationTtl })
+	const kv: RecordingKv = {
+		gets: [],
+		puts: [],
+		expires: [],
+		get: async (key) => {
+			kv.gets.push(key)
+			return counters.get(key)?.toString() ?? null
+		},
+		put: async (key) => {
+			kv.puts.push(key)
 		},
 		delete: async () => {},
 		increment: async (key) => {
 			const next = (counters.get(key) ?? 0) + 1
 			counters.set(key, next)
+			await Promise.resolve()
 			return next
 		},
+		expire: async (key, seconds) => {
+			kv.expires.push({ key, seconds })
+		},
 	}
+	return kv
 }
 
-function readWriteKv(): CountingKv {
-	const store = new Map<string, string>()
-	const puts: { key: string; ttl?: number }[] = []
-	return {
-		puts,
-		get: async (key) => store.get(key) ?? null,
-		put: async (key, value, options) => {
-			store.set(key, value)
-			puts.push({ key, ttl: options?.expirationTtl })
+/** Cloudflare KV: no atomic increment, no expire — must never be used for counting. */
+function cloudflareKv(): RecordingKv {
+	const kv: RecordingKv = {
+		gets: [],
+		puts: [],
+		expires: [],
+		get: async (key) => {
+			kv.gets.push(key)
+			return null
+		},
+		put: async (key) => {
+			kv.puts.push(key)
 		},
 		delete: async () => {},
 	}
+	return kv
 }
 
-function useKv(kv: KvLike | null) {
-	platformMock.mockResolvedValue({ env: { SESSION_SECRET: 'test-secret' }, kv, runtime: 'node' })
+/** Stands in for Cloudflare's edge limiter: one atomic counter per key. */
+function edgeLimiter(limit: number): RateLimiterBinding & { keys: string[] } {
+	const counts = new Map<string, number>()
+	const keys: string[] = []
+	return {
+		keys,
+		limit: async ({ key }) => {
+			keys.push(key)
+			const next = (counts.get(key) ?? 0) + 1
+			counts.set(key, next)
+			await Promise.resolve()
+			return { success: next <= limit }
+		},
+	}
 }
 
-/** Distinct addresses per test keep the module-level fallback counters independent. */
-let mailbox = 0
+function useRuntime(options: { kv?: KvLike | null; env?: Record<string, unknown> } = {}) {
+	platformMock.mockResolvedValue({
+		env: { SESSION_SECRET: 'test-secret', ...options.env },
+		kv: options.kv ?? null,
+		runtime: 'node',
+	})
+}
+
+/** Distinct identifiers per test keep the module-level fallback counters independent. */
+let seed = 0
 function nextEmail(): string {
-	mailbox += 1
-	return `user${mailbox}@ownmail.com`
+	seed += 1
+	return `user${seed}@ownmail.com`
+}
+function nextIp(): string {
+	seed += 1
+	return `198.51.${(seed >> 8) & 255}.${seed & 255}`
 }
 
 beforeEach(() => {
@@ -65,126 +106,257 @@ afterEach(() => {
 	vi.useRealTimers()
 })
 
-describe('signInAttemptIsRateLimited', () => {
-	it('locks a mailbox out after its attempt budget and keeps it locked within the window', async () => {
-		useKv(atomicKv())
-		const email = nextEmail()
-		const attempts: boolean[] = []
-		for (let i = 0; i < 7; i++) attempts.push(await signInAttemptIsRateLimited(email, '198.51.100.7'))
+describe('signInAttemptIsRateLimited on Cloudflare Workers', () => {
+	it('delegates both dimensions to the edge limiter and never counts in KV', async () => {
+		const kv = cloudflareKv()
+		const emailLimiter = edgeLimiter(5)
+		const ipLimiter = edgeLimiter(20)
+		useRuntime({ kv, env: { SIGNIN_EMAIL_LIMITER: emailLimiter, SIGNIN_IP_LIMITER: ipLimiter } })
 
-		// Five attempts are allowed; everything after is refused before any credential check.
+		expect(await signInAttemptIsRateLimited('ada@ownmail.com', '198.51.100.1')).toBe(false)
+
+		expect(emailLimiter.keys).toHaveLength(1)
+		expect(ipLimiter.keys).toHaveLength(1)
+		// KV is eventually consistent with no atomic increment; counting there
+		// would under-count exactly when requests arrive together.
+		expect(kv.gets).toEqual([])
+		expect(kv.puts).toEqual([])
+	})
+
+	/**
+	 * The regression this file exists for: twelve simultaneous guesses at one
+	 * mailbox must yield exactly the budget, not "however many raced through".
+	 */
+	it('cannot be beaten by parallel guesses at one mailbox', async () => {
+		useRuntime({
+			kv: cloudflareKv(),
+			env: { SIGNIN_EMAIL_LIMITER: edgeLimiter(5), SIGNIN_IP_LIMITER: edgeLimiter(20) },
+		})
+		const email = nextEmail()
+
+		const outcomes = await Promise.all(
+			Array.from({ length: 12 }, () => signInAttemptIsRateLimited(email, nextIp())),
+		)
+
+		expect(outcomes.filter((limited) => !limited)).toHaveLength(5)
+	})
+
+	it('cannot be beaten by one address spreading parallel guesses across mailboxes', async () => {
+		useRuntime({
+			kv: cloudflareKv(),
+			env: { SIGNIN_EMAIL_LIMITER: edgeLimiter(5), SIGNIN_IP_LIMITER: edgeLimiter(20) },
+		})
+		const ip = nextIp()
+
+		const outcomes = await Promise.all(
+			Array.from({ length: 40 }, () => signInAttemptIsRateLimited(nextEmail(), ip)),
+		)
+
+		expect(outcomes.filter((limited) => !limited)).toHaveLength(20)
+	})
+
+	it('keeps counting the client address even when the mailbox is already over budget', async () => {
+		const ipLimiter = edgeLimiter(20)
+		useRuntime({ env: { SIGNIN_EMAIL_LIMITER: edgeLimiter(1), SIGNIN_IP_LIMITER: ipLimiter } })
+		const email = nextEmail()
+
+		await signInAttemptIsRateLimited(email, '198.51.100.2')
+		await signInAttemptIsRateLimited(email, '198.51.100.2')
+
+		expect(ipLimiter.keys).toHaveLength(2)
+	})
+
+	it('never hands a raw mailbox address or IP to the edge limiter', async () => {
+		const emailLimiter = edgeLimiter(5)
+		const ipLimiter = edgeLimiter(20)
+		useRuntime({ env: { SIGNIN_EMAIL_LIMITER: emailLimiter, SIGNIN_IP_LIMITER: ipLimiter } })
+
+		await signInAttemptIsRateLimited('ada@ownmail.com', '198.51.100.3')
+
+		expect(emailLimiter.keys[0]).not.toContain('ada@ownmail.com')
+		expect(ipLimiter.keys[0]).not.toContain('198.51.100.3')
+	})
+
+	it('fails closed when the edge limiter itself errors', async () => {
+		useRuntime({
+			env: {
+				SIGNIN_EMAIL_LIMITER: {
+					limit: async () => {
+						throw new Error('limiter unavailable')
+					},
+				},
+				SIGNIN_IP_LIMITER: edgeLimiter(20),
+			},
+		})
+
+		expect(await signInAttemptIsRateLimited(nextEmail(), nextIp())).toBe(true)
+	})
+})
+
+describe('signInAttemptIsRateLimited on a Redis-backed store', () => {
+	it('locks a mailbox out after its budget and keeps it locked within the window', async () => {
+		useRuntime({ kv: redisKv() })
+		const email = nextEmail()
+
+		const attempts: boolean[] = []
+		for (let i = 0; i < 7; i++) attempts.push(await signInAttemptIsRateLimited(email, '198.51.100.4'))
+
 		expect(attempts).toEqual([false, false, false, false, false, true, true])
 	})
 
-	it('locks an IP out even while it spreads guesses across different mailboxes', async () => {
-		useKv(atomicKv())
-		const ip = '203.0.113.9'
-		let limited = false
-		for (let i = 0; i < 20; i++) limited = await signInAttemptIsRateLimited(nextEmail(), ip)
-		expect(limited).toBe(false)
+	/**
+	 * Mutation check: this is what fails if the TTL is ever re-attached by
+	 * rewriting the value (`put(key, '1')`) instead of `EXPIRE`. A late write
+	 * like that lands after other increments and resets a live counter.
+	 */
+	it('attaches the window TTL without ever rewriting a live counter', async () => {
+		const kv = redisKv()
+		useRuntime({ kv })
+		const email = nextEmail()
 
-		expect(await signInAttemptIsRateLimited(nextEmail(), ip)).toBe(true)
+		for (let i = 0; i < 3; i++) await signInAttemptIsRateLimited(email, '198.51.100.5')
+
+		expect(kv.puts).toEqual([])
+		expect(kv.gets).toEqual([])
+		// Only the first writer in each window bucket stamps the TTL.
+		expect(kv.expires).toHaveLength(2)
+		expect(kv.expires.every((call) => call.seconds === 900)).toBe(true)
+	})
+
+	it('cannot be beaten by parallel guesses at one mailbox', async () => {
+		const kv = redisKv()
+		useRuntime({ kv })
+		const email = nextEmail()
+
+		const outcomes = await Promise.all(
+			Array.from({ length: 12 }, () => signInAttemptIsRateLimited(email, nextIp())),
+		)
+
+		expect(outcomes.filter((limited) => !limited)).toHaveLength(5)
+		expect(kv.puts).toEqual([])
 	})
 
 	it('forgets attempts once the time window rolls over', async () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
-		useKv(atomicKv())
+		useRuntime({ kv: redisKv() })
 		const email = nextEmail()
-		for (let i = 0; i < 6; i++) await signInAttemptIsRateLimited(email, '198.51.100.8')
-		expect(await signInAttemptIsRateLimited(email, '198.51.100.8')).toBe(true)
+		for (let i = 0; i < 6; i++) await signInAttemptIsRateLimited(email, '198.51.100.6')
+		expect(await signInAttemptIsRateLimited(email, '198.51.100.6')).toBe(true)
 
 		vi.setSystemTime(new Date('2026-01-01T00:16:00Z'))
 
-		expect(await signInAttemptIsRateLimited(email, '198.51.100.8')).toBe(false)
-	})
-
-	it('gives each counter bucket a TTL so windows cannot accumulate forever', async () => {
-		const kv = atomicKv()
-		useKv(kv)
-
-		await signInAttemptIsRateLimited(nextEmail(), '198.51.100.10')
-		await signInAttemptIsRateLimited(nextEmail(), '198.51.100.10')
-
-		// Only the first writer in a bucket stamps the TTL; the IP bucket is shared.
-		expect(kv.puts.map((put) => put.ttl)).toEqual([900, 900, 900])
+		expect(await signInAttemptIsRateLimited(email, '198.51.100.6')).toBe(false)
 	})
 
 	it('never puts a raw mailbox address or IP into a counter key', async () => {
-		const kv = atomicKv()
-		useKv(kv)
+		const kv = redisKv()
+		useRuntime({ kv })
 
-		await signInAttemptIsRateLimited('ada@ownmail.com', '198.51.100.11')
+		await signInAttemptIsRateLimited('ada@ownmail.com', '198.51.100.7')
 
-		expect(kv.puts).not.toHaveLength(0)
-		for (const put of kv.puts) {
-			expect(put.key).not.toContain('ada@ownmail.com')
-			expect(put.key).not.toContain('198.51.100.11')
+		expect(kv.expires).not.toHaveLength(0)
+		for (const call of kv.expires) {
+			expect(call.key).not.toContain('ada@ownmail.com')
+			expect(call.key).not.toContain('198.51.100.7')
 		}
 	})
 
-	it('still counts on a store with no atomic increment', async () => {
-		useKv(readWriteKv())
-		const email = nextEmail()
-		const attempts: boolean[] = []
-		for (let i = 0; i < 6; i++) attempts.push(await signInAttemptIsRateLimited(email, '198.51.100.12'))
+	it('fails closed when the counter store errors rather than letting the attempt through', async () => {
+		useRuntime({
+			kv: {
+				get: async () => null,
+				put: async () => {},
+				delete: async () => {},
+				increment: async () => {
+					throw new Error('store offline')
+				},
+				expire: async () => {},
+			},
+		})
 
-		expect(attempts.at(-1)).toBe(true)
+		expect(await signInAttemptIsRateLimited(nextEmail(), nextIp())).toBe(true)
 	})
+})
 
-	it('recovers from a corrupt counter value instead of trusting it', async () => {
-		const kv = readWriteKv()
-		await kv.put('unused', 'x')
-		useKv({ ...kv, get: async () => 'not-a-number' })
-
-		expect(await signInAttemptIsRateLimited(nextEmail(), '198.51.100.13')).toBe(false)
-	})
-
-	it('falls back to per-instance counting when the deployment has no shared store', async () => {
-		useKv(null)
+describe('signInAttemptIsRateLimited without an atomic shared counter', () => {
+	it('falls back to per-instance counting rather than a non-atomic KV counter', async () => {
+		const kv = cloudflareKv()
+		useRuntime({ kv })
 		const email = nextEmail()
+
 		const attempts: boolean[] = []
-		for (let i = 0; i < 6; i++) attempts.push(await signInAttemptIsRateLimited(email, '198.51.100.14'))
+		for (let i = 0; i < 6; i++) attempts.push(await signInAttemptIsRateLimited(email, '198.51.100.8'))
 
 		expect(attempts).toEqual([false, false, false, false, false, true])
+		expect(kv.gets).toEqual([])
+		expect(kv.puts).toEqual([])
+	})
+
+	it('holds under parallel attempts within an instance', async () => {
+		useRuntime()
+		const email = nextEmail()
+
+		const outcomes = await Promise.all(
+			Array.from({ length: 12 }, () => signInAttemptIsRateLimited(email, nextIp())),
+		)
+
+		expect(outcomes.filter((limited) => !limited)).toHaveLength(5)
 	})
 
 	it('expires per-instance counters when the window rolls over', async () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2026-02-01T00:00:00Z'))
-		useKv(null)
+		useRuntime()
 		const email = nextEmail()
-		for (let i = 0; i < 6; i++) await signInAttemptIsRateLimited(email, '198.51.100.15')
+		for (let i = 0; i < 6; i++) await signInAttemptIsRateLimited(email, '198.51.100.9')
 
 		vi.setSystemTime(new Date('2026-02-01T00:31:00Z'))
 
-		expect(await signInAttemptIsRateLimited(email, '198.51.100.15')).toBe(false)
+		expect(await signInAttemptIsRateLimited(email, '198.51.100.9')).toBe(false)
 	})
 
 	it('refuses attempts outright rather than letting per-instance tracking grow without bound', async () => {
-		useKv(null)
-		// Each attempt opens two buckets (mailbox + IP); fill the cap, then ask for one more.
+		useRuntime()
+		// Each attempt opens two buckets (mailbox + address); fill the cap, then ask for one more.
 		for (let i = 0; i < 2500; i++) await signInAttemptIsRateLimited(nextEmail(), `10.0.${i >> 8}.${i & 255}`)
 
-		expect(await signInAttemptIsRateLimited(nextEmail(), '198.51.100.99')).toBe(true)
-	})
-
-	it('fails closed when the counter store errors rather than letting the attempt through', async () => {
-		useKv({
-			get: async () => {
-				throw new Error('store offline')
-			},
-			put: async () => {},
-			delete: async () => {},
-		})
-
-		expect(await signInAttemptIsRateLimited(nextEmail(), '198.51.100.16')).toBe(true)
+		expect(await signInAttemptIsRateLimited(nextEmail(), '198.51.100.10')).toBe(true)
 	})
 
 	it('fails closed when the platform itself is unavailable', async () => {
 		platformMock.mockRejectedValue(new Error('Platform env unavailable'))
 
-		expect(await signInAttemptIsRateLimited(nextEmail(), '198.51.100.17')).toBe(true)
+		expect(await signInAttemptIsRateLimited(nextEmail(), nextIp())).toBe(true)
+	})
+
+	it('fails closed when counter keys cannot be derived at all', async () => {
+		useRuntime()
+		const importKey = vi
+			.spyOn(crypto.subtle, 'importKey')
+			.mockRejectedValue(new Error('secret unusable') as never)
+
+		expect(await signInAttemptIsRateLimited(nextEmail(), nextIp())).toBe(true)
+		importKey.mockRestore()
+	})
+})
+
+/**
+ * The Workers path is only atomic if the bindings actually exist. `ownmail
+ * deploy` copies this config through, patching only name, KV id, vars, and
+ * routes — so losing them here silently downgrades every Cloudflare deployment
+ * to the per-instance fallback.
+ */
+describe('wrangler template', () => {
+	const config = readFileSync(fileURLToPath(new URL('../../wrangler.jsonc', import.meta.url)), 'utf8')
+
+	it('declares the edge rate-limit bindings the sign-in limiter depends on', () => {
+		expect(config).toMatch(
+			/"name": "SIGNIN_EMAIL_LIMITER",\s*"namespace_id": "\d+",\s*"simple": \{ "limit": 5, "period": 60 \}/,
+		)
+		expect(config).toMatch(
+			/"name": "SIGNIN_IP_LIMITER",\s*"namespace_id": "\d+",\s*"simple": \{ "limit": 20, "period": 60 \}/,
+		)
 	})
 })
 
@@ -192,18 +364,18 @@ describe('clientIp', () => {
 	it.each([
 		{
 			label: 'the Cloudflare client IP',
-			headers: { 'cf-connecting-ip': '198.51.100.1' },
-			expected: '198.51.100.1',
+			headers: { 'cf-connecting-ip': '198.51.100.11' },
+			expected: '198.51.100.11',
 		},
 		{
 			label: 'the first forwarded hop',
-			headers: { 'x-forwarded-for': '198.51.100.2, 10.0.0.1' },
-			expected: '198.51.100.2',
+			headers: { 'x-forwarded-for': '198.51.100.12, 10.0.0.1' },
+			expected: '198.51.100.12',
 		},
 		{
 			label: 'the platform header over a spoofable forwarded chain',
-			headers: { 'cf-connecting-ip': '198.51.100.3', 'x-forwarded-for': '1.1.1.1' },
-			expected: '198.51.100.3',
+			headers: { 'cf-connecting-ip': '198.51.100.13', 'x-forwarded-for': '1.1.1.1' },
+			expected: '198.51.100.13',
 		},
 	])('reads $label', ({ headers, expected }) => {
 		expect(clientIp(new Request('https://ownmail.local/auth/signin', { headers }))).toBe(expected)

@@ -31,9 +31,22 @@ const FOCUS_RING =
 	'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--signin-accent)] dark:focus-visible:ring-[color:var(--signin-accent-dark)] forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid'
 const FIELD = `min-h-11 w-full rounded-lg border border-border bg-card px-3 text-base text-foreground transition-colors focus-visible:border-transparent ${FOCUS_RING}`
 
+/**
+ * Scoped to this screen only — the global `--primary` token is untouched. The
+ * derived hue is unpredictable by construction, so pairing it with the green
+ * primary rolls the dice on a two-colour clash at every install. A neutral
+ * surface makes the accent the single point of colour on the page and, as
+ * near-black on white (and near-white on black), carries an unimpeachable
+ * contrast ratio that no derived hue could guarantee.
+ */
+const ERROR_SLOT = 'min-h-16 sm:min-h-11'
+const SUBMIT_SURFACE = 'bg-foreground text-background hover:bg-foreground/90 hover:brightness-100'
+
 const ERROR_MESSAGE: Record<SignInError, string> = {
 	invalid: 'Check your email and app password and try again.',
-	'rate-limit': 'Too many attempts. Try again in 15 minutes.',
+	// No fixed duration: the lockout window depends on which limiter the
+	// deployment runs on, and copy must not promise one it cannot keep.
+	'rate-limit': 'Too many attempts. Wait a few minutes and try again.',
 }
 
 export function LoginScreen({
@@ -78,9 +91,14 @@ export function LoginScreen({
 					<p className="mt-6 text-sm text-muted-foreground">Add another mailbox to this session.</p>
 				) : null}
 
-				<form method="post" action={signInAction} onSubmit={() => setSubmitting(true)} className="mt-4">
-					{/* Reserved slot: the form must not jump when a message appears. */}
-					<div className="min-h-14">
+				<form method="post" action={signInAction} onSubmit={() => setSubmitting(true)} className="mt-3">
+					{/*
+					 * Reserved slot: the fields must sit in exactly the same place with
+					 * and without a message. Sized to the message itself — two lines on
+					 * narrow screens, one from `sm` up — so the empty state reads as
+					 * spacing between the lockup and the form rather than a hole.
+					 */}
+					<div className={ERROR_SLOT}>
 						{error ? (
 							<p
 								id="signin-error"
@@ -147,7 +165,7 @@ export function LoginScreen({
 						type="submit"
 						disabled={submitting}
 						aria-busy={submitting || undefined}
-						className={`mt-8 h-auto min-h-11 w-full rounded-lg px-4 py-3 font-semibold ${FOCUS_RING}`}
+						className={`mt-8 h-auto min-h-11 w-full rounded-lg px-4 py-3 font-semibold ${SUBMIT_SURFACE} ${FOCUS_RING}`}
 					>
 						{submitting ? (
 							<>

@@ -9,8 +9,18 @@ import { Redis } from '@upstash/redis'
  * gracefully.
  */
 
+/**
+ * Cloudflare's native rate-limit binding. It is atomic at the edge, which a KV
+ * read-modify-write can never be, so it is the authoritative sign-in limiter on
+ * Workers deployments.
+ */
+export type RateLimiterBinding = { limit(options: { key: string }): Promise<{ success: boolean }> }
+
 export type AppEnv = {
 	NYLAS_API_KEY: string
+	/** Declared in wrangler.jsonc; absent on non-Workers targets. */
+	SIGNIN_EMAIL_LIMITER?: RateLimiterBinding
+	SIGNIN_IP_LIMITER?: RateLimiterBinding
 	SESSION_SECRET: string
 	NYLAS_WEBHOOK_SECRET?: string
 	NYLAS_CLIENT_ID: string
@@ -32,7 +42,10 @@ export type KvLike = {
 	get(key: string): Promise<string | null>
 	put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
 	delete(key: string): Promise<void>
+	/** Atomic counter. Present on Redis-backed stores; absent on Cloudflare KV. */
 	increment?(key: string): Promise<number>
+	/** Attaches a TTL without touching the value, so a live counter is never reset. */
+	expire?(key: string, seconds: number): Promise<void>
 }
 
 export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
@@ -108,6 +121,9 @@ function nodeKv(env: AppEnv): KvLike | null {
 			await redis.del(key)
 		},
 		increment: (key) => redis.incr(key),
+		expire: async (key, seconds) => {
+			await redis.expire(key, seconds)
+		},
 	}
 }
 

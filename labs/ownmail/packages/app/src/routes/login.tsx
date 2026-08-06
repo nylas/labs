@@ -14,9 +14,10 @@ const loginState = createServerFn({ method: 'GET' }).handler(async () => {
 	const search = url?.searchParams ?? new URLSearchParams()
 	const view = {
 		signInAction: SIGN_IN_PATH,
-		// The deployment's own address is the screen's subject; the configured
-		// site name only stands in when the request carries no usable host.
-		host: url?.host || siteNameFromEnv(env),
+		// The deployment's own address is the screen's subject. `hostname`, not
+		// `host`: a port is deployment plumbing and has no business in the hero.
+		// The configured site name only stands in when there is no usable URL.
+		host: url?.hostname || siteNameFromEnv(env),
 		error: signInError(search.get('error')),
 		addingMailbox: search.get('add') === '1',
 	}

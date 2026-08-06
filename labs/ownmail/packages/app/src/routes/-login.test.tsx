@@ -69,6 +69,19 @@ describe('login route loader', () => {
 		})
 	})
 
+	/**
+	 * The lockup is the whole design; a port number is deployment plumbing and
+	 * has no business in it. Invisible on 443, visible on any custom-port or
+	 * local deployment.
+	 */
+	it('never lets a port reach the domain lockup', async () => {
+		usingDevMocks.mockResolvedValue(false)
+		getSession.mockResolvedValue(null)
+		getRequest.mockReturnValue(new Request('http://mail.faberonlabs.com:5199/login'))
+
+		expect((await Route.options.loader()).host).toBe('mail.faberonlabs.com')
+	})
+
 	it('never stores the credential screen in a browser or shared cache', () => {
 		expect(Route.options.headers()).toEqual({ 'Cache-Control': 'no-store' })
 	})
