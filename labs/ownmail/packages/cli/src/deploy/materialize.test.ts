@@ -8,26 +8,35 @@ import {
 	materializeLocal,
 	materializeNetlify,
 	materializeVercel,
+	templateRateLimits,
 	templateRoot,
 } from './materialize.js'
 
-const { manifest, wranglerConfig, existsMap } = vi.hoisted(() => ({
-	manifest: {
-		templateVersion: '2.0.0',
-		minCliVersion: '0.1.0',
-		requiredSecrets: ['NYLAS_API_KEY'],
-		requiredVars: ['NYLAS_CLIENT_ID'],
-		kvBindings: ['SESSIONS'],
-		migrations: [],
-	},
-	wranglerConfig: {
-		name: 'stale',
-		topLevelName: 'stale',
-		configPath: '/build/machine/path.json',
-		userConfigPath: '/build/machine/path.json',
-	},
-	existsMap: new Map<string, boolean>(),
-}))
+const { manifest, rateLimits, wranglerConfig, existsMap } = vi.hoisted(() => {
+	const rateLimits = [
+		{ name: 'SIGNIN_EMAIL_LIMITER', namespace_id: '1001', simple: { limit: 5, period: 60 } },
+		{ name: 'SIGNIN_IP_LIMITER', namespace_id: '1002', simple: { limit: 20, period: 60 } },
+	]
+	return {
+		manifest: {
+			templateVersion: '2.0.0',
+			minCliVersion: '0.1.0',
+			requiredSecrets: ['NYLAS_API_KEY'],
+			requiredVars: ['NYLAS_CLIENT_ID'],
+			kvBindings: ['SESSIONS'],
+			migrations: [],
+		},
+		rateLimits,
+		wranglerConfig: {
+			name: 'stale',
+			topLevelName: 'stale',
+			configPath: '/build/machine/path.json',
+			userConfigPath: '/build/machine/path.json',
+			ratelimits: [...rateLimits],
+		} as Record<string, unknown>,
+		existsMap: new Map<string, boolean>(),
+	}
+})
 
 vi.mock('node:module', () => ({
 	createRequire: () =>
@@ -59,6 +68,7 @@ import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 beforeEach(() => {
 	vi.clearAllMocks()
 	existsMap.clear()
+	wranglerConfig.ratelimits = [...rateLimits]
 })
 
 describe('templateRoot / loadManifest', () => {
@@ -74,6 +84,31 @@ describe('templateRoot / loadManifest', () => {
 
 	it('parses template.json into a manifest', () => {
 		expect(loadManifest()).toEqual(manifest)
+	})
+})
+
+describe('templateRateLimits', () => {
+	const configPath = join('/fake/template', 'dist', 'server', 'wrangler.json')
+
+	it('reads the bindings the template declares, whatever they are', () => {
+		existsMap.set(configPath, true)
+		wranglerConfig.ratelimits = [
+			...rateLimits,
+			{ name: 'SIGNIN_TOTP_LIMITER', namespace_id: '1003', simple: { limit: 3, period: 60 } },
+		]
+
+		expect(templateRateLimits()).toEqual(wranglerConfig.ratelimits)
+	})
+
+	it('refuses to proceed when the build declares no rate-limit bindings', () => {
+		existsMap.set(configPath, true)
+		wranglerConfig.ratelimits = undefined
+
+		expect(() => templateRateLimits()).toThrow(/no rate-limit bindings/)
+	})
+
+	it('refuses to proceed when the built config is missing entirely', () => {
+		expect(() => templateRateLimits()).toThrow(/no rate-limit bindings/)
 	})
 })
 
@@ -103,6 +138,9 @@ describe('materialize', () => {
 		// Build-machine paths are rewritten to the materialized copy.
 		expect(written.configPath).toBe(configPath)
 		expect(written.userConfigPath).toBe(configPath)
+		// Patching names individual fields, so the sign-in rate-limit bindings the
+		// build emitted reach the deployed worker untouched.
+		expect(written.ratelimits).toEqual(rateLimits)
 	})
 
 	it('adds a custom_domain route when an app domain is supplied', () => {

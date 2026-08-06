@@ -28,6 +28,37 @@ export function loadManifest(): TemplateManifest {
 	return JSON.parse(raw) as TemplateManifest
 }
 
+/** A Cloudflare native rate-limit binding, as declared in the template's wrangler config. */
+export type RateLimitBinding = {
+	name: string
+	namespace_id: string
+	simple: { limit: number; period: number }
+}
+
+/**
+ * The template's Cloudflare rate-limit bindings, read from the build output of
+ * the single place they are declared — `wrangler.jsonc`. `ownmail deploy`
+ * carries them through by patching that same emitted config, so anything that
+ * writes a wrangler config for a user must read them from here rather than
+ * restate them: a second copy is a second thing to forget.
+ *
+ * These bindings are the only atomic brute-force control in front of sign-in,
+ * and a project without them silently degrades to per-instance counting, so a
+ * missing declaration is a hard error rather than a warning.
+ */
+export function templateRateLimits(): RateLimitBinding[] {
+	const path = join(templateRoot(), 'dist', 'server', 'wrangler.json')
+	const bindings = existsSync(path)
+		? ((JSON.parse(readFileSync(path, 'utf8')) as { ratelimits?: RateLimitBinding[] }).ratelimits ?? [])
+		: []
+	if (bindings.length === 0) {
+		throw new Error(
+			'The bundled app build declares no rate-limit bindings, so sign-in brute-force protection would be missing. Reinstall or update OwnMail, then retry this command.',
+		)
+	}
+	return bindings
+}
+
 export type MaterializeInput = {
 	slug: string
 	workerName: string
