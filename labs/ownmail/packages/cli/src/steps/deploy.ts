@@ -30,6 +30,7 @@ import {
 	deploy,
 	ensureKvNamespace,
 	putSecret,
+	workerHasSecret,
 	wranglerLoggedIn,
 	wranglerLogin,
 } from '../deploy/wrangler.js'
@@ -257,7 +258,12 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	spinner.start('Locking in secrets…')
 	try {
 		await putSecret(workerName, 'NYLAS_API_KEY', apiKey)
-		await putSecret(workerName, 'SESSION_SECRET', randomBytes(32).toString('base64url'))
+		// Session cookies are HMAC-signed with SESSION_SECRET, so replacing it on a
+		// redeploy would invalidate every signed-in user's cookie. Mint one only
+		// when the worker has none yet.
+		if (!(await workerHasSecret(workerName, 'SESSION_SECRET'))) {
+			await putSecret(workerName, 'SESSION_SECRET', randomBytes(32).toString('base64url'))
+		}
 		saveProject(ctx.project)
 		spinner.stop('Secrets stored in Cloudflare (never on disk).')
 	} catch (err) {

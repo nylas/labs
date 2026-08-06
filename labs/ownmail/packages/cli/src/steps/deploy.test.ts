@@ -27,6 +27,7 @@ import {
 	deploy,
 	ensureKvNamespace,
 	putSecret,
+	workerHasSecret,
 	wranglerLoggedIn,
 	wranglerLogin,
 } from '../deploy/wrangler.js'
@@ -94,6 +95,7 @@ vi.mock('../deploy/wrangler.js', () => ({
 	cloudflareApiTokenConfigured: vi.fn(() => false),
 	ensureKvNamespace: vi.fn(),
 	putSecret: vi.fn(),
+	workerHasSecret: vi.fn(async () => false),
 	deploy: vi.fn(),
 }))
 
@@ -184,6 +186,7 @@ beforeEach(() => {
 		message: vi.fn(),
 	} as unknown as ReturnType<typeof p.spinner>)
 	vi.mocked(cloudflareApiTokenConfigured).mockReturnValue(false)
+	vi.mocked(workerHasSecret).mockResolvedValue(false)
 	vi.mocked(loadManifest).mockReturnValue({
 		templateVersion: '1.0.0',
 	} as ReturnType<typeof loadManifest>)
@@ -479,6 +482,59 @@ describe('stepDeploy (cloudflare)', () => {
 		expect(putSecret).toHaveBeenCalledTimes(2)
 		expect(putSecret).toHaveBeenCalledWith('worker', 'NYLAS_API_KEY', 'secret-key')
 		expect(putSecret).toHaveBeenCalledWith('worker', 'SESSION_SECRET', expect.any(String))
+	})
+
+	it('mints a strong random session secret on the first deploy', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://plain.workers.dev')
+		vi.mocked(workerHasSecret).mockResolvedValueOnce(false)
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				workerName: 'worker',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+
+		await stepDeploy(ctx)
+
+		expect(workerHasSecret).toHaveBeenCalledWith('worker', 'SESSION_SECRET')
+		const [, , minted] = vi.mocked(putSecret).mock.calls.find(([, name]) => name === 'SESSION_SECRET') as [
+			string,
+			string,
+			string,
+		]
+		expect(Buffer.from(minted, 'base64url')).toHaveLength(32)
+	})
+
+	it('leaves an existing session secret untouched so signed-in users survive a redeploy', async () => {
+		// Cloudflare is the only holder of the value; `secret list` returns names
+		// only, so a redeploy must reuse what is already on the worker.
+		const workerSecrets = new Map<string, string>()
+		vi.mocked(putSecret).mockImplementation(async (worker: string, name: string, value: string) => {
+			workerSecrets.set(`${worker}/${name}`, value)
+		})
+		vi.mocked(workerHasSecret).mockImplementation(async (worker: string, name: string) =>
+			workerSecrets.has(`${worker}/${name}`),
+		)
+		vi.mocked(deploy).mockResolvedValue('https://plain.workers.dev')
+		const project = makeProject({
+			applicationId: 'client-id',
+			workerName: 'worker',
+			kvNamespaceId: 'kv',
+			pendingSecrets: { apiKey: 'secret-key' },
+		})
+
+		await stepDeploy(makeCtx(project))
+		const signedInWith = workerSecrets.get('worker/SESSION_SECRET')
+		expect(signedInWith).toBeDefined()
+
+		await stepDeploy(makeCtx(project))
+
+		// The cookie signed with `signedInWith` still verifies after the redeploy.
+		expect(workerSecrets.get('worker/SESSION_SECRET')).toBe(signedInWith)
+		expect(vi.mocked(putSecret).mock.calls.filter(([, name]) => name === 'SESSION_SECRET')).toHaveLength(1)
+		expect(vi.mocked(putSecret).mock.calls.filter(([, name]) => name === 'NYLAS_API_KEY')).toHaveLength(2)
 	})
 
 	it('revokes the previous key only after the replacement is installed', async () => {
