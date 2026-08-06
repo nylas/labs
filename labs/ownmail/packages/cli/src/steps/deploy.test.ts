@@ -17,9 +17,11 @@ import {
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
 	listVercelScopes,
+	netlifyHasEnvironmentVariable,
 	resolveVercelProductionUrl,
 	setNetlifyEnvironment,
 	setVercelEnvironment,
+	vercelHasEnvironmentVariable,
 } from '../deploy/provider-cli.js'
 import { WEBHOOK_TRIGGER_TYPES } from '../deploy/webhook.js'
 import {
@@ -86,6 +88,8 @@ vi.mock('../deploy/provider-cli.js', () => ({
 	resolveVercelProductionUrl: vi.fn(),
 	setNetlifyEnvironment: vi.fn(),
 	setVercelEnvironment: vi.fn(),
+	vercelHasEnvironmentVariable: vi.fn(async () => false),
+	netlifyHasEnvironmentVariable: vi.fn(async () => false),
 }))
 
 vi.mock('../deploy/wrangler.js', () => ({
@@ -187,6 +191,8 @@ beforeEach(() => {
 	} as unknown as ReturnType<typeof p.spinner>)
 	vi.mocked(cloudflareApiTokenConfigured).mockReturnValue(false)
 	vi.mocked(workerHasSecret).mockResolvedValue(false)
+	vi.mocked(vercelHasEnvironmentVariable).mockResolvedValue(false)
+	vi.mocked(netlifyHasEnvironmentVariable).mockResolvedValue(false)
 	vi.mocked(loadManifest).mockReturnValue({
 		templateVersion: '1.0.0',
 	} as ReturnType<typeof loadManifest>)
@@ -757,6 +763,63 @@ describe('stepDeploy (additional providers)', () => {
 		)
 		expect(ctx.project.netlifySiteId).toBe('123e4567-e89b-42d3-a456-426614174000')
 		expect(ctx.project.providerAppUrl).toBe('https://my-inbox.netlify.app')
+	})
+
+	it('leaves an existing Vercel session secret untouched so signed-in users survive a redeploy', async () => {
+		// Model the project's production settings: a deploy writes what it sends,
+		// and the existence check sees only the names already stored.
+		const projectEnv = new Map<string, string>()
+		vi.mocked(setVercelEnvironment).mockImplementation(async (_dir, environment) => {
+			for (const [name, value] of Object.entries(environment)) projectEnv.set(name, value)
+		})
+		vi.mocked(vercelHasEnvironmentVariable).mockImplementation(async (_dir, name) => projectEnv.has(name))
+		const project = makeProject({
+			...base,
+			hostingProvider: 'vercel',
+			vercelProjectId: 'prj_1',
+			vercelOrgId: 'team_1',
+		})
+
+		await stepDeploy(makeCtx(project))
+		const signedInWith = projectEnv.get('SESSION_SECRET')
+		expect(Buffer.from(signedInWith ?? '', 'base64url')).toHaveLength(32)
+
+		await stepDeploy(makeCtx(project))
+
+		// A cookie signed with `signedInWith` still verifies after the redeploy.
+		expect(projectEnv.get('SESSION_SECRET')).toBe(signedInWith)
+		expect(vi.mocked(setVercelEnvironment).mock.calls[1]?.[1]).not.toHaveProperty('SESSION_SECRET')
+		expect(vi.mocked(setVercelEnvironment).mock.calls[1]?.[1]).toHaveProperty('NYLAS_API_KEY')
+	})
+
+	it('leaves an existing Netlify session secret untouched so signed-in users survive a redeploy', async () => {
+		const siteEnv = new Map<string, string>()
+		vi.mocked(setNetlifyEnvironment).mockImplementation(async (_dir, _siteId, environment) => {
+			for (const [name, value] of Object.entries(environment)) siteEnv.set(name, value)
+		})
+		vi.mocked(netlifyHasEnvironmentVariable).mockImplementation(async (_dir, _siteId, name) =>
+			siteEnv.has(name),
+		)
+		const project = makeProject({
+			...base,
+			hostingProvider: 'netlify',
+			netlifySiteId: '123e4567-e89b-42d3-a456-426614174000',
+		})
+
+		await stepDeploy(makeCtx(project))
+		const signedInWith = siteEnv.get('SESSION_SECRET')
+		expect(Buffer.from(signedInWith ?? '', 'base64url')).toHaveLength(32)
+
+		await stepDeploy(makeCtx(project))
+
+		expect(netlifyHasEnvironmentVariable).toHaveBeenCalledWith(
+			'/tmp/netlify',
+			'123e4567-e89b-42d3-a456-426614174000',
+			'SESSION_SECRET',
+		)
+		expect(siteEnv.get('SESSION_SECRET')).toBe(signedInWith)
+		expect(vi.mocked(setNetlifyEnvironment).mock.calls[1]?.[2]).not.toHaveProperty('SESSION_SECRET')
+		expect(vi.mocked(setNetlifyEnvironment).mock.calls[1]?.[2]).toHaveProperty('NYLAS_API_KEY')
 	})
 
 	it('starts a loopback local server with keyring-backed runtime secrets', async () => {
