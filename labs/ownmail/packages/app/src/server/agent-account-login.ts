@@ -65,7 +65,10 @@ export async function requestAgentAccountCallback(
 			}),
 			// The contract answers 200 with JSON; a redirect would mean something
 			// else entirely and must never be followed with credentials attached.
-			redirect: 'error',
+			// `manual` hands the 3xx back unfollowed, which the !response.ok check
+			// below rejects. `error` would be the tighter mode but workerd refuses
+			// it at Request construction, which failed every sign-in outright.
+			redirect: 'manual',
 			signal: controller.signal,
 		})
 	} catch {
