@@ -1,5 +1,6 @@
 export const MAIL_HOME_PATH = '/'
 export const AUTH_PATH = '/auth'
+export const SIGN_IN_PATH = '/auth/signin'
 export const CALENDAR_HOME_PATH = '/calendar'
 export const CONTACTS_HOME_PATH = '/contacts'
 export const SETTINGS_PATH = '/settings'

@@ -4,38 +4,22 @@ vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 }))
 
-const connectMocks = vi.hoisted(() => ({ createClient: vi.fn(), getAuthUrl: vi.fn() }))
-vi.mock('@nylas/connect', () => ({
-	NylasConnect: class {
-		constructor(config: unknown) {
-			connectMocks.createClient(config)
-		}
-
-		getAuthUrl(options: unknown) {
-			return connectMocks.getAuthUrl(options)
-		}
-	},
-}))
-
-const platform = vi.fn()
 const usingDevMocks = vi.fn()
 vi.mock('#server/platform', () => ({
-	platform: () => platform(),
+	platform: () => ({ env: {} }),
 	usingDevMocks: () => usingDevMocks(),
 }))
 
-const storeConnectState = vi.fn()
 const createReferenceDevSessionCookie = vi.fn()
 const switchSessionAccount = vi.fn()
 const getSession = vi.fn()
 vi.mock('#server/session', () => ({
-	storeConnectState: (request: Request, state: string) => storeConnectState(request, state),
 	createReferenceDevSessionCookie: () => createReferenceDevSessionCookie(),
 	switchSessionAccount: (request: Request, handle: string) => switchSessionAccount(request, handle),
 	getSession: (request: Request) => getSession(request),
 }))
 
-import { escapeHtml, Route } from './auth.js'
+import { Route } from './auth.js'
 
 const GET = Route.options.server.handlers.GET
 const POST = Route.options.server.handlers.POST
@@ -46,22 +30,29 @@ function req() {
 
 beforeEach(() => {
 	vi.clearAllMocks()
+	usingDevMocks.mockResolvedValue(false)
 	getSession.mockResolvedValue(null)
-	connectMocks.getAuthUrl.mockResolvedValue({
-		url: 'https://api.nylas.com/v3/connect/auth?x=1',
-		state: 'state-1',
-		scopes: [],
-	})
 })
 
 describe('/auth', () => {
-	it('escapes every HTML metacharacter used in configuration responses', () => {
-		expect(escapeHtml(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;')
+	it("sends a first-time visitor to OwnMail's own sign-in form, never to a hosted screen", async () => {
+		const response = await GET({ request: req() })
+
+		expect(response.status).toBe(302)
+		expect(response.headers.get('Location')).toBe('/login')
+		expect(response.headers.get('Cache-Control')).toBe('no-store')
+	})
+
+	it('keeps a signed-in visitor on the same form to add another mailbox', async () => {
+		getSession.mockResolvedValue({ grantId: 'grant-1', email: 'ada@ownmail.com' })
+
+		const response = await GET({ request: req() })
+
+		expect(response.headers.get('Location')).toBe('/login?add=1')
 	})
 
 	it('short-circuits to the mailbox with a dev-session cookie under local mocks', async () => {
 		usingDevMocks.mockResolvedValue(true)
-		platform.mockResolvedValue({ env: {} })
 		createReferenceDevSessionCookie.mockReturnValue('ownmail_session=authenticated')
 
 		const response = await GET({ request: req() })
@@ -69,110 +60,7 @@ describe('/auth', () => {
 		expect(response.status).toBe(302)
 		expect(response.headers.get('Location')).toBe('/')
 		expect(response.headers.get('Set-Cookie')).toBe('ownmail_session=authenticated')
-		expect(connectMocks.createClient).not.toHaveBeenCalled()
-	})
-
-	it('fails closed with a 500 config page when the Nylas client id is missing', async () => {
-		usingDevMocks.mockResolvedValue(false)
-		platform.mockResolvedValue({ env: { NYLAS_CLIENT_ID: '   ' } })
-
-		const response = await GET({ request: req() })
-
-		expect(response.status).toBe(500)
-		expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
-		expect(await response.text()).toContain('App configuration error')
-		expect(connectMocks.createClient).not.toHaveBeenCalled()
-	})
-
-	it('starts backend Nylas Connect pinned to the Nylas connector with a login hint and browser-bound state', async () => {
-		usingDevMocks.mockResolvedValue(false)
-		platform.mockResolvedValue({
-			env: {
-				NYLAS_CLIENT_ID: 'client-123',
-				NYLAS_REGION: 'us',
-				NYLAS_API_BASE_URL: 'https://api.nylas.com',
-				INBOX_EMAIL: 'ada@ownmail.com',
-			},
-		})
-		storeConnectState.mockResolvedValue('ownmail_connect_state=signed')
-
-		const response = await GET({ request: req() })
-
-		expect(response.status).toBe(302)
-		expect(response.headers.get('Location')).toBe('https://api.nylas.com/v3/connect/auth?x=1')
-		expect(response.headers.get('Set-Cookie')).toBe('ownmail_connect_state=signed')
-		expect(connectMocks.createClient).toHaveBeenCalledWith({
-			clientId: 'client-123',
-			redirectUri: 'https://ownmail.local/auth/callback',
-			apiUrl: 'https://api.nylas.com',
-			persistTokens: false,
-			autoHandleCallback: false,
-			logLevel: 'off',
-		})
-		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
-			expect.objectContaining({
-				provider: 'nylas',
-				state: expect.any(String),
-				loginHint: 'ada@ownmail.com',
-			}),
-		)
-		expect(storeConnectState).toHaveBeenCalledWith(expect.any(Request), expect.any(String))
-	})
-
-	it('always binds auth state to a browser cookie and omits the login hint when no inbox is configured', async () => {
-		usingDevMocks.mockResolvedValue(false)
-		platform.mockResolvedValue({
-			env: { NYLAS_CLIENT_ID: 'client-123', NYLAS_REGION: 'eu', INBOX_EMAIL: '' },
-		})
-		storeConnectState.mockResolvedValue('ownmail_connect_state=signed-kv-attempt')
-
-		const response = await GET({ request: req() })
-
-		expect(response.status).toBe(302)
-		expect(response.headers.get('Set-Cookie')).toBe('ownmail_connect_state=signed-kv-attempt')
-		expect(connectMocks.createClient).toHaveBeenCalledWith(
-			expect.objectContaining({ apiUrl: 'https://api.eu.nylas.com' }),
-		)
-		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
-			expect.objectContaining({ provider: 'nylas', state: expect.any(String) }),
-		)
-		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
-			expect.not.objectContaining({ loginHint: expect.anything() }),
-		)
-	})
-
-	it('does not pin Nylas Connect to the primary inbox while adding another verified account', async () => {
-		usingDevMocks.mockResolvedValue(false)
-		getSession.mockResolvedValue({ grantId: 'grant-1', email: 'ada@ownmail.com' })
-		platform.mockResolvedValue({
-			env: { NYLAS_CLIENT_ID: 'client-123', NYLAS_REGION: 'us', INBOX_EMAIL: 'ada@ownmail.com' },
-		})
-		storeConnectState.mockResolvedValue('ownmail_connect_state=signed-add-attempt')
-
-		await GET({ request: req() })
-
-		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
-			expect.objectContaining({ provider: 'nylas', state: expect.any(String) }),
-		)
-		expect(connectMocks.getAuthUrl).toHaveBeenCalledWith(
-			expect.not.objectContaining({ loginHint: expect.anything() }),
-		)
-	})
-
-	it('fails closed without setting state when Nylas Connect rejects its configuration', async () => {
-		usingDevMocks.mockResolvedValue(false)
-		platform.mockResolvedValue({
-			env: { NYLAS_CLIENT_ID: 'client-123', NYLAS_REGION: 'us', INBOX_EMAIL: '' },
-		})
-		connectMocks.getAuthUrl.mockRejectedValueOnce(new Error('unsafe internal detail'))
-
-		const response = await GET({ request: req() })
-
-		expect(response.status).toBe(500)
-		const body = await response.text()
-		expect(body).toContain('Nylas Connect is not configured correctly')
-		expect(body).not.toContain('unsafe internal detail')
-		expect(storeConnectState).not.toHaveBeenCalled()
+		expect(getSession).not.toHaveBeenCalled()
 	})
 
 	it('switches through the server-owned session allow-list and hard-navigates to clear scoped caches', async () => {

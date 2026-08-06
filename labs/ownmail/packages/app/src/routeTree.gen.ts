@@ -21,6 +21,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ApiVersionRouteImport } from './routes/api.version'
 import { Route as AttachmentsAttachmentIdRouteImport } from './routes/attachments.$attachmentId'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
+import { Route as AuthSigninRouteImport } from './routes/auth.signin'
 import { Route as CalendarIndexRouteImport } from './routes/calendar.index'
 import { Route as CalendarViewRouteImport } from './routes/calendar.$view'
 import { Route as ContactsIndexRouteImport } from './routes/contacts.index'
@@ -92,6 +93,11 @@ const AttachmentsAttachmentIdRoute = AttachmentsAttachmentIdRouteImport.update({
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthSigninRoute = AuthSigninRouteImport.update({
+  id: '/signin',
+  path: '/signin',
   getParentRoute: () => AuthRoute,
 } as any)
 const CalendarIndexRoute = CalendarIndexRouteImport.update({
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/auth/signin': typeof AuthSigninRoute
   '/calendar/$view': typeof CalendarViewRoute
   '/contacts/$contactId': typeof ContactsContactIdRoute
   '/contacts/new': typeof ContactsNewRoute
@@ -192,6 +199,7 @@ export interface FileRoutesByTo {
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/auth/signin': typeof AuthSigninRoute
   '/calendar/$view': typeof CalendarViewRoute
   '/contacts/$contactId': typeof ContactsContactIdRoute
   '/contacts/new': typeof ContactsNewRoute
@@ -219,6 +227,7 @@ export interface FileRoutesById {
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/auth/signin': typeof AuthSigninRoute
   '/calendar/$view': typeof CalendarViewRoute
   '/contacts/$contactId': typeof ContactsContactIdRoute
   '/contacts/new': typeof ContactsNewRoute
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
+    | '/auth/signin'
     | '/calendar/$view'
     | '/contacts/$contactId'
     | '/contacts/new'
@@ -270,6 +280,7 @@ export interface FileRouteTypes {
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
+    | '/auth/signin'
     | '/calendar/$view'
     | '/contacts/$contactId'
     | '/contacts/new'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
+    | '/auth/signin'
     | '/calendar/$view'
     | '/contacts/$contactId'
     | '/contacts/new'
@@ -412,6 +424,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthCallbackRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/auth/signin': {
+      id: '/auth/signin'
+      path: '/signin'
+      fullPath: '/auth/signin'
+      preLoaderRoute: typeof AuthSigninRouteImport
+      parentRoute: typeof AuthRoute
+    }
     '/calendar/': {
       id: '/calendar/'
       path: '/'
@@ -501,10 +520,12 @@ declare module '@tanstack/react-router' {
 
 interface AuthRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
+  AuthSigninRoute: typeof AuthSigninRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
+  AuthSigninRoute: AuthSigninRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
