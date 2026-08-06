@@ -157,13 +157,38 @@ describe('ContactModal — create', () => {
 			'autocomplete',
 			'organization-title',
 		)
+		// The primary email and phone stay in the default (unnamed) autofill section so a
+		// browser filling a saved profile from the name fields fills them in the same pass.
 		expect(screen.getByLabelText('Email 1')).toHaveAttribute('autocomplete', 'email')
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		expect(screen.getByLabelText('Phone 1')).toHaveAttribute('autocomplete', 'tel')
+
+		// Only the additional rows get their own section, so accepting one suggestion cannot
+		// overwrite the other rows with the same value.
 		fireEvent.click(screen.getByRole('button', { name: 'Add email' }))
 		expect(screen.getByLabelText('Email 2')).toHaveAttribute('autocomplete', 'section-contact-email-2 email')
 		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
-		expect(screen.getByLabelText('Phone 1')).toHaveAttribute('autocomplete', 'tel')
-		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
 		expect(screen.getByLabelText('Phone 2')).toHaveAttribute('autocomplete', 'section-contact-phone-2 tel')
+	})
+
+	it('gives every email and phone row a stable form-control identifier', () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Add email' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+
+		// Browsers that only register autofill controls carrying a name or id would skip these
+		// inputs otherwise -- an accessible name from aria-label is not a control identifier.
+		for (const [label, control] of [
+			['Email 1', 'contact-email-0'],
+			['Email 2', 'contact-email-1'],
+			['Phone 1', 'contact-phone-0'],
+			['Phone 2', 'contact-phone-1'],
+		] as const) {
+			const input = screen.getByLabelText(label)
+			expect(input).toHaveAttribute('id', control)
+			expect(input).toHaveAttribute('name', control)
+		}
 	})
 
 	it('surfaces a save error and keeps the dialog open', async () => {

@@ -244,6 +244,7 @@ export function ContactModal({
 										emailRefs.current[index] = node
 									}}
 									id={`contact-email-${index}`}
+									name={`contact-email-${index}`}
 									type="email"
 									autoComplete={index === 0 ? 'email' : `section-contact-email-${index + 1} email`}
 									disabled={busy}
@@ -292,6 +293,8 @@ export function ContactModal({
 							// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
 							<div key={index} className="flex items-center gap-2">
 								<Input
+									id={`contact-phone-${index}`}
+									name={`contact-phone-${index}`}
 									type="tel"
 									autoComplete={index === 0 ? 'tel' : `section-contact-phone-${index + 1} tel`}
 									disabled={busy}
