@@ -28,6 +28,8 @@ export const Route = createFileRoute('/settings')({
 	component: SettingsPage,
 })
 
+type PasswordFeedback = { kind: 'success' | 'error'; message: string }
+
 function SettingsPage() {
 	const { info, capabilities } = Route.useLoaderData()
 	const [preferences, savePreferences] = useUserPreferences()
@@ -38,9 +40,9 @@ function SettingsPage() {
 	const [saving, setSaving] = useState(false)
 	const [password, setPassword] = useState('')
 	const [confirmPassword, setConfirmPassword] = useState('')
-	const [passwordStatus, setPasswordStatus] = useState<string | null>(null)
+	const [passwordStatus, setPasswordStatus] = useState<PasswordFeedback | null>(null)
 	const [resettingPassword, setResettingPassword] = useState(false)
-	const passwordEditRevision = useRef(0)
+	const passwordPendingRef = useRef(false)
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const timezones = useMemo(availableTimezones, [])
 
@@ -87,23 +89,27 @@ function SettingsPage() {
 
 	async function changePassword(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault()
+		if (passwordPendingRef.current || !password || !confirmPassword) return
 		setPasswordStatus(null)
 		if (password !== confirmPassword) {
-			setPasswordStatus('The passwords do not match.')
+			setPasswordStatus({ kind: 'error', message: 'The passwords do not match.' })
 			return
 		}
-		const submittedRevision = passwordEditRevision.current
+		passwordPendingRef.current = true
+		const passwordSnapshot = password
 		setResettingPassword(true)
 		try {
-			await resetMailboxPassword({ data: { password } })
-			if (passwordEditRevision.current !== submittedRevision) return
+			await resetMailboxPassword({ data: { password: passwordSnapshot } })
 			setPassword('')
 			setConfirmPassword('')
-			setPasswordStatus('Password updated.')
+			setPasswordStatus({ kind: 'success', message: 'Password updated.' })
 		} catch {
-			if (passwordEditRevision.current === submittedRevision)
-				setPasswordStatus('We could not update your password. Check the requirements and try again.')
+			setPasswordStatus({
+				kind: 'error',
+				message: 'We could not update your password. Check the requirements and try again.',
+			})
 		} finally {
+			passwordPendingRef.current = false
 			setResettingPassword(false)
 		}
 	}
@@ -169,7 +175,7 @@ function SettingsPage() {
 								maxLength={120}
 								autoComplete="name"
 								required
-								className="mt-1 h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+								className="mt-1 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 							/>
 						</section>
 
@@ -255,8 +261,10 @@ function SettingsPage() {
 										id="settings-password"
 										label="New password"
 										value={password}
+										disabled={resettingPassword}
 										onChange={(value) => {
-											passwordEditRevision.current += 1
+											/* v8 ignore next -- A disabled password input cannot emit a user change. @preserve */
+											if (passwordPendingRef.current) return
 											setPassword(value)
 											setPasswordStatus(null)
 										}}
@@ -265,19 +273,32 @@ function SettingsPage() {
 										id="settings-confirm-password"
 										label="Confirm new password"
 										value={confirmPassword}
+										disabled={resettingPassword}
 										onChange={(value) => {
-											passwordEditRevision.current += 1
+											/* v8 ignore next -- A disabled password input cannot emit a user change. @preserve */
+											if (passwordPendingRef.current) return
 											setConfirmPassword(value)
 											setPasswordStatus(null)
 										}}
 									/>
 									<div className="flex items-center gap-3">
-										<Button type="submit" disabled={resettingPassword || !password || !confirmPassword}>
+										<Button
+											type="submit"
+											aria-disabled={resettingPassword || !password || !confirmPassword}
+											aria-busy={resettingPassword || undefined}
+											className="min-h-11 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+										>
 											{resettingPassword ? 'Updating…' : 'Update password'}
 										</Button>
 										{passwordStatus ? (
-											<span className="text-sm text-muted-foreground" role="status">
-												{passwordStatus}
+											<span
+												className={cn(
+													'text-sm',
+													passwordStatus.kind === 'error' ? 'text-destructive' : 'text-muted-foreground',
+												)}
+												role={passwordStatus.kind === 'error' ? 'alert' : 'status'}
+											>
+												{passwordStatus.message}
 											</span>
 										) : null}
 									</div>
@@ -346,7 +367,7 @@ function TimezoneField({
 				id={id}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
-				className="mt-1 h-9 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				className="mt-1 h-11 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 			>
 				{includeNone ? <option value="">None</option> : null}
 				{timezones.map((timezone) => (
@@ -364,11 +385,13 @@ function PasswordField({
 	id,
 	label,
 	value,
+	disabled,
 	onChange,
 }: {
 	id: string
 	label: string
 	value: string
+	disabled: boolean
 	onChange: (value: string) => void
 }) {
 	return (
@@ -378,12 +401,13 @@ function PasswordField({
 				id={id}
 				type="password"
 				value={value}
+				disabled={disabled}
 				onChange={(event) => onChange(event.target.value)}
 				minLength={18}
 				maxLength={40}
 				autoComplete="new-password"
 				required
-				className="mt-1 h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				className="mt-1 min-h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 			/>
 		</label>
 	)

@@ -5,6 +5,7 @@ import {
 	Archive,
 	Forward,
 	Inbox,
+	Loader2,
 	Maximize2,
 	Minus,
 	Paperclip,
@@ -35,6 +36,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
+import { validateRecipientEmails } from '#features/mail/lib/recipients'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
 import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
 import {
@@ -52,7 +54,7 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getDraft, getFolders, getThreadMessages, getThreads, saveComposeRecipients } from '#server/fns'
-import { RecipientInput } from '#shared/components/RecipientInput'
+import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
 import { cn } from '#shared/lib/utils'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
@@ -61,6 +63,7 @@ const MAX_COMPOSE_ATTACHMENTS = 10
 const MAX_COMPOSE_ATTACHMENT_BYTES = 2 * 1024 * 1024
 
 type ComposeFocusTarget = 'compose-to' | 'compose-subject' | 'compose-body'
+type PendingComposeBackdropAction = 'archive' | 'restore' | 'delete' | 'star'
 
 function composeFocusTarget({
 	to,
@@ -86,7 +89,7 @@ function draftSaveErrorMessage(error: unknown): string {
 		typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
 			? error.message
 			: ''
-	if (message.startsWith('Invalid recipient:'))
+	if (message.startsWith('Invalid recipient'))
 		return 'Enter a valid email address for each recipient before saving.'
 	return 'Could not save the draft. Your changes are still here; check your connection and try again.'
 }
@@ -207,6 +210,7 @@ function Compose() {
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [recipientError, setRecipientError] = useState<string | null>(null)
 	const dirty = useRef(false)
 	const submitting = useRef(false)
 	const discarding = useRef(false)
@@ -214,6 +218,7 @@ function Compose() {
 	const draftQueue = useRef<Promise<void>>(Promise.resolve())
 	const draftQueuePending = useRef(0)
 	const attachmentInputRef = useRef<HTMLInputElement>(null)
+	const recipientInputRef = useRef<RecipientInputHandle>(null)
 	const attachmentsRef = useRef<ComposeAttachment[]>([])
 	const attachmentTask = useRef<Promise<boolean>>(Promise.resolve(true))
 	const attachingRef = useRef(false)
@@ -272,17 +277,6 @@ function Compose() {
 		[draftId, folderId, search.body, search.replyToMessageId, search.subject, search.to],
 	)
 
-	async function actOnBackdropThread(
-		threadId: string,
-		input: { unread?: boolean; starred?: boolean; folder?: string },
-		leave = false,
-	) {
-		await updateThread.mutateAsync({ threadId, ...input })
-		if (leave) {
-			await navigate({ to: '/mail/compose', search: composeListSearch() })
-		}
-	}
-
 	async function toggleBackdropRowStar(
 		thread: Awaited<ReturnType<typeof getThreads>>['threads'][number],
 		starred: boolean,
@@ -300,6 +294,7 @@ function Compose() {
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
+		setRecipientError(null)
 		dirty.current = true
 		focusComposeTarget('compose-body')
 		navigate({
@@ -322,6 +317,7 @@ function Compose() {
 		setSubject(replySearch.subject ?? '')
 		setBody('')
 		setError(null)
+		setRecipientError(null)
 		dirty.current = true
 		focusComposeTarget('compose-body')
 		navigate({ to: '/mail/compose', search: replySearch })
@@ -341,6 +337,7 @@ function Compose() {
 		setSubject(forwardSearch.subject ?? '')
 		setBody(forwardSearch.body ?? '')
 		setError(null)
+		setRecipientError(null)
 		dirty.current = true
 		focusComposeTarget(
 			composeFocusTarget({
@@ -537,12 +534,27 @@ function Compose() {
 	}
 
 	const submit = useCallback(async () => {
+		const currentTo = recipientInputRef.current?.getCurrentValue() ?? to
+		const recipientValidation = validateRecipientEmails(currentTo, { required: true })
+		if (recipientValidation.error) {
+			setRecipientError(
+				recipientValidation.error === 'required'
+					? 'Add at least one recipient before sending.'
+					: 'Enter a valid email address for each recipient before sending.',
+			)
+			setError(null)
+			focusComposeTarget('compose-to')
+			return
+		}
+
+		setRecipientError(null)
+		if (currentTo !== to) setTo(currentTo)
 		submitting.current = true
 		setBusy(true)
 		setError(null)
 		try {
 			const id = await queueDraftPersistence({
-				to,
+				to: currentTo,
 				subject,
 				body,
 				attachments: attachmentsRef.current,
@@ -550,7 +562,7 @@ function Compose() {
 			})
 			await sendDraftMutation.mutateAsync({
 				draftId: id,
-				to,
+				to: currentTo,
 				subject,
 				// The editor holds markdown; outgoing mail carries inline-styled HTML.
 				body: markdownToEmailHtml(body),
@@ -561,10 +573,7 @@ function Compose() {
 			if (preferences.autoSaveContacts) {
 				void saveComposeRecipients({
 					data: {
-						emails: to
-							.split(',')
-							.map((email) => email.trim())
-							.filter(Boolean),
+						emails: recipientValidation.emails,
 					},
 				})
 					.then((receipt) => {
@@ -697,22 +706,12 @@ function Compose() {
 					</section>
 					<section className="hidden min-w-0 flex-1 bg-background md:flex">
 						<ComposeThreadBackdrop
+							key={JSON.stringify([selected.thread.id, composeListSearch()])}
 							thread={selected.thread}
 							messages={selected.messages}
 							isArchived={selectedThreadIsArchived}
-							onArchive={() =>
-								actOnBackdropThread(
-									selected.thread.id,
-									{
-										folder: selectedThreadIsArchived ? 'inbox' : 'archive',
-									},
-									true,
-								)
-							}
-							onDelete={() => actOnBackdropThread(selected.thread.id, { folder: 'trash' }, true)}
-							onToggleStar={() =>
-								actOnBackdropThread(selected.thread.id, { starred: !selected.thread.starred })
-							}
+							onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
+							onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
 							onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
 							onReplyAll={() =>
 								replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)
@@ -808,16 +807,31 @@ function Compose() {
 				{!minimized ? (
 					<>
 						<div className="flex flex-col">
-							<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm">
-								<span className="w-14 shrink-0 text-muted-foreground">To</span>
-								<RecipientInput
-									id="compose-to"
-									value={to}
-									onChange={setTo}
-									placeholder="recipient@email.com"
-									className="flex-1"
-									disabled={closing}
-								/>
+							<div className="border-b border-border px-3 py-2 text-sm">
+								<div className="flex items-center gap-2">
+									<span className="w-14 shrink-0 text-muted-foreground">To</span>
+									<RecipientInput
+										ref={recipientInputRef}
+										id="compose-to"
+										value={to}
+										onChange={setTo}
+										onEdit={() => setRecipientError(null)}
+										placeholder="recipient@email.com"
+										className="flex-1"
+										disabled={closing}
+										invalid={Boolean(recipientError)}
+										describedBy={recipientError ? 'compose-recipient-error' : undefined}
+									/>
+								</div>
+								{recipientError ? (
+									<p
+										id="compose-recipient-error"
+										role="alert"
+										className="mt-1 pl-16 text-xs text-destructive"
+									>
+										{recipientError}
+									</p>
+								) : null}
 							</div>
 							<label
 								htmlFor="compose-subject"
@@ -980,9 +994,8 @@ function ComposeThreadBackdrop({
 	thread,
 	messages,
 	isArchived,
-	onArchive,
-	onDelete,
-	onToggleStar,
+	onUpdate,
+	onLeave,
 	onReply,
 	onReplyAll,
 	onForward,
@@ -990,24 +1003,104 @@ function ComposeThreadBackdrop({
 	thread: Thread
 	messages: Message[]
 	isArchived: boolean
-	onArchive: () => void
-	onDelete: () => void
-	onToggleStar: () => void
+	onUpdate: (input: { starred?: boolean; folder?: string }) => Promise<unknown>
+	onLeave: () => void | Promise<void>
 	onReply: () => void
 	onReplyAll: () => void
 	onForward: () => void
 }) {
+	const [error, setError] = useState<string | null>(null)
+	const [starred, setStarred] = useState(thread.starred)
+	const [pendingAction, setPendingAction] = useState<PendingComposeBackdropAction | null>(null)
+	const pendingActionRef = useRef<PendingComposeBackdropAction | null>(null)
+	const currentReaderRef = useRef(true)
+
+	useEffect(() => {
+		currentReaderRef.current = true
+		return () => {
+			currentReaderRef.current = false
+		}
+	}, [])
+
+	useEffect(() => setStarred(thread.starred), [thread.starred])
+
+	async function act(
+		action: PendingComposeBackdropAction,
+		input: { starred?: boolean; folder?: string },
+		leave = false,
+	) {
+		if (pendingActionRef.current) return
+		pendingActionRef.current = action
+		setError(null)
+		const previousStarred = starred
+		if (typeof input.starred === 'boolean') setStarred(input.starred)
+		setPendingAction(action)
+		try {
+			await onUpdate(input)
+			if (!currentReaderRef.current) return
+			if (leave) await onLeave()
+		} catch {
+			if (!currentReaderRef.current) return
+			if (typeof input.starred === 'boolean') setStarred(previousStarred)
+			setError('Action failed')
+		} finally {
+			pendingActionRef.current = null
+			if (currentReaderRef.current) setPendingAction(null)
+		}
+	}
+
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
 			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
-				<BackdropIcon label={isArchived ? 'Return to inbox' : 'Archive'} onClick={onArchive}>
-					{isArchived ? <Inbox className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+				<BackdropIcon
+					label={
+						pendingAction === 'archive'
+							? 'Archiving'
+							: pendingAction === 'restore'
+								? 'Returning to inbox'
+								: isArchived
+									? 'Return to inbox'
+									: 'Archive'
+					}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'archive' || pendingAction === 'restore'}
+					onClick={() =>
+						act(isArchived ? 'restore' : 'archive', { folder: isArchived ? 'inbox' : 'archive' }, true)
+					}
+				>
+					{pendingAction === 'archive' || pendingAction === 'restore' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : isArchived ? (
+						<Inbox className="h-4 w-4" />
+					) : (
+						<Archive className="h-4 w-4" />
+					)}
 				</BackdropIcon>
-				<BackdropIcon label="Delete" onClick={onDelete}>
-					<Trash2 className="h-4 w-4" />
+				<BackdropIcon
+					label={pendingAction === 'delete' ? 'Deleting' : 'Delete'}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'delete'}
+					onClick={() => act('delete', { folder: 'trash' }, true)}
+				>
+					{pendingAction === 'delete' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Trash2 className="h-4 w-4" />
+					)}
 				</BackdropIcon>
-				<BackdropIcon label={thread.starred ? 'Unstar' : 'Star'} onClick={onToggleStar}>
-					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
+				<BackdropIcon
+					label={
+						pendingAction === 'star' ? (starred ? 'Starring' : 'Unstarring') : starred ? 'Unstar' : 'Star'
+					}
+					disabled={pendingAction !== null}
+					loading={pendingAction === 'star'}
+					onClick={() => act('star', { starred: !starred })}
+				>
+					{pendingAction === 'star' ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Star className={cn('h-4 w-4', starred && STAR_FILLED_CLASS)} />
+					)}
 				</BackdropIcon>
 				<div className="ml-auto hidden items-center gap-1 sm:flex">
 					<BackdropAction label="Reply" onClick={onReply}>
@@ -1021,6 +1114,11 @@ function ComposeThreadBackdrop({
 					</BackdropAction>
 				</div>
 			</div>
+			{error ? (
+				<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+					{error}
+				</p>
+			) : null}
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<ThreadConversation thread={thread} messages={messages} />
@@ -1032,10 +1130,14 @@ function ComposeThreadBackdrop({
 function BackdropIcon({
 	label,
 	onClick,
+	disabled = false,
+	loading = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
+	disabled?: boolean
+	loading?: boolean
 	children: React.ReactNode
 }) {
 	return (
@@ -1044,7 +1146,10 @@ function BackdropIcon({
 			onClick={onClick}
 			aria-label={label}
 			title={label}
-			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+			disabled={disabled && !loading}
+			aria-disabled={disabled || undefined}
+			aria-busy={loading || undefined}
+			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 		>
 			{children}
 		</button>

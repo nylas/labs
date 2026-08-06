@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { contactsStateTestApi } from '#features/contacts/state/contacts-state'
 
 const h = vi.hoisted(() => ({
 	navigate: vi.fn(),
@@ -126,9 +127,22 @@ describe('ContactsShell', () => {
 	it('shows the empty state, distinguishing no-contacts from no-matches', () => {
 		shell({ contacts: [] })
 		expect(screen.getByText('No contacts yet.')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Load more contacts/ })).toBeNull()
 		cleanup()
 		shell({ query: 'zzz' })
 		expect(screen.getByText('No contacts match your search.')).toBeInTheDocument()
+	})
+
+	it('keeps pagination discoverable inside empty and filtered-empty states', () => {
+		shell({ contacts: [], nextCursor: 'cursor-2' })
+		const emptyState = screen.getByText('More contacts may be available').closest('div')
+		expect(emptyState).toContainElement(screen.getByRole('button', { name: 'Load more contacts' }))
+		expect(screen.getByText('Load the next page to keep looking.')).toBeInTheDocument()
+
+		cleanup()
+		shell({ query: 'zzz', nextCursor: 'cursor-2' })
+		const filteredEmptyState = screen.getByText('No contacts match your search.').closest('div')
+		expect(filteredEmptyState).toContainElement(screen.getByRole('button', { name: 'Load more contacts' }))
 	})
 
 	it('reports search input changes to the parent', () => {
@@ -147,21 +161,36 @@ describe('ContactsShell', () => {
 	it('pages in more contacts and drops the button when the cursor is exhausted', async () => {
 		h.getContacts.mockResolvedValue({ contacts: [{ id: 'c-cy', given_name: 'Cy' }] })
 		shell({ nextCursor: 'cursor-2' })
-		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
 		await waitFor(() => expect(screen.getByText('Cy')).toBeInTheDocument())
 		expect(h.getContacts).toHaveBeenCalledWith({ data: { pageToken: 'cursor-2' } })
-		expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Load more contacts' })).not.toBeInTheDocument()
+	})
+
+	it('deduplicates a contact returned on a later page', async () => {
+		h.getContacts.mockResolvedValue({
+			contacts: [
+				{ id: 'c-ada', given_name: 'Updated Ada' },
+				{ id: 'c-cy', given_name: 'Cy' },
+			],
+		})
+		shell({ nextCursor: 'cursor-2' })
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
+
+		expect(await screen.findByText('Updated Ada')).toBeInTheDocument()
+		expect(screen.getAllByText(/Ada/)).toHaveLength(1)
+		expect(screen.getByText('Cy')).toBeInTheDocument()
 	})
 
 	it('delegates managed pagination to the query-backed route wrapper', async () => {
 		const onLoadMore = vi.fn().mockResolvedValue(undefined)
 		shell({ nextCursor: 'cursor-2', onLoadMore })
-		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
 		await waitFor(() => expect(onLoadMore).toHaveBeenCalledTimes(1))
 		expect(h.getContacts).not.toHaveBeenCalled()
 	})
 
-	it('shows a loading label while a page is in flight', async () => {
+	it('makes pagination synchronously single-flight while preserving focus', async () => {
 		let resolve: (value: { contacts: Contact[]; nextCursor?: string }) => void = () => {}
 		h.getContacts.mockReturnValue(
 			new Promise((r) => {
@@ -169,16 +198,141 @@ describe('ContactsShell', () => {
 			}),
 		)
 		shell({ nextCursor: 'cursor-2' })
-		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
-		expect(await screen.findByRole('button', { name: 'Loading…' })).toBeDisabled()
-		resolve({ contacts: [] })
+		const button = screen.getByRole('button', { name: 'Load more contacts' })
+		button.focus()
+		act(() => {
+			button.click()
+			button.click()
+		})
+
+		const pending = await screen.findByRole('button', { name: 'Loading more contacts…' })
+		expect(h.getContacts).toHaveBeenCalledTimes(1)
+		expect(pending).toBeEnabled()
+		expect(pending).toHaveAttribute('aria-disabled', 'true')
+		expect(pending).toHaveAttribute('aria-busy', 'true')
+		expect(pending).toHaveFocus()
+		fireEvent.click(pending)
+		expect(h.getContacts).toHaveBeenCalledTimes(1)
+		resolve({ contacts: [], nextCursor: 'cursor-3' })
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Load more contacts' })).toBeEnabled())
 	})
 
-	it('keeps the paged button after a failed load for a retry', async () => {
-		h.getContacts.mockRejectedValue(new Error('down'))
+	it('shows generic retry guidance, preserves focus and rows, then clears it after success', async () => {
+		h.getContacts.mockRejectedValueOnce(new Error('provider-secret-detail')).mockResolvedValueOnce({
+			contacts: [{ id: 'c-cy', given_name: 'Cy' }],
+		})
 		shell({ nextCursor: 'cursor-2' })
-		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
-		await waitFor(() => expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled())
+		const button = screen.getByRole('button', { name: 'Load more contacts' })
+		button.focus()
+		fireEvent.click(button)
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not load more contacts. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+		const retry = screen.getByRole('button', { name: 'Try loading more contacts' })
+		expect(retry).toHaveFocus()
+		expect(retry).toHaveAttribute('aria-describedby', 'contacts-pagination-error')
+
+		fireEvent.click(retry)
+		expect(await screen.findByRole('button', { name: 'Loading more contacts…' })).toHaveAttribute(
+			'aria-disabled',
+			'true',
+		)
+		await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+		expect(await screen.findByText('Cy')).toBeInTheDocument()
+	})
+
+	it('renders managed pagination failures as static retry guidance', () => {
+		shell({
+			nextCursor: 'cursor-2',
+			loadMoreError: true,
+			onLoadMore: vi.fn().mockResolvedValue(undefined),
+		})
+
+		expect(screen.getByRole('alert')).toHaveTextContent('Could not load more contacts.')
+		expect(screen.getByRole('button', { name: 'Try loading more contacts' })).toBeEnabled()
+	})
+
+	it('ignores a stale local success after a contacts-to-replacement-to-contacts transition', async () => {
+		let resolvePage: (value: { contacts: Contact[]; nextCursor?: string }) => void = () => {}
+		let settled = false
+		h.getContacts.mockReturnValue(
+			new Promise((resolve) => {
+				resolvePage = resolve
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		const firstContacts = [{ id: 'a', given_name: 'First list' }] as Contact[]
+		const replacementContacts = [{ id: 'b', given_name: 'Replacement list' }] as Contact[]
+		const returnedContacts = [{ id: 'a2', given_name: 'Returned list' }] as Contact[]
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const props = { info, query: '', onQueryChange: () => {}, nextCursor: 'shared-cursor' }
+		const view = testingRender(
+			<QueryClientProvider client={client}>
+				<ContactsShell {...props} contacts={firstContacts} />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<ContactsShell {...props} contacts={replacementContacts} />
+			</QueryClientProvider>,
+		)
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<ContactsShell {...props} contacts={returnedContacts} />
+			</QueryClientProvider>,
+		)
+		resolvePage({ contacts: [{ id: 'stale', given_name: 'Stale contact' }] as Contact[] })
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.getByText('Returned list')).toBeInTheDocument()
+		expect(screen.queryByText('Stale contact')).toBeNull()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('ignores a stale local failure after a contacts-to-replacement-to-contacts transition', async () => {
+		let rejectPage: (reason?: unknown) => void = () => {}
+		let settled = false
+		h.getContacts.mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectPage = reject
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		const firstContacts = [{ id: 'a', given_name: 'First list' }] as Contact[]
+		const replacementContacts = [{ id: 'b', given_name: 'Replacement list' }] as Contact[]
+		const returnedContacts = [{ id: 'a2', given_name: 'Returned list' }] as Contact[]
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const props = { info, query: '', onQueryChange: () => {}, nextCursor: 'shared-cursor' }
+		const view = testingRender(
+			<QueryClientProvider client={client}>
+				<ContactsShell {...props} contacts={firstContacts} />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<ContactsShell {...props} contacts={replacementContacts} />
+			</QueryClientProvider>,
+		)
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<ContactsShell {...props} contacts={returnedContacts} />
+			</QueryClientProvider>,
+		)
+		rejectPage(new Error('provider-secret-detail'))
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.getByText('Returned list')).toBeInTheDocument()
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
 	})
 
 	it('opens and closes the command palette', () => {
@@ -254,8 +408,124 @@ describe('ContactsLayout wrapper', () => {
 		const Component = Route.options.component
 		render(<Component />)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
 		expect(await screen.findByText('Cy')).toBeInTheDocument()
 		expect(h.getContacts).toHaveBeenCalledWith({ data: { pageToken: 'cursor-2' } })
+	})
+
+	it('preserves a confirmed contact update when a new loader page replaces the list cache', async () => {
+		let loaderContacts = [{ id: 'c-ada', given_name: 'Stale provider name' }] as Contact[]
+		Route.useLoaderData = vi.fn(() => ({ info, contacts: loaderContacts }))
+		Route.useSearch = vi.fn(() => ({}))
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		contactsStateTestApi.rememberConfirmedContactEffect(client, {
+			type: 'updated',
+			contact: { id: 'c-ada', given_name: 'Confirmed name' } as Contact,
+		})
+		const Component = Route.options.component
+		const view = testingRender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(screen.getByText('Confirmed name')).toBeInTheDocument()
+
+		loaderContacts = [{ id: 'c-ada', given_name: 'Another stale provider name' }] as Contact[]
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		expect(await screen.findByText('Confirmed name')).toBeInTheDocument()
+		expect(screen.queryByText('Another stale provider name')).toBeNull()
+	})
+
+	it('cancels a query-backed stale success across a loader A-to-B-to-A transition', async () => {
+		let loaderContacts = [{ id: 'a', given_name: 'First list' }] as Contact[]
+		let resolvePage: (value: { contacts: Contact[]; nextCursor?: string }) => void = () => {}
+		let settled = false
+		h.getContacts.mockReturnValue(
+			new Promise((resolve) => {
+				resolvePage = resolve
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		Route.useLoaderData = vi.fn(() => ({ info, contacts: loaderContacts, nextCursor: 'shared-cursor' }))
+		Route.useSearch = vi.fn(() => ({}))
+		const Component = Route.options.component
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const view = testingRender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
+		await waitFor(() => expect(h.getContacts).toHaveBeenCalledWith({ data: { pageToken: 'shared-cursor' } }))
+		loaderContacts = [{ id: 'b', given_name: 'Replacement list' }] as Contact[]
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByText('Replacement list')).toBeInTheDocument()
+		loaderContacts = [{ id: 'a2', given_name: 'Returned list' }] as Contact[]
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByText('Returned list')).toBeInTheDocument()
+		resolvePage({ contacts: [{ id: 'stale', given_name: 'Stale contact' }] as Contact[] })
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.queryByText('Stale contact')).toBeNull()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('cancels a query-backed stale failure across a loader A-to-B-to-A transition', async () => {
+		let loaderContacts = [{ id: 'a', given_name: 'First list' }] as Contact[]
+		let rejectPage: (reason?: unknown) => void = () => {}
+		let settled = false
+		h.getContacts.mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectPage = reject
+			}).finally(() => {
+				settled = true
+			}),
+		)
+		Route.useLoaderData = vi.fn(() => ({ info, contacts: loaderContacts, nextCursor: 'shared-cursor' }))
+		Route.useSearch = vi.fn(() => ({}))
+		const Component = Route.options.component
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const view = testingRender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
+		await waitFor(() => expect(h.getContacts).toHaveBeenCalledTimes(1))
+		loaderContacts = [{ id: 'b', given_name: 'Replacement list' }] as Contact[]
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByText('Replacement list')).toBeInTheDocument()
+		loaderContacts = [{ id: 'a2', given_name: 'Returned list' }] as Contact[]
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByText('Returned list')).toBeInTheDocument()
+		rejectPage(new Error('provider-secret-detail'))
+
+		await waitFor(() => expect(settled).toBe(true))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
 	})
 })

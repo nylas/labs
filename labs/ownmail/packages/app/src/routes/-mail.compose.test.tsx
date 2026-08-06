@@ -39,6 +39,7 @@ const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
+const recipientInputMock = vi.hoisted(() => ({ keepDraftLocal: false }))
 vi.mock('#server/fns', () => ({
 	getDraft: (a: any) => getDraft(a),
 	getFolders: (a: any) => getFolders(a),
@@ -54,18 +55,41 @@ vi.mock('#server/fns', () => ({
 
 // Focus coverage on mail.compose.tsx: the "To" autocomplete and the error banner
 // are their own units, so they are replaced with minimal stand-ins.
-vi.mock('#shared/components/RecipientInput', () => ({
-	RecipientInput: ({ id, value, onChange, placeholder, disabled }: any) => (
-		<input
-			id={id}
-			aria-label="To"
-			value={value}
-			placeholder={placeholder}
-			disabled={disabled}
-			onChange={disabled ? undefined : (event) => onChange(event.target.value)}
-		/>
-	),
-}))
+vi.mock('#shared/components/RecipientInput', async () => {
+	const React = await vi.importActual<typeof import('react')>('react')
+	return {
+		RecipientInput: React.forwardRef(function MockRecipientInput(
+			{ id, value, onChange, onEdit, placeholder, disabled, invalid, describedBy }: any,
+			ref,
+		) {
+			const [localDraft, setLocalDraft] = React.useState<string | null>(null)
+			const currentValue = React.useRef(value)
+			currentValue.current = localDraft ?? value
+			React.useImperativeHandle(ref, () => ({ getCurrentValue: () => currentValue.current }), [])
+			return (
+				<input
+					id={id}
+					aria-label="To"
+					aria-invalid={invalid || undefined}
+					aria-describedby={describedBy}
+					value={localDraft ?? value}
+					placeholder={placeholder}
+					disabled={disabled}
+					onChange={
+						disabled
+							? undefined
+							: (event) => {
+									currentValue.current = event.target.value
+									if (recipientInputMock.keepDraftLocal) setLocalDraft(event.target.value)
+									else onChange(event.target.value)
+									onEdit?.()
+								}
+					}
+				/>
+			)
+		}),
+	}
+})
 // The markdown editor is a unit of its own (see MarkdownEditor.render.test.tsx);
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
@@ -93,6 +117,7 @@ afterEach(() => {
 })
 beforeEach(() => {
 	vi.clearAllMocks()
+	recipientInputMock.keepDraftLocal = false
 	window.localStorage.removeItem('ownmail:user-preferences:v1')
 	getThreads.mockResolvedValue({ threads: [] })
 	getFolders.mockResolvedValue([])
@@ -597,6 +622,305 @@ describe('mail.compose selected backdrop', () => {
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
+	it.each([
+		{
+			label: 'Archive',
+			busyLabel: 'Archiving',
+			otherLabels: ['Delete', 'Star'],
+			folder: 'archive',
+			threadFolders: [],
+		},
+		{
+			label: 'Return to inbox',
+			busyLabel: 'Returning to inbox',
+			otherLabels: ['Delete', 'Star'],
+			folder: 'inbox',
+			threadFolders: ['archive'],
+		},
+		{
+			label: 'Delete',
+			busyLabel: 'Deleting',
+			otherLabels: ['Archive', 'Star'],
+			folder: 'trash',
+			threadFolders: [],
+		},
+	])('makes backdrop $label single-flight and leaves only after success', async (scenario) => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		updateThreadState.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveMutation = resolve
+				}),
+		)
+		renderCompose({
+			loader: selectedLoader({
+				thread: { folders: scenario.threadFolders },
+				loader: { draft: { id: 'd1' } },
+			}),
+			search: { threadId: 't1', draft: 'd1', subject: 'Preserve me' },
+		})
+
+		fireEvent.click(screen.getByTitle(scenario.label))
+		const pending = await screen.findByRole('button', { name: scenario.busyLabel })
+		expect(pending).toBeEnabled()
+		expect(pending).toHaveAttribute('aria-disabled', 'true')
+		expect(pending).toHaveAttribute('aria-busy', 'true')
+		expect(pending.querySelector('.animate-spin')).not.toBeNull()
+		for (const label of scenario.otherLabels) expect(screen.getByTitle(label)).toBeDisabled()
+		expect(navigate).not.toHaveBeenCalled()
+
+		fireEvent.click(pending)
+		expect(updateThreadState).toHaveBeenCalledTimes(1)
+		resolveMutation?.({ thread: makeThread({ folders: [scenario.folder] }) })
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/compose',
+				search: { draft: 'd1', folderId: 'inbox', subject: 'Preserve me' },
+			}),
+		)
+	})
+
+	it('accepts only the first same-batch backdrop activation', async () => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		updateThreadState.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveMutation = resolve
+				}),
+		)
+		renderCompose({ loader: selectedLoader(), search: { threadId: 't1' } })
+
+		const archive = screen.getByTitle('Archive')
+		act(() => {
+			archive.click()
+			archive.click()
+		})
+
+		await waitFor(() => expect(updateThreadState).toHaveBeenCalledTimes(1))
+		const pending = await screen.findByRole('button', { name: 'Archiving' })
+		expect(pending).toBeEnabled()
+		expect(pending).toHaveAttribute('aria-disabled', 'true')
+		resolveMutation?.({ thread: makeThread({ folders: ['archive'] }) })
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' })),
+		)
+	})
+
+	it.each([
+		{ label: 'Archive', restoredLabel: 'Archive', starred: false, folders: [] },
+		{ label: 'Return to inbox', restoredLabel: 'Return to inbox', starred: false, folders: ['archive'] },
+		{ label: 'Delete', restoredLabel: 'Delete', starred: false, folders: [] },
+		{ label: 'Star', restoredLabel: 'Star', starred: false, folders: [] },
+		{ label: 'Unstar', restoredLabel: 'Unstar', starred: true, folders: [] },
+	])('recovers backdrop $label with generic feedback and prior state', async (scenario) => {
+		updateThreadState.mockRejectedValueOnce(new Error('provider-secret-detail'))
+		renderCompose({
+			loader: selectedLoader({ thread: { starred: scenario.starred, folders: scenario.folders } }),
+			search: { threadId: 't1' },
+		})
+
+		fireEvent.click(screen.getByTitle(scenario.label))
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByTitle(scenario.restoredLabel)).toBeEnabled()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		{ outcome: 'success', reject: false },
+		{ outcome: 'failure', reject: true },
+	])('keeps keyboard focus on the backdrop star after $outcome', async ({ reject }) => {
+		if (reject) updateThreadState.mockRejectedValueOnce(new Error('provider-secret-detail'))
+		renderCompose({ loader: selectedLoader(), search: { threadId: 't1' } })
+
+		await waitFor(() => expect(screen.getByLabelText('To')).toHaveFocus())
+		const star = screen.getByTitle('Star')
+		star.focus()
+		expect(star).toHaveFocus()
+		fireEvent.click(star)
+
+		if (reject) {
+			expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+			expect(screen.getByTitle('Star')).toHaveFocus()
+		} else {
+			expect(await screen.findByTitle('Unstar')).toHaveFocus()
+		}
+	})
+
+	it('clears a backdrop failure and leaves on retry', async () => {
+		updateThreadState.mockRejectedValueOnce(new Error('first failure'))
+		renderCompose({
+			loader: selectedLoader({ loader: { draft: { id: 'd1' } } }),
+			search: { threadId: 't1', draft: 'd1' },
+		})
+
+		fireEvent.click(screen.getByTitle('Archive'))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+		fireEvent.click(screen.getByTitle('Archive'))
+
+		await waitFor(() => expect(updateThreadState).toHaveBeenCalledTimes(2))
+		await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/compose',
+				search: { draft: 'd1', folderId: 'inbox' },
+			}),
+		)
+	})
+
+	it('ignores a stale backdrop success when delimiter values collide across reader identities', async () => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		let mutationSettled = false
+		updateThreadState.mockImplementationOnce(() =>
+			new Promise((resolve) => {
+				resolveMutation = resolve
+			}).finally(() => {
+				mutationSettled = true
+			}),
+		)
+		let selectedId = 'th:old'
+		let folderId = 'work'
+		const routeData = () => {
+			const thread = makeThread({
+				id: selectedId,
+				subject: selectedId === 'th:old' ? 'Old backdrop' : 'New backdrop',
+				starred: selectedId === 'th',
+			})
+			return {
+				draft: null,
+				folders: [],
+				threads: [thread],
+				selected: { thread, messages: [makeMessage()], mailboxEmail: 'me@x.com' },
+				folderId,
+				reply: null,
+			}
+		}
+		Route.useLoaderData = vi.fn(routeData)
+		Route.useSearch = vi.fn(() => ({ threadId: selectedId, folderId }))
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByTitle('Archive'))
+		expect(await screen.findByRole('button', { name: 'Archiving' })).toHaveAttribute('aria-disabled', 'true')
+		selectedId = 'th'
+		folderId = 'old:work'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByRole('heading', { name: 'New backdrop' })).toBeInTheDocument()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+
+		resolveMutation?.({ thread: makeThread({ id: 'th:old', folders: ['archive'] }) })
+		await waitFor(() => expect(mutationSettled).toBe(true))
+		expect(navigate).not.toHaveBeenCalled()
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+	})
+
+	it('ignores a pending backdrop completion after compose context changes on the same thread', async () => {
+		let resolveMutation: ((value: unknown) => void) | undefined
+		let mutationSettled = false
+		updateThreadState.mockImplementationOnce(() =>
+			new Promise((resolve) => {
+				resolveMutation = resolve
+			}).finally(() => {
+				mutationSettled = true
+			}),
+		)
+		let subject = 'Old compose context'
+		const loader = selectedLoader()
+		Route.useLoaderData = vi.fn(() => ({
+			draft: null,
+			folders: [],
+			folderId: 'work',
+			reply: null,
+			...loader,
+		}))
+		Route.useSearch = vi.fn(() => ({ threadId: 't1', folderId: 'work', subject }))
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByTitle('Archive'))
+		expect(await screen.findByRole('button', { name: 'Archiving' })).toHaveAttribute('aria-disabled', 'true')
+		subject = 'New compose context'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+		expect(screen.getByTitle('Return to inbox')).toBeEnabled()
+
+		resolveMutation?.({ thread: makeThread({ id: 't1', folders: ['archive'] }) })
+		await waitFor(() => expect(mutationSettled).toBe(true))
+		expect(navigate).not.toHaveBeenCalled()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('ignores a stale backdrop failure after another thread replaces it', async () => {
+		let rejectMutation: ((reason?: unknown) => void) | undefined
+		let mutationSettled = false
+		updateThreadState.mockImplementationOnce(() =>
+			new Promise((_resolve, reject) => {
+				rejectMutation = reject
+			}).finally(() => {
+				mutationSettled = true
+			}),
+		)
+		let selectedId = 'th-old-failure'
+		const routeData = () => {
+			const thread = makeThread({
+				id: selectedId,
+				subject: selectedId === 'th-old-failure' ? 'Old failed backdrop' : 'New safe backdrop',
+				starred: selectedId === 'th-new-safe',
+			})
+			return {
+				draft: null,
+				folders: [],
+				threads: [thread],
+				selected: { thread, messages: [makeMessage()], mailboxEmail: 'me@x.com' },
+				folderId: 'work',
+				reply: null,
+			}
+		}
+		Route.useLoaderData = vi.fn(routeData)
+		Route.useSearch = vi.fn(() => ({ threadId: selectedId, folderId: 'work' }))
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const view = render(
+			<QueryClientProvider client={client}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByTitle('Star'))
+		expect(await screen.findByRole('button', { name: 'Starring' })).toHaveAttribute('aria-disabled', 'true')
+		selectedId = 'th-new-safe'
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+		expect(await screen.findByRole('heading', { name: 'New safe backdrop' })).toBeInTheDocument()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+
+		rejectMutation?.(new Error('provider-secret-detail'))
+		await waitFor(() => expect(mutationSettled).toBe(true))
+		expect(screen.queryByRole('alert')).toBeNull()
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+		expect(screen.getByTitle('Unstar')).toBeEnabled()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
 	it('starts a reply seeded from the latest message', () => {
 		renderCompose({ loader: selectedLoader() })
 		fireEvent.click(screen.getByRole('button', { name: 'Reply' }))
@@ -1032,6 +1356,121 @@ describe('mail.compose attachments', () => {
 })
 
 describe('mail.compose send', () => {
+	it('blocks a recipient-less send with focused, accessible guidance before persistence', async () => {
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Add at least one recipient before sending.')
+		const to = screen.getByLabelText('To')
+		expect(to).toHaveFocus()
+		expect(to).toHaveAttribute('aria-invalid', 'true')
+		expect(to).toHaveAttribute('aria-describedby', 'compose-recipient-error')
+		expect(guidance).toHaveAttribute('id', 'compose-recipient-error')
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+		expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+	})
+
+	it('identifies malformed recipients without reflecting them and clears guidance after correction', async () => {
+		renderCompose({
+			loader: { reply: { to: 'valid@example.com, not-an-email', subject: 'Hi', body: 'body' } },
+		})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Enter a valid email address for each recipient before sending.')
+		expect(guidance).not.toHaveTextContent('not-an-email')
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'valid@example.com' } })
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(to).not.toHaveAttribute('aria-invalid')
+		expect(to).not.toHaveAttribute('aria-describedby')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+	})
+
+	it('rejects an overlong recipient with static guidance and no mutation', async () => {
+		const overlong = `${'a'.repeat(316)}@x.co`
+		renderCompose({ loader: { reply: { to: overlong, subject: 'Hi', body: 'body' } } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Enter a valid email address for each recipient before sending.')
+		expect(guidance).not.toHaveTextContent(overlong)
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
+	it('applies recipient validation to the keyboard send shortcut', async () => {
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		to.focus()
+
+		fireEvent.keyDown(to, { key: 'Enter', ctrlKey: true })
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Add at least one recipient before sending.')
+		expect(to).toHaveFocus()
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
+	it('sends the visible uncommitted recipient through the imperative input seam', async () => {
+		recipientInputMock.keepDraftLocal = true
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'visible@example.com' } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+		await waitFor(() => expect(sendDraft).toHaveBeenCalledTimes(1))
+		expect(saveDraft).toHaveBeenCalledWith({
+			data: { to: 'visible@example.com', subject: 'Hi', body: markdownToDraftBody('body') },
+		})
+		expect(sendDraft.mock.calls[0][0].data.to).toBe('visible@example.com')
+	})
+
+	it.each([
+		['Control', { ctrlKey: true }],
+		['Command', { metaKey: true }],
+	])('sends an uncommitted recipient once with the %s+Enter shortcut', async (_name, modifier) => {
+		recipientInputMock.keepDraftLocal = true
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'shortcut@example.com' } })
+		to.focus()
+
+		fireEvent.keyDown(to, { key: 'Enter', ...modifier })
+
+		await waitFor(() => expect(sendDraft).toHaveBeenCalledTimes(1))
+		expect(saveDraft).toHaveBeenCalledTimes(1)
+		expect(saveDraft.mock.calls[0][0].data.to).toBe('shortcut@example.com')
+		expect(sendDraft.mock.calls[0][0].data.to).toBe('shortcut@example.com')
+	})
+
+	it('blocks a malformed uncommitted recipient from the keyboard path', async () => {
+		recipientInputMock.keepDraftLocal = true
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'body' } } })
+		const to = screen.getByLabelText('To')
+		fireEvent.change(to, { target: { value: 'private-invalid-value' } })
+		to.focus()
+
+		fireEvent.keyDown(to, { key: 'Enter', ctrlKey: true })
+
+		const guidance = await screen.findByRole('alert')
+		expect(guidance).toHaveTextContent('Enter a valid email address for each recipient before sending.')
+		expect(guidance).not.toHaveTextContent('private-invalid-value')
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
 	it('saves then sends the same provider draft as email-ready HTML', async () => {
 		// The composer state holds markdown source; the backing draft is updated
 		// to inline-styled HTML before the provider sends that exact draft.
@@ -1153,6 +1592,19 @@ describe('mail.compose send', () => {
 })
 
 describe('mail.compose save draft', () => {
+	it('continues to save drafts without recipients', async () => {
+		renderCompose({ loader: { reply: { to: '', subject: 'Hi', body: 'draft body' } } })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+		await waitFor(() =>
+			expect(saveDraft).toHaveBeenCalledWith({
+				data: { to: '', subject: 'Hi', body: markdownToDraftBody('draft body') },
+			}),
+		)
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
 	it('saves immediately when Save draft is clicked', async () => {
 		renderCompose({ loader: { reply: { to: 'a@b.com', subject: 'Hi', body: 'draft body' } } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))

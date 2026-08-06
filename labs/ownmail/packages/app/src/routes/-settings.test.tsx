@@ -93,6 +93,27 @@ describe('/settings', () => {
 		expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
 	})
 
+	it('gives every editable text and select field a touch-friendly height', () => {
+		renderSettings(true)
+
+		const fixedHeightFields = [
+			screen.getByLabelText('Display name'),
+			screen.getByRole('combobox', { name: /Primary timezone/ }),
+			screen.getByRole('combobox', { name: /Secondary timezone/ }),
+		]
+		for (const field of fixedHeightFields) {
+			expect(field).toHaveClass('h-11')
+			expect(field).not.toHaveClass('h-9')
+		}
+		for (const field of [
+			screen.getByLabelText('New password'),
+			screen.getByLabelText('Confirm new password'),
+		]) {
+			expect(field).toHaveClass('min-h-11')
+			expect(field).not.toHaveClass('h-9')
+		}
+	})
+
 	it('shows the running OwnMail version', () => {
 		renderSettings()
 
@@ -161,16 +182,17 @@ describe('/settings', () => {
 
 	it('validates confirmation and submits an enabled password change', async () => {
 		renderSettings(true)
+		expect(screen.getByRole('button', { name: 'Update password' })).toHaveAttribute('aria-disabled', 'true')
 		fireEvent.change(screen.getByLabelText('New password'), { target: { value: password } })
 		fireEvent.change(screen.getByLabelText('Confirm new password'), {
 			target: { value: 'different-password' },
 		})
 		fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
-		expect(await screen.findByRole('status')).toHaveTextContent('The passwords do not match.')
+		expect(await screen.findByRole('alert')).toHaveTextContent('The passwords do not match.')
 		expect(resetMailboxPassword).not.toHaveBeenCalled()
 
 		fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: password } })
-		expect(screen.queryByRole('status')).not.toBeInTheDocument()
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
 		await waitFor(() => expect(resetMailboxPassword).toHaveBeenCalledWith({ data: { password } }))
 		expect(screen.getByRole('status')).toHaveTextContent('Password updated.')
@@ -185,42 +207,68 @@ describe('/settings', () => {
 		fireEvent.change(screen.getByLabelText('New password'), { target: { value: password } })
 		fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: password } })
 		fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'We could not update your password. Check the requirements and try again.',
 		)
 		fireEvent.change(screen.getByLabelText('New password'), { target: { value: `${password}!` } })
-		expect(screen.queryByRole('status')).not.toBeInTheDocument()
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 	})
 
-	it.each(['success', 'failure'] as const)(
-		'ignores stale %s feedback when password fields change during the request',
-		async (outcome) => {
-			let resolveReset: (value: { ok: true }) => void = () => {}
-			let rejectReset: (reason: Error) => void = () => {}
-			resetMailboxPassword.mockReturnValue(
-				new Promise((resolve, reject) => {
-					resolveReset = resolve
-					rejectReset = reject
-				}),
-			)
-			renderSettings(true)
-			const newPassword = screen.getByLabelText('New password')
-			const confirmPassword = screen.getByLabelText('Confirm new password')
-			fireEvent.change(newPassword, { target: { value: password } })
-			fireEvent.change(confirmPassword, { target: { value: password } })
-			fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
-			await waitFor(() => expect(resetMailboxPassword).toHaveBeenCalledTimes(1))
+	it('keeps password updates single-flight, focus-safe, and locked while pending', async () => {
+		let resolveReset: (value: { ok: true }) => void = () => {}
+		resetMailboxPassword.mockReturnValue(
+			new Promise((resolve) => {
+				resolveReset = resolve
+			}),
+		)
+		renderSettings(true)
+		const newPassword = screen.getByLabelText('New password')
+		const confirmPassword = screen.getByLabelText('Confirm new password')
+		fireEvent.change(newPassword, { target: { value: password } })
+		fireEvent.change(confirmPassword, { target: { value: password } })
+		const update = screen.getByRole('button', { name: 'Update password' })
+		update.focus()
 
-			const revisedPassword = `${password}!`
-			fireEvent.change(newPassword, { target: { value: revisedPassword } })
-			fireEvent.change(confirmPassword, { target: { value: revisedPassword } })
-			if (outcome === 'success') resolveReset({ ok: true })
-			else rejectReset(new Error('provider detail'))
+		fireEvent.click(update)
+		fireEvent.submit(update.closest('form') as HTMLFormElement)
 
-			await waitFor(() => expect(screen.getByRole('button', { name: 'Update password' })).toBeEnabled())
-			expect(newPassword).toHaveValue(revisedPassword)
-			expect(confirmPassword).toHaveValue(revisedPassword)
-			expect(screen.queryByRole('status')).not.toBeInTheDocument()
-		},
-	)
+		expect(await screen.findByRole('button', { name: 'Updating…' })).toBe(update)
+		expect(update).toHaveFocus()
+		expect(update).toHaveAttribute('aria-busy', 'true')
+		expect(update).toHaveClass('min-h-11')
+		expect(resetMailboxPassword).toHaveBeenCalledTimes(1)
+		expect(newPassword).toBeDisabled()
+		expect(confirmPassword).toBeDisabled()
+
+		resolveReset({ ok: true })
+		expect(await screen.findByRole('status')).toHaveTextContent('Password updated.')
+		expect(update).toHaveFocus()
+		expect(update).not.toHaveAttribute('aria-busy')
+		expect(newPassword).toHaveValue('')
+		expect(confirmPassword).toHaveValue('')
+	})
+
+	it('preserves a failed password update for an immediate retry', async () => {
+		resetMailboxPassword
+			.mockRejectedValueOnce(new Error('private provider detail'))
+			.mockResolvedValueOnce({ ok: true })
+		renderSettings(true)
+		const newPassword = screen.getByLabelText('New password')
+		const confirmPassword = screen.getByLabelText('Confirm new password')
+		fireEvent.change(newPassword, { target: { value: password } })
+		fireEvent.change(confirmPassword, { target: { value: password } })
+		const update = screen.getByRole('button', { name: 'Update password' })
+
+		fireEvent.click(update)
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'We could not update your password. Check the requirements and try again.',
+		)
+		expect(newPassword).toHaveValue(password)
+		expect(confirmPassword).toHaveValue(password)
+		expect(update).toHaveAttribute('aria-disabled', 'false')
+
+		fireEvent.click(update)
+		expect(await screen.findByRole('status')).toHaveTextContent('Password updated.')
+		expect(resetMailboxPassword).toHaveBeenCalledTimes(2)
+	})
 })

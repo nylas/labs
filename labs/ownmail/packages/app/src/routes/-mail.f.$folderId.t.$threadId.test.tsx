@@ -262,13 +262,13 @@ describe('message list', () => {
 			'false',
 			'true',
 		])
-		await user.click(screen.getByRole('button', { name: 'Expand all' }))
+		await user.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
 		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'true')).toBe(true)
-		expect(screen.getByRole('button', { name: 'Expand all' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Expand all 3 messages' })).toBeDisabled()
 
-		await user.click(screen.getByRole('button', { name: 'Collapse all' }))
+		await user.click(screen.getByRole('button', { name: 'Collapse all 3 messages' }))
 		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'false')).toBe(true)
-		expect(screen.getByRole('button', { name: 'Collapse all' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Collapse all 3 messages' })).toBeDisabled()
 	})
 
 	it('discloses complete available addressing and timestamp details', async () => {
@@ -310,14 +310,47 @@ describe('message list', () => {
 		expect(trigger).toHaveAttribute('aria-expanded', 'true')
 		await user.click(screen.getByText('Alice <alice@x.com>'))
 		expect(trigger).toHaveAttribute('aria-expanded', 'true')
+		fireEvent.focusIn(panel as HTMLElement)
+		expect(trigger).toHaveAttribute('aria-expanded', 'true')
+		fireEvent.pointerDown(panel as HTMLElement)
+		fireEvent.pointerUp(panel as HTMLElement)
+		screen.getByLabelText('Thread conversation').focus()
+		expect(trigger).toHaveAttribute('aria-expanded', 'true')
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		fireEvent.focus(screen.getByRole('link', { name: 'Download raw email from Alice' }))
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+		await user.click(trigger)
+		const reopenedPanel = screen.getByRole('heading', { name: 'Message details' }).closest('section')
+		fireEvent.pointerDown(reopenedPanel as HTMLElement)
+		act(() => {
+			document.dispatchEvent(new Event('pointerup', { bubbles: true }))
+			document.dispatchEvent(new Event('pointercancel', { bubbles: true }))
+		})
+		fireEvent.focus(screen.getByRole('link', { name: 'Download raw email from Alice' }))
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+		await user.click(trigger)
 		await user.click(document.body)
 		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 
 		await user.click(trigger)
-		await user.keyboard('{Escape}')
+		act(() => {
+			document.dispatchEvent(new Event('pointerup', { bubbles: true }))
+			document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }))
+		})
 		expect(trigger).toHaveFocus()
 		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 		expect(screen.queryByRole('heading', { name: 'Message details' })).not.toBeInTheDocument()
+
+		fireEvent.click(trigger)
+		fireEvent.pointerDown(trigger)
+		fireEvent.pointerUp(trigger)
+		fireEvent.click(trigger)
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
+		fireEvent.click(trigger)
+		fireEvent.focus(screen.getByRole('link', { name: 'Download raw email from Alice' }))
+		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 		expect(navigate).not.toHaveBeenCalled()
 	})
 

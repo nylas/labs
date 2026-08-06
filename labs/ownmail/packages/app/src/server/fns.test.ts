@@ -1046,11 +1046,12 @@ describe('saveComposeRecipients', () => {
 			'Invalid recipients',
 		)
 		expect(() => fns.saveComposeRecipients.validator({ emails: [123] })).toThrow('Invalid recipients')
+		expect(() => fns.saveComposeRecipients.validator({ emails: [''] })).toThrow('Invalid recipients')
 		expect(() => fns.saveComposeRecipients.validator({ emails: ['not-an-email'] })).toThrow(
 			'Invalid recipient',
 		)
 		expect(() => fns.saveComposeRecipients.validator({ emails: [`${'a'.repeat(315)}@x.com`] })).toThrow(
-			'Invalid recipients',
+			'Invalid recipient',
 		)
 		expect(fns.saveComposeRecipients.validator({ emails: ['ADA@x.com', 'ada@x.com'] })).toEqual({
 			emails: ['ada@x.com'],
