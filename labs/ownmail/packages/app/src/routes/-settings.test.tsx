@@ -269,6 +269,33 @@ describe('/settings', () => {
 		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
 	})
 
+	it('treats another tab clearing storage as an external settings revision', async () => {
+		// `localStorage.clear()` emits a storage event with a null key and wipes the preferences entry,
+		// so the pending save is working from preferences that no longer exist and must be discarded.
+		let resolveSave: (value: { displayName: string }) => void = () => {}
+		updateMailboxDisplayName.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada B.' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() => expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1))
+
+		act(() => {
+			window.localStorage.clear()
+			window.dispatchEvent(new StorageEvent('storage', { key: null }))
+		})
+		resolveSave({ displayName: 'Ada B.' })
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Save settings' })).not.toHaveAttribute('aria-busy'),
+		)
+		expect(screen.queryByText('Settings saved.')).not.toBeInTheDocument()
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+	})
+
 	it('keeps a failed settings revision available for retry', async () => {
 		updateMailboxDisplayName
 			.mockRejectedValueOnce(new Error('private provider detail'))

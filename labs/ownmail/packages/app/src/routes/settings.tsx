@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
+	affectsUserPreferences,
 	availableTimezones,
 	isSupportedTimezone,
-	USER_PREFERENCES_STORAGE_KEY,
 	type UserPreferences,
 	useUserPreferences,
 } from '#app/preferences/user-preferences'
@@ -89,8 +89,7 @@ function SettingsPage() {
 
 	useEffect(() => {
 		const invalidatePendingSave = (event: Event) => {
-			if (event instanceof StorageEvent && event.key !== null && event.key !== USER_PREFERENCES_STORAGE_KEY)
-				return
+			if (!affectsUserPreferences(event)) return
 			settingsRevisionRef.current += 1
 		}
 		window.addEventListener('storage', invalidatePendingSave)

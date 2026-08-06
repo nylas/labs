@@ -96,13 +96,25 @@ export function writeUserPreferences(value: UserPreferences): UserPreferences {
 	return normalized
 }
 
+/**
+ * A `storage` event fires for every key written by another tab in this origin, so an unrelated write
+ * (the `theme` key, say) must not be mistaken for a preferences edit.
+ *
+ * A null `key` is deliberately treated as a preferences change: browsers emit it for
+ * `localStorage.clear()`, which wipes the preferences entry too, so the in-memory copy really is stale.
+ * Non-storage events (our own `ownmail:user-preferences` signal) always pass.
+ */
+export function affectsUserPreferences(event: Event): boolean {
+	if (!(event instanceof StorageEvent)) return true
+	return event.key === null || event.key === USER_PREFERENCES_STORAGE_KEY
+}
+
 export function useUserPreferences(): [UserPreferences, (next: UserPreferences) => void] {
 	const [preferences, setPreferences] = useState(defaultUserPreferences)
 
 	useEffect(() => {
 		const update = (event?: Event) => {
-			if (event instanceof StorageEvent && event.key !== null && event.key !== USER_PREFERENCES_STORAGE_KEY)
-				return
+			if (event && !affectsUserPreferences(event)) return
 			setPreferences(readUserPreferences())
 		}
 		update()
