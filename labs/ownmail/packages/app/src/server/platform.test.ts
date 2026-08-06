@@ -5,6 +5,7 @@ const redis = vi.hoisted(() => ({
 	set: vi.fn(),
 	del: vi.fn(),
 	incr: vi.fn(),
+	expire: vi.fn(),
 }))
 
 vi.mock('@upstash/redis', () => ({
@@ -13,6 +14,7 @@ vi.mock('@upstash/redis', () => ({
 		set = redis.set
 		del = redis.del
 		incr = redis.incr
+		expire = redis.expire
 	},
 }))
 
@@ -145,17 +147,23 @@ describe('platform()', () => {
 				put: expect.any(Function),
 				delete: expect.any(Function),
 				increment: expect.any(Function),
+				expire: expect.any(Function),
 			}),
 		)
 		redis.get.mockResolvedValue('value')
 		redis.set.mockResolvedValue('OK')
 		redis.del.mockResolvedValue(1)
 		redis.incr.mockResolvedValue(2)
+		redis.expire.mockResolvedValue(1)
 		await expect(p.kv?.get('key')).resolves.toBe('value')
 		await p.kv?.put('key', 'value', { expirationTtl: 60 })
 		await p.kv?.put('key', 'value')
 		await p.kv?.delete('key')
 		await expect(p.kv?.increment?.('key')).resolves.toBe(2)
+		// EXPIRE attaches the TTL without touching the value, so a rate-limit
+		// counter is never reset by the write that gives it a lifetime.
+		await p.kv?.expire?.('key', 900)
+		expect(redis.expire).toHaveBeenCalledWith('key', 900)
 		expect(redis.set).toHaveBeenNthCalledWith(1, 'key', 'value', { ex: 60 })
 		expect(redis.set).toHaveBeenNthCalledWith(2, 'key', 'value', undefined)
 	})

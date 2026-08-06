@@ -7,6 +7,16 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"main": "@tanstack/react-start/server-entry",
 	"kv_namespaces": [{ "binding": "SESSIONS", "id": "00000000000000000000000000000000" }],
+	// Sign-in brute-force limits. KV cannot back these: it has no atomic
+	// increment and is eventually consistent, so a parallel burst would slip
+	// past. These bindings are atomic at the edge. `period` accepts only 10 or
+	// 60 seconds, so the per-mailbox and per-address budgets are per minute.
+	// They need no account resource, so `ownmail deploy` carries them through
+	// unchanged.
+	"ratelimits": [
+		{ "name": "SIGNIN_EMAIL_LIMITER", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
+		{ "name": "SIGNIN_IP_LIMITER", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } }
+	],
 	"vars": {
 		"NYLAS_CLIENT_ID": "dev-client-id",
 		"NYLAS_REGION": "us",

@@ -1,61 +1,33 @@
-import { NylasConnect, type Provider } from '@nylas/connect'
 import { createFileRoute } from '@tanstack/react-router'
-import { MAIL_HOME_PATH } from '#app/config/route-paths'
-import { platform, usingDevMocks } from '#server/platform'
-import {
-	createReferenceDevSessionCookie,
-	getSession,
-	storeConnectState,
-	switchSessionAccount,
-} from '#server/session'
+import { LOGIN_PATH, MAIL_HOME_PATH } from '#app/config/route-paths'
+import { usingDevMocks } from '#server/platform'
+import { createReferenceDevSessionCookie, getSession, switchSessionAccount } from '#server/session'
 
 const MAX_SWITCH_BODY_BYTES = 1024
-// Agent Accounts uses the valid `nylas` connector value, which @nylas/connect 1.2.5
-// forwards at runtime but does not yet include in its OAuth-provider type union.
-const OWNMAIL_CONNECTOR = 'nylas' as Provider
 
 export const Route = createFileRoute('/auth')({
 	server: {
 		handlers: {
-			/** Kicks off the backend Nylas Connect flow without exposing tokens to the browser. */
+			/**
+			 * Sign-in starts on OwnMail's own credential form. Nothing is delegated
+			 * to a hosted screen, so this entry point only points at that form —
+			 * and keeps pointing at it while an existing session adds a mailbox.
+			 */
 			GET: async ({ request }) => {
-				const { env } = await platform()
 				if (await usingDevMocks()) {
 					return new Response(null, {
 						status: 302,
 						headers: { Location: MAIL_HOME_PATH, 'Set-Cookie': createReferenceDevSessionCookie() },
 					})
 				}
-				if (!env.NYLAS_CLIENT_ID?.trim()) {
-					return configurationErrorResponse('NYLAS_CLIENT_ID is not configured for this deployment.')
-				}
-
-				const redirectUri = `${new URL(request.url).origin}/auth/callback`
-				const state = crypto.randomUUID()
-				const existingSession = await getSession(request)
-				let authUrl: string
-				try {
-					const connect = new NylasConnect({
-						clientId: env.NYLAS_CLIENT_ID.trim(),
-						redirectUri,
-						apiUrl: env.NYLAS_API_BASE_URL ?? `https://api.${env.NYLAS_REGION}.nylas.com`,
-						persistTokens: false,
-						autoHandleCallback: false,
-						logLevel: 'off',
-					})
-					const { url } = await connect.getAuthUrl({
-						provider: OWNMAIL_CONNECTOR,
-						state,
-						...(!existingSession && env.INBOX_EMAIL ? { loginHint: env.INBOX_EMAIL } : {}),
-					})
-					authUrl = url
-				} catch {
-					return configurationErrorResponse('Nylas Connect is not configured correctly for this deployment.')
-				}
-				const connectStateCookie = await storeConnectState(request, state)
-				const headers = new Headers({ Location: authUrl })
-				headers.set('Set-Cookie', connectStateCookie)
-				return new Response(null, { status: 302, headers })
+				const addingMailbox = Boolean(await getSession(request))
+				return new Response(null, {
+					status: 302,
+					headers: {
+						Location: addingMailbox ? `${LOGIN_PATH}?add=1` : LOGIN_PATH,
+						'Cache-Control': 'no-store',
+					},
+				})
 			},
 			/** Switches only to an inbox previously verified through this session's Nylas Connect flow. */
 			POST: async ({ request }) => {
@@ -125,21 +97,4 @@ async function readBoundedSwitchHandle(
 	}
 	const values = new URLSearchParams(body).getAll('account')
 	return values.length === 1 && values[0] ? values[0] : null
-}
-
-function configurationErrorResponse(message: string): Response {
-	const html = `<!doctype html><meta charset="utf-8"><title>Configuration error</title>
-<body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0">
-<div style="text-align:center;max-width:36rem;padding:2rem">
-<h1 style="font-size:1.25rem">App configuration error</h1>
-<p style="color:#666">${escapeHtml(message)}</p>
-</div></body>`
-	return new Response(html, { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
-}
-
-export function escapeHtml(value: string): string {
-	return value.replace(
-		/[&<>"']/g,
-		(c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
-	)
 }
