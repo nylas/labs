@@ -20,6 +20,12 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14 // 14 days
  * has elapsed, so a continuously used session costs at most one KV write per day.
  */
 const SESSION_SLIDE_INTERVAL_SECONDS = 60 * 60 * 24 // 1 day
+/**
+ * How long a destroyed session id stays tombstoned. It only has to outlive requests
+ * that were already in flight when the session died, so minutes are generous — but
+ * Cloudflare KV rejects an expirationTtl under 60s, and the keys are tiny.
+ */
+const SESSION_REVOCATION_TTL_SECONDS = 300
 const CONNECT_STATE_TTL_SECONDS = 600
 const MAX_SESSION_ACCOUNTS = 10
 const MAX_SESSION_COOKIE_VALUE_LENGTH = 3800
@@ -119,17 +125,18 @@ export async function addVerifiedSessionAccount(
 		) ?? []
 	if (accounts.length >= MAX_SESSION_ACCOUNTS) throw new Error('Too many inboxes in this session')
 	const createdAt = current?.createdAt ?? Date.now()
-	// Invalidate the superseded record *before* minting its replacement, so an
-	// in-flight refresh finds the old key already gone and declines to slide it.
-	if (current) await destroySession(request)
 	// Verifying a mailbox is activity: the window restarts from now rather than
 	// keeping the deadline set at the user's very first login.
-	return persistSession({
+	const cookie = await persistSession({
 		accounts: [...accounts, { grantId, email: email.trim() }],
 		activeGrantId: grantId,
 		createdAt,
 		expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
 	})
+	// Only once the replacement is durable. If the write above fails, the user keeps
+	// the session they already had rather than being logged out by a transient outage.
+	if (current) await destroySession(request)
+	return cookie
 }
 
 /** Selects an already verified mailbox. A client-provided grant id is never accepted. */
@@ -145,15 +152,16 @@ export async function switchSessionAccount(request: Request, handle: string): Pr
 		}
 	}
 	if (!selected) return null
-	// Same ordering as above: the record being switched away from dies first, so an
-	// in-flight refresh cannot write it back and undo the switch.
-	await destroySession(request)
-	return persistSession({
+	const cookie = await persistSession({
 		accounts: current.accounts,
 		activeGrantId: selected.grantId,
 		createdAt: current.createdAt,
 		expiresAt: current.expiresAt,
 	})
+	// Same ordering as above: a failed switch must leave the user on their current
+	// inbox, not signed out.
+	await destroySession(request)
+	return cookie
 }
 
 export async function sessionAccountSummaries(
@@ -183,10 +191,13 @@ async function accountHandle(grantId: string): Promise<string> {
  * A refresh must never outlive a session mutation. A `/logout` or account switch that
  * happens while a request is in flight deletes the record; if this slide then wrote the
  * old record back and its response landed last, the browser would adopt a resurrected
- * cookie — the user would stay signed in after signing out. So the slide re-reads the
- * record and refuses to re-create a key that is gone. KV offers no compare-and-swap, so
- * this narrows the race to the microtask between that read and the write rather than
- * closing it; the mutating paths delete before they persist to keep that window minimal.
+ * cookie — the user would stay signed in after signing out. Every path that destroys a
+ * record tombstones its id first, and the slide refuses to write when it sees one.
+ *
+ * KV offers no compare-and-swap, so this narrows the race rather than closing it: the
+ * slide can still resurrect a record if the tombstone is written after this check *and*
+ * the delete beats the write below. That is a single KV round-trip wide, against the
+ * whole request lifetime before.
  *
  * The caller passes the session it already resolved, so sliding costs one read, not two.
  */
@@ -199,14 +210,16 @@ export async function slideSessionExpiry(request: Request, session: Session): Pr
 	const extendedAt = session.expiresAt - SESSION_TTL_SECONDS * 1000
 	if (now - extendedAt < SESSION_SLIDE_INTERVAL_SECONDS * 1000) return null
 	const { kv } = await platform()
-	// Stateless mode: the cookie *is* the record, so there is no server-side state a
-	// logout could invalidate and no way to tell a live session from a just-destroyed
-	// one. A reissued cookie racing behind a logout would silently restore it, so
-	// decline: KV-less deployments keep the fixed window from their last sign-in.
+	// Stateless mode: the cookie *is* the record, so there is nothing to tombstone and
+	// no way to tell a live session from a just-destroyed one. A reissued cookie racing
+	// behind a logout would silently restore it. Sliding therefore *requires* shared
+	// storage (Cloudflare KV or Upstash) — that limit is documented in the deployment
+	// docs rather than papered over, and KV-less targets keep a fixed 14-day window
+	// running from their last sign-in.
 	if (!kv) return null
 	const id = value.split('.')[0]
-	// Re-read immediately before the write, as close to it as possible.
-	if (!(await kv.get(`session:${id}`))) return null
+	// Checked as late as possible, immediately before the write.
+	if (await kv.get(`revoked:${id}`)) return null
 	// Reuse the existing id so the slide is a single idempotent write and concurrent
 	// requests can't strand orphan records or invalidate each other's cookie.
 	return persistSession(
@@ -316,7 +329,13 @@ export async function destroySession(request: Request): Promise<void> {
 	if (!kv) return // stateless sessions die with the cleared cookie
 	const value = cookieValue(request, COOKIE_NAME)
 	const id = value?.split('.')[0]
-	if (id) await kv.delete(`session:${id}`)
+	if (!id) return
+	// Tombstone before deleting, never after: a refresh that is already in flight
+	// checks for this key before it writes, so it cannot re-create the record behind
+	// the delete below. Ordering matters — a tombstone written after the delete would
+	// leave exactly the gap it exists to close.
+	await kv.put(`revoked:${id}`, '1', { expirationTtl: SESSION_REVOCATION_TTL_SECONDS })
+	await kv.delete(`session:${id}`)
 }
 
 // ---- Nylas Connect state (login flow) ------------------------------------------

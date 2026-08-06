@@ -171,7 +171,7 @@ describe('KV-backed sessions', () => {
 
 			const switched = (await switchSessionAccount(request, handle)) as string
 
-			expect(kv.puts.at(-1)?.options?.expirationTtl).toBe(60)
+			expect(kv.puts.findLast((put) => put.key.startsWith('session:'))?.options?.expirationTtl).toBe(60)
 			expect(switched).toContain('Max-Age=30')
 			const switchedCookie = cookieFromSetCookie(switched)
 			vi.setSystemTime(new Date(expiresAt + 1))
@@ -327,7 +327,9 @@ describe('KV-backed sessions', () => {
 		expect(kv.store.size).toBe(1)
 
 		await destroySession(req(`ownmail_session=${cookieValue}`))
-		expect(kv.store.size).toBe(0)
+		// The record is gone; only the short-lived revocation tombstone remains.
+		expect([...kv.store.keys()]).toEqual([`revoked:${cookieValue.split('.')[0]}`])
+		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
 	})
 
 	it('is a no-op on destroy when there is no session cookie to look up', async () => {
@@ -807,7 +809,8 @@ describe('sliding session expiry', () => {
 	 * The resurrection race: a request reads the session, the user hits `/logout` and the
 	 * record is deleted, and only then does the slide reach its write. Writing the old
 	 * record back under the same id would leave a logged-out user authenticated as soon
-	 * as the browser applied the refresh response's cookie.
+	 * as the browser applied the refresh response's cookie. The tombstone the logout
+	 * leaves behind is what the slide checks, so ordering can stay write-then-delete.
 	 */
 	it('leaves the user logged out when a logout lands mid-slide', async () => {
 		const kv = makeKv()
@@ -816,15 +819,44 @@ describe('sliding session expiry', () => {
 
 		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
 		const [request, session] = await sessionFor(cookie)
-		const writesBeforeLogout = kv.puts.length
 		// The concurrent logout wins the race to KV.
 		await destroySession(request)
+		const sessionWritesBefore = kv.puts.filter((put) => put.key.startsWith('session:')).length
 
 		expect(await slideSessionExpiry(request, session)).toBeNull()
-		// No cookie to resurrect the session with, and no record behind it either.
-		expect(kv.puts.length).toBe(writesBeforeLogout)
-		expect(kv.store.size).toBe(0)
+		// No cookie to resurrect the session with, and no record written behind it.
+		expect(kv.puts.filter((put) => put.key.startsWith('session:')).length).toBe(sessionWritesBefore)
+		expect([...kv.store.keys()].some((key) => key.startsWith('session:'))).toBe(false)
 		expect(await getSession(request)).toBeNull()
+	})
+
+	/**
+	 * The tombstone is written *before* the record is deleted. Written after, it would
+	 * leave open the exact window it exists to close — a slide that checked in between
+	 * would see neither a tombstone nor, later, a record to stop it.
+	 */
+	it('tombstones a destroyed session id before deleting the record', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const request = req(`ownmail_session=${cookie}`)
+		const order: string[] = []
+		const realPut = kv.put
+		const realDelete = kv.delete
+		kv.put = async (key, value, options) => {
+			order.push(`put ${key.split(':')[0]}`)
+			return realPut(key, value, options)
+		}
+		kv.delete = async (key) => {
+			order.push(`delete ${key.split(':')[0]}`)
+			return realDelete(key)
+		}
+
+		await destroySession(request)
+
+		expect(order).toEqual(['put revoked', 'delete session'])
+		// And it outlives any request that could still be in flight.
+		expect(kv.puts.at(-1)?.options?.expirationTtl).toBeGreaterThanOrEqual(60)
 	})
 
 	/** Same race against an account switch: the slide must not restore the old inbox. */
@@ -841,6 +873,53 @@ describe('sliding session expiry', () => {
 		// The pre-switch cookie stays dead and the switched-to inbox stays active.
 		expect(await getSession(req(`ownmail_session=${cookie}`))).toBeNull()
 		expect((await getSession(req(`ownmail_session=${switched}`)))?.grantId).toBe('grant-b')
+	})
+
+	/**
+	 * Closing the resurrection race must not open a data-loss one. The replacement record
+	 * is written first and the old one destroyed only once that write is durable, so a
+	 * transient store failure costs the user a failed action — never their session.
+	 */
+	it('leaves the original session intact and usable when adding an inbox fails to persist', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const request = req(`ownmail_session=${cookie}`)
+		// Only the record write fails. Everything else still works, so this catches an
+		// ordering that destroys the old record before the replacement is durable.
+		const realPut = kv.put
+		kv.put = async (key, value, options) => {
+			if (key.startsWith('session:')) throw new Error('KV write quota exceeded')
+			return realPut(key, value, options)
+		}
+
+		await expect(addVerifiedSessionAccount(request, 'grant-b', 'b@ownmail.com')).rejects.toThrow()
+
+		// Still signed in on the inbox they had, and not tombstoned into a dead end.
+		expect((await getSession(request))?.grantId).toBe('grant-a')
+		expect(kv.store.has(`session:${cookie.split('.')[0]}`)).toBe(true)
+	})
+
+	it('leaves the original session intact and usable when an account switch fails to persist', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const joined = cookieFromSetCookie(
+			await addVerifiedSessionAccount(req(`ownmail_session=${cookie}`), 'grant-b', 'b@ownmail.com'),
+		)
+		const request = req(`ownmail_session=${joined}`)
+		const summaries = (await sessionAccountSummaries(request)) as { email: string; handle: string }[]
+		const target = summaries.find((entry) => entry.email === 'a@ownmail.com') as { handle: string }
+		const realPut = kv.put
+		kv.put = async (key, value, options) => {
+			if (key.startsWith('session:')) throw new Error('KV write timeout')
+			return realPut(key, value, options)
+		}
+
+		await expect(switchSessionAccount(request, target.handle)).rejects.toThrow()
+
+		// A failed switch leaves the user where they were, not signed out.
+		expect((await getSession(request))?.grantId).toBe('grant-b')
 	})
 
 	it('never mints a record for a request that carries no session cookie', async () => {
