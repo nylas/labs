@@ -81,7 +81,7 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 								onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
 								disabled={allMessagesOpen}
 								aria-label={`Expand all ${messages.length} messages`}
-								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
+								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
 							>
 								Expand all
 							</button>
@@ -90,7 +90,7 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 								onClick={() => setOpenMessageIds(new Set())}
 								disabled={allMessagesClosed}
 								aria-label={`Collapse all ${messages.length} messages`}
-								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
+								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
 							>
 								Collapse all
 							</button>
@@ -225,6 +225,8 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 	const labelId = useId()
 	const rootRef = useRef<HTMLDivElement>(null)
 	const triggerRef = useRef<HTMLButtonElement>(null)
+	const pointerStartedInsideRef = useRef(false)
+	const clearPointerGuardTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 	const addressRows = MESSAGE_ADDRESS_FIELDS.flatMap(([field, label]) => {
 		const participants = message[field]
 		return participants?.length ? [{ label, value: participants.map(formatParticipant).join(', ') }] : []
@@ -234,6 +236,26 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 		if (!open) return
 
 		function onPointerDown(event: PointerEvent) {
+			clearTimeout(clearPointerGuardTimerRef.current)
+			pointerStartedInsideRef.current = event.composedPath().includes(rootRef.current as EventTarget)
+			if (!pointerStartedInsideRef.current) setOpen(false)
+		}
+
+		function onPointerUp() {
+			clearPointerGuardTimerRef.current = setTimeout(() => {
+				pointerStartedInsideRef.current = false
+				clearPointerGuardTimerRef.current = undefined
+			}, 0)
+		}
+
+		function onPointerCancel() {
+			clearTimeout(clearPointerGuardTimerRef.current)
+			clearPointerGuardTimerRef.current = undefined
+			pointerStartedInsideRef.current = false
+		}
+
+		function onFocusIn(event: FocusEvent) {
+			if (pointerStartedInsideRef.current) return
 			if (!event.composedPath().includes(rootRef.current as EventTarget)) setOpen(false)
 		}
 
@@ -246,10 +268,19 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 		}
 
 		document.addEventListener('pointerdown', onPointerDown)
+		document.addEventListener('pointerup', onPointerUp)
+		document.addEventListener('pointercancel', onPointerCancel)
+		document.addEventListener('focusin', onFocusIn)
 		document.addEventListener('keydown', onKeyDown)
 		return () => {
 			document.removeEventListener('pointerdown', onPointerDown)
+			document.removeEventListener('pointerup', onPointerUp)
+			document.removeEventListener('pointercancel', onPointerCancel)
+			document.removeEventListener('focusin', onFocusIn)
 			document.removeEventListener('keydown', onKeyDown)
+			clearTimeout(clearPointerGuardTimerRef.current)
+			clearPointerGuardTimerRef.current = undefined
+			pointerStartedInsideRef.current = false
 		}
 	}, [open])
 
@@ -329,7 +360,7 @@ function AttachmentLink({ attachment, messageId }: { attachment: Attachment; mes
 		<a
 			data-slot="thread-attachment"
 			href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`}
-			className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent dark:bg-muted/40 dark:hover:bg-muted"
+			className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid dark:bg-muted/40 dark:hover:bg-muted"
 			download={attachment.filename}
 		>
 			<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />

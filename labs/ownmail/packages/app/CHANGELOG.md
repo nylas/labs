@@ -1,5 +1,25 @@
 # @ownmail/app
 
+## 0.11.4
+
+### Patch Changes
+
+- 1deddc8: Dismiss message details when keyboard focus moves outside the disclosure.
+- a5a833b: Make password updates single-flight, focus-safe, and retryable.
+- 043616d: Make settings text and select fields easier to use on touch devices.
+- 87c34e7: Start provider sign-in without an artificial delay while preserving a focus-safe single-flight state.
+- 0dd6459: Improve keyboard focus contrast for thread display controls in light and forced-colors themes.
+- d07bcae: Make search-detail thread actions single-flight, visible, and recoverable.
+- c3fc5bb: End the active session before the root error screen starts sign-in recovery.
+- 89485ff: Make calendar event actions easier to tap and clearly focus-visible.
+- c8635a2: Make multi-message display controls touch-friendly and announce their message count.
+- 4657b68: Provide actionable recipient validation before sending messages.
+- fb6f19a: Make contact pagination discoverable, focus-safe, and recoverable across failures and list changes.
+- dfce5d2: Protect unsaved contact changes with an accessible discard confirmation across every dismissal path.
+- afab1d6: Make compose-backdrop archive, restore, delete, and star actions single-flight with clear pending, failure, and retry feedback.
+- aeb6719: Allow keyboard users to open month-calendar days with Enter or Space.
+- afbaad9: Keep folder pagination available on empty pages and provide safe, recoverable feedback when loading more mail fails.
+
 ## 0.11.3
 
 ### Patch Changes

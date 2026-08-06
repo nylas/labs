@@ -54,16 +54,19 @@ function AppError() {
 					Check your connection and try again. If it persists, sign in again.
 				</p>
 			</div>
-			<div className="flex gap-3">
+			<div className="flex flex-wrap justify-center gap-3">
 				<button
 					type="button"
 					onClick={() => window.location.reload()}
-					className="rounded-lg border border-border px-4 py-2 text-sm font-medium"
+					className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 				>
 					Retry
 				</button>
 				<form action="/logout" method="post">
-					<button type="submit" className="rounded-lg border border-border px-4 py-2 text-sm font-medium">
+					<button
+						type="submit"
+						className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
+					>
 						Sign in again
 					</button>
 				</form>
@@ -86,7 +89,7 @@ function NotFoundComponent() {
 			</div>
 			<Link
 				to={MAIL_HOME_PATH}
-				className="mt-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+				className="mt-1 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 			>
 				Back to mail
 			</Link>

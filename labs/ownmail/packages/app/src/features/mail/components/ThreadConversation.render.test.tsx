@@ -69,9 +69,23 @@ describe('ThreadConversation rendering', () => {
 		const collapse = screen.getByRole('button', { name: 'Collapse all 3 messages' })
 
 		expect(expand).toHaveTextContent('Expand all')
-		expect(expand).toHaveClass('min-h-11', 'focus-visible:ring-[3px]', 'focus-visible:ring-ring/40')
+		expect(expand).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
+		)
 		expect(collapse).toHaveTextContent('Collapse all')
-		expect(collapse).toHaveClass('min-h-11', 'focus-visible:ring-[3px]', 'focus-visible:ring-ring/40')
+		expect(collapse).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
+		)
 
 		fireEvent.click(expand)
 		expect(expand).toBeDisabled()
@@ -80,5 +94,40 @@ describe('ThreadConversation rendering', () => {
 		fireEvent.click(collapse)
 		expect(collapse).toBeDisabled()
 		expect(screen.getAllByRole('button', { name: /Expand message from/ })).toHaveLength(3)
+	})
+
+	it('gives attachment downloads a touch-friendly target and visible keyboard focus', () => {
+		const messageWithAttachment = {
+			...message('m1'),
+			attachments: [
+				{
+					id: 'attachment-1',
+					filename: 'project-plan.pdf',
+					size: 2048,
+					is_inline: false,
+				},
+			],
+		}
+		const { container } = render(
+			<ThreadConversation thread={thread('t1')} messages={[messageWithAttachment]} />,
+		)
+		const links = container.querySelectorAll<HTMLAnchorElement>('[data-slot="thread-attachment"]')
+
+		expect(links).toHaveLength(2)
+		for (const link of links) {
+			expect(link).toHaveClass(
+				'min-h-11',
+				'focus-visible:outline-none',
+				'focus-visible:ring-[3px]',
+				'focus-visible:ring-ring',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
+			)
+			expect(link).toHaveAttribute('href', '/attachments/attachment-1?message_id=m1')
+			expect(link).toHaveAttribute('download', 'project-plan.pdf')
+			expect(link).toHaveTextContent('project-plan.pdf')
+			expect(link).toHaveTextContent('2 KB')
+		}
 	})
 })

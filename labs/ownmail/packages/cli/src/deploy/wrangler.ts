@@ -160,6 +160,26 @@ export async function ensureKvNamespace(title: string): Promise<string> {
 	)
 }
 
+/**
+ * Reports whether a worker already holds a secret with this name. Cloudflare
+ * only ever returns secret names, so an existing value can be kept in place
+ * without OwnMail ever reading or storing it.
+ */
+export async function workerHasSecret(workerName: string, name: string): Promise<boolean> {
+	const res = await runWrangler(['secret', 'list', '--name', workerName])
+	if (res.code !== 0) throw cloudflareFailure('inspect deployment secrets', res)
+
+	let secrets: { name: string }[]
+	try {
+		secrets = JSON.parse(res.stdout) as { name: string }[]
+	} catch {
+		throw new Error(
+			`Cloudflare returned an unreadable deployment secret inventory for "${workerName}". OwnMail changed no secrets. Update OwnMail and retry the same OwnMail command; if this continues, inspect Cloudflare with \`npx wrangler secret list --name ${workerName}\`.`,
+		)
+	}
+	return secrets.some((secret) => secret.name === name)
+}
+
 export async function putSecret(workerName: string, name: string, value: string): Promise<void> {
 	const res = await runWrangler(['secret', 'put', name, '--name', workerName], { stdin: value })
 	if (res.code !== 0) {

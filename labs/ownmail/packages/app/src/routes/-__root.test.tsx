@@ -104,7 +104,16 @@ describe('root route', () => {
 		const { getByText, getByRole } = render(<NotFound />)
 		expect(getByText('Page not found')).toBeTruthy()
 		// The recovery link points at the canonical mail home rather than a broken URL.
-		expect(getByRole('link', { name: 'Back to mail' }).getAttribute('href')).toBe('/')
+		const backToMail = getByRole('link', { name: 'Back to mail' })
+		expect(backToMail.getAttribute('href')).toBe('/')
+		expect(backToMail).toHaveClass(
+			'min-h-11',
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-ring',
+			'forced-colors:focus-visible:outline-2',
+			'forced-colors:focus-visible:outline-offset-2',
+			'forced-colors:focus-visible:outline-solid',
+		)
 	})
 
 	it('renders actionable recovery choices when a route fails', () => {
@@ -113,9 +122,21 @@ describe('root route', () => {
 
 		expect(getByText('We couldn’t load this page.')).toBeTruthy()
 		expect(getByText('Check your connection and try again. If it persists, sign in again.')).toBeTruthy()
+		const retry = getByRole('button', { name: 'Retry' })
 		const signInAgain = getByRole('button', { name: 'Sign in again' })
 		expect(signInAgain.closest('form')).toHaveAttribute('action', '/logout')
 		expect(signInAgain.closest('form')).toHaveAttribute('method', 'post')
-		expect(() => fireEvent.click(getByRole('button', { name: 'Retry' }))).not.toThrow()
+		for (const action of [retry, signInAgain]) {
+			expect(action).toHaveClass(
+				'min-h-11',
+				'focus-visible:ring-[3px]',
+				'focus-visible:ring-ring',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
+			)
+		}
+		expect(retry.parentElement).toHaveClass('flex-wrap', 'justify-center')
+		expect(() => fireEvent.click(retry)).not.toThrow()
 	})
 })

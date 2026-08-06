@@ -81,6 +81,7 @@ export function ContactModal({
 	}
 
 	function patch(next: Partial<ContactForm>) {
+		setError(null)
 		setForm((current) => ({ ...current, ...next }))
 	}
 
@@ -141,6 +142,7 @@ export function ContactModal({
 		>
 			<DialogContent
 				className={CONTACT_DIALOG_PANEL_CLASS}
+				aria-busy={busy || undefined}
 				{...(confirmingDiscard
 					? {
 							role: 'alertdialog' as const,
@@ -172,7 +174,7 @@ export function ContactModal({
 						onClick={(event) => requestClose(event.currentTarget)}
 						disabled={busy}
 						aria-label="Close"
-						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-50"
+						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
 					>
 						<X className="h-4 w-4" />
 					</button>
@@ -189,6 +191,7 @@ export function ContactModal({
 								value={form.givenName}
 								aria-invalid={validation?.field === 'identity' || undefined}
 								aria-describedby={validation?.field === 'identity' ? 'contact-form-validation' : undefined}
+								className="h-11"
 								onChange={(e) => {
 									patch({ givenName: e.target.value })
 									clearIdentityValidation()
@@ -201,6 +204,7 @@ export function ContactModal({
 								autoComplete="family-name"
 								disabled={busy}
 								value={form.surname}
+								className="h-11"
 								onChange={(e) => {
 									patch({ surname: e.target.value })
 									clearIdentityValidation()
@@ -213,6 +217,7 @@ export function ContactModal({
 								autoComplete="organization"
 								disabled={busy}
 								value={form.companyName}
+								className="h-11"
 								onChange={(e) => {
 									patch({ companyName: e.target.value })
 									clearIdentityValidation()
@@ -225,6 +230,7 @@ export function ContactModal({
 								autoComplete="organization-title"
 								disabled={busy}
 								value={form.jobTitle}
+								className="h-11"
 								onChange={(e) => patch({ jobTitle: e.target.value })}
 							/>
 						</Field>
@@ -263,7 +269,7 @@ export function ContactModal({
 										patch({ emails: replaceAt(form.emails, index, { ...row, email: e.target.value }) })
 										clearEmailValidation(index)
 									}}
-									className="flex-1"
+									className="h-11 flex-1"
 								/>
 								<TypeSelect
 									label={`Email ${index + 1} type`}
@@ -309,7 +315,7 @@ export function ContactModal({
 											}),
 										})
 									}
-									className="flex-1"
+									className="h-11 flex-1"
 								/>
 								<TypeSelect
 									label={`Phone ${index + 1} type`}
@@ -348,7 +354,9 @@ export function ContactModal({
 						</p>
 					) : null}
 					{error ? (
-						<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+						<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+							{error}
+						</p>
 					) : null}
 				</div>
 
@@ -361,7 +369,7 @@ export function ContactModal({
 						type="button"
 						onClick={(event) => requestClose(event.currentTarget)}
 						disabled={busy}
-						className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+						className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
 					>
 						Cancel
 					</button>
@@ -369,7 +377,7 @@ export function ContactModal({
 						type="button"
 						disabled={busy}
 						onClick={save}
-						className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+						className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98] disabled:opacity-50"
 					>
 						{busy ? 'Saving...' : contact ? 'Save changes' : 'Add contact'}
 					</button>
@@ -401,14 +409,14 @@ function DiscardConfirmation({
 					ref={continueButtonRef}
 					type="button"
 					onClick={onContinue}
-					className="min-h-11 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+					className="min-h-11 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 				>
 					Continue editing
 				</button>
 				<button
 					type="button"
 					onClick={onDiscard}
-					className="min-h-11 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90"
+					className="min-h-11 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 				>
 					Discard changes
 				</button>
@@ -449,7 +457,7 @@ function RowGroup({
 					type="button"
 					disabled={disabled}
 					onClick={onAdd}
-					className="flex min-h-11 items-center gap-1 px-2 text-xs font-medium text-primary hover:underline disabled:opacity-50"
+					className="flex min-h-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
 				>
 					<Plus className="h-3.5 w-3.5" /> {addLabel}
 				</button>
@@ -477,7 +485,7 @@ function TypeSelect({
 			disabled={disabled}
 			onChange={(e) => onChange(e.target.value)}
 			className={cn(
-				'h-11 rounded-md border border-border bg-card px-2 text-sm text-muted-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40',
+				'h-11 rounded-md border border-border bg-card px-2 text-sm text-muted-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
 			)}
 		>
 			{FIELD_TYPES.map((type) => (
@@ -504,7 +512,7 @@ function RemoveRowButton({
 			aria-label={label}
 			disabled={disabled}
 			onClick={onClick}
-			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
 		>
 			<X className="h-4 w-4" />
 		</button>

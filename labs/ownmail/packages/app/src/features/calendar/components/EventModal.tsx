@@ -129,9 +129,11 @@ export function EventModal({
 	const [error, setError] = useState<string | null>(null)
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const titleInputRef = useRef<HTMLInputElement>(null)
+	const editButtonRef = useRef<HTMLButtonElement>(null)
 	const deleteButtonRef = useRef<HTMLButtonElement>(null)
 	const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
 	const deletePendingRef = useRef(false)
+	const wasEditing = useRef(false)
 	const wasConfirmingDelete = useRef(false)
 	const createMutation = useCreateEventMutation()
 	const updateMutation = useUpdateEventMutation(event)
@@ -352,6 +354,10 @@ export function EventModal({
 		if (!event) titleInputRef.current?.focus({ preventScroll: true })
 	}, [event])
 	useEffect(() => {
+		if (!editing && wasEditing.current) editButtonRef.current?.focus()
+		wasEditing.current = editing
+	}, [editing])
+	useEffect(() => {
 		if (confirmingDelete) cancelDeleteButtonRef.current?.focus()
 		else if (wasConfirmingDelete.current) deleteButtonRef.current?.focus()
 		wasConfirmingDelete.current = confirmingDelete
@@ -368,6 +374,29 @@ export function EventModal({
 	}
 
 	if (event && times) {
+		const persistedEvent = event
+		const persistedTimes = times
+
+		function resetEditDraft() {
+			setTitle(persistedEvent.title ?? '')
+			setLocation(persistedEvent.location ?? '')
+			setDescription(persistedEvent.description ?? '')
+			setStartHour(initialHours.startHour)
+			setEndHour(initialHours.endHour)
+			setAllDay(persistedTimes.allDay)
+			setError(null)
+		}
+
+		function beginEdit() {
+			resetEditDraft()
+			setEditing(true)
+		}
+
+		function cancelEdit() {
+			resetEditDraft()
+			setEditing(false)
+		}
+
 		const when = times.allDay ? 'All day' : `${fmtCompactTime(times.start)} – ${fmtCompactTime(times.end)}`
 		const attendeeText = event.participants
 			?.map((participant) => participant.name || participant.email)
@@ -402,7 +431,7 @@ export function EventModal({
 							onClick={() => onClose(false)}
 							disabled={busy}
 							aria-label="Close"
-							className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+							className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 						>
 							<X className="h-4 w-4" />
 						</button>
@@ -437,12 +466,12 @@ export function EventModal({
 									<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
 								) : null}
 							</div>
-							<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
 								<button
 									type="button"
-									onClick={() => setEditing(false)}
+									onClick={cancelEdit}
 									disabled={busy}
-									className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+									className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 								>
 									Cancel
 								</button>
@@ -450,7 +479,7 @@ export function EventModal({
 									type="button"
 									disabled={busy}
 									onClick={saveEdit}
-									className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+									className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98] disabled:opacity-50"
 								>
 									{busy ? 'Saving...' : 'Save changes'}
 								</button>
@@ -495,7 +524,7 @@ export function EventModal({
 								) : null}
 							</div>
 
-							<div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
 								{confirmingDelete ? (
 									<fieldset
 										className="flex w-full flex-wrap items-center justify-end gap-2"
@@ -515,7 +544,7 @@ export function EventModal({
 											type="button"
 											onClick={cancelDelete}
 											disabled={busy}
-											className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+											className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
 										>
 											Cancel
 										</button>
@@ -524,7 +553,7 @@ export function EventModal({
 											onClick={remove}
 											disabled={busy}
 											aria-describedby="event-delete-confirm-description"
-											className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+											className="flex min-h-11 items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
 										>
 											<Trash2 className="h-4 w-4" /> {busy ? 'Deleting…' : 'Delete event'}
 										</button>
@@ -538,7 +567,7 @@ export function EventModal({
 														type="button"
 														disabled={busy}
 														onClick={() => rsvp(status)}
-														className="rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted"
+														className="min-h-11 rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 													>
 														{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
 													</button>
@@ -547,10 +576,11 @@ export function EventModal({
 										{!event.read_only ? (
 											<>
 												<button
+													ref={editButtonRef}
 													type="button"
 													disabled={busy}
-													onClick={() => setEditing(true)}
-													className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+													onClick={beginEdit}
+													className="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 												>
 													<Pencil className="h-4 w-4" /> Edit
 												</button>
@@ -559,7 +589,7 @@ export function EventModal({
 													type="button"
 													disabled={busy}
 													onClick={beginDelete}
-													className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+													className="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 												>
 													<Trash2 className="h-4 w-4" /> Delete
 												</button>
@@ -569,7 +599,7 @@ export function EventModal({
 											type="button"
 											onClick={() => onClose(false)}
 											disabled={busy}
-											className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
+											className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98]"
 										>
 											Done
 										</button>
@@ -611,7 +641,7 @@ export function EventModal({
 					onClick={() => onClose(false)}
 					disabled={busy}
 					aria-label="Close"
-					className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					<X className="h-5 w-5" />
 				</button>
@@ -743,12 +773,12 @@ export function EventModal({
 				) : null}
 			</div>
 
-			<div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
+			<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
 				<button
 					type="button"
 					onClick={() => onClose(false)}
 					disabled={busy}
-					className="h-11 rounded-lg px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+					className="min-h-11 rounded-lg px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					Cancel
 				</button>
@@ -756,7 +786,7 @@ export function EventModal({
 					type="button"
 					disabled={busy}
 					onClick={save}
-					className="h-11 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+					className="min-h-11 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					{busy ? 'Saving...' : 'Save event'}
 				</button>
@@ -939,7 +969,7 @@ function RecurrenceFields({
 									)
 								}
 								className={cn(
-									'h-8 rounded-full border px-3 text-xs font-medium transition-colors',
+									'min-h-11 min-w-11 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
 									selected
 										? 'border-primary bg-primary text-primary-foreground'
 										: 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -994,7 +1024,7 @@ function countConflicts(candidate: Event, events: Event[]): number {
 
 export function eventCalendarChoiceClass(active: boolean, tone: EventTone): string {
 	return cn(
-		'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+		'flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
 		active ? labelBadgeClass(tone) : 'border-border text-muted-foreground hover:bg-muted',
 	)
 }

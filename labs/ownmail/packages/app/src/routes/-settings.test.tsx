@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -65,7 +65,10 @@ beforeEach(() => {
 	}))
 })
 
-afterEach(cleanup)
+afterEach(() => {
+	cleanup()
+	vi.restoreAllMocks()
+})
 
 describe('/settings', () => {
 	it('loads account information and the server-owned password capability', async () => {
@@ -90,7 +93,61 @@ describe('/settings', () => {
 		renderSettings(false, { email: 'ada@example.com', appName: 'OwnMail' })
 
 		expect(screen.getByLabelText('Display name')).toHaveValue('')
-		expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Save settings' })).toHaveAttribute('aria-disabled', 'true')
+	})
+
+	it('does not save when settings have no meaningful changes', () => {
+		renderSettings()
+		const save = screen.getByRole('button', { name: 'Save settings' })
+		expect(save).toHaveAttribute('aria-disabled', 'true')
+
+		fireEvent.click(save)
+
+		expect(updateMailboxDisplayName).not.toHaveBeenCalled()
+		expect(window.localStorage.getItem('ownmail:user-preferences:v1')).toBeNull()
+	})
+
+	it('gives every editable text and select field a touch-friendly height', () => {
+		renderSettings(true)
+
+		const fixedHeightFields = [
+			screen.getByLabelText('Display name'),
+			screen.getByRole('combobox', { name: /Primary timezone/ }),
+			screen.getByRole('combobox', { name: /Secondary timezone/ }),
+		]
+		for (const field of fixedHeightFields) {
+			expect(field).toHaveClass('h-11')
+			expect(field).not.toHaveClass('h-9')
+		}
+		for (const field of [
+			screen.getByLabelText('New password'),
+			screen.getByLabelText('Confirm new password'),
+		]) {
+			expect(field).toHaveClass('min-h-11')
+			expect(field).not.toHaveClass('h-9')
+		}
+	})
+
+	it('accepts a later display-name save when preference storage is unavailable', async () => {
+		const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new Error('storage unavailable')
+		})
+		renderSettings()
+		fireEvent.click(screen.getByLabelText('Darken email content automatically'))
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(screen.getByLabelText('Darken email content automatically')).not.toBeChecked()
+		expect(window.localStorage.getItem('ownmail:user-preferences:v1')).toBeNull()
+
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Grace' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
+		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: 'Grace' } })
+		expect(screen.getByLabelText('Display name')).toHaveValue('Grace')
+		setItem.mockRestore()
 	})
 
 	it('shows the running OwnMail version', () => {
@@ -123,7 +180,7 @@ describe('/settings', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
 		expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
-		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: ' Ada Lovelace ' } })
+		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: 'Ada Lovelace' } })
 		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toEqual({
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
@@ -163,13 +220,19 @@ describe('/settings', () => {
 		// throwing out of render.
 		expect(primaryTimezone.parentElement?.lastElementChild).toHaveTextContent(/\d{1,2}:\d{2}/)
 
+		// Edit a real field too: the unresolvable zone alone normalizes back to the saved
+		// value, so on its own it is not a change and the save short-circuits. Pairing it
+		// with a genuine edit forces the save to run and persist the normalized zone.
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada Lovelace' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 		await waitFor(() =>
 			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
 				primaryTimezone: savedTimezone,
 			}),
 		)
-		expect(primaryTimezone).toHaveValue(savedTimezone)
+		// The unresolvable zone never reaches storage, so a later load still finds a usable zone.
+		expect(window.localStorage.getItem('ownmail:user-preferences:v1')).not.toContain('Mars/Olympus_Mons')
+		expect(primaryTimezone.parentElement?.lastElementChild).toHaveTextContent(/\d{1,2}:\d{2}/)
 	})
 
 	it('does not adopt an account name when the server mutation fails', async () => {
@@ -178,12 +241,158 @@ describe('/settings', () => {
 		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Changed' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'We could not save your settings. Check the display name and try again.',
 		)
 		expect(window.localStorage.getItem('ownmail:user-preferences:v1')).toBeNull()
 		expect(screen.getByLabelText('Display name')).toHaveValue('Changed')
 	})
+
+	it('keeps settings saves single-flight, focus-safe, and locked while pending', async () => {
+		let resolveSave: (value: { displayName: string }) => void = () => {}
+		updateMailboxDisplayName.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada B.' } })
+		const save = screen.getByRole('button', { name: 'Save settings' })
+		save.focus()
+
+		fireEvent.click(save)
+		fireEvent.click(save)
+
+		expect(await screen.findByRole('button', { name: 'Saving…' })).toBe(save)
+		expect(save).toHaveFocus()
+		expect(save).toHaveAttribute('aria-busy', 'true')
+		expect(save).toHaveClass('min-h-11')
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
+		expect(screen.getByLabelText('Display name')).toBeDisabled()
+		expect(screen.getByLabelText('Darken email content automatically')).toBeDisabled()
+		expect(screen.getByLabelText('Save recipients to contacts automatically')).toBeDisabled()
+		for (const timezone of screen.getAllByRole('combobox')) expect(timezone).toBeDisabled()
+
+		resolveSave({ displayName: 'Ada B.' })
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(save).toHaveFocus()
+		expect(save).not.toHaveAttribute('aria-busy')
+	})
+
+	it('keeps a pending settings save active across unrelated storage changes', async () => {
+		let resolveSave: (value: { displayName: string }) => void = () => {}
+		updateMailboxDisplayName.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada B.' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() => expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1))
+
+		act(() => {
+			window.dispatchEvent(new StorageEvent('storage', { key: 'theme', newValue: 'dark' }))
+		})
+		resolveSave({ displayName: 'Ada B.' })
+
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(screen.getByLabelText('Display name')).toHaveValue('Ada B.')
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1)
+	})
+
+	it('treats another tab clearing storage as an external settings revision', async () => {
+		// `localStorage.clear()` emits a storage event with a null key and wipes the preferences entry,
+		// so the pending save is working from preferences that no longer exist and must be discarded.
+		let resolveSave: (value: { displayName: string }) => void = () => {}
+		updateMailboxDisplayName.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSave = resolve
+			}),
+		)
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada B.' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() => expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1))
+
+		act(() => {
+			window.localStorage.clear()
+			window.dispatchEvent(new StorageEvent('storage', { key: null }))
+		})
+		resolveSave({ displayName: 'Ada B.' })
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Save settings' })).not.toHaveAttribute('aria-busy'),
+		)
+		expect(screen.queryByText('Settings saved.')).not.toBeInTheDocument()
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+	})
+
+	it('keeps a failed settings revision available for retry', async () => {
+		updateMailboxDisplayName
+			.mockRejectedValueOnce(new Error('private provider detail'))
+			.mockResolvedValueOnce({ displayName: 'Grace' })
+		renderSettings()
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Grace' } })
+		const save = screen.getByRole('button', { name: 'Save settings' })
+		fireEvent.click(save)
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'We could not save your settings. Check the display name and try again.',
+		)
+		expect(save).toHaveAttribute('aria-disabled', 'false')
+		expect(screen.getByLabelText('Display name')).toHaveValue('Grace')
+
+		fireEvent.click(save)
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		expect(updateMailboxDisplayName).toHaveBeenCalledTimes(2)
+	})
+
+	it.each(['success', 'failure'] as const)(
+		'ignores a stale settings %s after external preferences replace the revision',
+		async (outcome) => {
+			let resolveSave: (value: { displayName: string }) => void = () => {}
+			let rejectSave: (reason: Error) => void = () => {}
+			updateMailboxDisplayName.mockReturnValue(
+				new Promise((resolve, reject) => {
+					resolveSave = resolve
+					rejectSave = reject
+				}),
+			)
+			renderSettings()
+			fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada B.' } })
+			fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+			await waitFor(() => expect(updateMailboxDisplayName).toHaveBeenCalledTimes(1))
+
+			window.localStorage.setItem(
+				'ownmail:user-preferences:v1',
+				JSON.stringify({
+					displayName: 'External',
+					autoSaveContacts: false,
+					emailDarkMode: false,
+					primaryTimezone: 'UTC',
+					secondaryTimezone: '',
+				}),
+			)
+			window.dispatchEvent(new StorageEvent('storage', { key: 'ownmail:user-preferences:v1' }))
+			if (outcome === 'success') resolveSave({ displayName: 'Ada B.' })
+			else rejectSave(new Error('private provider detail'))
+			await waitFor(() =>
+				expect(screen.getByRole('button', { name: 'Save settings' })).not.toHaveAttribute('aria-busy'),
+			)
+
+			await waitFor(() =>
+				expect(screen.getByLabelText('Darken email content automatically')).not.toBeChecked(),
+			)
+			expect(screen.queryByText('Settings saved.')).not.toBeInTheDocument()
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+				displayName: 'External',
+				autoSaveContacts: false,
+				emailDarkMode: false,
+			})
+		},
+	)
 
 	it('validates confirmation and submits an enabled password change', async () => {
 		renderSettings(true)

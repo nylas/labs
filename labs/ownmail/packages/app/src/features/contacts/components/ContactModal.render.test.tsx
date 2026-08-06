@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Contact } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, render as testingRender, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactModal } from './ContactModal.js'
@@ -191,6 +191,58 @@ describe('ContactModal — create', () => {
 		}
 	})
 
+	it('provides touch-friendly, focus-visible contact controls', () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		const expectFocusFallback = (control: HTMLElement) =>
+			expect(control).toHaveClass(
+				'focus-visible:ring-[3px]',
+				'focus-visible:ring-ring',
+				'forced-colors:focus-visible:outline-2',
+				'forced-colors:focus-visible:outline-offset-2',
+				'forced-colors:focus-visible:outline-solid',
+			)
+
+		expect(screen.getByLabelText('First name', { selector: 'input' })).toHaveClass('h-11')
+		expect(screen.getByLabelText('Email 1')).toHaveClass('h-11')
+		const emailType = screen.getByLabelText('Email 1 type')
+		expect(emailType).toHaveClass('h-11')
+		expectFocusFallback(emailType)
+		const close = screen.getByRole('button', { name: 'Close' })
+		expect(close).toHaveClass('h-11', 'w-11')
+		expectFocusFallback(close)
+		const addEmail = screen.getByRole('button', { name: 'Add email' })
+		expect(addEmail).toHaveClass('min-h-11')
+		expectFocusFallback(addEmail)
+		const removeEmail = screen.getByRole('button', { name: 'Remove email 1' })
+		expect(removeEmail).toHaveClass('h-11', 'w-11')
+		expectFocusFallback(removeEmail)
+		const cancel = screen.getByRole('button', { name: 'Cancel' })
+		expect(cancel).toHaveClass('min-h-11')
+		expectFocusFallback(cancel)
+		const addContact = screen.getByRole('button', { name: 'Add contact' })
+		expect(addContact).toHaveClass('min-h-11')
+		expectFocusFallback(addContact)
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		expect(screen.getByLabelText('Phone 1')).toHaveClass('h-11')
+		const phoneType = screen.getByLabelText('Phone 1 type')
+		expect(phoneType).toHaveClass('h-11')
+		expectFocusFallback(phoneType)
+		const removePhone = screen.getByRole('button', { name: 'Remove phone 1' })
+		expect(removePhone).toHaveClass('h-11', 'w-11')
+		expectFocusFallback(removePhone)
+
+		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
+			target: { value: 'Ada' },
+		})
+		fireEvent.click(cancel)
+		const continueEditing = screen.getByRole('button', { name: 'Continue editing' })
+		const discardChanges = screen.getByRole('button', { name: 'Discard changes' })
+		for (const action of [continueEditing, discardChanges]) {
+			expect(action).toHaveClass('min-h-11')
+			expectFocusFallback(action)
+		}
+	})
+
 	it('surfaces a save error and keeps the dialog open', async () => {
 		createContact.mockRejectedValue(new Error('QUOTA: too many contacts'))
 		const onClose = vi.fn()
@@ -199,10 +251,13 @@ describe('ContactModal — create', () => {
 		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
 
-		expect(
-			await screen.findByText('Could not save contact. Check your connection, then try again.'),
-		).toBeInTheDocument()
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Could not save contact. Check your connection, then try again.',
+		)
 		expect(onClose).not.toHaveBeenCalled()
+		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'retry@x.com' } })
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Add contact' })).toBeEnabled()
 	})
 
 	it('shows a generic message when the failure is not an Error', async () => {
@@ -237,6 +292,35 @@ describe('ContactModal — create', () => {
 		expect(onClose).not.toHaveBeenCalled()
 		resolve({ contactId: 'contact-new' })
 		await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+	})
+
+	it('submits once and locks every contact control while the save is in flight', async () => {
+		let resolve: (value: { contactId: string }) => void = () => {}
+		createContact.mockReturnValue(
+			new Promise<{ contactId: string }>((done) => {
+				resolve = done
+			}),
+		)
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		fireEvent.change(screen.getByLabelText('Email 1'), { target: { value: 'grace@x.com' } })
+		const submit = screen.getByRole('button', { name: 'Add contact' })
+
+		act(() => {
+			submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+
+		await waitFor(() => expect(createContact).toHaveBeenCalledTimes(1))
+		expect(await screen.findByRole('button', { name: 'Saving...' })).toBeDisabled()
+		expect(screen.getByLabelText('Email 1')).toBeDisabled()
+		expect(screen.getByLabelText('Email 1 type')).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Add email' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Remove email 1' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+		expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true')
+
+		await act(async () => resolve({ contactId: 'contact-new' }))
 	})
 })
 

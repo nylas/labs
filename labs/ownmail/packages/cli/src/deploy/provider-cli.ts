@@ -184,6 +184,53 @@ export async function setVercelEnvironment(
 	}
 }
 
+/**
+ * Reports whether the linked Vercel project already holds this production
+ * setting. Only names are used: `vercel env ls --format json` returns a value
+ * only for plain settings, and OwnMail stores its secrets as sensitive, so an
+ * existing secret value is never returned, read, or written anywhere.
+ */
+export async function vercelHasEnvironmentVariable(dir: string, name: string): Promise<boolean> {
+	const result = await runProviderCli('vercel', [
+		'env',
+		'ls',
+		'production',
+		'--format',
+		'json',
+		'--cwd',
+		dir,
+		'--no-color',
+		'--non-interactive',
+	])
+	if (result.code !== 0) throw providerFailure('vercel', 'inspect deployment settings', result, false)
+	return parseVercelEnvironmentNames(result.stdout).has(name)
+}
+
+/**
+ * Reports whether the Netlify site already holds this setting. Only the key set
+ * of the listing is inspected — OwnMail never reads an existing secret value
+ * back out of the provider, and never writes one to disk.
+ */
+export async function netlifyHasEnvironmentVariable(
+	dir: string,
+	siteId: string,
+	name: string,
+): Promise<boolean> {
+	const result = await runProviderCli(
+		'netlify',
+		['env:list', '--context', 'production', '--json', '--site', requireUuid(siteId, 'Netlify site ID')],
+		{ cwd: dir },
+	)
+	if (result.code !== 0) throw providerFailure('netlify', 'inspect deployment settings', result, false)
+	const raw = parseJsonOutput(result.stdout)
+	if (!isRecord(raw)) {
+		throw new Error(
+			'Netlify returned an invalid deployment settings inventory; refusing to replace deployment secrets.',
+		)
+	}
+	return Object.hasOwn(raw, name)
+}
+
 /** Ensures the linked Vercel project has durable storage for sessions and realtime counters. */
 export async function ensureVercelRealtimeStore(
 	dir: string,
@@ -552,6 +599,25 @@ function parseVercelScope(value: unknown): VercelScope | null {
 	if (typeof name !== 'string' || name.length < 1 || name.length > 160 || /[\r\n\0]/.test(name)) return null
 	if (typeof current !== 'boolean') return null
 	return { id, slug, name, current }
+}
+
+function parseVercelEnvironmentNames(output: string): Set<string> {
+	const raw = parseJsonOutput(output)
+	if (!isRecord(raw) || !Array.isArray(raw.envs) || raw.envs.length > 1000) {
+		throw new Error(
+			'Vercel returned an invalid deployment settings inventory; refusing to replace deployment secrets.',
+		)
+	}
+	const names = new Set<string>()
+	for (const entry of raw.envs) {
+		if (!isRecord(entry) || typeof entry.key !== 'string') {
+			throw new Error(
+				'Vercel returned an invalid deployment settings inventory; refusing to replace deployment secrets.',
+			)
+		}
+		names.add(entry.key)
+	}
+	return names
 }
 
 function parseVercelIntegrationResources(output: string): Array<{ product: string; status: string }> {
