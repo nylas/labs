@@ -29,6 +29,8 @@ const SESSION_REVOCATION_TTL_SECONDS = 300
 const CONNECT_STATE_TTL_SECONDS = 600
 const MAX_SESSION_ACCOUNTS = 10
 const MAX_SESSION_COOKIE_VALUE_LENGTH = 3800
+/** base64url of the 32 random bytes every session id is minted from. */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/
 
 export type SessionAccount = {
 	grantId: string
@@ -183,6 +185,21 @@ async function accountHandle(grantId: string): Promise<string> {
 }
 
 /**
+ * The KV pointer this request carries, but only once it has proven the cookie is ours:
+ * the id must have the exact shape we mint (base64url of 32 random bytes) and carry a
+ * valid HMAC. Anything that writes a key derived from the cookie must go through this —
+ * otherwise an unauthenticated caller could name arbitrary keys in our namespace and
+ * burn write quota, and an oversized value could make the surrounding handler throw.
+ */
+async function verifiedSessionId(request: Request): Promise<string | null> {
+	const value = cookieValue(request, COOKIE_NAME)
+	if (!value) return null
+	const [id, sig] = value.split('.')
+	if (!id || !sig || !SESSION_ID_PATTERN.test(id)) return null
+	return timingSafeEqual(await hmac(id), sig) ? id : null
+}
+
+/**
  * Extends the session deadline on authenticated activity, at most once per
  * SESSION_SLIDE_INTERVAL_SECONDS. Returns a Set-Cookie header value when the window
  * moved (the cookie Max-Age has to move with it), or null when the throttle says the
@@ -192,20 +209,23 @@ async function accountHandle(grantId: string): Promise<string> {
  * happens while a request is in flight deletes the record; if this slide then wrote the
  * old record back and its response landed last, the browser would adopt a resurrected
  * cookie — the user would stay signed in after signing out. Every path that destroys a
- * record tombstones its id first, and the slide refuses to write when it sees one.
+ * record tombstones its id *before* deleting it, and the slide checks for a tombstone
+ * both before and after its own write. That ordering is what makes the pair sufficient:
  *
- * KV offers no compare-and-swap, so this narrows the race rather than closing it: the
- * slide can still resurrect a record if the tombstone is written after this check *and*
- * the delete beats the write below. That is a single KV round-trip wide, against the
- * whole request lifetime before.
+ * - tombstone lands before the pre-check → nothing is written;
+ * - tombstone lands between the two checks → the post-check sees it and deletes the
+ *   record this call just wrote, issuing no cookie;
+ * - tombstone lands after the post-check → the delete that follows it also lands after
+ *   the write, so the record is removed by the logout itself.
  *
- * The caller passes the session it already resolved, so sliding costs one read, not two.
+ * Residual, and it is a property of the store rather than of this code: Cloudflare KV
+ * reads are eventually consistent, so the post-check can be served a stale value and
+ * miss a tombstone written moments earlier. Closing that needs a strongly consistent
+ * primitive — Durable Objects — which is the follow-up path, not something KV can give.
+ *
+ * The caller passes the session it already resolved, so sliding costs no extra read.
  */
 export async function slideSessionExpiry(request: Request, session: Session): Promise<string | null> {
-	// Only the request's own cookie may be extended — never mint a record for a
-	// request that carries no session.
-	const value = cookieValue(request, COOKIE_NAME)
-	if (!value) return null
 	const now = Date.now()
 	const extendedAt = session.expiresAt - SESSION_TTL_SECONDS * 1000
 	if (now - extendedAt < SESSION_SLIDE_INTERVAL_SECONDS * 1000) return null
@@ -217,20 +237,31 @@ export async function slideSessionExpiry(request: Request, session: Session): Pr
 	// docs rather than papered over, and KV-less targets keep a fixed 14-day window
 	// running from their last sign-in.
 	if (!kv) return null
-	const id = value.split('.')[0]
+	// Only the request's own signed cookie may be extended — never mint a record for a
+	// request that carries no session, and never write a client-supplied id.
+	const id = await verifiedSessionId(request)
+	if (!id) return null
 	// Checked as late as possible, immediately before the write.
 	if (await kv.get(`revoked:${id}`)) return null
 	// Reuse the existing id so the slide is a single idempotent write and concurrent
 	// requests can't strand orphan records or invalidate each other's cookie.
-	return persistSession(
-		{
-			accounts: session.accounts,
-			activeGrantId: session.grantId,
-			createdAt: session.createdAt,
-			expiresAt: now + SESSION_TTL_SECONDS * 1000,
-		},
-		id,
-	)
+	const record: StoredSession = {
+		accounts: session.accounts,
+		activeGrantId: session.grantId,
+		createdAt: session.createdAt,
+		expiresAt: now + SESSION_TTL_SECONDS * 1000,
+	}
+	// Same serialization persistSession will write, so the cleanup below can tell our
+	// own record apart from one another writer has since put under this id.
+	const written = JSON.stringify(record)
+	const cookie = await persistSession(record, id)
+	if (await kv.get(`revoked:${id}`)) {
+		// The session died while we were writing. Undo it — but only if the record is
+		// still the one we wrote, so we never delete a replacement someone else put here.
+		if ((await kv.get(`session:${id}`)) === written) await kv.delete(`session:${id}`)
+		return null
+	}
+	return cookie
 }
 
 async function persistSession(record: StoredSession, existingId?: string): Promise<string> {
@@ -327,8 +358,11 @@ export async function getSession(request: Request): Promise<Session | null> {
 export async function destroySession(request: Request): Promise<void> {
 	const { kv } = await platform()
 	if (!kv) return // stateless sessions die with the cleared cookie
-	const value = cookieValue(request, COOKIE_NAME)
-	const id = value?.split('.')[0]
+	// Fail closed on anything we did not sign. `/logout` is reachable unauthenticated,
+	// so an unverified id here would let a caller mint arbitrary tombstone keys. The
+	// caller still clears the client cookie, so a rejected cookie logs the user out
+	// locally either way.
+	const id = await verifiedSessionId(request)
 	if (!id) return
 	// Tombstone before deleting, never after: a refresh that is already in flight
 	// checks for this key before it writes, so it cannot re-create the record behind

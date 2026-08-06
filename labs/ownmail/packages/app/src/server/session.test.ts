@@ -332,6 +332,46 @@ describe('KV-backed sessions', () => {
 		expect(await getSession(req(`ownmail_session=${cookieValue}`))).toBeNull()
 	})
 
+	/**
+	 * `/logout` is reachable without a valid session, so the tombstone it writes is a
+	 * key name derived from client input. Signing has to be checked first, or anyone
+	 * could POST random cookies in a loop and mint unbounded KV keys — burning write
+	 * quota and storage — while an oversized value could make logout throw before the
+	 * response clears the cookie.
+	 */
+	it('writes no tombstone for a session cookie it did not sign', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const realId = 'a'.repeat(43)
+		const forged = [
+			`ownmail_session=${realId}.not-the-real-signature`, // right shape, bad HMAC
+			`ownmail_session=${'b'.repeat(4000)}.${'c'.repeat(4000)}`, // oversized
+			'ownmail_session=short.sig', // wrong id shape
+			'ownmail_session=nodotseparator',
+		]
+
+		for (const cookie of forged) await destroySession(req(cookie))
+
+		// Nothing written, nothing named by the caller — and no throw for the caller to
+		// trip over, so the route still clears the client cookie.
+		expect(kv.puts).toEqual([])
+		expect(kv.store.size).toBe(0)
+	})
+
+	it('refuses to slide a session cookie it did not sign', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const session = (await getSession(req(`ownmail_session=${cookie}`))) as Session
+		const writesAfterLogin = kv.puts.length
+
+		// A valid session object paired with a cookie whose signature does not check out:
+		// the id is client input, so it must never reach a KV key.
+		const forged = req(`ownmail_session=${'z'.repeat(43)}.${cookie.split('.')[1]}`)
+		expect(await slideSessionExpiry(forged, { ...session, expiresAt: Date.now() })).toBeNull()
+		expect(kv.puts.length).toBe(writesAfterLogin)
+	})
+
 	it('is a no-op on destroy when there is no session cookie to look up', async () => {
 		const kv = makeKv()
 		usePlatform(kv)
@@ -857,6 +897,69 @@ describe('sliding session expiry', () => {
 		expect(order).toEqual(['put revoked', 'delete session'])
 		// And it outlives any request that could still be in flight.
 		expect(kv.puts.at(-1)?.options?.expirationTtl).toBeGreaterThanOrEqual(60)
+	})
+
+	/**
+	 * The narrow case the pre-check alone cannot catch: the tombstone lands *after* the
+	 * slide reads it but before the write completes. The post-write check is what closes
+	 * it — the slide removes the record it just created and issues no cookie, so the
+	 * logout still wins even though the write technically happened.
+	 */
+	it('deletes the record it just wrote when a logout lands between the two checks', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const id = cookie.split('.')[0]
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		// Absent on the pre-check, present by the post-check: the logout landed in between.
+		const realGet = kv.get
+		let revocationReads = 0
+		kv.get = async (key) => {
+			if (!key.startsWith('revoked:')) return realGet(key)
+			revocationReads += 1
+			return revocationReads === 1 ? null : '1'
+		}
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// The write did happen — proving this is the post-check cleaning up, not the
+		// pre-check bailing out — and the record is gone again.
+		expect(kv.puts.some((put) => put.key === `session:${id}`)).toBe(true)
+		expect(kv.store.has(`session:${id}`)).toBe(false)
+	})
+
+	/**
+	 * The cleanup must only ever remove the slide's *own* write. If another writer put a
+	 * record under this id in the meantime, deleting it would turn a race fix into the
+	 * session-destroying bug it replaced.
+	 */
+	it('leaves a record another writer replaced ours with alone while still issuing no cookie', async () => {
+		const kv = makeKv()
+		usePlatform(kv)
+		const cookie = cookieFromSetCookie(await createSession('grant-a', 'a@ownmail.com'))
+		const id = cookie.split('.')[0]
+
+		vi.setSystemTime(new Date(START.getTime() + DAY_MS + 1_000))
+		const [request, session] = await sessionFor(cookie)
+		const realGet = kv.get
+		let revocationReads = 0
+		kv.get = async (key) => {
+			if (!key.startsWith('revoked:')) return realGet(key)
+			revocationReads += 1
+			return revocationReads === 1 ? null : '1'
+		}
+		// Someone else rewrites this id immediately after our write lands.
+		const replacement = JSON.stringify({ replaced: 'by another writer' })
+		const realPut = kv.put
+		kv.put = async (key, value, options) => {
+			await realPut(key, value, options)
+			if (key === `session:${id}`) kv.store.set(key, replacement)
+		}
+
+		expect(await slideSessionExpiry(request, session)).toBeNull()
+		// No cookie either way, but the other writer's record survives untouched.
+		expect(kv.store.get(`session:${id}`)).toBe(replacement)
 	})
 
 	/** Same race against an account switch: the slide must not restore the old inbox. */
