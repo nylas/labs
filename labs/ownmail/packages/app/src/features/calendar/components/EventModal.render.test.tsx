@@ -1245,12 +1245,14 @@ describe('EventModal — editing an existing event', () => {
 		renderEdit()
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
 
+		// Draft values are deliberately short: only the discard is asserted, and every
+		// keystroke re-renders the modal, which is slow enough to matter on CI.
 		await user.clear(screen.getByLabelText('Title'))
-		await user.type(screen.getByLabelText('Title'), 'Canceled title')
+		await user.type(screen.getByLabelText('Title'), 'draft')
 		await user.clear(screen.getByLabelText('Location'))
-		await user.type(screen.getByLabelText('Location'), 'Canceled room')
+		await user.type(screen.getByLabelText('Location'), 'draft')
 		await user.clear(screen.getByLabelText('Description'))
-		await user.type(screen.getByLabelText('Description'), 'Canceled notes')
+		await user.type(screen.getByLabelText('Description'), 'draft')
 
 		await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
@@ -1289,7 +1291,7 @@ describe('EventModal — editing an existing event', () => {
 		const user = userEvent.setup()
 		renderEdit()
 
-		for (const draftTitle of ['Canceled title', 'Another canceled title']) {
+		for (const draftTitle of ['first', 'second']) {
 			await user.click(screen.getByRole('button', { name: /Edit/ }))
 			expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
 			await user.clear(screen.getByLabelText('Title'))
@@ -1309,9 +1311,9 @@ describe('EventModal — editing an existing event', () => {
 		expect(screen.getByLabelText('Location')).toHaveValue('')
 		expect(screen.getByLabelText('Description')).toHaveValue('')
 
-		await user.type(screen.getByLabelText('Title'), 'Canceled title')
-		await user.type(screen.getByLabelText('Location'), 'Canceled location')
-		await user.type(screen.getByLabelText('Description'), 'Canceled description')
+		await user.type(screen.getByLabelText('Title'), 'draft')
+		await user.type(screen.getByLabelText('Location'), 'draft')
+		await user.type(screen.getByLabelText('Description'), 'draft')
 		await user.click(screen.getByRole('button', { name: 'Cancel' }))
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
 
