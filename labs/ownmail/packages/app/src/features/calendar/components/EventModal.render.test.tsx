@@ -1240,7 +1240,7 @@ describe('EventModal — editing an existing event', () => {
 		})
 	})
 
-	it('cancels editing, restores focus, and discards every changed field before editing again', async () => {
+	it('cancels editing, restores focus, and discards every changed text field', async () => {
 		const user = userEvent.setup()
 		renderEdit()
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
@@ -1251,10 +1251,6 @@ describe('EventModal — editing an existing event', () => {
 		await user.type(screen.getByLabelText('Location'), 'Canceled room')
 		await user.clear(screen.getByLabelText('Description'))
 		await user.type(screen.getByLabelText('Description'), 'Canceled notes')
-		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
-		await user.click(await screen.findByRole('option', { name: '1 PM' }))
-		await user.click(screen.getByRole('combobox', { name: 'End time' }))
-		await user.click(await screen.findByRole('option', { name: '2 PM' }))
 
 		await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
@@ -1267,16 +1263,41 @@ describe('EventModal — editing an existing event', () => {
 		expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
 		expect(screen.getByLabelText('Location')).toHaveValue('Room 5')
 		expect(screen.getByLabelText('Description')).toHaveValue('Weekly sync')
+	})
+
+	it('discards changed start and end times when editing is canceled', async () => {
+		const user = userEvent.setup()
+		renderEdit()
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+
+		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
+		await user.click(await screen.findByRole('option', { name: '1 PM' }))
+		await user.click(screen.getByRole('combobox', { name: 'End time' }))
+		await user.click(await screen.findByRole('option', { name: '2 PM' }))
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+		const edit = screen.getByRole('button', { name: /Edit/ })
+		await waitFor(() => expect(edit).toHaveFocus())
+		await user.click(edit)
 		expect(screen.getByRole('combobox', { name: 'Start time' })).toHaveTextContent('10 AM')
 		expect(screen.getByRole('combobox', { name: 'End time' })).toHaveTextContent('11 AM')
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
 
-		await user.clear(screen.getByLabelText('Title'))
-		await user.type(screen.getByLabelText('Title'), 'Another canceled title')
-		await user.click(screen.getByRole('button', { name: 'Cancel' }))
-		const editAgain = screen.getByRole('button', { name: /Edit/ })
-		await waitFor(() => expect(editAgain).toHaveFocus())
-		await user.click(editAgain)
-		expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
+	it('discards changes on every repeated edit-and-cancel cycle', async () => {
+		const user = userEvent.setup()
+		renderEdit()
+
+		for (const draftTitle of ['Canceled title', 'Another canceled title']) {
+			await user.click(screen.getByRole('button', { name: /Edit/ }))
+			expect(screen.getByLabelText('Title')).toHaveValue('Team Sync')
+			await user.clear(screen.getByLabelText('Title'))
+			await user.type(screen.getByLabelText('Title'), draftTitle)
+			await user.click(screen.getByRole('button', { name: 'Cancel' }))
+			await waitFor(() => expect(screen.getByRole('button', { name: /Edit/ })).toHaveFocus())
+		}
+
 		expect(updateEvent).not.toHaveBeenCalled()
 	})
 
