@@ -17,6 +17,7 @@ const GRANT_ID = 'dev-grant'
 const MAILBOX_NAME = 'Ada Lovelace'
 const MAILBOX_EMAIL = 'ada@ownmail.com'
 const ACCOUNT = { name: MAILBOX_NAME, email: MAILBOX_EMAIL }
+let managedResourceSequence = 0
 
 type StoredThread = Thread & { folders: string[]; message_ids: string[] }
 type StoredMessage = Message & { thread_id: string }
@@ -52,6 +53,26 @@ export function createDevMailbox() {
 class DevMailbox {
 	async listFolders(): Promise<ListResponse<Folder>> {
 		return listResponse(mockFolders())
+	}
+
+	async createFolder(body: { name: string }): Promise<ItemResponse<Folder>> {
+		const id = `folder-${++managedResourceSequence}`
+		folderNames.set(id, { name: body.name, system: false })
+		return itemResponse(mockFolders().find((folder) => folder.id === id) as Folder)
+	}
+
+	async updateFolder(folderId: string, body: { name: string }): Promise<ItemResponse<Folder>> {
+		const folder = folderNames.get(folderId)
+		if (!folder || folder.system) throw new Error('Folder cannot be changed')
+		folder.name = body.name
+		return itemResponse(mockFolders().find((candidate) => candidate.id === folderId) as Folder)
+	}
+
+	async deleteFolder(folderId: string): Promise<void> {
+		const folder = folderNames.get(folderId)
+		if (!folder || folder.system) throw new Error('Folder cannot be changed')
+		folderNames.delete(folderId)
+		for (const thread of threads.values()) thread.folders = thread.folders.filter((id) => id !== folderId)
 	}
 
 	async listThreads(query?: ListQuery): Promise<ListResponse<Thread>> {
@@ -195,6 +216,37 @@ class DevMailbox {
 
 	async listCalendars(): Promise<ListResponse<Calendar>> {
 		return listResponse(calendars)
+	}
+
+	async createCalendar(body: { name: string }): Promise<ItemResponse<Calendar>> {
+		const created: Calendar = {
+			id: `calendar-${++managedResourceSequence}`,
+			grant_id: GRANT_ID,
+			name: body.name,
+			timezone: localTimezone,
+			is_primary: false,
+			read_only: false,
+		}
+		calendars.push(created)
+		return itemResponse(created)
+	}
+
+	async updateCalendar(calendarId: string, body: { name: string }): Promise<ItemResponse<Calendar>> {
+		const calendar = calendars.find((candidate) => candidate.id === calendarId)
+		if (!calendar || calendar.read_only) throw new Error('Calendar cannot be changed')
+		calendar.name = body.name
+		return itemResponse(calendar)
+	}
+
+	async deleteCalendar(calendarId: string): Promise<void> {
+		const index = calendars.findIndex((candidate) => candidate.id === calendarId)
+		if (index < 0 || calendars[index]?.read_only || calendars[index]?.is_primary) {
+			throw new Error('Calendar cannot be changed')
+		}
+		calendars.splice(index, 1)
+		for (const [eventId, event] of events) {
+			if (event.calendar_id === calendarId) events.delete(eventId)
+		}
 	}
 
 	async listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>> {

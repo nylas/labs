@@ -43,7 +43,16 @@ vi.mock('#server/nylas', () => ({
 const { platform } = vi.hoisted(() => ({ platform: vi.fn() }))
 vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
-const { createEvent, deleteEvent, getEvents, rsvpEvent, updateEvent } = await import('./calendar-fns.js')
+const {
+	createCalendar,
+	createEvent,
+	deleteCalendar,
+	deleteEvent,
+	getEvents,
+	rsvpEvent,
+	updateCalendar,
+	updateEvent,
+} = await import('./calendar-fns.js')
 
 type CalStub = { id: string; is_primary: boolean; name: string }
 
@@ -60,6 +69,11 @@ function makeMailbox(calendars: CalStub[], overrides: Record<string, unknown> = 
 			],
 		})),
 		createEvent: vi.fn(async () => ({ data: { id: 'evt-created' } })),
+		createCalendar: vi.fn(async (body: { name: string }) => ({ data: { id: 'cal-created', ...body } })),
+		updateCalendar: vi.fn(async (calendarId: string, body: { name: string }) => ({
+			data: { id: calendarId, ...body },
+		})),
+		deleteCalendar: vi.fn(async () => undefined),
 		updateEvent: vi.fn(async (eventId: string) => ({ data: { id: eventId } })),
 		deleteEvent: vi.fn(async () => undefined),
 		sendRsvp: vi.fn(async () => ({ data: { ok: true } })),
@@ -177,6 +191,68 @@ describe('calendar server functions', () => {
 		mailboxFromRequest.mockResolvedValue(null)
 
 		await expect(getEvents({ data: RANGE })).rejects.toMatchObject({ to: LOGIN_PATH })
+	})
+
+	it('creates, renames, and deletes writable non-primary calendars', async () => {
+		const mailbox = resolveMailbox([
+			{ id: 'primary', is_primary: true, name: 'Personal' },
+			{ id: 'work', is_primary: false, name: 'Work' },
+		])
+
+		expect(await createCalendar({ data: { name: ' Projects ' } })).toEqual({
+			calendar: { id: 'cal-created', name: 'Projects' },
+		})
+		expect(await updateCalendar({ data: { calendarId: 'work', name: ' Roadmap ' } })).toEqual({
+			calendar: { id: 'work', name: 'Roadmap' },
+		})
+		expect(await deleteCalendar({ data: { calendarId: 'work' } })).toEqual({
+			removedCalendarId: 'work',
+		})
+		expect(mailbox.createCalendar).toHaveBeenCalledWith({ name: 'Projects' })
+		expect(mailbox.updateCalendar).toHaveBeenCalledWith('work', { name: 'Roadmap' })
+		expect(mailbox.deleteCalendar).toHaveBeenCalledWith('work')
+	})
+
+	it('fails closed for missing, read-only, and primary calendar management targets', async () => {
+		const mailbox = resolveMailbox([
+			{ id: 'primary', is_primary: true, name: 'Personal' },
+			{ id: 'shared', is_primary: false, name: 'Shared', read_only: true },
+		] as never)
+
+		await expect(updateCalendar({ data: { calendarId: 'missing', name: 'Nope' } })).rejects.toThrow(
+			'This calendar cannot be changed.',
+		)
+		await expect(updateCalendar({ data: { calendarId: 'shared', name: 'Nope' } })).rejects.toThrow(
+			'This calendar cannot be changed.',
+		)
+		await expect(deleteCalendar({ data: { calendarId: 'primary' } })).rejects.toThrow(
+			'This calendar cannot be changed.',
+		)
+		expect(mailbox.updateCalendar).not.toHaveBeenCalled()
+		expect(mailbox.deleteCalendar).not.toHaveBeenCalled()
+	})
+
+	it('maps each calendar management provider failure to a generic safe error', async () => {
+		resolveMailbox([{ id: 'work', is_primary: false, name: 'Work' }], {
+			createCalendar: vi.fn().mockRejectedValue(new Error('provider detail')),
+		})
+		await expect(createCalendar({ data: { name: 'Projects' } })).rejects.toThrow(
+			'Something went wrong talking to your calendar.',
+		)
+
+		resolveMailbox([{ id: 'work', is_primary: false, name: 'Work' }], {
+			updateCalendar: vi.fn().mockRejectedValue(new Error('provider detail')),
+		})
+		await expect(updateCalendar({ data: { calendarId: 'work', name: 'Projects' } })).rejects.toThrow(
+			'Something went wrong talking to your calendar.',
+		)
+
+		resolveMailbox([{ id: 'work', is_primary: false, name: 'Work' }], {
+			deleteCalendar: vi.fn().mockRejectedValue(new Error('provider detail')),
+		})
+		await expect(deleteCalendar({ data: { calendarId: 'work' } })).rejects.toThrow(
+			'Something went wrong talking to your calendar.',
+		)
 	})
 
 	it('creates an event with every optional field on the addressed calendar', async () => {

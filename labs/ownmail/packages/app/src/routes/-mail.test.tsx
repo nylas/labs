@@ -84,6 +84,9 @@ vi.mock('#features/mail/components/MailSidebar', () => ({
 			<button type="button" onClick={props.onNavigate}>
 				sidebar-nav
 			</button>
+			<button type="button" onClick={() => props.onFolderDeleted('work')}>
+				delete-work-folder
+			</button>
 		</div>
 	),
 }))
@@ -161,6 +164,21 @@ describe('/mail loader + layout', () => {
 })
 
 describe('MailRouteScreen — layout wiring', () => {
+	it('recovers to Inbox only when the deleted folder is active', () => {
+		renderScreen({}, { location: { pathname: '/mail/f/work', search: {} } })
+		fireEvent.click(screen.getAllByRole('button', { name: 'delete-work-folder' })[0] as HTMLElement)
+		expect(navigate).toHaveBeenCalledWith({
+			to: '/mail/f/$folderId',
+			params: { folderId: 'inbox' },
+		})
+		cleanup()
+		navigate.mockClear()
+
+		renderScreen({}, { location: { pathname: '/mail/f/inbox', search: {} } })
+		fireEvent.click(screen.getAllByRole('button', { name: 'delete-work-folder' })[0] as HTMLElement)
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
 	it('derives the current folder from the path and shows the outlet by default', () => {
 		renderScreen()
 		expect(screen.getAllByTestId('sidebar')[0]).toHaveAttribute('data-folder', 'inbox')

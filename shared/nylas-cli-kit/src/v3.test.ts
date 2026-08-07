@@ -701,4 +701,57 @@ describe('NylasV3Client', () => {
 			},
 		])
 	})
+
+	it('performs folder and calendar CRUD against encoded grant-scoped endpoints', async () => {
+		const calls: { method: string; url: string; body: unknown }[] = []
+		const fetchImpl: typeof fetch = async (input, init) => {
+			calls.push({
+				method: init?.method ?? 'GET',
+				url: String(input),
+				body: init?.body ? JSON.parse(String(init.body)) : null,
+			})
+			return Response.json({ request_id: 'req', data: { id: 'resource#1', name: 'Projects' } })
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		await mailbox.createFolder({ name: 'Projects' })
+		await mailbox.updateFolder('folder#1', { name: 'Roadmap' })
+		await mailbox.deleteFolder('folder#1')
+		await mailbox.createCalendar({ name: 'Projects', timezone: 'America/Toronto' })
+		await mailbox.updateCalendar('calendar#1', { name: 'Roadmap' })
+		await mailbox.deleteCalendar('calendar#1')
+
+		expect(calls).toEqual([
+			{
+				method: 'POST',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/folders',
+				body: { name: 'Projects' },
+			},
+			{
+				method: 'PUT',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/folders/folder%231',
+				body: { name: 'Roadmap' },
+			},
+			{
+				method: 'DELETE',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/folders/folder%231',
+				body: null,
+			},
+			{
+				method: 'POST',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/calendars',
+				body: { name: 'Projects', timezone: 'America/Toronto' },
+			},
+			{
+				method: 'PUT',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/calendars/calendar%231',
+				body: { name: 'Roadmap' },
+			},
+			{
+				method: 'DELETE',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/calendars/calendar%231',
+				body: null,
+			},
+		])
+	})
 })

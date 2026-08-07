@@ -1,13 +1,42 @@
 import { describe, expect, it } from 'vitest'
 import {
+	normalizeCalendarIdInput,
+	normalizeCalendarNameInput,
 	normalizeCreateEventInput,
 	normalizeEventIdInput,
 	normalizeEventRangeInput,
 	normalizeRsvpEventInput,
+	normalizeUpdateCalendarInput,
 	normalizeUpdateEventInput,
 } from './calendar-input.js'
 
 describe('calendar input validation', () => {
+	it('normalizes calendar management names and ids', () => {
+		expect(normalizeCalendarNameInput({ name: '  Projects  ' })).toEqual({ name: 'Projects' })
+		expect(normalizeUpdateCalendarInput({ calendarId: 'calendar-1', name: ' Roadmap ' })).toEqual({
+			calendarId: 'calendar-1',
+			name: 'Roadmap',
+		})
+		expect(normalizeCalendarIdInput({ calendarId: 'calendar-1' })).toEqual({ calendarId: 'calendar-1' })
+	})
+
+	it.each([
+		[null, 'missing input'],
+		[{ name: 3 }, 'non-string'],
+		[{ name: '   ' }, 'blank'],
+		[{ name: 'bad\nname' }, 'control character'],
+		[{ name: 'x'.repeat(201) }, 'too long'],
+	])('rejects invalid calendar names: %s', (input) => {
+		expect(() => normalizeCalendarNameInput(input as never)).toThrow('Invalid calendar name')
+	})
+
+	it('rejects invalid calendar ids for update and delete', () => {
+		expect(() => normalizeUpdateCalendarInput({ calendarId: '', name: 'Projects' })).toThrow(
+			'Invalid calendar',
+		)
+		expect(() => normalizeCalendarIdInput({ calendarId: 'bad\nid' })).toThrow('Invalid calendar')
+	})
+
 	it('normalizes event list ranges for Nylas epoch-second filters', () => {
 		expect(normalizeEventRangeInput({ start: 1_800_000_000, end: 1_800_003_600 })).toEqual({
 			start: 1_800_000_000,
