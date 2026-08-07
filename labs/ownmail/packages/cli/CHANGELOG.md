@@ -1,5 +1,12 @@
 # ownmail
 
+## 0.12.3
+
+### Patch Changes
+
+- Updated dependencies [df6410e]
+  - @nylas-labs/cli-kit@0.7.1
+
 ## 0.12.2
 
 ### Patch Changes

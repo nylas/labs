@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.7.1
+
+### Patch Changes
+
+- df6410e: Add folder and calendar management with secure create, rename, and delete flows.
+
 ## 0.7.0
 
 ### Minor Changes
