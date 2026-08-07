@@ -1,4 +1,4 @@
-import type { Event } from '@nylas-labs/cli-kit/v3'
+import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
 	createEvent,
@@ -79,6 +79,37 @@ export type CalendarEffect =
 	| { type: 'updated'; event: Event }
 	| { type: 'deleted'; eventId: string }
 	| { type: 'rsvped'; eventId: string; status: RsvpEventInput['status'] }
+
+export type CalendarResourceEffect =
+	| { type: 'created'; calendar: Calendar }
+	| { type: 'updated'; calendar: Calendar }
+	| { type: 'deleted'; calendarId: string }
+
+export function applyCalendarResourceEffect(queryClient: QueryClient, effect: CalendarResourceEffect) {
+	queryClient.setQueriesData<CalendarRouteData>({ queryKey: calendarKeys.all }, (data) => {
+		if (!data) return data
+		if (effect.type === 'deleted') {
+			const calendars = data.calendars.filter((calendar) => calendar.id !== effect.calendarId)
+			const calendar = calendars.find((candidate) => candidate.is_primary) ?? calendars[0]
+			if (!calendar) return data
+			return {
+				...data,
+				calendar,
+				calendars,
+				events: data.events.filter((event) => event.calendar_id !== effect.calendarId),
+			}
+		}
+		const found = data.calendars.some((calendar) => calendar.id === effect.calendar.id)
+		const calendars = found
+			? data.calendars.map((calendar) => (calendar.id === effect.calendar.id ? effect.calendar : calendar))
+			: [...data.calendars, effect.calendar]
+		return {
+			...data,
+			calendars,
+			calendar: data.calendar.id === effect.calendar.id ? effect.calendar : data.calendar,
+		}
+	})
+}
 
 function applyEventEffect(events: Event[], effect: CalendarEffect): Event[] {
 	switch (effect.type) {

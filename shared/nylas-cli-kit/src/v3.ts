@@ -116,9 +116,14 @@ export type Folder = {
 	parent_id?: string
 	system_folder?: boolean
 	attributes?: string[]
+	background_color?: string
+	text_color?: string
 	total_count?: number
 	unread_count?: number
 }
+
+export type FolderFields = Pick<Folder, 'name'> &
+	Partial<Pick<Folder, 'parent_id' | 'background_color' | 'text_color'>>
 
 export type Draft = Message & { reply_to_message_id?: string }
 
@@ -144,11 +149,17 @@ export type Calendar = {
 	id: string
 	grant_id?: string
 	name: string
+	description?: string
+	location?: string
 	timezone?: string
 	is_primary?: boolean
 	read_only?: boolean
+	is_owned_by_user?: boolean
 	hex_color?: string
 }
+
+export type CalendarFields = Pick<Calendar, 'name'> &
+	Partial<Pick<Calendar, 'description' | 'location' | 'timezone'>>
 
 export type Contact = {
 	id: string
@@ -920,8 +931,14 @@ export class GrantScopedClient {
 	listFolders(query?: ListQuery): Promise<ListResponse<Folder>> {
 		return this.client.request('GET', this.path(`/folders${toQuery(query)}`))
 	}
-	createFolder(body: { name: string; parent_id?: string }): Promise<ItemResponse<Folder>> {
+	createFolder(body: FolderFields): Promise<ItemResponse<Folder>> {
 		return this.client.request('POST', this.path('/folders'), body)
+	}
+	updateFolder(folderId: string, body: FolderFields): Promise<ItemResponse<Folder>> {
+		return this.client.request('PUT', this.path(`/folders/${encodeURIComponent(folderId)}`), body)
+	}
+	deleteFolder(folderId: string): Promise<void> {
+		return this.client.request('DELETE', this.path(`/folders/${encodeURIComponent(folderId)}`))
 	}
 
 	// Drafts
@@ -974,6 +991,15 @@ export class GrantScopedClient {
 
 	listCalendars(query?: ListQuery): Promise<ListResponse<Calendar>> {
 		return this.client.request('GET', this.path(`/calendars${toQuery(query)}`))
+	}
+	createCalendar(body: CalendarFields): Promise<ItemResponse<Calendar>> {
+		return this.client.request('POST', this.path('/calendars'), body)
+	}
+	updateCalendar(calendarId: string, body: CalendarFields): Promise<ItemResponse<Calendar>> {
+		return this.client.request('PUT', this.path(`/calendars/${encodeURIComponent(calendarId)}`), body)
+	}
+	deleteCalendar(calendarId: string): Promise<void> {
+		return this.client.request('DELETE', this.path(`/calendars/${encodeURIComponent(calendarId)}`))
 	}
 	listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>> {
 		return this.client.request('GET', this.path(`/events${toQuery(query)}`))

@@ -9,15 +9,21 @@ import { signalLocalChange } from '#server/change-version'
 import { requireMailbox } from '#server/mailbox-boundary'
 import { isRenderableCalendarEvent } from '../lib/calendar.js'
 import {
+	type CalendarIdInput,
+	type CalendarNameInput,
 	type CreateEventInput,
 	type EventIdInput,
 	type EventRangeInput,
+	normalizeCalendarIdInput,
+	normalizeCalendarNameInput,
 	normalizeCreateEventInput,
 	normalizeEventIdInput,
 	normalizeEventRangeInput,
 	normalizeRsvpEventInput,
+	normalizeUpdateCalendarInput,
 	normalizeUpdateEventInput,
 	type RsvpEventInput,
+	type UpdateCalendarInput,
 	type UpdateEventInput,
 } from './calendar-input.js'
 
@@ -61,6 +67,59 @@ async function authorizedCalendar(calendarId?: string): Promise<{
 	if (!calendar) throw new Error('Calendar not found.')
 	return { ...resolved, calendar }
 }
+
+async function managedCalendar(
+	calendarId: string,
+	operation: 'update' | 'delete',
+): Promise<Awaited<ReturnType<typeof primaryCalendar>>> {
+	const resolved = await primaryCalendar()
+	const calendar = resolved.calendars.find((candidate) => candidate.id === calendarId)
+	if (!calendar || calendar.read_only || (operation === 'delete' && calendar.is_primary)) {
+		throw new Error('This calendar cannot be changed.')
+	}
+	return { ...resolved, calendar }
+}
+
+export const createCalendar = createServerFn({ method: 'POST' })
+	.validator((input: CalendarNameInput) => normalizeCalendarNameInput(input))
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			const created = await mailbox.createCalendar({ name: data.name })
+			await signalLocalChange(grantId, 'calendar')
+			return { calendar: created.data }
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+export const updateCalendar = createServerFn({ method: 'POST' })
+	.validator((input: UpdateCalendarInput) => normalizeUpdateCalendarInput(input))
+	.handler(async ({ data }) => {
+		try {
+			const { mailbox, calendar, grantId } = await managedCalendar(data.calendarId, 'update')
+			const updated = await mailbox.updateCalendar(calendar.id, { name: data.name })
+			await signalLocalChange(grantId, 'calendar')
+			return { calendar: updated.data }
+		} catch (err) {
+			if (err instanceof Error && err.message === 'This calendar cannot be changed.') throw err
+			throw friendly(err)
+		}
+	})
+
+export const deleteCalendar = createServerFn({ method: 'POST' })
+	.validator((input: CalendarIdInput) => normalizeCalendarIdInput(input))
+	.handler(async ({ data }) => {
+		try {
+			const { mailbox, calendar, grantId } = await managedCalendar(data.calendarId, 'delete')
+			await mailbox.deleteCalendar(calendar.id)
+			await signalLocalChange(grantId, 'calendar')
+			return { removedCalendarId: calendar.id }
+		} catch (err) {
+			if (err instanceof Error && err.message === 'This calendar cannot be changed.') throw err
+			throw friendly(err)
+		}
+	})
 
 export const getEvents = createServerFn({ method: 'GET' })
 	.validator((input: EventRangeInput) => normalizeEventRangeInput(input))

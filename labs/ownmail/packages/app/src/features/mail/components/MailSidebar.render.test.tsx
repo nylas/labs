@@ -18,6 +18,19 @@ vi.mock('@tanstack/react-router', () => ({
 	},
 }))
 
+vi.mock('./FolderManagerDialog.js', () => ({
+	FolderManagerDialog: ({ onClose, onDeleted }: any) => (
+		<div role="dialog" aria-label="Folder manager">
+			<button type="button" onClick={onClose}>
+				close manager
+			</button>
+			<button type="button" onClick={() => onDeleted?.('work')}>
+				delete work
+			</button>
+		</div>
+	),
+}))
+
 afterEach(cleanup)
 
 const folders = [
@@ -64,9 +77,21 @@ describe('MailSidebar', () => {
 		expect(screen.getByRole('link', { name: 'zeta' })).toBeInTheDocument()
 	})
 
-	it('omits the Labels section entirely when there are no custom folders', () => {
+	it('keeps folder management discoverable when there are no custom folders', () => {
 		const systemOnly = [{ id: 'inbox', system_folder: true }] as unknown as Folder[]
 		render(<MailSidebar folders={systemOnly} composeSearch={{}} />)
-		expect(screen.queryByText('Labels')).toBeNull()
+		expect(screen.getByText('Labels')).toBeInTheDocument()
+		expect(screen.getByText('No labels yet.')).toBeInTheDocument()
+	})
+
+	it('opens and closes folder management and reports deletion to the route', () => {
+		const onFolderDeleted = vi.fn()
+		render(<MailSidebar folders={folders} composeSearch={{}} onFolderDeleted={onFolderDeleted} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Manage folders' }))
+		expect(screen.getByRole('dialog', { name: 'Folder manager' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'delete work' }))
+		expect(onFolderDeleted).toHaveBeenCalledWith('work')
+		fireEvent.click(screen.getByRole('button', { name: 'close manager' }))
+		expect(screen.queryByRole('dialog', { name: 'Folder manager' })).toBeNull()
 	})
 })

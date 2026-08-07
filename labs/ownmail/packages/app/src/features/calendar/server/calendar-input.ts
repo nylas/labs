@@ -2,6 +2,7 @@ import { requireNylasProviderId } from '#server/ids'
 
 const MAX_EVENT_RANGE_SECONDS = 60 * 60 * 24 * 62
 const MAX_TITLE_LENGTH = 500
+const MAX_CALENDAR_NAME_LENGTH = 200
 const MAX_LOCATION_LENGTH = 1000
 const MAX_DESCRIPTION_LENGTH = 100_000
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -50,6 +51,35 @@ export type EventIdInput = {
 
 export type RsvpEventInput = EventIdInput & {
 	status: RsvpStatus
+}
+
+export type CalendarNameInput = { name: string }
+export type UpdateCalendarInput = CalendarNameInput & { calendarId: string }
+export type CalendarIdInput = { calendarId: string }
+
+export function normalizeCalendarNameInput(input: CalendarNameInput): CalendarNameInput {
+	if (!input || typeof input.name !== 'string') throw new Error('Invalid calendar name')
+	const name = requireBoundedString(input.name, 'calendar name', MAX_CALENDAR_NAME_LENGTH).trim()
+	if (!name || hasControlCharacters(name)) throw new Error('Invalid calendar name')
+	return { name }
+}
+
+function hasControlCharacters(value: string): boolean {
+	return [...value].some((character) => {
+		const code = character.charCodeAt(0)
+		return code <= 0x1f || code === 0x7f
+	})
+}
+
+export function normalizeUpdateCalendarInput(input: UpdateCalendarInput): UpdateCalendarInput {
+	return {
+		calendarId: requireNylasProviderId(input.calendarId, 'calendar'),
+		...normalizeCalendarNameInput(input),
+	}
+}
+
+export function normalizeCalendarIdInput(input: CalendarIdInput): CalendarIdInput {
+	return { calendarId: requireNylasProviderId(input.calendarId, 'calendar') }
 }
 
 export function normalizeEventRangeInput(input: EventRangeInput): EventRangeInput {

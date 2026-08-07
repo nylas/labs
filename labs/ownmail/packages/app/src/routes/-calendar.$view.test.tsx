@@ -116,6 +116,19 @@ vi.mock('#features/calendar/components/EventModal', () => ({
 	),
 }))
 
+vi.mock('#features/calendar/components/CalendarManagerDialog', () => ({
+	CalendarManagerDialog: (props: any) => (
+		<div role="dialog" aria-label="Calendar manager">
+			<button type="button" onClick={() => props.onDeleted('cal2')}>
+				delete-cal2
+			</button>
+			<button type="button" onClick={props.onClose}>
+				close-calendar-manager
+			</button>
+		</div>
+	),
+}))
+
 import { CalendarRouteScreen, loadCalendarRouteData, Route } from './calendar.$view.js'
 
 // ---- fixtures -------------------------------------------------------------
@@ -433,6 +446,22 @@ describe('week view calendar list', () => {
 	it('labels an unnamed calendar as "Calendar"', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
 		expect(screen.getByRole('button', { name: 'Calendar' })).toBeInTheDocument()
+	})
+
+	it('opens calendar management and clears deleted calendars from hidden state', () => {
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Calendar' }))
+		expect(screen.getByRole('button', { name: 'Calendar' })).toHaveAttribute('aria-pressed', 'false')
+		fireEvent.click(screen.getByRole('button', { name: 'Manage calendars' }))
+		expect(screen.getByRole('dialog', { name: 'Calendar manager' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'delete-cal2' }))
+		expect(screen.getByRole('button', { name: 'Calendar' })).toHaveAttribute('aria-pressed', 'true')
+		fireEvent.click(screen.getByRole('button', { name: 'close-calendar-manager' }))
+		expect(screen.queryByRole('dialog', { name: 'Calendar manager' })).toBeNull()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(screen.getAllByRole('button', { name: 'Manage calendars' }).at(-1) as HTMLElement)
+		expect(screen.getByRole('dialog', { name: 'Calendar manager' })).toBeInTheDocument()
 	})
 })
 

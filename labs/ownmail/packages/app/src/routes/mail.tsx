@@ -164,6 +164,11 @@ export function MailRouteScreen({
 		currentFolderId,
 		baseFolderId: labelBaseFolder,
 		onNavigate: () => setSidebarOpen(false),
+		onFolderDeleted: (folderId: string) => {
+			if (currentFolderId === folderId) {
+				navigate({ to: '/mail/f/$folderId', params: { folderId: 'inbox' } })
+			}
+		},
 	}
 
 	const railNavProps = {

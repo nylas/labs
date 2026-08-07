@@ -3,6 +3,14 @@ import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId } from '#server/ids'
 import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
+import {
+	type FolderIdInput,
+	type FolderNameInput,
+	normalizeFolderIdInput,
+	normalizeFolderNameInput,
+	normalizeUpdateFolderInput,
+	type UpdateFolderInput,
+} from './folder-input.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
 import { parseRecipientEmails } from './recipients.js'
@@ -153,6 +161,70 @@ export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Pr
 		throw friendly(err)
 	}
 })
+
+const SYSTEM_FOLDER_ATTRIBUTES = new Set([
+	'\\Inbox',
+	'\\Sent',
+	'\\Drafts',
+	'\\Junk',
+	'\\Trash',
+	'\\Archive',
+	'\\All',
+	'\\Important',
+])
+
+function isProtectedFolder(folder: Folder): boolean {
+	return Boolean(
+		folder.system_folder || folder.attributes?.some((attribute) => SYSTEM_FOLDER_ATTRIBUTES.has(attribute)),
+	)
+}
+
+async function requireCustomFolder(mailbox: FolderLister, folderId: string): Promise<Folder> {
+	const folders = listData<Folder>((await mailbox.listFolders()).data)
+	const folder = folders.find((candidate) => candidate.id === folderId)
+	if (!folder || isProtectedFolder(folder)) throw new Error('This folder cannot be changed.')
+	return folder
+}
+
+export const createFolder = createServerFn({ method: 'POST' })
+	.validator((input: FolderNameInput) => normalizeFolderNameInput(input))
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			const created = await mailbox.createFolder({ name: data.name })
+			return mailReceipt(mailbox, grantId, { folder: created.data })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+export const updateFolder = createServerFn({ method: 'POST' })
+	.validator((input: UpdateFolderInput) => normalizeUpdateFolderInput(input))
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			await requireCustomFolder(mailbox, data.folderId)
+			const updated = await mailbox.updateFolder(data.folderId, { name: data.name })
+			return mailReceipt(mailbox, grantId, { folder: updated.data })
+		} catch (err) {
+			if (err instanceof Error && err.message === 'This folder cannot be changed.') throw err
+			throw friendly(err)
+		}
+	})
+
+export const deleteFolder = createServerFn({ method: 'POST' })
+	.validator((input: FolderIdInput) => normalizeFolderIdInput(input))
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			await requireCustomFolder(mailbox, data.folderId)
+			await mailbox.deleteFolder(data.folderId)
+			return mailReceipt(mailbox, grantId, { removedFolderId: data.folderId })
+		} catch (err) {
+			if (err instanceof Error && err.message === 'This folder cannot be changed.') throw err
+			throw friendly(err)
+		}
+	})
 
 export const getThreads = createServerFn({ method: 'GET' })
 	.validator((input: ThreadListInput) => normalizeThreadListInput(input))

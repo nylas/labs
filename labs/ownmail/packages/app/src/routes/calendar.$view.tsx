@@ -1,6 +1,6 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, ChevronLeft, ChevronRight, Menu, Plus } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
@@ -11,6 +11,7 @@ import {
 	CHROME_ROW_SHELL_CLASS,
 } from '#app/config/layout'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
 import { EventModal } from '#features/calendar/components/EventModal'
 import {
 	addDays,
@@ -84,6 +85,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
+	const [managingCalendars, setManagingCalendars] = useState(false)
 	const [preferences] = useUserPreferences()
 	const primaryTimezone = preferences.primaryTimezone
 	const secondaryTimezone = preferences.secondaryTimezone
@@ -290,6 +292,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={setEditing}
+						onManageCalendars={() => setManagingCalendars(true)}
 					/>
 				</aside>
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -371,11 +374,25 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							setEditing(event)
 							setSidebarOpen(false)
 						}}
+						onManageCalendars={() => setManagingCalendars(true)}
 					/>
 				</div>
 			</Sheet>
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} />
+			{managingCalendars ? (
+				<CalendarManagerDialog
+					calendars={calendars}
+					onClose={() => setManagingCalendars(false)}
+					onDeleted={(calendarId) => {
+						setHiddenCalendarIds((current) => {
+							const next = new Set(current)
+							next.delete(calendarId)
+							return next
+						})
+					}}
+				/>
+			) : null}
 		</div>
 	)
 }
@@ -390,6 +407,7 @@ function CalendarSidebarPanel({
 	onPickDate,
 	onToggleCalendar,
 	onPickEvent,
+	onManageCalendars,
 }: {
 	anchor: Date
 	calendars: Calendar[]
@@ -400,14 +418,23 @@ function CalendarSidebarPanel({
 	onPickDate: (date: Date) => void
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
+	onManageCalendars: () => void
 }) {
 	return (
 		<div className="flex flex-col gap-5 px-1 py-2">
 			<MiniCalendar refDate={anchor} onPick={onPickDate} />
 			<div>
-				<p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-					My calendars
-				</p>
+				<div className="mb-2 flex items-center justify-between">
+					<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">My calendars</p>
+					<button
+						type="button"
+						onClick={onManageCalendars}
+						aria-label="Manage calendars"
+						className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
+					>
+						<Settings2 className="h-4 w-4" />
+					</button>
+				</div>
 				<div className="flex flex-col gap-0.5">
 					{calendars.map((cal, index) => {
 						const hidden = hiddenCalendarIds.has(cal.id)

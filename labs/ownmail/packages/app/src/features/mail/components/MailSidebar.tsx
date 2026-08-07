@@ -1,6 +1,17 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { Link } from '@tanstack/react-router'
-import { Archive, FileText, Inbox, type LucideIcon, Pencil, Send, Star, Trash2 } from 'lucide-react'
+import {
+	Archive,
+	FileText,
+	Inbox,
+	type LucideIcon,
+	Pencil,
+	Send,
+	Settings2,
+	Star,
+	Trash2,
+} from 'lucide-react'
+import { useState } from 'react'
 import { cn } from '#shared/lib/utils'
 import {
 	labelBaseFolderId,
@@ -9,6 +20,7 @@ import {
 	MAIL_FOLDERS,
 	sidebarFolderCount,
 } from '../lib/mail-ui-model.js'
+import { FolderManagerDialog } from './FolderManagerDialog.js'
 
 const FOLDER_ICONS: Record<string, LucideIcon> = {
 	inbox: Inbox,
@@ -25,6 +37,7 @@ export function MailSidebar({
 	currentFolderId,
 	baseFolderId,
 	onNavigate,
+	onFolderDeleted,
 	className,
 }: {
 	folders: Folder[]
@@ -32,9 +45,11 @@ export function MailSidebar({
 	currentFolderId?: string
 	baseFolderId?: string
 	onNavigate?: () => void
+	onFolderDeleted?: (folderId: string) => void
 	className?: string
 }) {
 	const labels = folders.filter(isCustomFolder)
+	const [managingFolders, setManagingFolders] = useState(false)
 
 	return (
 		<aside className={cn('flex w-full flex-col', className)}>
@@ -81,11 +96,19 @@ export function MailSidebar({
 				})}
 			</nav>
 
-			{labels.length > 0 ? (
-				<div className="border-t border-border pt-2">
-					<p className="px-4 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-						Labels
-					</p>
+			<div className="border-t border-border pt-2">
+				<div className="flex items-center justify-between px-4 pb-1">
+					<p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Labels</p>
+					<button
+						type="button"
+						onClick={() => setManagingFolders(true)}
+						aria-label="Manage folders"
+						className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
+					>
+						<Settings2 className="h-4 w-4" />
+					</button>
+				</div>
+				{labels.length > 0 ? (
 					<div className="flex flex-col">
 						{labels.map((label, index) => {
 							const active = currentFolderId === label.id
@@ -111,7 +134,16 @@ export function MailSidebar({
 							)
 						})}
 					</div>
-				</div>
+				) : (
+					<p className="px-4 py-2 text-xs text-muted-foreground">No labels yet.</p>
+				)}
+			</div>
+			{managingFolders ? (
+				<FolderManagerDialog
+					folders={folders}
+					onClose={() => setManagingFolders(false)}
+					onDeleted={onFolderDeleted}
+				/>
 			) : null}
 		</aside>
 	)

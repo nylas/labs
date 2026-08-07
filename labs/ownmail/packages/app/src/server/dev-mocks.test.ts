@@ -280,6 +280,23 @@ describe('dev mock Nylas client surface', () => {
 		expect(typeof inbox?.total_count).toBe('number')
 	})
 
+	it('creates, renames, and deletes custom folders while protecting system folders', async () => {
+		const created = await mailbox.createFolder({ name: 'Temporary' })
+		const folderId = created.data.id
+		expect((await mailbox.updateFolder(folderId, { name: 'Renamed' })).data.name).toBe('Renamed')
+		await mailbox.updateThread('thread-hiking', { folders: [folderId] })
+		expect((await mailbox.getThread('thread-hiking')).data.folders).toContain(folderId)
+		await mailbox.deleteFolder(folderId)
+		expect((await mailbox.listFolders()).data.some((folder) => folder.id === folderId)).toBe(false)
+		expect((await mailbox.getThread('thread-hiking')).data.folders).not.toContain(folderId)
+		await expect(mailbox.updateFolder('missing', { name: 'Nope' })).rejects.toThrow(
+			'Folder cannot be changed',
+		)
+		await expect(mailbox.updateFolder('inbox', { name: 'Nope' })).rejects.toThrow('Folder cannot be changed')
+		await expect(mailbox.deleteFolder('missing')).rejects.toThrow('Folder cannot be changed')
+		await expect(mailbox.deleteFolder('inbox')).rejects.toThrow('Folder cannot be changed')
+	})
+
 	it('applies every thread query filter and also returns everything for an empty query', async () => {
 		const filtered = await mailbox.listThreads({
 			in: 'personal',
@@ -393,6 +410,30 @@ describe('dev mock Nylas client surface', () => {
 
 		const unbounded = await mailbox.listEvents({ calendar_id: 'work' })
 		expect(unbounded.data.every((event) => event.calendar_id === 'work')).toBe(true)
+	})
+
+	it('creates, renames, and deletes calendars while protecting unavailable targets', async () => {
+		const created = await mailbox.createCalendar({ name: 'Temporary' })
+		const calendarId = created.data.id
+		expect((await mailbox.updateCalendar(calendarId, { name: 'Renamed' })).data.name).toBe('Renamed')
+		await mailbox.createEvent(
+			{ title: 'Temporary event', when: { start_time: now, end_time: now + 3600 } },
+			calendarId,
+		)
+		created.data.read_only = true
+		await expect(mailbox.updateCalendar(calendarId, { name: 'Nope' })).rejects.toThrow(
+			'Calendar cannot be changed',
+		)
+		await expect(mailbox.deleteCalendar(calendarId)).rejects.toThrow('Calendar cannot be changed')
+		created.data.read_only = false
+		await mailbox.deleteCalendar(calendarId)
+		expect((await mailbox.listCalendars()).data.some((calendar) => calendar.id === calendarId)).toBe(false)
+		expect((await mailbox.listEvents({ calendar_id: calendarId })).data).toEqual([])
+		await expect(mailbox.updateCalendar('missing', { name: 'Nope' })).rejects.toThrow(
+			'Calendar cannot be changed',
+		)
+		await expect(mailbox.deleteCalendar('missing')).rejects.toThrow('Calendar cannot be changed')
+		await expect(mailbox.deleteCalendar('primary')).rejects.toThrow('Calendar cannot be changed')
 	})
 
 	it('creates events with and without optional fields and rejects a missing time', async () => {
