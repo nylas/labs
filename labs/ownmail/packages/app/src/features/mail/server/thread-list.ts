@@ -1,4 +1,5 @@
 import { requireNylasProviderId } from '#server/ids'
+import { requireValidMailSearchQuery } from '../lib/mail-search.js'
 
 export type ThreadListInput = {
 	folderId?: string
@@ -8,9 +9,7 @@ export type ThreadListInput = {
 }
 
 export function normalizeThreadListInput(input: ThreadListInput): ThreadListInput {
-	if (input.q !== undefined) {
-		if (typeof input.q !== 'string' || input.q.length > 500) throw new Error('Search query too long')
-	}
+	const q = input.q !== undefined ? requireValidMailSearchQuery(input.q) : undefined
 	if (input.starred !== undefined && typeof input.starred !== 'boolean') {
 		throw new Error('Invalid starred filter')
 	}
@@ -19,7 +18,7 @@ export function normalizeThreadListInput(input: ThreadListInput): ThreadListInpu
 		...(input.pageToken !== undefined
 			? { pageToken: requireNylasProviderId(input.pageToken, 'page token') }
 			: {}),
-		...(input.q !== undefined ? { q: input.q } : {}),
+		...(q !== undefined ? { q } : {}),
 		...(input.starred !== undefined ? { starred: input.starred } : {}),
 	}
 }

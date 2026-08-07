@@ -50,8 +50,9 @@ describe('mail query cache boundaries', () => {
 	})
 
 	it('fails closed on malformed filters and provider identifiers', () => {
-		expect(() => normalizeMailThreadFilters({ q: 'x'.repeat(501) })).toThrow('Search query too long')
-		expect(() => normalizeMailThreadFilters({ q: 1 as unknown as string })).toThrow('Search query too long')
+		expect(() => normalizeMailThreadFilters({ q: 'x'.repeat(513) })).toThrow('Invalid search query')
+		expect(() => normalizeMailThreadFilters({ q: 'subject:roadmap' })).toThrow('Invalid search query')
+		expect(() => normalizeMailThreadFilters({ q: 1 as unknown as string })).toThrow('Invalid search query')
 		expect(() => normalizeMailThreadFilters({ starred: 'yes' as unknown as boolean })).toThrow(
 			'Invalid starred filter',
 		)

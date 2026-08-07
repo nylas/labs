@@ -338,7 +338,7 @@ describe('getThreads', () => {
 				in: 'work',
 				page_token: 'tok',
 				starred: true,
-				any_email: 'a@b.com',
+				search_query_native: 'a@b.com',
 			}),
 		)
 		expect(res).toEqual({ threads: [{ id: 't1' }], nextCursor: 'next' })
