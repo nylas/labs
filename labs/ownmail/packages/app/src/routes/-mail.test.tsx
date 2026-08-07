@@ -323,20 +323,11 @@ describe('MailRouteScreen — search navigation', () => {
 		expect(screen.getByText('/')).toBeInTheDocument()
 	})
 
-	it('debounces typing before navigating, replacing an in-flight timer', () => {
-		vi.useFakeTimers()
-		try {
-			render(<MailRouteScreen info={info} folders={[]} />)
-			fireEvent.change(searchInput(), { target: { value: 'a' } })
-			fireEvent.change(searchInput(), { target: { value: 'ab' } })
-			expect(navigate).not.toHaveBeenCalled()
-			vi.advanceTimersByTime(280)
-			expect(navigate).toHaveBeenCalledWith(
-				expect.objectContaining({ to: '/mail/search', search: { q: 'ab', folderId: 'inbox' } }),
-			)
-		} finally {
-			vi.useRealTimers()
-		}
+	it('never navigates from typing alone', () => {
+		render(<MailRouteScreen info={info} folders={[]} />)
+		fireEvent.change(searchInput(), { target: { value: 'a' } })
+		fireEvent.change(searchInput(), { target: { value: 'ab' } })
+		expect(navigate).not.toHaveBeenCalled()
 	})
 })
 

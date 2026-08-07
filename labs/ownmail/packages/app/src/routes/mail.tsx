@@ -1,8 +1,8 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Menu, Pencil, Search, X } from 'lucide-react'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Menu, Pencil } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import {
@@ -11,6 +11,7 @@ import {
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
 } from '#app/config/layout'
+import { MailSearchBar } from '#features/mail/components/MailSearchBar'
 import { MailSidebar } from '#features/mail/components/MailSidebar'
 import {
 	activeMailSidebarFolderId,
@@ -83,7 +84,6 @@ export function MailRouteScreen({
 	const [query, setQuery] = useState('')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
-	const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	const focusSearch = useCallback(() => {
@@ -96,7 +96,7 @@ export function MailRouteScreen({
 		setQuery(mailSearchInputValue(searchAwarePathname, routeSearchQuery))
 	}, [routeSearchQuery, searchAwarePathname])
 
-	function navigateSearch(nextQuery: string) {
+	async function navigateSearch(nextQuery: string) {
 		const target = liveSearchTarget(
 			nextQuery,
 			searchAwarePathname,
@@ -104,37 +104,25 @@ export function MailRouteScreen({
 			selectedSearchThreadId,
 		)
 		if (target.kind === 'search') {
-			navigate({
+			await navigate({
 				to: '/mail/search',
 				search: { q: target.q, ...(target.folderId ? { folderId: target.folderId } : {}) },
 				replace: true,
 			})
 		} else if (target.kind === 'thread') {
-			navigate({
+			await navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId: target.folderId, threadId: target.threadId },
 				replace: true,
 			})
 		} else if (target.kind === 'folder') {
-			navigate({
+			await navigate({
 				to: '/mail/f/$folderId',
 				params: { folderId: target.folderId },
 				replace: true,
 			})
 		}
 	}
-
-	function updateSearch(nextQuery: string) {
-		setQuery(nextQuery)
-		if (searchDebounce.current) clearTimeout(searchDebounce.current)
-		searchDebounce.current = setTimeout(() => navigateSearch(nextQuery), 280)
-	}
-
-	useEffect(() => {
-		return () => {
-			if (searchDebounce.current) clearTimeout(searchDebounce.current)
-		}
-	}, [])
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
@@ -202,41 +190,14 @@ export function MailRouteScreen({
 					<div className={cn('min-w-0 flex-1', MAIL_HEADER_GRID_CLASS)}>
 						<div className="hidden border-r border-border md:block" aria-hidden="true" />
 						<div className="flex min-w-0 items-stretch">
-							<form
-								className="relative flex min-w-0 flex-1 items-center border-r border-border px-3"
-								onSubmit={(event) => {
-									event.preventDefault()
-									if (searchDebounce.current) clearTimeout(searchDebounce.current)
-									navigateSearch(query)
-								}}
-							>
-								<Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
-								<input
-									id="mail-search"
-									type="text"
+							<div className="flex min-w-0 flex-1 border-r border-border">
+								<MailSearchBar
 									value={query}
-									onChange={(event) => updateSearch(event.target.value)}
-									placeholder="Search mail"
-									className="mail-search-field h-full w-full border-0 bg-transparent py-2 pr-16 pl-7 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-									aria-label="Search mail"
-									enterKeyHint="search"
-									autoCapitalize="none"
+									activeQuery={isSearchRoute ? routeSearchQuery : undefined}
+									onChange={setQuery}
+									onSubmit={navigateSearch}
 								/>
-								<div className="pointer-events-none absolute right-3 flex items-center gap-1">
-									{query ? (
-										<button
-											type="button"
-											onClick={() => updateSearch('')}
-											aria-label="Clear search"
-											className="pointer-events-auto flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-										>
-											<X className="h-4 w-4" />
-										</button>
-									) : (
-										<kbd className="kbd hidden sm:inline-flex">/</kbd>
-									)}
-								</div>
-							</form>
+							</div>
 							<div className="hidden shrink-0 items-center px-3 text-xs text-muted-foreground xl:flex">
 								<kbd className="kbd">C</kbd>
 								<span className="ml-1.5">compose</span>

@@ -1,8 +1,8 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { type InfiniteData, infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
+import { requireValidMailSearchQuery } from '../lib/mail-search.js'
 
 const MAX_PROVIDER_ID_LENGTH = 1000
-const MAX_SEARCH_QUERY_LENGTH = 500
 
 /** Mail entities safe to keep in the browser cache. Provider grant identifiers are
  * deliberately removed at the query boundary and are never persisted. */
@@ -49,15 +49,13 @@ function requireCacheId(value: string, label: string): string {
 }
 
 export function normalizeMailThreadFilters(input: MailThreadFilters): MailThreadFilters {
-	if (input.q !== undefined && (typeof input.q !== 'string' || input.q.length > MAX_SEARCH_QUERY_LENGTH)) {
-		throw new Error('Search query too long')
-	}
+	const q = input.q !== undefined ? requireValidMailSearchQuery(input.q) : undefined
 	if (input.starred !== undefined && typeof input.starred !== 'boolean') {
 		throw new Error('Invalid starred filter')
 	}
 	return {
 		...(input.folderId !== undefined ? { folderId: requireCacheId(input.folderId, 'folder') } : {}),
-		...(input.q !== undefined ? { q: input.q } : {}),
+		...(q !== undefined ? { q } : {}),
 		...(input.starred !== undefined ? { starred: input.starred } : {}),
 	}
 }

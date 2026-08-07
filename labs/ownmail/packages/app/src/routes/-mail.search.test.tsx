@@ -924,7 +924,7 @@ describe('/mail/search thread detail', () => {
 		})
 	})
 
-	it('ignores a completed leave action when delimiter values collide across reader identities', async () => {
+	it('ignores a completed leave action after another search result replaces the reader', async () => {
 		let resolveMutation: ((value: unknown) => void) | undefined
 		let mutationSettled = false
 		fns.updateThreadState.mockImplementationOnce(() =>
@@ -967,7 +967,7 @@ describe('/mail/search thread detail', () => {
 		expect(archiving).toBeEnabled()
 		expect(archiving).toHaveAttribute('aria-disabled', 'true')
 		selectedId = 'th'
-		selectedQuery = 'old:hello'
+		selectedQuery = 'new search'
 		view.rerender(
 			<QueryClientProvider client={client}>
 				<Comp />

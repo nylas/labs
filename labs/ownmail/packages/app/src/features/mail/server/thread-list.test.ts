@@ -32,7 +32,8 @@ describe('thread list validation', () => {
 		expect(() => normalizeThreadListInput({ starred: 'true' as unknown as boolean })).toThrow(
 			'Invalid starred filter',
 		)
-		expect(() => normalizeThreadListInput({ q: 'x'.repeat(501) })).toThrow('Search query too long')
-		expect(() => normalizeThreadListInput({ q: 42 as unknown as string })).toThrow('Search query too long')
+		expect(() => normalizeThreadListInput({ q: 'x'.repeat(513) })).toThrow('Invalid search query')
+		expect(() => normalizeThreadListInput({ q: 'from:ada@example.com' })).toThrow('Invalid search query')
+		expect(() => normalizeThreadListInput({ q: 42 as unknown as string })).toThrow('Invalid search query')
 	})
 })
