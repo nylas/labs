@@ -1,5 +1,14 @@
 # @ownmail/app
 
+## 0.12.3
+
+### Patch Changes
+
+- c957523: Add advanced Agent Account mail search autocomplete and explicit submission.
+- df6410e: Add folder and calendar management with secure create, rename, and delete flows.
+- Updated dependencies [df6410e]
+  - @nylas-labs/cli-kit@0.7.1
+
 ## 0.12.2
 
 ## 0.12.1
