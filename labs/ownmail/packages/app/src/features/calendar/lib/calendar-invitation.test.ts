@@ -201,13 +201,13 @@ describe('calendar invitation parsing', () => {
 		})
 	})
 
-	it('parses bounded invitation revisions and ignores malformed sequence values', () => {
+	it('parses bounded invitation revisions and rejects malformed explicit sequence values', () => {
 		const source = (sequence: string) =>
 			`BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:revision-${sequence}\nSEQUENCE:${sequence}\nEND:VEVENT`
 
 		expect(parseCalendarInvitation(source('42'))).toMatchObject({ sequence: 42 })
 		for (const sequence of ['-1', 'not-a-number', '2147483648', '00000000000']) {
-			expect(parseCalendarInvitation(source(sequence))).not.toHaveProperty('sequence')
+			expect(parseCalendarInvitation(source(sequence))).toBeNull()
 		}
 	})
 

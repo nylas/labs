@@ -100,7 +100,9 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const summary = boundedIcsText(propertyValue(eventProperties, 'SUMMARY'))
 	const description = boundedIcsText(propertyValue(eventProperties, 'DESCRIPTION'))
 	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
-	const sequence = parseSequence(propertyValue(eventProperties, 'SEQUENCE'))
+	const sequenceProperty = findProperty(eventProperties, 'SEQUENCE')
+	const sequence = parseSequence(sequenceProperty?.value)
+	if (sequenceProperty && sequence === undefined) return null
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
 	const whenRange = when ? eventWhenEpochRange(when) : null
 	const isRecurrenceInstance = eventProperties.some((property) => property.name === 'RECURRENCE-ID')

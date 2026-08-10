@@ -264,6 +264,24 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.listEvents).not.toHaveBeenCalled()
 	})
 
+	it.each(['-1', 'not-a-number', '2147483648', '00000000000'])(
+		'rejects a cancellation with malformed sequence %s',
+		async (sequence) => {
+			const mailbox = makeMailbox({
+				downloadAttachment: vi.fn(
+					async () => new Response(CANCEL_ICS.replace('SEQUENCE:2', `SEQUENCE:${sequence}`)),
+				),
+			})
+			requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+			await expect(
+				getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+			).resolves.toEqual({ state: 'invalid' })
+			expect(recordInvitationCancellation).not.toHaveBeenCalled()
+			expect(mailbox.listCalendars).not.toHaveBeenCalled()
+		},
+	)
+
 	it('rejects recurring-instance cancellations without tombstoning or deleting the series', async () => {
 		const instanceCancellation = CANCEL_ICS.replace(
 			'ORGANIZER:mailto:grace@example.com',
