@@ -336,6 +336,7 @@ async function addCalendarInvitationOnce(
 				await detailsForInvitationEvent(mailbox, calendars, finalLookup.event, invitation, mailboxEmail, true)
 			).details
 		}
+		if (!claimed) throw new InvitationBoundaryError('This invitation is already being added.')
 		if (finalLookup.staleImport) {
 			return reconcileImportedInvitation(
 				mailbox,
@@ -348,8 +349,6 @@ async function addCalendarInvitationOnce(
 				grantId,
 			)
 		}
-		if (!claimed) throw new InvitationBoundaryError('This invitation is already being added.')
-
 		creationAttempted = true
 		const created = await mailbox.createEvent(
 			invitationEventBody(invitation, when, organizerEmail),

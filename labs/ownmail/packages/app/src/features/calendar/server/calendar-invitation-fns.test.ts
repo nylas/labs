@@ -1023,6 +1023,27 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
 	})
 
+	it('does not reconcile a newer revision without owning the atomic claim', async () => {
+		claimInvitationCreation.mockResolvedValue(false)
+		const stale = invitationEvent({
+			ical_uid: undefined,
+			location: 'Old room',
+			metadata: { key1: 'invite@example.com', key2: '0' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [stale] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('already being added')
+		expect(mailbox.updateEvent).not.toHaveBeenCalled()
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
 	it.each([
 		['recurring', `${ICS.replace('END:VEVENT', 'RRULE:FREQ=WEEKLY\r\nEND:VEVENT')}`],
 		[
