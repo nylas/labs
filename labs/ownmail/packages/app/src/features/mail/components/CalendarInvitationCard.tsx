@@ -15,6 +15,9 @@ const RESPONSE_OPTIONS = [
 	{ status: 'no', label: 'Decline' },
 ] as const
 
+const SYNC_RETRY_INTERVAL_MS = 2_000
+const SYNC_LOOKUP_LIMIT = 5
+
 export function CalendarInvitationCard({ message }: { message: MailMessage }) {
 	const attachment = firstCalendarInvitationAttachment(message.attachments)
 	if (!attachment) return null
@@ -38,6 +41,14 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		},
 		staleTime: 30_000,
 		retry: false,
+		refetchInterval: (query) => {
+			const details = query.state.data
+			// The invitation email and its provider-created event arrive independently.
+			// Recheck briefly while that race settles, then leave an explicit manual retry.
+			return details?.state === 'syncing' && query.state.dataUpdateCount < SYNC_LOOKUP_LIMIT
+				? SYNC_RETRY_INTERVAL_MS
+				: false
+		},
 	})
 	const response = useMutation({
 		mutationFn: async (status: 'yes' | 'maybe' | 'no') => {
@@ -74,6 +85,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 				title="Calendar invitation unavailable"
 				message="We couldn’t open this invitation. Check your connection, then try again."
 				onRetry={() => void invitation.refetch()}
+				retrying={invitation.isFetching}
 			/>
 		)
 	}
@@ -93,6 +105,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 				title="Adding invitation to your calendar"
 				message="The calendar event is still syncing. Try again in a moment."
 				onRetry={() => void invitation.refetch()}
+				retrying={invitation.isFetching}
 			/>
 		)
 	}
@@ -218,10 +231,12 @@ function InvitationNotice({
 	title,
 	message,
 	onRetry,
+	retrying = false,
 }: {
 	title: string
 	message: string
 	onRetry?: () => void
+	retrying?: boolean
 }) {
 	return (
 		<section
@@ -238,9 +253,11 @@ function InvitationNotice({
 					<button
 						type="button"
 						onClick={onRetry}
-						className="mt-2 min-h-11 rounded-lg px-2 text-sm font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
+						disabled={retrying}
+						className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
 					>
-						Try again
+						{retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+						{retrying ? 'Checking…' : 'Try again'}
 					</button>
 				) : null}
 			</div>
