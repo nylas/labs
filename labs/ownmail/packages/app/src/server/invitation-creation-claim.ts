@@ -1,7 +1,6 @@
 import { platform } from './platform.js'
 
 const CLAIM_TTL_SECONDS = 10 * 60
-const CANCELLATION_LOCK_TTL_SECONDS = 30
 const MAX_INVITATION_SEQUENCE = 2_147_483_647
 
 export async function invitationCreationClaimsAvailable(): Promise<boolean> {
@@ -36,7 +35,7 @@ export async function invitationCancellationSequence(
 	const { env, kv } = await platform()
 	if (!kv) return undefined
 	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
-	if (kv.putIfAbsent) return parseSequence(await kv.get(key))
+	if (kv.putMaximum) return parseSequence(await kv.get(key))
 	if (!kv.list) return undefined
 	return versionedCancellationSequence(await kv.list({ prefix: `${key}:`, limit: 1 }), `${key}:`)
 }
@@ -55,28 +54,20 @@ export async function recordInvitationCancellation(
 	const { env, kv } = await platform()
 	if (!kv) return sequence
 	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
-	if (!kv.putIfAbsent) {
-		if (!kv.list) throw new Error('Durable invitation cancellations are unavailable')
-		// Cloudflare KV has no compare-and-set. Store immutable, reverse-sorted
-		// revision keys so concurrent lower revisions can never overwrite a higher
-		// tombstone and a one-key prefix listing returns the greatest revision.
-		const reverseSequence = String(MAX_INVITATION_SEQUENCE - sequence).padStart(10, '0')
-		await kv.put(`${key}:${reverseSequence}`, '1')
-		return sequence
+	if (kv.putMaximum) {
+		const stored = await kv.putMaximum(key, sequence)
+		if (!Number.isSafeInteger(stored) || stored < 0 || stored > MAX_INVITATION_SEQUENCE) {
+			throw new Error('Invalid invitation cancellation storage result')
+		}
+		return stored
 	}
-	const suffix = await claimSuffix(env.SESSION_SECRET, grantId, `${uid}\0${organizer}`)
-	const lockKey = `invitation-cancel-lock:${suffix}`
-	if (!(await kv.putIfAbsent(lockKey, '1', CANCELLATION_LOCK_TTL_SECONDS))) {
-		throw new Error('Invitation cancellation is already being recorded')
-	}
-	try {
-		const current = parseSequence(await kv.get(key))
-		const next = Math.max(current ?? 0, sequence)
-		if (current !== next) await kv.put(key, String(next))
-		return next
-	} finally {
-		await kv.delete(lockKey).catch(() => undefined)
-	}
+	if (!kv.list) throw new Error('Durable invitation cancellations are unavailable')
+	// Cloudflare KV has no atomic numeric operations. Store immutable,
+	// reverse-sorted revision keys so concurrent lower revisions can never
+	// overwrite a higher tombstone and a one-key prefix listing returns the max.
+	const reverseSequence = String(MAX_INVITATION_SEQUENCE - sequence).padStart(10, '0')
+	await kv.put(`${key}:${reverseSequence}`, '1')
+	return sequence
 }
 
 export async function releaseInvitationCreationClaim(grantId: string, uid: string): Promise<void> {

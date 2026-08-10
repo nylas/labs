@@ -1,5 +1,15 @@
 import { Redis } from '@upstash/redis'
 
+const REDIS_SET_MAXIMUM_SCRIPT = `
+local current = tonumber(redis.call('GET', KEYS[1]))
+local candidate = tonumber(ARGV[1])
+if not current or current < candidate then
+	redis.call('SET', KEYS[1], ARGV[1])
+	return candidate
+end
+return current
+`
+
 /**
  * Platform abstraction: Cloudflare Workers (env + KV via cloudflare:workers)
  * or a Node-ish runtime like Vercel functions (process.env + optional Upstash).
@@ -50,6 +60,8 @@ export type KvLike = {
 	expire?(key: string, seconds: number): Promise<void>
 	/** Atomically creates an expiring key only when it does not already exist. */
 	putIfAbsent?(key: string, value: string, expirationTtl: number): Promise<boolean>
+	/** Atomically stores and returns the greater of an existing integer and a candidate. */
+	putMaximum?(key: string, value: number): Promise<number>
 }
 
 export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
@@ -132,6 +144,8 @@ function nodeKv(env: AppEnv): KvLike | null {
 			const result = await redis.set(key, value, { nx: true, ex: expirationTtl })
 			return result === 'OK'
 		},
+		putMaximum: (key, value) =>
+			redis.eval<[string], number>(REDIS_SET_MAXIMUM_SCRIPT, [key], [String(value)]),
 	}
 }
 

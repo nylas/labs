@@ -28,6 +28,12 @@ function atomicStore() {
 			values.set(key, '1')
 			return true
 		}),
+		putMaximum: vi.fn(async (key, candidate) => {
+			const current = Number(values.get(key) ?? -1)
+			const next = Math.max(current, candidate)
+			values.set(key, String(next))
+			return next
+		}),
 	}
 	return kv
 }
@@ -88,10 +94,7 @@ describe('invitation creation claims', () => {
 			invitationCancellationSequence('grant-1', 'uid@example.com', 'other@example.com'),
 		).resolves.toBeUndefined()
 
-		const cancellationKey = vi
-			.mocked(kv.put)
-			.mock.calls.map(([key]) => key)
-			.find((key) => key.startsWith('invitation-cancel:'))
+		const cancellationKey = vi.mocked(kv.putMaximum as NonNullable<KvLike['putMaximum']>).mock.calls[0]?.[0]
 		expect(cancellationKey).toBeDefined()
 		expect(cancellationKey).not.toContain('grant-1')
 		expect(cancellationKey).not.toContain('uid@example.com')
@@ -166,7 +169,7 @@ describe('invitation creation claims', () => {
 		}
 	})
 
-	it('validates tombstone revisions and serializes writers', async () => {
+	it('validates tombstone revisions and atomically preserves concurrent writers', async () => {
 		const kv = atomicStore()
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
 
@@ -180,13 +183,16 @@ describe('invitation creation claims', () => {
 		)
 		await expect(invitationCancellationSequence('grant-1', 'uid', 'invalid')).resolves.toBeUndefined()
 		await expect(invitationCancellationSequence('grant-1', 'uid', null as never)).resolves.toBeUndefined()
-		vi.mocked(kv.delete).mockRejectedValueOnce(new Error('cleanup outage'))
+		await Promise.all([
+			recordInvitationCancellation('grant-1', 'uid-concurrent', 3, 'grace@example.com'),
+			recordInvitationCancellation('grant-1', 'uid-concurrent', 5, 'grace@example.com'),
+		])
 		await expect(
-			recordInvitationCancellation('grant-1', 'uid-cleanup', 1, 'grace@example.com'),
-		).resolves.toBe(1)
-		vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mockResolvedValueOnce(false)
+			invitationCancellationSequence('grant-1', 'uid-concurrent', 'grace@example.com'),
+		).resolves.toBe(5)
+		vi.mocked(kv.putMaximum as NonNullable<KvLike['putMaximum']>).mockResolvedValueOnce(2_147_483_648)
 		await expect(recordInvitationCancellation('grant-1', 'uid', 1, 'grace@example.com')).rejects.toThrow(
-			'already being recorded',
+			'Invalid invitation cancellation storage result',
 		)
 	})
 
