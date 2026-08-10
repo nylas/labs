@@ -70,7 +70,7 @@ function invitationEvent(overrides: Partial<Event> = {}): Event {
 		location: 'Aurora room',
 		when: { start_time: START, end_time: END },
 		organizer: { name: 'Grace Hopper', email: 'grace@example.com' },
-		participants: [{ email: 'ada@ownmail.com', status: 'noreply' }],
+		participants: [{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' }],
 		ical_uid: 'invite@example.com',
 		busy: true,
 		...overrides,
@@ -616,8 +616,8 @@ describe('calendar invitation server functions', () => {
 			metadata: { key1: 'invite@example.com' },
 		})
 		const mailbox = makeMailbox({
-			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
-				data: query.metadata_pair ? [stale] : [],
+			listEvents: vi.fn(async (query: { metadata_pair?: string; start?: number }) => ({
+				data: query.metadata_pair || query.start !== undefined ? [stale] : [],
 			})),
 		})
 		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
@@ -664,8 +664,8 @@ describe('calendar invitation server functions', () => {
 			metadata: { key1: 'invite@example.com' },
 		})
 		const mailbox = makeMailbox({
-			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
-				data: query.metadata_pair ? [stale] : [],
+			listEvents: vi.fn(async (query: { metadata_pair?: string; start?: number }) => ({
+				data: query.metadata_pair || query.start !== undefined ? [stale] : [],
 			})),
 		})
 		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
@@ -679,6 +679,57 @@ describe('calendar invitation server functions', () => {
 			'primary',
 			{ notifyParticipants: false },
 		)
+	})
+
+	it('reconciles attendee changes in a later invitation', async () => {
+		const stale = invitationEvent({
+			location: undefined,
+			participants: [
+				{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' },
+				{ email: 'old-attendee@example.com', name: 'Old Attendee', status: 'yes' },
+			],
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [stale] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', canRespond: false })
+		expect(mailbox.updateEvent).toHaveBeenCalledWith(
+			'provider-event-id',
+			expect.objectContaining({
+				participants: [{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' }],
+			}),
+			'primary',
+			{ notifyParticipants: false },
+		)
+	})
+
+	it('does not trust an import when the invitation omits its attendee list', async () => {
+		const source = ICS.replace(
+			'ATTENDEE;CN="Ada Lovelace";PARTSTAT=NEEDS-ACTION:mailto:ada@ownmail.com\r\n',
+			'',
+		)
+		const imported = invitationEvent({
+			location: undefined,
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(source)),
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [imported] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'syncing', canAdd: false })
 	})
 
 	it('recognizes a one-day OwnMail import when the invitation omits DTEND', async () => {

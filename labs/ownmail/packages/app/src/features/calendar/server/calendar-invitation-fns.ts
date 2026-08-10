@@ -223,7 +223,11 @@ async function resolveInvitation(
 			limit: 200,
 			expand_recurring: true,
 		}))
-		candidates = fallback.events.filter((event) => secureFallbackMatch(event, invitation))
+		candidates = fallback.events.filter(
+			(event) =>
+				secureFallbackMatch(event, invitation) &&
+				(eventMetadataUid(event) !== invitation.uid || invitationContentMatches(event, invitation)),
+		)
 		// The fallback candidates have already passed the strict schedule plus
 		// organizer/title correlation above, so they are trusted for attendee selection.
 		trustedUidFilter = candidates.length > 0
@@ -632,7 +636,22 @@ function invitationContentMatches(event: Event, invitation: ParsedCalendarInvita
 	}
 	if ((event.location?.trim() || '') !== (invitation.location || '')) return false
 	if ((event.description?.trim() || '') !== (invitation.description || '')) return false
+	if (participantSignature(event.participants) !== participantSignature(invitation.attendees)) return false
 	return true
+}
+
+function participantSignature(participants: Event['participants']): string {
+	return JSON.stringify(
+		(participants ?? [])
+			.map((participant) =>
+				JSON.stringify({
+					email: normalizedEmail(participant.email),
+					name: boundedText(participant.name, 4_000),
+					status: participant.status,
+				}),
+			)
+			.sort(),
+	)
 }
 
 async function invitationConflicts(

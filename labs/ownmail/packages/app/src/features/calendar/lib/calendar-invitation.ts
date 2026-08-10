@@ -99,9 +99,6 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
 	const whenRange = when ? eventWhenEpochRange(when) : null
-	const normalizedStart = whenRange?.start ?? start
-	const normalizedEnd =
-		whenRange?.end ?? (end !== undefined && start !== undefined && end > start ? end : undefined)
 	const hasRecurrence = eventProperties.some((property) =>
 		['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name),
 	)
@@ -115,8 +112,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		...(summary ? { summary } : {}),
 		...(description ? { description } : {}),
 		...(location ? { location } : {}),
-		...(normalizedStart !== undefined ? { start: normalizedStart } : {}),
-		...(normalizedEnd !== undefined ? { end: normalizedEnd } : {}),
+		...(whenRange ? { start: whenRange.start, end: whenRange.end } : {}),
 		...(when ? { when } : {}),
 		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
 	}

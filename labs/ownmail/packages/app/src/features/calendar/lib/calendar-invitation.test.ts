@@ -127,12 +127,12 @@ describe('calendar invitation parsing', () => {
 			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:backwards\nDTSTART;VALUE=DATE:20271225\nDTEND;VALUE=DATE:20271224\nEND:VEVENT',
 		)
 
-		expect(invitation).toEqual({ uid: 'backwards', method: 'REQUEST', start: 1_829_692_800 })
+		expect(invitation).toEqual({ uid: 'backwards', method: 'REQUEST' })
 		expect(
 			parseCalendarInvitation(
 				'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:bad-end\nDTSTART;VALUE=DATE:20271225\nDTEND;VALUE=DATE:not-a-date\nEND:VEVENT',
 			),
-		).toEqual({ uid: 'bad-end', method: 'REQUEST', start: 1_829_692_800 })
+		).toEqual({ uid: 'bad-end', method: 'REQUEST' })
 	})
 
 	it('parses date-only invitations and rejects unsupported or unsafe payloads', () => {
@@ -182,8 +182,7 @@ describe('calendar invitation parsing', () => {
 		const floating = parseCalendarInvitation(
 			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:floating\nDTSTART:20270809T1500\nDTEND:20270809T1600\nEND:VEVENT',
 		)
-		expect(floating?.start).toBeTypeOf('number')
-		expect(floating?.end).toBeTypeOf('number')
+		expect(floating).toEqual({ uid: 'floating', method: 'REQUEST' })
 		expect(floating).not.toHaveProperty('when')
 
 		const invalidOptional = parseCalendarInvitation(
