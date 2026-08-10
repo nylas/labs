@@ -21,6 +21,8 @@ import {
 } from '../lib/calendar-invitation.js'
 
 const MAX_CONFLICT_RANGE_SECONDS = 31 * 86_400
+const MAX_CALENDAR_PAGES = 100
+const MAX_PROVIDER_CURSOR_LENGTH = 4_096
 const RSVP_STATUSES = ['yes', 'maybe', 'no'] as const
 
 export type CalendarInvitationReference = { messageId: string; attachmentId: string }
@@ -43,6 +45,7 @@ export type CalendarInvitationDetails =
 			organizer: string
 			when: InvitationWhen
 			status: 'yes' | 'no' | 'maybe' | 'noreply'
+			canRespond?: false
 			conflicts: { state: 'clear' } | { state: 'conflict'; count: number } | { state: 'unknown' }
 	  }
 
@@ -51,7 +54,7 @@ type InvitationConflicts = Extract<CalendarInvitationDetails, { state: 'ready' }
 type InvitationMailbox = {
 	getMessage(messageId: string): Promise<{ data: Message }>
 	downloadAttachment(attachmentId: string, messageId: string): Promise<Response>
-	listCalendars(query?: ListQuery): Promise<{ data?: unknown }>
+	listCalendars(query?: ListQuery): Promise<{ data?: unknown; next_cursor?: unknown }>
 	listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>>
 	createEvent(
 		body: Partial<Event>,
@@ -104,7 +107,12 @@ export const respondCalendarInvitation = createServerFn({ method: 'POST' })
 			// Resolve the attachment and provider event again for every mutation. The
 			// browser never supplies an event or calendar ID that could cross an object boundary.
 			const resolved = await resolveInvitation(mailbox, email, grantId, data, false)
-			if (resolved.details.state !== 'ready' || !resolved.event || !resolved.calendar) {
+			if (
+				resolved.details.state !== 'ready' ||
+				resolved.details.canRespond === false ||
+				!resolved.event ||
+				!resolved.calendar
+			) {
 				throw new InvitationBoundaryError('This invitation cannot be answered right now.')
 			}
 			await mailbox.sendRsvp(resolved.event.id, resolved.calendar.id, data.status)
@@ -183,8 +191,7 @@ async function resolveInvitation(
 	const invitation = parseCalendarInvitation(source)
 	if (!invitation) return { details: { state: 'invalid' } }
 
-	const calendarResponse = await mailbox.listCalendars({ limit: 20 })
-	const calendars = Array.isArray(calendarResponse.data) ? calendarResponse.data.filter(isCalendar) : []
+	const calendars = await invitationCalendars(mailbox)
 	if (calendars.length === 0) return { details: { state: 'ineligible' }, invitation, message: message.data }
 
 	const uidPages = await eventPages(mailbox, calendars, (calendar) => ({
@@ -275,6 +282,7 @@ async function detailsForInvitationEvent(
 			organizer,
 			when,
 			status,
+			...(importedByOwnmail ? { canRespond: false as const } : {}),
 			conflicts,
 		},
 		event,
@@ -372,17 +380,18 @@ async function finalInvitationLookup(
 		metadata_pair: invitationMetadataPair(invitation.uid),
 		limit: 20,
 	}))
-	if (!metadataPages.complete) throw new Error('Calendar metadata lookup failed')
-	const imported = chooseInvitationEvent(
-		metadataPages.events.filter((event) => eventMetadataUid(event) === invitation.uid),
-		invitation,
-		mailboxEmail,
-		true,
-	)
-	if (imported) {
-		return invitationContentMatches(imported, invitation) ? { event: imported } : { staleImport: imported }
+	if (metadataPages.complete) {
+		const imported = chooseInvitationEvent(
+			metadataPages.events.filter((event) => eventMetadataUid(event) === invitation.uid),
+			invitation,
+			mailboxEmail,
+			true,
+		)
+		if (imported) {
+			return invitationContentMatches(imported, invitation) ? { event: imported } : { staleImport: imported }
+		}
 	}
-	if (uidPages.complete) return {}
+	if (uidPages.complete && metadataPages.complete) return {}
 
 	// addCalendarInvitationOnce only reaches this lookup after canCreateInvitation
 	// has required a concrete EventWhen, which the parser emits with both bounds.
@@ -396,14 +405,16 @@ async function finalInvitationLookup(
 		expand_recurring: true,
 	}))
 	if (!fallback.complete) throw new Error('Calendar fallback lookup failed')
-	return {
-		event: chooseInvitationEvent(
-			fallback.events.filter((event) => secureFallbackMatch(event, invitation)),
-			invitation,
-			mailboxEmail,
-			true,
-		),
+	const event = chooseInvitationEvent(
+		fallback.events.filter((candidate) => secureFallbackMatch(candidate, invitation)),
+		invitation,
+		mailboxEmail,
+		true,
+	)
+	if (event && eventMetadataUid(event) === invitation.uid && !invitationContentMatches(event, invitation)) {
+		return { staleImport: event }
 	}
+	return event ? { event } : {}
 }
 
 async function reconcileImportedInvitation(
@@ -506,6 +517,32 @@ function invitationMetadataPair(uid: string): string {
 function eventMetadataUid(event: Event): string | undefined {
 	const value = event.metadata?.key1
 	return typeof value === 'string' && value.length <= 1_000 ? value : undefined
+}
+
+async function invitationCalendars(mailbox: InvitationMailbox): Promise<Calendar[]> {
+	const calendars: Calendar[] = []
+	const seenCursors = new Set<string>()
+	let pageToken: string | undefined
+	for (let page = 0; page < MAX_CALENDAR_PAGES; page += 1) {
+		const response = await mailbox.listCalendars({
+			limit: 20,
+			...(pageToken ? { page_token: pageToken } : {}),
+		})
+		if (Array.isArray(response.data)) calendars.push(...response.data.filter(isCalendar))
+		const nextCursor = response.next_cursor
+		if (nextCursor === undefined) return calendars
+		if (
+			typeof nextCursor !== 'string' ||
+			nextCursor.length === 0 ||
+			nextCursor.length > MAX_PROVIDER_CURSOR_LENGTH ||
+			seenCursors.has(nextCursor)
+		) {
+			throw new Error('Calendar pagination failed')
+		}
+		seenCursors.add(nextCursor)
+		pageToken = nextCursor
+	}
+	throw new Error('Calendar pagination exceeded its safe limit')
 }
 
 async function eventPages(

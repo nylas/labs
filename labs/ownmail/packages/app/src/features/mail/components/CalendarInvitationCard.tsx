@@ -138,6 +138,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			/>
 		)
 	}
+	const canRespond = details.canRespond !== false
 	return (
 		<section
 			data-slot="calendar-invitation"
@@ -180,33 +181,35 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 
 				<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
 					<p className="text-sm font-medium text-muted-foreground" aria-live="polite">
-						{responseLabel(details.status)}
+						{canRespond ? responseLabel(details.status) : 'Added to your calendar'}
 					</p>
-					<fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" disabled={response.isPending}>
-						<legend className="sr-only">Respond to invitation</legend>
-						{RESPONSE_OPTIONS.map((option) => {
-							const selected = details.status === option.status
-							return (
-								<button
-									key={option.status}
-									type="button"
-									aria-pressed={selected}
-									onClick={() => response.mutate(option.status)}
-									className={cn(
-										'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-60',
-										selected
-											? 'border-primary bg-primary text-primary-foreground'
-											: 'border-border bg-background text-foreground hover:bg-accent',
-									)}
-								>
-									{selected ? <Check className="h-3.5 w-3.5" /> : null}
-									{option.label}
-								</button>
-							)
-						})}
-					</fieldset>
+					{canRespond ? (
+						<fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" disabled={response.isPending}>
+							<legend className="sr-only">Respond to invitation</legend>
+							{RESPONSE_OPTIONS.map((option) => {
+								const selected = details.status === option.status
+								return (
+									<button
+										key={option.status}
+										type="button"
+										aria-pressed={selected}
+										onClick={() => response.mutate(option.status)}
+										className={cn(
+											'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-60',
+											selected
+												? 'border-primary bg-primary text-primary-foreground'
+												: 'border-border bg-background text-foreground hover:bg-accent',
+										)}
+									>
+										{selected ? <Check className="h-3.5 w-3.5" /> : null}
+										{option.label}
+									</button>
+								)
+							})}
+						</fieldset>
+					) : null}
 				</div>
-				{response.isError ? (
+				{canRespond && response.isError ? (
 					<p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 						Your response wasn’t saved. Check your connection, then try again.
 					</p>

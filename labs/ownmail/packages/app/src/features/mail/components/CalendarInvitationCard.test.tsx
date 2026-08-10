@@ -49,6 +49,7 @@ describe('CalendarInvitationCard', () => {
 			organizer: 'Grace Hopper',
 			when: { kind: 'timed', start: 1_817_823_600, end: 1_817_827_200 },
 			status: 'noreply',
+			canRespond: false,
 			conflicts: { state: 'clear' },
 		})
 		getCalendarInvitation.mockReset().mockResolvedValue({
@@ -231,6 +232,9 @@ describe('CalendarInvitationCard', () => {
 		})
 		expect(await screen.findByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
 		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
+		expect(screen.getByText('Added to your calendar')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
+		expect(respondCalendarInvitation).not.toHaveBeenCalled()
 	})
 
 	it('keeps unsupported manual imports on the Nylas sync and status-check path', async () => {

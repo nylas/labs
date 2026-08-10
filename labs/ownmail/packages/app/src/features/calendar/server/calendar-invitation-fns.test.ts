@@ -178,6 +178,84 @@ describe('calendar invitation server functions', () => {
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
 	})
 
+	it('does not send provider RSVP for an OwnMail-imported copy', async () => {
+		const imported = invitationEvent({
+			location: undefined,
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [imported] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			respondCalendarInvitation({
+				data: { messageId: 'message-1', attachmentId: 'attachment-1', status: 'yes' },
+			}),
+		).rejects.toThrow('cannot be answered right now')
+		expect(mailbox.sendRsvp).not.toHaveBeenCalled()
+	})
+
+	it('paginates every calendar before resolving or creating an invitation', async () => {
+		const secondary = invitationEvent({ calendar_id: 'page-two' })
+		const mailbox = makeMailbox({
+			listCalendars: vi.fn(async (query?: { page_token?: string }) =>
+				query?.page_token
+					? { data: [{ id: 'page-two', name: 'Page two' }] }
+					: {
+							data: [{ id: 'primary', name: 'Personal', is_primary: true }],
+							next_cursor: 'calendar-page-two',
+						},
+			),
+			listEvents: vi.fn(async (query: { calendar_id: string; ical_uid?: string }) => ({
+				data: query.ical_uid && query.calendar_id === 'page-two' ? [secondary] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready' })
+		expect(mailbox.listCalendars).toHaveBeenNthCalledWith(2, {
+			limit: 20,
+			page_token: 'calendar-page-two',
+		})
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
+	it('fails closed for invalid or unbounded calendar pagination', async () => {
+		const invalidMailbox = makeMailbox({
+			listCalendars: vi.fn(async () => ({ data: [], next_cursor: null })),
+		})
+		requireMailbox.mockResolvedValue({
+			mailbox: invalidMailbox,
+			email: 'ada@ownmail.com',
+			grantId: 'grant-1',
+		})
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('could not be updated')
+
+		let page = 0
+		const unboundedMailbox = makeMailbox({
+			listCalendars: vi.fn(async () => {
+				page += 1
+				return { data: [], next_cursor: `page-${page}` }
+			}),
+		})
+		requireMailbox.mockResolvedValue({
+			mailbox: unboundedMailbox,
+			email: 'ada@ownmail.com',
+			grantId: 'grant-1',
+		})
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('could not be updated')
+		expect(unboundedMailbox.listCalendars).toHaveBeenCalledTimes(100)
+	})
+
 	it('creates after a complete strict fallback when the final UID filter is unsupported', async () => {
 		const mailbox = makeMailbox({
 			listEvents: vi.fn(async (query: { ical_uid?: string }) => {
@@ -213,7 +291,7 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
 	})
 
-	it('fails closed when the final metadata index cannot check every calendar', async () => {
+	it('uses a complete strict fallback when the final metadata filter is unsupported', async () => {
 		let metadataLookups = 0
 		const mailbox = makeMailbox({
 			listEvents: vi.fn(async (query: { metadata_pair?: string }) => {
@@ -228,7 +306,33 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).rejects.toThrow('could not be updated')
+		).resolves.toMatchObject({ state: 'ready', canRespond: false })
+		expect(mailbox.createEvent).toHaveBeenCalledOnce()
+	})
+
+	it('reconciles a stale import found by strict fallback when metadata filtering is unsupported', async () => {
+		let timeLookups = 0
+		const stale = invitationEvent({
+			ical_uid: undefined,
+			location: 'Old room',
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string; start?: number }) => {
+				if (query.metadata_pair) throw new Error('unsupported optional filter')
+				if (query.start !== undefined) {
+					timeLookups += 1
+					return { data: timeLookups > 2 ? [stale] : [] }
+				}
+				return { data: [] }
+			}),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', canRespond: false })
+		expect(mailbox.updateEvent).toHaveBeenCalledOnce()
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
 	})
 
@@ -376,7 +480,12 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toMatchObject({ state: 'ready', title: 'Planning review', status: 'noreply' })
+		).resolves.toMatchObject({
+			state: 'ready',
+			title: 'Planning review',
+			status: 'noreply',
+			canRespond: false,
+		})
 
 		expect(mailbox.createEvent).toHaveBeenCalledWith(
 			{
