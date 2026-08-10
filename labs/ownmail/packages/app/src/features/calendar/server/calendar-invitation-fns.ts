@@ -367,7 +367,8 @@ async function addCalendarInvitationOnce(
 	const primary = calendars.find((calendar) => calendar.is_primary === true && calendar.read_only !== true)
 	if (!primary) throw new InvitationBoundaryError('This mailbox has no writable primary calendar.')
 
-	const claimed = await claimInvitationCreation(grantId, invitation.uid)
+	const invitationSequence = invitation.sequence ?? 0
+	const claimed = await claimInvitationCreation(grantId, invitation.uid, invitationSequence)
 	let keepClaim = false
 	let creationAttempted = false
 	try {
@@ -380,7 +381,9 @@ async function addCalendarInvitationOnce(
 				await detailsForInvitationEvent(mailbox, calendars, finalLookup.event, invitation, mailboxEmail, true)
 			).details
 		}
-		if (!claimed) throw new InvitationBoundaryError('This invitation is already being added.')
+		if (!claimed || !(await invitationCreationClaimActive(grantId, invitation.uid, invitationSequence))) {
+			throw new InvitationBoundaryError('This invitation is already being added.')
+		}
 		if (finalLookup.staleImport) {
 			const details = await reconcileImportedInvitation(
 				mailbox,
@@ -413,7 +416,7 @@ async function addCalendarInvitationOnce(
 			.details
 	} finally {
 		if (claimed && !keepClaim && !creationAttempted) {
-			await releaseInvitationCreationClaim(grantId, invitation.uid).catch(() => undefined)
+			await releaseInvitationCreationClaim(grantId, invitation.uid, invitationSequence).catch(() => undefined)
 		}
 	}
 }
@@ -594,6 +597,9 @@ async function cancelImportedInvitation(
 		limit: 20,
 	}))
 	if (!metadataPages.complete) throw new Error('Calendar cancellation lookup failed')
+	if (await invitationCreationClaimActive(grantId, invitation.uid)) {
+		return { state: 'syncing', canAdd: false }
+	}
 
 	const imported: Event[] = []
 	let manualReview = false
@@ -616,9 +622,6 @@ async function cancelImportedInvitation(
 				: normalizedEmail(storedOrganizer)) === cancellationOrganizer
 		if (organizerMatches) imported.push(event)
 		else if (storedOrganizer === undefined) manualReview = true
-	}
-	if (metadataPages.events.length === 0 && (await invitationCreationClaimActive(grantId, invitation.uid))) {
-		return { state: 'syncing', canAdd: false }
 	}
 	for (const event of imported) {
 		const calendar = calendars.find(

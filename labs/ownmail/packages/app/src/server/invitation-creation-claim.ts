@@ -6,23 +6,34 @@ const MAX_INVITATION_SEQUENCE = 2_147_483_647
 export async function invitationCreationClaimsAvailable(): Promise<boolean> {
 	try {
 		const { kv } = await platform()
-		return Boolean(kv?.putIfAbsent)
+		return Boolean(kv?.claimRevision && kv.releaseRevision)
 	} catch {
 		return false
 	}
 }
 
-export async function claimInvitationCreation(grantId: string, uid: string): Promise<boolean> {
+export async function claimInvitationCreation(
+	grantId: string,
+	uid: string,
+	sequence: number,
+): Promise<boolean> {
+	requireSequence(sequence)
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) throw new Error('Atomic invitation claims are unavailable')
+	if (!kv?.claimRevision) throw new Error('Atomic invitation claims are unavailable')
 	const key = await claimKey(env.SESSION_SECRET, grantId, uid)
-	return kv.putIfAbsent(key, '1', CLAIM_TTL_SECONDS)
+	return kv.claimRevision(key, sequence, CLAIM_TTL_SECONDS)
 }
 
-export async function invitationCreationClaimActive(grantId: string, uid: string): Promise<boolean> {
+export async function invitationCreationClaimActive(
+	grantId: string,
+	uid: string,
+	sequence?: number,
+): Promise<boolean> {
+	if (sequence !== undefined) requireSequence(sequence)
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) return false
-	return (await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid))) === '1'
+	if (!kv?.claimRevision) return false
+	const activeSequence = parseSequence(await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid)))
+	return sequence === undefined ? activeSequence !== undefined : activeSequence === sequence
 }
 
 export async function invitationCancellationSequence(
@@ -70,10 +81,15 @@ export async function recordInvitationCancellation(
 	return sequence
 }
 
-export async function releaseInvitationCreationClaim(grantId: string, uid: string): Promise<void> {
+export async function releaseInvitationCreationClaim(
+	grantId: string,
+	uid: string,
+	sequence: number,
+): Promise<void> {
+	requireSequence(sequence)
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) return
-	await kv.delete(await claimKey(env.SESSION_SECRET, grantId, uid))
+	if (!kv?.releaseRevision) return
+	await kv.releaseRevision(await claimKey(env.SESSION_SECRET, grantId, uid), sequence)
 }
 
 async function claimKey(secret: string, grantId: string, uid: string): Promise<string> {
@@ -111,6 +127,12 @@ function parseSequence(value: string | null): number | undefined {
 	if (typeof value !== 'string' || !/^\d{1,10}$/.test(value)) return undefined
 	const sequence = Number(value)
 	return sequence <= MAX_INVITATION_SEQUENCE ? sequence : undefined
+}
+
+function requireSequence(sequence: number): void {
+	if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > MAX_INVITATION_SEQUENCE) {
+		throw new Error('Invalid invitation sequence')
+	}
 }
 
 function versionedCancellationSequence(

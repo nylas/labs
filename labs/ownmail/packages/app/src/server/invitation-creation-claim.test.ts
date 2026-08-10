@@ -34,6 +34,15 @@ function atomicStore() {
 			values.set(key, String(next))
 			return next
 		}),
+		claimRevision: vi.fn(async (key, revision) => {
+			const current = Number(values.get(key) ?? -1)
+			if (current >= revision) return false
+			values.set(key, String(revision))
+			return true
+		}),
+		releaseRevision: vi.fn(async (key, revision) => {
+			if (values.get(key) === String(revision)) values.delete(key)
+		}),
 	}
 	return kv
 }
@@ -46,19 +55,22 @@ describe('invitation creation claims', () => {
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
 
 		await expect(invitationCreationClaimsAvailable()).resolves.toBe(true)
-		await expect(claimInvitationCreation('grant-1', 'uid@example.com')).resolves.toBe(true)
+		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 1)).resolves.toBe(true)
 		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com')).resolves.toBe(true)
-		await expect(claimInvitationCreation('grant-1', 'uid@example.com')).resolves.toBe(false)
-		expect(vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mock.calls[0]?.[0]).not.toContain(
-			'grant-1',
-		)
-		expect(vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mock.calls[0]?.[0]).not.toContain(
-			'uid@example.com',
-		)
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com', 1)).resolves.toBe(true)
+		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 1)).resolves.toBe(false)
+		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 2)).resolves.toBe(true)
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com', 1)).resolves.toBe(false)
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com', 2)).resolves.toBe(true)
+		const claimKey = vi.mocked(kv.claimRevision as NonNullable<KvLike['claimRevision']>).mock.calls[0]?.[0]
+		expect(claimKey).not.toContain('grant-1')
+		expect(claimKey).not.toContain('uid@example.com')
 
-		await releaseInvitationCreationClaim('grant-1', 'uid@example.com')
+		await releaseInvitationCreationClaim('grant-1', 'uid@example.com', 1)
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com')).resolves.toBe(true)
+		await releaseInvitationCreationClaim('grant-1', 'uid@example.com', 2)
 		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com')).resolves.toBe(false)
-		await expect(claimInvitationCreation('grant-1', 'uid@example.com')).resolves.toBe(true)
+		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 2)).resolves.toBe(true)
 	})
 
 	it('fails closed when no atomic shared store is available', async () => {
@@ -70,8 +82,8 @@ describe('invitation creation claims', () => {
 			invitationCancellationSequence('grant-1', 'uid', 'grace@example.com'),
 		).resolves.toBeUndefined()
 		await expect(recordInvitationCancellation('grant-1', 'uid', 2, 'grace@example.com')).resolves.toBe(2)
-		await expect(claimInvitationCreation('grant-1', 'uid')).rejects.toThrow('unavailable')
-		await expect(releaseInvitationCreationClaim('grant-1', 'uid')).resolves.toBeUndefined()
+		await expect(claimInvitationCreation('grant-1', 'uid', 1)).rejects.toThrow('unavailable')
+		await expect(releaseInvitationCreationClaim('grant-1', 'uid', 1)).resolves.toBeUndefined()
 	})
 
 	it('records a monotonic hashed cancellation tombstone', async () => {
@@ -205,17 +217,32 @@ describe('invitation creation claims', () => {
 
 	it('propagates an atomic store failure without leaving a local fallback claim', async () => {
 		const kv = atomicStore()
-		vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mockRejectedValue(
+		vi.mocked(kv.claimRevision as NonNullable<KvLike['claimRevision']>).mockRejectedValue(
 			new Error('claim failed'),
 		)
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
 
-		await expect(claimInvitationCreation('grant-1', 'uid')).rejects.toThrow('claim failed')
+		await expect(claimInvitationCreation('grant-1', 'uid', 1)).rejects.toThrow('claim failed')
 		expect(kv.delete).not.toHaveBeenCalled()
 	})
 
 	it('validates claim secrets before using them as HMAC keys', async () => {
 		platform.mockResolvedValue({ kv: atomicStore(), env: { SESSION_SECRET: '' } })
-		await expect(claimInvitationCreation('grant-1', 'uid')).rejects.toThrow('secret is unavailable')
+		await expect(claimInvitationCreation('grant-1', 'uid', 1)).rejects.toThrow('secret is unavailable')
+	})
+
+	it('validates claim revisions before accessing shared storage', async () => {
+		for (const sequence of [-1, 1.5, Number.NaN, 2_147_483_648]) {
+			await expect(claimInvitationCreation('grant-1', 'uid', sequence)).rejects.toThrow(
+				'Invalid invitation sequence',
+			)
+		}
+		await expect(invitationCreationClaimActive('grant-1', 'uid', -1)).rejects.toThrow(
+			'Invalid invitation sequence',
+		)
+		await expect(releaseInvitationCreationClaim('grant-1', 'uid', -1)).rejects.toThrow(
+			'Invalid invitation sequence',
+		)
+		expect(platform).not.toHaveBeenCalled()
 	})
 })

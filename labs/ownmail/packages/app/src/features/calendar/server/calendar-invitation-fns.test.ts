@@ -163,7 +163,9 @@ describe('calendar invitation server functions', () => {
 		signalLocalChange.mockReset().mockResolvedValue(undefined)
 		claimInvitationCreation.mockReset().mockResolvedValue(true)
 		invitationCancellationSequence.mockReset().mockResolvedValue(undefined)
-		invitationCreationClaimActive.mockReset().mockResolvedValue(false)
+		invitationCreationClaimActive
+			.mockReset()
+			.mockImplementation(async (...args: unknown[]) => args.length === 3)
 		invitationCreationClaimsAvailable.mockReset().mockResolvedValue(true)
 		recordInvitationCancellation.mockReset().mockResolvedValue(2)
 		releaseInvitationCreationClaim.mockReset().mockResolvedValue(undefined)
@@ -312,7 +314,7 @@ describe('calendar invitation server functions', () => {
 			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: false })
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
-		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com')
+		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com', 1)
 	})
 
 	it('does not infer legacy organizer trust from a request in the cancellation thread', async () => {
@@ -455,11 +457,17 @@ describe('calendar invitation server functions', () => {
 		},
 	)
 
-	it('keeps cancellation lookup retryable while a new import claim is active', async () => {
+	it('keeps cancellation retryable when a stale event revision is indexed under an active claim', async () => {
 		invitationCreationClaimActive.mockResolvedValue(true)
+		const stale = invitationEvent({
+			ical_uid: undefined,
+			metadata: { key1: 'invite@example.com', key2: '2', key3: 'grace@example.com' },
+		})
 		const mailbox = makeMailbox({
-			downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS)),
-			listEvents: vi.fn(async () => ({ data: [] })),
+			downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS.replace('SEQUENCE:2', 'SEQUENCE:3'))),
+			listEvents: vi.fn(async (query: { calendar_id: string; metadata_pair?: string }) => ({
+				data: query.metadata_pair && query.calendar_id === 'primary' ? [stale] : [],
+			})),
 		})
 		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
 
@@ -825,7 +833,7 @@ describe('calendar invitation server functions', () => {
 			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).rejects.toThrow('could not be updated')
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
-		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com')
+		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com', 1)
 	})
 
 	it('fails closed when the referenced attachment is not on the authenticated message', async () => {
@@ -965,7 +973,7 @@ describe('calendar invitation server functions', () => {
 			{ notifyParticipants: false },
 		)
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
-		expect(claimInvitationCreation).toHaveBeenCalledWith('grant-1', 'invite@example.com')
+		expect(claimInvitationCreation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 1)
 		expect(releaseInvitationCreationClaim).not.toHaveBeenCalled()
 	})
 
@@ -1105,9 +1113,10 @@ describe('calendar invitation server functions', () => {
 	it('reconciles a newer imported revision returned by the UID index', async () => {
 		const stale = invitationEvent({
 			location: 'Old room',
-			metadata: { key1: 'invite@example.com', key2: '0' },
+			metadata: { key1: 'invite@example.com', key2: '1' },
 		})
 		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(ICS.replace('SEQUENCE:1', 'SEQUENCE:5'))),
 			listEvents: vi.fn(async (query: { calendar_id: string; ical_uid?: string }) => ({
 				data: query.ical_uid && query.calendar_id === 'primary' ? [stale] : [],
 			})),
@@ -1119,6 +1128,8 @@ describe('calendar invitation server functions', () => {
 		).resolves.toMatchObject({ state: 'ready', canRespond: false })
 		expect(mailbox.updateEvent).toHaveBeenCalledOnce()
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
+		expect(claimInvitationCreation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 5)
+		expect(invitationCreationClaimActive).toHaveBeenCalledWith('grant-1', 'invite@example.com', 5)
 	})
 
 	it.each([

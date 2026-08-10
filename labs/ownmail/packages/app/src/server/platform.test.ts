@@ -152,6 +152,8 @@ describe('platform()', () => {
 				expire: expect.any(Function),
 				putIfAbsent: expect.any(Function),
 				putMaximum: expect.any(Function),
+				claimRevision: expect.any(Function),
+				releaseRevision: expect.any(Function),
 			}),
 		)
 		redis.get.mockResolvedValue('value')
@@ -159,7 +161,7 @@ describe('platform()', () => {
 		redis.del.mockResolvedValue(1)
 		redis.incr.mockResolvedValue(2)
 		redis.expire.mockResolvedValue(1)
-		redis.eval.mockResolvedValue(7)
+		redis.eval.mockResolvedValueOnce(7).mockResolvedValueOnce(1).mockResolvedValueOnce(1)
 		await expect(p.kv?.get('key')).resolves.toBe('value')
 		await p.kv?.put('key', 'value', { expirationTtl: 60 })
 		await p.kv?.put('key', 'value')
@@ -170,11 +172,30 @@ describe('platform()', () => {
 		await p.kv?.expire?.('key', 900)
 		await expect(p.kv?.putIfAbsent?.('claim', '1', 600)).resolves.toBe(true)
 		await expect(p.kv?.putMaximum?.('revision', 7)).resolves.toBe(7)
+		await expect(p.kv?.claimRevision?.('claim-revision', 5, 600)).resolves.toBe(true)
+		await expect(p.kv?.releaseRevision?.('claim-revision', 5)).resolves.toBeUndefined()
 		expect(redis.expire).toHaveBeenCalledWith('key', 900)
 		expect(redis.set).toHaveBeenNthCalledWith(1, 'key', 'value', { ex: 60 })
 		expect(redis.set).toHaveBeenNthCalledWith(2, 'key', 'value', undefined)
 		expect(redis.set).toHaveBeenNthCalledWith(3, 'claim', '1', { nx: true, ex: 600 })
-		expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET'"), ['revision'], ['7'])
+		expect(redis.eval).toHaveBeenNthCalledWith(
+			1,
+			expect.stringContaining("redis.call('SET'"),
+			['revision'],
+			['7'],
+		)
+		expect(redis.eval).toHaveBeenNthCalledWith(
+			2,
+			expect.stringContaining("'EX'"),
+			['claim-revision'],
+			['5', '600'],
+		)
+		expect(redis.eval).toHaveBeenNthCalledWith(
+			3,
+			expect.stringContaining("redis.call('DEL'"),
+			['claim-revision'],
+			['5'],
+		)
 	})
 
 	it.each([
