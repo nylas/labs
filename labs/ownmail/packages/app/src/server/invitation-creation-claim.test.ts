@@ -8,20 +8,24 @@ const {
 	claimInvitationCreation,
 	invitationCreationClaimActive,
 	invitationCreationClaimsAvailable,
+	invitationCancellationSequence,
+	recordInvitationCancellation,
 	releaseInvitationCreationClaim,
 } = await import('./invitation-creation-claim.js')
 
 function atomicStore() {
-	const values = new Set<string>()
+	const values = new Map<string, string>()
 	const kv: KvLike = {
-		get: vi.fn(async (key) => (values.has(key) ? '1' : null)),
-		put: vi.fn(async () => undefined),
+		get: vi.fn(async (key) => values.get(key) ?? null),
+		put: vi.fn(async (key, value) => {
+			values.set(key, value)
+		}),
 		delete: vi.fn(async (key) => {
 			values.delete(key)
 		}),
 		putIfAbsent: vi.fn(async (key) => {
 			if (values.has(key)) return false
-			values.add(key)
+			values.set(key, '1')
 			return true
 		}),
 	}
@@ -56,8 +60,45 @@ describe('invitation creation claims', () => {
 
 		await expect(invitationCreationClaimsAvailable()).resolves.toBe(false)
 		await expect(invitationCreationClaimActive('grant-1', 'uid')).resolves.toBe(false)
+		await expect(invitationCancellationSequence('grant-1', 'uid')).resolves.toBeUndefined()
+		await expect(recordInvitationCancellation('grant-1', 'uid', 2)).resolves.toBe(2)
 		await expect(claimInvitationCreation('grant-1', 'uid')).rejects.toThrow('unavailable')
 		await expect(releaseInvitationCreationClaim('grant-1', 'uid')).resolves.toBeUndefined()
+	})
+
+	it('records a monotonic hashed cancellation tombstone', async () => {
+		const kv = atomicStore()
+		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
+
+		await expect(invitationCancellationSequence('grant-1', 'uid@example.com')).resolves.toBeUndefined()
+		await expect(recordInvitationCancellation('grant-1', 'uid@example.com', 3)).resolves.toBe(3)
+		await expect(recordInvitationCancellation('grant-1', 'uid@example.com', 2)).resolves.toBe(3)
+		await expect(invitationCancellationSequence('grant-1', 'uid@example.com')).resolves.toBe(3)
+
+		const cancellationKey = vi
+			.mocked(kv.put)
+			.mock.calls.map(([key]) => key)
+			.find((key) => key.startsWith('invitation-cancel:'))
+		expect(cancellationKey).toBeDefined()
+		expect(cancellationKey).not.toContain('grant-1')
+		expect(cancellationKey).not.toContain('uid@example.com')
+		await kv.put(cancellationKey as string, '2147483648')
+		await expect(invitationCancellationSequence('grant-1', 'uid@example.com')).resolves.toBeUndefined()
+	})
+
+	it('validates tombstone revisions and serializes writers', async () => {
+		const kv = atomicStore()
+		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
+
+		for (const sequence of [-1, 1.5, Number.NaN, 2_147_483_648]) {
+			await expect(recordInvitationCancellation('grant-1', 'uid', sequence)).rejects.toThrow(
+				'Invalid invitation cancellation sequence',
+			)
+		}
+		vi.mocked(kv.delete).mockRejectedValueOnce(new Error('cleanup outage'))
+		await expect(recordInvitationCancellation('grant-1', 'uid-cleanup', 1)).resolves.toBe(1)
+		vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mockResolvedValueOnce(false)
+		await expect(recordInvitationCancellation('grant-1', 'uid', 1)).rejects.toThrow('already being recorded')
 	})
 
 	it('reports unavailable platform state without exposing its failure', async () => {

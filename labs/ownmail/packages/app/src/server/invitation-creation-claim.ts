@@ -1,6 +1,8 @@
 import { platform } from './platform.js'
 
 const CLAIM_TTL_SECONDS = 10 * 60
+const CANCELLATION_LOCK_TTL_SECONDS = 30
+const MAX_INVITATION_SEQUENCE = 2_147_483_647
 
 export async function invitationCreationClaimsAvailable(): Promise<boolean> {
 	try {
@@ -24,6 +26,41 @@ export async function invitationCreationClaimActive(grantId: string, uid: string
 	return (await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid))) === '1'
 }
 
+export async function invitationCancellationSequence(
+	grantId: string,
+	uid: string,
+): Promise<number | undefined> {
+	const { env, kv } = await platform()
+	if (!kv?.putIfAbsent) return undefined
+	return parseSequence(await kv.get(await cancellationKey(env.SESSION_SECRET, grantId, uid)))
+}
+
+export async function recordInvitationCancellation(
+	grantId: string,
+	uid: string,
+	sequence: number,
+): Promise<number> {
+	if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > MAX_INVITATION_SEQUENCE) {
+		throw new Error('Invalid invitation cancellation sequence')
+	}
+	const { env, kv } = await platform()
+	if (!kv?.putIfAbsent) return sequence
+	const suffix = await claimSuffix(env.SESSION_SECRET, grantId, uid)
+	const lockKey = `invitation-cancel-lock:${suffix}`
+	if (!(await kv.putIfAbsent(lockKey, '1', CANCELLATION_LOCK_TTL_SECONDS))) {
+		throw new Error('Invitation cancellation is already being recorded')
+	}
+	try {
+		const key = `invitation-cancel:${suffix}`
+		const current = parseSequence(await kv.get(key))
+		const next = Math.max(current ?? 0, sequence)
+		if (current !== next) await kv.put(key, String(next))
+		return next
+	} finally {
+		await kv.delete(lockKey).catch(() => undefined)
+	}
+}
+
 export async function releaseInvitationCreationClaim(grantId: string, uid: string): Promise<void> {
 	const { env, kv } = await platform()
 	if (!kv?.putIfAbsent) return
@@ -31,6 +68,14 @@ export async function releaseInvitationCreationClaim(grantId: string, uid: strin
 }
 
 async function claimKey(secret: string, grantId: string, uid: string): Promise<string> {
+	return `invitation-create:${await claimSuffix(secret, grantId, uid)}`
+}
+
+async function cancellationKey(secret: string, grantId: string, uid: string): Promise<string> {
+	return `invitation-cancel:${await claimSuffix(secret, grantId, uid)}`
+}
+
+async function claimSuffix(secret: string, grantId: string, uid: string): Promise<string> {
 	if (!secret || secret.length > 16_384) throw new Error('Invitation claim secret is unavailable')
 	const encoder = new TextEncoder()
 	const key = await crypto.subtle.importKey(
@@ -45,5 +90,11 @@ async function claimKey(secret: string, grantId: string, uid: string): Promise<s
 		.slice(0, 20)
 		.map((byte) => byte.toString(16).padStart(2, '0'))
 		.join('')
-	return `invitation-create:${suffix}`
+	return suffix
+}
+
+function parseSequence(value: string | null): number | undefined {
+	if (typeof value !== 'string' || !/^\d{1,10}$/.test(value)) return undefined
+	const sequence = Number(value)
+	return sequence <= MAX_INVITATION_SEQUENCE ? sequence : undefined
 }

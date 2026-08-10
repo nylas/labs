@@ -12,8 +12,10 @@ import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId } from '#server/ids'
 import {
 	claimInvitationCreation,
+	invitationCancellationSequence,
 	invitationCreationClaimActive,
 	invitationCreationClaimsAvailable,
+	recordInvitationCancellation,
 	releaseInvitationCreationClaim,
 } from '#server/invitation-creation-claim'
 import { requireMailbox } from '#server/mailbox-boundary'
@@ -184,16 +186,32 @@ async function resolveInvitation(
 	}
 	const invitation = await downloadInvitationAttachment(mailbox, message.data, attachment)
 	if (!invitation) return { details: { state: 'invalid' } }
-
-	const calendars = await invitationCalendars(mailbox)
-	if (calendars.length === 0) return { details: { state: 'ineligible' }, invitation, message: message.data }
+	if (invitation.method === 'REQUEST' && (await invitationWasCancelled(grantId, invitation))) {
+		return {
+			details: { state: 'cancelled', removed: false, manualReview: false },
+			invitation,
+			message: message.data,
+		}
+	}
 	if (invitation.method === 'CANCEL') {
+		const cancellationOrganizer = cancellationOrganizerForMessage(
+			message.data,
+			invitation,
+			mailboxEmail,
+			grantId,
+		)
+		if (!cancellationOrganizer) return { details: { state: 'ineligible' } }
+		await recordInvitationCancellation(grantId, invitation.uid, invitation.sequence ?? 0)
+		const calendars = await invitationCalendars(mailbox)
+		if (calendars.length === 0) {
+			return { details: { state: 'ineligible' }, invitation, message: message.data }
+		}
 		return {
 			details: await cancelImportedInvitation(
 				mailbox,
 				calendars,
-				message.data,
 				invitation,
+				cancellationOrganizer,
 				mailboxEmail,
 				grantId,
 			),
@@ -202,6 +220,9 @@ async function resolveInvitation(
 			calendars,
 		}
 	}
+
+	const calendars = await invitationCalendars(mailbox)
+	if (calendars.length === 0) return { details: { state: 'ineligible' }, invitation, message: message.data }
 
 	const uidPages = await eventPages(mailbox, calendars, (calendar) => ({
 		calendar_id: calendar.id,
@@ -340,6 +361,9 @@ async function addCalendarInvitationOnce(
 	let creationAttempted = false
 	try {
 		const finalLookup = await finalInvitationLookup(mailbox, calendars, invitation, mailboxEmail)
+		if (await invitationWasCancelled(grantId, invitation)) {
+			return { state: 'cancelled', removed: false, manualReview: false }
+		}
 		if (finalLookup.event) {
 			return (
 				await detailsForInvitationEvent(mailbox, calendars, finalLookup.event, invitation, mailboxEmail, true)
@@ -547,13 +571,12 @@ function canCreateInvitation(
 async function cancelImportedInvitation(
 	mailbox: InvitationMailbox,
 	calendars: Calendar[],
-	message: Message,
 	invitation: ParsedCalendarInvitation,
+	cancellationOrganizer: string,
 	mailboxEmail: string,
 	grantId: string,
 ): Promise<CalendarInvitationDetails> {
-	const cancellationOrganizer = cancellationOrganizerForMessage(message, invitation, mailboxEmail, grantId)
-	if (!cancellationOrganizer) return { state: 'ineligible' }
+	const cancellationSequence = invitation.sequence ?? 0
 	const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
 		calendar_id: calendar.id,
 		metadata_pair: invitationMetadataPair(invitation.uid),
@@ -561,7 +584,6 @@ async function cancelImportedInvitation(
 	}))
 	if (!metadataPages.complete) throw new Error('Calendar cancellation lookup failed')
 
-	const cancellationSequence = invitation.sequence ?? 0
 	const imported: Event[] = []
 	let manualReview = false
 	for (const event of metadataPages.events) {
@@ -600,6 +622,14 @@ async function cancelImportedInvitation(
 	}
 	if (imported.length > 0) await signalLocalChange(grantId, 'calendar')
 	return { state: 'cancelled', removed: imported.length > 0, manualReview }
+}
+
+async function invitationWasCancelled(
+	grantId: string,
+	invitation: ParsedCalendarInvitation,
+): Promise<boolean> {
+	const cancelledThrough = await invitationCancellationSequence(grantId, invitation.uid)
+	return cancelledThrough !== undefined && cancelledThrough >= (invitation.sequence ?? 0)
 }
 
 function cancellationOrganizerForMessage(

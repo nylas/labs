@@ -28,19 +28,25 @@ vi.mock('#server/change-version', () => ({
 
 const {
 	claimInvitationCreation,
+	invitationCancellationSequence,
 	invitationCreationClaimActive,
 	invitationCreationClaimsAvailable,
+	recordInvitationCancellation,
 	releaseInvitationCreationClaim,
 } = vi.hoisted(() => ({
 	claimInvitationCreation: vi.fn(),
+	invitationCancellationSequence: vi.fn(),
 	invitationCreationClaimActive: vi.fn(),
 	invitationCreationClaimsAvailable: vi.fn(),
+	recordInvitationCancellation: vi.fn(),
 	releaseInvitationCreationClaim: vi.fn(),
 }))
 vi.mock('#server/invitation-creation-claim', () => ({
 	claimInvitationCreation: (...args: unknown[]) => claimInvitationCreation(...args),
+	invitationCancellationSequence: (...args: unknown[]) => invitationCancellationSequence(...args),
 	invitationCreationClaimActive: (...args: unknown[]) => invitationCreationClaimActive(...args),
 	invitationCreationClaimsAvailable: () => invitationCreationClaimsAvailable(),
+	recordInvitationCancellation: (...args: unknown[]) => recordInvitationCancellation(...args),
 	releaseInvitationCreationClaim: (...args: unknown[]) => releaseInvitationCreationClaim(...args),
 }))
 
@@ -156,8 +162,10 @@ describe('calendar invitation server functions', () => {
 		requireMailbox.mockReset()
 		signalLocalChange.mockReset().mockResolvedValue(undefined)
 		claimInvitationCreation.mockReset().mockResolvedValue(true)
+		invitationCancellationSequence.mockReset().mockResolvedValue(undefined)
 		invitationCreationClaimActive.mockReset().mockResolvedValue(false)
 		invitationCreationClaimsAvailable.mockReset().mockResolvedValue(true)
+		recordInvitationCancellation.mockReset().mockResolvedValue(2)
 		releaseInvitationCreationClaim.mockReset().mockResolvedValue(undefined)
 	})
 
@@ -211,7 +219,67 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.deleteEvent).toHaveBeenCalledWith('provider-event-id', 'primary', {
 			notifyParticipants: false,
 		})
+		expect(recordInvitationCancellation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 2)
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
+	})
+
+	it('records a valid cancellation even when no calendar is currently available', async () => {
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS)),
+			listCalendars: vi.fn(async () => ({ data: [] })),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'ineligible' })
+		expect(recordInvitationCancellation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 2)
+		expect(mailbox.listEvents).not.toHaveBeenCalled()
+	})
+
+	it('blocks a request revision covered by a cancellation tombstone', async () => {
+		invitationCancellationSequence.mockResolvedValue(1)
+		const mailbox = makeMailbox()
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: false })
+		expect(mailbox.listCalendars).not.toHaveBeenCalled()
+	})
+
+	it('allows a request revision newer than its cancellation tombstone', async () => {
+		invitationCancellationSequence.mockResolvedValue(0)
+		const mailbox = makeMailbox()
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready' })
+	})
+
+	it('treats an omitted request sequence as revision zero for tombstones', async () => {
+		invitationCancellationSequence.mockResolvedValue(0)
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(ICS.replace('SEQUENCE:1\r\n', ''))),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: false })
+	})
+
+	it('rechecks the tombstone after claiming a missing request', async () => {
+		invitationCancellationSequence.mockResolvedValueOnce(undefined).mockResolvedValueOnce(1)
+		const mailbox = makeMailbox({ listEvents: vi.fn(async () => ({ data: [] })) })
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: false })
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com')
 	})
 
 	it('does not infer legacy organizer trust from a request in the cancellation thread', async () => {
@@ -484,6 +552,7 @@ describe('calendar invitation server functions', () => {
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).rejects.toThrow('could not be updated')
+		expect(recordInvitationCancellation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 2)
 		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
 	})
 
