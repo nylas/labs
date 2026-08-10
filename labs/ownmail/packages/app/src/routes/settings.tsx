@@ -1,3 +1,4 @@
+/* Hallmark · component: Settings mobile header · genre: modern-minimal · theme: Quiet · pre-emit critique: P5 H5 E5 S5 R5 V5 */
 import { createFileRoute } from '@tanstack/react-router'
 import { Check, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -190,19 +191,19 @@ function SettingsPage() {
 				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
-						'flex min-w-0 flex-1 items-center border-b border-border bg-background px-4',
+						'flex min-w-0 flex-1 items-center gap-2 border-b border-border bg-background px-3 md:px-4',
 						CHROME_ROW_CLASS,
 					)}
 				>
 					<button
 						type="button"
 						onClick={() => setNavigationOpen(true)}
-						className="flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:hidden"
+						className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted/60 hover:text-foreground active:translate-y-px focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:hidden"
 						aria-label="Open navigation"
 					>
 						<Menu className="h-4 w-4" />
 					</button>
-					<h1 className="font-display text-base font-semibold">Settings</h1>
+					<h1 className="min-w-0 truncate font-display text-base font-semibold">Settings</h1>
 				</header>
 			</div>
 

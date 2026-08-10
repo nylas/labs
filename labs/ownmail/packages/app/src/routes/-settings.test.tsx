@@ -80,7 +80,12 @@ describe('/settings', () => {
 
 	it('opens the app navigation as a temporary sheet', () => {
 		renderSettings()
-		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		const navigationButton = screen.getByRole('button', { name: 'Open navigation' })
+		expect(navigationButton).toHaveClass('h-11', 'w-11', 'rounded-lg', 'disabled:pointer-events-none')
+		expect(navigationButton).not.toHaveClass('border-r')
+		expect(screen.getByRole('heading', { name: 'Settings' }).parentElement).toHaveClass('gap-2', 'px-3')
+
+		fireEvent.click(navigationButton)
 		expect(screen.getByTestId('sheet')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'close-mobile-navigation' }))
 		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
