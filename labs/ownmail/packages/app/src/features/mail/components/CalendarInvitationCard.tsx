@@ -138,6 +138,14 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			/>
 		)
 	}
+	if (details.state === 'cancelled') {
+		return (
+			<InvitationNotice
+				title="Invitation cancelled"
+				message="The organizer cancelled this event, and it has been removed from your calendar."
+			/>
+		)
+	}
 	const canRespond = details.canRespond !== false
 	return (
 		<section

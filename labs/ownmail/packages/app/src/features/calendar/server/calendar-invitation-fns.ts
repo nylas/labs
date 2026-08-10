@@ -38,6 +38,7 @@ export type CalendarInvitationDetails =
 	| { state: 'invalid' }
 	| { state: 'syncing'; canAdd?: false }
 	| { state: 'ineligible' }
+	| { state: 'cancelled' }
 	| {
 			state: 'ready'
 			title: string
@@ -67,6 +68,7 @@ type InvitationMailbox = {
 		calendarId: string,
 		options?: { notifyParticipants?: boolean },
 	): Promise<{ data: Event }>
+	deleteEvent(eventId: string, calendarId: string, options?: { notifyParticipants?: boolean }): Promise<void>
 	sendRsvp(eventId: string, calendarId: string, status: 'yes' | 'no' | 'maybe'): Promise<unknown>
 }
 
@@ -193,6 +195,21 @@ async function resolveInvitation(
 
 	const calendars = await invitationCalendars(mailbox)
 	if (calendars.length === 0) return { details: { state: 'ineligible' }, invitation, message: message.data }
+	if (invitation.method === 'CANCEL') {
+		return {
+			details: await cancelImportedInvitation(
+				mailbox,
+				calendars,
+				message.data,
+				invitation,
+				mailboxEmail,
+				grantId,
+			),
+			invitation,
+			message: message.data,
+			calendars,
+		}
+	}
 
 	const uidPages = await eventPages(mailbox, calendars, (calendar) => ({
 		calendar_id: calendar.id,
@@ -505,6 +522,7 @@ function canCreateInvitation(
 	const mailbox = normalizedEmail(mailboxEmail)
 	const organizer = normalizedEmail(invitation.organizerEmail)
 	if (
+		invitation.method !== 'REQUEST' ||
 		!mailbox ||
 		!organizer ||
 		organizer === mailbox ||
@@ -522,6 +540,69 @@ function canCreateInvitation(
 		senders[0] === organizer &&
 		recipients.some((participant) => normalizedEmail(participant.email) === mailbox) &&
 		attendeeEmails.includes(mailbox)
+	)
+}
+
+async function cancelImportedInvitation(
+	mailbox: InvitationMailbox,
+	calendars: Calendar[],
+	message: Message,
+	invitation: ParsedCalendarInvitation,
+	mailboxEmail: string,
+	grantId: string,
+): Promise<CalendarInvitationDetails> {
+	if (!cancellationMatchesMessage(message, invitation, mailboxEmail, grantId)) {
+		return { state: 'ineligible' }
+	}
+	const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
+		calendar_id: calendar.id,
+		metadata_pair: invitationMetadataPair(invitation.uid),
+		limit: 20,
+	}))
+	if (!metadataPages.complete) throw new Error('Calendar cancellation lookup failed')
+
+	const cancellationSequence = invitation.sequence ?? 0
+	const imported = metadataPages.events.filter((event) => {
+		const storedSequence = eventMetadataSequence(event)
+		return (
+			eventMetadataUid(event) === invitation.uid &&
+			event.participants?.some(
+				(participant) => normalizedEmail(participant.email) === normalizedEmail(mailboxEmail),
+			) === true &&
+			storedSequence !== undefined &&
+			cancellationSequence >= storedSequence
+		)
+	})
+	for (const event of imported) {
+		const calendar = calendars.find(
+			(candidate) => candidate.id === event.calendar_id && candidate.read_only !== true,
+		)
+		if (!calendar) throw new Error('Imported invitation calendar is not writable')
+		try {
+			await mailbox.deleteEvent(event.id, calendar.id, { notifyParticipants: false })
+		} catch (error) {
+			if (!(error instanceof NylasApiError && error.status === 404)) throw error
+		}
+	}
+	if (imported.length > 0) await signalLocalChange(grantId, 'calendar')
+	return { state: 'cancelled' }
+}
+
+function cancellationMatchesMessage(
+	message: Message,
+	invitation: ParsedCalendarInvitation,
+	mailboxEmail: string,
+	grantId: string,
+): boolean {
+	const mailbox = normalizedEmail(mailboxEmail)
+	const organizer = normalizedEmail(invitation.organizerEmail)
+	if (!mailbox || !organizer || organizer === mailbox || message.grant_id !== grantId) return false
+	const senders = message.from?.map((participant) => normalizedEmail(participant.email)).filter(Boolean) ?? []
+	const recipients = [...(message.to ?? []), ...(message.cc ?? []), ...(message.bcc ?? [])]
+	return (
+		senders.length === 1 &&
+		senders[0] === organizer &&
+		recipients.some((participant) => normalizedEmail(participant.email) === mailbox)
 	)
 }
 

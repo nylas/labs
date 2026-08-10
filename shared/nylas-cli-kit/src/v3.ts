@@ -1047,11 +1047,14 @@ export class GrantScopedClient {
 			body,
 		)
 	}
-	deleteEvent(eventId: string, calendarId: string): Promise<void> {
-		return this.client.request(
-			'DELETE',
-			this.path(`/events/${encodeURIComponent(eventId)}?calendar_id=${encodeURIComponent(calendarId)}`),
-		)
+	deleteEvent(eventId: string, calendarId: string, options: CreateEventOptions = {}): Promise<void> {
+		const query: ListQuery = {
+			calendar_id: calendarId,
+			...(options.notifyParticipants !== undefined
+				? { notify_participants: options.notifyParticipants }
+				: {}),
+		}
+		return this.client.request('DELETE', this.path(`/events/${encodeURIComponent(eventId)}${toQuery(query)}`))
 	}
 	sendRsvp(
 		eventId: string,

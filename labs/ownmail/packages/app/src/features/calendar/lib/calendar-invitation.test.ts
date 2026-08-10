@@ -143,7 +143,7 @@ describe('calendar invitation parsing', () => {
 		).toMatchObject({ start: 1_829_692_800, end: 1_829_779_200 })
 		expect(
 			parseCalendarInvitation(
-				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nEND:VEVENT\nEND:VCALENDAR',
+				'BEGIN:VCALENDAR\nMETHOD:PUBLISH\nBEGIN:VEVENT\nUID:event\nEND:VEVENT\nEND:VCALENDAR',
 			),
 		).toBeNull()
 		expect(
@@ -209,6 +209,19 @@ describe('calendar invitation parsing', () => {
 		for (const sequence of ['-1', 'not-a-number', '2147483648', '00000000000']) {
 			expect(parseCalendarInvitation(source(sequence))).not.toHaveProperty('sequence')
 		}
+	})
+
+	it('parses cancellation messages for imported-event reconciliation', () => {
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nSEQUENCE:3\nORGANIZER:mailto:grace@example.com\nEND:VEVENT',
+			),
+		).toEqual({
+			uid: 'event',
+			method: 'CANCEL',
+			organizerEmail: 'grace@example.com',
+			sequence: 3,
+		})
 	})
 
 	it('fails closed for missing and malformed required properties', () => {

@@ -8,7 +8,7 @@ const MAX_ICS_SEQUENCE = 2_147_483_647
 
 export type ParsedCalendarInvitation = {
 	uid: string
-	method: 'REQUEST'
+	method: 'REQUEST' | 'CANCEL'
 	organizerEmail?: string
 	organizerName?: string
 	attendees?: EventParticipant[]
@@ -51,7 +51,7 @@ export function firstCalendarInvitationAttachment(
 /**
  * Parse only the small iCalendar surface required to correlate an email attachment
  * with its provider-created calendar event. Unknown properties are ignored and the
- * parser fails closed for non-REQUEST payloads or malformed identifiers.
+ * parser fails closed for unsupported methods or malformed identifiers.
  */
 export function parseCalendarInvitation(source: string): ParsedCalendarInvitation | null {
 	if (
@@ -84,7 +84,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		if (inEvent) eventProperties.push(property)
 	}
 
-	if (method !== 'REQUEST' || eventProperties.length === 0) return null
+	if ((method !== 'REQUEST' && method !== 'CANCEL') || eventProperties.length === 0) return null
 	const uid = propertyValue(eventProperties, 'UID')?.trim()
 	if (!uid || uid.length > MAX_ICS_UID_LENGTH || hasUnsafeControl(uid)) return null
 
@@ -108,7 +108,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 
 	return {
 		uid,
-		method: 'REQUEST',
+		method,
 		...(organizerEmail ? { organizerEmail } : {}),
 		...(organizerName ? { organizerName } : {}),
 		...(attendees.length > 0 ? { attendees } : {}),

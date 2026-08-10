@@ -269,6 +269,7 @@ describe('CalendarInvitationCard', () => {
 	it.each([
 		['invalid', 'Unsupported calendar file'],
 		['ineligible', 'Response unavailable'],
+		['cancelled', 'Invitation cancelled'],
 	] as const)('explains the %s invitation state without response controls', async (state, title) => {
 		getCalendarInvitation.mockResolvedValue({ state })
 		renderCard()

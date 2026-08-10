@@ -800,4 +800,27 @@ describe('NylasV3Client', () => {
 			'https://api.us.nylas.com/v3/grants/grant-123/events/event%231?calendar_id=calendar%231&notify_participants=false',
 		)
 	})
+
+	it('can delete an imported event with explicit participant notification control', async () => {
+		const requests: { method: string; url: string }[] = []
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requests.push({ method: init?.method ?? 'GET', url: String(input) })
+			return Response.json({ request_id: 'req-event' })
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		await mailbox.deleteEvent('event#1', 'calendar#1')
+		await mailbox.deleteEvent('event#1', 'calendar#1', { notifyParticipants: false })
+
+		expect(requests).toEqual([
+			{
+				method: 'DELETE',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/events/event%231?calendar_id=calendar%231',
+			},
+			{
+				method: 'DELETE',
+				url: 'https://api.us.nylas.com/v3/grants/grant-123/events/event%231?calendar_id=calendar%231&notify_participants=false',
+			},
+		])
+	})
 })
