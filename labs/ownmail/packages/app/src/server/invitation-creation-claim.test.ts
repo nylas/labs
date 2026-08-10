@@ -102,6 +102,31 @@ describe('invitation creation claims', () => {
 		).resolves.toBeUndefined()
 	})
 
+	it('persists cancellation tombstones on a non-atomic Cloudflare KV store', async () => {
+		const values = new Map<string, string>()
+		const kv: KvLike = {
+			get: vi.fn(async (key) => values.get(key) ?? null),
+			put: vi.fn(async (key, value) => {
+				values.set(key, value)
+			}),
+			delete: vi.fn(async (key) => {
+				values.delete(key)
+			}),
+		}
+		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
+
+		await expect(
+			recordInvitationCancellation('grant-1', 'uid@example.com', 3, 'grace@example.com'),
+		).resolves.toBe(3)
+		await expect(
+			recordInvitationCancellation('grant-1', 'uid@example.com', 2, 'grace@example.com'),
+		).resolves.toBe(3)
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid@example.com', 'grace@example.com'),
+		).resolves.toBe(3)
+		expect(kv.put).toHaveBeenCalledTimes(1)
+	})
+
 	it('validates tombstone revisions and serializes writers', async () => {
 		const kv = atomicStore()
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })

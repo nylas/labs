@@ -201,6 +201,12 @@ async function resolveInvitation(
 			grantId,
 		)
 		if (!cancellationOrganizer) return { details: { state: 'ineligible' } }
+		// A RECURRENCE-ID cancellation applies to one occurrence. OwnMail only
+		// correlates imports at the series UID level, so fail closed instead of
+		// tombstoning or deleting the entire recurring series.
+		if (invitation.isRecurrenceInstance) {
+			return { details: { state: 'ineligible' }, invitation, message: message.data }
+		}
 		await recordInvitationCancellation(
 			grantId,
 			invitation.uid,

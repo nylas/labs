@@ -34,7 +34,7 @@ export async function invitationCancellationSequence(
 	const organizer = normalizedOrganizer(organizerEmail)
 	if (!organizer) return undefined
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) return undefined
+	if (!kv) return undefined
 	return parseSequence(await kv.get(await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)))
 }
 
@@ -50,14 +50,20 @@ export async function recordInvitationCancellation(
 	const organizer = normalizedOrganizer(organizerEmail)
 	if (!organizer) throw new Error('Invalid invitation cancellation organizer')
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) return sequence
+	if (!kv) return sequence
+	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
+	if (!kv.putIfAbsent) {
+		const current = parseSequence(await kv.get(key))
+		const next = Math.max(current ?? 0, sequence)
+		if (current !== next) await kv.put(key, String(next))
+		return next
+	}
 	const suffix = await claimSuffix(env.SESSION_SECRET, grantId, `${uid}\0${organizer}`)
 	const lockKey = `invitation-cancel-lock:${suffix}`
 	if (!(await kv.putIfAbsent(lockKey, '1', CANCELLATION_LOCK_TTL_SECONDS))) {
 		throw new Error('Invitation cancellation is already being recorded')
 	}
 	try {
-		const key = `invitation-cancel:${suffix}`
 		const current = parseSequence(await kv.get(key))
 		const next = Math.max(current ?? 0, sequence)
 		if (current !== next) await kv.put(key, String(next))

@@ -19,6 +19,7 @@ export type ParsedCalendarInvitation = {
 	end?: number
 	when?: EventWhen
 	hasRecurrence?: true
+	isRecurrenceInstance?: true
 	sequence?: number
 }
 
@@ -102,6 +103,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const sequence = parseSequence(propertyValue(eventProperties, 'SEQUENCE'))
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
 	const whenRange = when ? eventWhenEpochRange(when) : null
+	const isRecurrenceInstance = eventProperties.some((property) => property.name === 'RECURRENCE-ID')
 	const hasRecurrence = eventProperties.some((property) =>
 		['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name),
 	)
@@ -118,6 +120,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		...(whenRange ? { start: whenRange.start, end: whenRange.end } : {}),
 		...(when ? { when } : {}),
 		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
+		...(isRecurrenceInstance ? { isRecurrenceInstance: true as const } : {}),
 		...(sequence !== undefined ? { sequence } : {}),
 	}
 }

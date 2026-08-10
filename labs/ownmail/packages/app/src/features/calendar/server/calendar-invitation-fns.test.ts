@@ -247,6 +247,24 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.listEvents).not.toHaveBeenCalled()
 	})
 
+	it('rejects recurring-instance cancellations without tombstoning or deleting the series', async () => {
+		const instanceCancellation = CANCEL_ICS.replace(
+			'ORGANIZER:mailto:grace@example.com',
+			'RECURRENCE-ID:20270816T150000Z\r\nORGANIZER:mailto:grace@example.com',
+		)
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(instanceCancellation)),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'ineligible' })
+		expect(recordInvitationCancellation).not.toHaveBeenCalled()
+		expect(mailbox.listCalendars).not.toHaveBeenCalled()
+		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
+	})
+
 	it('blocks a request revision covered by a cancellation tombstone', async () => {
 		invitationCancellationSequence.mockResolvedValue(1)
 		const mailbox = makeMailbox()

@@ -224,6 +224,19 @@ describe('calendar invitation parsing', () => {
 		})
 	})
 
+	it('marks recurring-instance cancellations separately from whole-series cancellations', () => {
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nRECURRENCE-ID:20270816T150000Z\nORGANIZER:mailto:grace@example.com\nEND:VEVENT',
+			),
+		).toMatchObject({
+			uid: 'event',
+			method: 'CANCEL',
+			hasRecurrence: true,
+			isRecurrenceInstance: true,
+		})
+	})
+
 	it('fails closed for missing and malformed required properties', () => {
 		expect(parseCalendarInvitation(null as never)).toBeNull()
 		expect(parseCalendarInvitation('BEGIN:VCALENDAR\nMETHOD:REQUEST\nEND:VCALENDAR')).toBeNull()
