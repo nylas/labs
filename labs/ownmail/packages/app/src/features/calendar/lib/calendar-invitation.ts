@@ -8,7 +8,7 @@ const MAX_ICS_SEQUENCE = 2_147_483_647
 
 export type ParsedCalendarInvitation = {
 	uid: string
-	method: 'REQUEST'
+	method: 'REQUEST' | 'CANCEL'
 	organizerEmail?: string
 	organizerName?: string
 	attendees?: EventParticipant[]
@@ -19,6 +19,7 @@ export type ParsedCalendarInvitation = {
 	end?: number
 	when?: EventWhen
 	hasRecurrence?: true
+	isRecurrenceInstance?: true
 	sequence?: number
 }
 
@@ -51,7 +52,7 @@ export function firstCalendarInvitationAttachment(
 /**
  * Parse only the small iCalendar surface required to correlate an email attachment
  * with its provider-created calendar event. Unknown properties are ignored and the
- * parser fails closed for non-REQUEST payloads or malformed identifiers.
+ * parser fails closed for unsupported methods or malformed identifiers.
  */
 export function parseCalendarInvitation(source: string): ParsedCalendarInvitation | null {
 	if (
@@ -69,6 +70,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		.split('\n')
 	let method: string | undefined
 	let inEvent = false
+	let eventEnded = false
 	const eventProperties: IcsProperty[] = []
 
 	for (const line of lines) {
@@ -80,11 +82,17 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 			inEvent = true
 			continue
 		}
-		if (property.name === 'END' && property.value.trim().toUpperCase() === 'VEVENT') break
+		if (property.name === 'END' && property.value.trim().toUpperCase() === 'VEVENT') {
+			eventEnded = true
+			inEvent = false
+			break
+		}
 		if (inEvent) eventProperties.push(property)
 	}
 
-	if (method !== 'REQUEST' || eventProperties.length === 0) return null
+	if ((method !== 'REQUEST' && method !== 'CANCEL') || !eventEnded || eventProperties.length === 0) {
+		return null
+	}
 	const uid = propertyValue(eventProperties, 'UID')?.trim()
 	if (!uid || uid.length > MAX_ICS_UID_LENGTH || hasUnsafeControl(uid)) return null
 
@@ -99,16 +107,19 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const summary = boundedIcsText(propertyValue(eventProperties, 'SUMMARY'))
 	const description = boundedIcsText(propertyValue(eventProperties, 'DESCRIPTION'))
 	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
-	const sequence = parseSequence(propertyValue(eventProperties, 'SEQUENCE'))
+	const sequenceProperty = findProperty(eventProperties, 'SEQUENCE')
+	const sequence = parseSequence(sequenceProperty?.value)
+	if (sequenceProperty && sequence === undefined) return null
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
 	const whenRange = when ? eventWhenEpochRange(when) : null
+	const isRecurrenceInstance = eventProperties.some((property) => property.name === 'RECURRENCE-ID')
 	const hasRecurrence = eventProperties.some((property) =>
 		['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name),
 	)
 
 	return {
 		uid,
-		method: 'REQUEST',
+		method,
 		...(organizerEmail ? { organizerEmail } : {}),
 		...(organizerName ? { organizerName } : {}),
 		...(attendees.length > 0 ? { attendees } : {}),
@@ -118,6 +129,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		...(whenRange ? { start: whenRange.start, end: whenRange.end } : {}),
 		...(when ? { when } : {}),
 		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
+		...(isRecurrenceInstance ? { isRecurrenceInstance: true as const } : {}),
 		...(sequence !== undefined ? { sequence } : {}),
 	}
 }

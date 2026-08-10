@@ -143,7 +143,7 @@ describe('calendar invitation parsing', () => {
 		).toMatchObject({ start: 1_829_692_800, end: 1_829_779_200 })
 		expect(
 			parseCalendarInvitation(
-				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nEND:VEVENT\nEND:VCALENDAR',
+				'BEGIN:VCALENDAR\nMETHOD:PUBLISH\nBEGIN:VEVENT\nUID:event\nEND:VEVENT\nEND:VCALENDAR',
 			),
 		).toBeNull()
 		expect(
@@ -201,14 +201,48 @@ describe('calendar invitation parsing', () => {
 		})
 	})
 
-	it('parses bounded invitation revisions and ignores malformed sequence values', () => {
+	it('parses bounded invitation revisions and rejects malformed explicit sequence values', () => {
 		const source = (sequence: string) =>
 			`BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:revision-${sequence}\nSEQUENCE:${sequence}\nEND:VEVENT`
 
 		expect(parseCalendarInvitation(source('42'))).toMatchObject({ sequence: 42 })
 		for (const sequence of ['-1', 'not-a-number', '2147483648', '00000000000']) {
-			expect(parseCalendarInvitation(source(sequence))).not.toHaveProperty('sequence')
+			expect(parseCalendarInvitation(source(sequence))).toBeNull()
 		}
+	})
+
+	it('parses cancellation messages for imported-event reconciliation', () => {
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nSEQUENCE:3\nORGANIZER:mailto:grace@example.com\nEND:VEVENT',
+			),
+		).toEqual({
+			uid: 'event',
+			method: 'CANCEL',
+			organizerEmail: 'grace@example.com',
+			sequence: 3,
+		})
+	})
+
+	it('rejects unterminated event components before accepting destructive input', () => {
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nSEQUENCE:3\nORGANIZER:mailto:grace@example.com',
+			),
+		).toBeNull()
+	})
+
+	it('marks recurring-instance cancellations separately from whole-series cancellations', () => {
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nRECURRENCE-ID:20270816T150000Z\nORGANIZER:mailto:grace@example.com\nEND:VEVENT',
+			),
+		).toMatchObject({
+			uid: 'event',
+			method: 'CANCEL',
+			hasRecurrence: true,
+			isRecurrenceInstance: true,
+		})
 	})
 
 	it('fails closed for missing and malformed required properties', () => {

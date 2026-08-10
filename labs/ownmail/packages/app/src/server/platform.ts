@@ -1,5 +1,32 @@
 import { Redis } from '@upstash/redis'
 
+const REDIS_SET_MAXIMUM_SCRIPT = `
+local current = tonumber(redis.call('GET', KEYS[1]))
+local candidate = tonumber(ARGV[1])
+if not current or current < candidate then
+	redis.call('SET', KEYS[1], ARGV[1])
+	return candidate
+end
+return current
+`
+
+const REDIS_CLAIM_REVISION_SCRIPT = `
+local current = tonumber(redis.call('GET', KEYS[1]))
+local candidate = tonumber(ARGV[1])
+if not current or current < candidate then
+	redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+	return 1
+end
+return 0
+`
+
+const REDIS_RELEASE_REVISION_SCRIPT = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+	return redis.call('DEL', KEYS[1])
+end
+return 0
+`
+
 /**
  * Platform abstraction: Cloudflare Workers (env + KV via cloudflare:workers)
  * or a Node-ish runtime like Vercel functions (process.env + optional Upstash).
@@ -42,12 +69,22 @@ export type KvLike = {
 	get(key: string): Promise<string | null>
 	put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
 	delete(key: string): Promise<void>
+	/** Lists keys in lexicographic order. Present on Cloudflare KV. */
+	list?(options: { prefix: string; limit: number }): Promise<{ keys: { name: string }[] }>
 	/** Atomic counter. Present on Redis-backed stores; absent on Cloudflare KV. */
 	increment?(key: string): Promise<number>
 	/** Attaches a TTL without touching the value, so a live counter is never reset. */
 	expire?(key: string, seconds: number): Promise<void>
 	/** Atomically creates an expiring key only when it does not already exist. */
 	putIfAbsent?(key: string, value: string, expirationTtl: number): Promise<boolean>
+	/** Atomically stores and returns the greater of an existing integer and a candidate. */
+	putMaximum?(key: string, value: number): Promise<number>
+	/** Acquires or supersedes an expiring claim only with a strictly newer revision. */
+	claimRevision?(key: string, revision: number, expirationTtl: number): Promise<boolean>
+	/** Releases a claim only when the caller still owns its revision. */
+	releaseRevision?(key: string, revision: number): Promise<void>
+	/** Deletes a key only when its current value matches the caller's token. */
+	deleteIfValue?(key: string, value: string): Promise<void>
 }
 
 export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
@@ -129,6 +166,20 @@ function nodeKv(env: AppEnv): KvLike | null {
 		putIfAbsent: async (key, value, expirationTtl) => {
 			const result = await redis.set(key, value, { nx: true, ex: expirationTtl })
 			return result === 'OK'
+		},
+		putMaximum: (key, value) =>
+			redis.eval<[string], number>(REDIS_SET_MAXIMUM_SCRIPT, [key], [String(value)]),
+		claimRevision: async (key, revision, expirationTtl) =>
+			(await redis.eval<[string, string], number>(
+				REDIS_CLAIM_REVISION_SCRIPT,
+				[key],
+				[String(revision), String(expirationTtl)],
+			)) === 1,
+		releaseRevision: async (key, revision) => {
+			await redis.eval<[string], number>(REDIS_RELEASE_REVISION_SCRIPT, [key], [String(revision)])
+		},
+		deleteIfValue: async (key, value) => {
+			await redis.eval<[string], number>(REDIS_RELEASE_REVISION_SCRIPT, [key], [value])
 		},
 	}
 }

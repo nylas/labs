@@ -1,12 +1,25 @@
-import type { Calendar, Event, ListQuery, ListResponse, Message } from '@nylas-labs/cli-kit/v3'
+import type {
+	Calendar,
+	Event,
+	ListQuery,
+	ListResponse,
+	Message,
+	MessageAttachment,
+} from '@nylas-labs/cli-kit/v3'
 import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId } from '#server/ids'
 import {
+	acquireInvitationMutation,
 	claimInvitationCreation,
+	invitationCancellationSequence,
+	invitationCreationClaimActive,
+	invitationCreationClaimSequence,
 	invitationCreationClaimsAvailable,
+	recordInvitationCancellation,
 	releaseInvitationCreationClaim,
+	releaseInvitationMutation,
 } from '#server/invitation-creation-claim'
 import { requireMailbox } from '#server/mailbox-boundary'
 import { isRenderableCalendarEvent } from '../lib/calendar.js'
@@ -37,7 +50,9 @@ export type InvitationWhen =
 export type CalendarInvitationDetails =
 	| { state: 'invalid' }
 	| { state: 'syncing'; canAdd?: false }
+	| { state: 'cancelling' }
 	| { state: 'ineligible' }
+	| { state: 'cancelled'; removed: boolean; manualReview: boolean }
 	| {
 			state: 'ready'
 			title: string
@@ -67,6 +82,7 @@ type InvitationMailbox = {
 		calendarId: string,
 		options?: { notifyParticipants?: boolean },
 	): Promise<{ data: Event }>
+	deleteEvent(eventId: string, calendarId: string, options?: { notifyParticipants?: boolean }): Promise<void>
 	sendRsvp(eventId: string, calendarId: string, status: 'yes' | 'no' | 'maybe'): Promise<unknown>
 }
 
@@ -172,24 +188,53 @@ async function resolveInvitation(
 	if (!attachment || !isCalendarInvitationAttachment(attachment)) {
 		throw new InvitationBoundaryError('Calendar invitation not found.')
 	}
-	if (attachment.size !== undefined && attachment.size > MAX_ICS_ATTACHMENT_BYTES) {
-		return { details: { state: 'invalid' } }
-	}
-
-	const response = await mailbox.downloadAttachment(attachment.id, message.data.id)
-	if (!response.ok) throw new InvitationBoundaryError('Calendar invitation could not be opened.')
-	const bytes = await response.arrayBuffer()
-	if (bytes.byteLength === 0 || bytes.byteLength > MAX_ICS_ATTACHMENT_BYTES) {
-		return { details: { state: 'invalid' } }
-	}
-	let source: string
-	try {
-		source = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-	} catch {
-		return { details: { state: 'invalid' } }
-	}
-	const invitation = parseCalendarInvitation(source)
+	const invitation = await downloadInvitationAttachment(mailbox, message.data, attachment)
 	if (!invitation) return { details: { state: 'invalid' } }
+	if (invitation.method === 'REQUEST' && (await invitationWasCancelled(grantId, invitation))) {
+		return {
+			details: { state: 'cancelled', removed: false, manualReview: false },
+			invitation,
+			message: message.data,
+		}
+	}
+	if (invitation.method === 'CANCEL') {
+		const cancellationOrganizer = cancellationOrganizerForMessage(
+			message.data,
+			invitation,
+			mailboxEmail,
+			grantId,
+		)
+		if (!cancellationOrganizer) return { details: { state: 'ineligible' } }
+		// A RECURRENCE-ID cancellation applies to one occurrence. OwnMail only
+		// correlates imports at the series UID level, so fail closed instead of
+		// tombstoning or deleting the entire recurring series.
+		if (invitation.isRecurrenceInstance) {
+			return { details: { state: 'ineligible' }, invitation, message: message.data }
+		}
+		await recordInvitationCancellation(
+			grantId,
+			invitation.uid,
+			invitation.sequence ?? 0,
+			cancellationOrganizer,
+		)
+		const calendars = await invitationCalendars(mailbox)
+		if (calendars.length === 0) {
+			return { details: { state: 'ineligible' }, invitation, message: message.data }
+		}
+		return {
+			details: await cancelImportedInvitation(
+				mailbox,
+				calendars,
+				invitation,
+				cancellationOrganizer,
+				mailboxEmail,
+				grantId,
+			),
+			invitation,
+			message: message.data,
+			calendars,
+		}
+	}
 
 	const calendars = await invitationCalendars(mailbox)
 	if (calendars.length === 0) return { details: { state: 'ineligible' }, invitation, message: message.data }
@@ -326,19 +371,30 @@ async function addCalendarInvitationOnce(
 	const primary = calendars.find((calendar) => calendar.is_primary === true && calendar.read_only !== true)
 	if (!primary) throw new InvitationBoundaryError('This mailbox has no writable primary calendar.')
 
-	const claimed = await claimInvitationCreation(grantId, invitation.uid)
+	const invitationSequence = invitation.sequence ?? 0
+	let claimed = false
 	let keepClaim = false
 	let creationAttempted = false
+	let mutationToken: string | undefined
 	try {
+		const acquired = await acquireInvitationMutation(grantId, invitation.uid)
+		if (!acquired) throw new InvitationBoundaryError('This invitation is already being added.')
+		mutationToken = acquired
+		claimed = await claimInvitationCreation(grantId, invitation.uid, invitationSequence)
 		const finalLookup = await finalInvitationLookup(mailbox, calendars, invitation, mailboxEmail)
+		if (await invitationWasCancelled(grantId, invitation)) {
+			return { state: 'cancelled', removed: false, manualReview: false }
+		}
 		if (finalLookup.event) {
 			return (
 				await detailsForInvitationEvent(mailbox, calendars, finalLookup.event, invitation, mailboxEmail, true)
 			).details
 		}
-		if (!claimed) throw new InvitationBoundaryError('This invitation is already being added.')
+		if (!claimed || !(await invitationCreationClaimActive(grantId, invitation.uid, invitationSequence))) {
+			throw new InvitationBoundaryError('This invitation is already being added.')
+		}
 		if (finalLookup.staleImport) {
-			return reconcileImportedInvitation(
+			const details = await reconcileImportedInvitation(
 				mailbox,
 				calendars,
 				finalLookup.staleImport,
@@ -348,6 +404,11 @@ async function addCalendarInvitationOnce(
 				mailboxEmail,
 				grantId,
 			)
+			// Keep the distributed claim until its TTL expires. The update response is
+			// authoritative for this request, but provider indexes can continue exposing
+			// the prior sequence briefly; releasing here would let an older revision win.
+			keepClaim = true
+			return details
 		}
 		creationAttempted = true
 		const created = await mailbox.createEvent(
@@ -363,8 +424,11 @@ async function addCalendarInvitationOnce(
 		return (await detailsForInvitationEvent(mailbox, calendars, created.data, invitation, mailboxEmail, true))
 			.details
 	} finally {
+		if (mutationToken) {
+			await releaseInvitationMutation(grantId, invitation.uid, mutationToken).catch(() => undefined)
+		}
 		if (claimed && !keepClaim && !creationAttempted) {
-			await releaseInvitationCreationClaim(grantId, invitation.uid).catch(() => undefined)
+			await releaseInvitationCreationClaim(grantId, invitation.uid, invitationSequence).catch(() => undefined)
 		}
 	}
 }
@@ -492,7 +556,11 @@ function invitationEventBody(
 			...(invitation.organizerName ? { name: invitation.organizerName } : {}),
 		},
 		participants: invitation.attendees,
-		metadata: { key1: invitation.uid, key2: String(invitation.sequence ?? 0) },
+		metadata: {
+			key1: invitation.uid,
+			key2: String(invitation.sequence ?? 0),
+			key3: organizerEmail,
+		},
 	}
 }
 
@@ -505,6 +573,7 @@ function canCreateInvitation(
 	const mailbox = normalizedEmail(mailboxEmail)
 	const organizer = normalizedEmail(invitation.organizerEmail)
 	if (
+		invitation.method !== 'REQUEST' ||
 		!mailbox ||
 		!organizer ||
 		organizer === mailbox ||
@@ -523,6 +592,136 @@ function canCreateInvitation(
 		recipients.some((participant) => normalizedEmail(participant.email) === mailbox) &&
 		attendeeEmails.includes(mailbox)
 	)
+}
+
+async function cancelImportedInvitation(
+	mailbox: InvitationMailbox,
+	calendars: Calendar[],
+	invitation: ParsedCalendarInvitation,
+	cancellationOrganizer: string,
+	mailboxEmail: string,
+	grantId: string,
+): Promise<CalendarInvitationDetails> {
+	const mutationToken = await acquireInvitationMutation(grantId, invitation.uid)
+	if (mutationToken === null) return { state: 'cancelling' }
+	try {
+		return await cancelImportedInvitationLocked(
+			mailbox,
+			calendars,
+			invitation,
+			cancellationOrganizer,
+			mailboxEmail,
+			grantId,
+		)
+	} finally {
+		if (mutationToken) {
+			await releaseInvitationMutation(grantId, invitation.uid, mutationToken).catch(() => undefined)
+		}
+	}
+}
+
+async function cancelImportedInvitationLocked(
+	mailbox: InvitationMailbox,
+	calendars: Calendar[],
+	invitation: ParsedCalendarInvitation,
+	cancellationOrganizer: string,
+	mailboxEmail: string,
+	grantId: string,
+): Promise<CalendarInvitationDetails> {
+	const cancellationSequence = invitation.sequence ?? 0
+	const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
+		calendar_id: calendar.id,
+		metadata_pair: invitationMetadataPair(invitation.uid),
+		limit: 20,
+	}))
+	if (!metadataPages.complete) throw new Error('Calendar cancellation lookup failed')
+	const retainedSequence = await invitationCreationClaimSequence(grantId, invitation.uid)
+	if (retainedSequence !== undefined && retainedSequence > cancellationSequence) {
+		return { state: 'cancelled', removed: false, manualReview: false }
+	}
+
+	const imported: Event[] = []
+	let manualReview = false
+	for (const event of metadataPages.events) {
+		const storedSequence = eventMetadataSequence(event)
+		if (
+			eventMetadataUid(event) !== invitation.uid ||
+			event.participants?.some(
+				(participant) => normalizedEmail(participant.email) === normalizedEmail(mailboxEmail),
+			) !== true ||
+			storedSequence === undefined ||
+			cancellationSequence < storedSequence
+		) {
+			continue
+		}
+		const storedOrganizer = event.metadata?.key3
+		const organizerMatches =
+			(storedOrganizer === undefined
+				? normalizedEmail(event.organizer?.email)
+				: normalizedEmail(storedOrganizer)) === cancellationOrganizer
+		if (organizerMatches) imported.push(event)
+		else if (storedOrganizer === undefined) manualReview = true
+	}
+	for (const event of imported) {
+		const calendar = calendars.find(
+			(candidate) => candidate.id === event.calendar_id && candidate.read_only !== true,
+		)
+		if (!calendar) throw new Error('Imported invitation calendar is not writable')
+		try {
+			await mailbox.deleteEvent(event.id, calendar.id, { notifyParticipants: false })
+		} catch (error) {
+			if (!(error instanceof NylasApiError && error.status === 404)) throw error
+		}
+	}
+	if (imported.length > 0) await signalLocalChange(grantId, 'calendar')
+	return { state: 'cancelled', removed: imported.length > 0, manualReview }
+}
+
+async function invitationWasCancelled(
+	grantId: string,
+	invitation: ParsedCalendarInvitation,
+): Promise<boolean> {
+	const organizer = normalizedEmail(invitation.organizerEmail)
+	if (!organizer) return false
+	const cancelledThrough = await invitationCancellationSequence(grantId, invitation.uid, organizer)
+	return cancelledThrough !== undefined && cancelledThrough >= (invitation.sequence ?? 0)
+}
+
+function cancellationOrganizerForMessage(
+	message: Message,
+	invitation: ParsedCalendarInvitation,
+	mailboxEmail: string,
+	grantId: string,
+): string | undefined {
+	const mailbox = normalizedEmail(mailboxEmail)
+	const organizer = normalizedEmail(invitation.organizerEmail)
+	if (!mailbox || !organizer || organizer === mailbox || message.grant_id !== grantId) return undefined
+	const senders = message.from?.map((participant) => normalizedEmail(participant.email)).filter(Boolean) ?? []
+	const recipients = [...(message.to ?? []), ...(message.cc ?? []), ...(message.bcc ?? [])]
+	return senders.length === 1 &&
+		senders[0] === organizer &&
+		recipients.some((participant) => normalizedEmail(participant.email) === mailbox)
+		? organizer
+		: undefined
+}
+
+async function downloadInvitationAttachment(
+	mailbox: InvitationMailbox,
+	message: Message,
+	attachment: MessageAttachment,
+): Promise<ParsedCalendarInvitation | null> {
+	if (attachment.size !== undefined && attachment.size > MAX_ICS_ATTACHMENT_BYTES) return null
+	const response = await mailbox.downloadAttachment(attachment.id, message.id)
+	if (!response.ok) throw new InvitationBoundaryError('Calendar invitation could not be opened.')
+	const bytes = await response.arrayBuffer()
+	if (bytes.byteLength === 0 || bytes.byteLength > MAX_ICS_ATTACHMENT_BYTES) return null
+	let source: string
+	try {
+		source = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+	} catch {
+		return null
+	}
+	return parseCalendarInvitation(source)
 }
 
 function normalizedEmail(value: unknown): string | undefined {

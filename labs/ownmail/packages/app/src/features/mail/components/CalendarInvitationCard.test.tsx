@@ -135,6 +135,29 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
 	})
 
+	it('shows cancellation-specific retry copy while a calendar mutation finishes', async () => {
+		vi.useFakeTimers()
+		getCalendarInvitation
+			.mockResolvedValueOnce({ state: 'cancelling' })
+			.mockResolvedValueOnce({ state: 'cancelling' })
+			.mockResolvedValueOnce({ state: 'cancelled', removed: true, manualReview: false })
+		renderCard()
+
+		await act(() => vi.advanceTimersByTimeAsync(0))
+		expect(screen.getByText('Cancelling invitation')).toBeInTheDocument()
+		expect(screen.queryByText('Adding invitation to your calendar')).toBeNull()
+		expect(screen.getByText(/Another calendar update is finishing/)).toBeInTheDocument()
+		await act(async () => {
+			screen.getByRole('button', { name: 'Try again' }).click()
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		await act(() => vi.advanceTimersByTimeAsync(2_000))
+		await act(() => vi.runOnlyPendingTimersAsync())
+
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(3)
+		expect(screen.getByText('Invitation cancelled')).toBeInTheDocument()
+	})
+
 	it('bounds automatic sync lookups and keeps repeated manual retries fresh', async () => {
 		vi.useFakeTimers()
 		getCalendarInvitation.mockResolvedValue({ state: 'syncing' })
@@ -276,6 +299,22 @@ describe('CalendarInvitationCard', () => {
 		expect(await screen.findByText(title)).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
 	})
+
+	it.each([
+		[true, false, 'has been removed from your calendar'],
+		[false, false, 'Check your calendar for the latest event status'],
+		[false, true, 'remove it if it is still there'],
+	] as const)(
+		'describes a cancelled invitation with removal=%s and manual review=%s accurately',
+		async (removed, manualReview, message) => {
+			getCalendarInvitation.mockResolvedValue({ state: 'cancelled', removed, manualReview })
+			renderCard()
+
+			expect(await screen.findByText('Invitation cancelled')).toBeInTheDocument()
+			expect(screen.getByText(new RegExp(message))).toBeInTheDocument()
+			expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
+		},
+	)
 
 	it('offers a retry after a safe invitation lookup failure', async () => {
 		getCalendarInvitation.mockRejectedValueOnce(new Error('safe error')).mockResolvedValueOnce({

@@ -1,30 +1,141 @@
 import { platform } from './platform.js'
 
 const CLAIM_TTL_SECONDS = 10 * 60
+const MUTATION_LOCK_TTL_SECONDS = 2 * 60
+const MAX_INVITATION_SEQUENCE = 2_147_483_647
 
 export async function invitationCreationClaimsAvailable(): Promise<boolean> {
 	try {
 		const { kv } = await platform()
-		return Boolean(kv?.putIfAbsent)
+		return Boolean(kv?.claimRevision && kv.releaseRevision && kv.putIfAbsent && kv.deleteIfValue)
 	} catch {
 		return false
 	}
 }
 
-export async function claimInvitationCreation(grantId: string, uid: string): Promise<boolean> {
+export async function claimInvitationCreation(
+	grantId: string,
+	uid: string,
+	sequence: number,
+): Promise<boolean> {
+	requireSequence(sequence)
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) throw new Error('Atomic invitation claims are unavailable')
+	if (!kv?.claimRevision) throw new Error('Atomic invitation claims are unavailable')
 	const key = await claimKey(env.SESSION_SECRET, grantId, uid)
-	return kv.putIfAbsent(key, '1', CLAIM_TTL_SECONDS)
+	return kv.claimRevision(key, sequence, CLAIM_TTL_SECONDS)
 }
 
-export async function releaseInvitationCreationClaim(grantId: string, uid: string): Promise<void> {
+export async function invitationCreationClaimActive(
+	grantId: string,
+	uid: string,
+	sequence?: number,
+): Promise<boolean> {
+	if (sequence !== undefined) requireSequence(sequence)
+	const activeSequence = await invitationCreationClaimSequence(grantId, uid)
+	return sequence === undefined ? activeSequence !== undefined : activeSequence === sequence
+}
+
+export async function invitationCreationClaimSequence(
+	grantId: string,
+	uid: string,
+): Promise<number | undefined> {
 	const { env, kv } = await platform()
-	if (!kv?.putIfAbsent) return
-	await kv.delete(await claimKey(env.SESSION_SECRET, grantId, uid))
+	if (!kv?.claimRevision) return undefined
+	return parseSequence(await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid)))
+}
+
+export async function acquireInvitationMutation(
+	grantId: string,
+	uid: string,
+): Promise<string | null | undefined> {
+	const { env, kv } = await platform()
+	if (!kv?.putIfAbsent || !kv.deleteIfValue) return undefined
+	const token = randomLockToken()
+	const key = await mutationKey(env.SESSION_SECRET, grantId, uid)
+	return (await kv.putIfAbsent(key, token, MUTATION_LOCK_TTL_SECONDS)) ? token : null
+}
+
+export async function releaseInvitationMutation(grantId: string, uid: string, token: string): Promise<void> {
+	if (!/^[0-9a-f]{32}$/.test(token)) throw new Error('Invalid invitation mutation token')
+	const { env, kv } = await platform()
+	if (!kv?.deleteIfValue) return
+	await kv.deleteIfValue(await mutationKey(env.SESSION_SECRET, grantId, uid), token)
+}
+
+export async function invitationCancellationSequence(
+	grantId: string,
+	uid: string,
+	organizerEmail: string,
+): Promise<number | undefined> {
+	const organizer = normalizedOrganizer(organizerEmail)
+	if (!organizer) return undefined
+	const { env, kv } = await platform()
+	if (!kv) return undefined
+	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
+	if (kv.putMaximum) return parseSequence(await kv.get(key))
+	if (!kv.list) return undefined
+	return versionedCancellationSequence(await kv.list({ prefix: `${key}:`, limit: 1 }), `${key}:`)
+}
+
+export async function recordInvitationCancellation(
+	grantId: string,
+	uid: string,
+	sequence: number,
+	organizerEmail: string,
+): Promise<number> {
+	if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > MAX_INVITATION_SEQUENCE) {
+		throw new Error('Invalid invitation cancellation sequence')
+	}
+	const organizer = normalizedOrganizer(organizerEmail)
+	if (!organizer) throw new Error('Invalid invitation cancellation organizer')
+	const { env, kv } = await platform()
+	if (!kv) return sequence
+	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
+	if (kv.putMaximum) {
+		const stored = await kv.putMaximum(key, sequence)
+		if (!Number.isSafeInteger(stored) || stored < 0 || stored > MAX_INVITATION_SEQUENCE) {
+			throw new Error('Invalid invitation cancellation storage result')
+		}
+		return stored
+	}
+	if (!kv.list) throw new Error('Durable invitation cancellations are unavailable')
+	// Cloudflare KV has no atomic numeric operations. Store immutable,
+	// reverse-sorted revision keys so concurrent lower revisions can never
+	// overwrite a higher tombstone and a one-key prefix listing returns the max.
+	const reverseSequence = String(MAX_INVITATION_SEQUENCE - sequence).padStart(10, '0')
+	await kv.put(`${key}:${reverseSequence}`, '1')
+	return sequence
+}
+
+export async function releaseInvitationCreationClaim(
+	grantId: string,
+	uid: string,
+	sequence: number,
+): Promise<void> {
+	requireSequence(sequence)
+	const { env, kv } = await platform()
+	if (!kv?.releaseRevision) return
+	await kv.releaseRevision(await claimKey(env.SESSION_SECRET, grantId, uid), sequence)
 }
 
 async function claimKey(secret: string, grantId: string, uid: string): Promise<string> {
+	return `invitation-create:${await claimSuffix(secret, grantId, uid)}`
+}
+
+async function mutationKey(secret: string, grantId: string, uid: string): Promise<string> {
+	return `invitation-mutate:${await claimSuffix(secret, grantId, uid)}`
+}
+
+async function cancellationKey(
+	secret: string,
+	grantId: string,
+	uid: string,
+	organizer: string,
+): Promise<string> {
+	return `invitation-cancel:${await claimSuffix(secret, grantId, `${uid}\0${organizer}`)}`
+}
+
+async function claimSuffix(secret: string, grantId: string, uid: string): Promise<string> {
 	if (!secret || secret.length > 16_384) throw new Error('Invitation claim secret is unavailable')
 	const encoder = new TextEncoder()
 	const key = await crypto.subtle.importKey(
@@ -39,5 +150,41 @@ async function claimKey(secret: string, grantId: string, uid: string): Promise<s
 		.slice(0, 20)
 		.map((byte) => byte.toString(16).padStart(2, '0'))
 		.join('')
-	return `invitation-create:${suffix}`
+	return suffix
+}
+
+function parseSequence(value: string | null): number | undefined {
+	if (typeof value !== 'string' || !/^\d{1,10}$/.test(value)) return undefined
+	const sequence = Number(value)
+	return sequence <= MAX_INVITATION_SEQUENCE ? sequence : undefined
+}
+
+function requireSequence(sequence: number): void {
+	if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > MAX_INVITATION_SEQUENCE) {
+		throw new Error('Invalid invitation sequence')
+	}
+}
+
+function randomLockToken(): string {
+	return [...crypto.getRandomValues(new Uint8Array(16))]
+		.map((byte) => byte.toString(16).padStart(2, '0'))
+		.join('')
+}
+
+function versionedCancellationSequence(
+	result: { keys: { name: string }[] },
+	prefix: string,
+): number | undefined {
+	const name = result.keys[0]?.name
+	if (!name?.startsWith(prefix)) return undefined
+	const reverseSequence = name.slice(prefix.length)
+	if (!/^\d{10}$/.test(reverseSequence)) return undefined
+	const reverse = Number(reverseSequence)
+	return reverse <= MAX_INVITATION_SEQUENCE ? MAX_INVITATION_SEQUENCE - reverse : undefined
+}
+
+function normalizedOrganizer(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined
+	const normalized = value.trim().toLowerCase()
+	return normalized.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : undefined
 }

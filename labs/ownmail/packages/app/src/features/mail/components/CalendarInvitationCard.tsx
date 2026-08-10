@@ -46,7 +46,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			// The invitation email and its provider-created event arrive independently.
 			// Recheck briefly while that race settles. Any failed automatic lookup
 			// permanently hands control to the explicit retry instead of starting a loop.
-			return details?.state === 'syncing' &&
+			return (details?.state === 'syncing' || details?.state === 'cancelling') &&
 				query.state.errorUpdateCount === 0 &&
 				query.state.dataUpdateCount < SYNC_LOOKUP_LIMIT
 				? SYNC_RETRY_INTERVAL_MS
@@ -130,11 +130,35 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			/>
 		)
 	}
+	if (details.state === 'cancelling') {
+		return (
+			<InvitationNotice
+				title="Cancelling invitation"
+				message="Another calendar update is finishing. We’ll check this cancellation again in a moment."
+				onRetry={() => void invitation.refetch()}
+				retrying={invitation.isFetching}
+			/>
+		)
+	}
 	if (details.state === 'ineligible') {
 		return (
 			<InvitationNotice
 				title="Response unavailable"
 				message="This mailbox isn’t eligible to respond to the calendar event."
+			/>
+		)
+	}
+	if (details.state === 'cancelled') {
+		return (
+			<InvitationNotice
+				title="Invitation cancelled"
+				message={
+					details.manualReview
+						? 'OwnMail couldn’t safely verify an older imported copy. Check your calendar and remove it if it is still there.'
+						: details.removed
+							? 'The organizer cancelled this event, and it has been removed from your calendar.'
+							: 'The organizer cancelled this invitation. Check your calendar for the latest event status.'
+				}
 			/>
 		)
 	}
