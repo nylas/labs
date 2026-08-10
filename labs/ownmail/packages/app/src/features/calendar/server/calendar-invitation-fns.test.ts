@@ -530,10 +530,7 @@ describe('calendar invitation server functions', () => {
 		['location', { title: 'Planning review', location: 'Old room' }],
 	] as const)('reconciles an imported invitation with stale %s content', async (_field, changes) => {
 		const stale = invitationEvent({ ...changes, metadata: { key1: 'invite@example.com' } })
-		const source = ICS.replace('SUMMARY:Planning review', 'SUMMARY:Planning review').replace(
-			'END:VEVENT',
-			'LOCATION:Aurora room\r\nEND:VEVENT',
-		)
+		const source = ICS.replace('END:VEVENT', 'LOCATION:Aurora room\r\nEND:VEVENT')
 		const mailbox = makeMailbox({
 			downloadAttachment: vi.fn(async () => new Response(source)),
 			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
