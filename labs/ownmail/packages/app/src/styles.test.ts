@@ -29,3 +29,11 @@ describe('navigation progress styles', () => {
 		)
 	})
 })
+
+describe('mail search divider styles', () => {
+	it('draws one divider above the full header without blocking input', () => {
+		expect(styles).toMatch(
+			/\.mail-header::after\s*\{[^}]*position: absolute;[^}]*right: 0;[^}]*bottom: 0;[^}]*left: 0;[^}]*z-index: 10;[^}]*height: 1px;[^}]*pointer-events: none;[^}]*background: var\(--border\);[^}]*content: "";/,
+		)
+	})
+})

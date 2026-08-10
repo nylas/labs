@@ -173,7 +173,7 @@ export function MailRouteScreen({
 				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
-						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
+						'mail-header relative flex min-w-0 flex-1 items-stretch bg-background',
 						CHROME_ROW_CLASS,
 					)}
 				>

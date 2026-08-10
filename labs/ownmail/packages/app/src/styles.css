@@ -322,6 +322,18 @@
 	transition: background-color var(--dur-fast) var(--ease-out);
 }
 
+.mail-header::after {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 10;
+	height: 1px;
+	pointer-events: none;
+	background: var(--border);
+	content: "";
+}
+
 .mail-search-control:focus-within {
 	background: var(--card);
 	outline-color: var(--event-teal);
