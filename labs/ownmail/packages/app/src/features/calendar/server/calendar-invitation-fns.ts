@@ -11,12 +11,14 @@ import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId } from '#server/ids'
 import {
+	acquireInvitationMutation,
 	claimInvitationCreation,
 	invitationCancellationSequence,
 	invitationCreationClaimActive,
 	invitationCreationClaimsAvailable,
 	recordInvitationCancellation,
 	releaseInvitationCreationClaim,
+	releaseInvitationMutation,
 } from '#server/invitation-creation-claim'
 import { requireMailbox } from '#server/mailbox-boundary'
 import { isRenderableCalendarEvent } from '../lib/calendar.js'
@@ -371,7 +373,13 @@ async function addCalendarInvitationOnce(
 	const claimed = await claimInvitationCreation(grantId, invitation.uid, invitationSequence)
 	let keepClaim = false
 	let creationAttempted = false
+	let mutationToken: string | undefined
 	try {
+		if (claimed) {
+			const acquired = await acquireInvitationMutation(grantId, invitation.uid)
+			if (!acquired) throw new InvitationBoundaryError('This invitation is already being added.')
+			mutationToken = acquired
+		}
 		const finalLookup = await finalInvitationLookup(mailbox, calendars, invitation, mailboxEmail)
 		if (await invitationWasCancelled(grantId, invitation)) {
 			return { state: 'cancelled', removed: false, manualReview: false }
@@ -415,6 +423,9 @@ async function addCalendarInvitationOnce(
 		return (await detailsForInvitationEvent(mailbox, calendars, created.data, invitation, mailboxEmail, true))
 			.details
 	} finally {
+		if (mutationToken) {
+			await releaseInvitationMutation(grantId, invitation.uid, mutationToken).catch(() => undefined)
+		}
 		if (claimed && !keepClaim && !creationAttempted) {
 			await releaseInvitationCreationClaim(grantId, invitation.uid, invitationSequence).catch(() => undefined)
 		}
@@ -583,6 +594,32 @@ function canCreateInvitation(
 }
 
 async function cancelImportedInvitation(
+	mailbox: InvitationMailbox,
+	calendars: Calendar[],
+	invitation: ParsedCalendarInvitation,
+	cancellationOrganizer: string,
+	mailboxEmail: string,
+	grantId: string,
+): Promise<CalendarInvitationDetails> {
+	const mutationToken = await acquireInvitationMutation(grantId, invitation.uid)
+	if (mutationToken === null) return { state: 'syncing', canAdd: false }
+	try {
+		return await cancelImportedInvitationLocked(
+			mailbox,
+			calendars,
+			invitation,
+			cancellationOrganizer,
+			mailboxEmail,
+			grantId,
+		)
+	} finally {
+		if (mutationToken) {
+			await releaseInvitationMutation(grantId, invitation.uid, mutationToken).catch(() => undefined)
+		}
+	}
+}
+
+async function cancelImportedInvitationLocked(
 	mailbox: InvitationMailbox,
 	calendars: Calendar[],
 	invitation: ParsedCalendarInvitation,

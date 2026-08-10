@@ -5,11 +5,13 @@ const { platform } = vi.hoisted(() => ({ platform: vi.fn() }))
 vi.mock('./platform.js', () => ({ platform: () => platform() }))
 
 const {
+	acquireInvitationMutation,
 	claimInvitationCreation,
 	invitationCreationClaimActive,
 	invitationCreationClaimsAvailable,
 	invitationCancellationSequence,
 	recordInvitationCancellation,
+	releaseInvitationMutation,
 	releaseInvitationCreationClaim,
 } = await import('./invitation-creation-claim.js')
 
@@ -23,9 +25,9 @@ function atomicStore() {
 		delete: vi.fn(async (key) => {
 			values.delete(key)
 		}),
-		putIfAbsent: vi.fn(async (key) => {
+		putIfAbsent: vi.fn(async (key, value) => {
 			if (values.has(key)) return false
-			values.set(key, '1')
+			values.set(key, value)
 			return true
 		}),
 		putMaximum: vi.fn(async (key, candidate) => {
@@ -42,6 +44,9 @@ function atomicStore() {
 		}),
 		releaseRevision: vi.fn(async (key, revision) => {
 			if (values.get(key) === String(revision)) values.delete(key)
+		}),
+		deleteIfValue: vi.fn(async (key, value) => {
+			if (values.get(key) === value) values.delete(key)
 		}),
 	}
 	return kv
@@ -84,6 +89,33 @@ describe('invitation creation claims', () => {
 		await expect(recordInvitationCancellation('grant-1', 'uid', 2, 'grace@example.com')).resolves.toBe(2)
 		await expect(claimInvitationCreation('grant-1', 'uid', 1)).rejects.toThrow('unavailable')
 		await expect(releaseInvitationCreationClaim('grant-1', 'uid', 1)).resolves.toBeUndefined()
+	})
+
+	it('acquires a hashed mutation lock and only its token can release it', async () => {
+		const kv = atomicStore()
+		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
+
+		const token = await acquireInvitationMutation('grant-1', 'uid@example.com')
+		expect(token).toMatch(/^[0-9a-f]{32}$/)
+		await expect(acquireInvitationMutation('grant-1', 'uid@example.com')).resolves.toBeNull()
+		const key = vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mock.calls[0]?.[0]
+		expect(key).not.toContain('grant-1')
+		expect(key).not.toContain('uid@example.com')
+		await releaseInvitationMutation('grant-1', 'uid@example.com', 'ffffffffffffffffffffffffffffffff')
+		await expect(acquireInvitationMutation('grant-1', 'uid@example.com')).resolves.toBeNull()
+		await releaseInvitationMutation('grant-1', 'uid@example.com', token as string)
+		await expect(acquireInvitationMutation('grant-1', 'uid@example.com')).resolves.toMatch(/^[0-9a-f]{32}$/)
+	})
+
+	it('reports unavailable mutation locking and validates release tokens', async () => {
+		platform.mockResolvedValue({ kv: null, env: { SESSION_SECRET: 'secret' } })
+		await expect(acquireInvitationMutation('grant-1', 'uid')).resolves.toBeUndefined()
+		await expect(releaseInvitationMutation('grant-1', 'uid', 'invalid')).rejects.toThrow(
+			'Invalid invitation mutation token',
+		)
+		await expect(
+			releaseInvitationMutation('grant-1', 'uid', '00000000000000000000000000000000'),
+		).resolves.toBeUndefined()
 	})
 
 	it('records a monotonic hashed cancellation tombstone', async () => {

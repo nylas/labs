@@ -1,12 +1,13 @@
 import { platform } from './platform.js'
 
 const CLAIM_TTL_SECONDS = 10 * 60
+const MUTATION_LOCK_TTL_SECONDS = 2 * 60
 const MAX_INVITATION_SEQUENCE = 2_147_483_647
 
 export async function invitationCreationClaimsAvailable(): Promise<boolean> {
 	try {
 		const { kv } = await platform()
-		return Boolean(kv?.claimRevision && kv.releaseRevision)
+		return Boolean(kv?.claimRevision && kv.releaseRevision && kv.putIfAbsent && kv.deleteIfValue)
 	} catch {
 		return false
 	}
@@ -34,6 +35,24 @@ export async function invitationCreationClaimActive(
 	if (!kv?.claimRevision) return false
 	const activeSequence = parseSequence(await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid)))
 	return sequence === undefined ? activeSequence !== undefined : activeSequence === sequence
+}
+
+export async function acquireInvitationMutation(
+	grantId: string,
+	uid: string,
+): Promise<string | null | undefined> {
+	const { env, kv } = await platform()
+	if (!kv?.putIfAbsent || !kv.deleteIfValue) return undefined
+	const token = randomLockToken()
+	const key = await mutationKey(env.SESSION_SECRET, grantId, uid)
+	return (await kv.putIfAbsent(key, token, MUTATION_LOCK_TTL_SECONDS)) ? token : null
+}
+
+export async function releaseInvitationMutation(grantId: string, uid: string, token: string): Promise<void> {
+	if (!/^[0-9a-f]{32}$/.test(token)) throw new Error('Invalid invitation mutation token')
+	const { env, kv } = await platform()
+	if (!kv?.deleteIfValue) return
+	await kv.deleteIfValue(await mutationKey(env.SESSION_SECRET, grantId, uid), token)
 }
 
 export async function invitationCancellationSequence(
@@ -96,6 +115,10 @@ async function claimKey(secret: string, grantId: string, uid: string): Promise<s
 	return `invitation-create:${await claimSuffix(secret, grantId, uid)}`
 }
 
+async function mutationKey(secret: string, grantId: string, uid: string): Promise<string> {
+	return `invitation-mutate:${await claimSuffix(secret, grantId, uid)}`
+}
+
 async function cancellationKey(
 	secret: string,
 	grantId: string,
@@ -133,6 +156,12 @@ function requireSequence(sequence: number): void {
 	if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > MAX_INVITATION_SEQUENCE) {
 		throw new Error('Invalid invitation sequence')
 	}
+}
+
+function randomLockToken(): string {
+	return [...crypto.getRandomValues(new Uint8Array(16))]
+		.map((byte) => byte.toString(16).padStart(2, '0'))
+		.join('')
 }
 
 function versionedCancellationSequence(

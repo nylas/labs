@@ -83,6 +83,8 @@ export type KvLike = {
 	claimRevision?(key: string, revision: number, expirationTtl: number): Promise<boolean>
 	/** Releases a claim only when the caller still owns its revision. */
 	releaseRevision?(key: string, revision: number): Promise<void>
+	/** Deletes a key only when its current value matches the caller's token. */
+	deleteIfValue?(key: string, value: string): Promise<void>
 }
 
 export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
@@ -175,6 +177,9 @@ function nodeKv(env: AppEnv): KvLike | null {
 			)) === 1,
 		releaseRevision: async (key, revision) => {
 			await redis.eval<[string], number>(REDIS_RELEASE_REVISION_SCRIPT, [key], [String(revision)])
+		},
+		deleteIfValue: async (key, value) => {
+			await redis.eval<[string], number>(REDIS_RELEASE_REVISION_SCRIPT, [key], [value])
 		},
 	}
 }
