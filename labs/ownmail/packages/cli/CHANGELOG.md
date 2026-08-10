@@ -1,5 +1,12 @@
 # ownmail
 
+## 0.12.6
+
+### Patch Changes
+
+- Updated dependencies [c325e0d]
+  - @nylas-labs/cli-kit@0.7.3
+
 ## 0.12.5
 
 ### Patch Changes
