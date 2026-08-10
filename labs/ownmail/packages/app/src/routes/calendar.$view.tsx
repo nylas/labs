@@ -253,7 +253,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 										onClick={() => go(v, anchor)}
 										aria-pressed={v === currentView}
 										className={cn(
-											'flex h-11 w-9 items-center justify-center border-r border-border px-0 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
+											'flex h-11 w-11 items-center justify-center whitespace-nowrap border-r border-border px-0 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
 											v === currentView
 												? 'bg-muted text-foreground'
 												: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
