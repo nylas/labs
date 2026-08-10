@@ -31,6 +31,7 @@ describe('Sheet', () => {
 		renderSheet()
 		const dialog = screen.getByRole('dialog', { name: 'Navigation' })
 		expect(dialog).toBeInTheDocument()
+		expect(dialog).toHaveClass('h-dvh', 'w-[min(20rem,calc(100%_-_2rem))]')
 		expect(screen.getByText('Inbox')).toBeInTheDocument()
 	})
 
@@ -70,7 +71,9 @@ describe('Sheet', () => {
 
 	it('closes when the header close button is clicked', () => {
 		const { onClose } = renderSheet()
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		const close = screen.getByRole('button', { name: 'Close navigation' })
+		expect(close).toHaveClass('h-11', 'w-11')
+		fireEvent.click(close)
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 

@@ -372,6 +372,10 @@ describe('AppRailMobileNav', () => {
 		const calendar = screen.getByRole('link', { name: 'Calendar' })
 		expect(calendar).toHaveAttribute('href', '/calendar')
 		expect(calendar).toHaveAttribute('aria-current', 'page')
+		expect(calendar).toHaveClass('min-h-12', 'whitespace-nowrap')
+		expect(calendar.querySelector('.bg-primary')).toBeInTheDocument()
+		expect(screen.getByText('Navigate')).toBeInTheDocument()
+		expect(screen.getByText('Tools')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('link', { name: 'Mail' }))
 		expect(onNavigate).toHaveBeenCalledTimes(1)
 	})
@@ -413,9 +417,14 @@ describe('AppRailMobileNav', () => {
 			/>,
 		)
 
-		expect(
-			screen.getByRole('link', { name: 'Account settings for Ada Lovelace · ada@ownmail.com' }),
-		).toHaveAttribute('aria-current', 'page')
+		const account = screen.getByRole('link', {
+			name: 'Account settings for Ada Lovelace · ada@ownmail.com',
+		})
+		expect(account).toHaveAttribute('aria-current', 'page')
+		expect(account).toHaveClass('min-h-16')
+		expect(account).toHaveTextContent('Ada Lovelace')
+		expect(account).toHaveTextContent('ada@ownmail.com')
+		expect(account.querySelector('svg')).toHaveClass('lucide-chevron-right')
 		fireEvent.click(screen.getByRole('button', { name: 'Open command palette' }))
 		expect(onNavigate).toHaveBeenCalledTimes(1)
 		expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
@@ -439,7 +448,9 @@ describe('AppRailMobileNav', () => {
 			/>,
 		)
 
-		fireEvent.change(screen.getByRole('combobox', { name: 'Switch inbox' }), {
+		const switcher = screen.getByRole('combobox', { name: 'Switch inbox' })
+		expect(switcher).toHaveClass('h-12')
+		fireEvent.change(switcher, {
 			target: { value: 'b'.repeat(43) },
 		})
 		expect(onNavigate).toHaveBeenCalledOnce()

@@ -84,6 +84,39 @@ describe('MailSidebar', () => {
 		expect(screen.getByText('No labels yet.')).toBeInTheDocument()
 	})
 
+	it('uses larger touch targets only in the mobile navigation sheet', () => {
+		const view = render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" mobile />)
+		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('min-h-12')
+		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass(
+			'min-h-12',
+			'nav-item-active',
+			'mobile-nav-item-active',
+		)
+		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('min-h-12')
+		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass('h-11', 'w-11')
+
+		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="work" mobile />)
+		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass(
+			'nav-item-active',
+			'mobile-nav-item-active',
+		)
+
+		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" />)
+		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('h-9')
+		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('h-9')
+		expect(screen.getByRole('link', { name: /Inbox/ })).not.toHaveClass('mobile-nav-item-active')
+		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass('h-8', 'w-8')
+
+		view.rerender(
+			<MailSidebar
+				folders={[{ id: 'inbox', system_folder: true }] as unknown as Folder[]}
+				composeSearch={{}}
+				mobile
+			/>,
+		)
+		expect(screen.getByText('No labels yet.')).toHaveClass('px-3')
+	})
+
 	it('opens and closes folder management and reports deletion to the route', () => {
 		const onFolderDeleted = vi.fn()
 		render(<MailSidebar folders={folders} composeSearch={{}} onFolderDeleted={onFolderDeleted} />)

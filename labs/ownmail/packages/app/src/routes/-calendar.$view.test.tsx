@@ -341,7 +341,7 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('w-8', 'sm:w-11')
 		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('w-8', 'sm:w-11')
 		for (const view of ['day', 'week', 'month']) {
-			expect(screen.getByRole('button', { name: view })).toHaveClass('w-9', 'sm:w-auto')
+			expect(screen.getByRole('button', { name: view })).toHaveClass('w-11', 'whitespace-nowrap', 'sm:w-auto')
 		}
 	})
 

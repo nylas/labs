@@ -225,7 +225,7 @@ export function MailRouteScreen({
 			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
 				<AppRailMobileNav {...railNavProps} onNavigate={() => setSidebarOpen(false)} />
 				<div className="border-t border-border">
-					<MailSidebar {...sidebarProps} />
+					<MailSidebar {...sidebarProps} mobile />
 				</div>
 			</Sheet>
 

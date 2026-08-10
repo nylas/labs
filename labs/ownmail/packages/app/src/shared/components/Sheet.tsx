@@ -80,17 +80,17 @@ export function Sheet({
 				aria-label={title}
 				tabIndex={-1}
 				className={cn(
-					'absolute top-0 flex h-full w-[min(18rem,calc(100vw-3rem))] flex-col border-border bg-background shadow-2xl outline-none',
+					'absolute top-0 flex h-dvh max-h-full w-[min(20rem,calc(100%_-_2rem))] flex-col border-border bg-background pt-[env(safe-area-inset-top)] shadow-2xl outline-none',
 					side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
 				)}
 			>
-				<div className="flex items-center justify-between border-b border-border px-4 py-3">
+				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
 					<span className="font-display text-sm font-semibold">{title}</span>
 					<button
 						type="button"
 						onClick={onClose}
-						aria-label="Close"
-						className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+						aria-label={`Close ${title.toLowerCase()}`}
+						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px"
 					>
 						<X className="h-4 w-4" />
 					</button>

@@ -80,7 +80,12 @@ vi.mock('#app/components/CommandPalette', () => ({
 
 vi.mock('#features/mail/components/MailSidebar', () => ({
 	MailSidebar: (props: any) => (
-		<div data-testid="sidebar" data-folder={props.currentFolderId ?? ''} data-base={props.baseFolderId ?? ''}>
+		<div
+			data-testid="sidebar"
+			data-folder={props.currentFolderId ?? ''}
+			data-base={props.baseFolderId ?? ''}
+			data-mobile={props.mobile ? 'yes' : 'no'}
+		>
 			<button type="button" onClick={props.onNavigate}>
 				sidebar-nav
 			</button>
@@ -233,6 +238,7 @@ describe('MailRouteScreen — layout wiring', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		expect(screen.getByTestId('sheet')).toBeInTheDocument()
 		expect(screen.getByTestId('mobile-railnav')).toBeInTheDocument()
+		expect(screen.getAllByTestId('sidebar')[1]).toHaveAttribute('data-mobile', 'yes')
 		fireEvent.click(screen.getByText('mobile-nav-close'))
 		expect(screen.queryByTestId('sheet')).toBeNull()
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))

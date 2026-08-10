@@ -600,6 +600,10 @@
 	box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground), transparent 80%);
 }
 
+.mobile-nav-item-active {
+	box-shadow: none;
+}
+
 .app-rail-org-mark {
 	display: flex;
 	height: 1.75rem;

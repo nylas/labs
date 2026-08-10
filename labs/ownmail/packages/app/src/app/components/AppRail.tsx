@@ -1,5 +1,6 @@
+/* Hallmark · component: mobile side navigation · genre: modern-minimal · theme: Quiet · pre-emit critique: P5 H5 E5 S5 R5 V5 */
 import { Link } from '@tanstack/react-router'
-import { Calendar, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
+import { Calendar, ChevronRight, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { initials } from '#shared/lib/presentation'
@@ -161,10 +162,44 @@ export function AppRailMobileNav({
 
 	const effectiveDisplayName = displayName || preferences.displayName
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
+	const accountName = effectiveDisplayName || email
 
 	return (
-		<nav aria-label="Primary" className="flex shrink-0 flex-col py-2">
-			<div className="space-y-1 px-2">
+		<nav aria-label="Primary" className="flex shrink-0 flex-col gap-4 px-3 py-3">
+			<Link
+				to={SETTINGS_PATH}
+				onClick={onNavigate}
+				aria-label={`Account settings for ${accountLabel}`}
+				aria-current={active === 'settings' ? 'page' : undefined}
+				className={cn(
+					'group flex min-h-16 min-w-0 items-center gap-3 rounded-lg px-3 text-left text-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted/60 active:translate-y-px',
+					active === 'settings' && 'bg-sidebar-accent text-sidebar-accent-foreground',
+				)}
+			>
+				<span
+					className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-xs font-semibold"
+					aria-hidden="true"
+				>
+					{initials(accountName)}
+				</span>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-semibold">{accountName}</span>
+					{effectiveDisplayName ? (
+						<span className="block truncate text-xs text-muted-foreground">{email}</span>
+					) : (
+						<span className="block text-xs text-muted-foreground">Account settings</span>
+					)}
+				</span>
+				<ChevronRight
+					className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-[var(--dur-fast)] ease-[var(--ease-out)] group-active:translate-x-0.5"
+					aria-hidden="true"
+				/>
+			</Link>
+
+			<div className="space-y-1">
+				<p className="px-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+					Navigate
+				</p>
 				<MobileNavLink to={MAIL_HOME_PATH} label="Mail" isActive={active === 'mail'} onNavigate={onNavigate}>
 					<Mail className="h-5 w-5" aria-hidden="true" />
 				</MobileNavLink>
@@ -186,13 +221,12 @@ export function AppRailMobileNav({
 				</MobileNavLink>
 			</div>
 
-			<div className="mt-3 space-y-1 border-t border-border px-2 pt-3">
+			<div className="space-y-1 border-t border-border pt-3">
+				<p className="px-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+					Tools
+				</p>
 				{accounts.length > 1 ? <AccountSwitcher accounts={accounts} onNavigate={onNavigate} /> : null}
-				<a
-					href="/auth"
-					onClick={onNavigate}
-					className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-				>
+				<a href="/auth" onClick={onNavigate} className={MOBILE_NAV_ITEM_CLASS}>
 					<Plus className="h-5 w-5" aria-hidden="true" />
 					<span>Add inbox</span>
 				</a>
@@ -209,22 +243,6 @@ export function AppRailMobileNav({
 					}}
 					icon={<Command className="h-5 w-5" />}
 				/>
-				<Link
-					to={SETTINGS_PATH}
-					onClick={onNavigate}
-					aria-label={`Account settings for ${accountLabel}`}
-					aria-current={active === 'settings' ? 'page' : undefined}
-					className={cn(
-						'flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors hover:bg-muted',
-						active === 'settings' && 'bg-muted text-foreground',
-					)}
-				>
-					<span className="app-rail-account-inner shrink-0" aria-hidden="true">
-						<span className="app-rail-account-initials">{initials(effectiveDisplayName || email)}</span>
-					</span>
-					<span className="truncate">Account settings</span>
-					<span className="sr-only"> for {accountLabel}</span>
-				</Link>
 			</div>
 		</nav>
 	)
@@ -312,9 +330,9 @@ function AccountSwitcher({
 	const active = accounts.find((account) => account.active)
 	if (!active) return null
 	return (
-		<form action="/auth" method="post" className="px-1">
+		<form action="/auth" method="post">
 			<label className="block text-xs font-medium text-muted-foreground">
-				<span className="px-2">Inbox</span>
+				<span className="px-3">Inbox</span>
 				<select
 					name="account"
 					aria-label="Switch inbox"
@@ -324,7 +342,7 @@ function AccountSwitcher({
 						onNavigate?.()
 						event.currentTarget.form?.requestSubmit()
 					}}
-					className="mt-1 h-10 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+					className="mt-1 h-12 w-full cursor-pointer rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
 				>
 					{accounts.map((account) => (
 						<option key={account.handle} value={account.handle}>
@@ -336,6 +354,9 @@ function AccountSwitcher({
 		</form>
 	)
 }
+
+const MOBILE_NAV_ITEM_CLASS =
+	'flex min-h-12 w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 text-sm font-medium text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50'
 
 function RailLink({
 	to,
@@ -430,13 +451,11 @@ function MobileNavLink({
 			to={to}
 			onClick={onNavigate}
 			aria-current={isActive ? 'page' : undefined}
-			className={cn(
-				'flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-				isActive && 'bg-muted text-foreground',
-			)}
+			className={cn(MOBILE_NAV_ITEM_CLASS, isActive && 'bg-sidebar-accent text-sidebar-accent-foreground')}
 		>
 			{children}
-			<span>{label}</span>
+			<span className="min-w-0 flex-1 truncate">{label}</span>
+			{isActive ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" /> : null}
 		</Link>
 	)
 }
@@ -453,11 +472,7 @@ function MobileNavButton({
 	type?: 'button' | 'submit'
 }) {
 	return (
-		<button
-			type={type}
-			onClick={onClick}
-			className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-		>
+		<button type={type} onClick={onClick} className={MOBILE_NAV_ITEM_CLASS}>
 			<span aria-hidden="true">{icon}</span>
 			<span>{label}</span>
 		</button>
