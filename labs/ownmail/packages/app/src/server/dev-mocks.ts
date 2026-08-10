@@ -131,6 +131,9 @@ class DevMailbox {
 	}
 
 	async downloadAttachment(attachmentId: string, draftId: string): Promise<Response> {
+		if (draftId === 'msg-calendar-invite' && attachmentId === 'att-calendar-invite') {
+			return new Response(mockCalendarInvitationIcs(), { headers: { 'Content-Type': 'text/calendar' } })
+		}
 		const draft = mockDraft(draftId) as StoredDraft
 		const attachment = draft.outbound_attachments?.find(
 			(candidate, index) => `att-outbound-${index}-${candidate.filename}` === attachmentId,
@@ -250,11 +253,16 @@ class DevMailbox {
 	}
 
 	async listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>> {
+		const icalUid = typeof query.ical_uid === 'string' ? query.ical_uid : undefined
 		return listResponse(
 			mockEvents({
 				start: Number(query.start ?? 0),
 				end: Number(query.end ?? Number.MAX_SAFE_INTEGER),
-			}).events.filter((event) => event.calendar_id === query.calendar_id),
+			}).events.filter(
+				(event) =>
+					event.calendar_id === query.calendar_id &&
+					(!icalUid || (event as Event & { ical_uid?: string }).ical_uid === icalUid),
+			),
 		)
 	}
 
@@ -362,6 +370,28 @@ const NEWSLETTER_BODY = `
 
 const messages = new Map<string, StoredMessage>(
 	[
+		{
+			id: 'msg-calendar-invite',
+			thread_id: 'thread-calendar-invite',
+			subject: 'Invitation: Launch readiness review',
+			snippet: 'Grace Hopper invited you to Launch readiness review.',
+			body: '<p>Grace Hopper invited you to a launch readiness review. Please respond below.</p>',
+			from: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
+			to: [ACCOUNT],
+			date: daysAgo(0, 10, 5),
+			unread: true,
+			starred: false,
+			folders: ['inbox', 'work'],
+			grant_id: GRANT_ID,
+			attachments: [
+				{
+					id: 'att-calendar-invite',
+					filename: 'invite.ics',
+					content_type: 'text/calendar; charset="UTF-8"; method=REQUEST',
+					size: 512,
+				},
+			],
+		},
 		{
 			id: 'msg-newsletter-1',
 			thread_id: 'thread-newsletter',
@@ -562,6 +592,19 @@ const messages = new Map<string, StoredMessage>(
 
 const threads = new Map<string, StoredThread>(
 	[
+		{
+			id: 'thread-calendar-invite',
+			subject: 'Invitation: Launch readiness review',
+			snippet: 'Grace Hopper invited you to Launch readiness review.',
+			participants: [{ name: 'Grace Hopper', email: 'grace@vercel.com' }],
+			message_ids: ['msg-calendar-invite'],
+			latest_message_received_date: daysAgo(0, 10, 5),
+			has_attachments: true,
+			unread: true,
+			starred: false,
+			folders: ['inbox', 'work'],
+			grant_id: GRANT_ID,
+		},
 		{
 			id: 'thread-newsletter',
 			subject: 'The Dispatch — your weekly product digest',
@@ -798,6 +841,14 @@ function seedEvents() {
 		calendar_id: 'work',
 		participants: [{ name: 'Katherine Johnson', email: 'katherine@vercel.com', status: 'yes' }],
 	})
+	addEvent('event-calendar-invite', 'Launch readiness review', startOfDay, 15, 30, 60, {
+		calendar_id: 'primary',
+		location: 'Meet — Apollo room',
+		organizer: { name: 'Grace Hopper', email: 'grace@vercel.com' },
+		participants: [{ name: MAILBOX_NAME, email: MAILBOX_EMAIL, status: 'noreply' }],
+	})
+	const invitation = events.get('event-calendar-invite') as Event & { ical_uid?: string }
+	invitation.ical_uid = 'launch-readiness@ownmail.dev'
 	addEvent('event-manager', '1:1 with manager', addDays(startOfDay, 1), 9, 0, 30, {
 		calendar_id: 'work',
 	})
@@ -872,6 +923,34 @@ function addEvent(
 		busy: true,
 		...extra,
 	})
+}
+
+function mockCalendarInvitationIcs(): string {
+	seedEvents()
+	const event = events.get('event-calendar-invite')
+	/* v8 ignore next -- the fixture is seeded immediately above with this exact timed event */
+	if (!event || !('start_time' in event.when)) throw new Error('Invitation fixture unavailable')
+	return [
+		'BEGIN:VCALENDAR',
+		'VERSION:2.0',
+		'METHOD:REQUEST',
+		'BEGIN:VEVENT',
+		'UID:launch-readiness@ownmail.dev',
+		`DTSTART:${compactUtcDateTime(event.when.start_time)}`,
+		`DTEND:${compactUtcDateTime(event.when.end_time)}`,
+		'ORGANIZER;CN="Grace Hopper":mailto:grace@vercel.com',
+		'SUMMARY:Launch readiness review',
+		'LOCATION:Meet — Apollo room',
+		'END:VEVENT',
+		'END:VCALENDAR',
+	].join('\r\n')
+}
+
+function compactUtcDateTime(epochSeconds: number): string {
+	return new Date(epochSeconds * 1_000)
+		.toISOString()
+		.replace(/[-:]/g, '')
+		.replace(/\.\d{3}Z$/, 'Z')
 }
 
 export function mockMailboxInfo(appName: string, email?: string) {

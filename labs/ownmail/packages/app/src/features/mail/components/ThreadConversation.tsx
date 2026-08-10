@@ -8,6 +8,7 @@ import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
 import { collapsedMessagePreview, threadLabels } from '../lib/mail-ui-model.js'
 import type { MailMessage, MailThread } from '../state/mail-queries.js'
+import { CalendarInvitationCard } from './CalendarInvitationCard.js'
 import { MessageBody } from './MessageBody.js'
 
 /**
@@ -203,6 +204,7 @@ function MessageBlock({
 
 			{open ? (
 				<div id={contentId} data-slot="expanded-message-content" className="mt-5 w-full min-w-0">
+					<CalendarInvitationCard message={message} />
 					<MessageBody message={message} darkenEmail={darkenEmail} />
 					<MessageAttachments message={message} />
 				</div>

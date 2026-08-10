@@ -98,6 +98,30 @@ describe('dev mock reference identity', () => {
 		expect(attachment?.size).toBe(248 * 1024)
 	})
 
+	it('serves a correlated ICS invitation fixture for the RSVP UI', async () => {
+		const mailbox = createDevMailbox()
+		const { messages } = mockThreadMessages('thread-calendar-invite')
+		const attachment = messages[0]?.attachments?.[0]
+
+		expect(attachment).toMatchObject({
+			id: 'att-calendar-invite',
+			filename: 'invite.ics',
+			content_type: expect.stringContaining('text/calendar'),
+		})
+		const response = await mailbox.downloadAttachment('att-calendar-invite', 'msg-calendar-invite')
+		expect(response.headers.get('content-type')).toBe('text/calendar')
+		expect(await response.text()).toContain('UID:launch-readiness@ownmail.dev')
+		expect(
+			(await mailbox.listEvents({ calendar_id: 'primary', ical_uid: 'launch-readiness@ownmail.dev' })).data,
+		).toHaveLength(1)
+		expect(
+			(await mailbox.listEvents({ calendar_id: 'work', ical_uid: 'launch-readiness@ownmail.dev' })).data,
+		).toEqual([])
+		expect(
+			(await mailbox.listEvents({ calendar_id: 'primary', ical_uid: 42 as never })).data.length,
+		).toBeGreaterThan(1)
+	})
+
 	it('preserves outbound attachment metadata in sent messages and drafts', () => {
 		const attachment = {
 			filename: 'notes.txt',
