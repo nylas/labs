@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.7.3
+
+### Patch Changes
+
+- c325e0d: Remove OwnMail-imported calendar events when a matching organizer cancellation is opened, without notifying participants.
+
 ## 0.7.2
 
 ### Patch Changes
