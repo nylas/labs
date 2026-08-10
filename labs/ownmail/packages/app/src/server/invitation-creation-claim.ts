@@ -35,7 +35,10 @@ export async function invitationCancellationSequence(
 	if (!organizer) return undefined
 	const { env, kv } = await platform()
 	if (!kv) return undefined
-	return parseSequence(await kv.get(await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)))
+	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
+	if (kv.putIfAbsent) return parseSequence(await kv.get(key))
+	if (!kv.list) return undefined
+	return versionedCancellationSequence(await kv.list({ prefix: `${key}:`, limit: 1 }), `${key}:`)
 }
 
 export async function recordInvitationCancellation(
@@ -53,10 +56,13 @@ export async function recordInvitationCancellation(
 	if (!kv) return sequence
 	const key = await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)
 	if (!kv.putIfAbsent) {
-		const current = parseSequence(await kv.get(key))
-		const next = Math.max(current ?? 0, sequence)
-		if (current !== next) await kv.put(key, String(next))
-		return next
+		if (!kv.list) throw new Error('Durable invitation cancellations are unavailable')
+		// Cloudflare KV has no compare-and-set. Store immutable, reverse-sorted
+		// revision keys so concurrent lower revisions can never overwrite a higher
+		// tombstone and a one-key prefix listing returns the greatest revision.
+		const reverseSequence = String(MAX_INVITATION_SEQUENCE - sequence).padStart(10, '0')
+		await kv.put(`${key}:${reverseSequence}`, '1')
+		return sequence
 	}
 	const suffix = await claimSuffix(env.SESSION_SECRET, grantId, `${uid}\0${organizer}`)
 	const lockKey = `invitation-cancel-lock:${suffix}`
@@ -114,6 +120,18 @@ function parseSequence(value: string | null): number | undefined {
 	if (typeof value !== 'string' || !/^\d{1,10}$/.test(value)) return undefined
 	const sequence = Number(value)
 	return sequence <= MAX_INVITATION_SEQUENCE ? sequence : undefined
+}
+
+function versionedCancellationSequence(
+	result: { keys: { name: string }[] },
+	prefix: string,
+): number | undefined {
+	const name = result.keys[0]?.name
+	if (!name?.startsWith(prefix)) return undefined
+	const reverseSequence = name.slice(prefix.length)
+	if (!/^\d{10}$/.test(reverseSequence)) return undefined
+	const reverse = Number(reverseSequence)
+	return reverse <= MAX_INVITATION_SEQUENCE ? MAX_INVITATION_SEQUENCE - reverse : undefined
 }
 
 function normalizedOrganizer(value: unknown): string | undefined {

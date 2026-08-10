@@ -112,19 +112,58 @@ describe('invitation creation claims', () => {
 			delete: vi.fn(async (key) => {
 				values.delete(key)
 			}),
+			list: vi.fn(async ({ prefix, limit }) => ({
+				keys: [...values.keys()]
+					.filter((key) => key.startsWith(prefix))
+					.sort()
+					.slice(0, limit)
+					.map((name) => ({ name })),
+			})),
 		}
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
 
-		await expect(
+		await Promise.all([
 			recordInvitationCancellation('grant-1', 'uid@example.com', 3, 'grace@example.com'),
-		).resolves.toBe(3)
-		await expect(
-			recordInvitationCancellation('grant-1', 'uid@example.com', 2, 'grace@example.com'),
-		).resolves.toBe(3)
+			recordInvitationCancellation('grant-1', 'uid@example.com', 5, 'grace@example.com'),
+		])
 		await expect(
 			invitationCancellationSequence('grant-1', 'uid@example.com', 'grace@example.com'),
-		).resolves.toBe(3)
-		expect(kv.put).toHaveBeenCalledTimes(1)
+		).resolves.toBe(5)
+		expect(kv.put).toHaveBeenCalledTimes(2)
+		expect(vi.mocked(kv.put).mock.calls[0]?.[0]).not.toBe(vi.mocked(kv.put).mock.calls[1]?.[0])
+		expect(kv.list).toHaveBeenCalledWith({
+			prefix: expect.stringContaining('invitation-cancel:'),
+			limit: 1,
+		})
+	})
+
+	it('fails closed for incomplete or malformed non-atomic cancellation stores', async () => {
+		const kv: KvLike = {
+			get: vi.fn(async () => null),
+			put: vi.fn(async () => undefined),
+			delete: vi.fn(async () => undefined),
+		}
+		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid', 'grace@example.com'),
+		).resolves.toBeUndefined()
+		await expect(recordInvitationCancellation('grant-1', 'uid', 1, 'grace@example.com')).rejects.toThrow(
+			'Durable invitation cancellations are unavailable',
+		)
+
+		for (const keys of [
+			[],
+			[{ name: 'unexpected:0000000000' }],
+			[{ name: 'PREFIX:not-a-sequence' }],
+			[{ name: 'PREFIX:9999999999' }],
+		]) {
+			kv.list = vi.fn(async ({ prefix }) => ({
+				keys: keys.map(({ name }) => ({ name: name.replace('PREFIX:', prefix) })),
+			}))
+			await expect(
+				invitationCancellationSequence('grant-1', 'uid', 'grace@example.com'),
+			).resolves.toBeUndefined()
+		}
 	})
 
 	it('validates tombstone revisions and serializes writers', async () => {

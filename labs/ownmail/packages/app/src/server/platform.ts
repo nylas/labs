@@ -42,6 +42,8 @@ export type KvLike = {
 	get(key: string): Promise<string | null>
 	put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
 	delete(key: string): Promise<void>
+	/** Lists keys in lexicographic order. Present on Cloudflare KV. */
+	list?(options: { prefix: string; limit: number }): Promise<{ keys: { name: string }[] }>
 	/** Atomic counter. Present on Redis-backed stores; absent on Cloudflare KV. */
 	increment?(key: string): Promise<number>
 	/** Attaches a TTL without touching the value, so a live counter is never reset. */
