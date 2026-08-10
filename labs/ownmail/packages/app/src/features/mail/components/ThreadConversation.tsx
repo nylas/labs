@@ -1,5 +1,5 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
-import { ChevronDown, Download, Paperclip } from 'lucide-react'
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · genre: modern-minimal · theme: Quiet */
+import { ChevronDown, ChevronsDown, ChevronsUp, Download, Paperclip } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
@@ -60,46 +60,58 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 
 	return (
 		<div data-slot="thread-conversation" className="min-h-full bg-muted dark:bg-background">
-			<header className="sticky top-0 z-10 border-b border-border bg-muted px-5 py-5 dark:bg-background lg:px-8">
-				<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-					<div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
-						<h1 className="min-w-0 font-display text-xl font-semibold text-balance [overflow-wrap:anywhere] lg:text-2xl">
+			<header
+				data-slot="thread-summary"
+				className="border-b border-border bg-muted px-4 py-3 dark:bg-background lg:px-8 xl:sticky xl:top-0 xl:z-10 xl:py-5"
+			>
+				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-2 xl:flex xl:flex-wrap xl:justify-between xl:gap-x-4 xl:gap-y-3">
+					<div className="flex min-w-0 flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:gap-x-3 xl:gap-y-2">
+						<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
 							{thread.subject || '(no subject)'}
 						</h1>
-						{labels.map((label) => (
-							<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
-								{label.name}
-							</span>
-						))}
+						{labels.length > 0 ? (
+							<div className="flex min-w-0 flex-wrap gap-1.5">
+								{labels.map((label) => (
+									<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
+										{label.name}
+									</span>
+								))}
+							</div>
+						) : null}
 					</div>
 
 					{messages.length > 1 ? (
-						<fieldset className="flex min-w-0 shrink-0 items-center gap-1 border-0 p-0">
+						<fieldset className="flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0 xl:gap-1">
 							<legend className="sr-only">Message display controls</legend>
 							<button
 								type="button"
 								onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
 								disabled={allMessagesOpen}
 								aria-label={`Expand all ${messages.length} messages`}
-								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
+								className="inline-flex h-11 w-11 items-center justify-center rounded-md text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40 xl:w-auto xl:px-2.5 xl:py-1.5"
 							>
-								Expand all
+								<ChevronsDown className="h-4 w-4 xl:hidden" aria-hidden="true" />
+								<span className="sr-only xl:not-sr-only">Expand all</span>
 							</button>
 							<button
 								type="button"
 								onClick={() => setOpenMessageIds(new Set())}
 								disabled={allMessagesClosed}
 								aria-label={`Collapse all ${messages.length} messages`}
-								className="min-h-11 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
+								className="inline-flex h-11 w-11 items-center justify-center rounded-md text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40 xl:w-auto xl:px-2.5 xl:py-1.5"
 							>
-								Collapse all
+								<ChevronsUp className="h-4 w-4 xl:hidden" aria-hidden="true" />
+								<span className="sr-only xl:not-sr-only">Collapse all</span>
 							</button>
 						</fieldset>
 					) : null}
 				</div>
 
 				{threadAttachments.length > 0 ? (
-					<div className="mt-4 flex flex-wrap gap-2">
+					<div
+						data-slot="thread-attachment-rail"
+						className="mt-2 flex max-w-full gap-2 overflow-x-auto pb-1 xl:mt-4 xl:flex-wrap xl:overflow-x-visible xl:pb-0"
+					>
 						{threadAttachments.map(({ attachment, messageId }) => (
 							<AttachmentLink key={attachment.id} attachment={attachment} messageId={messageId} />
 						))}
@@ -107,7 +119,7 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 				) : null}
 			</header>
 
-			<div className="px-5 py-2 lg:px-8">
+			<div className="px-4 py-1 sm:px-5 sm:py-2 lg:px-8">
 				{messages.map((message, index) => (
 					<MessageBlock
 						key={message.id}
@@ -360,11 +372,11 @@ function AttachmentLink({ attachment, messageId }: { attachment: Attachment; mes
 		<a
 			data-slot="thread-attachment"
 			href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`}
-			className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid dark:bg-muted/40 dark:hover:bg-muted"
+			className="inline-flex min-h-11 max-w-[calc(100vw-2rem)] shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm whitespace-nowrap transition-colors hover:bg-accent active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid sm:max-w-none sm:shrink dark:bg-muted/40 dark:hover:bg-muted"
 			download={attachment.filename}
 		>
 			<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-			<span className="font-medium">{attachment.filename ?? 'attachment'}</span>
+			<span className="min-w-0 truncate font-medium">{attachment.filename ?? 'attachment'}</span>
 			{attachment.size ? (
 				<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
 			) : null}
