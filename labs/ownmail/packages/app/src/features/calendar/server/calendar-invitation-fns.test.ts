@@ -1003,7 +1003,7 @@ describe('calendar invitation server functions', () => {
 		expect(releaseInvitationCreationClaim).not.toHaveBeenCalled()
 	})
 
-	it('releases its revision claim when the UID mutation lock is busy', async () => {
+	it('does not supersede or release a revision claim when the UID mutation lock is busy', async () => {
 		acquireInvitationMutation.mockResolvedValue(null)
 		const mailbox = makeMailbox({ listEvents: vi.fn(async () => ({ data: [] })) })
 		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
@@ -1013,7 +1013,8 @@ describe('calendar invitation server functions', () => {
 		).rejects.toThrow('already being added')
 		expect(mailbox.listEvents).toHaveBeenCalled()
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
-		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com', 1)
+		expect(claimInvitationCreation).not.toHaveBeenCalled()
+		expect(releaseInvitationCreationClaim).not.toHaveBeenCalled()
 	})
 
 	it('preserves rich ICS fields and safe defaults in the manually created event', async () => {

@@ -370,16 +370,15 @@ async function addCalendarInvitationOnce(
 	if (!primary) throw new InvitationBoundaryError('This mailbox has no writable primary calendar.')
 
 	const invitationSequence = invitation.sequence ?? 0
-	const claimed = await claimInvitationCreation(grantId, invitation.uid, invitationSequence)
+	let claimed = false
 	let keepClaim = false
 	let creationAttempted = false
 	let mutationToken: string | undefined
 	try {
-		if (claimed) {
-			const acquired = await acquireInvitationMutation(grantId, invitation.uid)
-			if (!acquired) throw new InvitationBoundaryError('This invitation is already being added.')
-			mutationToken = acquired
-		}
+		const acquired = await acquireInvitationMutation(grantId, invitation.uid)
+		if (!acquired) throw new InvitationBoundaryError('This invitation is already being added.')
+		mutationToken = acquired
+		claimed = await claimInvitationCreation(grantId, invitation.uid, invitationSequence)
 		const finalLookup = await finalInvitationLookup(mailbox, calendars, invitation, mailboxEmail)
 		if (await invitationWasCancelled(grantId, invitation)) {
 			return { state: 'cancelled', removed: false, manualReview: false }
