@@ -282,6 +282,22 @@ describe('calendar invitation server functions', () => {
 		},
 	)
 
+	it('rejects an unterminated cancellation before persisting or deleting anything', async () => {
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(
+				async () => new Response(CANCEL_ICS.replace('\r\nEND:VEVENT\r\nEND:VCALENDAR', '')),
+			),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'invalid' })
+		expect(recordInvitationCancellation).not.toHaveBeenCalled()
+		expect(mailbox.listCalendars).not.toHaveBeenCalled()
+		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
+	})
+
 	it('rejects recurring-instance cancellations without tombstoning or deleting the series', async () => {
 		const instanceCancellation = CANCEL_ICS.replace(
 			'ORGANIZER:mailto:grace@example.com',

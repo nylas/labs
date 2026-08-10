@@ -70,6 +70,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		.split('\n')
 	let method: string | undefined
 	let inEvent = false
+	let eventEnded = false
 	const eventProperties: IcsProperty[] = []
 
 	for (const line of lines) {
@@ -81,11 +82,17 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 			inEvent = true
 			continue
 		}
-		if (property.name === 'END' && property.value.trim().toUpperCase() === 'VEVENT') break
+		if (property.name === 'END' && property.value.trim().toUpperCase() === 'VEVENT') {
+			eventEnded = true
+			inEvent = false
+			break
+		}
 		if (inEvent) eventProperties.push(property)
 	}
 
-	if ((method !== 'REQUEST' && method !== 'CANCEL') || eventProperties.length === 0) return null
+	if ((method !== 'REQUEST' && method !== 'CANCEL') || !eventEnded || eventProperties.length === 0) {
+		return null
+	}
 	const uid = propertyValue(eventProperties, 'UID')?.trim()
 	if (!uid || uid.length > MAX_ICS_UID_LENGTH || hasUnsafeControl(uid)) return null
 

@@ -224,6 +224,14 @@ describe('calendar invitation parsing', () => {
 		})
 	})
 
+	it('rejects unterminated event components before accepting destructive input', () => {
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event\nSEQUENCE:3\nORGANIZER:mailto:grace@example.com',
+			),
+		).toBeNull()
+	})
+
 	it('marks recurring-instance cancellations separately from whole-series cancellations', () => {
 		expect(
 			parseCalendarInvitation(
