@@ -355,7 +355,7 @@ async function addCalendarInvitationOnce(
 		}
 		if (!claimed) throw new InvitationBoundaryError('This invitation is already being added.')
 		if (finalLookup.staleImport) {
-			return reconcileImportedInvitation(
+			const details = await reconcileImportedInvitation(
 				mailbox,
 				calendars,
 				finalLookup.staleImport,
@@ -365,6 +365,11 @@ async function addCalendarInvitationOnce(
 				mailboxEmail,
 				grantId,
 			)
+			// Keep the distributed claim until its TTL expires. The update response is
+			// authoritative for this request, but provider indexes can continue exposing
+			// the prior sequence briefly; releasing here would let an older revision win.
+			keepClaim = true
+			return details
 		}
 		creationAttempted = true
 		const created = await mailbox.createEvent(

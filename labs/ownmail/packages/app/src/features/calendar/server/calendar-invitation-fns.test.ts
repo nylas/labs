@@ -812,7 +812,7 @@ describe('calendar invitation server functions', () => {
 			{ notifyParticipants: false },
 		)
 		expect(mailbox.createEvent).not.toHaveBeenCalled()
-		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com')
+		expect(releaseInvitationCreationClaim).not.toHaveBeenCalled()
 	})
 
 	it('reconciles a newer imported revision returned by the UID index', async () => {
