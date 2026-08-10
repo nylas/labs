@@ -49,7 +49,7 @@ export function AppRailLogo({ appName, className }: { appName: string; className
 		<Link
 			to={MAIL_HOME_PATH}
 			className={cn(
-				'group flex shrink-0 items-center justify-center border-r border-border bg-background transition-colors hover:bg-muted/30',
+				'group flex shrink-0 items-center justify-center border-r border-b border-border bg-background transition-colors hover:bg-muted/30',
 				APP_RAIL_WIDTH_CLASS,
 				CHROME_ROW_CLASS,
 				className,

@@ -27,6 +27,7 @@ describe('AppRailLogo', () => {
 		const link = screen.getByRole('link', { name: 'Acme Corp Mail home' })
 		expect(link).toHaveAttribute('href', '/')
 		expect(link).toHaveAttribute('title', 'Acme Corp Mail')
+		expect(link).toHaveClass('border-b', 'border-border')
 	})
 })
 
