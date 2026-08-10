@@ -1,5 +1,15 @@
 # @ownmail/app
 
+## 0.12.4
+
+### Patch Changes
+
+- 3608665: Make mobile thread headers compact and easier to read.
+- 61b2083: Improve the OwnMail mobile navigation with clearer groups and larger touch targets.
+- b2b8f83: Restore the continuous bottom border on the OwnMail application header.
+- 757300d: Add calendar invitation RSVP controls with conflict awareness to incoming ICS emails.
+- b79770f: Make the mail search divider visible and consistent.
+
 ## 0.12.3
 
 ### Patch Changes
