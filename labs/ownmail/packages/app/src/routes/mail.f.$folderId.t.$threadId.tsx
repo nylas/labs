@@ -220,7 +220,7 @@ function ThreadView() {
 						})
 					}
 					aria-label="Back to list"
-					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</button>
@@ -348,7 +348,7 @@ function IconButton({
 			title={label}
 			disabled={disabled}
 			aria-busy={loading || undefined}
-			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 xl:h-9 xl:w-9"
 		>
 			{children}
 		</button>

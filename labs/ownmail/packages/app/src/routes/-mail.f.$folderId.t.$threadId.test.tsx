@@ -168,7 +168,7 @@ describe('thread header', () => {
 		const heading = screen.getByRole('heading', { name: 'Hello' })
 		expect(heading).toBeInTheDocument()
 		expect(screen.getByText('Work')).toBeInTheDocument()
-		expect(heading.closest('header')).toHaveClass('sticky', 'top-0', 'bg-muted', 'dark:bg-background')
+		expect(heading.closest('header')).toHaveClass('xl:sticky', 'xl:top-0', 'bg-muted', 'dark:bg-background')
 	})
 
 	it('falls back to "(no subject)" and shows no labels for an empty thread', () => {
@@ -442,6 +442,21 @@ describe('message list', () => {
 // --- toolbar actions ----------------------------------------------------
 
 describe('toolbar actions', () => {
+	it('keeps mobile and tablet toolbar actions touch-friendly', () => {
+		renderThread()
+
+		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('h-11', 'w-11', 'shrink-0')
+		for (const label of ['Archive', 'Delete', 'Star', 'Mark unread']) {
+			expect(screen.getByRole('button', { name: label })).toHaveClass(
+				'h-11',
+				'w-11',
+				'shrink-0',
+				'xl:h-9',
+				'xl:w-9',
+			)
+		}
+	})
+
 	it('archives the thread and returns to the folder list', async () => {
 		const user = userEvent.setup()
 		renderThread()

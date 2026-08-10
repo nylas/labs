@@ -70,7 +70,9 @@ describe('ThreadConversation rendering', () => {
 
 		expect(expand).toHaveTextContent('Expand all')
 		expect(expand).toHaveClass(
-			'min-h-11',
+			'h-11',
+			'w-11',
+			'xl:w-auto',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'forced-colors:focus-visible:outline-2',
@@ -79,7 +81,9 @@ describe('ThreadConversation rendering', () => {
 		)
 		expect(collapse).toHaveTextContent('Collapse all')
 		expect(collapse).toHaveClass(
-			'min-h-11',
+			'h-11',
+			'w-11',
+			'xl:w-auto',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'forced-colors:focus-visible:outline-2',
@@ -94,6 +98,31 @@ describe('ThreadConversation rendering', () => {
 		fireEvent.click(collapse)
 		expect(collapse).toBeDisabled()
 		expect(screen.getAllByRole('button', { name: /Expand message from/ })).toHaveLength(3)
+	})
+
+	it('uses a compact, scroll-away summary on mobile and restores the sticky desktop layout', () => {
+		const messageWithAttachment = {
+			...message('m1'),
+			attachments: [{ id: 'a1', filename: 'roadmap.pdf', size: 2048, is_inline: false }],
+		}
+		const { container } = render(
+			<ThreadConversation
+				thread={{ ...thread('t1'), folders: ['work'] }}
+				messages={[messageWithAttachment]}
+			/>,
+		)
+		const summary = container.querySelector('[data-slot="thread-summary"]')
+		const attachmentRail = container.querySelector('[data-slot="thread-attachment-rail"]')
+
+		expect(summary).toHaveClass('px-4', 'py-3', 'xl:sticky', 'xl:top-0', 'xl:py-5')
+		expect(summary).not.toHaveClass('sticky', 'top-0')
+		expect(attachmentRail).toHaveClass(
+			'overflow-x-auto',
+			'pb-1',
+			'xl:flex-wrap',
+			'xl:overflow-x-visible',
+			'xl:pb-0',
+		)
 	})
 
 	it('gives attachment downloads a touch-friendly target and visible keyboard focus', () => {
