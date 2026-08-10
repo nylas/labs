@@ -207,6 +207,12 @@ export type Event = {
 	read_only?: boolean
 	conferencing?: { [key: string]: Json | undefined }
 	recurrence?: string[]
+	ical_uid?: string
+	metadata?: { [key: string]: Json | undefined }
+}
+
+export type CreateEventOptions = {
+	notifyParticipants?: boolean
 }
 
 export type Webhook = {
@@ -1010,12 +1016,18 @@ export class GrantScopedClient {
 			this.path(`/events/${encodeURIComponent(eventId)}?calendar_id=${encodeURIComponent(calendarId)}`),
 		)
 	}
-	createEvent(body: Partial<Event>, calendarId: string): Promise<ItemResponse<Event>> {
-		return this.client.request(
-			'POST',
-			this.path(`/events?calendar_id=${encodeURIComponent(calendarId)}`),
-			body,
-		)
+	createEvent(
+		body: Partial<Event>,
+		calendarId: string,
+		options: CreateEventOptions = {},
+	): Promise<ItemResponse<Event>> {
+		const query: ListQuery = {
+			calendar_id: calendarId,
+			...(options.notifyParticipants !== undefined
+				? { notify_participants: options.notifyParticipants }
+				: {}),
+		}
+		return this.client.request('POST', this.path(`/events${toQuery(query)}`), body)
 	}
 	updateEvent(eventId: string, body: Partial<Event>, calendarId: string): Promise<ItemResponse<Event>> {
 		return this.client.request(

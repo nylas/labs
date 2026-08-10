@@ -6,11 +6,13 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MailMessage } from '../state/mail-queries'
 
-const { getCalendarInvitation, respondCalendarInvitation } = vi.hoisted(() => ({
+const { addCalendarInvitation, getCalendarInvitation, respondCalendarInvitation } = vi.hoisted(() => ({
+	addCalendarInvitation: vi.fn(),
 	getCalendarInvitation: vi.fn(),
 	respondCalendarInvitation: vi.fn(),
 }))
 vi.mock('#features/calendar/server/calendar-invitation-fns', () => ({
+	addCalendarInvitation: (...args: unknown[]) => addCalendarInvitation(...args),
 	getCalendarInvitation: (...args: unknown[]) => getCalendarInvitation(...args),
 	respondCalendarInvitation: (...args: unknown[]) => respondCalendarInvitation(...args),
 }))
@@ -41,6 +43,14 @@ function renderCard(value: MailMessage = message) {
 
 describe('CalendarInvitationCard', () => {
 	beforeEach(() => {
+		addCalendarInvitation.mockReset().mockResolvedValue({
+			state: 'ready',
+			title: 'Planning review',
+			organizer: 'Grace Hopper',
+			when: { kind: 'timed', start: 1_817_823_600, end: 1_817_827_200 },
+			status: 'noreply',
+			conflicts: { state: 'clear' },
+		})
 		getCalendarInvitation.mockReset().mockResolvedValue({
 			state: 'ready',
 			title: 'Planning review',
@@ -183,6 +193,40 @@ describe('CalendarInvitationCard', () => {
 		})
 		await act(() => vi.runOnlyPendingTimersAsync())
 		expect(screen.getByText('Response unavailable')).toBeInTheDocument()
+	})
+
+	it('lets the user explicitly add an invitation that is still missing', async () => {
+		getCalendarInvitation.mockResolvedValue({ state: 'syncing' })
+		const user = userEvent.setup()
+		renderCard()
+
+		await user.click(await screen.findByRole('button', { name: 'Add to calendar' }))
+
+		expect(addCalendarInvitation).toHaveBeenCalledWith({
+			data: { messageId: 'message-1', attachmentId: 'attachment-1' },
+		})
+		expect(await screen.findByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
+		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
+	})
+
+	it('shows progress and a recoverable error for a failed explicit add', async () => {
+		getCalendarInvitation.mockResolvedValue({ state: 'syncing' })
+		let rejectAdd!: (reason: Error) => void
+		addCalendarInvitation.mockImplementation(
+			() =>
+				new Promise((_resolve, reject) => {
+					rejectAdd = reject
+				}),
+		)
+		const user = userEvent.setup()
+		renderCard()
+
+		await user.click(await screen.findByRole('button', { name: 'Add to calendar' }))
+		expect(screen.getByRole('button', { name: 'Adding…' })).toBeDisabled()
+		rejectAdd(new Error('provider detail'))
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('couldn’t add this invitation')
+		expect(screen.getByRole('button', { name: 'Add to calendar' })).toBeEnabled()
 	})
 
 	it.each([

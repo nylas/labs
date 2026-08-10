@@ -1,4 +1,4 @@
-import { type Event, NylasApiError } from '@nylas-labs/cli-kit/v3'
+import { type Event, type Message, NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-start', () => ({
@@ -27,6 +27,7 @@ vi.mock('#server/change-version', () => ({
 }))
 
 const {
+	addCalendarInvitation,
 	getCalendarInvitation,
 	normalizeInvitationReference,
 	normalizeInvitationRsvpInput,
@@ -43,6 +44,7 @@ const ICS = [
 	'DTSTART:20270809T150000Z',
 	'DTEND:20270809T160000Z',
 	'ORGANIZER:mailto:grace@example.com',
+	'ATTENDEE;CN="Ada Lovelace";PARTSTAT=NEEDS-ACTION:mailto:ada@ownmail.com',
 	'SUMMARY:Planning review',
 	'END:VEVENT',
 	'END:VCALENDAR',
@@ -77,6 +79,8 @@ function makeMailbox(overrides: Record<string, unknown> = {}) {
 			data: {
 				id: 'message-1',
 				grant_id: 'grant-1',
+				from: [{ email: 'grace@example.com' }],
+				to: [{ email: 'ada@ownmail.com' }],
 				attachments: [
 					{ id: 'attachment-1', filename: 'invite.ics', content_type: 'text/calendar', size: 200 },
 				],
@@ -99,6 +103,9 @@ function makeMailbox(overrides: Record<string, unknown> = {}) {
 					: [conflict],
 		})),
 		sendRsvp: vi.fn(async () => ({ data: { ok: true } })),
+		createEvent: vi.fn(async () => ({
+			data: invitationEvent({ metadata: { key1: 'invite@example.com' } }),
+		})),
 		...overrides,
 	}
 }
@@ -264,6 +271,312 @@ describe('calendar invitation server functions', () => {
 			}),
 		).rejects.toThrow('cannot be answered right now')
 	})
+
+	it('lets the user add a strictly matched missing invitation without notifying participants', async () => {
+		const mailbox = makeMailbox({ listEvents: vi.fn(async () => ({ data: [] })) })
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', title: 'Planning review', status: 'noreply' })
+
+		expect(mailbox.createEvent).toHaveBeenCalledWith(
+			{
+				title: 'Planning review',
+				when: { start_time: START, end_time: END },
+				organizer: { email: 'grace@example.com' },
+				participants: [{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' }],
+				metadata: { key1: 'invite@example.com' },
+			},
+			'primary',
+			{ notifyParticipants: false },
+		)
+		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
+	})
+
+	it('preserves rich ICS fields and safe defaults in the manually created event', async () => {
+		const richIcs = ICS.replace(
+			'ORGANIZER:mailto:grace@example.com',
+			'ORGANIZER;CN="Grace Hopper":mailto:grace@example.com',
+		)
+			.replace('SUMMARY:Planning review\r\n', '')
+			.replace(
+				'END:VEVENT',
+				'DESCRIPTION:Read the brief\\nBring notes\r\nLOCATION:Aurora\\, room\r\nEND:VEVENT',
+			)
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(richIcs)),
+			listEvents: vi.fn(async () => ({ data: [] })),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await addCalendarInvitation({
+			data: { messageId: 'message-1', attachmentId: 'attachment-1' },
+		})
+
+		expect(mailbox.createEvent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				title: '(untitled invitation)',
+				description: 'Read the brief\nBring notes',
+				location: 'Aurora, room',
+				organizer: { email: 'grace@example.com', name: 'Grace Hopper' },
+			}),
+			'primary',
+			{ notifyParticipants: false },
+		)
+	})
+
+	it('returns an event that Nylas created before the explicit fallback runs', async () => {
+		const mailbox = makeMailbox()
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready' })
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
+	it('uses the import marker when the provider event wins the final creation race', async () => {
+		let metadataLookups = 0
+		const imported = invitationEvent({
+			organizer: { email: 'ada@ownmail.com' },
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => {
+				if (query.metadata_pair) {
+					metadataLookups += 1
+					return { data: metadataLookups === 3 ? [imported] : [] }
+				}
+				return { data: [] }
+			}),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', organizer: 'grace@example.com' })
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
+	it('uses the Nylas UID index when automatic creation wins the final race', async () => {
+		let uidLookups = 0
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { ical_uid?: string }) => {
+				if (query.ical_uid) {
+					uidLookups += 1
+					return { data: uidLookups === 3 ? [invitationEvent()] : [] }
+				}
+				return { data: [] }
+			}),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready' })
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
+	it('recognizes an earlier OwnMail import even when the provider rewrites its organizer', async () => {
+		const imported = invitationEvent({
+			organizer: { email: 'ada@ownmail.com' },
+			ical_uid: undefined,
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [imported] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', organizer: 'grace@example.com' })
+	})
+
+	it('uses the ICS organizer name when an imported provider event omits its organizer', async () => {
+		const imported = invitationEvent({
+			organizer: undefined,
+			ical_uid: undefined,
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(
+				async () =>
+					new Response(
+						ICS.replace(
+							'ORGANIZER:mailto:grace@example.com',
+							'ORGANIZER;CN="Grace Hopper":mailto:grace@example.com',
+						),
+					),
+			),
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [imported] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', organizer: 'Grace Hopper' })
+	})
+
+	it('ignores malformed import markers and organizer-less provider candidates', async () => {
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string; ical_uid?: string }) => ({
+				data: query.ical_uid
+					? [invitationEvent({ organizer: undefined })]
+					: query.metadata_pair
+						? [invitationEvent({ metadata: { key1: 'x'.repeat(1_001) } })]
+						: [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'ineligible' })
+	})
+
+	it('coalesces repeat clicks while one invitation creation is in flight', async () => {
+		let finishCreation!: () => void
+		const createEvent = vi.fn(
+			() =>
+				new Promise<{ data: Event }>((resolve) => {
+					finishCreation = () =>
+						resolve({ data: invitationEvent({ metadata: { key1: 'invite@example.com' } }) })
+				}),
+		)
+		const mailbox = makeMailbox({ listEvents: vi.fn(async () => ({ data: [] })), createEvent })
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		const first = addCalendarInvitation({
+			data: { messageId: 'message-1', attachmentId: 'attachment-1' },
+		})
+		const second = addCalendarInvitation({
+			data: { messageId: 'message-1', attachmentId: 'attachment-1' },
+		})
+		await vi.waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1))
+		finishCreation()
+
+		await expect(Promise.all([first, second])).resolves.toHaveLength(2)
+		expect(createEvent).toHaveBeenCalledTimes(1)
+	})
+
+	it.each([
+		['sender', { from: [{ email: 'attacker@example.com' }], to: [{ email: 'ada@ownmail.com' }] }],
+		['recipient', { from: [{ email: 'grace@example.com' }], to: [{ email: 'other@example.com' }] }],
+		['missing sender', { from: undefined, to: [{ email: 'ada@ownmail.com' }] }],
+		['missing direct recipient', { from: [{ email: 'grace@example.com' }], to: undefined }],
+		[
+			'grant',
+			{ from: [{ email: 'grace@example.com' }], to: [{ email: 'ada@ownmail.com' }], grant_id: 'other' },
+		],
+	] as const)(
+		'rejects a manual import when the authenticated message %s does not match',
+		async (_case, envelope) => {
+			const mailbox = makeMailbox({
+				listEvents: vi.fn(async () => ({ data: [] })),
+				getMessage: vi.fn(async () => ({
+					data: {
+						id: 'message-1',
+						grant_id: 'grant-1',
+						...envelope,
+						attachments: [
+							{ id: 'attachment-1', filename: 'invite.ics', content_type: 'text/calendar', size: 200 },
+						],
+					},
+				})),
+			})
+			requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+			await expect(
+				addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+			).rejects.toThrow('cannot be added right now')
+			expect(mailbox.createEvent).not.toHaveBeenCalled()
+		},
+	)
+
+	it('requires a writable primary calendar for the manual fallback', async () => {
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async () => ({ data: [] })),
+			listCalendars: vi.fn(async () => ({
+				data: [{ id: 'primary', name: 'Personal', is_primary: true, read_only: true }],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('no writable primary calendar')
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
+	it('rejects non-string participant addresses at the message boundary', async () => {
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async () => ({ data: [] })),
+			getMessage: vi.fn(async () => ({
+				data: {
+					id: 'message-1',
+					grant_id: 'grant-1',
+					from: [{ email: 42 }],
+					to: [{ email: 'ada@ownmail.com' }],
+					attachments: [
+						{ id: 'attachment-1', filename: 'invite.ics', content_type: 'text/calendar', size: 200 },
+					],
+				} as unknown as Message,
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('cannot be added right now')
+	})
+
+	it.each([
+		['attendee', ICS.replace(/ATTENDEE[^\r]+\r\n/, ''), 'ada@ownmail.com'],
+		['organizer address', ICS.replace('grace@example.com', 'not-an-email'), 'ada@ownmail.com'],
+		['mailbox address', ICS, 'not-an-email'],
+		['self organizer', ICS.replaceAll('grace@example.com', 'ada@ownmail.com'), 'ada@ownmail.com'],
+	] as const)('rejects a manual import with an invalid %s match', async (_case, source, email) => {
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(source)),
+			listEvents: vi.fn(async () => ({ data: [] })),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email, grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('cannot be added right now')
+	})
+
+	it('rejects a manual add before creation when the attachment is not a usable request', async () => {
+		const mailbox = makeMailbox({ downloadAttachment: vi.fn(async () => new Response('not an ICS')) })
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).rejects.toThrow('cannot be added right now')
+	})
+
+	it.each([{ id: 'bad' } as Event, invitationEvent({ calendar_id: 'other-calendar' })])(
+		'maps an invalid manual-create provider response to a safe error',
+		async (providerEvent) => {
+			const mailbox = makeMailbox({
+				listEvents: vi.fn(async () => ({ data: [] })),
+				createEvent: vi.fn(async () => ({ data: providerEvent })),
+			})
+			requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+			await expect(
+				addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+			).rejects.toThrow('could not be updated')
+			expect(signalLocalChange).not.toHaveBeenCalled()
+		},
+	)
 
 	it('can correlate a UID-only request without attempting an unsafe fallback', async () => {
 		const withoutTimes = 'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:invite@example.com\nEND:VEVENT'

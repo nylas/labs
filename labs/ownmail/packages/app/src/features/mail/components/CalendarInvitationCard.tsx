@@ -64,6 +64,16 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			void queryClient.invalidateQueries({ queryKey: ['calendar', 'range'], refetchType: 'active' })
 		},
 	})
+	const addInvitation = useMutation({
+		mutationFn: async () => {
+			const { addCalendarInvitation } = await import('#features/calendar/server/calendar-invitation-fns')
+			return addCalendarInvitation({ data: { messageId, attachmentId } })
+		},
+		onSuccess: (details) => {
+			queryClient.setQueryData<CalendarInvitationDetails>(queryKey, details)
+			void queryClient.invalidateQueries({ queryKey: ['calendar', 'range'], refetchType: 'active' })
+		},
+	})
 
 	if (invitation.isPending) {
 		return (
@@ -103,9 +113,12 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		return (
 			<InvitationNotice
 				title="Adding invitation to your calendar"
-				message="The calendar event is still syncing. Try again in a moment."
+				message="Nylas is still syncing this event. You can check again or add it to your calendar now."
 				onRetry={() => void invitation.refetch()}
 				retrying={invitation.isFetching}
+				onAction={() => addInvitation.mutate()}
+				actionPending={addInvitation.isPending}
+				error={addInvitation.isError}
 			/>
 		)
 	}
@@ -232,11 +245,17 @@ function InvitationNotice({
 	message,
 	onRetry,
 	retrying = false,
+	onAction,
+	actionPending = false,
+	error = false,
 }: {
 	title: string
 	message: string
 	onRetry?: () => void
 	retrying?: boolean
+	onAction?: () => void
+	actionPending?: boolean
+	error?: boolean
 }) {
 	return (
 		<section
@@ -249,16 +268,34 @@ function InvitationNotice({
 			<div className="min-w-0 flex-1">
 				<h2 className="text-sm font-semibold text-foreground">{title}</h2>
 				<p className="mt-1 text-sm text-muted-foreground">{message}</p>
-				{onRetry ? (
-					<button
-						type="button"
-						onClick={onRetry}
-						disabled={retrying}
-						className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
-					>
-						{retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-						{retrying ? 'Checking…' : 'Try again'}
-					</button>
+				{onRetry || onAction ? (
+					<div className="mt-2 flex flex-wrap gap-2">
+						{onAction ? (
+							<button
+								type="button"
+								onClick={onAction}
+								disabled={actionPending}
+								className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+							>
+								{actionPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+								{actionPending ? 'Adding…' : 'Add to calendar'}
+							</button>
+						) : null}
+						<button
+							type="button"
+							onClick={onRetry}
+							disabled={retrying}
+							className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+						>
+							{retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+							{retrying ? 'Checking…' : 'Try again'}
+						</button>
+					</div>
+				) : null}
+				{error ? (
+					<p role="alert" className="mt-2 text-sm text-destructive">
+						We couldn’t add this invitation. Check your connection, then try again.
+					</p>
 				) : null}
 			</div>
 		</section>

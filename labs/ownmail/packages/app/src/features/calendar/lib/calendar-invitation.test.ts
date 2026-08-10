@@ -53,10 +53,71 @@ describe('calendar invitation parsing', () => {
 			uid: 'long-meeting-uid@example.com',
 			method: 'REQUEST',
 			organizerEmail: 'grace@example.com',
+			organizerName: 'Grace Hopper',
 			summary: 'Planning, review',
 			start: 1_817_823_600,
 			end: 1_817_827_200,
+			when: { start_time: 1_817_823_600, end_time: 1_817_827_200 },
 		})
+	})
+
+	it('preserves bounded event content and deduplicated attendee response state for a manual import', () => {
+		const invitation = parseCalendarInvitation(
+			[
+				'BEGIN:VCALENDAR',
+				'METHOD:REQUEST',
+				'BEGIN:VEVENT',
+				'UID:rich-event',
+				'DTSTART;VALUE=DATE:20271225',
+				'DTEND;VALUE=DATE:20271227',
+				'ORGANIZER;CN="Grace Hopper":mailto:grace@example.com',
+				'ATTENDEE;CN="Ada Lovelace";PARTSTAT=NEEDS-ACTION:mailto:ADA@ownmail.com',
+				'ATTENDEE;CN="Duplicate";PARTSTAT=ACCEPTED:mailto:ada@ownmail.com',
+				'ATTENDEE;PARTSTAT=TENTATIVE:mailto:linus@example.com',
+				'ATTENDEE;PARTSTAT=DECLINED:mailto:margaret@example.com',
+				'ATTENDEE;PARTSTAT=ACCEPTED:mailto:katherine@example.com',
+				'DESCRIPTION:Read the brief\\nBring notes',
+				'LOCATION:Aurora\\, room',
+				'END:VEVENT',
+				'END:VCALENDAR',
+			].join('\r\n'),
+		)
+
+		expect(invitation).toMatchObject({
+			description: 'Read the brief\nBring notes',
+			location: 'Aurora, room',
+			when: { start_date: '2027-12-25', end_date: '2027-12-27' },
+			attendees: [
+				{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' },
+				{ email: 'linus@example.com', status: 'maybe' },
+				{ email: 'margaret@example.com', status: 'no' },
+				{ email: 'katherine@example.com', status: 'yes' },
+			],
+		})
+	})
+
+	it('defaults a one-day date span and drops unsafe optional attendee text', () => {
+		const invitation = parseCalendarInvitation(
+			[
+				'BEGIN:VCALENDAR',
+				'METHOD:REQUEST',
+				'BEGIN:VEVENT',
+				'UID:one-day',
+				'DTSTART;VALUE=DATE:20271225',
+				'ATTENDEE;CN="Unsafe\u0007Name";PARTSTAT=UNKNOWN:mailto:ada@ownmail.com',
+				'SUMMARY:Tabbed\ttext',
+				'LOCATION:Unsafe\u007froom',
+				'END:VEVENT',
+				'END:VCALENDAR',
+			].join('\n'),
+		)
+
+		expect(invitation).toMatchObject({
+			when: { start_date: '2027-12-25', end_date: '2027-12-26' },
+			attendees: [{ email: 'ada@ownmail.com' }],
+			summary: 'Tabbed\ttext',
+		})
+		expect(invitation).not.toHaveProperty('location')
 	})
 
 	it('parses date-only invitations and rejects unsupported or unsafe payloads', () => {

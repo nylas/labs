@@ -48,6 +48,11 @@ type InvitationMailbox = {
 	downloadAttachment(attachmentId: string, messageId: string): Promise<Response>
 	listCalendars(query?: ListQuery): Promise<{ data?: unknown }>
 	listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>>
+	createEvent(
+		body: Partial<Event>,
+		calendarId: string,
+		options?: { notifyParticipants?: boolean },
+	): Promise<{ data: Event }>
 	sendRsvp(eventId: string, calendarId: string, status: 'yes' | 'no' | 'maybe'): Promise<unknown>
 }
 
@@ -55,6 +60,9 @@ type ResolvedInvitation = {
 	details: CalendarInvitationDetails
 	event?: Event
 	calendar?: Calendar
+	invitation?: ParsedCalendarInvitation
+	message?: Message
+	calendars?: Calendar[]
 }
 
 type EventPages = {
@@ -62,6 +70,8 @@ type EventPages = {
 	complete: boolean
 	succeeded: boolean
 }
+
+const invitationCreations = new Map<string, Promise<CalendarInvitationDetails>>()
 
 export const getCalendarInvitation = createServerFn({ method: 'GET' })
 	.validator(normalizeInvitationReference)
@@ -92,6 +102,27 @@ export const respondCalendarInvitation = createServerFn({ method: 'POST' })
 		} catch (error) {
 			if (isInvitationBoundaryError(error)) throw error
 			throw friendlyCalendarError(error)
+		}
+	})
+
+export const addCalendarInvitation = createServerFn({ method: 'POST' })
+	.validator(normalizeInvitationReference)
+	.handler(async ({ data }): Promise<CalendarInvitationDetails> => {
+		const { mailbox, email, grantId } = await requireMailbox()
+		const key = `${grantId}:${data.messageId}:${data.attachmentId}`
+		const existing = invitationCreations.get(key)
+		if (existing) return existing
+
+		const creation = addCalendarInvitationOnce(mailbox, email, grantId, data)
+		invitationCreations.set(key, creation)
+		try {
+			return await creation
+		} catch (error) {
+			if (isInvitationBoundaryError(error)) throw error
+			throw friendlyCalendarError(error)
+		} finally {
+			/* v8 ignore else -- only this promise can own its stable single-flight key */
+			if (invitationCreations.get(key) === creation) invitationCreations.delete(key)
 		}
 	})
 
@@ -145,7 +176,7 @@ async function resolveInvitation(
 
 	const calendarResponse = await mailbox.listCalendars({ limit: 20 })
 	const calendars = Array.isArray(calendarResponse.data) ? calendarResponse.data.filter(isCalendar) : []
-	if (calendars.length === 0) return { details: { state: 'ineligible' } }
+	if (calendars.length === 0) return { details: { state: 'ineligible' }, invitation, message: message.data }
 
 	const uidPages = await eventPages(mailbox, calendars, (calendar) => ({
 		calendar_id: calendar.id,
@@ -154,6 +185,15 @@ async function resolveInvitation(
 	}))
 	let candidates = uidPages.events
 	let trustedUidFilter = uidPages.succeeded
+	if (candidates.length === 0) {
+		const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
+			calendar_id: calendar.id,
+			metadata_pair: invitationMetadataPair(invitation.uid),
+			limit: 20,
+		}))
+		candidates = metadataPages.events.filter((event) => eventMetadataUid(event) === invitation.uid)
+		trustedUidFilter = candidates.length > 0
+	}
 
 	const invitationStart = invitation.start
 	const invitationEnd = invitation.end
@@ -174,17 +214,37 @@ async function resolveInvitation(
 
 	const event = chooseInvitationEvent(candidates, invitation, mailboxEmail, trustedUidFilter)
 	if (!event) {
-		return { details: { state: candidates.length > 0 ? 'ineligible' : 'syncing' } }
+		return {
+			details: { state: candidates.length > 0 ? 'ineligible' : 'syncing' },
+			invitation,
+			message: message.data,
+			calendars,
+		}
 	}
+	return detailsForInvitationEvent(mailbox, calendars, event, invitation, mailboxEmail, includeConflicts)
+}
+
+async function detailsForInvitationEvent(
+	mailbox: InvitationMailbox,
+	calendars: Calendar[],
+	event: Event,
+	invitation: ParsedCalendarInvitation,
+	mailboxEmail: string,
+	includeConflicts: boolean,
+): Promise<ResolvedInvitation> {
 	const calendar = calendars.find((candidate) => candidate.id === event.calendar_id)
 	const participant = event.participants?.find(
 		(candidate) => candidate.email.trim().toLowerCase() === mailboxEmail.trim().toLowerCase(),
 	)
 	const when = invitationWhen(event)
-	if (!calendar || !participant || !when || !event.organizer) {
+	const importedByOwnmail = eventMetadataUid(event) === invitation.uid
+	const organizerValue = importedByOwnmail
+		? invitation.organizerName || invitation.organizerEmail
+		: event.organizer?.name || event.organizer?.email
+	if (!calendar || !participant || !when || !organizerValue) {
 		return { details: { state: 'ineligible' } }
 	}
-	const organizer = boundedText(event.organizer.name || event.organizer.email, 500) || 'Organizer'
+	const organizer = boundedText(organizerValue, 500) || 'Organizer'
 	const status = participant.status ?? 'noreply'
 	const conflicts = includeConflicts
 		? await invitationConflicts(mailbox, calendars, event)
@@ -201,7 +261,126 @@ async function resolveInvitation(
 		},
 		event,
 		calendar,
+		invitation,
+		calendars,
 	}
+}
+
+async function addCalendarInvitationOnce(
+	mailbox: InvitationMailbox,
+	mailboxEmail: string,
+	grantId: string,
+	reference: CalendarInvitationReference,
+): Promise<CalendarInvitationDetails> {
+	const resolved = await resolveInvitation(mailbox, mailboxEmail, reference, true)
+	if (resolved.details.state === 'ready') return resolved.details
+	if (
+		resolved.details.state !== 'syncing' ||
+		!resolved.invitation ||
+		!resolved.message ||
+		!resolved.calendars
+	) {
+		throw new InvitationBoundaryError('This invitation cannot be added right now.')
+	}
+	const { invitation, message, calendars } = resolved
+	const when = invitation.when
+	const organizerEmail = invitation.organizerEmail
+	if (!when || !organizerEmail || !canCreateInvitation(message, invitation, mailboxEmail, grantId)) {
+		throw new InvitationBoundaryError('This invitation cannot be added right now.')
+	}
+	const primary = calendars.find((calendar) => calendar.is_primary === true && calendar.read_only !== true)
+	if (!primary) throw new InvitationBoundaryError('This mailbox has no writable primary calendar.')
+
+	// Recheck both Nylas's ICS index and our import marker immediately before
+	// creation. The map above also coalesces repeat clicks in this process.
+	const uidPage = await mailbox.listEvents({
+		calendar_id: primary.id,
+		ical_uid: invitation.uid,
+		limit: 20,
+	})
+	const providerEvent = chooseInvitationEvent(
+		uidPage.data.filter(isRenderableCalendarEvent),
+		invitation,
+		mailboxEmail,
+		true,
+	)
+	if (providerEvent) {
+		return (
+			await detailsForInvitationEvent(mailbox, calendars, providerEvent, invitation, mailboxEmail, true)
+		).details
+	}
+	const metadataPage = await mailbox.listEvents({
+		calendar_id: primary.id,
+		metadata_pair: invitationMetadataPair(invitation.uid),
+		limit: 20,
+	})
+	const existing = metadataPage.data
+		.filter(isRenderableCalendarEvent)
+		.find((event) => eventMetadataUid(event) === invitation.uid)
+	if (existing) {
+		return (await detailsForInvitationEvent(mailbox, calendars, existing, invitation, mailboxEmail, true))
+			.details
+	}
+
+	const created = await mailbox.createEvent(
+		{
+			title: invitation.summary || '(untitled invitation)',
+			...(invitation.description ? { description: invitation.description } : {}),
+			...(invitation.location ? { location: invitation.location } : {}),
+			when,
+			organizer: {
+				email: organizerEmail,
+				...(invitation.organizerName ? { name: invitation.organizerName } : {}),
+			},
+			participants: invitation.attendees,
+			metadata: { key1: invitation.uid },
+		},
+		primary.id,
+		{ notifyParticipants: false },
+	)
+	if (!isRenderableCalendarEvent(created.data) || created.data.calendar_id !== primary.id) {
+		throw new Error('Calendar provider returned an invalid event')
+	}
+	await signalLocalChange(grantId, 'calendar')
+	return (await detailsForInvitationEvent(mailbox, calendars, created.data, invitation, mailboxEmail, true))
+		.details
+}
+
+function canCreateInvitation(
+	message: Message,
+	invitation: ParsedCalendarInvitation,
+	mailboxEmail: string,
+	grantId: string,
+): boolean {
+	const mailbox = normalizedEmail(mailboxEmail)
+	const organizer = normalizedEmail(invitation.organizerEmail)
+	if (!mailbox || !organizer || organizer === mailbox || message.grant_id !== grantId || !invitation.when) {
+		return false
+	}
+	const senders = message.from?.map((participant) => normalizedEmail(participant.email)).filter(Boolean) ?? []
+	const recipients = [...(message.to ?? []), ...(message.cc ?? []), ...(message.bcc ?? [])]
+	const attendeeEmails = (invitation.attendees ?? []).map((participant) => normalizedEmail(participant.email))
+	return (
+		senders.length === 1 &&
+		senders[0] === organizer &&
+		recipients.some((participant) => normalizedEmail(participant.email) === mailbox) &&
+		attendeeEmails.includes(mailbox)
+	)
+}
+
+function normalizedEmail(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined
+	const normalized = value.trim().toLowerCase()
+	return normalized.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : undefined
+}
+
+function invitationMetadataPair(uid: string): string {
+	return `key1:${uid}`
+}
+
+function eventMetadataUid(event: Event): string | undefined {
+	const value = event.metadata?.key1
+	return typeof value === 'string' && value.length <= 1_000 ? value : undefined
 }
 
 async function eventPages(
@@ -231,7 +410,13 @@ function chooseInvitationEvent(
 				(candidate) => candidate.email.trim().toLowerCase() === normalizedMailbox,
 			)
 			const organizerIsMailbox = event.organizer?.email.trim().toLowerCase() === normalizedMailbox
-			return Boolean(participant && event.organizer && !organizerIsMailbox && event.status !== 'cancelled')
+			const importedByOwnmail = eventMetadataUid(event) === invitation.uid
+			return Boolean(
+				participant &&
+					(event.organizer || (importedByOwnmail && invitation.organizerEmail)) &&
+					(!organizerIsMailbox || importedByOwnmail) &&
+					event.status !== 'cancelled',
+			)
 		})
 		.map((event) => ({ event, score: invitationMatchScore(event, invitation, trustedUidFilter) }))
 		.filter((candidate) => candidate.score >= 8)
