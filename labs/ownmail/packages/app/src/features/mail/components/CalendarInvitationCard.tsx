@@ -44,8 +44,11 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		refetchInterval: (query) => {
 			const details = query.state.data
 			// The invitation email and its provider-created event arrive independently.
-			// Recheck briefly while that race settles, then leave an explicit manual retry.
-			return details?.state === 'syncing' && query.state.dataUpdateCount < SYNC_LOOKUP_LIMIT
+			// Recheck briefly while that race settles. Any failed automatic lookup
+			// permanently hands control to the explicit retry instead of starting a loop.
+			return details?.state === 'syncing' &&
+				query.state.errorUpdateCount === 0 &&
+				query.state.dataUpdateCount < SYNC_LOOKUP_LIMIT
 				? SYNC_RETRY_INTERVAL_MS
 				: false
 		},

@@ -168,6 +168,30 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
 	})
 
+	it('stops automatic polling after an interval failure and leaves subsequent checks manual', async () => {
+		vi.useFakeTimers()
+		getCalendarInvitation
+			.mockResolvedValueOnce({ state: 'syncing' })
+			.mockRejectedValueOnce(new Error('provider outage'))
+			.mockResolvedValue({ state: 'syncing' })
+		renderCard()
+
+		await act(() => vi.advanceTimersByTimeAsync(0))
+		await act(() => vi.advanceTimersByTimeAsync(20_000))
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(2)
+		expect(screen.getByText('Calendar invitation unavailable')).toBeInTheDocument()
+
+		await act(async () => {
+			screen.getByRole('button', { name: 'Try again' }).click()
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(3)
+		expect(screen.getByText('Adding invitation to your calendar')).toBeInTheDocument()
+
+		await act(() => vi.advanceTimersByTimeAsync(20_000))
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(3)
+	})
+
 	it('shows progress while a manual sync retry is pending', async () => {
 		vi.useFakeTimers()
 		let finishRetry!: (value: { state: 'ineligible' }) => void
