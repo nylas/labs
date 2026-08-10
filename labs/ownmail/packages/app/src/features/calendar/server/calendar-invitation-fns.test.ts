@@ -53,6 +53,7 @@ const ICS = [
 	'METHOD:REQUEST',
 	'BEGIN:VEVENT',
 	'UID:invite@example.com',
+	'SEQUENCE:1',
 	'DTSTART:20270809T150000Z',
 	'DTEND:20270809T160000Z',
 	'ORGANIZER:mailto:grace@example.com',
@@ -63,6 +64,10 @@ const ICS = [
 ].join('\r\n')
 
 function invitationEvent(overrides: Partial<Event> = {}): Event {
+	const metadata =
+		overrides.metadata?.key1 === 'invite@example.com' && overrides.metadata.key2 === undefined
+			? { ...overrides.metadata, key2: '1' }
+			: overrides.metadata
 	return {
 		id: 'provider-event-id',
 		calendar_id: 'primary',
@@ -74,6 +79,7 @@ function invitationEvent(overrides: Partial<Event> = {}): Event {
 		ical_uid: 'invite@example.com',
 		busy: true,
 		...overrides,
+		...(metadata ? { metadata } : {}),
 	} as Event
 }
 
@@ -315,7 +321,7 @@ describe('calendar invitation server functions', () => {
 		const stale = invitationEvent({
 			ical_uid: undefined,
 			location: 'Old room',
-			metadata: { key1: 'invite@example.com' },
+			metadata: { key1: 'invite@example.com', key2: '0' },
 		})
 		const mailbox = makeMailbox({
 			listEvents: vi.fn(async (query: { metadata_pair?: string; start?: number }) => {
@@ -493,7 +499,7 @@ describe('calendar invitation server functions', () => {
 				when: { start_time: START, end_time: END },
 				organizer: { email: 'grace@example.com' },
 				participants: [{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' }],
-				metadata: { key1: 'invite@example.com' },
+				metadata: { key1: 'invite@example.com', key2: '1' },
 			},
 			'primary',
 			{ notifyParticipants: false },
@@ -508,6 +514,7 @@ describe('calendar invitation server functions', () => {
 			'ORGANIZER:mailto:grace@example.com',
 			'ORGANIZER;CN="Grace Hopper":mailto:grace@example.com',
 		)
+			.replace('SEQUENCE:1\r\n', '')
 			.replace('SUMMARY:Planning review\r\n', '')
 			.replace(
 				'END:VEVENT',
@@ -613,7 +620,7 @@ describe('calendar invitation server functions', () => {
 		const stale = invitationEvent({
 			title: 'Old planning review',
 			when: { start_time: START - 3_600, end_time: END - 3_600 },
-			metadata: { key1: 'invite@example.com' },
+			metadata: { key1: 'invite@example.com', key2: '0' },
 		})
 		const mailbox = makeMailbox({
 			listEvents: vi.fn(async (query: { metadata_pair?: string; start?: number }) => ({
@@ -635,11 +642,33 @@ describe('calendar invitation server functions', () => {
 		expect(releaseInvitationCreationClaim).toHaveBeenCalledWith('grant-1', 'invite@example.com')
 	})
 
+	it('reconciles a newer imported revision returned by the UID index', async () => {
+		const stale = invitationEvent({
+			location: 'Old room',
+			metadata: { key1: 'invite@example.com', key2: '0' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { calendar_id: string; ical_uid?: string }) => ({
+				data: query.ical_uid && query.calendar_id === 'primary' ? [stale] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', canRespond: false })
+		expect(mailbox.updateEvent).toHaveBeenCalledOnce()
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
+	})
+
 	it.each([
 		['title', { title: 'Old planning review', location: 'Aurora room' }],
 		['location', { title: 'Planning review', location: 'Old room' }],
 	] as const)('reconciles an imported invitation with stale %s content', async (_field, changes) => {
-		const stale = invitationEvent({ ...changes, metadata: { key1: 'invite@example.com' } })
+		const stale = invitationEvent({
+			...changes,
+			metadata: { key1: 'invite@example.com', key2: '0' },
+		})
 		const source = ICS.replace('END:VEVENT', 'LOCATION:Aurora room\r\nEND:VEVENT')
 		const mailbox = makeMailbox({
 			downloadAttachment: vi.fn(async () => new Response(source)),
@@ -661,7 +690,7 @@ describe('calendar invitation server functions', () => {
 	] as const)('clears %s content removed by a later invitation', async (_field, content) => {
 		const stale = invitationEvent({
 			...content,
-			metadata: { key1: 'invite@example.com' },
+			metadata: { key1: 'invite@example.com', key2: '0' },
 		})
 		const mailbox = makeMailbox({
 			listEvents: vi.fn(async (query: { metadata_pair?: string; start?: number }) => ({
@@ -688,7 +717,7 @@ describe('calendar invitation server functions', () => {
 				{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' },
 				{ email: 'old-attendee@example.com', name: 'Old Attendee', status: 'yes' },
 			],
-			metadata: { key1: 'invite@example.com' },
+			metadata: { key1: 'invite@example.com', key2: '0' },
 		})
 		const mailbox = makeMailbox({
 			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
@@ -710,27 +739,50 @@ describe('calendar invitation server functions', () => {
 		)
 	})
 
-	it('does not trust an import when the invitation omits its attendee list', async () => {
-		const source = ICS.replace(
-			'ATTENDEE;CN="Ada Lovelace";PARTSTAT=NEEDS-ACTION:mailto:ada@ownmail.com\r\n',
-			'',
-		)
-		const imported = invitationEvent({
+	it('does not let an older invitation overwrite a newer imported revision', async () => {
+		const current = invitationEvent({
+			title: 'New planning review',
+			ical_uid: undefined,
 			location: undefined,
-			metadata: { key1: 'invite@example.com' },
+			metadata: { key1: 'invite@example.com', key2: '2' },
 		})
 		const mailbox = makeMailbox({
-			downloadAttachment: vi.fn(async () => new Response(source)),
+			downloadAttachment: vi.fn(async () => new Response(ICS.replace('SEQUENCE:1\r\n', ''))),
 			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
-				data: query.metadata_pair ? [imported] : [],
+				data: query.metadata_pair ? [current] : [],
 			})),
 		})
 		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
 
 		await expect(
-			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'syncing', canAdd: false })
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready', title: 'New planning review', canRespond: false })
+		expect(mailbox.updateEvent).not.toHaveBeenCalled()
+		expect(mailbox.createEvent).not.toHaveBeenCalled()
 	})
+
+	it.each(['2147483648', 1] as const)(
+		'does not overwrite an import with invalid stored revision marker %s',
+		async (storedSequence) => {
+			const current = invitationEvent({
+				title: 'Current planning review',
+				ical_uid: undefined,
+				location: undefined,
+				metadata: { key1: 'invite@example.com', key2: storedSequence },
+			})
+			const mailbox = makeMailbox({
+				listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+					data: query.metadata_pair ? [current] : [],
+				})),
+			})
+			requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+			await expect(
+				addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+			).resolves.toMatchObject({ state: 'ready', title: 'Current planning review' })
+			expect(mailbox.updateEvent).not.toHaveBeenCalled()
+		},
+	)
 
 	it('recognizes a one-day OwnMail import when the invitation omits DTEND', async () => {
 		const source = ICS.replace(
@@ -795,7 +847,7 @@ describe('calendar invitation server functions', () => {
 		const stale = invitationEvent({
 			calendar_id: 'work',
 			title: 'Old title',
-			metadata: { key1: 'invite@example.com' },
+			metadata: { key1: 'invite@example.com', key2: '0' },
 		})
 		const mailbox = makeMailbox({
 			listCalendars: vi.fn(async () => ({
@@ -819,7 +871,10 @@ describe('calendar invitation server functions', () => {
 	it.each([{ id: 'bad-update' } as Event, invitationEvent({ calendar_id: 'other-calendar' })])(
 		'maps an invalid reconciliation response to a safe error',
 		async (updatedEvent) => {
-			const stale = invitationEvent({ title: 'Old title', metadata: { key1: 'invite@example.com' } })
+			const stale = invitationEvent({
+				title: 'Old title',
+				metadata: { key1: 'invite@example.com', key2: '0' },
+			})
 			const mailbox = makeMailbox({
 				listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
 					data: query.metadata_pair ? [stale] : [],
@@ -954,7 +1009,7 @@ describe('calendar invitation server functions', () => {
 				reason: expect.objectContaining({ message: expect.stringContaining('could not be updated') }),
 			}),
 		])
-		expect(releaseInvitationCreationClaim).toHaveBeenCalledOnce()
+		expect(releaseInvitationCreationClaim).not.toHaveBeenCalled()
 	})
 
 	it('refuses a cross-instance duplicate when another request owns the atomic claim', async () => {
@@ -1046,6 +1101,9 @@ describe('calendar invitation server functions', () => {
 		})
 		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
 
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toEqual({ state: 'syncing', canAdd: false })
 		await expect(
 			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).rejects.toThrow('no writable primary calendar')

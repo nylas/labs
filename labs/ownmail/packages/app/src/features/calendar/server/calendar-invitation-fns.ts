@@ -199,7 +199,10 @@ async function resolveInvitation(
 		ical_uid: invitation.uid,
 		limit: 20,
 	}))
-	let candidates = uidPages.events
+	let candidates = uidPages.events.filter(
+		(event) =>
+			eventMetadataUid(event) !== invitation.uid || !importedInvitationNeedsUpdate(event, invitation),
+	)
 	let trustedUidFilter = uidPages.succeeded
 	if (candidates.length === 0) {
 		const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
@@ -208,7 +211,8 @@ async function resolveInvitation(
 			limit: 20,
 		}))
 		candidates = metadataPages.events.filter(
-			(event) => eventMetadataUid(event) === invitation.uid && invitationContentMatches(event, invitation),
+			(event) =>
+				eventMetadataUid(event) === invitation.uid && !importedInvitationNeedsUpdate(event, invitation),
 		)
 		trustedUidFilter = candidates.length > 0
 	}
@@ -226,7 +230,7 @@ async function resolveInvitation(
 		candidates = fallback.events.filter(
 			(event) =>
 				secureFallbackMatch(event, invitation) &&
-				(eventMetadataUid(event) !== invitation.uid || invitationContentMatches(event, invitation)),
+				(eventMetadataUid(event) !== invitation.uid || !importedInvitationNeedsUpdate(event, invitation)),
 		)
 		// The fallback candidates have already passed the strict schedule plus
 		// organizer/title correlation above, so they are trusted for attendee selection.
@@ -238,6 +242,7 @@ async function resolveInvitation(
 	if (!event) {
 		const canAdd =
 			candidates.length === 0 &&
+			calendars.some((calendar) => calendar.is_primary === true && calendar.read_only !== true) &&
 			canCreateInvitation(message.data, invitation, mailboxEmail, grantId) &&
 			(await invitationCreationClaimsAvailable())
 		return {
@@ -323,6 +328,7 @@ async function addCalendarInvitationOnce(
 
 	const claimed = await claimInvitationCreation(grantId, invitation.uid)
 	let keepClaim = false
+	let creationAttempted = false
 	try {
 		const finalLookup = await finalInvitationLookup(mailbox, calendars, invitation, mailboxEmail)
 		if (finalLookup.event) {
@@ -344,6 +350,7 @@ async function addCalendarInvitationOnce(
 		}
 		if (!claimed) throw new InvitationBoundaryError('This invitation is already being added.')
 
+		creationAttempted = true
 		const created = await mailbox.createEvent(
 			invitationEventBody(invitation, when, organizerEmail),
 			primary.id,
@@ -357,7 +364,7 @@ async function addCalendarInvitationOnce(
 		return (await detailsForInvitationEvent(mailbox, calendars, created.data, invitation, mailboxEmail, true))
 			.details
 	} finally {
-		if (claimed && !keepClaim) {
+		if (claimed && !keepClaim && !creationAttempted) {
 			await releaseInvitationCreationClaim(grantId, invitation.uid).catch(() => undefined)
 		}
 	}
@@ -377,7 +384,12 @@ async function finalInvitationLookup(
 		limit: 20,
 	}))
 	const uidEvent = chooseInvitationEvent(uidPages.events, invitation, mailboxEmail, uidPages.succeeded)
-	if (uidEvent) return { event: uidEvent }
+	if (uidEvent) {
+		return eventMetadataUid(uidEvent) === invitation.uid &&
+			importedInvitationNeedsUpdate(uidEvent, invitation)
+			? { staleImport: uidEvent }
+			: { event: uidEvent }
+	}
 
 	const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
 		calendar_id: calendar.id,
@@ -392,7 +404,9 @@ async function finalInvitationLookup(
 			true,
 		)
 		if (imported) {
-			return invitationContentMatches(imported, invitation) ? { event: imported } : { staleImport: imported }
+			return importedInvitationNeedsUpdate(imported, invitation)
+				? { staleImport: imported }
+				: { event: imported }
 		}
 	}
 	if (uidPages.complete && metadataPages.complete) return {}
@@ -415,7 +429,11 @@ async function finalInvitationLookup(
 		mailboxEmail,
 		true,
 	)
-	if (event && eventMetadataUid(event) === invitation.uid && !invitationContentMatches(event, invitation)) {
+	if (
+		event &&
+		eventMetadataUid(event) === invitation.uid &&
+		importedInvitationNeedsUpdate(event, invitation)
+	) {
 		return { staleImport: event }
 	}
 	return event ? { event } : {}
@@ -475,7 +493,7 @@ function invitationEventBody(
 			...(invitation.organizerName ? { name: invitation.organizerName } : {}),
 		},
 		participants: invitation.attendees,
-		metadata: { key1: invitation.uid },
+		metadata: { key1: invitation.uid, key2: String(invitation.sequence ?? 0) },
 	}
 }
 
@@ -521,6 +539,13 @@ function invitationMetadataPair(uid: string): string {
 function eventMetadataUid(event: Event): string | undefined {
 	const value = event.metadata?.key1
 	return typeof value === 'string' && value.length <= 1_000 ? value : undefined
+}
+
+function eventMetadataSequence(event: Event): number | undefined {
+	const value = event.metadata?.key2
+	if (typeof value !== 'string' || !/^\d{1,10}$/.test(value)) return undefined
+	const sequence = Number(value)
+	return sequence <= 2_147_483_647 ? sequence : undefined
 }
 
 async function invitationCalendars(mailbox: InvitationMailbox): Promise<Calendar[]> {
@@ -620,38 +645,9 @@ function secureFallbackMatch(event: Event, invitation: ParsedCalendarInvitation)
 	return score >= 6 || (score >= 5 && Boolean(invitation.summary))
 }
 
-function invitationContentMatches(event: Event, invitation: ParsedCalendarInvitation): boolean {
-	const range = eventEpochRange(event)
-	if (
-		!range ||
-		invitation.start === undefined ||
-		invitation.end === undefined ||
-		Math.abs(range.start - invitation.start) > 60 ||
-		Math.abs(range.end - invitation.end) > 60
-	) {
-		return false
-	}
-	if ((event.title?.trim() || '(untitled invitation)') !== (invitation.summary || '(untitled invitation)')) {
-		return false
-	}
-	if ((event.location?.trim() || '') !== (invitation.location || '')) return false
-	if ((event.description?.trim() || '') !== (invitation.description || '')) return false
-	if (participantSignature(event.participants) !== participantSignature(invitation.attendees)) return false
-	return true
-}
-
-function participantSignature(participants: Event['participants']): string {
-	return JSON.stringify(
-		(participants ?? [])
-			.map((participant) =>
-				JSON.stringify({
-					email: normalizedEmail(participant.email),
-					name: boundedText(participant.name, 4_000),
-					status: participant.status,
-				}),
-			)
-			.sort(),
-	)
+function importedInvitationNeedsUpdate(event: Event, invitation: ParsedCalendarInvitation): boolean {
+	const storedSequence = eventMetadataSequence(event)
+	return storedSequence !== undefined && (invitation.sequence ?? 0) > storedSequence
 }
 
 async function invitationConflicts(

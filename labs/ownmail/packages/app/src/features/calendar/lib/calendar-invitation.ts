@@ -4,6 +4,7 @@ import { calendarSlotTime } from './calendar.js'
 export const MAX_ICS_ATTACHMENT_BYTES = 512 * 1024
 const MAX_ICS_UID_LENGTH = 1_000
 const MAX_ICS_TEXT_LENGTH = 4_000
+const MAX_ICS_SEQUENCE = 2_147_483_647
 
 export type ParsedCalendarInvitation = {
 	uid: string
@@ -18,6 +19,7 @@ export type ParsedCalendarInvitation = {
 	end?: number
 	when?: EventWhen
 	hasRecurrence?: true
+	sequence?: number
 }
 
 type IcsProperty = {
@@ -97,6 +99,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const summary = boundedIcsText(propertyValue(eventProperties, 'SUMMARY'))
 	const description = boundedIcsText(propertyValue(eventProperties, 'DESCRIPTION'))
 	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
+	const sequence = parseSequence(propertyValue(eventProperties, 'SEQUENCE'))
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
 	const whenRange = when ? eventWhenEpochRange(when) : null
 	const hasRecurrence = eventProperties.some((property) =>
@@ -115,6 +118,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		...(whenRange ? { start: whenRange.start, end: whenRange.end } : {}),
 		...(when ? { when } : {}),
 		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
+		...(sequence !== undefined ? { sequence } : {}),
 	}
 }
 
@@ -235,6 +239,13 @@ function attendeeStatus(value: string | undefined): EventParticipant['status'] |
 	if (normalized === 'TENTATIVE') return 'maybe'
 	if (normalized === 'NEEDS-ACTION') return 'noreply'
 	return undefined
+}
+
+function parseSequence(value: string | undefined): number | undefined {
+	const normalized = value?.trim()
+	if (!normalized || !/^\d{1,10}$/.test(normalized)) return undefined
+	const sequence = Number(normalized)
+	return sequence <= MAX_ICS_SEQUENCE ? sequence : undefined
 }
 
 function boundedIcsText(value: string | undefined): string | undefined {
