@@ -4,13 +4,17 @@ import type { KvLike } from './platform.js'
 const { platform } = vi.hoisted(() => ({ platform: vi.fn() }))
 vi.mock('./platform.js', () => ({ platform: () => platform() }))
 
-const { claimInvitationCreation, invitationCreationClaimsAvailable, releaseInvitationCreationClaim } =
-	await import('./invitation-creation-claim.js')
+const {
+	claimInvitationCreation,
+	invitationCreationClaimActive,
+	invitationCreationClaimsAvailable,
+	releaseInvitationCreationClaim,
+} = await import('./invitation-creation-claim.js')
 
 function atomicStore() {
 	const values = new Set<string>()
 	const kv: KvLike = {
-		get: vi.fn(async () => null),
+		get: vi.fn(async (key) => (values.has(key) ? '1' : null)),
 		put: vi.fn(async () => undefined),
 		delete: vi.fn(async (key) => {
 			values.delete(key)
@@ -33,6 +37,7 @@ describe('invitation creation claims', () => {
 
 		await expect(invitationCreationClaimsAvailable()).resolves.toBe(true)
 		await expect(claimInvitationCreation('grant-1', 'uid@example.com')).resolves.toBe(true)
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com')).resolves.toBe(true)
 		await expect(claimInvitationCreation('grant-1', 'uid@example.com')).resolves.toBe(false)
 		expect(vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mock.calls[0]?.[0]).not.toContain(
 			'grant-1',
@@ -42,6 +47,7 @@ describe('invitation creation claims', () => {
 		)
 
 		await releaseInvitationCreationClaim('grant-1', 'uid@example.com')
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com')).resolves.toBe(false)
 		await expect(claimInvitationCreation('grant-1', 'uid@example.com')).resolves.toBe(true)
 	})
 
@@ -49,6 +55,7 @@ describe('invitation creation claims', () => {
 		platform.mockResolvedValue({ kv: null, env: { SESSION_SECRET: 'secret' } })
 
 		await expect(invitationCreationClaimsAvailable()).resolves.toBe(false)
+		await expect(invitationCreationClaimActive('grant-1', 'uid')).resolves.toBe(false)
 		await expect(claimInvitationCreation('grant-1', 'uid')).rejects.toThrow('unavailable')
 		await expect(releaseInvitationCreationClaim('grant-1', 'uid')).resolves.toBeUndefined()
 	})

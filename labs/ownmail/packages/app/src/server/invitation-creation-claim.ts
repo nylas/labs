@@ -18,6 +18,12 @@ export async function claimInvitationCreation(grantId: string, uid: string): Pro
 	return kv.putIfAbsent(key, '1', CLAIM_TTL_SECONDS)
 }
 
+export async function invitationCreationClaimActive(grantId: string, uid: string): Promise<boolean> {
+	const { env, kv } = await platform()
+	if (!kv?.putIfAbsent) return false
+	return (await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid))) === '1'
+}
+
 export async function releaseInvitationCreationClaim(grantId: string, uid: string): Promise<void> {
 	const { env, kv } = await platform()
 	if (!kv?.putIfAbsent) return
