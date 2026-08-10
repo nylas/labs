@@ -53,10 +53,86 @@ describe('calendar invitation parsing', () => {
 			uid: 'long-meeting-uid@example.com',
 			method: 'REQUEST',
 			organizerEmail: 'grace@example.com',
+			organizerName: 'Grace Hopper',
 			summary: 'Planning, review',
 			start: 1_817_823_600,
 			end: 1_817_827_200,
+			when: { start_time: 1_817_823_600, end_time: 1_817_827_200 },
 		})
+	})
+
+	it('preserves bounded event content and deduplicated attendee response state for a manual import', () => {
+		const invitation = parseCalendarInvitation(
+			[
+				'BEGIN:VCALENDAR',
+				'METHOD:REQUEST',
+				'BEGIN:VEVENT',
+				'UID:rich-event',
+				'DTSTART;VALUE=DATE:20271225',
+				'DTEND;VALUE=DATE:20271227',
+				'ORGANIZER;CN="Grace Hopper":mailto:grace@example.com',
+				'ATTENDEE;CN="Ada Lovelace";PARTSTAT=NEEDS-ACTION:mailto:ADA@ownmail.com',
+				'ATTENDEE;CN="Duplicate";PARTSTAT=ACCEPTED:mailto:ada@ownmail.com',
+				'ATTENDEE;PARTSTAT=TENTATIVE:mailto:linus@example.com',
+				'ATTENDEE;PARTSTAT=DECLINED:mailto:margaret@example.com',
+				'ATTENDEE;PARTSTAT=ACCEPTED:mailto:katherine@example.com',
+				'DESCRIPTION:Read the brief\\nBring notes',
+				'LOCATION:Aurora\\, room',
+				'END:VEVENT',
+				'END:VCALENDAR',
+			].join('\r\n'),
+		)
+
+		expect(invitation).toMatchObject({
+			description: 'Read the brief\nBring notes',
+			location: 'Aurora, room',
+			when: { start_date: '2027-12-25', end_date: '2027-12-27' },
+			attendees: [
+				{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' },
+				{ email: 'linus@example.com', status: 'maybe' },
+				{ email: 'margaret@example.com', status: 'no' },
+				{ email: 'katherine@example.com', status: 'yes' },
+			],
+		})
+	})
+
+	it('defaults a one-day date span and drops unsafe optional attendee text', () => {
+		const invitation = parseCalendarInvitation(
+			[
+				'BEGIN:VCALENDAR',
+				'METHOD:REQUEST',
+				'BEGIN:VEVENT',
+				'UID:one-day',
+				'DTSTART;VALUE=DATE:20271225',
+				'ATTENDEE;CN="Unsafe\u0007Name";PARTSTAT=UNKNOWN:mailto:ada@ownmail.com',
+				'SUMMARY:Tabbed\ttext',
+				'LOCATION:Unsafe\u007froom',
+				'END:VEVENT',
+				'END:VCALENDAR',
+			].join('\n'),
+		)
+
+		expect(invitation).toMatchObject({
+			start: 1_829_692_800,
+			end: 1_829_779_200,
+			when: { start_date: '2027-12-25', end_date: '2027-12-26' },
+			attendees: [{ email: 'ada@ownmail.com' }],
+			summary: 'Tabbed\ttext',
+		})
+		expect(invitation).not.toHaveProperty('location')
+	})
+
+	it('rejects invalid all-day ranges instead of creating malformed event spans', () => {
+		const invitation = parseCalendarInvitation(
+			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:backwards\nDTSTART;VALUE=DATE:20271225\nDTEND;VALUE=DATE:20271224\nEND:VEVENT',
+		)
+
+		expect(invitation).toEqual({ uid: 'backwards', method: 'REQUEST' })
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:bad-end\nDTSTART;VALUE=DATE:20271225\nDTEND;VALUE=DATE:not-a-date\nEND:VEVENT',
+			),
+		).toEqual({ uid: 'bad-end', method: 'REQUEST' })
 	})
 
 	it('parses date-only invitations and rejects unsupported or unsafe payloads', () => {
@@ -106,13 +182,33 @@ describe('calendar invitation parsing', () => {
 		const floating = parseCalendarInvitation(
 			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:floating\nDTSTART:20270809T1500\nDTEND:20270809T1600\nEND:VEVENT',
 		)
-		expect(floating?.start).toBeTypeOf('number')
-		expect(floating?.end).toBeTypeOf('number')
+		expect(floating).toEqual({ uid: 'floating', method: 'REQUEST' })
+		expect(floating).not.toHaveProperty('when')
 
 		const invalidOptional = parseCalendarInvitation(
 			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:valid\nDTSTART;TZID=Not/AZone:20270809T150000\nDTEND:20270230T160000Z\nEND:VEVENT',
 		)
 		expect(invalidOptional).toEqual({ uid: 'valid', method: 'REQUEST' })
+	})
+
+	it('marks recurring invitations as unsupported for lossless manual creation', () => {
+		const recurring = parseCalendarInvitation(
+			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:weekly\nDTSTART:20270809T150000Z\nDTEND:20270809T160000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO\nEND:VEVENT',
+		)
+		expect(recurring).toMatchObject({
+			hasRecurrence: true,
+			when: { start_time: 1_817_823_600, end_time: 1_817_827_200 },
+		})
+	})
+
+	it('parses bounded invitation revisions and ignores malformed sequence values', () => {
+		const source = (sequence: string) =>
+			`BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:revision-${sequence}\nSEQUENCE:${sequence}\nEND:VEVENT`
+
+		expect(parseCalendarInvitation(source('42'))).toMatchObject({ sequence: 42 })
+		for (const sequence of ['-1', 'not-a-number', '2147483648', '00000000000']) {
+			expect(parseCalendarInvitation(source(sequence))).not.toHaveProperty('sequence')
+		}
 	})
 
 	it('fails closed for missing and malformed required properties', () => {

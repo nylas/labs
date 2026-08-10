@@ -15,6 +15,9 @@ const RESPONSE_OPTIONS = [
 	{ status: 'no', label: 'Decline' },
 ] as const
 
+const SYNC_RETRY_INTERVAL_MS = 2_000
+const SYNC_LOOKUP_LIMIT = 5
+
 export function CalendarInvitationCard({ message }: { message: MailMessage }) {
 	const attachment = firstCalendarInvitationAttachment(message.attachments)
 	if (!attachment) return null
@@ -38,6 +41,17 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		},
 		staleTime: 30_000,
 		retry: false,
+		refetchInterval: (query) => {
+			const details = query.state.data
+			// The invitation email and its provider-created event arrive independently.
+			// Recheck briefly while that race settles. Any failed automatic lookup
+			// permanently hands control to the explicit retry instead of starting a loop.
+			return details?.state === 'syncing' &&
+				query.state.errorUpdateCount === 0 &&
+				query.state.dataUpdateCount < SYNC_LOOKUP_LIMIT
+				? SYNC_RETRY_INTERVAL_MS
+				: false
+		},
 	})
 	const response = useMutation({
 		mutationFn: async (status: 'yes' | 'maybe' | 'no') => {
@@ -50,6 +64,16 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 				if (current?.state !== 'ready') return current
 				return { ...current, status: receipt.status }
 			})
+			void queryClient.invalidateQueries({ queryKey: ['calendar', 'range'], refetchType: 'active' })
+		},
+	})
+	const addInvitation = useMutation({
+		mutationFn: async () => {
+			const { addCalendarInvitation } = await import('#features/calendar/server/calendar-invitation-fns')
+			return addCalendarInvitation({ data: { messageId, attachmentId } })
+		},
+		onSuccess: (details) => {
+			queryClient.setQueryData<CalendarInvitationDetails>(queryKey, details)
 			void queryClient.invalidateQueries({ queryKey: ['calendar', 'range'], refetchType: 'active' })
 		},
 	})
@@ -74,6 +98,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 				title="Calendar invitation unavailable"
 				message="We couldn’t open this invitation. Check your connection, then try again."
 				onRetry={() => void invitation.refetch()}
+				retrying={invitation.isFetching}
 			/>
 		)
 	}
@@ -88,11 +113,20 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		)
 	}
 	if (details.state === 'syncing') {
+		const canAdd = details.canAdd !== false
 		return (
 			<InvitationNotice
 				title="Adding invitation to your calendar"
-				message="The calendar event is still syncing. Try again in a moment."
+				message={
+					canAdd
+						? 'Nylas is still syncing this event. You can check again or add it to your calendar now.'
+						: 'Nylas is still syncing this event. You can check again in a moment.'
+				}
 				onRetry={() => void invitation.refetch()}
+				retrying={invitation.isFetching}
+				onAction={canAdd ? () => addInvitation.mutate() : undefined}
+				actionPending={addInvitation.isPending}
+				error={addInvitation.isError}
 			/>
 		)
 	}
@@ -104,6 +138,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			/>
 		)
 	}
+	const canRespond = details.canRespond !== false
 	return (
 		<section
 			data-slot="calendar-invitation"
@@ -146,33 +181,35 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 
 				<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
 					<p className="text-sm font-medium text-muted-foreground" aria-live="polite">
-						{responseLabel(details.status)}
+						{canRespond ? responseLabel(details.status) : 'Added to your calendar'}
 					</p>
-					<fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" disabled={response.isPending}>
-						<legend className="sr-only">Respond to invitation</legend>
-						{RESPONSE_OPTIONS.map((option) => {
-							const selected = details.status === option.status
-							return (
-								<button
-									key={option.status}
-									type="button"
-									aria-pressed={selected}
-									onClick={() => response.mutate(option.status)}
-									className={cn(
-										'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-60',
-										selected
-											? 'border-primary bg-primary text-primary-foreground'
-											: 'border-border bg-background text-foreground hover:bg-accent',
-									)}
-								>
-									{selected ? <Check className="h-3.5 w-3.5" /> : null}
-									{option.label}
-								</button>
-							)
-						})}
-					</fieldset>
+					{canRespond ? (
+						<fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" disabled={response.isPending}>
+							<legend className="sr-only">Respond to invitation</legend>
+							{RESPONSE_OPTIONS.map((option) => {
+								const selected = details.status === option.status
+								return (
+									<button
+										key={option.status}
+										type="button"
+										aria-pressed={selected}
+										onClick={() => response.mutate(option.status)}
+										className={cn(
+											'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-60',
+											selected
+												? 'border-primary bg-primary text-primary-foreground'
+												: 'border-border bg-background text-foreground hover:bg-accent',
+										)}
+									>
+										{selected ? <Check className="h-3.5 w-3.5" /> : null}
+										{option.label}
+									</button>
+								)
+							})}
+						</fieldset>
+					) : null}
 				</div>
-				{response.isError ? (
+				{canRespond && response.isError ? (
 					<p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 						Your response wasn’t saved. Check your connection, then try again.
 					</p>
@@ -218,10 +255,18 @@ function InvitationNotice({
 	title,
 	message,
 	onRetry,
+	retrying = false,
+	onAction,
+	actionPending = false,
+	error = false,
 }: {
 	title: string
 	message: string
 	onRetry?: () => void
+	retrying?: boolean
+	onAction?: () => void
+	actionPending?: boolean
+	error?: boolean
 }) {
 	return (
 		<section
@@ -234,14 +279,34 @@ function InvitationNotice({
 			<div className="min-w-0 flex-1">
 				<h2 className="text-sm font-semibold text-foreground">{title}</h2>
 				<p className="mt-1 text-sm text-muted-foreground">{message}</p>
-				{onRetry ? (
-					<button
-						type="button"
-						onClick={onRetry}
-						className="mt-2 min-h-11 rounded-lg px-2 text-sm font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
-					>
-						Try again
-					</button>
+				{onRetry || onAction ? (
+					<div className="mt-2 flex flex-wrap gap-2">
+						{onAction ? (
+							<button
+								type="button"
+								onClick={onAction}
+								disabled={actionPending}
+								className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+							>
+								{actionPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+								{actionPending ? 'Adding…' : 'Add to calendar'}
+							</button>
+						) : null}
+						<button
+							type="button"
+							onClick={onRetry}
+							disabled={retrying}
+							className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+						>
+							{retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+							{retrying ? 'Checking…' : 'Try again'}
+						</button>
+					</div>
+				) : null}
+				{error ? (
+					<p role="alert" className="mt-2 text-sm text-destructive">
+						We couldn’t add this invitation. Check your connection, then try again.
+					</p>
 				) : null}
 			</div>
 		</section>

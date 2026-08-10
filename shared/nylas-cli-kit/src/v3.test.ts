@@ -754,4 +754,50 @@ describe('NylasV3Client', () => {
 			},
 		])
 	})
+
+	it('can create an event without notifying participants', async () => {
+		let requestUrl = ''
+		let requestBody: unknown
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requestUrl = String(input)
+			requestBody = JSON.parse(String(init?.body))
+			return Response.json({
+				request_id: 'req-event',
+				data: { id: 'event-1', calendar_id: 'calendar#1', when: { time: 100 } },
+			})
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		await mailbox.createEvent({ title: 'Imported invitation', when: { time: 100 } }, 'calendar#1', {
+			notifyParticipants: false,
+		})
+
+		expect(requestUrl).toBe(
+			'https://api.us.nylas.com/v3/grants/grant-123/events?calendar_id=calendar%231&notify_participants=false',
+		)
+		expect(requestBody).toEqual({ title: 'Imported invitation', when: { time: 100 } })
+	})
+
+	it('can reconcile an event without notifying participants', async () => {
+		let requestUrl = ''
+		let requestMethod = ''
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requestUrl = String(input)
+			requestMethod = init?.method ?? 'GET'
+			return Response.json({
+				request_id: 'req-event',
+				data: { id: 'event#1', calendar_id: 'calendar#1', when: { time: 100 } },
+			})
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		await mailbox.updateEvent('event#1', { title: 'Updated invitation' }, 'calendar#1', {
+			notifyParticipants: false,
+		})
+
+		expect(requestMethod).toBe('PUT')
+		expect(requestUrl).toBe(
+			'https://api.us.nylas.com/v3/grants/grant-123/events/event%231?calendar_id=calendar%231&notify_participants=false',
+		)
+	})
 })

@@ -1,17 +1,25 @@
-import type { Event, MessageAttachment } from '@nylas-labs/cli-kit/v3'
+import type { Event, EventParticipant, EventWhen, MessageAttachment } from '@nylas-labs/cli-kit/v3'
 import { calendarSlotTime } from './calendar.js'
 
 export const MAX_ICS_ATTACHMENT_BYTES = 512 * 1024
 const MAX_ICS_UID_LENGTH = 1_000
 const MAX_ICS_TEXT_LENGTH = 4_000
+const MAX_ICS_SEQUENCE = 2_147_483_647
 
 export type ParsedCalendarInvitation = {
 	uid: string
 	method: 'REQUEST'
 	organizerEmail?: string
+	organizerName?: string
+	attendees?: EventParticipant[]
 	summary?: string
+	description?: string
+	location?: string
 	start?: number
 	end?: number
+	when?: EventWhen
+	hasRecurrence?: true
+	sequence?: number
 }
 
 type IcsProperty = {
@@ -85,16 +93,32 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const start = startProperty ? parseIcsDate(startProperty) : undefined
 	const end = endProperty ? parseIcsDate(endProperty) : undefined
 	const organizerEmail = organizerAddress(propertyValue(eventProperties, 'ORGANIZER'))
-	const summaryValue = propertyValue(eventProperties, 'SUMMARY')
-	const summary = summaryValue ? decodeIcsText(summaryValue).trim().slice(0, MAX_ICS_TEXT_LENGTH) : undefined
+	const organizerProperty = findProperty(eventProperties, 'ORGANIZER')
+	const organizerName = boundedIcsText(organizerProperty?.params.get('CN'))
+	const attendees = parseAttendees(eventProperties)
+	const summary = boundedIcsText(propertyValue(eventProperties, 'SUMMARY'))
+	const description = boundedIcsText(propertyValue(eventProperties, 'DESCRIPTION'))
+	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
+	const sequence = parseSequence(propertyValue(eventProperties, 'SEQUENCE'))
+	const when = invitationEventWhen(startProperty, endProperty, start, end)
+	const whenRange = when ? eventWhenEpochRange(when) : null
+	const hasRecurrence = eventProperties.some((property) =>
+		['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name),
+	)
 
 	return {
 		uid,
 		method: 'REQUEST',
 		...(organizerEmail ? { organizerEmail } : {}),
+		...(organizerName ? { organizerName } : {}),
+		...(attendees.length > 0 ? { attendees } : {}),
 		...(summary ? { summary } : {}),
-		...(start !== undefined ? { start } : {}),
-		...(end !== undefined && start !== undefined && end > start ? { end } : {}),
+		...(description ? { description } : {}),
+		...(location ? { location } : {}),
+		...(whenRange ? { start: whenRange.start, end: whenRange.end } : {}),
+		...(when ? { when } : {}),
+		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
+		...(sequence !== undefined ? { sequence } : {}),
 	}
 }
 
@@ -106,7 +130,10 @@ export function eventIcalUid(event: Event): string | undefined {
 }
 
 export function eventEpochRange(event: Event): { start: number; end: number } | null {
-	const when = event.when
+	return eventWhenEpochRange(event.when)
+}
+
+function eventWhenEpochRange(when: EventWhen): { start: number; end: number } | null {
 	if ('start_time' in when) {
 		return when.end_time > when.start_time ? { start: when.start_time, end: when.end_time } : null
 	}
@@ -162,6 +189,69 @@ function findProperty(properties: IcsProperty[], name: string): IcsProperty | un
 
 function propertyValue(properties: IcsProperty[], name: string): string | undefined {
 	return findProperty(properties, name)?.value
+}
+
+function invitationEventWhen(
+	startProperty: IcsProperty | undefined,
+	endProperty: IcsProperty | undefined,
+	start: number | undefined,
+	end: number | undefined,
+): EventWhen | undefined {
+	if (!startProperty) return undefined
+	const startDate = compactDateToIso(startProperty.value.trim())
+	if (startDate) {
+		const endDate = endProperty ? compactDateToIso(endProperty.value.trim()) : nextCalendarDate(startDate)
+		if (!endDate) return undefined
+		const when = { start_date: startDate, end_date: endDate } as const
+		return eventWhenEpochRange(when) ? when : undefined
+	}
+	const timezone = startProperty.params.get('TZID')
+	const hasAbsoluteTime = startProperty.value.trim().endsWith('Z') || Boolean(timezone)
+	if (!hasAbsoluteTime) return undefined
+	return start !== undefined && end !== undefined && end > start
+		? { start_time: start, end_time: end }
+		: undefined
+}
+
+function nextCalendarDate(value: string): string {
+	const epoch = calendarDateEpoch(value)
+	/* v8 ignore next -- value is produced by compactDateToIso and therefore always valid */
+	return new Date(((epoch ?? 0) + 86_400) * 1_000).toISOString().slice(0, 10)
+}
+
+function parseAttendees(properties: IcsProperty[]): EventParticipant[] {
+	const attendees = new Map<string, EventParticipant>()
+	for (const property of properties) {
+		if (property.name !== 'ATTENDEE') continue
+		const email = organizerAddress(property.value)
+		if (!email || attendees.has(email)) continue
+		const name = boundedIcsText(property.params.get('CN'))
+		const status = attendeeStatus(property.params.get('PARTSTAT'))
+		attendees.set(email, { email, ...(name ? { name } : {}), ...(status ? { status } : {}) })
+	}
+	return [...attendees.values()]
+}
+
+function attendeeStatus(value: string | undefined): EventParticipant['status'] | undefined {
+	const normalized = value?.trim().toUpperCase()
+	if (normalized === 'ACCEPTED') return 'yes'
+	if (normalized === 'DECLINED') return 'no'
+	if (normalized === 'TENTATIVE') return 'maybe'
+	if (normalized === 'NEEDS-ACTION') return 'noreply'
+	return undefined
+}
+
+function parseSequence(value: string | undefined): number | undefined {
+	const normalized = value?.trim()
+	if (!normalized || !/^\d{1,10}$/.test(normalized)) return undefined
+	const sequence = Number(normalized)
+	return sequence <= MAX_ICS_SEQUENCE ? sequence : undefined
+}
+
+function boundedIcsText(value: string | undefined): string | undefined {
+	if (!value) return undefined
+	const text = decodeIcsText(value).trim().slice(0, MAX_ICS_TEXT_LENGTH)
+	return text && !hasUnsafeControlExceptNewline(text) ? text : undefined
 }
 
 function parseIcsDate(property: IcsProperty): number | undefined {
@@ -235,5 +325,12 @@ function hasUnsafeControl(value: string): boolean {
 	return [...value].some((character) => {
 		const code = character.charCodeAt(0)
 		return code < 0x20 || code === 0x7f
+	})
+}
+
+function hasUnsafeControlExceptNewline(value: string): boolean {
+	return [...value].some((character) => {
+		const code = character.charCodeAt(0)
+		return (code < 0x20 && character !== '\n' && character !== '\t') || code === 0x7f
 	})
 }

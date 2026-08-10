@@ -46,6 +46,8 @@ export type KvLike = {
 	increment?(key: string): Promise<number>
 	/** Attaches a TTL without touching the value, so a live counter is never reset. */
 	expire?(key: string, seconds: number): Promise<void>
+	/** Atomically creates an expiring key only when it does not already exist. */
+	putIfAbsent?(key: string, value: string, expirationTtl: number): Promise<boolean>
 }
 
 export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
@@ -123,6 +125,10 @@ function nodeKv(env: AppEnv): KvLike | null {
 		increment: (key) => redis.incr(key),
 		expire: async (key, seconds) => {
 			await redis.expire(key, seconds)
+		},
+		putIfAbsent: async (key, value, expirationTtl) => {
+			const result = await redis.set(key, value, { nx: true, ex: expirationTtl })
+			return result === 'OK'
 		},
 	}
 }
