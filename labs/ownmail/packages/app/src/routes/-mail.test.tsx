@@ -196,6 +196,13 @@ describe('MailRouteScreen — layout wiring', () => {
 		expect(screen.queryByLabelText('Clear search')).toBeNull()
 	})
 
+	it('uses one overlay divider across the complete mail header', () => {
+		renderScreen()
+		const header = screen.getByRole('banner')
+		expect(header).toHaveClass('mail-header', 'relative')
+		expect(header).not.toHaveClass('border-b', 'border-border')
+	})
+
 	it('falls back to defaultFolderId when the path has no folder, and renders children over the outlet', () => {
 		renderScreen(
 			{ defaultFolderId: 'starred', children: <div data-testid="child" /> },
