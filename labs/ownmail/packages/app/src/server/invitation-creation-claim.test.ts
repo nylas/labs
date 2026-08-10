@@ -8,6 +8,7 @@ const {
 	acquireInvitationMutation,
 	claimInvitationCreation,
 	invitationCreationClaimActive,
+	invitationCreationClaimSequence,
 	invitationCreationClaimsAvailable,
 	invitationCancellationSequence,
 	recordInvitationCancellation,
@@ -67,6 +68,7 @@ describe('invitation creation claims', () => {
 		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 2)).resolves.toBe(true)
 		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com', 1)).resolves.toBe(false)
 		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com', 2)).resolves.toBe(true)
+		await expect(invitationCreationClaimSequence('grant-1', 'uid@example.com')).resolves.toBe(2)
 		const claimKey = vi.mocked(kv.claimRevision as NonNullable<KvLike['claimRevision']>).mock.calls[0]?.[0]
 		expect(claimKey).not.toContain('grant-1')
 		expect(claimKey).not.toContain('uid@example.com')
@@ -83,6 +85,7 @@ describe('invitation creation claims', () => {
 
 		await expect(invitationCreationClaimsAvailable()).resolves.toBe(false)
 		await expect(invitationCreationClaimActive('grant-1', 'uid')).resolves.toBe(false)
+		await expect(invitationCreationClaimSequence('grant-1', 'uid')).resolves.toBeUndefined()
 		await expect(
 			invitationCancellationSequence('grant-1', 'uid', 'grace@example.com'),
 		).resolves.toBeUndefined()

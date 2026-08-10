@@ -135,6 +135,29 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
 	})
 
+	it('shows cancellation-specific retry copy while a calendar mutation finishes', async () => {
+		vi.useFakeTimers()
+		getCalendarInvitation
+			.mockResolvedValueOnce({ state: 'cancelling' })
+			.mockResolvedValueOnce({ state: 'cancelling' })
+			.mockResolvedValueOnce({ state: 'cancelled', removed: true, manualReview: false })
+		renderCard()
+
+		await act(() => vi.advanceTimersByTimeAsync(0))
+		expect(screen.getByText('Cancelling invitation')).toBeInTheDocument()
+		expect(screen.queryByText('Adding invitation to your calendar')).toBeNull()
+		expect(screen.getByText(/Another calendar update is finishing/)).toBeInTheDocument()
+		await act(async () => {
+			screen.getByRole('button', { name: 'Try again' }).click()
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		await act(() => vi.advanceTimersByTimeAsync(2_000))
+		await act(() => vi.runOnlyPendingTimersAsync())
+
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(3)
+		expect(screen.getByText('Invitation cancelled')).toBeInTheDocument()
+	})
+
 	it('bounds automatic sync lookups and keeps repeated manual retries fresh', async () => {
 		vi.useFakeTimers()
 		getCalendarInvitation.mockResolvedValue({ state: 'syncing' })

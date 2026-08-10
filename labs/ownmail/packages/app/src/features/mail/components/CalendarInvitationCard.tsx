@@ -46,7 +46,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			// The invitation email and its provider-created event arrive independently.
 			// Recheck briefly while that race settles. Any failed automatic lookup
 			// permanently hands control to the explicit retry instead of starting a loop.
-			return details?.state === 'syncing' &&
+			return (details?.state === 'syncing' || details?.state === 'cancelling') &&
 				query.state.errorUpdateCount === 0 &&
 				query.state.dataUpdateCount < SYNC_LOOKUP_LIMIT
 				? SYNC_RETRY_INTERVAL_MS
@@ -127,6 +127,16 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 				onAction={canAdd ? () => addInvitation.mutate() : undefined}
 				actionPending={addInvitation.isPending}
 				error={addInvitation.isError}
+			/>
+		)
+	}
+	if (details.state === 'cancelling') {
+		return (
+			<InvitationNotice
+				title="Cancelling invitation"
+				message="Another calendar update is finishing. We’ll check this cancellation again in a moment."
+				onRetry={() => void invitation.refetch()}
+				retrying={invitation.isFetching}
 			/>
 		)
 	}

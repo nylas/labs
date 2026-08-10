@@ -15,6 +15,7 @@ import {
 	claimInvitationCreation,
 	invitationCancellationSequence,
 	invitationCreationClaimActive,
+	invitationCreationClaimSequence,
 	invitationCreationClaimsAvailable,
 	recordInvitationCancellation,
 	releaseInvitationCreationClaim,
@@ -49,6 +50,7 @@ export type InvitationWhen =
 export type CalendarInvitationDetails =
 	| { state: 'invalid' }
 	| { state: 'syncing'; canAdd?: false }
+	| { state: 'cancelling' }
 	| { state: 'ineligible' }
 	| { state: 'cancelled'; removed: boolean; manualReview: boolean }
 	| {
@@ -601,7 +603,7 @@ async function cancelImportedInvitation(
 	grantId: string,
 ): Promise<CalendarInvitationDetails> {
 	const mutationToken = await acquireInvitationMutation(grantId, invitation.uid)
-	if (mutationToken === null) return { state: 'syncing', canAdd: false }
+	if (mutationToken === null) return { state: 'cancelling' }
 	try {
 		return await cancelImportedInvitationLocked(
 			mailbox,
@@ -633,8 +635,9 @@ async function cancelImportedInvitationLocked(
 		limit: 20,
 	}))
 	if (!metadataPages.complete) throw new Error('Calendar cancellation lookup failed')
-	if (await invitationCreationClaimActive(grantId, invitation.uid)) {
-		return { state: 'syncing', canAdd: false }
+	const retainedSequence = await invitationCreationClaimSequence(grantId, invitation.uid)
+	if (retainedSequence !== undefined && retainedSequence > cancellationSequence) {
+		return { state: 'cancelled', removed: false, manualReview: false }
 	}
 
 	const imported: Event[] = []

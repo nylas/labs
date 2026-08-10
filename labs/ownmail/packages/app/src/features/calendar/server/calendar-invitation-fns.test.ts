@@ -31,6 +31,7 @@ const {
 	claimInvitationCreation,
 	invitationCancellationSequence,
 	invitationCreationClaimActive,
+	invitationCreationClaimSequence,
 	invitationCreationClaimsAvailable,
 	recordInvitationCancellation,
 	releaseInvitationMutation,
@@ -40,6 +41,7 @@ const {
 	claimInvitationCreation: vi.fn(),
 	invitationCancellationSequence: vi.fn(),
 	invitationCreationClaimActive: vi.fn(),
+	invitationCreationClaimSequence: vi.fn(),
 	invitationCreationClaimsAvailable: vi.fn(),
 	recordInvitationCancellation: vi.fn(),
 	releaseInvitationMutation: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock('#server/invitation-creation-claim', () => ({
 	claimInvitationCreation: (...args: unknown[]) => claimInvitationCreation(...args),
 	invitationCancellationSequence: (...args: unknown[]) => invitationCancellationSequence(...args),
 	invitationCreationClaimActive: (...args: unknown[]) => invitationCreationClaimActive(...args),
+	invitationCreationClaimSequence: (...args: unknown[]) => invitationCreationClaimSequence(...args),
 	invitationCreationClaimsAvailable: () => invitationCreationClaimsAvailable(),
 	recordInvitationCancellation: (...args: unknown[]) => recordInvitationCancellation(...args),
 	releaseInvitationMutation: (...args: unknown[]) => releaseInvitationMutation(...args),
@@ -173,6 +176,7 @@ describe('calendar invitation server functions', () => {
 		invitationCreationClaimActive
 			.mockReset()
 			.mockImplementation(async (...args: unknown[]) => args.length === 3)
+		invitationCreationClaimSequence.mockReset().mockResolvedValue(undefined)
 		invitationCreationClaimsAvailable.mockReset().mockResolvedValue(true)
 		recordInvitationCancellation.mockReset().mockResolvedValue(2)
 		releaseInvitationMutation.mockReset().mockResolvedValue(undefined)
@@ -211,6 +215,7 @@ describe('calendar invitation server functions', () => {
 
 	it('removes a matching OwnMail import when the organizer cancels it', async () => {
 		acquireInvitationMutation.mockResolvedValue(undefined)
+		invitationCreationClaimSequence.mockResolvedValue(2)
 		const imported = invitationEvent({
 			ical_uid: undefined,
 			organizer: { email: 'ada@ownmail.com' },
@@ -467,8 +472,8 @@ describe('calendar invitation server functions', () => {
 		},
 	)
 
-	it('keeps cancellation retryable when a stale event revision is indexed under an active claim', async () => {
-		invitationCreationClaimActive.mockResolvedValue(true)
+	it('does not let an older cancellation remove a newer retained revision', async () => {
+		invitationCreationClaimSequence.mockResolvedValue(5)
 		releaseInvitationMutation.mockRejectedValue(new Error('mutation cleanup outage'))
 		const stale = invitationEvent({
 			ical_uid: undefined,
@@ -484,8 +489,8 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'syncing', canAdd: false })
-		expect(invitationCreationClaimActive).toHaveBeenCalledWith('grant-1', 'invite@example.com')
+		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: false })
+		expect(invitationCreationClaimSequence).toHaveBeenCalledWith('grant-1', 'invite@example.com')
 		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
 	})
 
@@ -498,7 +503,7 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'syncing', canAdd: false })
+		).resolves.toEqual({ state: 'cancelling' })
 		expect(mailbox.listEvents).not.toHaveBeenCalled()
 		expect(releaseInvitationMutation).not.toHaveBeenCalled()
 	})

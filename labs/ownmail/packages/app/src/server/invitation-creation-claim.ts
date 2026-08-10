@@ -31,10 +31,17 @@ export async function invitationCreationClaimActive(
 	sequence?: number,
 ): Promise<boolean> {
 	if (sequence !== undefined) requireSequence(sequence)
-	const { env, kv } = await platform()
-	if (!kv?.claimRevision) return false
-	const activeSequence = parseSequence(await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid)))
+	const activeSequence = await invitationCreationClaimSequence(grantId, uid)
 	return sequence === undefined ? activeSequence !== undefined : activeSequence === sequence
+}
+
+export async function invitationCreationClaimSequence(
+	grantId: string,
+	uid: string,
+): Promise<number | undefined> {
+	const { env, kv } = await platform()
+	if (!kv?.claimRevision) return undefined
+	return parseSequence(await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid)))
 }
 
 export async function acquireInvitationMutation(
