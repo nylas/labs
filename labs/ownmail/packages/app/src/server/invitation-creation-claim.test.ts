@@ -60,8 +60,10 @@ describe('invitation creation claims', () => {
 
 		await expect(invitationCreationClaimsAvailable()).resolves.toBe(false)
 		await expect(invitationCreationClaimActive('grant-1', 'uid')).resolves.toBe(false)
-		await expect(invitationCancellationSequence('grant-1', 'uid')).resolves.toBeUndefined()
-		await expect(recordInvitationCancellation('grant-1', 'uid', 2)).resolves.toBe(2)
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid', 'grace@example.com'),
+		).resolves.toBeUndefined()
+		await expect(recordInvitationCancellation('grant-1', 'uid', 2, 'grace@example.com')).resolves.toBe(2)
 		await expect(claimInvitationCreation('grant-1', 'uid')).rejects.toThrow('unavailable')
 		await expect(releaseInvitationCreationClaim('grant-1', 'uid')).resolves.toBeUndefined()
 	})
@@ -70,10 +72,21 @@ describe('invitation creation claims', () => {
 		const kv = atomicStore()
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
 
-		await expect(invitationCancellationSequence('grant-1', 'uid@example.com')).resolves.toBeUndefined()
-		await expect(recordInvitationCancellation('grant-1', 'uid@example.com', 3)).resolves.toBe(3)
-		await expect(recordInvitationCancellation('grant-1', 'uid@example.com', 2)).resolves.toBe(3)
-		await expect(invitationCancellationSequence('grant-1', 'uid@example.com')).resolves.toBe(3)
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid@example.com', 'grace@example.com'),
+		).resolves.toBeUndefined()
+		await expect(
+			recordInvitationCancellation('grant-1', 'uid@example.com', 3, 'Grace@Example.com'),
+		).resolves.toBe(3)
+		await expect(
+			recordInvitationCancellation('grant-1', 'uid@example.com', 2, 'grace@example.com'),
+		).resolves.toBe(3)
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid@example.com', 'GRACE@example.com'),
+		).resolves.toBe(3)
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid@example.com', 'other@example.com'),
+		).resolves.toBeUndefined()
 
 		const cancellationKey = vi
 			.mocked(kv.put)
@@ -82,8 +95,11 @@ describe('invitation creation claims', () => {
 		expect(cancellationKey).toBeDefined()
 		expect(cancellationKey).not.toContain('grant-1')
 		expect(cancellationKey).not.toContain('uid@example.com')
+		expect(cancellationKey).not.toContain('grace@example.com')
 		await kv.put(cancellationKey as string, '2147483648')
-		await expect(invitationCancellationSequence('grant-1', 'uid@example.com')).resolves.toBeUndefined()
+		await expect(
+			invitationCancellationSequence('grant-1', 'uid@example.com', 'grace@example.com'),
+		).resolves.toBeUndefined()
 	})
 
 	it('validates tombstone revisions and serializes writers', async () => {
@@ -91,14 +107,23 @@ describe('invitation creation claims', () => {
 		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
 
 		for (const sequence of [-1, 1.5, Number.NaN, 2_147_483_648]) {
-			await expect(recordInvitationCancellation('grant-1', 'uid', sequence)).rejects.toThrow(
-				'Invalid invitation cancellation sequence',
-			)
+			await expect(
+				recordInvitationCancellation('grant-1', 'uid', sequence, 'grace@example.com'),
+			).rejects.toThrow('Invalid invitation cancellation sequence')
 		}
+		await expect(recordInvitationCancellation('grant-1', 'uid', 1, 'invalid')).rejects.toThrow(
+			'Invalid invitation cancellation organizer',
+		)
+		await expect(invitationCancellationSequence('grant-1', 'uid', 'invalid')).resolves.toBeUndefined()
+		await expect(invitationCancellationSequence('grant-1', 'uid', null as never)).resolves.toBeUndefined()
 		vi.mocked(kv.delete).mockRejectedValueOnce(new Error('cleanup outage'))
-		await expect(recordInvitationCancellation('grant-1', 'uid-cleanup', 1)).resolves.toBe(1)
+		await expect(
+			recordInvitationCancellation('grant-1', 'uid-cleanup', 1, 'grace@example.com'),
+		).resolves.toBe(1)
 		vi.mocked(kv.putIfAbsent as NonNullable<KvLike['putIfAbsent']>).mockResolvedValueOnce(false)
-		await expect(recordInvitationCancellation('grant-1', 'uid', 1)).rejects.toThrow('already being recorded')
+		await expect(recordInvitationCancellation('grant-1', 'uid', 1, 'grace@example.com')).rejects.toThrow(
+			'already being recorded',
+		)
 	})
 
 	it('reports unavailable platform state without exposing its failure', async () => {

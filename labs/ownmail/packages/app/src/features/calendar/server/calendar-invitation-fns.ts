@@ -201,7 +201,12 @@ async function resolveInvitation(
 			grantId,
 		)
 		if (!cancellationOrganizer) return { details: { state: 'ineligible' } }
-		await recordInvitationCancellation(grantId, invitation.uid, invitation.sequence ?? 0)
+		await recordInvitationCancellation(
+			grantId,
+			invitation.uid,
+			invitation.sequence ?? 0,
+			cancellationOrganizer,
+		)
 		const calendars = await invitationCalendars(mailbox)
 		if (calendars.length === 0) {
 			return { details: { state: 'ineligible' }, invitation, message: message.data }
@@ -628,7 +633,9 @@ async function invitationWasCancelled(
 	grantId: string,
 	invitation: ParsedCalendarInvitation,
 ): Promise<boolean> {
-	const cancelledThrough = await invitationCancellationSequence(grantId, invitation.uid)
+	const organizer = normalizedEmail(invitation.organizerEmail)
+	if (!organizer) return false
+	const cancelledThrough = await invitationCancellationSequence(grantId, invitation.uid, organizer)
 	return cancelledThrough !== undefined && cancelledThrough >= (invitation.sequence ?? 0)
 }
 

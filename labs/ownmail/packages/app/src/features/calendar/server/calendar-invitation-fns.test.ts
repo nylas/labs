@@ -219,7 +219,12 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.deleteEvent).toHaveBeenCalledWith('provider-event-id', 'primary', {
 			notifyParticipants: false,
 		})
-		expect(recordInvitationCancellation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 2)
+		expect(recordInvitationCancellation).toHaveBeenCalledWith(
+			'grant-1',
+			'invite@example.com',
+			2,
+			'grace@example.com',
+		)
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
 	})
 
@@ -233,7 +238,12 @@ describe('calendar invitation server functions', () => {
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).resolves.toEqual({ state: 'ineligible' })
-		expect(recordInvitationCancellation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 2)
+		expect(recordInvitationCancellation).toHaveBeenCalledWith(
+			'grant-1',
+			'invite@example.com',
+			2,
+			'grace@example.com',
+		)
 		expect(mailbox.listEvents).not.toHaveBeenCalled()
 	})
 
@@ -245,6 +255,11 @@ describe('calendar invitation server functions', () => {
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: false })
+		expect(invitationCancellationSequence).toHaveBeenCalledWith(
+			'grant-1',
+			'invite@example.com',
+			'grace@example.com',
+		)
 		expect(mailbox.listCalendars).not.toHaveBeenCalled()
 	})
 
@@ -552,7 +567,12 @@ describe('calendar invitation server functions', () => {
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
 		).rejects.toThrow('could not be updated')
-		expect(recordInvitationCancellation).toHaveBeenCalledWith('grant-1', 'invite@example.com', 2)
+		expect(recordInvitationCancellation).toHaveBeenCalledWith(
+			'grant-1',
+			'invite@example.com',
+			2,
+			'grace@example.com',
+		)
 		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
 	})
 

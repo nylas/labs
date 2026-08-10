@@ -29,23 +29,29 @@ export async function invitationCreationClaimActive(grantId: string, uid: string
 export async function invitationCancellationSequence(
 	grantId: string,
 	uid: string,
+	organizerEmail: string,
 ): Promise<number | undefined> {
+	const organizer = normalizedOrganizer(organizerEmail)
+	if (!organizer) return undefined
 	const { env, kv } = await platform()
 	if (!kv?.putIfAbsent) return undefined
-	return parseSequence(await kv.get(await cancellationKey(env.SESSION_SECRET, grantId, uid)))
+	return parseSequence(await kv.get(await cancellationKey(env.SESSION_SECRET, grantId, uid, organizer)))
 }
 
 export async function recordInvitationCancellation(
 	grantId: string,
 	uid: string,
 	sequence: number,
+	organizerEmail: string,
 ): Promise<number> {
 	if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > MAX_INVITATION_SEQUENCE) {
 		throw new Error('Invalid invitation cancellation sequence')
 	}
+	const organizer = normalizedOrganizer(organizerEmail)
+	if (!organizer) throw new Error('Invalid invitation cancellation organizer')
 	const { env, kv } = await platform()
 	if (!kv?.putIfAbsent) return sequence
-	const suffix = await claimSuffix(env.SESSION_SECRET, grantId, uid)
+	const suffix = await claimSuffix(env.SESSION_SECRET, grantId, `${uid}\0${organizer}`)
 	const lockKey = `invitation-cancel-lock:${suffix}`
 	if (!(await kv.putIfAbsent(lockKey, '1', CANCELLATION_LOCK_TTL_SECONDS))) {
 		throw new Error('Invitation cancellation is already being recorded')
@@ -71,8 +77,13 @@ async function claimKey(secret: string, grantId: string, uid: string): Promise<s
 	return `invitation-create:${await claimSuffix(secret, grantId, uid)}`
 }
 
-async function cancellationKey(secret: string, grantId: string, uid: string): Promise<string> {
-	return `invitation-cancel:${await claimSuffix(secret, grantId, uid)}`
+async function cancellationKey(
+	secret: string,
+	grantId: string,
+	uid: string,
+	organizer: string,
+): Promise<string> {
+	return `invitation-cancel:${await claimSuffix(secret, grantId, `${uid}\0${organizer}`)}`
 }
 
 async function claimSuffix(secret: string, grantId: string, uid: string): Promise<string> {
@@ -97,4 +108,10 @@ function parseSequence(value: string | null): number | undefined {
 	if (typeof value !== 'string' || !/^\d{1,10}$/.test(value)) return undefined
 	const sequence = Number(value)
 	return sequence <= MAX_INVITATION_SEQUENCE ? sequence : undefined
+}
+
+function normalizedOrganizer(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined
+	const normalized = value.trim().toLowerCase()
+	return normalized.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : undefined
 }
