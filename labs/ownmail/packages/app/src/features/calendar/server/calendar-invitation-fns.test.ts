@@ -184,7 +184,8 @@ describe('calendar invitation server functions', () => {
 	it('removes a matching OwnMail import when the organizer cancels it', async () => {
 		const imported = invitationEvent({
 			ical_uid: undefined,
-			metadata: { key1: 'invite@example.com', key2: '1' },
+			organizer: { email: 'ada@ownmail.com' },
+			metadata: { key1: 'invite@example.com', key2: '1', key3: 'grace@example.com' },
 		})
 		const mailbox = makeMailbox({
 			downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS)),
@@ -196,7 +197,7 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled' })
+		).resolves.toEqual({ state: 'cancelled', removed: true })
 		expect(mailbox.deleteEvent).toHaveBeenCalledWith('provider-event-id', 'primary', {
 			notifyParticipants: false,
 		})
@@ -258,9 +259,23 @@ describe('calendar invitation server functions', () => {
 	it('does not delete unrelated, malformed, or newer imported revisions', async () => {
 		const candidates = [
 			invitationEvent({ metadata: { key1: 'other-uid', key2: '1' } }),
-			invitationEvent({ participants: undefined, metadata: { key1: 'invite@example.com', key2: '1' } }),
-			invitationEvent({ metadata: { key1: 'invite@example.com', key2: 1 } }),
-			invitationEvent({ metadata: { key1: 'invite@example.com', key2: '3' } }),
+			invitationEvent({
+				metadata: { key1: 'invite@example.com', key2: '1', key3: 'other@example.com' },
+			}),
+			invitationEvent({
+				organizer: undefined,
+				metadata: { key1: 'invite@example.com', key2: '1' },
+			}),
+			invitationEvent({
+				participants: undefined,
+				metadata: { key1: 'invite@example.com', key2: '1', key3: 'grace@example.com' },
+			}),
+			invitationEvent({
+				metadata: { key1: 'invite@example.com', key2: 1, key3: 'grace@example.com' },
+			}),
+			invitationEvent({
+				metadata: { key1: 'invite@example.com', key2: '3', key3: 'grace@example.com' },
+			}),
 		]
 		const mailbox = makeMailbox({
 			downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS)),
@@ -272,7 +287,7 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled' })
+		).resolves.toEqual({ state: 'cancelled', removed: false })
 		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
 		expect(signalLocalChange).not.toHaveBeenCalled()
 	})
@@ -290,7 +305,7 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled' })
+		).resolves.toEqual({ state: 'cancelled', removed: true })
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
 	})
 
@@ -672,7 +687,7 @@ describe('calendar invitation server functions', () => {
 				when: { start_time: START, end_time: END },
 				organizer: { email: 'grace@example.com' },
 				participants: [{ email: 'ada@ownmail.com', name: 'Ada Lovelace', status: 'noreply' }],
-				metadata: { key1: 'invite@example.com', key2: '1' },
+				metadata: { key1: 'invite@example.com', key2: '1', key3: 'grace@example.com' },
 			},
 			'primary',
 			{ notifyParticipants: false },

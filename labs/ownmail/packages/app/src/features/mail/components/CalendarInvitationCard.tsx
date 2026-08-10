@@ -142,7 +142,11 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		return (
 			<InvitationNotice
 				title="Invitation cancelled"
-				message="The organizer cancelled this event, and it has been removed from your calendar."
+				message={
+					details.removed
+						? 'The organizer cancelled this event, and it has been removed from your calendar.'
+						: 'The organizer cancelled this invitation. Check your calendar for the latest event status.'
+				}
 			/>
 		)
 	}

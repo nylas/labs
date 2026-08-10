@@ -38,7 +38,7 @@ export type CalendarInvitationDetails =
 	| { state: 'invalid' }
 	| { state: 'syncing'; canAdd?: false }
 	| { state: 'ineligible' }
-	| { state: 'cancelled' }
+	| { state: 'cancelled'; removed: boolean }
 	| {
 			state: 'ready'
 			title: string
@@ -514,7 +514,11 @@ function invitationEventBody(
 			...(invitation.organizerName ? { name: invitation.organizerName } : {}),
 		},
 		participants: invitation.attendees,
-		metadata: { key1: invitation.uid, key2: String(invitation.sequence ?? 0) },
+		metadata: {
+			key1: invitation.uid,
+			key2: String(invitation.sequence ?? 0),
+			key3: organizerEmail,
+		},
 	}
 }
 
@@ -556,9 +560,8 @@ async function cancelImportedInvitation(
 	mailboxEmail: string,
 	grantId: string,
 ): Promise<CalendarInvitationDetails> {
-	if (!cancellationMatchesMessage(message, invitation, mailboxEmail, grantId)) {
-		return { state: 'ineligible' }
-	}
+	const cancellationOrganizer = cancellationOrganizerForMessage(message, invitation, mailboxEmail, grantId)
+	if (!cancellationOrganizer) return { state: 'ineligible' }
 	const metadataPages = await eventPages(mailbox, calendars, (calendar) => ({
 		calendar_id: calendar.id,
 		metadata_pair: invitationMetadataPair(invitation.uid),
@@ -571,6 +574,7 @@ async function cancelImportedInvitation(
 		const storedSequence = eventMetadataSequence(event)
 		return (
 			eventMetadataUid(event) === invitation.uid &&
+			importedInvitationOrganizer(event) === cancellationOrganizer &&
 			event.participants?.some(
 				(participant) => normalizedEmail(participant.email) === normalizedEmail(mailboxEmail),
 			) === true &&
@@ -590,25 +594,32 @@ async function cancelImportedInvitation(
 		}
 	}
 	if (imported.length > 0) await signalLocalChange(grantId, 'calendar')
-	return { state: 'cancelled' }
+	return { state: 'cancelled', removed: imported.length > 0 }
 }
 
-function cancellationMatchesMessage(
+function cancellationOrganizerForMessage(
 	message: Message,
 	invitation: ParsedCalendarInvitation,
 	mailboxEmail: string,
 	grantId: string,
-): boolean {
+): string | undefined {
 	const mailbox = normalizedEmail(mailboxEmail)
 	const organizer = normalizedEmail(invitation.organizerEmail)
-	if (!mailbox || !organizer || organizer === mailbox || message.grant_id !== grantId) return false
+	if (!mailbox || !organizer || organizer === mailbox || message.grant_id !== grantId) return undefined
 	const senders = message.from?.map((participant) => normalizedEmail(participant.email)).filter(Boolean) ?? []
 	const recipients = [...(message.to ?? []), ...(message.cc ?? []), ...(message.bcc ?? [])]
-	return (
-		senders.length === 1 &&
+	return senders.length === 1 &&
 		senders[0] === organizer &&
 		recipients.some((participant) => normalizedEmail(participant.email) === mailbox)
-	)
+		? organizer
+		: undefined
+}
+
+function importedInvitationOrganizer(event: Event): string | undefined {
+	const storedOrganizer = event.metadata?.key3
+	return storedOrganizer === undefined
+		? normalizedEmail(event.organizer?.email)
+		: normalizedEmail(storedOrganizer)
 }
 
 function normalizedEmail(value: unknown): string | undefined {

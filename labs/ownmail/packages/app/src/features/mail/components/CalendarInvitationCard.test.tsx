@@ -269,12 +269,23 @@ describe('CalendarInvitationCard', () => {
 	it.each([
 		['invalid', 'Unsupported calendar file'],
 		['ineligible', 'Response unavailable'],
-		['cancelled', 'Invitation cancelled'],
 	] as const)('explains the %s invitation state without response controls', async (state, title) => {
 		getCalendarInvitation.mockResolvedValue({ state })
 		renderCard()
 
 		expect(await screen.findByText(title)).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
+	})
+
+	it.each([
+		[true, 'has been removed from your calendar'],
+		[false, 'Check your calendar for the latest event status'],
+	] as const)('describes a cancelled invitation with removal=%s accurately', async (removed, message) => {
+		getCalendarInvitation.mockResolvedValue({ state: 'cancelled', removed })
+		renderCard()
+
+		expect(await screen.findByText('Invitation cancelled')).toBeInTheDocument()
+		expect(screen.getByText(new RegExp(message))).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
 	})
 
