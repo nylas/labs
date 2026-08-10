@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.7.2
+
+### Patch Changes
+
+- 898c3f0: Recover calendar invitation cards from delayed provider synchronization and let users explicitly add a strictly matched, losslessly supported invitation when the deployment can claim creation atomically.
+
 ## 0.7.1
 
 ### Patch Changes
