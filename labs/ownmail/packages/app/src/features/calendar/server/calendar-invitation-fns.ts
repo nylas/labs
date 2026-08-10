@@ -5,7 +5,6 @@ import type {
 	ListResponse,
 	Message,
 	MessageAttachment,
-	Thread,
 } from '@nylas-labs/cli-kit/v3'
 import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { createServerFn } from '@tanstack/react-start'
@@ -32,8 +31,6 @@ import {
 const MAX_CONFLICT_RANGE_SECONDS = 31 * 86_400
 const MAX_CALENDAR_PAGES = 100
 const MAX_PROVIDER_CURSOR_LENGTH = 4_096
-const MAX_INVITATION_THREAD_MESSAGES = 100
-const MAX_INVITATION_ATTACHMENTS = 20
 const RSVP_STATUSES = ['yes', 'maybe', 'no'] as const
 
 export type CalendarInvitationReference = { messageId: string; attachmentId: string }
@@ -49,7 +46,7 @@ export type CalendarInvitationDetails =
 	| { state: 'invalid' }
 	| { state: 'syncing'; canAdd?: false }
 	| { state: 'ineligible' }
-	| { state: 'cancelled'; removed: boolean }
+	| { state: 'cancelled'; removed: boolean; manualReview: boolean }
 	| {
 			state: 'ready'
 			title: string
@@ -65,7 +62,6 @@ type InvitationConflicts = Extract<CalendarInvitationDetails, { state: 'ready' }
 
 type InvitationMailbox = {
 	getMessage(messageId: string): Promise<{ data: Message }>
-	getThread(threadId: string): Promise<{ data: Thread }>
 	downloadAttachment(attachmentId: string, messageId: string): Promise<Response>
 	listCalendars(query?: ListQuery): Promise<{ data?: unknown; next_cursor?: unknown }>
 	listEvents(query: ListQuery & { calendar_id: string }): Promise<ListResponse<Event>>
@@ -567,6 +563,7 @@ async function cancelImportedInvitation(
 
 	const cancellationSequence = invitation.sequence ?? 0
 	const imported: Event[] = []
+	let manualReview = false
 	for (const event of metadataPages.events) {
 		const storedSequence = eventMetadataSequence(event)
 		if (
@@ -584,20 +581,8 @@ async function cancelImportedInvitation(
 			(storedOrganizer === undefined
 				? normalizedEmail(event.organizer?.email)
 				: normalizedEmail(storedOrganizer)) === cancellationOrganizer
-		if (
-			organizerMatches ||
-			(storedOrganizer === undefined &&
-				(await legacyInvitationMatchesCancellation(
-					mailbox,
-					message,
-					invitation,
-					storedSequence,
-					mailboxEmail,
-					grantId,
-				)))
-		) {
-			imported.push(event)
-		}
+		if (organizerMatches) imported.push(event)
+		else if (storedOrganizer === undefined) manualReview = true
 	}
 	if (metadataPages.events.length === 0 && (await invitationCreationClaimActive(grantId, invitation.uid))) {
 		return { state: 'syncing', canAdd: false }
@@ -614,7 +599,7 @@ async function cancelImportedInvitation(
 		}
 	}
 	if (imported.length > 0) await signalLocalChange(grantId, 'calendar')
-	return { state: 'cancelled', removed: imported.length > 0 }
+	return { state: 'cancelled', removed: imported.length > 0, manualReview }
 }
 
 function cancellationOrganizerForMessage(
@@ -633,61 +618,6 @@ function cancellationOrganizerForMessage(
 		recipients.some((participant) => normalizedEmail(participant.email) === mailbox)
 		? organizer
 		: undefined
-}
-
-async function legacyInvitationMatchesCancellation(
-	mailbox: InvitationMailbox,
-	cancellationMessage: Message,
-	cancellation: ParsedCalendarInvitation,
-	storedSequence: number,
-	mailboxEmail: string,
-	grantId: string,
-): Promise<boolean> {
-	if (!cancellationMessage.thread_id) return false
-	try {
-		const threadId = requireNylasProviderId(cancellationMessage.thread_id, 'thread')
-		const thread = await mailbox.getThread(threadId)
-		const messageIds = thread.data.message_ids
-		if (
-			thread.data.id !== threadId ||
-			thread.data.grant_id !== grantId ||
-			!Array.isArray(messageIds) ||
-			messageIds.length === 0 ||
-			messageIds.length > MAX_INVITATION_THREAD_MESSAGES
-		) {
-			return false
-		}
-		for (const candidateId of [...messageIds].reverse()) {
-			const messageId = requireNylasProviderId(candidateId, 'message')
-			if (messageId === cancellationMessage.id) continue
-			const candidate = (await mailbox.getMessage(messageId)).data
-			if (
-				candidate.id !== messageId ||
-				candidate.thread_id !== threadId ||
-				candidate.grant_id !== grantId ||
-				!Array.isArray(candidate.attachments) ||
-				candidate.attachments.length > MAX_INVITATION_ATTACHMENTS
-			) {
-				continue
-			}
-			for (const attachment of candidate.attachments) {
-				if (!isCalendarInvitationAttachment(attachment)) continue
-				const request = await downloadInvitationAttachment(mailbox, candidate, attachment)
-				if (
-					request?.method === 'REQUEST' &&
-					request.uid === cancellation.uid &&
-					(request.sequence ?? 0) === storedSequence &&
-					normalizedEmail(request.organizerEmail) === normalizedEmail(cancellation.organizerEmail) &&
-					canCreateInvitation(candidate, request, mailboxEmail, grantId)
-				) {
-					return true
-				}
-			}
-		}
-	} catch {
-		return false
-	}
-	return false
 }
 
 async function downloadInvitationAttachment(

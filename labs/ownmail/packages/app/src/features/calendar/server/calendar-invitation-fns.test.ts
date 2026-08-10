@@ -207,14 +207,14 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled', removed: true })
+		).resolves.toEqual({ state: 'cancelled', removed: true, manualReview: false })
 		expect(mailbox.deleteEvent).toHaveBeenCalledWith('provider-event-id', 'primary', {
 			notifyParticipants: false,
 		})
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
 	})
 
-	it('uses the original request in the authenticated thread for a legacy import', async () => {
+	it('does not infer legacy organizer trust from a request in the cancellation thread', async () => {
 		const imported = invitationEvent({
 			ical_uid: undefined,
 			organizer: { email: 'ada@ownmail.com' },
@@ -274,9 +274,9 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled', removed: true })
-		expect(mailbox.getThread).toHaveBeenCalledWith('thread-1')
-		expect(mailbox.deleteEvent).toHaveBeenCalledOnce()
+		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: true })
+		expect(mailbox.getThread).not.toHaveBeenCalled()
+		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
 	})
 
 	it.each([
@@ -315,38 +315,44 @@ describe('calendar invitation server functions', () => {
 				attachments: [{ id: 'another-cancel', filename: 'cancel.ics', content_type: 'text/calendar' }],
 			},
 		],
-	] as const)('does not trust legacy organizer evidence with a %s', async (_case, thread, prior) => {
-		const imported = invitationEvent({
-			organizer: { email: 'ada@ownmail.com' },
-			metadata: { key1: 'invite@example.com', key2: '1' },
-		})
-		const mailbox = makeMailbox({
-			getMessage: vi.fn(async (messageId: string) => ({
-				data:
-					messageId === 'message-1'
-						? {
-								id: 'message-1',
-								grant_id: 'grant-1',
-								thread_id: 'thread-1',
-								from: [{ email: 'grace@example.com' }],
-								to: [{ email: 'ada@ownmail.com' }],
-								attachments: [{ id: 'attachment-1', filename: 'cancel.ics', content_type: 'text/calendar' }],
-							}
-						: prior,
-			})),
-			getThread: vi.fn(async () => ({ data: thread })),
-			downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS)),
-			listEvents: vi.fn(async (query: { calendar_id: string; metadata_pair?: string }) => ({
-				data: query.metadata_pair && query.calendar_id === 'primary' ? [imported] : [],
-			})),
-		})
-		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+	] as const)(
+		'does not inspect untrusted legacy organizer evidence with a %s',
+		async (_case, thread, prior) => {
+			const imported = invitationEvent({
+				organizer: { email: 'ada@ownmail.com' },
+				metadata: { key1: 'invite@example.com', key2: '1' },
+			})
+			const mailbox = makeMailbox({
+				getMessage: vi.fn(async (messageId: string) => ({
+					data:
+						messageId === 'message-1'
+							? {
+									id: 'message-1',
+									grant_id: 'grant-1',
+									thread_id: 'thread-1',
+									from: [{ email: 'grace@example.com' }],
+									to: [{ email: 'ada@ownmail.com' }],
+									attachments: [
+										{ id: 'attachment-1', filename: 'cancel.ics', content_type: 'text/calendar' },
+									],
+								}
+							: prior,
+				})),
+				getThread: vi.fn(async () => ({ data: thread })),
+				downloadAttachment: vi.fn(async () => new Response(CANCEL_ICS)),
+				listEvents: vi.fn(async (query: { calendar_id: string; metadata_pair?: string }) => ({
+					data: query.metadata_pair && query.calendar_id === 'primary' ? [imported] : [],
+				})),
+			})
+			requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
 
-		await expect(
-			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled', removed: false })
-		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
-	})
+			await expect(
+				getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+			).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: true })
+			expect(mailbox.getThread).not.toHaveBeenCalled()
+			expect(mailbox.deleteEvent).not.toHaveBeenCalled()
+		},
+	)
 
 	it('keeps cancellation lookup retryable while a new import claim is active', async () => {
 		invitationCreationClaimActive.mockResolvedValue(true)
@@ -446,7 +452,7 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled', removed: false })
+		).resolves.toEqual({ state: 'cancelled', removed: false, manualReview: true })
 		expect(mailbox.deleteEvent).not.toHaveBeenCalled()
 		expect(signalLocalChange).not.toHaveBeenCalled()
 	})
@@ -464,7 +470,7 @@ describe('calendar invitation server functions', () => {
 
 		await expect(
 			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
-		).resolves.toEqual({ state: 'cancelled', removed: true })
+		).resolves.toEqual({ state: 'cancelled', removed: true, manualReview: false })
 		expect(signalLocalChange).toHaveBeenCalledWith('grant-1', 'calendar')
 	})
 

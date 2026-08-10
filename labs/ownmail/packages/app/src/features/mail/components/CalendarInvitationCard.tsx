@@ -143,9 +143,11 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			<InvitationNotice
 				title="Invitation cancelled"
 				message={
-					details.removed
-						? 'The organizer cancelled this event, and it has been removed from your calendar.'
-						: 'The organizer cancelled this invitation. Check your calendar for the latest event status.'
+					details.manualReview
+						? 'OwnMail couldn’t safely verify an older imported copy. Check your calendar and remove it if it is still there.'
+						: details.removed
+							? 'The organizer cancelled this event, and it has been removed from your calendar.'
+							: 'The organizer cancelled this invitation. Check your calendar for the latest event status.'
 				}
 			/>
 		)

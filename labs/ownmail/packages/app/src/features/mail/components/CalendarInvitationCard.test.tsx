@@ -278,16 +278,20 @@ describe('CalendarInvitationCard', () => {
 	})
 
 	it.each([
-		[true, 'has been removed from your calendar'],
-		[false, 'Check your calendar for the latest event status'],
-	] as const)('describes a cancelled invitation with removal=%s accurately', async (removed, message) => {
-		getCalendarInvitation.mockResolvedValue({ state: 'cancelled', removed })
-		renderCard()
+		[true, false, 'has been removed from your calendar'],
+		[false, false, 'Check your calendar for the latest event status'],
+		[false, true, 'remove it if it is still there'],
+	] as const)(
+		'describes a cancelled invitation with removal=%s and manual review=%s accurately',
+		async (removed, manualReview, message) => {
+			getCalendarInvitation.mockResolvedValue({ state: 'cancelled', removed, manualReview })
+			renderCard()
 
-		expect(await screen.findByText('Invitation cancelled')).toBeInTheDocument()
-		expect(screen.getByText(new RegExp(message))).toBeInTheDocument()
-		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
-	})
+			expect(await screen.findByText('Invitation cancelled')).toBeInTheDocument()
+			expect(screen.getByText(new RegExp(message))).toBeInTheDocument()
+			expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
+		},
+	)
 
 	it('offers a retry after a safe invitation lookup failure', async () => {
 		getCalendarInvitation.mockRejectedValueOnce(new Error('safe error')).mockResolvedValueOnce({
