@@ -233,6 +233,15 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
 	})
 
+	it('keeps unsupported manual imports on the Nylas sync and status-check path', async () => {
+		getCalendarInvitation.mockResolvedValue({ state: 'syncing', canAdd: false })
+		renderCard()
+
+		expect(await screen.findByText(/Nylas is still syncing this event/)).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Add to calendar' })).toBeNull()
+		expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+	})
+
 	it('shows progress and a recoverable error for a failed explicit add', async () => {
 		getCalendarInvitation.mockResolvedValue({ state: 'syncing' })
 		let rejectAdd!: (reason: Error) => void

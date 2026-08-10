@@ -113,13 +113,18 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		)
 	}
 	if (details.state === 'syncing') {
+		const canAdd = details.canAdd !== false
 		return (
 			<InvitationNotice
 				title="Adding invitation to your calendar"
-				message="Nylas is still syncing this event. You can check again or add it to your calendar now."
+				message={
+					canAdd
+						? 'Nylas is still syncing this event. You can check again or add it to your calendar now.'
+						: 'Nylas is still syncing this event. You can check again in a moment.'
+				}
 				onRetry={() => void invitation.refetch()}
 				retrying={invitation.isFetching}
-				onAction={() => addInvitation.mutate()}
+				onAction={canAdd ? () => addInvitation.mutate() : undefined}
 				actionPending={addInvitation.isPending}
 				error={addInvitation.isError}
 			/>

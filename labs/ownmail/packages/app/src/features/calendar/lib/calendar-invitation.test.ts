@@ -169,11 +169,22 @@ describe('calendar invitation parsing', () => {
 		)
 		expect(floating?.start).toBeTypeOf('number')
 		expect(floating?.end).toBeTypeOf('number')
+		expect(floating).not.toHaveProperty('when')
 
 		const invalidOptional = parseCalendarInvitation(
 			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:valid\nDTSTART;TZID=Not/AZone:20270809T150000\nDTEND:20270230T160000Z\nEND:VEVENT',
 		)
 		expect(invalidOptional).toEqual({ uid: 'valid', method: 'REQUEST' })
+	})
+
+	it('marks recurring invitations as unsupported for lossless manual creation', () => {
+		const recurring = parseCalendarInvitation(
+			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:weekly\nDTSTART:20270809T150000Z\nDTEND:20270809T160000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO\nEND:VEVENT',
+		)
+		expect(recurring).toMatchObject({
+			hasRecurrence: true,
+			when: { start_time: 1_817_823_600, end_time: 1_817_827_200 },
+		})
 	})
 
 	it('fails closed for missing and malformed required properties', () => {

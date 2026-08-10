@@ -148,6 +148,7 @@ describe('platform()', () => {
 				delete: expect.any(Function),
 				increment: expect.any(Function),
 				expire: expect.any(Function),
+				putIfAbsent: expect.any(Function),
 			}),
 		)
 		redis.get.mockResolvedValue('value')
@@ -163,9 +164,11 @@ describe('platform()', () => {
 		// EXPIRE attaches the TTL without touching the value, so a rate-limit
 		// counter is never reset by the write that gives it a lifetime.
 		await p.kv?.expire?.('key', 900)
+		await expect(p.kv?.putIfAbsent?.('claim', '1', 600)).resolves.toBe(true)
 		expect(redis.expire).toHaveBeenCalledWith('key', 900)
 		expect(redis.set).toHaveBeenNthCalledWith(1, 'key', 'value', { ex: 60 })
 		expect(redis.set).toHaveBeenNthCalledWith(2, 'key', 'value', undefined)
+		expect(redis.set).toHaveBeenNthCalledWith(3, 'claim', '1', { nx: true, ex: 600 })
 	})
 
 	it.each([

@@ -17,6 +17,7 @@ export type ParsedCalendarInvitation = {
 	start?: number
 	end?: number
 	when?: EventWhen
+	hasRecurrence?: true
 }
 
 type IcsProperty = {
@@ -97,6 +98,9 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const description = boundedIcsText(propertyValue(eventProperties, 'DESCRIPTION'))
 	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
+	const hasRecurrence = eventProperties.some((property) =>
+		['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name),
+	)
 
 	return {
 		uid,
@@ -110,6 +114,7 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		...(start !== undefined ? { start } : {}),
 		...(end !== undefined && start !== undefined && end > start ? { end } : {}),
 		...(when ? { when } : {}),
+		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
 	}
 }
 
@@ -191,6 +196,9 @@ function invitationEventWhen(
 		const endDate = endProperty ? compactDateToIso(endProperty.value.trim()) : undefined
 		return { start_date: startDate, end_date: endDate || nextCalendarDate(startDate) }
 	}
+	const timezone = startProperty.params.get('TZID')
+	const hasAbsoluteTime = startProperty.value.trim().endsWith('Z') || Boolean(timezone)
+	if (!hasAbsoluteTime) return undefined
 	return start !== undefined && end !== undefined && end > start
 		? { start_time: start, end_time: end }
 		: undefined

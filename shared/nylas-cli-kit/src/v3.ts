@@ -1029,10 +1029,21 @@ export class GrantScopedClient {
 		}
 		return this.client.request('POST', this.path(`/events${toQuery(query)}`), body)
 	}
-	updateEvent(eventId: string, body: Partial<Event>, calendarId: string): Promise<ItemResponse<Event>> {
+	updateEvent(
+		eventId: string,
+		body: Partial<Event>,
+		calendarId: string,
+		options: CreateEventOptions = {},
+	): Promise<ItemResponse<Event>> {
+		const query: ListQuery = {
+			calendar_id: calendarId,
+			...(options.notifyParticipants !== undefined
+				? { notify_participants: options.notifyParticipants }
+				: {}),
+		}
 		return this.client.request(
 			'PUT',
-			this.path(`/events/${encodeURIComponent(eventId)}?calendar_id=${encodeURIComponent(calendarId)}`),
+			this.path(`/events/${encodeURIComponent(eventId)}${toQuery(query)}`),
 			body,
 		)
 	}
