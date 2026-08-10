@@ -113,11 +113,26 @@ describe('calendar invitation parsing', () => {
 		)
 
 		expect(invitation).toMatchObject({
+			start: 1_829_692_800,
+			end: 1_829_779_200,
 			when: { start_date: '2027-12-25', end_date: '2027-12-26' },
 			attendees: [{ email: 'ada@ownmail.com' }],
 			summary: 'Tabbed\ttext',
 		})
 		expect(invitation).not.toHaveProperty('location')
+	})
+
+	it('rejects invalid all-day ranges instead of creating malformed event spans', () => {
+		const invitation = parseCalendarInvitation(
+			'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:backwards\nDTSTART;VALUE=DATE:20271225\nDTEND;VALUE=DATE:20271224\nEND:VEVENT',
+		)
+
+		expect(invitation).toEqual({ uid: 'backwards', method: 'REQUEST', start: 1_829_692_800 })
+		expect(
+			parseCalendarInvitation(
+				'BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:bad-end\nDTSTART;VALUE=DATE:20271225\nDTEND;VALUE=DATE:not-a-date\nEND:VEVENT',
+			),
+		).toEqual({ uid: 'bad-end', method: 'REQUEST', start: 1_829_692_800 })
 	})
 
 	it('parses date-only invitations and rejects unsupported or unsafe payloads', () => {

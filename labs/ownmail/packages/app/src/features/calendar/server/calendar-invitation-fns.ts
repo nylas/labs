@@ -424,7 +424,7 @@ async function reconcileImportedInvitation(
 	}
 	const updated = await mailbox.updateEvent(
 		event.id,
-		invitationEventBody(invitation, when, organizerEmail),
+		invitationEventBody(invitation, when, organizerEmail, true),
 		calendar.id,
 		{ notifyParticipants: false },
 	)
@@ -440,11 +440,20 @@ function invitationEventBody(
 	invitation: ParsedCalendarInvitation,
 	when: Event['when'],
 	organizerEmail: string,
+	clearMissingOptionalFields = false,
 ): Partial<Event> {
 	return {
 		title: invitation.summary || '(untitled invitation)',
-		...(invitation.description ? { description: invitation.description } : {}),
-		...(invitation.location ? { location: invitation.location } : {}),
+		...(invitation.description
+			? { description: invitation.description }
+			: clearMissingOptionalFields
+				? { description: '' }
+				: {}),
+		...(invitation.location
+			? { location: invitation.location }
+			: clearMissingOptionalFields
+				? { location: '' }
+				: {}),
 		when,
 		organizer: {
 			email: organizerEmail,
@@ -581,8 +590,11 @@ function invitationContentMatches(event: Event, invitation: ParsedCalendarInvita
 	) {
 		return false
 	}
-	if (invitation.summary && event.title?.trim() !== invitation.summary) return false
-	if (invitation.location && event.location?.trim() !== invitation.location) return false
+	if ((event.title?.trim() || '(untitled invitation)') !== (invitation.summary || '(untitled invitation)')) {
+		return false
+	}
+	if ((event.location?.trim() || '') !== (invitation.location || '')) return false
+	if ((event.description?.trim() || '') !== (invitation.description || '')) return false
 	return true
 }
 

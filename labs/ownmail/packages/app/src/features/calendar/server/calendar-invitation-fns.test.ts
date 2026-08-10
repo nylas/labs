@@ -440,6 +440,7 @@ describe('calendar invitation server functions', () => {
 		let metadataLookups = 0
 		const imported = invitationEvent({
 			organizer: { email: 'ada@ownmail.com' },
+			location: undefined,
 			metadata: { key1: 'invite@example.com' },
 		})
 		const mailbox = makeMailbox({
@@ -545,6 +546,91 @@ describe('calendar invitation server functions', () => {
 		expect(mailbox.updateEvent).toHaveBeenCalledOnce()
 	})
 
+	it.each([
+		['description', { description: 'Old notes', location: undefined }],
+		['location', { description: undefined, location: 'Old room' }],
+	] as const)('clears %s content removed by a later invitation', async (_field, content) => {
+		const stale = invitationEvent({
+			...content,
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [stale] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			addCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready' })
+		expect(mailbox.updateEvent).toHaveBeenCalledWith(
+			'provider-event-id',
+			expect.objectContaining({ description: '', location: '' }),
+			'primary',
+			{ notifyParticipants: false },
+		)
+	})
+
+	it('recognizes a one-day OwnMail import when the invitation omits DTEND', async () => {
+		const source = ICS.replace(
+			'DTSTART:20270809T150000Z\r\nDTEND:20270809T160000Z',
+			'DTSTART;VALUE=DATE:20271225',
+		)
+		const imported = invitationEvent({
+			location: undefined,
+			when: { start_date: '2027-12-25', end_date: '2027-12-26' },
+			metadata: { key1: 'invite@example.com' },
+		})
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(source)),
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [imported] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({
+			state: 'ready',
+			when: { kind: 'all-day', startDate: '2027-12-25', endDate: '2027-12-26' },
+		})
+		expect(mailbox.updateEvent).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		{
+			name: 'matching optional content',
+			source: ICS.replace('END:VEVENT', 'DESCRIPTION:Read the brief\r\nLOCATION:Aurora room\r\nEND:VEVENT'),
+			event: invitationEvent({
+				description: 'Read the brief',
+				metadata: { key1: 'invite@example.com' },
+			}),
+		},
+		{
+			name: 'matching omitted summary',
+			source: ICS.replace('SUMMARY:Planning review\r\n', ''),
+			event: invitationEvent({
+				title: undefined,
+				location: undefined,
+				metadata: { key1: 'invite@example.com' },
+			}),
+		},
+	])('recognizes an OwnMail import with $name', async ({ source, event }) => {
+		const mailbox = makeMailbox({
+			downloadAttachment: vi.fn(async () => new Response(source)),
+			listEvents: vi.fn(async (query: { metadata_pair?: string }) => ({
+				data: query.metadata_pair ? [event] : [],
+			})),
+		})
+		requireMailbox.mockResolvedValue({ mailbox, email: 'ada@ownmail.com', grantId: 'grant-1' })
+
+		await expect(
+			getCalendarInvitation({ data: { messageId: 'message-1', attachmentId: 'attachment-1' } }),
+		).resolves.toMatchObject({ state: 'ready' })
+	})
+
 	it('refuses to reconcile a stale import on a read-only calendar', async () => {
 		const stale = invitationEvent({
 			calendar_id: 'work',
@@ -592,6 +678,7 @@ describe('calendar invitation server functions', () => {
 		const imported = invitationEvent({
 			organizer: { email: 'ada@ownmail.com' },
 			ical_uid: undefined,
+			location: undefined,
 			metadata: { key1: 'invite@example.com' },
 		})
 		const mailbox = makeMailbox({
@@ -610,6 +697,7 @@ describe('calendar invitation server functions', () => {
 		const imported = invitationEvent({
 			organizer: undefined,
 			ical_uid: undefined,
+			location: undefined,
 			metadata: { key1: 'invite@example.com' },
 		})
 		const mailbox = makeMailbox({

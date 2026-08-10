@@ -98,6 +98,10 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 	const description = boundedIcsText(propertyValue(eventProperties, 'DESCRIPTION'))
 	const location = boundedIcsText(propertyValue(eventProperties, 'LOCATION'))
 	const when = invitationEventWhen(startProperty, endProperty, start, end)
+	const whenRange = when ? eventWhenEpochRange(when) : null
+	const normalizedStart = whenRange?.start ?? start
+	const normalizedEnd =
+		whenRange?.end ?? (end !== undefined && start !== undefined && end > start ? end : undefined)
 	const hasRecurrence = eventProperties.some((property) =>
 		['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID'].includes(property.name),
 	)
@@ -111,8 +115,8 @@ export function parseCalendarInvitation(source: string): ParsedCalendarInvitatio
 		...(summary ? { summary } : {}),
 		...(description ? { description } : {}),
 		...(location ? { location } : {}),
-		...(start !== undefined ? { start } : {}),
-		...(end !== undefined && start !== undefined && end > start ? { end } : {}),
+		...(normalizedStart !== undefined ? { start: normalizedStart } : {}),
+		...(normalizedEnd !== undefined ? { end: normalizedEnd } : {}),
 		...(when ? { when } : {}),
 		...(hasRecurrence ? { hasRecurrence: true as const } : {}),
 	}
@@ -126,7 +130,10 @@ export function eventIcalUid(event: Event): string | undefined {
 }
 
 export function eventEpochRange(event: Event): { start: number; end: number } | null {
-	const when = event.when
+	return eventWhenEpochRange(event.when)
+}
+
+function eventWhenEpochRange(when: EventWhen): { start: number; end: number } | null {
 	if ('start_time' in when) {
 		return when.end_time > when.start_time ? { start: when.start_time, end: when.end_time } : null
 	}
@@ -193,8 +200,10 @@ function invitationEventWhen(
 	if (!startProperty) return undefined
 	const startDate = compactDateToIso(startProperty.value.trim())
 	if (startDate) {
-		const endDate = endProperty ? compactDateToIso(endProperty.value.trim()) : undefined
-		return { start_date: startDate, end_date: endDate || nextCalendarDate(startDate) }
+		const endDate = endProperty ? compactDateToIso(endProperty.value.trim()) : nextCalendarDate(startDate)
+		if (!endDate) return undefined
+		const when = { start_date: startDate, end_date: endDate } as const
+		return eventWhenEpochRange(when) ? when : undefined
 	}
 	const timezone = startProperty.params.get('TZID')
 	const hasAbsoluteTime = startProperty.value.trim().endsWith('Z') || Boolean(timezone)
