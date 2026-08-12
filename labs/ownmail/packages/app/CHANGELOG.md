@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.12.7
+
+### Patch Changes
+
+- e9fb90f: Fix mobile navigation, realtime thread refreshes, and unread counts.
+
 ## 0.12.6
 
 ### Patch Changes
