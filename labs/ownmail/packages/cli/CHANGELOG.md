@@ -1,5 +1,7 @@
 # ownmail
 
+## 0.12.7
+
 ## 0.12.6
 
 ### Patch Changes
