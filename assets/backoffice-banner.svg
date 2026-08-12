@@ -1,0 +1,43 @@
+<svg width="1280" height="400" viewBox="0 0 1280 400" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nylas Backoffice — operations for every workspace.">
+  <defs>
+    <linearGradient id="signature" x1="96" y1="0" x2="184" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B9B8A"/>
+      <stop offset="1" stop-color="#E01BE0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="400" fill="#FFFFFF"/>
+  <line x1="64" y1="0" x2="64" y2="400" stroke="#D8D8D8"/>
+  <line x1="1216" y1="0" x2="1216" y2="400" stroke="#D8D8D8"/>
+  <line x1="0" y1="72" x2="1280" y2="72" stroke="#D8D8D8"/>
+  <line x1="0" y1="344" x2="1280" y2="344" stroke="#D8D8D8"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="15" letter-spacing="3">
+    <text x="96" y="46" fill="#000000" font-weight="700">NYLAS</text>
+    <text x="168" y="46" fill="#0B9B8A" font-weight="700">/ BACKOFFICE</text>
+  </g>
+  <circle cx="1098" cy="41" r="5" fill="#0B9B8A"/>
+  <text x="1114" y="46" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="14" fill="#8E8E8E">INTERNAL OPS</text>
+
+  <text x="94" y="190" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="78" font-weight="800" letter-spacing="-3" fill="#000000">Nylas Backoffice</text>
+  <rect x="96" y="216" width="88" height="6" fill="url(#signature)"/>
+  <text x="96" y="266" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="27" font-weight="500" fill="#8E8E8E">Operations for every workspace.</text>
+
+  <g transform="translate(832, 116)">
+    <rect width="352" height="150" rx="12" fill="#212121"/>
+    <rect width="352" height="150" rx="12" fill="none" stroke="#404040"/>
+    <rect width="352" height="38" rx="12" fill="#151515"/>
+    <rect y="26" width="352" height="12" fill="#151515"/>
+    <circle cx="22" cy="19" r="5" fill="#404040"/>
+    <circle cx="40" cy="19" r="5" fill="#404040"/>
+    <circle cx="58" cy="19" r="5" fill="#404040"/>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="17">
+      <text x="24" y="76" fill="#0B9B8A">$</text>
+      <text x="42" y="76" fill="#FFFFFF">pnpm dev</text>
+      <text x="24" y="112" fill="#D8D8D8">▲ ops in one view.</text>
+    </g>
+  </g>
+
+  <text x="96" y="378" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="14" fill="#8E8E8E">github.com/nylas/labs</text>
+  <text x="1184" y="378" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="14" fill="#8E8E8E">MIT · powered by nylas.com</text>
+</svg>
