@@ -316,7 +316,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 		expect(screen.getByText('Select a conversation')).toBeInTheDocument()
 	})
 
-	it('sorts threads newest-first and surfaces an unread count badge', () => {
+	it('sorts threads newest-first and surfaces the authoritative folder unread count badge', () => {
 		render(
 			<MailFolderRouteScreen
 				threads={[
@@ -324,7 +324,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 					thread({ id: 'newer', subject: 'Newer', latest_message_received_date: 200, unread: true }),
 				]}
 				drafts={[]}
-				folders={[]}
+				folders={[{ id: 'inbox', unread_count: 1 }] as any}
 				folderId="inbox"
 				nextCursor={undefined}
 			/>,
@@ -333,8 +333,21 @@ describe('MailFolderRouteScreen — thread list', () => {
 		// Newest thread renders before the older one.
 		expect(links[0]).toHaveTextContent('Newer')
 		expect(links[1]).toHaveTextContent('Older')
-		// One unread thread -> badge of "1".
+		// The folder's authoritative unread count drives the badge.
 		expect(screen.getByText('1')).toBeInTheDocument()
+	})
+
+	it('uses the server folder count when the loaded page is incomplete', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1', unread: true })]}
+				drafts={[]}
+				folders={[{ id: 'inbox', unread_count: 31 }] as any}
+				folderId="inbox"
+				nextCursor="next-page"
+			/>,
+		)
+		expect(screen.getByText('31')).toBeInTheDocument()
 	})
 
 	it('renders attachment, multi-message, label, and unknown-sender affordances', () => {

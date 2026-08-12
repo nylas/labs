@@ -105,6 +105,56 @@ describe('server state synchronization', () => {
 		expect(invalidate).toHaveBeenCalledWith({ refetchType: 'active' })
 	})
 
+	it('revalidates active mail queries after a mail version change', async () => {
+		routerState.pathname = '/mail/f/inbox'
+		vi.useFakeTimers()
+		vi.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 1 } })))
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+
+		const view = render(
+			<OwnmailQueryProvider>
+				<div>mail</div>
+			</OwnmailQueryProvider>,
+		)
+		await act(async () => {})
+		await act(async () => vi.advanceTimersByTimeAsync(10_000))
+		await act(async () => vi.advanceTimersByTimeAsync(5_000))
+
+		const mailInvalidations = invalidate.mock.calls.filter(
+			([options]) => options?.predicate?.({ queryKey: ['mail'] } as never) === true,
+		)
+		expect(mailInvalidations).toHaveLength(3)
+		view.unmount()
+	})
+
+	it('does not run delayed mail revalidation in a hidden tab', async () => {
+		routerState.pathname = '/mail/f/inbox'
+		vi.useFakeTimers()
+		const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+		vi.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 1 } })))
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+
+		const view = render(
+			<OwnmailQueryProvider>
+				<div>mail</div>
+			</OwnmailQueryProvider>,
+		)
+		await act(async () => {})
+		await act(async () => vi.advanceTimersByTimeAsync(10_000))
+		visibility.mockReturnValue('hidden')
+		await act(async () => vi.advanceTimersByTimeAsync(5_000))
+
+		const mailInvalidations = invalidate.mock.calls.filter(
+			([options]) => options?.predicate?.({ queryKey: ['mail'] } as never) === true,
+		)
+		expect(mailInvalidations).toHaveLength(1)
+		view.unmount()
+	})
+
 	it('skips unrelated routes, hidden tabs, malformed responses, and transient failures', async () => {
 		routerState.pathname = '/settings'
 		const fetchMock = vi.spyOn(globalThis, 'fetch')

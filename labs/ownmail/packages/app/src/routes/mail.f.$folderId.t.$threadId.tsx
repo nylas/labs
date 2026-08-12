@@ -26,6 +26,7 @@ import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import { threadDetailQueryOptions, toMailThreadDetail } from '#features/mail/state/mail-queries'
 import { getThreadMessages } from '#server/fns'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
+import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -87,6 +88,16 @@ function ThreadView() {
 	const [error, setError] = useState<string | null>(null)
 	const [starred, setStarred] = useState(thread.starred)
 	const [pendingAction, setPendingAction] = useState<PendingThreadAction | null>(null)
+	const goBackToList = useCallback(
+		() =>
+			navigate({
+				to: '/mail/f/$folderId',
+				params: { folderId },
+				search: baseFolderId ? { baseFolderId } : {},
+			}),
+		[baseFolderId, folderId, navigate],
+	)
+	const swipeHandlers = useHorizontalSwipe(goBackToList)
 	const lastMessage = messages.at(-1)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	const reply = useCallback(() => {
@@ -208,17 +219,15 @@ function ThreadView() {
 	}, [markedRead, queryClient, thread, threadId])
 
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+		<div
+			{...swipeHandlers}
+			data-testid="thread-reader"
+			className="flex min-h-0 min-w-0 flex-1 touch-pan-y flex-col bg-background"
+		>
 			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
 				<button
 					type="button"
-					onClick={() =>
-						navigate({
-							to: '/mail/f/$folderId',
-							params: { folderId },
-							search: baseFolderId ? { baseFolderId } : {},
-						})
-					}
+					onClick={goBackToList}
 					aria-label="Back to list"
 					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
 				>

@@ -186,7 +186,7 @@ function SettingsPage() {
 		}).format(new Date())
 
 	return (
-		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
 				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
