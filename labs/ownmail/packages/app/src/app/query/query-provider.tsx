@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 
 const VERSION_POLL_INTERVAL_MS = 10_000
 const FALLBACK_REFRESH_INTERVAL_MS = 60_000
+const MAIL_REVALIDATION_DELAYS_MS = [1_500, 5_000]
 
 type DomainVersions = {
 	mail: number
@@ -53,6 +54,29 @@ function ServerStateSync() {
 		let stopped = false
 		let previous: DomainVersions | null = null
 		let lastFallbackRefresh = 0
+		let mailRevalidationTimers: number[] = []
+
+		function clearMailRevalidations() {
+			for (const timer of mailRevalidationTimers) window.clearTimeout(timer)
+			mailRevalidationTimers = []
+		}
+
+		function invalidateMailQueries() {
+			return queryClient.invalidateQueries({
+				predicate: (query) => query.queryKey[0] === 'mail',
+				refetchType: 'active',
+			})
+		}
+
+		function scheduleMailRevalidations() {
+			clearMailRevalidations()
+			mailRevalidationTimers = MAIL_REVALIDATION_DELAYS_MS.map((delay) =>
+				window.setTimeout(() => {
+					if (stopped || document.visibilityState !== 'visible') return
+					void invalidateMailQueries()
+				}, delay),
+			)
+		}
 
 		async function sync() {
 			if (stopped || document.visibilityState !== 'visible') return
@@ -73,10 +97,15 @@ function ServerStateSync() {
 				} else {
 					for (const domain of ['mail', 'contacts', 'calendar'] as const) {
 						if (next[domain] === previous[domain]) continue
-						await queryClient.invalidateQueries({
-							predicate: (query) => query.queryKey[0] === domain,
-							refetchType: 'active',
-						})
+						if (domain === 'mail') {
+							await invalidateMailQueries()
+							scheduleMailRevalidations()
+						} else {
+							await queryClient.invalidateQueries({
+								predicate: (query) => query.queryKey[0] === domain,
+								refetchType: 'active',
+							})
+						}
 					}
 				}
 				if (now - lastFallbackRefresh >= FALLBACK_REFRESH_INTERVAL_MS) {
@@ -94,6 +123,7 @@ function ServerStateSync() {
 		return () => {
 			stopped = true
 			window.clearInterval(timer)
+			clearMailRevalidations()
 		}
 	}, [pathname, queryClient])
 	return null

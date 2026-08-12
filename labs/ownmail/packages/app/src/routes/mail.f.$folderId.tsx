@@ -6,6 +6,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
 import {
 	draftRecipientName,
+	folderCount,
 	mailFolderTitle,
 	readableSnippet,
 	threadTimestamp,
@@ -191,7 +192,7 @@ export function MailFolderRouteScreen({
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
-	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
+	const unreadCount = folderCount(folders, folderId)
 
 	// The keyboard cursor walks a flat list of the rows actually on screen —
 	// drafts in the drafts folder, otherwise the sorted threads — so `j`/`k`

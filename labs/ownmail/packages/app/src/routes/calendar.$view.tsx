@@ -168,7 +168,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				: anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
 	return (
-		<div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
 			<div className={CHROME_ROW_SHELL_CLASS}>
 				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header

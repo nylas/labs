@@ -584,6 +584,49 @@ describe('toolbar actions', () => {
 		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ search: { baseFolderId: 'starred' } }))
 		expect(navigate.mock.calls.every(([arg]) => !('mask' in arg))).toBe(true)
 	})
+
+	it('navigates back to the list after a deliberate rightward reader swipe', () => {
+		renderThread(loaderData(), { baseFolderId: 'starred' })
+		const reader = screen.getByTestId('thread-reader')
+		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 90, clientY: 55 }] })
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: '/mail/f/$folderId',
+				params: { folderId: 'inbox' },
+				search: { baseFolderId: 'starred' },
+			}),
+		)
+	})
+
+	it('ignores short, vertical, and interactive-control reader swipes', () => {
+		renderThread()
+		const reader = screen.getByTestId('thread-reader')
+		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 60, clientY: 52 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 180 }] })
+		const back = screen.getByRole('button', { name: 'Back to list' })
+		fireEvent.touchStart(back, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchEnd(back, { changedTouches: [{ clientX: 100, clientY: 52 }] })
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('cancels incomplete and multi-touch reader swipes', () => {
+		renderThread()
+		const reader = screen.getByTestId('thread-reader')
+		fireEvent.touchStart(reader, {
+			touches: [
+				{ clientX: 10, clientY: 50 },
+				{ clientX: 20, clientY: 50 },
+			],
+		})
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 50 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchCancel(reader)
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 50 }] })
+		expect(navigate).not.toHaveBeenCalled()
+	})
 })
 
 // --- error handling -----------------------------------------------------
