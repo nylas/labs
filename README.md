@@ -1,10 +1,10 @@
-<img src="./assets/backoffice-banner.svg" alt="Nylas Backoffice — operations for every workspace" width="100%" />
+<img src="./assets/banner.svg" alt="Nylas Labs — tomorrow's products, shipped in public" width="100%" />
 
-# Nylas Backoffice
+# Nylas Labs
 
-Nylas Backoffice is an internal operations workspace for inspecting and managing
-the accounts, integrations, and workflows that power Nylas products. This
-repository contains the project source, shared tooling, and supporting labs.
+Open-source experiments for developers who would rather build the next thing
+than wait for the perfect starting point. Each lab is built on Nylas APIs,
+ready to inspect, adapt, and take somewhere interesting.
 
 ## Current Projects
 
