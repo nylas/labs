@@ -149,10 +149,16 @@ describe('/mail loader + layout', () => {
 		getMailboxInfo.mockResolvedValue(info)
 		getFolders.mockResolvedValue([{ id: 'inbox' }] as Folder[])
 
-		const data = await Route.options.loader()
+		const queryClient = new QueryClient()
+		const data = await Route.options.loader({ context: { queryClient } })
 
 		expect(data.info).toEqual(info)
 		expect(data.folders).toEqual([{ id: 'inbox' }])
+
+		vi.clearAllMocks()
+		await Route.options.loader({ context: { queryClient } })
+		expect(getMailboxInfo).not.toHaveBeenCalled()
+		expect(getFolders).not.toHaveBeenCalled()
 	})
 
 	it('renders the shell from loader data (logo, rail, sidebar)', () => {

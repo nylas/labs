@@ -1,3 +1,4 @@
+import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
@@ -23,7 +24,11 @@ import {
 } from '#features/mail/lib/mail-ui-model'
 import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
 import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
-import { threadDetailQueryOptions, toMailThreadDetail } from '#features/mail/state/mail-queries'
+import {
+	type MailThreadDetail,
+	threadDetailQueryOptions,
+	toMailThreadDetail,
+} from '#features/mail/state/mail-queries'
 import { getThreadMessages } from '#server/fns'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
@@ -33,11 +38,28 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
 		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
 	}),
-	loader: async ({ params }) => getThreadMessages({ data: { threadId: params.threadId } }),
+	loader: async ({ context, params }) =>
+		context.queryClient.ensureQueryData(
+			threadDetailQueryOptions(params.threadId, (threadId) => getThreadMessages({ data: { threadId } })),
+		),
 	component: ThreadView,
 })
 
 type PendingThreadAction = 'archive' | 'delete' | 'star' | 'unread'
+
+function normalizeInitialThreadDetail(
+	detail:
+		| MailThreadDetail
+		| {
+				thread: Thread
+				messages: Message[]
+				mailboxEmail: string
+				markedRead?: boolean
+				ownmailDraftMessageIds?: string[]
+		  },
+): MailThreadDetail {
+	return 'ownmailDraftMessageIds' in detail ? toMailThreadDetail(detail) : detail
+}
 
 const REPLY_SHORTCUT_INTERACTIVE_SELECTOR = [
 	'input',
@@ -80,7 +102,7 @@ function ThreadView() {
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
 			(id) => getThreadMessages({ data: { threadId: id } }),
 		),
-		initialData: toMailThreadDetail(initialDetail),
+		initialData: normalizeInitialThreadDetail(initialDetail),
 	})
 	const { thread, messages, mailboxEmail, markedRead } = detail
 	const updateThread = useUpdateThreadMutation()

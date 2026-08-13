@@ -1,12 +1,19 @@
 /// <reference types="vite/client" />
-import { createRootRoute, HeadContent, Link, Outlet, Scripts, useRouterState } from '@tanstack/react-router'
+import {
+	createRootRouteWithContext,
+	HeadContent,
+	Link,
+	Outlet,
+	Scripts,
+	useRouterState,
+} from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
-import { OwnmailQueryProvider } from '#app/query/query-provider'
+import type { OwnmailRouterContext } from '#app/query/query-provider'
 import { platform } from '#server/platform'
 import { DEFAULT_SITE_NAME, siteNameFromEnv } from '#server/site-config'
 import appCss from '../styles.css?url'
@@ -16,8 +23,9 @@ const rootState = createServerFn({ method: 'GET' }).handler(async () => {
 	return { siteName: siteNameFromEnv(env) }
 })
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<OwnmailRouterContext>()({
 	loader: async () => rootState(),
+	staleTime: Number.POSITIVE_INFINITY,
 	head: (context) => {
 		const siteName = context?.loaderData?.siteName ?? DEFAULT_SITE_NAME
 		const { title, description } = appMeta(siteName)
@@ -113,9 +121,7 @@ function RootComponent() {
 			</head>
 			<body suppressHydrationWarning>
 				<NavigationProgress />
-				<OwnmailQueryProvider>
-					<Outlet />
-				</OwnmailQueryProvider>
+				<Outlet />
 				<Scripts />
 			</body>
 		</html>

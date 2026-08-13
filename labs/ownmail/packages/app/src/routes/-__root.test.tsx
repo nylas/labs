@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const routerState = vi.hoisted(() => ({ isLoading: false }))
 
 vi.mock('@tanstack/react-router', () => ({
-	createRootRoute: (opts: any) => ({ options: opts }),
+	createRootRouteWithContext: () => (opts: any) => ({ options: opts }),
 	HeadContent: () => null,
 	Outlet: () => null,
 	Scripts: () => null,

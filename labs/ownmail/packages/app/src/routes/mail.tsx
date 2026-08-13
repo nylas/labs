@@ -1,5 +1,5 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
@@ -19,17 +19,27 @@ import {
 	liveSearchTarget,
 	mailSearchInputValue,
 } from '#features/mail/lib/mail-ui-model'
-import { foldersQueryOptions, toMailFolder } from '#features/mail/state/mail-queries'
+import { foldersQueryOptions } from '#features/mail/state/mail-queries'
 import { getFolders, getMailboxInfo } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { cn } from '#shared/lib/utils'
 
+const mailboxInfoQueryOptions = () =>
+	queryOptions({
+		queryKey: ['account', 'mailbox-info'] as const,
+		queryFn: () => getMailboxInfo(),
+		staleTime: Number.POSITIVE_INFINITY,
+	})
+
 export const Route = createFileRoute('/mail')({
-	loader: async () => {
-		const [info, folders] = await Promise.all([getMailboxInfo(), getFolders()])
+	loader: async ({ context }) => {
+		const [info, folders] = await Promise.all([
+			context.queryClient.ensureQueryData(mailboxInfoQueryOptions()),
+			context.queryClient.ensureQueryData(foldersQueryOptions(() => getFolders())),
+		])
 		return { info, folders }
 	},
-	staleTime: 30_000,
+	staleTime: Number.POSITIVE_INFINITY,
 	component: MailLayout,
 })
 
@@ -44,7 +54,7 @@ function MailLayout() {
 	const { info, folders: initialFolders } = Route.useLoaderData()
 	const { data: folders } = useQuery({
 		...foldersQueryOptions(() => getFolders()),
-		initialData: initialFolders.map(toMailFolder),
+		initialData: initialFolders,
 	})
 	return <MailRouteScreen info={info} folders={folders} />
 }

@@ -21,6 +21,8 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 	useNavigate: () => navigate,
 	useRouter: () => ({ invalidate }),
+	useRouterState: (opts: any) => opts.select({ location: { pathname: '/mail/compose' }, matches: [] }),
+	Outlet: () => null,
 }))
 
 vi.mock('@tanstack/react-start', () => ({
@@ -33,6 +35,7 @@ const getDraft = vi.fn()
 const getFolders = vi.fn()
 const getThreads = vi.fn()
 const getThreadMessages = vi.fn()
+const listDrafts = vi.fn()
 const saveDraft = vi.fn()
 const saveComposeRecipients = vi.fn()
 const sendDraft = vi.fn()
@@ -45,6 +48,7 @@ vi.mock('#server/fns', () => ({
 	getFolders: (a: any) => getFolders(a),
 	getThreads: (a: any) => getThreads(a),
 	getThreadMessages: (a: any) => getThreadMessages(a),
+	listDrafts: () => listDrafts(),
 	saveDraft: (a: any) => saveDraft(a),
 	saveComposeRecipients: (a: any) => saveComposeRecipients(a),
 	sendDraft: (a: any) => sendDraft(a),
@@ -123,6 +127,7 @@ beforeEach(() => {
 	getFolders.mockResolvedValue([])
 	getDraft.mockResolvedValue(null)
 	getThreadMessages.mockResolvedValue(null)
+	listDrafts.mockResolvedValue([])
 	saveDraft.mockResolvedValue({ draftId: 'new-draft', created: true })
 	saveComposeRecipients.mockResolvedValue({ contacts: [] })
 	sendDraft.mockResolvedValue({ removedDraftId: 'new-draft' })
@@ -200,6 +205,13 @@ function fileInput(container: HTMLElement) {
 	return container.querySelector('input[type="file"]') as HTMLInputElement
 }
 
+function runComposeLoader(deps: Record<string, string | undefined>) {
+	return Route.options.loader({
+		context: { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+		deps,
+	})
+}
+
 describe('mail.compose validateSearch', () => {
 	it('keeps only well-typed search params and drops oversized bodies to bound the URL', () => {
 		const result = Route.options.validateSearch({
@@ -250,41 +262,44 @@ describe('mail.compose loader', () => {
 		expect(Route.options.loaderDeps({ search })).toEqual(search)
 	})
 
-	it('loads folders and inbox threads with no draft, thread, or reply when the URL is bare', async () => {
+	it('opens a blank composer without blocking on mailbox network requests', async () => {
 		getFolders.mockResolvedValue([{ id: 'inbox' }])
 		getThreads.mockResolvedValue({ threads: [makeThread()] })
 
-		const data = await Route.options.loader({ deps: {} })
+		const data = await runComposeLoader({})
 
-		expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'inbox' } })
+		expect(getFolders).not.toHaveBeenCalled()
+		expect(getThreads).not.toHaveBeenCalled()
 		expect(getDraft).not.toHaveBeenCalled()
 		expect(getThreadMessages).not.toHaveBeenCalled()
 		expect(data.folderId).toBe('inbox')
 		expect(data.draft).toBeNull()
-		expect(data.selected).toBeNull()
 		expect(data.reply).toBeNull()
-		expect(data.threads).toHaveLength(1)
 	})
 
-	it('queries starred threads by the starred flag rather than a folder id', async () => {
-		await Route.options.loader({ deps: { folderId: 'starred' } })
-		expect(getThreads).toHaveBeenCalledWith({ data: { starred: true } })
+	it('does not block starred-folder compose on a thread-list request', async () => {
+		const data = await runComposeLoader({ folderId: 'starred' })
+		expect(data.folderId).toBe('starred')
+		expect(getThreads).not.toHaveBeenCalled()
 	})
 
-	it('fetches the referenced draft and selected thread so the composer can prefill them', async () => {
+	it('awaits an explicitly requested draft but leaves backdrop detail to the query cache', async () => {
 		getDraft.mockResolvedValue({ id: 'd0' })
 		getThreadMessages.mockResolvedValue({ thread: makeThread(), messages: [], mailboxEmail: 'me@x.com' })
 
-		const data = await Route.options.loader({ deps: { draft: 'd0', threadId: 't1', folderId: 'archive' } })
+		const data = await runComposeLoader({ draft: 'd0', threadId: 't1', folderId: 'archive' })
 
 		expect(getDraft).toHaveBeenCalledWith({ data: { draftId: 'd0' } })
-		expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } })
-		expect(data.selected?.mailboxEmail).toBe('me@x.com')
+		expect(getThreadMessages).not.toHaveBeenCalled()
+		expect(data.draft?.id).toBe('d0')
 	})
 
 	it('builds a reply payload that carries the reply-to message id when replying', async () => {
-		const data = await Route.options.loader({
-			deps: { replyToMessageId: 'm9', to: 'a@b.com', subject: 'Re: Hi', body: 'quoted' },
+		const data = await runComposeLoader({
+			replyToMessageId: 'm9',
+			to: 'a@b.com',
+			subject: 'Re: Hi',
+			body: 'quoted',
 		})
 		expect(data.reply).toEqual({
 			to: 'a@b.com',
@@ -295,25 +310,25 @@ describe('mail.compose loader', () => {
 	})
 
 	it('builds a reply payload from a prefilled to/subject/body even without a reply-to id', async () => {
-		const data = await Route.options.loader({ deps: { subject: 'Fwd: Hi', body: 'forwarded' } })
+		const data = await runComposeLoader({ subject: 'Fwd: Hi', body: 'forwarded' })
 		expect(data.reply).toEqual({ to: '', subject: 'Fwd: Hi', body: 'forwarded' })
 	})
 
 	it('defaults every reply field to empty when only a reply-to id survives validation', async () => {
 		// A reply-to id with no accompanying to/subject/body must still yield a well-formed
 		// payload rather than leaking undefined fields into the composer state.
-		const data = await Route.options.loader({ deps: { replyToMessageId: 'm9' } })
+		const data = await runComposeLoader({ replyToMessageId: 'm9' })
 		expect(data.reply).toEqual({ to: '', subject: '', body: '', replyToMessageId: 'm9' })
 	})
 
 	it('builds a prefill payload from a lone recipient, defaulting the subject and body', async () => {
-		const data = await Route.options.loader({ deps: { to: 'x@y.com' } })
+		const data = await runComposeLoader({ to: 'x@y.com' })
 		expect(data.reply).toEqual({ to: 'x@y.com', subject: '', body: '' })
 	})
 
 	it('builds a prefill payload from a lone body, defaulting the recipient and subject', async () => {
 		// Only body is present: the to/subject fall through the || chain and default to ''.
-		const data = await Route.options.loader({ deps: { body: 'just a body' } })
+		const data = await runComposeLoader({ body: 'just a body' })
 		expect(data.reply).toEqual({ to: '', subject: '', body: 'just a body' })
 	})
 })
@@ -442,6 +457,50 @@ describe('mail.compose initial focus', () => {
 })
 
 describe('mail.compose thread list', () => {
+	it('keeps the composer and draft context open when a backdrop thread is selected', () => {
+		renderCompose({
+			loader: {
+				threads: [makeThread({ id: 't-backdrop', subject: 'Backdrop thread' })],
+				reply: { to: 'ada@example.com', subject: 'Draft subject', body: 'Draft body' },
+			},
+			search: { to: 'ada@example.com', subject: 'Draft subject', body: 'Draft body' },
+		})
+		const row = screen.getByText('Backdrop thread').closest('a')
+
+		expect(row).toHaveAttribute('data-to', '/mail/compose')
+		expect(JSON.parse(row?.getAttribute('data-search') ?? '{}')).toEqual({
+			folderId: 'inbox',
+			threadId: 't-backdrop',
+			to: 'ada@example.com',
+			subject: 'Draft subject',
+			body: 'Draft body',
+		})
+	})
+
+	it('renders the canonical drafts list in the compose backdrop', async () => {
+		listDrafts.mockResolvedValue([
+			{ id: 'd-backdrop', to: [{ email: 'draft@example.com' }], subject: 'Saved draft' },
+		])
+		renderCompose({ loader: { folderId: 'drafts' } })
+
+		expect(await screen.findByText('Saved draft')).toBeInTheDocument()
+		expect(getThreads).not.toHaveBeenCalled()
+	})
+
+	it('loads another cached-list page without routing through an SSR loader', async () => {
+		getThreads
+			.mockResolvedValueOnce({ threads: [makeThread()], nextCursor: 'next-page' })
+			.mockResolvedValueOnce({ threads: [], nextCursor: undefined })
+		renderCompose()
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Load more messages' }))
+		await waitFor(() =>
+			expect(getThreads).toHaveBeenLastCalledWith({
+				data: { folderId: 'inbox', pageToken: 'next-page' },
+			}),
+		)
+	})
+
 	it('uses the starred cache key for the starred pseudo-folder', () => {
 		renderCompose({ loader: { folderId: 'starred' } })
 
@@ -458,7 +517,7 @@ describe('mail.compose thread list', () => {
 			subject: 'Rich thread',
 			folders: ['work'],
 		})
-		renderCompose({ loader: { threads: [unread] } })
+		renderCompose({ loader: { threads: [unread], folders: [{ id: 'inbox', unread_count: 1 }] } })
 
 		expect(screen.getByText('Rich thread')).toBeInTheDocument()
 		expect(screen.getByText('(2)')).toBeInTheDocument()
@@ -948,6 +1007,7 @@ describe('mail.compose selected backdrop', () => {
 		renderCompose({
 			loader: {
 				threads: [active, unread],
+				folders: [{ id: 'inbox', unread_count: 1 }],
 				selected: { thread: active, messages: [makeMessage()], mailboxEmail: 'me@x.com' },
 			},
 		})

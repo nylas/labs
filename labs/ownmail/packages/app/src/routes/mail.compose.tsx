@@ -1,6 +1,5 @@
-import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
 	Archive,
 	Forward,
@@ -22,14 +21,12 @@ import { useUserPreferences } from '#app/preferences/user-preferences'
 import { applyContactEffect } from '#features/contacts/state/contacts-state'
 import { MarkdownEditor } from '#features/mail/components/MarkdownEditor'
 import { formatSize, ThreadConversation } from '#features/mail/components/ThreadConversation'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
 import { markdownToDraftBody, seedToMarkdown } from '#features/mail/lib/html-to-markdown'
 import {
 	composeBackdropListSearch,
 	composeBackdropReplySearch,
 	composeBackdropThreadSearch,
 	forwardDraftSearch,
-	mailFolderTitle,
 	replyAllDraftSearch,
 	STAR_FILLED_CLASS,
 	shouldUseBrowserBackForComposeClose,
@@ -46,17 +43,30 @@ import {
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
+	draftQueryOptions,
+	draftsQueryOptions,
 	foldersQueryOptions,
+	type MailDraft,
+	type MailMessage,
+	type MailThread,
 	threadDetailQueryOptions,
 	threadListQueryOptions,
 	toMailFolder,
 	toMailThread,
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
-import { getDraft, getFolders, getThreadMessages, getThreads, saveComposeRecipients } from '#server/fns'
+import {
+	getDraft,
+	getFolders,
+	getThreadMessages,
+	getThreads,
+	listDrafts,
+	saveComposeRecipients,
+} from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
 import { cn } from '#shared/lib/utils'
+import { MailFolderRouteScreen } from './mail.f.$folderId.js'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 const MAX_COMPOSE_ATTACHMENTS = 10
@@ -133,20 +143,15 @@ export const Route = createFileRoute('/mail/compose')({
 		body: search.body,
 		replyToMessageId: search.replyToMessageId,
 	}),
-	loader: async ({ deps }) => {
+	loader: async ({ context, deps }) => {
 		const folderId = deps.folderId ?? 'inbox'
-		const threadQuery = folderId === 'starred' ? { starred: true } : { folderId }
-		const [draft, folders, threads, selected] = await Promise.all([
-			deps.draft ? getDraft({ data: { draftId: deps.draft } }) : null,
-			getFolders(),
-			getThreads({ data: threadQuery }),
-			deps.threadId ? getThreadMessages({ data: { threadId: deps.threadId } }) : null,
-		])
+		const draft = deps.draft
+			? await context.queryClient.ensureQueryData(
+					draftQueryOptions(deps.draft, (draftId) => getDraft({ data: { draftId } })),
+				)
+			: null
 		return {
 			draft,
-			folders,
-			threads: threads.threads,
-			selected,
 			folderId,
 			reply: deps.replyToMessageId
 				? {
@@ -165,6 +170,13 @@ export const Route = createFileRoute('/mail/compose')({
 
 function Compose() {
 	const initial = Route.useLoaderData()
+	// Compatibility for server-rendered and preloaded route data while the query
+	// cache remains the source of truth for client navigation.
+	const initialBackdrop = initial as typeof initial & {
+		folders?: Awaited<ReturnType<typeof getFolders>>
+		threads?: Awaited<ReturnType<typeof getThreads>>['threads']
+		selected?: Awaited<ReturnType<typeof getThreadMessages>> | null
+	}
 	const { draft, folderId, reply } = initial
 	const search = Route.useSearch()
 	const navigate = useNavigate()
@@ -176,29 +188,38 @@ function Compose() {
 	const threadFilters = folderId === 'starred' ? { starred: true } : { folderId }
 	const foldersQuery = useQuery({
 		...foldersQueryOptions(() => getFolders()),
-		initialData: initial.folders.map(toMailFolder),
+		...(initialBackdrop.folders?.length ? { initialData: initialBackdrop.folders.map(toMailFolder) } : {}),
+	})
+	const draftsQuery = useQuery({
+		...draftsQueryOptions(() => listDrafts()),
+		enabled: folderId === 'drafts',
 	})
 	const threadsQuery = useInfiniteQuery({
 		...threadListQueryOptions(threadFilters, (input) => getThreads({ data: input })),
-		initialData: {
-			pages: [{ threads: initial.threads.map(toMailThread) }],
-			pageParams: [undefined],
-		},
+		...(initialBackdrop.threads?.length
+			? {
+					initialData: {
+						pages: [{ threads: initialBackdrop.threads.map(toMailThread) }],
+						pageParams: [undefined],
+					},
+				}
+			: {}),
+		enabled: folderId !== 'drafts',
 	})
 	const selectedQuery = useQuery({
 		...threadDetailQueryOptions(search.threadId ?? '__no-compose-thread__', (id) =>
 			getThreadMessages({ data: { threadId: id } }),
 		),
-		...(initial.selected ? { initialData: toMailThreadDetail(initial.selected) } : {}),
+		...(initialBackdrop.selected ? { initialData: toMailThreadDetail(initialBackdrop.selected) } : {}),
 		enabled: Boolean(search.threadId),
 	})
-	const folders = foldersQuery.data
+	const folders = foldersQuery.data ?? []
 	const threads = [
 		...new Map(
-			threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
+			(threadsQuery.data?.pages ?? []).flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
 		).values(),
-	] as Thread[]
-	const selected = selectedQuery.data as typeof initial.selected
+	] as MailThread[]
+	const selected = selectedQuery.data
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
@@ -252,18 +273,6 @@ function Compose() {
 	useEffect(() => {
 		setBody(seedToMarkdown(draftBody))
 	}, [draftBody])
-	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
-	const folderTitle = mailFolderTitle(folderId, folders)
-	const composeThreadSearch = (threadId: string) =>
-		composeBackdropThreadSearch({
-			folderId,
-			threadId,
-			...(draftId ? { draftId } : {}),
-			...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
-			...(search.to ? { to: search.to } : {}),
-			...(search.subject ? { subject: search.subject } : {}),
-			...(search.body ? { body: search.body } : {}),
-		})
 	const composeListSearch = useCallback(
 		() =>
 			composeBackdropListSearch({
@@ -276,15 +285,21 @@ function Compose() {
 			}),
 		[draftId, folderId, search.body, search.replyToMessageId, search.subject, search.to],
 	)
+	const composeThreadSearch = useCallback(
+		(threadId: string) =>
+			composeBackdropThreadSearch({
+				folderId,
+				threadId,
+				...(draftId ? { draftId } : {}),
+				...(search.replyToMessageId ? { replyToMessageId: search.replyToMessageId } : {}),
+				...(search.to ? { to: search.to } : {}),
+				...(search.subject ? { subject: search.subject } : {}),
+				...(search.body ? { body: search.body } : {}),
+			}),
+		[draftId, folderId, search.body, search.replyToMessageId, search.subject, search.to],
+	)
 
-	async function toggleBackdropRowStar(
-		thread: Awaited<ReturnType<typeof getThreads>>['threads'][number],
-		starred: boolean,
-	) {
-		await updateThread.mutateAsync({ threadId: thread.id, starred })
-	}
-
-	function replyFromBackdrop(thread: Thread, messages: Message[]) {
+	function replyFromBackdrop(thread: MailThread, messages: MailMessage[]) {
 		const message = messages.at(-1)
 		if (!message) return
 		const replySearch = composeBackdropReplySearch({ folderId, threadId: thread.id, message })
@@ -303,7 +318,7 @@ function Compose() {
 		})
 	}
 
-	function replyAllFromBackdrop(thread: Thread, messages: Message[], mailboxEmail: string) {
+	function replyAllFromBackdrop(thread: MailThread, messages: MailMessage[], mailboxEmail: string) {
 		const message = messages.at(-1)
 		if (!message) return
 		const replySearch = composeBackdropThreadSearch({
@@ -323,7 +338,7 @@ function Compose() {
 		navigate({ to: '/mail/compose', search: replySearch })
 	}
 
-	function forwardFromBackdrop(thread: Thread, messages: Message[]) {
+	function forwardFromBackdrop(thread: MailThread, messages: MailMessage[]) {
 		const message = messages.at(-1)
 		if (!message) return
 		const forwardSearch = composeBackdropThreadSearch({
@@ -680,84 +695,35 @@ function Compose() {
 
 	return (
 		<>
-			{selected ? (
-				<>
-					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none">
-						<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-							<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
-							{unreadCount > 0 ? (
-								<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-									{unreadCount}
-								</span>
-							) : null}
-						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto">
-							{sortedThreads.map((thread) => (
-								<ComposeThreadRow
-									key={thread.id}
-									thread={thread}
-									folderId={folderId}
-									search={composeThreadSearch(thread.id)}
-									onToggleStar={(starred) => toggleBackdropRowStar(thread, starred)}
-									active={selected.thread.id === thread.id}
-								/>
-							))}
-						</div>
-					</section>
-					<section className="hidden min-w-0 flex-1 bg-background md:flex">
-						<ComposeThreadBackdrop
-							key={JSON.stringify([selected.thread.id, composeListSearch()])}
-							thread={selected.thread}
-							messages={selected.messages}
-							isArchived={selectedThreadIsArchived}
-							onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
-							onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
-							onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
-							onReplyAll={() =>
-								replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)
-							}
-							onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
-						/>
-					</section>
-				</>
-			) : (
-				<>
-					<section className="h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none">
-						<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-							<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
-							{unreadCount > 0 ? (
-								<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-									{unreadCount}
-								</span>
-							) : null}
-						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto">
-							{sortedThreads.map((thread) => (
-								<ComposeThreadRow
-									key={thread.id}
-									thread={thread}
-									folderId={folderId}
-									search={composeThreadSearch(thread.id)}
-									onToggleStar={(starred) => toggleBackdropRowStar(thread, starred)}
-								/>
-							))}
-						</div>
-					</section>
-					<section className="hidden min-w-0 flex-1 flex-col bg-background md:flex">
-						<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
-							<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
-								<Reply className="h-6 w-6" />
-							</div>
-							<div>
-								<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
-								<p className="mt-1 text-sm text-muted-foreground">
-									Choose a message from the list to read it here.
-								</p>
-							</div>
-						</div>
-					</section>
-				</>
-			)}
+			<MailFolderRouteScreen
+				threads={sortedThreads}
+				drafts={(draftsQuery.data ?? []) as MailDraft[]}
+				folders={folders}
+				folderId={folderId}
+				nextCursor={threadsQuery.data?.pages.at(-1)?.nextCursor}
+				loadingMore={threadsQuery.isFetchingNextPage}
+				loadMoreError={threadsQuery.isFetchNextPageError}
+				activeThreadId={selected?.thread.id}
+				composeThreadSearch={composeThreadSearch}
+				onLoadMore={async () => {
+					await threadsQuery.fetchNextPage({ cancelRefetch: false })
+				}}
+				onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
+			>
+				{selected ? (
+					<ComposeThreadBackdrop
+						key={JSON.stringify([selected.thread.id, composeListSearch()])}
+						thread={selected.thread}
+						messages={selected.messages}
+						isArchived={selectedThreadIsArchived}
+						onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
+						onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
+						onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
+						onReplyAll={() => replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)}
+						onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
+					/>
+				) : null}
+			</MailFolderRouteScreen>
 			<div
 				ref={composePanelRef}
 				aria-busy={busy || attaching || closing || savingDraft}
@@ -935,61 +901,6 @@ function Compose() {
 	)
 }
 
-function ComposeThreadRow({
-	thread,
-	folderId,
-	search,
-	onToggleStar,
-	active,
-}: {
-	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
-	folderId: string
-	search: ReturnType<typeof composeBackdropThreadSearch>
-	onToggleStar: (starred: boolean) => Promise<void>
-	active?: boolean
-}) {
-	const [starred, setStarred] = useState(thread.starred)
-	const [starPending, setStarPending] = useState(false)
-
-	useEffect(() => {
-		setStarred(thread.starred)
-	}, [thread.starred])
-
-	async function toggleStar() {
-		/* v8 ignore next -- the star control is disabled while its request is pending -- @preserve */
-		if (starPending) return
-		const nextStarred = !starred
-		setStarred(nextStarred)
-		setStarPending(true)
-		try {
-			await onToggleStar(nextStarred)
-		} catch {
-			/* v8 ignore next -- @preserve a failed optimistic mutation restores the rendered value before re-enabling the control */
-			setStarred(!nextStarred)
-		} finally {
-			setStarPending(false)
-		}
-	}
-	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
-
-	return (
-		<Link
-			to="/mail/compose"
-			search={search}
-			data-active={active ? 'true' : undefined}
-			data-unread={optimisticThread.unread ? 'true' : undefined}
-			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
-		>
-			<ThreadRowContent
-				thread={optimisticThread}
-				folderId={folderId}
-				onToggleStar={toggleStar}
-				starPending={starPending}
-			/>
-		</Link>
-	)
-}
-
 function ComposeThreadBackdrop({
 	thread,
 	messages,
@@ -1000,8 +911,8 @@ function ComposeThreadBackdrop({
 	onReplyAll,
 	onForward,
 }: {
-	thread: Thread
-	messages: Message[]
+	thread: MailThread
+	messages: MailMessage[]
 	isArchived: boolean
 	onUpdate: (input: { starred?: boolean; folder?: string }) => Promise<unknown>
 	onLeave: () => void | Promise<void>
