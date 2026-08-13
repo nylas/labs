@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.12.9
+
+### Patch Changes
+
+- 71cbac7: Fix authenticated mailbox server rendering and isolate compose state when switching backdrop drafts.
+
 ## 0.12.8
 
 ### Patch Changes
