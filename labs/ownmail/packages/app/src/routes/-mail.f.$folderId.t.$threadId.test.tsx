@@ -109,10 +109,33 @@ describe('thread route loader', () => {
 	it('loads the thread using the threadId param so the view opens the right conversation', async () => {
 		getThreadMessages.mockResolvedValue({ thread: { id: 't1' }, messages: [] })
 
-		const data = await Route.options.loader({ params: { folderId: 'inbox', threadId: 't9' } })
+		const data = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
+			params: { folderId: 'inbox', threadId: 't9' },
+		})
 
 		expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't9' } })
 		expect(data).toEqual({ thread: { id: 't1' }, messages: [] })
+	})
+
+	it('reuses a cached thread detail across history navigation', async () => {
+		getThreadMessages.mockResolvedValue({
+			thread: { id: 't9', subject: 'Cached' },
+			messages: [],
+			mailboxEmail: 'me@example.com',
+		})
+		const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })
+		const args = {
+			context: { queryClient },
+			params: { folderId: 'inbox', threadId: 't9' },
+		}
+
+		await Route.options.loader(args)
+		getThreadMessages.mockClear()
+		const restored = await Route.options.loader(args)
+
+		expect(restored.thread.id).toBe('t9')
+		expect(getThreadMessages).not.toHaveBeenCalled()
 	})
 })
 

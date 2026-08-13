@@ -1,5 +1,4 @@
-import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -15,10 +14,10 @@ import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import {
 	draftsQueryOptions,
 	foldersQueryOptions,
+	type MailDraft,
+	type MailThread,
+	type MailThreadPage,
 	threadListQueryOptions,
-	toMailDraft,
-	toMailFolder,
-	toMailThread,
 } from '#features/mail/state/mail-queries'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
 import { ClientListDate } from '#shared/components/ClientTime'
@@ -30,29 +29,37 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
 		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
 	}),
-	loader: async ({ params }) => loadMailFolderData(params.folderId),
+	loader: async ({ context, params }) => loadMailFolderData(params.folderId, context.queryClient),
 	component: FolderView,
 })
 
-export async function loadMailFolderData(folderId: string) {
-	const folders = await getFolders()
+export async function loadMailFolderData(folderId: string, queryClient: QueryClient) {
+	const folders = await queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
 	if (folderId === 'drafts') {
 		return {
-			threads: [] as Thread[],
-			drafts: await listDrafts(),
+			threads: [] as MailThread[],
+			drafts: await queryClient.ensureQueryData(draftsQueryOptions(() => listDrafts())),
 			folders,
 			nextCursor: undefined as string | undefined,
 		}
 	}
-	if (folderId === 'starred') {
-		const res = await getThreads({ data: { starred: true } })
-		return { ...res, drafts: [] as Draft[], folders }
+	const filters = folderId === 'starred' ? { starred: true } : { folderId }
+	const result = await queryClient.ensureInfiniteQueryData(
+		threadListQueryOptions(filters, (input) => getThreads({ data: input })),
+	)
+	const firstPage = result.pages.at(0) as MailThreadPage
+	return {
+		threads: firstPage.threads,
+		nextCursor: firstPage.nextCursor,
+		drafts: [] as MailDraft[],
+		folders,
 	}
-	const res = await getThreads({ data: { folderId } })
-	return { ...res, drafts: [] as Draft[], folders }
 }
 
 type MailFolderRouteData = Awaited<ReturnType<typeof loadMailFolderData>>
+type ComposeThreadSearch = ReturnType<
+	typeof import('#features/mail/lib/mail-ui-model').composeBackdropThreadSearch
+>
 
 function FolderView() {
 	const loaderData = Route.useLoaderData()
@@ -65,14 +72,14 @@ function FolderView() {
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
 			() => getFolders(),
 		),
-		initialData: loaderData.folders.map(toMailFolder),
+		initialData: loaderData.folders,
 	})
 	const draftsQuery = useQuery({
 		...draftsQueryOptions(
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
 			() => listDrafts(),
 		),
-		initialData: loaderData.drafts.map(toMailDraft),
+		initialData: loaderData.drafts,
 		enabled: folderId === 'drafts',
 	})
 	const threadListOptions = useMemo(
@@ -87,7 +94,7 @@ function FolderView() {
 		initialData: {
 			pages: [
 				{
-					threads: loaderData.threads.map(toMailThread),
+					threads: loaderData.threads,
 					...(loaderData.nextCursor ? { nextCursor: loaderData.nextCursor } : {}),
 				},
 			],
@@ -119,8 +126,8 @@ function FolderView() {
 
 	return (
 		<MailFolderRouteScreen
-			threads={threads as Thread[]}
-			drafts={draftsQuery.data as Draft[]}
+			threads={threads}
+			drafts={draftsQuery.data}
 			folders={folderQuery.data as Awaited<ReturnType<typeof getFolders>>}
 			folderId={folderId}
 			baseFolderId={baseFolderId}
@@ -148,6 +155,9 @@ export function MailFolderRouteScreen({
 	loadMoreError: managedLoadMoreError,
 	onLoadMore,
 	onUpdateThread,
+	activeThreadId,
+	composeThreadSearch,
+	children,
 }: MailFolderRouteData & {
 	folderId: string
 	baseFolderId?: string
@@ -155,10 +165,13 @@ export function MailFolderRouteScreen({
 	loadMoreError?: boolean
 	onLoadMore?: () => Promise<void>
 	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
+	activeThreadId?: string
+	composeThreadSearch?: (threadId: string) => ComposeThreadSearch
+	children?: ReactNode
 }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const navigate = useNavigate()
-	const [extraThreads, setExtraThreads] = useState<Thread[]>([])
+	const [extraThreads, setExtraThreads] = useState<MailThread[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
 	const [localLoadingMore, setLocalLoadingMore] = useState(false)
 	const [localLoadMoreError, setLocalLoadMoreError] = useState(false)
@@ -174,7 +187,7 @@ export function MailFolderRouteScreen({
 			generation: folderGenerationRef.current.generation + 1,
 		}
 	}
-	const hasThread = useRouterState({
+	const hasThreadRoute = useRouterState({
 		select: (state) =>
 			state.location.pathname.includes('/t/') ||
 			state.matches.some(
@@ -182,6 +195,7 @@ export function MailFolderRouteScreen({
 				(match) => match.routeId === '/mail/f/$folderId/t/$threadId',
 			),
 	})
+	const hasThread = hasThreadRoute || Boolean(children)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
 	const threads = useMemo(
@@ -343,7 +357,7 @@ export function MailFolderRouteScreen({
 			<section
 				className={cn(
 					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:w-[22rem] md:max-w-[22rem] md:flex-none',
-					hasThread ? 'hidden xl:flex' : 'flex',
+					hasThreadRoute ? 'hidden xl:flex' : 'flex',
 				)}
 			>
 				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
@@ -378,6 +392,8 @@ export function MailFolderRouteScreen({
 									thread={thread}
 									folderId={folderId}
 									baseFolderId={baseFolderId}
+									active={thread.id === activeThreadId}
+									composeSearch={composeThreadSearch?.(thread.id)}
 									navActive={cursor === index}
 									onUpdateThread={onUpdateThread}
 								/>
@@ -387,9 +403,11 @@ export function MailFolderRouteScreen({
 					)}
 				</ScrollArea>
 			</section>
-			<section className={cn('min-w-0 flex-1 flex-col bg-background', hasThread ? 'flex' : 'hidden md:flex')}>
+			<section
+				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden md:flex')}
+			>
 				{hasThread ? (
-					<Outlet />
+					(children ?? <Outlet />)
 				) : (
 					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
@@ -422,7 +440,7 @@ function EmptyState({ moreAvailable = false, children }: { moreAvailable?: boole
 	)
 }
 
-function DraftRow({ draft, navActive }: { draft: Draft; navActive: boolean }) {
+function DraftRow({ draft, navActive }: { draft: MailDraft; navActive: boolean }) {
 	const recipient = draftRecipientName(draft)
 	return (
 		<Link
@@ -454,12 +472,16 @@ function ThreadRow({
 	thread,
 	folderId,
 	baseFolderId,
+	active,
+	composeSearch,
 	navActive,
 	onUpdateThread,
 }: {
-	thread: Thread
+	thread: MailThread
 	folderId: string
 	baseFolderId?: string
+	active?: boolean
+	composeSearch?: ComposeThreadSearch
 	navActive: boolean
 	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
 }) {
@@ -491,24 +513,40 @@ function ThreadRow({
 		}
 	}
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
+	const content = (
+		<ThreadRowContent
+			thread={optimisticThread}
+			folderId={folderId}
+			onToggleStar={toggleStar}
+			starPending={starPending}
+		/>
+	)
+	const className = cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')
+	const rowState = {
+		'data-active': active ? ('true' as const) : undefined,
+		'data-nav-row': '',
+		'data-nav-cursor': navActive ? ('true' as const) : undefined,
+		'data-unread': optimisticThread.unread ? ('true' as const) : undefined,
+	}
+
+	if (composeSearch) {
+		return (
+			<Link to="/mail/compose" search={composeSearch} className={className} {...rowState}>
+				{content}
+			</Link>
+		)
+	}
 
 	return (
 		<Link
 			to="/mail/f/$folderId/t/$threadId"
 			params={{ folderId, threadId: thread.id }}
 			search={baseFolderId ? { baseFolderId } : {}}
-			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
+			className={className}
 			activeProps={{ 'data-active': 'true' }}
-			data-nav-row=""
-			data-nav-cursor={navActive ? 'true' : undefined}
-			data-unread={optimisticThread.unread ? 'true' : undefined}
+			{...rowState}
 		>
-			<ThreadRowContent
-				thread={optimisticThread}
-				folderId={folderId}
-				onToggleStar={toggleStar}
-				starPending={starPending}
-			/>
+			{content}
 		</Link>
 	)
 }

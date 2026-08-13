@@ -374,6 +374,10 @@ describe('ui-model mail helpers', () => {
 			to: 'grace@example.com',
 			subject: 'Re: Q3 roadmap',
 		})
+		expect(composeBackdropThreadSearch({ folderId: 'inbox', threadId: 'thread-without-draft' })).toEqual({
+			folderId: 'inbox',
+			threadId: 'thread-without-draft',
+		})
 		expect(
 			composeBackdropListSearch({
 				folderId: 'inbox',

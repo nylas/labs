@@ -12,7 +12,7 @@ type DomainVersions = {
 	calendar: number
 }
 
-function createOwnmailQueryClient(): QueryClient {
+export function createOwnmailQueryClient(): QueryClient {
 	return new QueryClient({
 		defaultOptions: {
 			queries: {
@@ -129,8 +129,12 @@ function ServerStateSync() {
 	return null
 }
 
-export function OwnmailQueryProvider({ children }: { children: ReactNode }) {
-	const [queryClient] = useState(createOwnmailQueryClient)
+export type OwnmailRouterContext = {
+	queryClient: QueryClient
+}
+
+export function OwnmailQueryProvider({ children, client }: { children: ReactNode; client?: QueryClient }) {
+	const [queryClient] = useState(() => client ?? createOwnmailQueryClient())
 	return (
 		<QueryClientProvider client={queryClient}>
 			<ServerStateSync />

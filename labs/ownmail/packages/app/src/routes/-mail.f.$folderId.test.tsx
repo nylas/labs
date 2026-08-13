@@ -77,6 +77,9 @@ const thread = (over: Partial<Thread> & { id: string }): Thread =>
 		...over,
 	}) as unknown as Thread
 
+const loaderQueryClient = () =>
+	new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+
 afterEach(() => {
 	cleanup()
 	vi.clearAllMocks()
@@ -84,11 +87,25 @@ afterEach(() => {
 })
 
 describe('loadMailFolderData', () => {
+	it('reuses the cached folder list when returning from a thread without another network wait', async () => {
+		getFolders.mockResolvedValue([{ id: 'inbox' }])
+		getThreads.mockResolvedValue({ threads: [thread({ id: 't1' })], nextCursor: undefined })
+		const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })
+
+		await loadMailFolderData('inbox', client)
+		vi.clearAllMocks()
+		const restored = await loadMailFolderData('inbox', client)
+
+		expect(restored.threads.map((item) => item.id)).toEqual(['t1'])
+		expect(getFolders).not.toHaveBeenCalled()
+		expect(getThreads).not.toHaveBeenCalled()
+	})
+
 	it('returns saved drafts (and no threads) for the drafts folder without hitting the thread list', async () => {
 		getFolders.mockResolvedValue([{ id: 'inbox' }])
 		listDrafts.mockResolvedValue([{ id: 'd1' }])
 
-		const data = await loadMailFolderData('drafts')
+		const data = await loadMailFolderData('drafts', loaderQueryClient())
 
 		expect(data.drafts).toEqual([{ id: 'd1' }])
 		expect(data.threads).toEqual([])
@@ -100,7 +117,7 @@ describe('loadMailFolderData', () => {
 		getFolders.mockResolvedValue([])
 		getThreads.mockResolvedValue({ threads: [thread({ id: 't1' })], nextCursor: 'c' })
 
-		const data = await loadMailFolderData('starred')
+		const data = await loadMailFolderData('starred', loaderQueryClient())
 
 		expect(getThreads).toHaveBeenCalledWith({ data: { starred: true } })
 		expect(data.drafts).toEqual([])
@@ -111,7 +128,7 @@ describe('loadMailFolderData', () => {
 		getFolders.mockResolvedValue([])
 		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
 
-		await loadMailFolderData('work')
+		await loadMailFolderData('work', loaderQueryClient())
 
 		expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'work' } })
 	})
@@ -120,7 +137,10 @@ describe('loadMailFolderData', () => {
 		getFolders.mockResolvedValue([])
 		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
 
-		await Route.options.loader({ params: { folderId: 'sent' } })
+		await Route.options.loader({
+			context: { queryClient: loaderQueryClient() },
+			params: { folderId: 'sent' },
+		})
 
 		expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'sent' } })
 	})
