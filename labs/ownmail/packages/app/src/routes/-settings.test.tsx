@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -40,6 +41,7 @@ vi.mock('#shared/components/Sheet', () => ({
 		) : null,
 }))
 
+import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { Route } from './settings.js'
 
 const info = { email: 'ada@example.com', displayName: 'Ada', appName: 'OwnMail' }
@@ -48,10 +50,15 @@ const password = 'StrongPassword123!More'
 function renderSettings(
 	passwordResetEnabled = false,
 	loaderInfo: { email: string; displayName?: string; appName: string } = info,
+	queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
 ) {
 	Route.useLoaderData = vi.fn(() => ({ info: loaderInfo, capabilities: { passwordResetEnabled } }))
 	const Component = Route.options.component
-	return render(<Component />)
+	return render(
+		<QueryClientProvider client={queryClient}>
+			<Component />
+		</QueryClientProvider>,
+	)
 }
 
 beforeEach(() => {
@@ -174,7 +181,9 @@ describe('/settings', () => {
 	})
 
 	it('persists the account name before saving device preferences', async () => {
-		renderSettings()
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, info)
+		renderSettings(false, info, queryClient)
 		expect(screen.getByLabelText('Darken email content automatically')).toBeChecked()
 		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: ' Ada Lovelace ' } })
 		fireEvent.click(screen.getByLabelText('Save recipients to contacts automatically'))
@@ -186,6 +195,11 @@ describe('/settings', () => {
 
 		expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
 		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: 'Ada Lovelace' } })
+		expect(queryClient.getQueryData(mailboxInfoQueryOptions().queryKey)).toMatchObject({
+			email: 'ada@example.com',
+			displayName: 'Ada Lovelace',
+			appName: 'OwnMail',
+		})
 		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toEqual({
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,

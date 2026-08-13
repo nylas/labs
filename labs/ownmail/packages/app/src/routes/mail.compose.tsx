@@ -146,7 +146,7 @@ export const Route = createFileRoute('/mail/compose')({
 	loader: async ({ context, deps }) => {
 		const folderId = deps.folderId ?? 'inbox'
 		const draft = deps.draft
-			? await context.queryClient.ensureQueryData(
+			? await context.queryClient.fetchQuery(
 					draftQueryOptions(deps.draft, (draftId) => getDraft({ data: { draftId } })),
 				)
 			: null
