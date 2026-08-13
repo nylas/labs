@@ -352,6 +352,74 @@ describe('mail.compose composer prefill', () => {
 		)
 	})
 
+	it('resets every draft-owned field when backdrop navigation selects another draft', async () => {
+		let search = { draft: 'draft-one' }
+		let loaderData = {
+			draft: {
+				id: 'draft-one',
+				to: [{ email: 'first@example.com' }],
+				subject: 'First subject',
+				body: 'First body',
+			},
+			folders: [],
+			threads: [],
+			selected: null,
+			folderId: 'drafts',
+			reply: null,
+		}
+		Route.useLoaderData = vi.fn(() => loaderData)
+		Route.useSearch = vi.fn(() => search)
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const view = render(
+			<QueryClientProvider client={queryClient}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: 'edited-first@example.com' } })
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Edited first subject' } })
+		fireEvent.change(screen.getByPlaceholderText('Write your message...'), {
+			target: { value: 'Edited first body' },
+		})
+
+		search = { draft: 'draft-two' }
+		loaderData = {
+			...loaderData,
+			draft: {
+				id: 'draft-two',
+				to: [{ email: 'second@example.com' }],
+				subject: 'Second subject',
+				body: 'Second body',
+			},
+		}
+		view.rerender(
+			<QueryClientProvider client={queryClient}>
+				<Route.options.component />
+			</QueryClientProvider>,
+		)
+
+		await waitFor(() =>
+			expect((screen.getByPlaceholderText('Write your message...') as HTMLTextAreaElement).value).toBe(
+				'Second body',
+			),
+		)
+		expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('second@example.com')
+		expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toBe('Second subject')
+
+		saveDraft.mockResolvedValue({ draftId: 'draft-two' })
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() =>
+			expect(saveDraft).toHaveBeenCalledWith({
+				data: {
+					draftId: 'draft-two',
+					to: 'second@example.com',
+					subject: 'Second subject',
+					body: markdownToDraftBody('Second body'),
+				},
+			}),
+		)
+	})
+
 	it('converts an enveloped markdown draft back to its source before prefilling the editor', () => {
 		renderCompose({
 			loader: { draft: { id: 'd0', body: markdownToDraftBody('**Draft body**') } },

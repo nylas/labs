@@ -60,6 +60,7 @@
 		"build:cloudflare": "vite build",
 		"build:node": "vite build -c vite.config.local.ts --outDir dist-vercel",
 		"build:vercel": "vite build -c vite.config.vercel.ts",
+		"smoke:ssr": "node scripts/smoke-ssr.mjs",
 		"test": "vitest run --coverage",
 		"coverage": "vitest run --coverage",
 		"pretypecheck": "pnpm --filter @nylas-labs/cli-kit build",

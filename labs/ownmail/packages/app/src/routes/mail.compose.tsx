@@ -165,8 +165,13 @@ export const Route = createFileRoute('/mail/compose')({
 					: null,
 		}
 	},
-	component: Compose,
+	component: ComposeRoute,
 })
+
+function ComposeRoute() {
+	const requestedDraftId = Route.useSearch().draft
+	return <Compose key={requestedDraftId ?? '__new-compose__'} />
+}
 
 function Compose() {
 	const initial = Route.useLoaderData()
