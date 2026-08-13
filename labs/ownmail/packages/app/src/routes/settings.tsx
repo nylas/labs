@@ -1,4 +1,6 @@
 /* Hallmark · component: Settings mobile header · genre: modern-minimal · theme: Quiet · pre-emit critique: P5 H5 E5 S5 R5 V5 */
+
+import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { Check, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -11,6 +13,7 @@ import {
 	type UserPreferences,
 	useUserPreferences,
 } from '#app/preferences/user-preferences'
+import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import {
 	getAccountCapabilities,
 	getMailboxInfo,
@@ -67,6 +70,7 @@ function preferencesMatch(left: UserPreferences, right: UserPreferences): boolea
 
 function SettingsPage() {
 	const { info, capabilities } = Route.useLoaderData()
+	const queryClient = useQueryClient()
 	const [preferences, savePreferences] = useUserPreferences()
 	const [draft, setDraft] = useState<UserPreferences>(preferences)
 	const [displayName, setDisplayName] = useState(info.displayName ?? '')
@@ -130,6 +134,10 @@ function SettingsPage() {
 					? { displayName: persistedDisplayName }
 					: await updateMailboxDisplayName({ data: { displayName: snapshot.displayName } })
 			if (settingsRevisionRef.current !== revision) return
+			queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, {
+				...info,
+				displayName: account.displayName,
+			})
 			savePreferences({
 				...snapshot,
 				displayName: account.displayName,

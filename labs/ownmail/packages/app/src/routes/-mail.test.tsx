@@ -47,7 +47,7 @@ vi.mock('#server/fns', () => ({
 vi.mock('#app/components/AppRail', () => ({
 	AppRailLogo: ({ appName }: { appName: string }) => <div data-testid="logo">{appName}</div>,
 	AppRailNav: (props: any) => (
-		<div data-testid="railnav" data-email={props.email}>
+		<div data-testid="railnav" data-email={props.email} data-display-name={props.displayName}>
 			<button type="button" aria-label="Open command palette" onClick={props.onOpenCommandPalette}>
 				rail-open-palette
 			</button>
@@ -171,6 +171,24 @@ describe('/mail loader + layout', () => {
 		)
 		expect(screen.getByTestId('logo')).toHaveTextContent('OwnMail')
 		expect(screen.getByTestId('railnav')).toHaveAttribute('data-email', 'ada@example.com')
+	})
+
+	it('renders current observed mailbox info instead of stale infinite-route loader data', () => {
+		Route.useLoaderData = vi.fn(() => ({ info, folders: [] as Folder[] }))
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(['account', 'mailbox-info'], {
+			...info,
+			displayName: 'Ada Lovelace',
+		})
+		const Component = Route.options.component
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		expect(screen.getByTestId('railnav')).toHaveAttribute('data-display-name', 'Ada Lovelace')
 	})
 })
 
