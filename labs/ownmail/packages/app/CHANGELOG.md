@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.12.8
+
+### Patch Changes
+
+- 4b01ef3: Make compose and mailbox history navigation render from the client cache without waiting for redundant server requests.
+
 ## 0.12.7
 
 ### Patch Changes
