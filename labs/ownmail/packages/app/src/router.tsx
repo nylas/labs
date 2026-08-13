@@ -8,7 +8,7 @@ export function getRouter() {
 		routeTree,
 		context: { queryClient },
 		/* v8 ignore next -- the wrapper executes only inside TanStack Start's router runtime -- @preserve */
-		Wrap: ({ children }) => <OwnmailQueryProvider client={queryClient}>{children}</OwnmailQueryProvider>,
+		InnerWrap: ({ children }) => <OwnmailQueryProvider client={queryClient}>{children}</OwnmailQueryProvider>,
 		defaultPreload: 'intent',
 		scrollRestoration: true,
 		defaultPendingMinMs: 0,
