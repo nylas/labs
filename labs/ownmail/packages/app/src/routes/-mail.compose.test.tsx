@@ -6,6 +6,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { markdownToDraftBody } from '#features/mail/lib/html-to-markdown'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
+import { mailKeys } from '#features/mail/state/mail-queries'
 
 // TanStack router/start are stubbed so the route module can be imported and its
 // loader/component exercised directly without a live router. `navigate` and
@@ -205,9 +206,12 @@ function fileInput(container: HTMLElement) {
 	return container.querySelector('input[type="file"]') as HTMLInputElement
 }
 
-function runComposeLoader(deps: Record<string, string | undefined>) {
+function runComposeLoader(
+	deps: Record<string, string | undefined>,
+	queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
 	return Route.options.loader({
-		context: { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+		context: { queryClient },
 		deps,
 	})
 }
@@ -292,6 +296,32 @@ describe('mail.compose loader', () => {
 		expect(getDraft).toHaveBeenCalledWith({ data: { draftId: 'd0' } })
 		expect(getThreadMessages).not.toHaveBeenCalled()
 		expect(data.draft?.id).toBe('d0')
+	})
+
+	it('refetches an invalidated cached draft before initializing compose', async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+		})
+		queryClient.setQueryData(mailKeys.draft('d0'), {
+			id: 'd0',
+			subject: 'Obsolete cached subject',
+			body: 'Obsolete cached body',
+		})
+		await queryClient.invalidateQueries({ queryKey: mailKeys.draft('d0'), refetchType: 'none' })
+		getDraft.mockResolvedValue({
+			id: 'd0',
+			subject: 'Current server subject',
+			body: 'Current server body',
+		})
+
+		const data = await runComposeLoader({ draft: 'd0' }, queryClient)
+
+		expect(getDraft).toHaveBeenCalledWith({ data: { draftId: 'd0' } })
+		expect(data.draft).toMatchObject({
+			id: 'd0',
+			subject: 'Current server subject',
+			body: 'Current server body',
+		})
 	})
 
 	it('builds a reply payload that carries the reply-to message id when replying', async () => {
