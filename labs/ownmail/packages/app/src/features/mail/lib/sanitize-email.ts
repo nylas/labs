@@ -6,6 +6,7 @@ const COLOR_SCHEME_FEATURE = /^\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)
 const REMOTE_IMAGE_MARKER = 'data-ownmail-has-remote-images'
 const EMAIL_THEME_PROPERTY = '--ownmail-email-theme'
 const MAX_CSS_BLOCK_DEPTH = 128
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 
 export interface SanitizeEmailOptions {
 	rewriteViewportMedia?: boolean
@@ -588,7 +589,7 @@ function blockRemoteImages(sanitizedDocument: HTMLElement): boolean {
 	let found = false
 	for (const element of [sanitizedDocument, ...sanitizedDocument.querySelectorAll<HTMLElement>('*')]) {
 		const remoteAttributes = ['src', 'poster', 'background']
-		if (['IMAGE', 'FEIMAGE'].includes(element.tagName.toUpperCase()))
+		if (element.namespaceURI === SVG_NAMESPACE && element.tagName.toUpperCase() !== 'A')
 			remoteAttributes.push('href', 'xlink:href')
 		for (const attribute of remoteAttributes) {
 			const value = element.getAttribute(attribute)
@@ -610,7 +611,9 @@ function blockRemoteImages(sanitizedDocument: HTMLElement): boolean {
 		}
 		for (const attribute of Array.from(element.attributes)) {
 			if (
-				!['href', 'src', 'srcset', 'poster', 'background', 'style'].includes(attribute.name) &&
+				!['href', 'src', 'srcset', 'poster', 'background', 'style', 'xmlns', 'xmlns:xlink'].includes(
+					attribute.name,
+				) &&
 				containsRemoteResource(attribute.value)
 			) {
 				found = true
@@ -738,15 +741,49 @@ function prepareSanitizedDocument(
 			style.remove()
 			continue
 		}
-		style.textContent =
-			options.rewriteThemeMedia === false && options.rewriteViewportMedia === false
-				? safeCss
-				: rewriteEmailMediaQueries(safeCss, options)
+		const media = style.hasAttribute('media') ? style.getAttribute('media') : null
+		const normalizedCss = normalizeStyleMedia(safeCss, media, options)
+		if (normalizedCss === null) {
+			style.remove()
+			continue
+		}
+		style.removeAttribute('media')
+		style.textContent = normalizedCss
 	}
 	if (!options.allowRemoteImages && blockRemoteImages(sanitizedDocument)) {
 		sanitizedDocument.setAttribute(REMOTE_IMAGE_MARKER, '')
 	}
 	return sanitizedDocument
+}
+
+function normalizeStyleMedia(
+	css: string,
+	media: string | null,
+	options: SanitizeEmailOptions,
+): string | null {
+	const shouldRewrite = options.rewriteThemeMedia !== false || options.rewriteViewportMedia !== false
+	if (media === null || media.trim() === '') {
+		return shouldRewrite ? rewriteEmailMediaQueries(css, options) : css
+	}
+
+	const query = media.trim()
+	const validationCss = `@media ${query}{}`
+	const validationRoot = parseCss(validationCss)
+	const block = validationRoot?.children[0]
+	const atRule = block ? readAtRuleHeader(validationCss.slice(block.headerStart, block.open)) : null
+	if (
+		validationRoot?.children.length !== 1 ||
+		!block ||
+		block.headerStart !== 0 ||
+		block.close !== validationCss.length - 1 ||
+		atRule?.name !== 'media' ||
+		!splitMediaList(atRule.params).some((branch) => inspectableCss(branch).trim() !== '')
+	) {
+		return null
+	}
+
+	const wrapped = `@media ${query}{${css}}`
+	return shouldRewrite ? rewriteEmailMediaQueries(wrapped, options) : wrapped
 }
 
 function renderableFragment(sanitizedDocument: HTMLElement): string {

@@ -402,9 +402,10 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
 		const html = `<style>
 			.probe{background-color:rgb(245,245,245);color:rgb(20,20,20)}
-			@media (prefers-color-scheme:dark){.probe{background-color:rgb(10,20,30);color:rgb(240,240,240)}}
-			@media (prefers-color-scheme:light){.probe{background-color:rgb(245,245,245);color:rgb(20,20,20)}}
-		</style><div class="probe">Adaptive message</div>`
+		</style>
+		<style media="(prefers-color-scheme:dark)">.probe{background-color:rgb(10,20,30);color:rgb(240,240,240)}</style>
+		<style media="(prefers-color-scheme:light)">.probe{background-color:rgb(245,245,245);color:rgb(20,20,20)}</style>
+		<div class="probe">Adaptive message</div>`
 		for (const testCase of [
 			{ app: 'light', os: 'light', background: 'rgb(245, 245, 245)' },
 			{ app: 'light', os: 'dark', background: 'rgb(245, 245, 245)' },
@@ -416,21 +417,52 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			const state = await page.locator('ownmail-email').evaluate((host, appTheme) => {
 				host.setAttribute('data-email-theme', appTheme)
 				const probe = host.shadowRoot?.querySelector<HTMLElement>('.probe')
-				const providerStyle = host.shadowRoot?.querySelector('.email-root style')?.textContent ?? ''
+				const providerStyles = Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
 				return {
 					background: probe ? getComputedStyle(probe).backgroundColor : null,
 					rootBackground: host.shadowRoot?.querySelector('.email-root')
 						? getComputedStyle(host.shadowRoot.querySelector('.email-root') as Element).backgroundColor
 						: null,
-					providerStyle,
+					providerStyle: providerStyles.map((style) => style.textContent).join(''),
+					mediaAttributeCount: providerStyles.filter((style) => style.hasAttribute('media')).length,
 				}
 			}, testCase.app)
 			expect(state.background, `${testCase.app} app / ${testCase.os} OS`).toBe(testCase.background)
 			expect(state.rootBackground).toBe('rgba(0, 0, 0, 0)')
 			expect(state.providerStyle).toContain('style(--ownmail-email-theme: dark)')
 			expect(state.providerStyle).not.toContain('prefers-color-scheme')
+			expect(state.mediaAttributeCount).toBe(0)
 		}
 		await page.close()
+	})
+
+	it('evaluates style media width against the pane only in Readable mode', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const html = `<style>.probe{background-color:rgb(120,0,0)}</style>
+			<style media="(max-width:400px)">.probe{background-color:rgb(0,120,0)}</style>
+			<div class="probe">Pane query</div>`
+
+		await mountEmail(page, fixtureUrl, 375, html, 'readable')
+		const readable = await page.locator('ownmail-email').evaluate((host) => ({
+			background: getComputedStyle(host.shadowRoot?.querySelector('.probe') as Element).backgroundColor,
+			css: Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+				.map((style) => style.textContent)
+				.join(''),
+		}))
+		await mountEmail(page, fixtureUrl, 375, html, 'original')
+		const original = await page.locator('ownmail-email').evaluate((host) => ({
+			background: getComputedStyle(host.shadowRoot?.querySelector('.probe') as Element).backgroundColor,
+			css: Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+				.map((style) => style.textContent)
+				.join(''),
+		}))
+		await page.close()
+
+		expect(readable.background).toBe('rgb(0, 120, 0)')
+		expect(readable.css).toContain('@container ownmail-email (max-width:400px)')
+		expect(original.background).toBe('rgb(120, 0, 0)')
+		expect(original.css).toContain('@media (max-width:400px)')
 	})
 
 	it('preserves media and CSS-background fidelity with a transparent accessible dark canvas', async () => {
@@ -568,6 +600,73 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 
 		expect(requests).toBe(1)
 		expect(loadedSrc).toBe('https://images.example.test/tracker.gif')
+	})
+
+	it('blocks SVG resource references before consent and restores eligible references after opt-in', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const requests: string[] = []
+		await page.route('https://svg-images.example.test/**', async (route) => {
+			requests.push(route.request().url())
+			if (route.request().url().includes('sprite.svg')) {
+				await route.fulfill({
+					contentType: 'image/svg+xml',
+					body: '<svg xmlns="http://www.w3.org/2000/svg"><linearGradient id="paint"><stop stop-color="red"/></linearGradient></svg>',
+				})
+				return
+			}
+			await route.fulfill({
+				contentType: 'image/gif',
+				body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64'),
+			})
+		})
+		await mountEmail(
+			page,
+			fixtureUrl,
+			375,
+			`<svg class="probe" width="40" height="40">
+				<defs><linearGradient class="remote-gradient" id="local" href="https://svg-images.example.test/sprite.svg#paint"><stop stop-color="blue"/></linearGradient></defs>
+				<image class="remote-image" href="https://svg-images.example.test/pixel.gif" width="20" height="20"></image>
+				<use class="remote-use" href="https://svg-images.example.test/sprite.svg#icon"></use>
+				<rect width="40" height="40" fill="url(#local)"></rect>
+				<a class="remote-link" href="https://example.test/read"><text>Read</text></a>
+			</svg>`,
+		)
+		const blocked = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			return {
+				gradientHref: root?.querySelector('.remote-gradient')?.getAttribute('href') ?? null,
+				imageHref: root?.querySelector('.remote-image')?.getAttribute('href') ?? null,
+				usePresent: root?.querySelector('.remote-use') !== null,
+				linkHref: root?.querySelector('.remote-link')?.getAttribute('href') ?? null,
+			}
+		})
+		expect(requests).toEqual([])
+		expect(blocked).toEqual({
+			gradientHref: null,
+			imageHref: null,
+			usePresent: false,
+			linkHref: 'https://example.test/read',
+		})
+
+		const imageRequest = page.waitForRequest('https://svg-images.example.test/pixel.gif')
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
+		await imageRequest
+		await settleLayout(page)
+		const allowed = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			return {
+				gradientHref: root?.querySelector('.remote-gradient')?.getAttribute('href') ?? null,
+				imageHref: root?.querySelector('.remote-image')?.getAttribute('href') ?? null,
+				usePresent: root?.querySelector('.remote-use') !== null,
+			}
+		})
+		await page.close()
+
+		expect(requests).toContain('https://svg-images.example.test/pixel.gif')
+		expect(allowed.gradientHref).toBe('https://svg-images.example.test/sprite.svg#paint')
+		expect(allowed.imageHref).toBe('https://svg-images.example.test/pixel.gif')
+		expect(allowed.usePresent).toBe(false)
 	})
 
 	it('remeasures after late intrinsic media creates new overflow', async () => {

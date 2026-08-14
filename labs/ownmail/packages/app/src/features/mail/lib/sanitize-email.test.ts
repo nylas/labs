@@ -247,6 +247,50 @@ describe('adaptive app-theme media', () => {
 		).toBe(true)
 		expect(providerCssSupportsDarkMode('.x{content:"@media (prefers-color-scheme:dark){}"}')).toBe(false)
 	})
+
+	it('normalizes style media attributes through app-theme and pane queries', () => {
+		const documentElement = sanitizeEmailDocument(`
+			<style media="(prefers-color-scheme: dark)">.dark{color:white}</style>
+			<style media="screen and (prefers-color-scheme: light) and (max-device-width: 40rem)">.light{color:black}</style>
+			<style media="(max-width: 600px)">.mobile{display:block}</style>
+		`)
+		const styles = Array.from(documentElement?.querySelectorAll('style') ?? [])
+		expect(styles).toHaveLength(3)
+		expect(styles.every((style) => !style.hasAttribute('media'))).toBe(true)
+		expect(styles[0]?.textContent).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: dark){.dark{color:white}}',
+		)
+		expect(styles[1]?.textContent).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: light) and (max-width:40rem){.light{color:black}}',
+		)
+		expect(styles[2]?.textContent).toBe('@container ownmail-email (max-width: 600px){.mobile{display:block}}')
+		expect(
+			sanitizedEmailSupportsDarkMode(
+				'<style media="(prefers-color-scheme: dark)">.dark{color:white}</style>',
+			),
+		).toBe(true)
+	})
+
+	it('preserves viewport style media in Original mode while keeping theme app-controlled', () => {
+		const original = sanitizeEmailDocument(
+			'<style media="(prefers-color-scheme: dark) and (max-width: 600px)">.card{color:white}</style>',
+			{ rewriteViewportMedia: false },
+		)
+		const css = original?.querySelector('style')?.textContent ?? ''
+		expect(original?.querySelector('style')?.hasAttribute('media')).toBe(false)
+		expect(css).toBe(
+			'@media (max-width: 600px){@container ownmail-email style(--ownmail-email-theme: dark){.card{color:white}}}',
+		)
+	})
+
+	it('fails closed for structurally invalid style media attributes', () => {
+		const injected = sanitizeEmailDocument(
+			'<style media="all}{:host{display:block}">.safe{color:red}</style><p>Body</p>',
+		)
+		expect(injected?.querySelector('style')).toBeNull()
+		const emptyComment = sanitizeEmailDocument('<style media="/**/">.safe{color:red}</style><p>Body</p>')
+		expect(emptyComment?.querySelector('style')).toBeNull()
+	})
 })
 
 describe('sanitizeEmailHtml', () => {
@@ -334,6 +378,51 @@ describe('sanitizeEmailHtml', () => {
 		)
 		expect(sanitizedDocumentHasRemoteImages(malformed as HTMLElement)).toBe(true)
 		expect(malformed?.querySelector('style')).toBeNull()
+	})
+
+	it('blocks remote SVG resource references while preserving local references and anchors', () => {
+		const html = `<svg>
+			<use class="remote-use" href="https://images.example.test/sprite.svg#icon"></use>
+			<use class="remote-xlink" xlink:href="//images.example.test/sprite.svg#icon"></use>
+			<use class="local-use" href="/authenticated/sprite.svg#icon"></use>
+			<use class="cid-use" href="cid:sprite#icon"></use>
+			<use class="data-use" href="data:image/svg+xml,%3Csvg%3E%3C/svg%3E#icon"></use>
+			<linearGradient class="remote-gradient" href="https://images.example.test/sprite.svg#paint"></linearGradient>
+			<radialGradient class="remote-xlink" xlink:href="//images.example.test/sprite.svg#paint"></radialGradient>
+			<pattern class="local-pattern" href="/authenticated/sprite.svg#pattern"></pattern>
+			<pattern class="cid-pattern" href="cid:sprite#pattern"></pattern>
+			<image class="data-image" href="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"></image>
+			<text><textPath class="remote-text-path" href="https://images.example.test/sprite.svg#path">Text</textPath></text>
+			<a class="svg-link" href="https://example.test/read">Read</a>
+		</svg><a class="html-link" href="https://example.test/read">Read</a>`
+		const blocked = sanitizeEmailDocument(html)
+		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+		expect(blocked?.querySelector('use')).toBeNull()
+		expect(blocked?.querySelector('.remote-gradient')?.hasAttribute('href')).toBe(false)
+		expect(blocked?.querySelector('.remote-xlink')?.hasAttribute('xlink:href')).toBe(false)
+		expect(blocked?.querySelector('.remote-text-path')?.hasAttribute('href')).toBe(false)
+		expect(blocked?.querySelector('.local-pattern')?.getAttribute('href')).toBe(
+			'/authenticated/sprite.svg#pattern',
+		)
+		expect(blocked?.querySelector('.cid-pattern')?.getAttribute('href')).toBe('cid:sprite#pattern')
+		expect(blocked?.querySelector('.data-image')?.getAttribute('href')).toContain('data:image/svg+xml')
+		expect(blocked?.querySelector('.svg-link')?.getAttribute('href')).toBe('https://example.test/read')
+		expect(blocked?.querySelector('.html-link')?.getAttribute('href')).toBe('https://example.test/read')
+
+		const allowed = sanitizeEmailDocument(html, { allowRemoteImages: true })
+		expect(allowed?.querySelector('use')).toBeNull()
+		expect(allowed?.querySelector('.remote-gradient')?.getAttribute('href')).toContain('https://')
+		expect(allowed?.querySelector('.remote-xlink')?.getAttribute('xlink:href')).toContain('//')
+		expect(allowed?.querySelector('.remote-text-path')?.getAttribute('href')).toContain('https://')
+
+		const localOnly = sanitizeEmailDocument(
+			'<svg xmlns="http://www.w3.org/2000/svg"><pattern class="local" href="/authenticated/sprite.svg#paint"></pattern><image class="cid" href="cid:logo"></image><image class="data" href="data:image/gif;base64,R0lGODlhAQABAAAAACw="></image></svg>',
+		)
+		expect(sanitizedDocumentHasRemoteImages(localOnly as HTMLElement)).toBe(false)
+		expect(localOnly?.querySelector('svg')?.getAttribute('xmlns')).toBe('http://www.w3.org/2000/svg')
+		expect(localOnly?.querySelector('.local')?.getAttribute('href')).toContain('/authenticated/')
+		expect(localOnly?.querySelector('.cid')?.getAttribute('href')).toBe('cid:logo')
+		expect(localOnly?.querySelector('.data')?.getAttribute('href')).toContain('data:image/gif')
 	})
 
 	it('removes remote declarations through nesting, escapes, and structured custom properties', () => {
@@ -452,7 +541,7 @@ describe('sanitizeEmailHtml', () => {
 			'<section><style media="screen and (max-width:600px)">.card{width:100%}</style><p class="card">Hi</p></section>',
 		)
 		expect(out).toBe(
-			'<style media="screen and (max-width:600px)">.card{width:100%}</style><section><p class="card">Hi</p></section>',
+			'<style>@container ownmail-email (max-width:600px){.card{width:100%}}</style><section><p class="card">Hi</p></section>',
 		)
 	})
 
