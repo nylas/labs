@@ -239,10 +239,13 @@ export function shadowStyleText(): string {
 .email-root[data-ownmail-direction="rtl"]{transform-origin:top right!important;}
 :where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}
 :where(.email-root) :where(html, body){display:block;min-width:0;}
-:where(.email-root) :where(body){margin:0;background-color:transparent;}
+:where(.email-root) :where(body){margin:0;}
+:where(.email-root) :where(body:not([bgcolor])){background-color:transparent;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
 :where(.email-root) :where(a[href]){color:#075985!important;text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
 :host([data-email-theme="dark"]):not([data-dark-invert]) :where(.email-root) :where(a[href]){color:#7dd3fc!important;}
+:where(.email-root) [data-ownmail-inherited-color="dark"]{color:#1a1a1a!important;}
+:where(.email-root) [data-ownmail-inherited-color="light"]{color:#f5f5f5!important;}
 :where(.email-root) :where(a[href]):focus-visible{outline:2px solid CanvasText!important;outline-offset:2px!important;border-radius:2px!important;box-shadow:0 0 0 4px Canvas!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(html, body, table, img, video, svg, canvas){max-width:100%!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(table){min-width:0!important;table-layout:auto;}

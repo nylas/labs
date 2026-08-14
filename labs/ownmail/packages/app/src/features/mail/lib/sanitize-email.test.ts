@@ -101,6 +101,58 @@ describe('adaptive app-theme media', () => {
 		)
 	})
 
+	it('rewrites unary negated color conditions to the opposite app theme', () => {
+		const css =
+			'@media not (prefers-color-scheme:light){.dark{color:white}}@media not (prefers-color-scheme:dark){.light{color:black}}'
+		expect(rewriteEmailMediaQueries(css)).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: dark){.dark{color:white}}@container ownmail-email style(--ownmail-email-theme: light){.light{color:black}}',
+		)
+		expect(providerCssSupportsDarkMode(css)).toBe(true)
+		expect(providerCssSupportsDarkMode('@media not (prefers-color-scheme:dark){.x{color:black}}')).toBe(false)
+	})
+
+	it('handles negated theme conditions across lists, boolean operators, comments, and escapes', () => {
+		const css = String.raw`@media (n\6f t/**/(prefers-color-scheme/**/:light)) and (max-width:600px), (not (prefers-color-scheme:dark)) or (min-width:900px){.x{display:block}}`
+		expect(rewriteEmailMediaQueries(css)).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: dark) and (max-width:600px){.x{display:block}}@container ownmail-email style(--ownmail-email-theme: light){.x{display:block}}@container ownmail-email (min-width:900px){.x{display:block}}',
+		)
+	})
+
+	it('keeps negated theme width semantics tied to the viewport in Original mode', () => {
+		expect(
+			rewriteEmailMediaQueries(
+				'@media (not (prefers-color-scheme:light)) and (max-width:600px){.x{display:block}}',
+				{ rewriteViewportMedia: false },
+			),
+		).toBe(
+			'@media (max-width:600px){@container ownmail-email style(--ownmail-email-theme: dark){.x{display:block}}}',
+		)
+	})
+
+	it('does not confuse malformed or legacy media-type negation with unary theme negation', () => {
+		for (const css of [
+			'@media not(prefers-color-scheme:light){.x{color:white}}',
+			'@media not (prefers-color-scheme:light) and (max-width:600px){.x{color:white}}',
+			'@media not (prefers-color-scheme:light) or (min-width:900px){.x{color:white}}',
+			'@media not dangling (prefers-color-scheme:light){.x{color:white}}',
+		]) {
+			expect(rewriteEmailMediaQueries(css)).toBe(css)
+			expect(providerCssSupportsDarkMode(css)).toBe(false)
+		}
+		expect(
+			rewriteEmailMediaQueries('@media not screen and (prefers-color-scheme:dark){.x{color:white}}'),
+		).toBe('@media not screen and (prefers-color-scheme:dark){.x{color:white}}')
+		expect(rewriteEmailMediaQueries('@media not all and (prefers-color-scheme:dark){.x{color:white}}')).toBe(
+			'@media not all and (prefers-color-scheme:dark){.x{color:white}}',
+		)
+		for (const mediaType of ['print', 'tv']) {
+			const css = `@media not ${mediaType} and (prefers-color-scheme:dark){.x{color:white}}`
+			expect(rewriteEmailMediaQueries(css)).toBe(css)
+			expect(providerCssSupportsDarkMode(css)).toBe(false)
+		}
+		expect(providerCssSupportsDarkMode('@media not(prefers-color-scheme:light){.x{color:white}}')).toBe(false)
+	})
+
 	it('leaves screen-only and contradictory theme queries under browser control', () => {
 		const screenOnly = '@media screen{.x{display:block}}'
 		expect(rewriteEmailMediaQueries(screenOnly)).toBe(screenOnly)
@@ -114,6 +166,18 @@ describe('adaptive app-theme media', () => {
 		expect(rewriteEmailMediaQueries(css)).toBe(css)
 		const dangling = '@media screen and{.x{display:block}}'
 		expect(rewriteEmailMediaQueries(dangling)).toBe(dangling)
+	})
+
+	it('bounds redundant grouping and ignores strings inside grouped conditions', () => {
+		const stringCondition = '@media (not ("prefers-color-scheme:light")){.x{color:white}}'
+		expect(rewriteEmailMediaQueries(stringCondition)).toBe(stringCondition)
+		expect(providerCssSupportsDarkMode(stringCondition)).toBe(false)
+
+		const opening = '('.repeat(129)
+		const closing = ')'.repeat(129)
+		const deeplyGrouped = `@media ${opening}prefers-color-scheme:dark${closing}{.x{color:white}}`
+		expect(rewriteEmailMediaQueries(deeplyGrouped)).toBe(deeplyGrouped)
+		expect(providerCssSupportsDarkMode(deeplyGrouped)).toBe(false)
 	})
 
 	it('rewrites nested, commented, and escaped media grammar without scanning strings', () => {
@@ -267,6 +331,24 @@ describe('adaptive app-theme media', () => {
 		expect(
 			sanitizedEmailSupportsDarkMode(
 				'<style media="(prefers-color-scheme: dark)">.dark{color:white}</style>',
+			),
+		).toBe(true)
+	})
+
+	it('normalizes negated style media through app-theme and pane queries', () => {
+		const documentElement = sanitizeEmailDocument(`
+			<style media="not (prefers-color-scheme: light)">.dark{color:white}</style>
+			<style media="(not/**/(prefers-color-scheme: dark)) and (max-width: 600px)">.light{color:black}</style>
+		`)
+		const styles = Array.from(documentElement?.querySelectorAll('style') ?? [])
+		expect(styles.map((style) => style.textContent)).toEqual([
+			'@container ownmail-email style(--ownmail-email-theme: dark){.dark{color:white}}',
+			'@container ownmail-email style(--ownmail-email-theme: light) and (max-width: 600px){.light{color:black}}',
+		])
+		expect(styles.every((style) => !style.hasAttribute('media'))).toBe(true)
+		expect(
+			sanitizedEmailSupportsDarkMode(
+				'<style media="not (prefers-color-scheme: light)">.dark{color:white}</style>',
 			),
 		).toBe(true)
 	})

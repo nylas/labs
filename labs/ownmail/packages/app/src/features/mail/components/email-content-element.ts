@@ -124,10 +124,143 @@ function isolateBackgroundMedia(root: HTMLElement): void {
 	}
 }
 
+interface RgbColor {
+	alpha: number
+	blue: number
+	green: number
+	red: number
+}
+
+const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
+
+function computedRgb(value: string): RgbColor | null {
+	const match = value.match(
+		/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d*\.?\d+))?\s*\)$/i,
+	)
+	if (!match) return null
+	const [red, green, blue, alpha = '1'] = match.slice(1)
+	/* v8 ignore next -- the expression requires all three captured RGB channels -- @preserve */
+	if (red === undefined || green === undefined || blue === undefined) return null
+	return {
+		red: Math.min(255, Number(red)),
+		green: Math.min(255, Number(green)),
+		blue: Math.min(255, Number(blue)),
+		alpha: Math.min(1, Number(alpha)),
+	}
+}
+
+function compositeColor(foreground: RgbColor, background: RgbColor): RgbColor {
+	const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha)
+	/* v8 ignore next -- callers require a painted foreground and background -- @preserve */
+	if (alpha === 0) return foreground
+	return {
+		red:
+			(foreground.red * foreground.alpha + background.red * background.alpha * (1 - foreground.alpha)) /
+			alpha,
+		green:
+			(foreground.green * foreground.alpha + background.green * background.alpha * (1 - foreground.alpha)) /
+			alpha,
+		blue:
+			(foreground.blue * foreground.alpha + background.blue * background.alpha * (1 - foreground.alpha)) /
+			alpha,
+		alpha,
+	}
+}
+
+function paintedSurfaceColor(element: Element, boundary: HTMLElement): RgbColor | null {
+	let surface = computedRgb(getComputedStyle(element).backgroundColor)
+	if (!surface || surface.alpha === 0) return null
+	let ancestor = element.parentElement
+	while (surface.alpha < 1 && ancestor) {
+		const behind = computedRgb(getComputedStyle(ancestor).backgroundColor)
+		if (behind && behind.alpha > 0) surface = compositeColor(surface, behind)
+		if (ancestor === boundary) break
+		ancestor = ancestor.parentElement
+	}
+	return surface.alpha >= 0.95 ? surface : null
+}
+
+function relativeLuminance(color: RgbColor): number {
+	const channel = (value: number): number => {
+		const normalized = value / 255
+		return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+	}
+	return channel(color.red) * 0.2126 + channel(color.green) * 0.7152 + channel(color.blue) * 0.0722
+}
+
+function colorContrast(first: RgbColor, second: RgbColor): number {
+	const firstLuminance = relativeLuminance(first)
+	const secondLuminance = relativeLuminance(second)
+	return (
+		(Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05)
+	)
+}
+
+function sameColor(first: RgbColor | null, second: RgbColor | null): boolean {
+	return Boolean(
+		first &&
+			second &&
+			Math.abs(first.red - second.red) < 0.5 &&
+			Math.abs(first.green - second.green) < 0.5 &&
+			Math.abs(first.blue - second.blue) < 0.5 &&
+			Math.abs(first.alpha - second.alpha) < 0.01,
+	)
+}
+
+function inheritsParentColor(element: HTMLElement | SVGElement): boolean {
+	const parent = element.parentElement
+	/* v8 ignore next -- querySelectorAll only supplies descendants of the email root -- @preserve */
+	if (!parent) return false
+	const originalStyle = parent.getAttribute('style')
+	parent.style.setProperty('color', 'rgb(1, 2, 3)', 'important')
+	const inherited = sameColor(computedRgb(getComputedStyle(element).color), {
+		red: 1,
+		green: 2,
+		blue: 3,
+		alpha: 1,
+	})
+	if (originalStyle === null) parent.removeAttribute('style')
+	else parent.setAttribute('style', originalStyle)
+	return inherited
+}
+
+/**
+ * Keep inherited text readable when a partially adaptive template leaves a
+ * provider surface light. Only painted surfaces with insufficient contrast are
+ * marked, and only when their computed color still comes from their parent.
+ * Direct inline/legacy colors and distinct stylesheet colors remain untouched.
+ * Processing in document order lets a light card inside a dark adaptive canvas
+ * choose dark text without flattening the canvas's genuinely dark treatment.
+ */
+export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolean): void {
+	for (const marked of root.querySelectorAll(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
+		marked.removeAttribute(INHERITED_COLOR_ATTRIBUTE)
+	}
+	if (!enabled) return
+
+	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
+		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
+		const surface = paintedSurfaceColor(element, root)
+		if (!surface) continue
+		const style = getComputedStyle(element)
+		const color = computedRgb(style.color)
+		if (!color || colorContrast(color, surface) >= 4.5) continue
+		if (element.style.getPropertyValue('color') || element.hasAttribute('color')) continue
+		if (!inheritsParentColor(element)) continue
+
+		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
+		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
+		element.setAttribute(
+			INHERITED_COLOR_ATTRIBUTE,
+			colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light',
+		)
+	}
+}
+
 function createEmailElementClass(Base: typeof HTMLElement) {
 	return class extends Base {
 		static get observedAttributes(): string[] {
-			return ['data-layout-mode', 'data-load-remote-images']
+			return ['data-layout-mode', 'data-load-remote-images', 'data-email-theme', 'data-dark-invert']
 		}
 
 		private html = ''
@@ -174,9 +307,12 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
-			if (!['data-layout-mode', 'data-load-remote-images'].includes(name) || oldValue === newValue) return
-			if (this.contentRoot) this.renderContent(this.contentRoot)
-			else this.scheduleMeasure()
+			if (oldValue === newValue) return
+			if (['data-layout-mode', 'data-load-remote-images'].includes(name) && this.contentRoot) {
+				this.renderContent(this.contentRoot)
+				return
+			}
+			this.scheduleMeasure()
 		}
 
 		private ensureShadow(): HTMLDivElement {
@@ -238,6 +374,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				if (!loadRemoteImages) this.hasRemoteImages = blockedRemoteImages
 			}
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
+			applyInheritedSurfaceContrast(root, false)
 			rewriteAnchors(root)
 			isolateBackgroundMedia(root)
 			this.lastLayoutStatus = ''
@@ -266,6 +403,13 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const rtl = this.updateLogicalDirection(content)
 			const mode = this.layoutMode()
 			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
+			applyInheritedSurfaceContrast(
+				content,
+				this.getAttribute('data-email-theme') === 'dark' && !this.hasAttribute('data-dark-invert'),
+			)
+			// The inheritance probe restores every temporary inline color synchronously;
+			// discard those observer records so the probe cannot schedule itself forever.
+			this.mutationObserver?.takeRecords()
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
 			const naturalWidth =
 				mode === 'original' ? Math.max(containerWidth, visibleWidth || content.scrollWidth) : containerWidth

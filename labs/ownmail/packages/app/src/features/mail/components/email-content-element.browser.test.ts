@@ -125,6 +125,18 @@ async function firstRenderedPixel(image: Buffer): Promise<[number, number, numbe
 	return [data[0] ?? 0, data[1] ?? 0, data[2] ?? 0]
 }
 
+async function renderedLightDarkContrast(image: Buffer): Promise<number> {
+	const { data, info } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+	let darkest = 1
+	let brightest = 0
+	for (let offset = 0; offset < data.length; offset += info.channels) {
+		const luminance = relativeLuminance(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0)
+		darkest = Math.min(darkest, luminance)
+		brightest = Math.max(brightest, luminance)
+	}
+	return (brightest + 0.05) / (darkest + 0.05)
+}
+
 describe.runIf(existsSync(chromium.executablePath()))('production email element in Chromium', () => {
 	let browser: Browser | undefined
 	let server: ViteDevServer | undefined
@@ -433,6 +445,128 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			expect(state.providerStyle).not.toContain('prefers-color-scheme')
 			expect(state.mediaAttributeCount).toBe(0)
 		}
+		await page.close()
+	})
+
+	it('evaluates negated style media from app theme and pane mode instead of OS theme', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const html = `<style>.probe{background-color:rgb(120,120,120)}</style>
+			<style media="(not (prefers-color-scheme:light)) and (max-width:400px)">.probe{background-color:rgb(10,20,30)}</style>
+			<style media="not/**/(prefers-color-scheme:dark)">.probe{color:rgb(20,20,20)}</style>
+			<div class="probe">Negated theme</div>`
+		for (const testCase of [
+			{ app: 'dark', os: 'light', mode: 'readable', background: 'rgb(10, 20, 30)' },
+			{ app: 'dark', os: 'dark', mode: 'readable', background: 'rgb(10, 20, 30)' },
+			{ app: 'light', os: 'dark', mode: 'readable', background: 'rgb(120, 120, 120)' },
+			{ app: 'dark', os: 'dark', mode: 'original', background: 'rgb(120, 120, 120)' },
+		] as const) {
+			await page.emulateMedia({ colorScheme: testCase.os })
+			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
+			await page.locator('ownmail-email').evaluate((host, appTheme) => {
+				host.setAttribute('data-email-theme', appTheme)
+			}, testCase.app)
+			await settleLayout(page)
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const probe = host.shadowRoot?.querySelector<HTMLElement>('.probe')
+				const css = Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+					.map((style) => style.textContent)
+					.join('')
+				return { background: probe ? getComputedStyle(probe).backgroundColor : null, css }
+			})
+			expect(state.background, JSON.stringify(testCase)).toBe(testCase.background)
+			expect(state.css).not.toContain('prefers-color-scheme')
+			if (testCase.mode === 'readable') expect(state.css).toContain('(max-width:400px)')
+			else expect(state.css).toContain('@media (max-width:400px)')
+		}
+		await page.close()
+	})
+
+	it('keeps inherited text legible across partial adaptive light and dark surfaces', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 600, height: 500 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			414,
+			`<html><head><style>
+				.logo-dark{display:none}.adaptive{background:rgb(255,255,255)}
+				@media (prefers-color-scheme:dark){.logo-light{display:none}.logo-dark{display:inline}.adaptive{background:rgb(10,20,30)}}
+			</style></head><body bgcolor="#ffffff" style="margin:0;font-size:28px;line-height:36px">
+				<table class="white-table" bgcolor="#ffffff"><tr><td>White table text</td></tr></table>
+				<div class="adaptive">Adaptive dark surface <span class="logo-light">L</span><span class="logo-dark">D</span>
+					<div class="light-card" style="background:rgb(255,255,255)">Nested light card</div>
+					<div class="explicit" style="background:rgb(255,255,255);color:rgb(120,0,120)">Explicit color</div>
+				</div>
+			</body></html>`,
+		)
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+		await settleLayout(page, 5)
+		const dark = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			const read = (selector: string) => {
+				const element = root?.querySelector<HTMLElement>(selector)
+				const style = element ? getComputedStyle(element) : null
+				return {
+					background: style?.backgroundColor ?? null,
+					color: style?.color ?? null,
+					fallback: element?.getAttribute('data-ownmail-inherited-color') ?? null,
+				}
+			}
+			return {
+				body: read('body'),
+				table: read('.white-table'),
+				adaptive: read('.adaptive'),
+				card: read('.light-card'),
+				explicit: read('.explicit'),
+				logoDark: getComputedStyle(root?.querySelector('.logo-dark') as Element).display,
+			}
+		})
+		const tableContrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .white-table').screenshot(),
+		)
+		const adaptiveContrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .adaptive').screenshot(),
+		)
+		const cardContrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .light-card').screenshot(),
+		)
+
+		expect(dark.body).toMatchObject({
+			background: 'rgb(255, 255, 255)',
+			color: 'rgb(26, 26, 26)',
+			fallback: 'dark',
+		})
+		expect(dark.table.color).toBe('rgb(26, 26, 26)')
+		expect(dark.adaptive).toMatchObject({
+			background: 'rgb(10, 20, 30)',
+			color: 'rgb(245, 245, 245)',
+			fallback: 'light',
+		})
+		expect(dark.card).toMatchObject({ color: 'rgb(26, 26, 26)', fallback: 'dark' })
+		expect(dark.explicit).toMatchObject({ color: 'rgb(120, 0, 120)', fallback: null })
+		expect(dark.logoDark).toBe('inline')
+		expect(tableContrast).toBeGreaterThanOrEqual(4.5)
+		expect(adaptiveContrast).toBeGreaterThanOrEqual(4.5)
+		expect(cardContrast).toBeGreaterThanOrEqual(4.5)
+
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'light'))
+		await settleLayout(page, 4)
+		expect(
+			await page
+				.locator('ownmail-email')
+				.evaluate((host) => host.shadowRoot?.querySelectorAll('[data-ownmail-inherited-color]').length),
+		).toBe(0)
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
+		await settleLayout(page, 4)
+		expect(
+			await page
+				.locator('ownmail-email')
+				.evaluate((host) => host.shadowRoot?.querySelectorAll('[data-ownmail-inherited-color]').length),
+		).toBe(0)
 		await page.close()
 	})
 

@@ -19,6 +19,11 @@ interface ConvertedMediaBranch {
 	media?: string
 }
 
+interface EmailThemeCondition {
+	bareNegation: boolean
+	theme: 'dark' | 'light'
+}
+
 interface CssContainer {
 	children: CssBlock[]
 	end: number
@@ -89,7 +94,9 @@ function rewriteMediaBlock(
 	body: string,
 	options: { rewriteViewportMedia?: boolean; rewriteThemeMedia?: boolean },
 ): string {
-	const queries = splitMediaList(media.params).flatMap(splitMediaDisjunction)
+	const queries = splitMediaList(media.params).flatMap(
+		(query) => validMediaDisjunctionBranches(query) ?? [query],
+	)
 	const converted = queries.map((query) => ({
 		branch: convertMediaBranch(
 			query,
@@ -385,18 +392,21 @@ function convertMediaBranch(
 	rewriteThemeMedia: boolean,
 ): ConvertedMediaBranch | null {
 	const parts = splitMediaConjunction(query)
+	const notConditionStart = readNotConditionStart(query)
+	if (notConditionStart !== null && query.charAt(notConditionStart) !== '(') return null
+	if (hasInvalidBareNegationComposition(parts)) return null
 	const containerParts: string[] = []
 	const mediaParts: string[] = []
 	let theme: string | undefined
 
 	for (const originalPart of parts) {
 		const part = originalPart.trim()
-		const inspectedPart = inspectableCss(part)
+		const inspectedPart = inspectableMediaCss(part).trim()
 		if (/^(?:only\s+)?(?:screen|all)$/i.test(inspectedPart)) continue
-		const color = inspectedPart.match(COLOR_SCHEME_FEATURE)
-		if (color) {
+		const themeCondition = readEmailThemeCondition(part)
+		if (themeCondition) {
 			if (!rewriteThemeMedia) return null
-			const requestedTheme = (color[1] as 'dark' | 'light').toLowerCase()
+			const requestedTheme = themeCondition.theme
 			if (theme && theme !== requestedTheme) return null
 			theme = requestedTheme
 			continue
@@ -416,6 +426,115 @@ function convertMediaBranch(
 		container: containerParts.join(' and '),
 		...(mediaParts.length > 0 ? { media: mediaParts.join(' and ') } : {}),
 	}
+}
+
+/**
+ * Read the color preference represented by one top-level media condition.
+ *
+ * Media Queries Level 4 permits unary negation, so `not (…: light)` is the
+ * dark branch and vice versa. Read the `not` token with the CSS scanner rather
+ * than a loose expression: whitespace or a comment must separate it from the
+ * condition, escaped identifiers remain valid, and legacy `not screen` never
+ * enters this path.
+ */
+function readEmailThemeCondition(part: string): EmailThemeCondition | null {
+	const positive = readThemeFeature(part)
+	if (positive) return { bareNegation: false, theme: positive }
+	const directNegation = readNegatedThemeFeature(part)
+	if (directNegation) return { bareNegation: true, theme: directNegation }
+
+	let grouped = unwrapOuterMediaParentheses(part)
+	while (grouped !== null) {
+		const groupedNegation = readNegatedThemeFeature(grouped)
+		if (groupedNegation) return { bareNegation: false, theme: groupedNegation }
+		grouped = unwrapOuterMediaParentheses(grouped)
+	}
+	return null
+}
+
+function readNegatedThemeFeature(part: string): 'dark' | 'light' | null {
+	const conditionStart = readNotConditionStart(part)
+	if (conditionStart === null) return null
+	const negated = readThemeFeature(part.slice(conditionStart))
+	if (negated === 'light') return 'dark'
+	if (negated === 'dark') return 'light'
+	return null
+}
+
+function readNotConditionStart(part: string): number | null {
+	let index = skipCssTrivia(part)
+	const identifierStart = index
+	while (index < part.length) {
+		const character = part.charAt(index)
+		if (/[\w-]/.test(character) || character.charCodeAt(0) >= 0x80) {
+			index += 1
+			continue
+		}
+		if (character === '\\') {
+			const close = consumeCssEscape(part, index)
+			/* v8 ignore next -- parseCss validates escapes before media conversion -- @preserve */
+			if (close < 0) return null
+			index = close + 1
+			continue
+		}
+		break
+	}
+	if (inspectableCss(part.slice(identifierStart, index)) !== 'not') return null
+	const conditionStart = skipCssTrivia(part, index)
+	if (conditionStart === index) return null
+	return conditionStart
+}
+
+function readThemeFeature(part: string): 'dark' | 'light' | null {
+	let condition = part
+	for (let depth = 0; depth < MAX_CSS_BLOCK_DEPTH; depth += 1) {
+		const theme = inspectableMediaCss(condition).trim().match(COLOR_SCHEME_FEATURE)?.[1]
+		if (theme === 'dark' || theme === 'light') return theme
+		const unwrapped = unwrapOuterMediaParentheses(condition)
+		if (unwrapped === null) return null
+		condition = unwrapped
+	}
+	/* v8 ignore next -- the cap is a defensive bound for redundant valid grouping -- @preserve */
+	return null
+}
+
+function unwrapOuterMediaParentheses(part: string): string | null {
+	const start = skipCssTrivia(part)
+	if (part.charAt(start) !== '(') return null
+	let depth = 0
+	for (let index = start; index < part.length; index += 1) {
+		const character = part.charAt(index)
+		if (character === '/' && part.charAt(index + 1) === '*') {
+			const close = part.indexOf('*/', index + 2)
+			/* v8 ignore next -- parseCss validates comments before media conversion -- @preserve */
+			if (close < 0) return null
+			index = close + 1
+			continue
+		}
+		if (character === '"' || character === "'") {
+			const close = consumeCssString(part, index, character)
+			/* v8 ignore next -- parseCss validates strings before media conversion -- @preserve */
+			if (close < 0) return null
+			index = close
+			continue
+		}
+		if (character === '\\') {
+			const close = consumeCssEscape(part, index)
+			/* v8 ignore next -- parseCss validates escapes before media conversion -- @preserve */
+			if (close < 0) return null
+			index = close
+			continue
+		}
+		if (character === '(') depth += 1
+		else if (character === ')') {
+			depth -= 1
+			if (depth === 0) {
+				return skipCssTrivia(part, index + 1) === part.length ? part.slice(start + 1, index) : null
+			}
+		}
+	}
+	/* v8 ignore next -- parseCss validates balanced parentheses before conversion -- @preserve */
+	return null
 }
 
 function splitMediaList(query: string): string[] {
@@ -463,6 +582,18 @@ function splitMediaConjunction(query: string): string[] {
 
 function splitMediaDisjunction(query: string): string[] {
 	return splitMediaOperator(query, 'or')
+}
+
+function validMediaDisjunctionBranches(query: string): string[] | null {
+	const branches = splitMediaDisjunction(query)
+	// A bare `not <condition>` is a complete MQ4 condition and cannot be
+	// followed by `or`. Preserve malformed-but-recoverable input rather than
+	// changing its meaning; grouped `(not <condition>) or …` remains valid.
+	return hasInvalidBareNegationComposition(branches) ? null : branches
+}
+
+function hasInvalidBareNegationComposition(parts: string[]): boolean {
+	return parts.length > 1 && parts.some((part) => readEmailThemeCondition(part)?.bareNegation)
 }
 
 function splitMediaOperator(query: string, operator: 'and' | 'or'): string[] {
@@ -527,6 +658,11 @@ function inspectableCss(css: string): string {
 		.toLowerCase()
 }
 
+/** Preserve comment token boundaries while decoding media-condition escapes. */
+function inspectableMediaCss(css: string): string {
+	return inspectableCss(css.replace(/\/\*[\s\S]*?\*\//g, ' '))
+}
+
 /**
  * Retain normal email presentation rules, but fail closed for CSS that can
  * address the shadow host or load a second, uninspected stylesheet. Provider
@@ -550,7 +686,7 @@ function cssContainerSupportsDarkMode(css: string, container: CssContainer): boo
 		return (
 			(atRule?.name === 'media' &&
 				splitMediaList(atRule.params)
-					.flatMap(splitMediaDisjunction)
+					.flatMap((query) => validMediaDisjunctionBranches(query) ?? [])
 					.some(screenMediaBranchSupportsDarkMode)) ||
 			cssContainerSupportsDarkMode(css, block.body)
 		)
@@ -558,12 +694,18 @@ function cssContainerSupportsDarkMode(css: string, container: CssContainer): boo
 }
 
 function screenMediaBranchSupportsDarkMode(query: string): boolean {
-	const parts = splitMediaConjunction(query).map((part) => inspectableCss(part).trim())
+	const notConditionStart = readNotConditionStart(query)
+	if (notConditionStart !== null && query.charAt(notConditionStart) !== '(') return false
+	const parts = splitMediaConjunction(query)
+	if (hasInvalidBareNegationComposition(parts)) return false
 	if (
-		parts.some((part) => /^(?:only\s+)?(?:print|speech)$/i.test(part) || /^not\s+(?:screen|all)$/i.test(part))
+		parts.some((part) => {
+			const inspected = inspectableMediaCss(part).trim()
+			return /^(?:only\s+)?(?:print|speech)$/i.test(inspected)
+		})
 	)
 		return false
-	return parts.some((part) => part.match(COLOR_SCHEME_FEATURE)?.[1]?.toLowerCase() === 'dark')
+	return parts.some((part) => readEmailThemeCondition(part)?.theme === 'dark')
 }
 
 function isRemoteUrl(value: string): boolean {

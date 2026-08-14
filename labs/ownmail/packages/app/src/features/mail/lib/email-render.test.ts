@@ -255,7 +255,8 @@ describe('shadowStyleText', () => {
 		const css = shadowStyleText()
 
 		expect(css).toContain(':where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}')
-		expect(css).toContain(':where(.email-root) :where(body){margin:0;background-color:transparent;}')
+		expect(css).toContain(':where(.email-root) :where(body){margin:0;}')
+		expect(css).toContain(':where(.email-root) :where(body:not([bgcolor])){background-color:transparent;}')
 		expect(css).toContain(':host(:not([data-layout-mode="original"]))')
 		expect(css).toContain(':where(html, body, table, img, video, svg, canvas){max-width:100%!important;}')
 		expect(css).toContain(':where(table){min-width:0!important;table-layout:auto;}')

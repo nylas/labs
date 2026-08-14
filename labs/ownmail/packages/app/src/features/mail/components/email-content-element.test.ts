@@ -6,7 +6,12 @@ import {
 	type EmailLayoutStatusDetail,
 	LINK_PREVIEW_EVENT,
 } from '../lib/email-render.js'
-import { anchorHref, ensureEmailElementDefined, rewriteAnchors } from './email-content-element.js'
+import {
+	anchorHref,
+	applyInheritedSurfaceContrast,
+	ensureEmailElementDefined,
+	rewriteAnchors,
+} from './email-content-element.js'
 
 const resizeCallbacks: ResizeObserverCallback[] = []
 
@@ -108,6 +113,64 @@ describe('rewriteAnchors', () => {
 			?.querySelector('p')
 			?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
 		el.shadowRoot?.dispatchEvent(new FocusEvent('focusin'))
+	})
+})
+
+describe('applyInheritedSurfaceContrast', () => {
+	it('repairs inherited contrast per painted surface without changing authored colors', () => {
+		const root = document.createElement('div')
+		root.style.color = 'rgb(229, 231, 235)'
+		root.innerHTML = `<style>
+			.white{background-color:rgb(255,255,255)}
+			.dark{background-color:rgb(10,20,30)}
+			.card{background-color:rgba(255,255,255,.96)}
+			.explicit-rule{background-color:white;color:rgb(255,0,0)}
+			.explicit-same{background-color:white;color:rgb(229,231,235)}
+			.transparent{background-color:transparent}
+			.wide-gamut{background-color:color(display-p3 1 1 1)}
+			.near-transparent{background-color:rgba(255,255,255,.96)}
+			.too-transparent{background-color:rgba(255,255,255,.5)}
+		</style>
+		<div class="white">Inherited on white</div>
+		<div class="dark">Inherited on dark <div class="card">Nested light card</div></div>
+		<div class="explicit-rule">Stylesheet color</div>
+		<div class="explicit-same">Stylesheet color matching its parent</div>
+		<div class="white explicit-inline" style="color:rgb(0,0,255)">Inline color</div>
+		<div class="white explicit-legacy" color="#008000">Legacy color</div>
+		<div class="transparent">Transparent</div>
+		<div class="wide-gamut">Unsupported computed color syntax</div>
+		<div class="near-transparent">Nearly opaque direct surface</div>
+		<div class="too-transparent">Translucent direct surface</div>`
+		document.body.appendChild(root)
+
+		applyInheritedSurfaceContrast(root, true)
+
+		expect(root.querySelector('.white')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(root.querySelector('.dark')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.card')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(root.querySelector('.explicit-rule')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.explicit-same')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.explicit-inline')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.explicit-legacy')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.transparent')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.wide-gamut')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.near-transparent')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(root.querySelector('.too-transparent')).not.toHaveAttribute('data-ownmail-inherited-color')
+	})
+
+	it('chooses light inherited text for a dark nested surface and clears stale markers', () => {
+		const root = document.createElement('div')
+		root.style.color = 'rgb(26, 26, 26)'
+		root.innerHTML =
+			'<div class="dark" style="background-color:rgb(0,0,0)">Dark</div><div class="stale" data-ownmail-inherited-color="light">Stale</div>'
+		document.body.appendChild(root)
+
+		applyInheritedSurfaceContrast(root, true)
+		expect(root.querySelector('.dark')).toHaveAttribute('data-ownmail-inherited-color', 'light')
+		expect(root.querySelector('.stale')).not.toHaveAttribute('data-ownmail-inherited-color')
+
+		applyInheritedSurfaceContrast(root, false)
+		expect(root.querySelector('.dark')).not.toHaveAttribute('data-ownmail-inherited-color')
 	})
 })
 
@@ -309,6 +372,25 @@ describe('<ownmail-email> rendering', () => {
 })
 
 describe('<ownmail-email> scaling', () => {
+	it('reclassifies inherited surface colors when host dark handling changes', () => {
+		const el = mount('<div class="surface" style="background:rgb(255,255,255)">Text</div>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const surface = content.querySelector('.surface') as HTMLElement
+		for (let ancestor = surface.parentElement; ancestor; ancestor = ancestor.parentElement) {
+			ancestor.style.color = 'rgb(229, 231, 235)'
+			if (ancestor === content) break
+		}
+		stubSize(content, 'scrollWidth', 320)
+		stubSize(el, 'clientWidth', 320)
+
+		el.setAttribute('data-email-theme', 'dark')
+		expect(() => el.measure()).not.toThrow()
+
+		el.setAttribute('data-dark-invert', '')
+		el.measure()
+		expect(surface).not.toHaveAttribute('data-ownmail-inherited-color')
+	})
+
 	it('shrinks content wider than the pane and sizes the box to the scaled height', () => {
 		const el = mount('<p>wide</p>')
 		el.setAttribute('data-layout-mode', 'original')
