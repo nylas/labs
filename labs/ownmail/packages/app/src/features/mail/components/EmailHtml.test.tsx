@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { EMAIL_ELEMENT_TAG, LINK_PREVIEW_EVENT } from '../lib/email-render.js'
+import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT, LINK_PREVIEW_EVENT } from '../lib/email-render.js'
 import { EmailHtml } from './EmailHtml.js'
 
 afterEach(() => {
@@ -78,5 +78,35 @@ describe('EmailHtml', () => {
 			document.documentElement.classList.add('dark')
 		})
 		await waitFor(() => expect(emailElement()).toHaveAttribute('data-dark-invert'))
+	})
+
+	it('offers readable and original layouts when legacy content needs compatibility reflow', () => {
+		render(<EmailHtml html='<table width="800"><tr><td>Legacy</td></tr></table>' messageId="m7" />)
+		const el = emailElement()
+
+		act(() => {
+			el.dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+					detail: {
+						mode: 'readable',
+						naturalWidth: 320,
+						containerWidth: 320,
+						scale: 1,
+						reflowed: true,
+						needsFit: false,
+					},
+				}),
+			)
+		})
+
+		const readable = screen.getByRole('button', { name: 'readable' })
+		const original = screen.getByRole('button', { name: 'original' })
+		expect(readable).toHaveAttribute('aria-pressed', 'true')
+		expect(el).toHaveAttribute('data-layout-mode', 'readable')
+
+		fireEvent.click(original)
+
+		expect(original).toHaveAttribute('aria-pressed', 'true')
+		expect(el).toHaveAttribute('data-layout-mode', 'original')
 	})
 })

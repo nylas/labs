@@ -12,6 +12,21 @@ export const EMAIL_ELEMENT_TAG = 'ownmail-email'
 /** Event the element dispatches (composed, bubbling) as links are hovered/focused. */
 export const LINK_PREVIEW_EVENT = 'link-preview'
 
+/** Event emitted when the message's readable/original layout state changes. */
+export const EMAIL_LAYOUT_STATUS_EVENT = 'email-layout-status'
+
+export type EmailLayoutMode = 'readable' | 'original'
+
+/** Measurements the React wrapper can use to offer an Original/Readable control. */
+export interface EmailLayoutStatusDetail {
+	mode: EmailLayoutMode
+	naturalWidth: number
+	containerWidth: number
+	scale: number
+	reflowed: boolean
+	needsFit: boolean
+}
+
 /**
  * Detail payload of a {@link LINK_PREVIEW_EVENT}: the hovered link (or null to
  * clear) plus the viewport point to anchor the preview to — the pointer position
@@ -80,6 +95,106 @@ export function computeScale(contentWidth: number, containerWidth: number): numb
 	return Math.min(1, containerWidth / contentWidth)
 }
 
+/**
+ * Measure the horizontal extent of content a reader can actually see.
+ *
+ * `scrollWidth` alone is unsafe for email: invisible preheaders, tracking pixels,
+ * and absolutely-positioned nodes at `left:9999px` can make an otherwise narrow
+ * message microscopic. This adapter counts visible normal-flow element and text
+ * rectangles, while allowing genuinely visible positioned decoration that still
+ * intersects the message canvas. A zero result means layout geometry is not
+ * available (notably in jsdom), and callers may use a conservative fallback.
+ */
+export function meaningfulContentWidth(root: HTMLElement): number {
+	const rootRect = root.getBoundingClientRect()
+	const rootWidth = rootRect.width || root.clientWidth
+	let minInline = 0
+	let maxInline = rootWidth
+	let hasGeometry = rootWidth > 0
+
+	const rootStyle = getComputedStyle(root)
+	const inlineStartPadding = Number.parseFloat(rootStyle.paddingInlineStart) || 0
+	const inlineEndPadding = Number.parseFloat(rootStyle.paddingInlineEnd) || 0
+	const geometryCache = new WeakMap<Element, { hidden: boolean; positioned: boolean }>()
+	const geometryState = (element: Element): { hidden: boolean; positioned: boolean } => {
+		const cached = geometryCache.get(element)
+		if (cached) return cached
+		const parentState =
+			element.parentElement && element.parentElement !== root
+				? geometryState(element.parentElement)
+				: { hidden: false, positioned: false }
+		const style = getComputedStyle(element)
+		const inlineStyle = element instanceof HTMLElement ? element.style : undefined
+		const clipsOverflow =
+			style.overflow === 'hidden' ||
+			style.overflow === 'clip' ||
+			style.overflowY === 'hidden' ||
+			style.overflowY === 'clip'
+		const rect = element.getBoundingClientRect()
+		const clipsAllContent =
+			clipsOverflow && (rect.height <= 0 || style.height === '0px' || style.maxHeight === '0px')
+		const state = {
+			hidden:
+				parentState.hidden ||
+				element.hasAttribute('hidden') ||
+				style.display === 'none' ||
+				style.visibility === 'hidden' ||
+				style.visibility === 'collapse' ||
+				Number.parseFloat(style.opacity) === 0 ||
+				Number.parseFloat(inlineStyle?.opacity ?? '') === 0 ||
+				clipsAllContent,
+			positioned: parentState.positioned || style.position === 'absolute' || style.position === 'fixed',
+		}
+		geometryCache.set(element, state)
+		return state
+	}
+
+	const includeRect = (rect: DOMRect | DOMRectReadOnly, positioned: boolean): void => {
+		if (rect.width <= 0 || rect.height <= 0) return
+		if (positioned && rootWidth > 0 && (rect.right <= rootRect.left || rect.left >= rootRect.right)) {
+			return
+		}
+
+		hasGeometry = true
+		minInline = Math.min(minInline, rect.left - rootRect.left - inlineStartPadding)
+		maxInline = Math.max(maxInline, rect.right - rootRect.left + inlineEndPadding)
+	}
+
+	for (const element of root.querySelectorAll<HTMLElement>('*')) {
+		const { hidden, positioned } = geometryState(element)
+		if (hidden) continue
+		for (const rect of element.getClientRects()) includeRect(rect, positioned)
+	}
+
+	// Element boxes do not always include overflowing no-wrap text. Ranges do, so
+	// include text fragments without falling back to an ancestor's contaminated
+	// scrollWidth.
+	const view = root.ownerDocument.defaultView
+	const showText = view?.NodeFilter.SHOW_TEXT ?? 4
+	const walker = root.ownerDocument.createTreeWalker(root, showText)
+	let textNode = walker.nextNode()
+	while (textNode) {
+		if (textNode.textContent?.trim()) {
+			const parent = textNode.parentElement
+			/* v8 ignore else -- a TreeWalker rooted at an element only yields attached descendants -- @preserve */
+			if (parent) {
+				const { hidden, positioned } = geometryState(parent)
+				if (!hidden) {
+					const range = root.ownerDocument.createRange()
+					range.selectNodeContents(textNode)
+					if (typeof range.getClientRects === 'function') {
+						for (const rect of range.getClientRects()) includeRect(rect, positioned)
+					}
+					range.detach()
+				}
+			}
+		}
+		textNode = walker.nextNode()
+	}
+
+	return hasGeometry ? Math.ceil(maxInline - minInline) : 0
+}
+
 /** Height the scaled content occupies, so the host box tracks the shrunk email. */
 export function scaledHeight(naturalHeight: number, scale: number): number {
 	return Math.ceil(naturalHeight * scale)
@@ -108,14 +223,18 @@ export function shadowStyleText(): string {
 	// cancel the transform. Layout/paint containment also bounds positioned provider
 	// content to the message surface. Media is re-inverted so photos keep true colors.
 	return `
-:host{display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;isolation:isolate;overflow:hidden;}
-.email-root{position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
+:host{display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;}
+.email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
+.email-root[data-ownmail-direction="rtl"]{transform-origin:top right!important;}
 :where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}
-:where(.email-root) :where(html, body){display:block;min-width:0;max-width:100%;}
+:where(.email-root) :where(html, body){display:block;min-width:0;}
 :where(.email-root) :where(body){margin:0;}
-:where(.email-root) :where(img, video, svg){max-width:100%;height:auto;}
-:where(.email-root) :where(table){max-width:100%;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
+:host(:not([data-layout-mode="original"])) .email-root :where(html, body, table, img, video, svg, canvas){max-width:100%!important;}
+:host(:not([data-layout-mode="original"])) .email-root :where(table){min-width:0!important;table-layout:auto;}
+:host(:not([data-layout-mode="original"])) .email-root :where(td, th){min-width:0!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
+:host(:not([data-layout-mode="original"])) .email-root :where([nowrap], [style*="white-space" i][style*="nowrap" i]){white-space:normal!important;}
+:host(:not([data-layout-mode="original"])) .email-root :where(img, video, svg, canvas){height:auto;}
 :host([data-dark-invert]){color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root img,
 :host([data-dark-invert]) .email-root video,
@@ -133,6 +252,12 @@ export function applyDarkInvert(element: Element | null, invert: boolean): void 
 	if (!element) return
 	if (invert) element.setAttribute('data-dark-invert', '')
 	else element.removeAttribute('data-dark-invert')
+}
+
+/** Reflect the reader's compatibility layout choice onto the custom element. */
+export function applyEmailLayoutMode(element: Element | null, mode: EmailLayoutMode): void {
+	if (!element) return
+	element.setAttribute('data-layout-mode', mode)
 }
 
 /**

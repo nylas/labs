@@ -1,4 +1,90 @@
 import DOMPurify from 'dompurify'
+import postcss from 'postcss'
+
+const PANE_WIDTH_FEATURE = /\(\s*(?:min|max)-width\s*:\s*\d*\.?\d+(?:px|em|rem)\s*\)/gi
+const DEVICE_WIDTH_FEATURE = /\(\s*((?:min|max))-device-width\s*:\s*(\d*\.?\d+(?:px|em|rem))\s*\)/gi
+
+/**
+ * Convert common email viewport breakpoints into named container queries so
+ * responsive sender CSS follows the reading pane rather than the browser window.
+ * PostCSS supplies the grammar-aware parse; malformed CSS is preserved for the
+ * browser's own recovery instead of being rewritten by a fragile brace regex.
+ */
+export function rewritePaneMediaQueries(css: string): string {
+	try {
+		const root = postcss.parse(css)
+		root.walkAtRules('media', (rule) => {
+			const queries = splitMediaList(rule.params)
+			const converted = queries.map((query) => ({ condition: paneWidthCondition(query), query }))
+			const paneConditions = [
+				...new Set(converted.flatMap(({ condition }) => (condition ? [condition] : []))),
+			]
+			if (paneConditions.length === 0) return
+			for (const condition of paneConditions.slice().reverse()) {
+				rule.cloneAfter({ name: 'container', params: `ownmail-email ${condition}` })
+			}
+			const viewportQueries = converted.flatMap(({ condition, query }) => (condition ? [] : [query]))
+			if (viewportQueries.length > 0) rule.params = viewportQueries.join(', ')
+			else rule.remove()
+		})
+		return root.toString()
+	} catch {
+		return css
+	}
+}
+
+function paneWidthCondition(query: string): string | null {
+	const condition = query
+		.trim()
+		.replace(/^(?:only\s+)?(?:screen|all)\s+and\s+/i, '')
+		.replace(
+			DEVICE_WIDTH_FEATURE,
+			(_match, boundary: string, width: string) => `(${boundary}-width:${width})`,
+		)
+		.trim()
+	const features = condition.match(PANE_WIDTH_FEATURE)
+	if (!features?.length) return null
+	const remainder = condition
+		.replace(PANE_WIDTH_FEATURE, '')
+		.replace(/\band\b/gi, '')
+		.trim()
+	return remainder ? null : condition
+}
+
+function splitMediaList(query: string): string[] {
+	const parts: string[] = []
+	let start = 0
+	let depth = 0
+	let quote = ''
+	let escaped = false
+	for (let index = 0; index < query.length; index += 1) {
+		const character = query[index]
+		if (escaped) {
+			escaped = false
+			continue
+		}
+		if (character === '\\') {
+			escaped = true
+			continue
+		}
+		if (quote) {
+			if (character === quote) quote = ''
+			continue
+		}
+		if (character === '"' || character === "'") {
+			quote = character
+			continue
+		}
+		if (character === '(') depth += 1
+		else if (character === ')') depth = Math.max(0, depth - 1)
+		else if (character === ',' && depth === 0) {
+			parts.push(query.slice(start, index).trim())
+			start = index + 1
+		}
+	}
+	parts.push(query.slice(start).trim())
+	return parts.filter(Boolean)
+}
 
 /**
  * Decode CSS escapes only for security inspection. CSS identifiers permit
@@ -28,14 +114,17 @@ export function sanitizeProviderCss(css: string): string {
 	return css
 }
 
-function prepareSanitizedDocument(sanitizedDocument: HTMLElement): HTMLElement {
+function prepareSanitizedDocument(
+	sanitizedDocument: HTMLElement,
+	options: { rewriteViewportMedia?: boolean } = {},
+): HTMLElement {
 	for (const style of Array.from(sanitizedDocument.querySelectorAll('style'))) {
 		const safeCss = sanitizeProviderCss(style.textContent)
 		if (!safeCss) {
 			style.remove()
 			continue
 		}
-		style.textContent = safeCss
+		style.textContent = options.rewriteViewportMedia === false ? safeCss : rewritePaneMediaQueries(safeCss)
 	}
 	return sanitizedDocument
 }
@@ -69,7 +158,10 @@ function renderableFragment(sanitizedDocument: HTMLElement): string {
  * directionality, classes, and safe inline body presentation still describe the
  * same document the sender authored.
  */
-export function sanitizeEmailDocument(html: string): HTMLElement | null {
+export function sanitizeEmailDocument(
+	html: string,
+	options?: { rewriteViewportMedia?: boolean },
+): HTMLElement | null {
 	if (!html.trim()) return null
 	const sanitized = DOMPurify.sanitize(html, {
 		// Fragment sanitization discards `<head>` and its legitimate email styles
@@ -97,7 +189,7 @@ export function sanitizeEmailDocument(html: string): HTMLElement | null {
 	})
 	// DOMPurify's RETURN_DOM + WHOLE_DOCUMENT contract yields the sanitized
 	// document element; its public type is the wider Node interface.
-	return prepareSanitizedDocument(sanitized as HTMLElement)
+	return prepareSanitizedDocument(sanitized as HTMLElement, options)
 }
 
 /** Serializable form used by tests and browser-only consumers that need markup. */

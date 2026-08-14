@@ -1,8 +1,12 @@
 import {
 	computeScale,
 	EMAIL_ELEMENT_TAG,
+	EMAIL_LAYOUT_STATUS_EVENT,
+	type EmailLayoutMode,
+	type EmailLayoutStatusDetail,
 	LINK_PREVIEW_EVENT,
 	type LinkPreviewDetail,
+	meaningfulContentWidth,
 	type PreviewPoint,
 	scaledHeight,
 	shadowStyleText,
@@ -51,21 +55,67 @@ export function rewriteAnchors(root: HTMLElement): void {
 	}
 }
 
+function setImportantStyle(element: HTMLElement | SVGElement, property: string, value: string): void {
+	if (
+		element.style.getPropertyValue(property) === value &&
+		element.style.getPropertyPriority(property) === 'important'
+	) {
+		return
+	}
+	element.style.setProperty(property, value, 'important')
+}
+
 function createEmailElementClass(Base: typeof HTMLElement) {
 	return class extends Base {
+		static get observedAttributes(): string[] {
+			return ['data-layout-mode']
+		}
+
 		private html = ''
 		private contentRoot: HTMLDivElement | null = null
-		private observer: ResizeObserver | undefined
+		private resizeObserver: ResizeObserver | undefined
+		private mutationObserver: MutationObserver | undefined
+		private measurementFrame: number | undefined
+		private measurementQueued = false
+		private observedWidth = -1
+		private lastLayoutStatus = ''
 
 		connectedCallback(): void {
 			const root = this.ensureShadow()
-			this.observer ??= new ResizeObserver(() => this.measure())
-			// Observe the host (pane width changes → re-fit) and the content (late-loading
-			// images/reflow grow it → re-measure so the box height stays right and the
-			// thread can scroll the whole email into view).
-			this.observer.observe(this)
-			this.observer.observe(root)
+			this.resizeObserver ??= new ResizeObserver(() => {
+				const width = this.clientWidth
+				if (width === this.observedWidth) return
+				this.observedWidth = width
+				this.scheduleMeasure()
+			})
+			// Observing only the host width avoids the ResizeObserver feedback loop caused
+			// by observing content whose transform/height this element itself changes.
+			this.resizeObserver.observe(this)
+
+			this.mutationObserver ??= new MutationObserver((records) => {
+				const relevant = records.some(
+					(record) =>
+						record.type !== 'attributes' || record.target !== root || record.attributeName !== 'style',
+				)
+				if (relevant) this.scheduleMeasure()
+			})
+			this.mutationObserver.observe(root, {
+				subtree: true,
+				childList: true,
+				characterData: true,
+				attributes: true,
+				attributeFilter: ['class', 'dir', 'hidden', 'height', 'src', 'srcset', 'style', 'width'],
+			})
+
+			document.fonts?.addEventListener('loadingdone', this.handleFontsLoaded)
+			void document.fonts?.ready.then(() => this.scheduleMeasure())
 			this.renderContent(root)
+		}
+
+		attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
+			if (name !== 'data-layout-mode' || oldValue === newValue) return
+			if (this.contentRoot) this.renderContent(this.contentRoot)
+			else this.scheduleMeasure()
 		}
 
 		private ensureShadow(): HTMLDivElement {
@@ -85,11 +135,21 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			shadow.addEventListener('focusin', this.handleEnter)
 			shadow.addEventListener('pointerout', this.handleLeave)
 			shadow.addEventListener('focusout', this.handleLeave)
+			shadow.addEventListener('load', this.handleMediaSettled, true)
+			shadow.addEventListener('error', this.handleMediaSettled, true)
 			return root
 		}
 
 		disconnectedCallback(): void {
-			this.observer?.disconnect()
+			this.resizeObserver?.disconnect()
+			this.mutationObserver?.disconnect()
+			document.fonts?.removeEventListener('loadingdone', this.handleFontsLoaded)
+			if (this.measurementFrame !== undefined && typeof cancelAnimationFrame === 'function') {
+				cancelAnimationFrame(this.measurementFrame)
+			}
+			this.measurementFrame = undefined
+			this.measurementQueued = false
+			this.observedWidth = -1
 		}
 
 		set emailHtml(value: string) {
@@ -102,26 +162,169 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		private renderContent(root: HTMLDivElement): void {
-			const documentElement = sanitizeEmailDocument(this.html)
+			const documentElement = sanitizeEmailDocument(this.html, {
+				rewriteViewportMedia: this.layoutMode() === 'readable',
+			})
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
 			rewriteAnchors(root)
-			this.measure()
+			this.lastLayoutStatus = ''
+			this.scheduleMeasure()
 		}
 
 		/** Shrink the content to fit the pane; wide emails scale down, never up. */
 		measure(): void {
 			const content = this.contentRoot
 			if (!content) return
-			const scale = computeScale(content.scrollWidth, this.clientWidth)
+			const containerWidth = this.clientWidth
+			if (containerWidth <= 0) return
+
+			// Always measure from a trusted, unscaled pane-width canvas. Otherwise a
+			// previous transform or natural width becomes part of the next measurement.
+			content.style.setProperty('--ownmail-email-scale', '1', 'important')
+			content.style.setProperty('--ownmail-email-natural-width', `${containerWidth}px`, 'important')
+			content.style.setProperty('box-sizing', 'border-box', 'important')
+			content.style.setProperty('width', `${containerWidth}px`, 'important')
+			content.style.setProperty('max-width', 'none', 'important')
+			content.style.setProperty('transform', 'scale(var(--ownmail-email-scale, 1))', 'important')
+			const rtl = this.updateLogicalDirection(content)
+			const mode = this.layoutMode()
+			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
+			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
+			const naturalWidth =
+				mode === 'original' ? Math.max(containerWidth, visibleWidth || content.scrollWidth) : containerWidth
+			content.style.setProperty('--ownmail-email-natural-width', `${naturalWidth}px`, 'important')
+			content.style.setProperty('width', `${naturalWidth}px`, 'important')
+
+			const scale = mode === 'original' ? computeScale(naturalWidth, containerWidth) : 1
+			content.style.setProperty('--ownmail-email-scale', `${scale}`, 'important')
+			content.style.setProperty(
+				'left',
+				rtl && scale < 1 ? `${containerWidth - naturalWidth}px` : '0px',
+				'important',
+			)
 			if (scale < 1) {
-				content.style.transformOrigin = 'top left'
-				content.style.transform = `scale(${scale})`
 				this.style.height = `${scaledHeight(content.scrollHeight, scale)}px`
 			} else {
-				content.style.transform = ''
 				this.style.height = ''
 			}
+
+			this.emitLayoutStatus({
+				mode,
+				naturalWidth,
+				containerWidth,
+				scale,
+				reflowed,
+				needsFit: naturalWidth > containerWidth,
+			})
 		}
+
+		private scheduleMeasure(): void {
+			if (!this.isConnected || this.measurementQueued) return
+			this.measurementQueued = true
+			const run = (): void => {
+				this.measurementQueued = false
+				this.measurementFrame = undefined
+				if (this.isConnected) this.measure()
+			}
+			if (typeof requestAnimationFrame === 'function') {
+				this.measurementFrame = requestAnimationFrame(run)
+			} else {
+				queueMicrotask(run)
+			}
+		}
+
+		private layoutMode(): EmailLayoutMode {
+			return this.getAttribute('data-layout-mode') === 'original' ? 'original' : 'readable'
+		}
+
+		private updateLogicalDirection(content: HTMLElement): boolean {
+			const documentElement = content.querySelector('html')
+			const body = content.querySelector('body')
+			const declared = body?.getAttribute('dir') ?? documentElement?.getAttribute('dir')
+			const direction =
+				declared?.toLowerCase() === 'rtl' || (body && getComputedStyle(body).direction === 'rtl')
+			content.setAttribute('data-ownmail-direction', direction ? 'rtl' : 'ltr')
+			content.style.setProperty('transform-origin', direction ? 'top right' : 'top left', 'important')
+			return Boolean(direction)
+		}
+
+		private applyReadableLayout(content: HTMLElement, containerWidth: number): boolean {
+			let changed = content.scrollWidth > containerWidth
+			const plans: Array<{
+				element: HTMLElement | SVGElement
+				isInline: boolean
+				normalizeNoWrap: boolean
+				raiseFont: boolean
+				tooWide: boolean
+			}> = []
+			for (const element of content.querySelectorAll('*')) {
+				if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue
+				if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
+				const style = getComputedStyle(element)
+				const width = Number.parseFloat(style.width)
+				const minWidth = Number.parseFloat(style.minWidth)
+				const declaredPixels = [
+					element.getAttribute('width') ?? '',
+					element.style.width,
+					element.style.minWidth,
+				]
+					.map((value) => value.trim().match(/^(\d+(?:\.\d+)?)(?:px)?$/i)?.[1])
+					.filter((value): value is string => value !== undefined)
+					.map(Number)
+				const scrollWidth =
+					element instanceof HTMLElement ? element.scrollWidth : element.getBoundingClientRect().width
+				const tooWide =
+					declaredPixels.some((declaredWidth) => declaredWidth > containerWidth) ||
+					(Number.isFinite(width) && width > containerWidth) ||
+					(Number.isFinite(minWidth) && minWidth > containerWidth) ||
+					scrollWidth > containerWidth
+				const isInline = style.display === 'inline' || style.display === 'contents'
+				const normalizeNoWrap = element.hasAttribute('nowrap') || style.whiteSpace === 'nowrap'
+				const hasDirectText = Array.from(element.childNodes).some(
+					(node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
+				)
+				const fontSize = Number.parseFloat(style.fontSize)
+				const raiseFont = hasDirectText && Number.isFinite(fontSize) && fontSize < 12
+				if (tooWide || normalizeNoWrap || raiseFont) {
+					plans.push({ element, isInline, normalizeNoWrap, raiseFont, tooWide })
+					changed = true
+				}
+			}
+			for (const { element, isInline, normalizeNoWrap, raiseFont, tooWide } of plans) {
+				if (tooWide && !isInline) {
+					setImportantStyle(element, 'min-width', '0px')
+					setImportantStyle(element, 'max-width', '100%')
+				}
+				if (tooWide && !isInline && !['TD', 'TH', 'TR'].includes(element.tagName)) {
+					setImportantStyle(element, 'width', '100%')
+				}
+				if (element.tagName === 'TABLE' && tooWide) {
+					setImportantStyle(element, 'table-layout', 'fixed')
+				}
+				if (normalizeNoWrap) setImportantStyle(element, 'white-space', 'normal')
+				if (raiseFont) {
+					setImportantStyle(element, 'font-size', '12px')
+				}
+			}
+			return changed
+		}
+
+		private emitLayoutStatus(detail: EmailLayoutStatusDetail): void {
+			const status = JSON.stringify(detail)
+			if (status === this.lastLayoutStatus) return
+			this.lastLayoutStatus = status
+			this.dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, { detail, bubbles: true, composed: true }),
+			)
+		}
+
+		private readonly handleMediaSettled = (event: Event): void => {
+			if (event.target instanceof HTMLImageElement || event.target instanceof HTMLVideoElement) {
+				this.scheduleMeasure()
+			}
+		}
+
+		private readonly handleFontsLoaded = (): void => this.scheduleMeasure()
 
 		private readonly handleEnter = (event: Event): void => {
 			const href = anchorHref(event.target)
