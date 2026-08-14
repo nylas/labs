@@ -43,7 +43,11 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 			messages.flatMap((message) =>
 				(message.attachments ?? [])
 					.filter((attachment) => !attachment.is_inline)
-					.map((attachment) => ({ attachment, messageId: message.id })),
+					.map((attachment) => ({
+						attachment,
+						messageId: message.id,
+						fromLabel: message.from?.[0]?.name || message.from?.[0]?.email || '(unknown sender)',
+					})),
 			),
 		[messages],
 	)
@@ -108,26 +112,27 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 					) : null}
 				</div>
 
-				{threadAttachments.length > 0 ? (
+				{messages.length > 1 && threadAttachments.length > 0 ? (
 					<div
-						data-slot="thread-attachment-rail"
-						className="mt-2 flex max-w-full gap-2 overflow-x-auto pb-1 xl:mt-4 xl:flex-wrap xl:overflow-x-visible xl:pb-0"
+						data-slot="thread-attachment-summary"
+						className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-muted-foreground xl:mt-4"
 					>
-						{threadAttachments.map(({ attachment, messageId }) => (
-							<AttachmentLink key={attachment.id} attachment={attachment} messageId={messageId} />
-						))}
+						<Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
+						<span>
+							{threadAttachments.length} thread{' '}
+							{threadAttachments.length === 1 ? 'attachment' : 'attachments'}
+						</span>
 					</div>
 				) : null}
 			</header>
 
-			<div className="px-4 py-1 sm:px-5 sm:py-2 lg:px-8">
-				{messages.map((message, index) => (
+			<div className="space-y-3 px-3 py-4 sm:px-5 lg:px-8">
+				{messages.map((message) => (
 					<MessageBlock
 						key={message.id}
 						message={message}
 						open={openMessageIds.has(message.id)}
 						onToggle={() => toggleMessage(message.id)}
-						isLast={index === messages.length - 1}
 						darkenEmail={preferences.emailDarkMode}
 					/>
 				))}
@@ -140,22 +145,25 @@ function MessageBlock({
 	message,
 	open,
 	onToggle,
-	isLast,
 	darkenEmail,
 }: {
 	message: MailMessage
 	open: boolean
 	onToggle: () => void
-	isLast: boolean
 	darkenEmail: boolean
 }) {
 	const contentId = useId()
+	const senderHeadingId = useId()
 	const from = message.from?.[0]
 	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
 
 	return (
-		<article className={cn('py-5', !isLast && 'border-b border-border')}>
+		<article
+			data-slot="thread-message"
+			aria-labelledby={senderHeadingId}
+			className="rounded-xl border border-border bg-background px-3 py-4 shadow-xs sm:px-4"
+		>
 			<div className="flex min-w-0 flex-wrap items-start gap-x-3">
 				<div
 					data-slot="sender-avatar"
@@ -165,9 +173,12 @@ function MessageBlock({
 				</div>
 				<div className="min-w-0 flex-1 pt-1">
 					<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-						<span className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
+						<h2
+							id={senderHeadingId}
+							className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
+						>
 							{fromLabel}
-						</span>
+						</h2>
 						{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
 						{message.date ? (
 							<ClientMessageTime
@@ -358,30 +369,48 @@ function formatParticipant(participant: { email: string; name?: string }): strin
 function MessageAttachments({ message }: { message: MailMessage }) {
 	const attachments = (message.attachments ?? []).filter((attachment) => !attachment.is_inline)
 	if (attachments.length === 0) return null
+	const from = message.from?.[0]
+	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	return (
-		<div className="mt-4 flex flex-wrap gap-2">
-			{attachments.map((attachment) => (
-				<AttachmentLink key={attachment.id} attachment={attachment} messageId={message.id} />
-			))}
-		</div>
+		<section className="mt-4" aria-label={`Attachments from ${fromLabel}`}>
+			<div className="flex min-w-0 flex-wrap gap-2">
+				{attachments.map((attachment) => (
+					<AttachmentLink
+						key={attachment.id}
+						attachment={attachment}
+						messageId={message.id}
+						attribution={fromLabel}
+					/>
+				))}
+			</div>
+		</section>
 	)
 }
 
 type Attachment = NonNullable<MailMessage['attachments']>[number]
 
-function AttachmentLink({ attachment, messageId }: { attachment: Attachment; messageId: string }) {
+function AttachmentLink({
+	attachment,
+	messageId,
+	attribution,
+}: {
+	attachment: Attachment
+	messageId: string
+	attribution: string
+}) {
+	const filename = attachment.filename ?? 'attachment'
+	const sizeLabel = attachment.size ? formatSize(attachment.size) : undefined
 	return (
 		<a
 			data-slot="thread-attachment"
 			href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`}
-			className="inline-flex min-h-11 max-w-[calc(100vw-2rem)] shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm whitespace-nowrap transition-colors hover:bg-accent active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid sm:max-w-none sm:shrink dark:bg-muted/40 dark:hover:bg-muted"
+			aria-label={`${filename}${sizeLabel ? `, ${sizeLabel}` : ''}, attached to message from ${attribution}`}
+			className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid dark:bg-muted/40 dark:hover:bg-muted"
 			download={attachment.filename}
 		>
-			<Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-			<span className="min-w-0 truncate font-medium">{attachment.filename ?? 'attachment'}</span>
-			{attachment.size ? (
-				<span className="text-muted-foreground">· {formatSize(attachment.size)}</span>
-			) : null}
+			<Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+			<span className="min-w-0 truncate font-medium">{filename}</span>
+			{sizeLabel ? <span className="shrink-0 text-muted-foreground">· {sizeLabel}</span> : null}
 		</a>
 	)
 }

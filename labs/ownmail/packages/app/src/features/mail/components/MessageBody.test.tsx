@@ -66,6 +66,42 @@ describe('MessageBody (plain text)', () => {
 		const { container } = render(<MessageBody message={message({ id: 'm4', body: '   ' })} />)
 		expect(container.firstChild).toBeNull()
 	})
+
+	it('collapses recognized plaintext reply history behind an accessible disclosure', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'm-quoted-text',
+					body: 'Current answer\n\nOn Friday, Sam wrote:\n> Earlier line\n> Another line',
+				})}
+			/>,
+		)
+
+		const disclosure = screen.getByText('Show quoted text').closest('details')
+		expect(screen.getByText('Current answer')).toBeInTheDocument()
+		expect(disclosure).not.toHaveAttribute('open')
+		expect(disclosure).toHaveTextContent('> Earlier line')
+	})
+
+	it('does not hide an arbitrary plaintext quote', () => {
+		render(
+			<MessageBody message={message({ id: 'm-visible-quote', body: 'A thought:\n> Keep this visible' })} />,
+		)
+
+		expect(screen.queryByText('Show quoted text')).toBeNull()
+		expect(screen.getByText(/Keep this visible/)).toBeInTheDocument()
+	})
+
+	it('shows a disclosure when a plaintext message contains only recognized history', () => {
+		render(
+			<MessageBody
+				message={message({ id: 'm-history-only', body: 'On Friday, Sam wrote:\n> Earlier line' })}
+			/>,
+		)
+
+		expect(screen.getByText('Show quoted text')).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="plain-email-prose"] > p')).toBeNull()
+	})
 })
 
 describe('MessageBody (provider HTML, before client mount)', () => {
@@ -190,6 +226,76 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 
 		expect(root?.querySelector('h2')?.textContent).toBe('Release notes')
 		expect(root?.querySelector('strong')?.textContent).toBe('Ready')
+	})
+
+	it('bounds prose HTML without constraining a designed fixed-width email', () => {
+		const prose = render(
+			<MessageBody message={message({ id: 'msg-prose', body: '<p>A readable status update.</p>' })} />,
+		)
+		expect(prose.container.querySelector('[data-slot="html-email-content"]')).toHaveClass('max-w-[72ch]')
+
+		prose.rerender(
+			<MessageBody
+				message={message({
+					id: 'msg-designed',
+					body: '<table width="640"><tr><td>Designed newsletter</td></tr></table>',
+				})}
+			/>,
+		)
+		expect(prose.container.querySelector('[data-slot="html-email-content"]')).not.toHaveClass('max-w-[72ch]')
+	})
+
+	it('collapses provider-marked HTML history but preserves an ordinary blockquote', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-quoted-html',
+					body: '<p>Current reply</p><div class="gmail_quote">Old reply</div><blockquote>Visible callout</blockquote>',
+				})}
+			/>,
+		)
+		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
+
+		expect(root?.querySelector('details:not([open]) summary')).toHaveTextContent('Show quoted text')
+		expect(root?.querySelector('details')).toHaveTextContent('Old reply')
+		expect(root?.querySelector('body > blockquote')).toHaveTextContent('Visible callout')
+	})
+
+	it('resolves matched CID images and renders unmatched references as inert text', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg/cid',
+					body: '<img src="cid:logo@example.com" alt="Logo"><img src="cid:missing" alt="Missing signature">',
+					attachments: [{ id: 'inline/logo', is_inline: true, content_id: '<logo@example.com>' }],
+				})}
+			/>,
+		)
+		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
+
+		expect(root?.querySelector('img')).toHaveAttribute(
+			'src',
+			'/attachments/inline%2Flogo?message_id=msg%2Fcid',
+		)
+		expect(root?.querySelector('[role="img"]')).toHaveTextContent('Missing signature')
+		expect(root?.innerHTML).not.toContain('cid:')
+	})
+
+	it('preserves a safe fallback link from an Outlook VML-only CTA', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-vml',
+					body: '<v:roundrect href="https://example.com/confirm"><center>Confirm</center></v:roundrect>',
+				})}
+			/>,
+		)
+		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
+		const link = root?.querySelector('a')
+
+		expect(link).toHaveTextContent('Confirm')
+		expect(link).toHaveAttribute('href', 'https://example.com/confirm')
+		expect(link).toHaveAttribute('target', '_blank')
 	})
 
 	it('retains sanitization and safe-link rewriting on the read path', () => {

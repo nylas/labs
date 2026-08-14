@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
+import { prepareEmailMessageContent, splitPlainQuotedHistory } from '../lib/email-message-content.js'
 import { ownMailDraftMarkdown } from '../lib/html-to-markdown.js'
 import { messageHasHtml } from '../lib/mail-ui-model.js'
 import { markdownToEmailHtml } from '../lib/markdown-model.js'
@@ -22,7 +24,7 @@ export function MessageBody({
 	if (draftMarkdown !== undefined) {
 		const html = markdownToEmailHtml(draftMarkdown)
 		if (!mounted) return html ? <HtmlBodyPlaceholder /> : null
-		return <EmailHtml html={html} messageId={message.id} darken={darkenEmail} />
+		return <PreparedHtmlBody html={html} message={message} darkenEmail={darkenEmail} />
 	}
 
 	if (messageHasHtml(message)) {
@@ -31,13 +33,36 @@ export function MessageBody({
 		// sanitizer and isolated shadow root after the client has mounted.
 		if (!mounted) return <HtmlBodyPlaceholder />
 		/* v8 ignore next -- `?? ''` is unreachable: this branch only runs when messageHasHtml() confirmed message.body is a non-empty string -- @preserve */
-		return <EmailHtml html={message.body ?? ''} messageId={message.id} darken={darkenEmail} />
+		return <PreparedHtmlBody html={message.body ?? ''} message={message} darkenEmail={darkenEmail} />
 	}
 
 	const text = plainBodyText(message)
 	if (!text) return null
 
 	return <PlainBody text={text} />
+}
+
+function PreparedHtmlBody({
+	html,
+	message,
+	darkenEmail,
+}: {
+	html: string
+	message: MailMessage
+	darkenEmail: boolean
+}) {
+	const prepared = useMemo(
+		() => prepareEmailMessageContent(html, message.id, message.attachments ?? []),
+		[html, message.attachments, message.id],
+	)
+	return (
+		<div
+			data-slot="html-email-content"
+			className={prepared.isProse ? 'w-full min-w-0 max-w-[72ch]' : 'w-full min-w-0'}
+		>
+			<EmailHtml html={prepared.html} messageId={message.id} darken={darkenEmail} />
+		</div>
+	)
 }
 
 function HtmlBodyPlaceholder() {
@@ -59,7 +84,8 @@ function plainBodyText(message: MailMessage): string {
 }
 
 function PlainBody({ text }: { text: string }) {
-	const paragraphs = text.split(/\n{2,}/)
+	const content = splitPlainQuotedHistory(text)
+	const paragraphs = content.visible ? content.visible.split(/\n{2,}/) : []
 	return (
 		<div data-slot="plain-email-content" className="w-full min-w-0">
 			<div data-slot="plain-email-prose" className="max-w-[72ch] space-y-3">
@@ -71,6 +97,16 @@ function PlainBody({ text }: { text: string }) {
 						{paragraph}
 					</p>
 				))}
+				{content.quoted ? (
+					<details className="border-t border-border text-muted-foreground">
+						<summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+							Show quoted text
+						</summary>
+						<p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
+							{content.quoted}
+						</p>
+					</details>
+				) : null}
 			</div>
 		</div>
 	)

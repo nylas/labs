@@ -179,7 +179,9 @@ describe('thread header', () => {
 			expect(avatar).toHaveClass('bg-card', 'dark:bg-muted')
 			expect(avatar).not.toHaveClass('bg-muted')
 		}
-		expect(attachmentLinks).toHaveLength(7)
+		// Only the expanded message owns download links; the header is count-only,
+		// so aggregate and per-message surfaces never duplicate a download.
+		expect(attachmentLinks).toHaveLength(3)
 		for (const link of attachmentLinks) {
 			expect(link).toHaveClass('bg-card', 'hover:bg-accent', 'dark:bg-muted/40', 'dark:hover:bg-muted')
 			expect(link).not.toHaveClass('bg-muted/40', 'hover:bg-muted')
@@ -207,19 +209,20 @@ describe('thread header', () => {
 
 	it('lists every non-inline attachment across the thread with human-readable sizes', () => {
 		renderThread()
-		// header attachment strip: one per non-inline attachment (a1, a2, a3, a5).
-		// a1 lives on the collapsed m1 so it is unique to the header; a2/a3/a5 also
-		// appear inside the expanded m2 block, hence getAllByText for those.
-		expect(screen.getByText('doc.pdf')).toBeInTheDocument()
-		expect(screen.getAllByText('big.zip').length).toBeGreaterThan(0)
-		expect(screen.getAllByText('nosize.dat').length).toBeGreaterThan(0)
+		// a1 lives on collapsed m1 and is intentionally absent until that message is
+		// expanded. The count-only thread summary does not duplicate attachment links.
+		expect(screen.queryByText('doc.pdf')).toBeNull()
+		expect(screen.getByText('big.zip')).toBeInTheDocument()
+		expect(screen.getByText('nosize.dat')).toBeInTheDocument()
 		// inline attachment is excluded
 		expect(screen.queryByText('sig.png')).not.toBeInTheDocument()
-		// size formatting: B / KB / MB
+		// The expanded latest message covers KB / MB formatting without duplicates.
+		expect(screen.getByText('· 2 KB')).toBeInTheDocument()
+		expect(screen.getByText('· 3.0 MB')).toBeInTheDocument()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand message from Alice' }))
 		expect(screen.getByText('· 500 B')).toBeInTheDocument()
-		expect(screen.getAllByText('· 2 KB').length).toBeGreaterThan(0)
-		expect(screen.getAllByText('· 3.0 MB').length).toBeGreaterThan(0)
-		// attachment link points at the parent message
+		// Once its message is expanded, the attachment link points at that parent message.
 		const link = screen.getByText('doc.pdf').closest('a') as HTMLAnchorElement
 		expect(link.getAttribute('href')).toBe('/attachments/a1?message_id=m1')
 	})
