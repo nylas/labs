@@ -1,6 +1,78 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { sanitizeEmailDocument, sanitizeEmailHtml, sanitizeProviderCss } from './sanitize-email.js'
+import {
+	rewritePaneMediaQueries,
+	sanitizeEmailDocument,
+	sanitizeEmailHtml,
+	sanitizeProviderCss,
+} from './sanitize-email.js'
+
+describe('rewritePaneMediaQueries', () => {
+	it('converts common width breakpoints to the named reading-pane container', () => {
+		expect(
+			rewritePaneMediaQueries(
+				'@media only screen and (min-width: 20rem) and (max-width:600px){.mobile{display:block}}',
+			),
+		).toBe('@container ownmail-email (min-width: 20rem) and (max-width:600px){.mobile{display:block}}')
+	})
+
+	it('converts comma-separated width lists into pane queries', () => {
+		expect(
+			rewritePaneMediaQueries(
+				'@media screen and (max-width:600px), screen and (max-width:40rem){.x{display:block}}',
+			),
+		).toBe(
+			'@container ownmail-email (max-width:600px){.x{display:block}}@container ownmail-email (max-width:40rem){.x{display:block}}',
+		)
+	})
+
+	it('maps archaic device-width branches to the reading pane', () => {
+		expect(
+			rewritePaneMediaQueries(
+				'@media only screen and (max-width:600px), only screen and (max-device-width:40rem){.x{display:block}}',
+			),
+		).toBe(
+			'@container ownmail-email (max-width:600px){.x{display:block}}@container ownmail-email (max-width:40rem){.x{display:block}}',
+		)
+	})
+
+	it('deduplicates equivalent width and device-width branches', () => {
+		expect(
+			rewritePaneMediaQueries(
+				'@media only screen and (max-width:600px), only screen and (max-device-width:600px){.x{display:block}}',
+			),
+		).toBe('@container ownmail-email (max-width:600px){.x{display:block}}')
+	})
+
+	it('preserves unsupported viewport branches while converting width-only branches', () => {
+		expect(rewritePaneMediaQueries('@media print, (max-width:600px){.x{display:block}}')).toBe(
+			'@media print{.x{display:block}}@container ownmail-email (max-width:600px){.x{display:block}}',
+		)
+	})
+
+	it('leaves non-width, mixed, and malformed media rules unchanged', () => {
+		const css = [
+			'@media (prefers-color-scheme:dark){body{background:#000}}',
+			'@media (max-width:600px) and (orientation:portrait){.x{display:block}}',
+		].join('')
+		expect(rewritePaneMediaQueries(css)).toBe(css)
+		const malformed = '@media (max-width:600px){.x{color:red}'
+		expect(rewritePaneMediaQueries(malformed)).toBe(malformed)
+	})
+
+	it('does not split media-list commas inside quoted or escaped content', () => {
+		const css = String.raw`@media "a\"b,c", 'd\'e,f', \screen and (max-width:600px){.x{display:block}}`
+		expect(rewritePaneMediaQueries(css)).toBe(css)
+	})
+
+	it('preserves viewport media semantics when Original layout requests them', () => {
+		const documentElement = sanitizeEmailDocument(
+			'<style>@media (max-width:600px){.mobile{display:block}}</style><p>Body</p>',
+			{ rewriteViewportMedia: false },
+		)
+		expect(documentElement?.querySelector('style')?.textContent).toContain('@media (max-width:600px)')
+	})
+})
 
 describe('sanitizeEmailHtml', () => {
 	it('returns an empty string unchanged', () => {
@@ -42,7 +114,10 @@ describe('sanitizeEmailHtml', () => {
 
 	it('keeps ordinary scoped email stylesheet rules', () => {
 		const css = '@media (max-width:600px){.card{width:100%}} .title{color:#434245}'
-		expect(sanitizeEmailHtml(`<style>${css}</style><p class="title">Hi</p>`)).toContain(css)
+		const output = sanitizeEmailHtml(`<style>${css}</style><p class="title">Hi</p>`)
+		expect(output).toContain(
+			'@container ownmail-email (max-width:600px){.card{width:100%}} .title{color:#434245}',
+		)
 	})
 
 	it('preserves safe document, body, and directionality attributes for faithful rendering', () => {

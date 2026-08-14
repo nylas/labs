@@ -2,8 +2,12 @@ import { type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import {
 	applyDarkInvert,
 	applyEmailHtml,
+	applyEmailLayoutMode,
 	EMAIL_ELEMENT_TAG,
+	EMAIL_LAYOUT_STATUS_EVENT,
 	type EmailElementLike,
+	type EmailLayoutMode,
+	type EmailLayoutStatusDetail,
 	emailSupportsDarkMode,
 	type LinkPreviewDetail,
 	linkPreviewText,
@@ -55,6 +59,8 @@ export function EmailHtml({
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
+	const [layoutMode, setLayoutMode] = useState<EmailLayoutMode>('readable')
+	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => emailSupportsDarkMode(html), [html])
@@ -64,6 +70,20 @@ export function EmailHtml({
 		ensureEmailElementDefined()
 		setReady(true)
 	}, [])
+
+	useLayoutEffect(() => {
+		if (!ready || !ref.current) return
+		const element = ref.current
+		const onLayoutStatus = (event: Event) => {
+			setLayoutStatus((event as CustomEvent<EmailLayoutStatusDetail>).detail)
+		}
+		element.addEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
+		return () => element.removeEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
+	}, [ready])
+
+	useLayoutEffect(() => {
+		if (ready) applyEmailLayoutMode(ref.current, layoutMode)
+	}, [ready, layoutMode])
 
 	// `ready` re-runs these once the custom element has mounted and `ref.current` is
 	// set (the linter can't see the ref dependency, so it is used explicitly here).
@@ -77,8 +97,29 @@ export function EmailHtml({
 
 	useEffect(() => subscribeLinkPreview(ready ? ref.current : null, setPreview), [ready])
 
+	const showLayoutControl =
+		layoutMode === 'original' || layoutStatus?.reflowed === true || layoutStatus?.needsFit === true
+
 	return (
 		<div className="relative" aria-busy={ready ? undefined : true}>
+			{showLayoutControl ? (
+				<div className="mb-2 flex justify-end">
+					<fieldset className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-xs">
+						<legend className="sr-only">Email layout</legend>
+						{(['readable', 'original'] as const).map((mode) => (
+							<button
+								key={mode}
+								type="button"
+								aria-pressed={layoutMode === mode}
+								onClick={() => setLayoutMode(mode)}
+								className="min-h-11 rounded-md px-3 font-medium capitalize text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm"
+							>
+								{mode}
+							</button>
+						))}
+					</fieldset>
+				</div>
+			) : null}
 			{ready ? (
 				<OwnmailEmail ref={ref} title={`Email content ${messageId}`} className="block w-full" />
 			) : (
