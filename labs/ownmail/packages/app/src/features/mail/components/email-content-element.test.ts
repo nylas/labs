@@ -84,6 +84,31 @@ describe('rewriteAnchors', () => {
 			expect(anchor.getAttribute('rel')).toBe('noopener noreferrer nofollow')
 		}
 	})
+
+	it('enforces and restores trusted focus styles over sender inline important styles', () => {
+		const el = mount(
+			'<a class="focus" href="https://example.com" style="outline:none!important;box-shadow:none!important">Link</a><a class="unfocused" href="https://example.com/other">Other</a><p>Plain</p>',
+		)
+		const anchor = el.shadowRoot?.querySelector<HTMLAnchorElement>('.focus')
+		anchor?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+		anchor?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+		expect(anchor?.style.getPropertyValue('outline')).toBe('2px solid CanvasText')
+		expect(anchor?.style.getPropertyPriority('outline')).toBe('important')
+		expect(anchor?.style.getPropertyValue('outline-offset')).toBe('2px')
+
+		anchor?.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }))
+		expect(anchor?.style.getPropertyValue('outline')).toBe('none')
+		expect(anchor?.style.getPropertyPriority('outline')).toBe('important')
+		expect(anchor?.style.getPropertyValue('outline-offset')).toBe('')
+
+		el.shadowRoot
+			?.querySelector<HTMLAnchorElement>('.unfocused')
+			?.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }))
+		el.shadowRoot
+			?.querySelector('p')
+			?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+		el.shadowRoot?.dispatchEvent(new FocusEvent('focusin'))
+	})
 })
 
 describe('ensureEmailElementDefined', () => {
@@ -151,8 +176,17 @@ describe('<ownmail-email> rendering', () => {
 		expect(children.at(-1)?.textContent).toContain(':host([data-dark-invert])')
 	})
 
+	it('isolates a provider CSS background into the trusted dark-fidelity layer', () => {
+		const el = mount('<div class="hero" style="background-image:linear-gradient(red,blue)">Hero</div>')
+		const hero = el.shadowRoot?.querySelector<HTMLElement>('.hero')
+		expect(hero).toHaveAttribute('data-ownmail-background-media')
+		expect(hero?.style.getPropertyValue('--ownmail-background-image')).toContain('linear-gradient')
+		expect(hero?.style.getPropertyPriority('--ownmail-background-image')).toBe('important')
+	})
+
 	it('applies html set after the element is already connected', () => {
 		const el = mount()
+		el.emailHtml = '<p>Later</p>'
 		el.emailHtml = '<p>Later</p>'
 		expect(el.shadowRoot?.querySelector('.email-root')?.innerHTML).toContain('Later')
 		expect(el.emailHtml).toBe('<p>Later</p>')

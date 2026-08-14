@@ -15,7 +15,11 @@ export const LINK_PREVIEW_EVENT = 'link-preview'
 /** Event emitted when the message's readable/original layout state changes. */
 export const EMAIL_LAYOUT_STATUS_EVENT = 'email-layout-status'
 
+/** Event emitted when remote image resources are blocked or explicitly loaded. */
+export const EMAIL_REMOTE_IMAGES_EVENT = 'email-remote-images'
+
 export type EmailLayoutMode = 'readable' | 'original'
+export type EmailTheme = 'light' | 'dark'
 
 /** Measurements the React wrapper can use to offer an Original/Readable control. */
 export interface EmailLayoutStatusDetail {
@@ -25,6 +29,11 @@ export interface EmailLayoutStatusDetail {
 	scale: number
 	reflowed: boolean
 	needsFit: boolean
+}
+
+export interface EmailRemoteImagesDetail {
+	hasRemoteImages: boolean
+	loaded: boolean
 }
 
 /**
@@ -80,6 +89,7 @@ const MAX_PREVIEW_LENGTH = 120
  * commonly include it in metadata that our sanitizer removes, and it does not
  * itself supply dark colors for the message content.
  */
+/** @deprecated Rendering decisions use sanitizedEmailSupportsDarkMode instead. */
 export function emailSupportsDarkMode(html: string): boolean {
 	return /@media[^{]*\(\s*prefers-color-scheme\s*:\s*dark\s*\)/i.test(html)
 }
@@ -223,22 +233,28 @@ export function shadowStyleText(): string {
 	// cancel the transform. Layout/paint containment also bounds positioned provider
 	// content to the message surface. Media is re-inverted so photos keep true colors.
 	return `
-:host{display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;}
-.email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:#ffffff;color:#1a1a1a;padding:20px;border-radius:12px;overflow-wrap:anywhere;word-break:break-word;}
+:host{--ownmail-email-theme:light;display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
+:host([data-email-theme="dark"]){--ownmail-email-theme:dark;color:#e5e7eb;color-scheme:dark;}
+.email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:transparent!important;color:inherit;padding:20px;overflow-wrap:anywhere;word-break:break-word;}
 .email-root[data-ownmail-direction="rtl"]{transform-origin:top right!important;}
 :where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}
 :where(.email-root) :where(html, body){display:block;min-width:0;}
-:where(.email-root) :where(body){margin:0;}
+:where(.email-root) :where(body){margin:0;background-color:transparent;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
+:where(.email-root) :where(a[href]){color:#075985!important;text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
+:host([data-email-theme="dark"]):not([data-dark-invert]) :where(.email-root) :where(a[href]){color:#7dd3fc!important;}
+:where(.email-root) :where(a[href]):focus-visible{outline:2px solid CanvasText!important;outline-offset:2px!important;border-radius:2px!important;box-shadow:0 0 0 4px Canvas!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(html, body, table, img, video, svg, canvas){max-width:100%!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(table){min-width:0!important;table-layout:auto;}
 :host(:not([data-layout-mode="original"])) .email-root :where(td, th){min-width:0!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where([nowrap], [style*="white-space" i][style*="nowrap" i]){white-space:normal!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(img, video, svg, canvas){height:auto;}
 :host([data-dark-invert]){color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
-:host([data-dark-invert]) .email-root img,
-:host([data-dark-invert]) .email-root video,
-:host([data-dark-invert]) .email-root [style*="background-image"]{filter:invert(1) hue-rotate(180deg)!important;}
+:host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}
+:host([data-dark-invert]) .email-root :where(img, video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color:#fff!important;}
+:where(.email-root) [data-ownmail-background-media]{position:relative!important;isolation:isolate;}
+:host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]{background-image:none!important;}
+:host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]::before{content:""!important;position:absolute!important;inset:0!important;z-index:-1!important;pointer-events:none!important;background-image:var(--ownmail-background-image)!important;background-position:var(--ownmail-background-position)!important;background-size:var(--ownmail-background-size)!important;background-repeat:var(--ownmail-background-repeat)!important;background-origin:var(--ownmail-background-origin)!important;background-clip:var(--ownmail-background-clip)!important;filter:invert(1) hue-rotate(180deg)!important;}
 `.trim()
 }
 
@@ -252,6 +268,19 @@ export function applyDarkInvert(element: Element | null, invert: boolean): void 
 	if (!element) return
 	if (invert) element.setAttribute('data-dark-invert', '')
 	else element.removeAttribute('data-dark-invert')
+}
+
+/** Reflect the app theme used by rewritten provider color-scheme queries. */
+export function applyEmailTheme(element: Element | null, theme: EmailTheme): void {
+	if (!element) return
+	element.setAttribute('data-email-theme', theme)
+}
+
+/** Opt a single rendered message into loading its previously blocked remote images. */
+export function applyRemoteImages(element: Element | null, load: boolean): void {
+	if (!element) return
+	if (load) element.setAttribute('data-load-remote-images', '')
+	else element.removeAttribute('data-load-remote-images')
 }
 
 /** Reflect the reader's compatibility layout choice onto the custom element. */

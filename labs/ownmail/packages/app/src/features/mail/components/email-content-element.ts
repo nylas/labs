@@ -2,8 +2,10 @@ import {
 	computeScale,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
+	EMAIL_REMOTE_IMAGES_EVENT,
 	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
+	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
 	type LinkPreviewDetail,
 	meaningfulContentWidth,
@@ -11,7 +13,7 @@ import {
 	scaledHeight,
 	shadowStyleText,
 } from '../lib/email-render.js'
-import { sanitizeEmailDocument } from '../lib/sanitize-email.js'
+import { sanitizedDocumentHasRemoteImages, sanitizeEmailDocument } from '../lib/sanitize-email.js'
 
 /**
  * `<ownmail-email>` — a Shadow-DOM custom element that renders sanitized email
@@ -49,10 +51,51 @@ export function previewPoint(event: Event, target: EventTarget | null): PreviewP
 
 /** Force every link to open in a new tab without leaking the opener. */
 export function rewriteAnchors(root: HTMLElement): void {
-	for (const anchor of root.querySelectorAll('a[href]')) {
+	for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
 		anchor.setAttribute('target', '_blank')
 		anchor.setAttribute('rel', 'noopener noreferrer nofollow')
+		anchor.style.setProperty('color', 'LinkText', 'important')
+		anchor.style.setProperty('text-decoration', 'underline', 'important')
+		anchor.style.setProperty('text-decoration-thickness', 'max(1px, .08em)', 'important')
+		anchor.style.setProperty('text-underline-offset', '.15em', 'important')
 	}
+}
+
+const focusStyle = new WeakMap<HTMLAnchorElement, Map<string, { priority: string; value: string }>>()
+
+function enforceAnchorFocus(target: EventTarget | null, focused: boolean): void {
+	if (!(target instanceof Element)) return
+	const anchor = target.closest('a[href]') as HTMLAnchorElement | null
+	if (!anchor) return
+	const properties = ['outline', 'outline-offset', 'border-radius', 'box-shadow']
+	if (focused) {
+		if (!focusStyle.has(anchor)) {
+			focusStyle.set(
+				anchor,
+				new Map(
+					properties.map((property) => [
+						property,
+						{
+							priority: anchor.style.getPropertyPriority(property),
+							value: anchor.style.getPropertyValue(property),
+						},
+					]),
+				),
+			)
+		}
+		anchor.style.setProperty('outline', '2px solid CanvasText', 'important')
+		anchor.style.setProperty('outline-offset', '2px', 'important')
+		anchor.style.setProperty('border-radius', '2px', 'important')
+		anchor.style.setProperty('box-shadow', '0 0 0 4px Canvas', 'important')
+		return
+	}
+	const stored = focusStyle.get(anchor)
+	if (!stored) return
+	for (const [property, value] of stored) {
+		if (value.value) anchor.style.setProperty(property, value.value, value.priority)
+		else anchor.style.removeProperty(property)
+	}
+	focusStyle.delete(anchor)
 }
 
 function setImportantStyle(element: HTMLElement | SVGElement, property: string, value: string): void {
@@ -65,10 +108,26 @@ function setImportantStyle(element: HTMLElement | SVGElement, property: string, 
 	element.style.setProperty(property, value, 'important')
 }
 
+function isolateBackgroundMedia(root: HTMLElement): void {
+	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
+		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
+		const style = getComputedStyle(element)
+		if (!style.backgroundImage || style.backgroundImage === 'none') continue
+		element.setAttribute('data-ownmail-background-media', '')
+		for (const property of ['image', 'position', 'size', 'repeat', 'origin', 'clip'] as const) {
+			setImportantStyle(
+				element,
+				`--ownmail-background-${property}`,
+				style.getPropertyValue(`background-${property}`),
+			)
+		}
+	}
+}
+
 function createEmailElementClass(Base: typeof HTMLElement) {
 	return class extends Base {
 		static get observedAttributes(): string[] {
-			return ['data-layout-mode']
+			return ['data-layout-mode', 'data-load-remote-images']
 		}
 
 		private html = ''
@@ -79,6 +138,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private measurementQueued = false
 		private observedWidth = -1
 		private lastLayoutStatus = ''
+		private hasRemoteImages = false
+		private lastRemoteImagesStatus = ''
 
 		connectedCallback(): void {
 			const root = this.ensureShadow()
@@ -113,7 +174,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
-			if (name !== 'data-layout-mode' || oldValue === newValue) return
+			if (!['data-layout-mode', 'data-load-remote-images'].includes(name) || oldValue === newValue) return
 			if (this.contentRoot) this.renderContent(this.contentRoot)
 			else this.scheduleMeasure()
 		}
@@ -153,6 +214,11 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		set emailHtml(value: string) {
+			if (value !== this.html) {
+				this.hasRemoteImages = false
+				this.lastRemoteImagesStatus = ''
+				this.removeAttribute('data-load-remote-images')
+			}
 			this.html = value
 			if (this.contentRoot) this.renderContent(this.contentRoot)
 		}
@@ -162,12 +228,23 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		private renderContent(root: HTMLDivElement): void {
+			const loadRemoteImages = this.hasAttribute('data-load-remote-images')
 			const documentElement = sanitizeEmailDocument(this.html, {
+				allowRemoteImages: loadRemoteImages,
 				rewriteViewportMedia: this.layoutMode() === 'readable',
 			})
+			if (documentElement) {
+				const blockedRemoteImages = sanitizedDocumentHasRemoteImages(documentElement)
+				if (!loadRemoteImages) this.hasRemoteImages = blockedRemoteImages
+			}
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
 			rewriteAnchors(root)
+			isolateBackgroundMedia(root)
 			this.lastLayoutStatus = ''
+			this.emitRemoteImagesStatus({
+				hasRemoteImages: this.hasRemoteImages,
+				loaded: loadRemoteImages && this.hasRemoteImages,
+			})
 			this.scheduleMeasure()
 		}
 
@@ -318,6 +395,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			)
 		}
 
+		private emitRemoteImagesStatus(detail: EmailRemoteImagesDetail): void {
+			const status = JSON.stringify(detail)
+			if (status === this.lastRemoteImagesStatus) return
+			this.lastRemoteImagesStatus = status
+			this.dispatchEvent(
+				new CustomEvent(EMAIL_REMOTE_IMAGES_EVENT, { detail, bubbles: true, composed: true }),
+			)
+		}
+
 		private readonly handleMediaSettled = (event: Event): void => {
 			if (event.target instanceof HTMLImageElement || event.target instanceof HTMLVideoElement) {
 				this.scheduleMeasure()
@@ -327,11 +413,13 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private readonly handleFontsLoaded = (): void => this.scheduleMeasure()
 
 		private readonly handleEnter = (event: Event): void => {
+			if (event.type === 'focusin') enforceAnchorFocus(event.target, true)
 			const href = anchorHref(event.target)
 			if (href) this.emitPreview(href, previewPoint(event, event.target))
 		}
 
-		private readonly handleLeave = (): void => {
+		private readonly handleLeave = (event: Event): void => {
+			if (event.type === 'focusout') enforceAnchorFocus(event.target, false)
 			this.emitPreview(null)
 		}
 

@@ -4,6 +4,8 @@ import {
 	applyDarkInvert,
 	applyEmailHtml,
 	applyEmailLayoutMode,
+	applyEmailTheme,
+	applyRemoteImages,
 	computeScale,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
@@ -253,13 +255,22 @@ describe('shadowStyleText', () => {
 		const css = shadowStyleText()
 
 		expect(css).toContain(':where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}')
-		expect(css).toContain(':where(.email-root) :where(body){margin:0;}')
+		expect(css).toContain(':where(.email-root) :where(body){margin:0;background-color:transparent;}')
 		expect(css).toContain(':host(:not([data-layout-mode="original"]))')
 		expect(css).toContain(':where(html, body, table, img, video, svg, canvas){max-width:100%!important;}')
 		expect(css).toContain(':where(table){min-width:0!important;table-layout:auto;}')
 		expect(css).toContain('[style*="white-space" i][style*="nowrap" i]')
 		expect(css).toContain(':where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;')
 		expect(css).not.toContain('.email-root body{margin:0!important')
+		expect(css).toContain('background:transparent!important')
+		expect(css).toContain('[data-email-theme="dark"]')
+		expect(css).toContain(':where(a[href]):focus-visible{outline:2px solid CanvasText!important')
+		expect(css).toContain('box-shadow:0 0 0 4px Canvas!important')
+		expect(css).toContain(':where(img, video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important')
+		expect(css).toContain('[data-ownmail-background-media]::before')
+		expect(css).toContain(
+			':host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}',
+		)
 	})
 
 	it('keeps the fitted transform and logical RTL origin below trusted important rules', () => {
@@ -306,6 +317,26 @@ describe('applyEmailLayoutMode', () => {
 		expect(el).toHaveAttribute('data-layout-mode', 'original')
 		applyEmailLayoutMode(el, 'readable')
 		expect(el).toHaveAttribute('data-layout-mode', 'readable')
+	})
+})
+
+describe('email theme and remote images', () => {
+	it('reflects the app theme independently on the host', () => {
+		expect(() => applyEmailTheme(null, 'dark')).not.toThrow()
+		const el = document.createElement('div')
+		applyEmailTheme(el, 'dark')
+		expect(el).toHaveAttribute('data-email-theme', 'dark')
+		applyEmailTheme(el, 'light')
+		expect(el).toHaveAttribute('data-email-theme', 'light')
+	})
+
+	it('opts remote images in and out without a pre-mount failure', () => {
+		expect(() => applyRemoteImages(null, true)).not.toThrow()
+		const el = document.createElement('div')
+		applyRemoteImages(el, true)
+		expect(el).toHaveAttribute('data-load-remote-images')
+		applyRemoteImages(el, false)
+		expect(el).not.toHaveAttribute('data-load-remote-images')
 	})
 })
 

@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import {
+	providerCssSupportsDarkMode,
+	rewriteEmailMediaQueries,
 	rewritePaneMediaQueries,
+	sanitizedDocumentHasRemoteImages,
+	sanitizedEmailSupportsDarkMode,
 	sanitizeEmailDocument,
 	sanitizeEmailHtml,
 	sanitizeProviderCss,
@@ -62,7 +66,9 @@ describe('rewritePaneMediaQueries', () => {
 
 	it('does not split media-list commas inside quoted or escaped content', () => {
 		const css = String.raw`@media "a\"b,c", 'd\'e,f', \screen and (max-width:600px){.x{display:block}}`
-		expect(rewritePaneMediaQueries(css)).toBe(css)
+		expect(rewritePaneMediaQueries(css)).toBe(
+			String.raw`@media "a\"b,c", 'd\'e,f'{.x{display:block}}@container ownmail-email (max-width:600px){.x{display:block}}`,
+		)
 	})
 
 	it('preserves viewport media semantics when Original layout requests them', () => {
@@ -71,6 +77,81 @@ describe('rewritePaneMediaQueries', () => {
 			{ rewriteViewportMedia: false },
 		)
 		expect(documentElement?.querySelector('style')?.textContent).toContain('@media (max-width:600px)')
+	})
+
+	it('reports no adaptive dark support for empty content', () => {
+		expect(sanitizedEmailSupportsDarkMode('')).toBe(false)
+	})
+})
+
+describe('adaptive app-theme media', () => {
+	it('rewrites light and dark provider branches to app-theme style queries', () => {
+		const css =
+			'@media (prefers-color-scheme:dark){.x{color:white}}@media screen and (prefers-color-scheme:light) and (max-width:600px){.x{color:black}}'
+		expect(rewriteEmailMediaQueries(css)).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: dark){.x{color:white}}@container ownmail-email style(--ownmail-email-theme: light) and (max-width:600px){.x{color:black}}',
+		)
+	})
+
+	it('rewrites Level 4 or branches without leaving OS-controlled color rules', () => {
+		expect(
+			rewriteEmailMediaQueries('@media (prefers-color-scheme:dark) or (min-width:900px){.x{color:white}}'),
+		).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: dark){.x{color:white}}@container ownmail-email (min-width:900px){.x{color:white}}',
+		)
+	})
+
+	it('leaves screen-only and contradictory theme queries under browser control', () => {
+		const screenOnly = '@media screen{.x{display:block}}'
+		expect(rewriteEmailMediaQueries(screenOnly)).toBe(screenOnly)
+		const contradictory =
+			'@media (prefers-color-scheme:dark) and (prefers-color-scheme:light){.x{display:block}}'
+		expect(rewriteEmailMediaQueries(contradictory)).toBe(contradictory)
+	})
+
+	it('does not parse an operator embedded at the start of a media identifier', () => {
+		const css = '@media android and (max-width:600px){.x{display:block}}'
+		expect(rewriteEmailMediaQueries(css)).toBe(css)
+		const dangling = '@media screen and{.x{display:block}}'
+		expect(rewriteEmailMediaQueries(dangling)).toBe(dangling)
+	})
+
+	it('preserves viewport semantics around app theme in Original mode', () => {
+		expect(
+			rewriteEmailMediaQueries(
+				'@media (prefers-color-scheme:dark) and (max-width:600px){.x{display:block}}',
+				{ rewriteViewportMedia: false },
+			),
+		).toBe(
+			'@media (max-width:600px){@container ownmail-email style(--ownmail-email-theme: dark){.x{display:block}}}',
+		)
+	})
+
+	it('detects only parseable dark rules that survive sanitization', () => {
+		expect(providerCssSupportsDarkMode('@media (prefers-color-scheme:dark){.x{color:white}}')).toBe(true)
+		expect(
+			sanitizedEmailSupportsDarkMode('<style>@media (prefers-color-scheme:dark){.x{color:white}}</style>'),
+		).toBe(true)
+		expect(sanitizedEmailSupportsDarkMode('<script>"@media (prefers-color-scheme:dark)"</script>')).toBe(
+			false,
+		)
+		expect(sanitizedEmailSupportsDarkMode('<style>:host{}@media (prefers-color-scheme:dark){}</style>')).toBe(
+			false,
+		)
+		expect(providerCssSupportsDarkMode('@media (prefers-color-scheme:dark){')).toBe(false)
+		expect(providerCssSupportsDarkMode('@media (prefers-color-scheme/**/:dark){.x{color:white}}')).toBe(true)
+		expect(providerCssSupportsDarkMode('@media print and (prefers-color-scheme:dark){.x{color:white}}')).toBe(
+			false,
+		)
+		expect(
+			providerCssSupportsDarkMode('@media not screen and (prefers-color-scheme:dark){.x{color:white}}'),
+		).toBe(false)
+		expect(
+			providerCssSupportsDarkMode('@media not all and (prefers-color-scheme:dark){.x{color:white}}'),
+		).toBe(false)
+		expect(
+			providerCssSupportsDarkMode('@media speech and (prefers-color-scheme:dark){.x{color:white}}'),
+		).toBe(false)
 	})
 })
 
@@ -104,12 +185,61 @@ describe('sanitizeEmailHtml', () => {
 
 	it('keeps presentational HTML: links, images, tables, and inline styles', () => {
 		const out = sanitizeEmailHtml(
-			'<table><tr><td style="color:red"><a href="https://ok.com">ok</a><img src="https://ok.com/a.png" /></td></tr></table>',
+			'<table><tr><td style="color:red"><a href="https://ok.com">ok</a><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" /></td></tr></table>',
 		)
 		expect(out).toContain('<table')
 		expect(out).toContain('href="https://ok.com"')
-		expect(out).toContain('src="https://ok.com/a.png"')
+		expect(out).toContain('src="data:image/gif;base64,R0lGODlhAQABAAAAACw="')
 		expect(out).toContain('style="color:red"')
+	})
+
+	it('blocks remote image sources and CSS URLs until explicitly allowed', () => {
+		const html = `<style>.hero{background-image:url(https://images.example/hero.png)}</style>
+			<div class="hero" style="background:url('//images.example/inline.png')" background="https://images.example/legacy.png">
+				<picture><source srcset="https://images.example/a.png 1x, /local.png 2x"><img src="https://images.example/tracker.png" width="600" height="240"></picture>
+				<img class="cid" src="cid:logo"><img class="data" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+			</div>`
+		const blocked = sanitizeEmailDocument(html)
+		expect(blocked).not.toBeNull()
+		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+		expect(blocked?.querySelector('img:not(.cid):not(.data)')?.hasAttribute('src')).toBe(false)
+		expect(blocked?.querySelector('source')?.hasAttribute('srcset')).toBe(false)
+		expect(blocked?.querySelector('img:not(.cid):not(.data)')?.getAttribute('width')).toBe('600')
+		expect(blocked?.querySelector('img:not(.cid):not(.data)')?.getAttribute('height')).toBe('240')
+		expect(blocked?.querySelector('.cid')?.getAttribute('src')).toBe('cid:logo')
+		expect(blocked?.querySelector('.data')?.getAttribute('src')).toContain('data:image/gif')
+		expect(blocked?.querySelector('style')?.textContent).not.toContain('images.example')
+		expect(blocked?.querySelector('.hero')?.getAttribute('style')).not.toContain('images.example')
+
+		const allowed = sanitizeEmailDocument(html, { allowRemoteImages: true })
+		expect(allowed?.querySelector('img:not(.cid):not(.data)')?.getAttribute('src')).toContain('https://')
+		expect(allowed?.querySelector('source')?.getAttribute('srcset')).toContain('https://')
+		expect(allowed?.querySelector('style')?.textContent).toContain('images.example')
+	})
+
+	it('blocks browser-normalized and non-url CSS remote resource forms', () => {
+		const html = String.raw`<style>
+			.a{background-image:image-set("https://images.example/a.png" 1x)}
+			.b{background-image:-webkit-image-set("https://images.example/b.png" 1x)}
+		</style>
+		<img class="slashes" src="https:\\images.example.test/x">
+		<img class="newline" src="https:
+//images.example.test/y">
+		<img class="relative" src="/authenticated/image">
+		<svg><image class="remote-svg" href="https://images.example.test/svg.png"></image><rect class="filtered" filter="url(https://images.example.test/filter.svg#x)"></rect></svg>`
+		const blocked = sanitizeEmailDocument(html)
+		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+		expect(blocked?.querySelector('.slashes')?.hasAttribute('src')).toBe(false)
+		expect(blocked?.querySelector('.newline')?.hasAttribute('src')).toBe(false)
+		expect(blocked?.querySelector('.relative')?.getAttribute('src')).toBe('/authenticated/image')
+		expect(blocked?.querySelector('.remote-svg')?.hasAttribute('href')).toBe(false)
+		expect(blocked?.querySelector('.filtered')?.hasAttribute('filter')).toBe(false)
+		expect(blocked?.querySelector('style')?.textContent).not.toContain('images.example')
+		const malformed = sanitizeEmailDocument(
+			'<style>.x{background-image:image-set("https://images.example.test/malformed.gif" 1x)</style><div class="x">Safe</div>',
+		)
+		expect(sanitizedDocumentHasRemoteImages(malformed as HTMLElement)).toBe(true)
+		expect(malformed?.querySelector('style')).toBeNull()
 	})
 
 	it('keeps ordinary scoped email stylesheet rules', () => {
@@ -118,6 +248,12 @@ describe('sanitizeEmailHtml', () => {
 		expect(output).toContain(
 			'@container ownmail-email (max-width:600px){.card{width:100%}} .title{color:#434245}',
 		)
+	})
+
+	it('keeps malformed non-network CSS for browser recovery', () => {
+		const css = '@media (max-width:600px){.card{color:red}'
+		const output = sanitizeEmailHtml(`<style>${css}</style><p>Body</p>`)
+		expect(output).toContain(css)
 	})
 
 	it('preserves safe document, body, and directionality attributes for faithful rendering', () => {
