@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.14.0
+
+### Minor Changes
+
+- f387f16: Collapse repeated quoted history, resolve inline CID media, and improve thread reading hierarchy.
+- 8d762d3: Make email dark mode follow the app theme, preserve image fidelity, and block remote media until consent.
+
 ## 0.13.0
 
 ### Minor Changes
