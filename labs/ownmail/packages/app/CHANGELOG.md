@@ -1,5 +1,16 @@
 # @ownmail/app
 
+## 0.13.0
+
+### Minor Changes
+
+- 5bbf19e: Add readable and original email layout modes with pane-aware reflow for legacy HTML.
+- f1e7d54: Preserve native pinch zoom while keeping deliberate single-finger thread swipe navigation.
+
+### Patch Changes
+
+- 1a689ef: Refresh invalidated cached drafts before initializing compose, and keep mutable mailbox information current after settings changes.
+
 ## 0.12.9
 
 ### Patch Changes
