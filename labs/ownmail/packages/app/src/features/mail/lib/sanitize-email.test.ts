@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import {
+	PICTURE_MEDIA_ATTRIBUTE,
 	providerCssSupportsDarkMode,
 	rewriteEmailMediaQueries,
 	rewritePaneMediaQueries,
@@ -166,6 +167,16 @@ describe('adaptive app-theme media', () => {
 		expect(rewriteEmailMediaQueries(css)).toBe(css)
 		const dangling = '@media screen and{.x{display:block}}'
 		expect(rewriteEmailMediaQueries(dangling)).toBe(dangling)
+		expect(providerCssSupportsDarkMode(dangling)).toBe(false)
+		for (const css of [
+			'@media or (prefers-color-scheme:dark){.x{color:white}}',
+			'@media (prefers-color-scheme:dark) or{.x{color:white}}',
+			'@media , (prefers-color-scheme:dark){.x{color:white}}',
+			'@media (prefers-color-scheme:dark),{.x{color:white}}',
+		]) {
+			expect(rewriteEmailMediaQueries(css)).toBe(css)
+			expect(providerCssSupportsDarkMode(css)).toBe(false)
+		}
 	})
 
 	it('bounds redundant grouping and ignores strings inside grouped conditions', () => {
@@ -312,6 +323,49 @@ describe('adaptive app-theme media', () => {
 		expect(providerCssSupportsDarkMode('.x{content:"@media (prefers-color-scheme:dark){}"}')).toBe(false)
 	})
 
+	it('carries enclosing screen, theme, and width applicability through nested dark rules', () => {
+		for (const css of [
+			'@media print{@media (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media speech{@media (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media (prefers-color-scheme:light){@media (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media (prefers-color-scheme:dark) and (prefers-color-scheme:light){.x{color:white}}',
+			'@media (max-width:400px){@media (min-width:500px) and (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media (prefers-color-scheme:dark){@media print{.x{color:white}}}',
+			'@media (prefers-color-scheme:dark){@media (prefers-color-scheme:light){@media (prefers-color-scheme:dark){.x{color:white}}}}',
+			'@media (prefers-color-scheme:dark){color:white;background:black}',
+			'@media (prefers-color-scheme:dark){@font-face{font-family:Mail;src:local(Arial)}}',
+		]) {
+			expect(providerCssSupportsDarkMode(css), css).toBe(false)
+		}
+
+		for (const css of [
+			'@media screen{@media (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media all and (min-width:300px){@media (max-width:600px) and (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media print, screen and (max-width:600px){@media not/**/(prefers-color-scheme:light){.x{color:white}}}',
+			String.raw`@\6d edia screen{@media (prefers-color-scheme/**/:dark){.x{color:white}}}`,
+			'@media (min-device-width:900px){@media (max-width:600px){@media (prefers-color-scheme:dark){.x{color:white}}}}',
+			'.x{@media (prefers-color-scheme:dark){color:white;background:black}}',
+			'@media (prefers-color-scheme:dark){.x{color:white;@media print{background:black}}}',
+			'.x{@media (prefers-color-scheme:dark){@supports (display:grid){color:white}}}',
+			'@supports (display:grid){.x{@media (prefers-color-scheme:dark){color:white}}}',
+		]) {
+			expect(providerCssSupportsDarkMode(css), css).toBe(true)
+		}
+	})
+
+	it('applies enclosing style media when detecting sanitized adaptive dark support', () => {
+		expect(
+			sanitizedEmailSupportsDarkMode(
+				'<style media="print">@media (prefers-color-scheme:dark){.x{color:white}}</style>',
+			),
+		).toBe(false)
+		expect(
+			sanitizedEmailSupportsDarkMode(
+				'<style media="screen and (max-width:600px)">@media (prefers-color-scheme:dark){.x{color:white}}</style>',
+			),
+		).toBe(true)
+	})
+
 	it('normalizes style media attributes through app-theme and pane queries', () => {
 		const documentElement = sanitizeEmailDocument(`
 			<style media="(prefers-color-scheme: dark)">.dark{color:white}</style>
@@ -373,6 +427,84 @@ describe('adaptive app-theme media', () => {
 		const emptyComment = sanitizeEmailDocument('<style media="/**/">.safe{color:red}</style><p>Body</p>')
 		expect(emptyComment?.querySelector('style')).toBeNull()
 	})
+
+	it('normalizes picture source theme media into trusted app and pane branches', () => {
+		const documentElement = sanitizeEmailDocument(`<picture>
+			<source class="dark" media="(prefers-color-scheme:dark)" srcset="/dark.png">
+			<source class="light-pane" media="(prefers-color-scheme:light) and (max-width:40rem)" srcset="/light.png">
+			<source class="dark-landscape" media="(prefers-color-scheme:dark) and (orientation:landscape)" srcset="/wide.png">
+			<source class="dark-or-hover" media="(prefers-color-scheme:dark) or (hover:hover)" srcset="/hover.png">
+			<source class="dark-or-pane" media="(prefers-color-scheme:dark) or (max-width:500px)" srcset="/pane.png">
+			<source class="dark-pane-landscape" media="(prefers-color-scheme:dark) and (max-width:500px) and (orientation:landscape)" srcset="/all.png">
+			<source class="unthemed" media="(min-width:900px)" srcset="/desktop.png">
+			<img src="/fallback.png">
+		</picture>`)
+		const definition = (selector: string) =>
+			JSON.parse(documentElement?.querySelector(selector)?.getAttribute(PICTURE_MEDIA_ATTRIBUTE) ?? 'null')
+
+		expect(documentElement?.querySelector('.dark')?.getAttribute('media')).toBe('not all')
+		expect(definition('.dark')).toEqual({ branches: [{ theme: 'dark' }] })
+		expect(definition('.light-pane')).toEqual({
+			branches: [{ pane: ['(max-width:40rem)'], theme: 'light' }],
+		})
+		expect(definition('.dark-landscape')).toEqual({
+			branches: [{ media: '(orientation:landscape)', theme: 'dark' }],
+		})
+		expect(definition('.dark-or-hover')).toEqual({
+			branches: [{ theme: 'dark' }, { media: '(hover:hover)' }],
+		})
+		expect(definition('.dark-or-pane')).toEqual({
+			branches: [{ theme: 'dark' }, { pane: ['(max-width:500px)'] }],
+		})
+		expect(definition('.dark-pane-landscape')).toEqual({
+			branches: [
+				{
+					media: '(orientation:landscape)',
+					pane: ['(max-width:500px)'],
+					theme: 'dark',
+				},
+			],
+		})
+		expect(documentElement?.querySelector('.unthemed')?.getAttribute('media')).toBe('(min-width:900px)')
+		expect(documentElement?.querySelector('.unthemed')?.hasAttribute(PICTURE_MEDIA_ATTRIBUTE)).toBe(false)
+	})
+
+	it('preserves picture viewport conditions in Original mode and fails malformed theme media closed', () => {
+		const original = sanitizeEmailDocument(
+			`<picture>
+				<source class="original" media="(prefers-color-scheme:dark) and (max-width:600px)" srcset="/dark.png">
+				<source class="malformed" media="(prefers-color-scheme:dark" srcset="/broken.png">
+				<source class="contradictory" media="(prefers-color-scheme:dark) and (prefers-color-scheme:light)" srcset="/never.png">
+				<img src="/fallback.png">
+			</picture>`,
+			{ rewriteViewportMedia: false },
+		)
+		const originalDefinition = JSON.parse(
+			original?.querySelector('.original')?.getAttribute(PICTURE_MEDIA_ATTRIBUTE) ?? 'null',
+		)
+		expect(originalDefinition).toEqual({
+			branches: [{ media: '(max-width:600px)', theme: 'dark' }],
+		})
+		for (const selector of ['.malformed', '.contradictory']) {
+			expect(original?.querySelector(selector)?.getAttribute('media')).toBe('not all')
+			expect(original?.querySelector(selector)?.hasAttribute(PICTURE_MEDIA_ATTRIBUTE)).toBe(false)
+		}
+	})
+
+	it('fails picture media with dangling list and boolean branches closed', () => {
+		const documentElement = sanitizeEmailDocument(`<picture>
+			<source class="leading-or" media="or (prefers-color-scheme:dark)" srcset="/leading.png">
+			<source class="trailing-or" media="(prefers-color-scheme:dark) or" srcset="/trailing.png">
+			<source class="trailing-and" media="(prefers-color-scheme:dark) and" srcset="/and.png">
+			<source class="trailing-comma" media="(prefers-color-scheme:dark)," srcset="/comma.png">
+			<img src="/fallback.png">
+		</picture>`)
+
+		for (const source of documentElement?.querySelectorAll('source') ?? []) {
+			expect(source.getAttribute('media')).toBe('not all')
+			expect(source.hasAttribute(PICTURE_MEDIA_ATTRIBUTE)).toBe(false)
+		}
+	})
 })
 
 describe('sanitizeEmailHtml', () => {
@@ -416,7 +548,7 @@ describe('sanitizeEmailHtml', () => {
 	it('blocks remote image sources and CSS URLs until explicitly allowed', () => {
 		const html = `<style>.hero{background-image:url(https://images.example/hero.png)}</style>
 			<div class="hero" style="background:url('//images.example/inline.png')" background="https://images.example/legacy.png">
-				<picture><source srcset="https://images.example/a.png 1x, /local.png 2x"><img src="https://images.example/tracker.png" width="600" height="240"></picture>
+				<picture><source media="(prefers-color-scheme:dark)" srcset="https://images.example/a.png 1x, /local.png 2x"><img src="https://images.example/tracker.png" width="600" height="240"></picture>
 				<img class="cid" src="cid:logo"><img class="data" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
 			</div>`
 		const blocked = sanitizeEmailDocument(html)
@@ -424,6 +556,8 @@ describe('sanitizeEmailHtml', () => {
 		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
 		expect(blocked?.querySelector('img:not(.cid):not(.data)')?.hasAttribute('src')).toBe(false)
 		expect(blocked?.querySelector('source')?.hasAttribute('srcset')).toBe(false)
+		expect(blocked?.querySelector('source')?.getAttribute('media')).toBe('not all')
+		expect(blocked?.querySelector('source')?.hasAttribute(PICTURE_MEDIA_ATTRIBUTE)).toBe(true)
 		expect(blocked?.querySelector('img:not(.cid):not(.data)')?.getAttribute('width')).toBe('600')
 		expect(blocked?.querySelector('img:not(.cid):not(.data)')?.getAttribute('height')).toBe('240')
 		expect(blocked?.querySelector('.cid')?.getAttribute('src')).toBe('cid:logo')
@@ -434,6 +568,7 @@ describe('sanitizeEmailHtml', () => {
 		const allowed = sanitizeEmailDocument(html, { allowRemoteImages: true })
 		expect(allowed?.querySelector('img:not(.cid):not(.data)')?.getAttribute('src')).toContain('https://')
 		expect(allowed?.querySelector('source')?.getAttribute('srcset')).toContain('https://')
+		expect(allowed?.querySelector('source')?.getAttribute('media')).toBe('not all')
 		expect(allowed?.querySelector('style')?.textContent).toContain('images.example')
 	})
 

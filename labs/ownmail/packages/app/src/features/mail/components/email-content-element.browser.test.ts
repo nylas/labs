@@ -482,6 +482,143 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 	})
 
+	it('selects remote picture artwork from app theme instead of OS theme after consent', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const darkPng = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#dc1414' },
+		})
+			.png()
+			.toBuffer()
+		const lightPng = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#1428dc' },
+		})
+			.png()
+			.toBuffer()
+
+		for (const testCase of [
+			{ app: 'dark', os: 'light', asset: 'dark.png', dominant: 'red' },
+			{ app: 'light', os: 'dark', asset: 'light.png', dominant: 'blue' },
+		] as const) {
+			const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+			const requests: string[] = []
+			await page.route('https://picture.example.test/**', async (route) => {
+				const url = route.request().url()
+				requests.push(url)
+				await route.fulfill({
+					contentType: 'image/png',
+					body: url.endsWith('dark.png') ? darkPng : lightPng,
+					headers: { 'cache-control': 'no-store' },
+				})
+			})
+			await page.emulateMedia({ colorScheme: testCase.os })
+			await mountEmail(
+				page,
+				fixtureUrl,
+				375,
+				`<picture>
+					<source media="(prefers-color-scheme:dark)" srcset="https://picture.example.test/dark.png">
+					<source media="(prefers-color-scheme:light)" srcset="https://picture.example.test/light.png">
+					<img class="picture-theme probe" src="https://picture.example.test/fallback.png" width="20" height="20">
+				</picture>`,
+			)
+			await page
+				.locator('ownmail-email')
+				.evaluate((host, appTheme) => host.setAttribute('data-email-theme', appTheme), testCase.app)
+			await settleLayout(page)
+			expect(requests, `${testCase.app} app / ${testCase.os} OS before consent`).toEqual([])
+
+			const selectedRequest = page.waitForRequest(`https://picture.example.test/${testCase.asset}`)
+			await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
+			await selectedRequest
+			await settleLayout(page, 5)
+			await page.locator('ownmail-email').evaluate((host) => {
+				const measurable = host as HTMLElement & { measure(): void }
+				measurable.measure()
+				measurable.measure()
+				measurable.measure()
+			})
+			await settleLayout(page, 4)
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const root = host.shadowRoot
+				const image = root?.querySelector<HTMLImageElement>('.picture-theme')
+				return {
+					currentSrc: image?.currentSrc ?? '',
+					media: Array.from(root?.querySelectorAll<HTMLSourceElement>('picture source') ?? []).map(
+						(source) => source.media,
+					),
+				}
+			})
+			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-theme').screenshot())
+			expect(state.currentSrc).toContain(testCase.asset)
+			expect(state.media).toContain('all')
+			expect(requests.filter((url) => url.endsWith(testCase.asset))).toHaveLength(1)
+			expect(requests.some((url) => url.includes(testCase.app === 'dark' ? 'light.png' : 'dark.png'))).toBe(
+				false,
+			)
+			if (testCase.dominant === 'red') expect(pixel[0]).toBeGreaterThan(pixel[2] * 3)
+			else expect(pixel[2]).toBeGreaterThan(pixel[0] * 3)
+			await page.close()
+		}
+	})
+
+	it('uses pane width for picture art direction only in Readable mode', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const red = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#dc1414' },
+		})
+			.png()
+			.toBuffer()
+		const blue = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#1428dc' },
+		})
+			.png()
+			.toBuffer()
+		const redUrl = '/picture-pane-red.png'
+		const blueUrl = '/picture-pane-blue.png'
+		const html = `<picture>
+			<source media="(prefers-color-scheme:dark) and (max-width:400px)" srcset="${redUrl}">
+			<img class="picture-pane probe" src="${blueUrl}" width="20" height="20">
+		</picture>`
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		await page.route('**/picture-pane-red.png', (route) =>
+			route.fulfill({ contentType: 'image/png', body: red }),
+		)
+		await page.route('**/picture-pane-blue.png', (route) =>
+			route.fulfill({ contentType: 'image/png', body: blue }),
+		)
+		for (const testCase of [
+			{ mode: 'readable', dominant: 'red' },
+			{ mode: 'original', dominant: 'blue' },
+		] as const) {
+			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
+			await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+			await settleLayout(page, 4)
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const root = host.shadowRoot
+				return {
+					currentSrc: root?.querySelector<HTMLImageElement>('.picture-pane')?.currentSrc ?? '',
+					media: root?.querySelector<HTMLSourceElement>('picture source')?.media ?? '',
+					srcset: root?.querySelector<HTMLSourceElement>('picture source')?.srcset ?? '',
+					definition:
+						root
+							?.querySelector<HTMLSourceElement>('picture source')
+							?.getAttribute('data-ownmail-picture-media') ?? '',
+				}
+			})
+			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-pane').screenshot())
+			if (testCase.dominant === 'red') {
+				expect(state.media).toBe('all')
+				expect(state.currentSrc, JSON.stringify(state)).toContain(redUrl)
+				expect(pixel[0], JSON.stringify(state)).toBeGreaterThan(pixel[2] * 3)
+			} else {
+				expect(state.media).toBe('(max-width:400px)')
+				expect(state.currentSrc).toContain(blueUrl)
+				expect(pixel[2], JSON.stringify(state)).toBeGreaterThan(pixel[0] * 3)
+			}
+		}
+		await page.close()
+	})
+
 	it('keeps inherited text legible across partial adaptive light and dark surfaces', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 600, height: 500 } })

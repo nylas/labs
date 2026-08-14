@@ -1,12 +1,16 @@
 import DOMPurify from 'dompurify'
 
 const PANE_WIDTH_FEATURE = /^\(\s*(?:min|max)-width\s*:\s*\d*\.?\d+(?:px|em|rem)\s*\)$/i
+const MEDIA_WIDTH_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
 const DEVICE_WIDTH_FEATURE = /\(\s*((?:min|max))-device-width\s*:\s*(\d*\.?\d+(?:px|em|rem))\s*\)/gi
 const COLOR_SCHEME_FEATURE = /^\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)$/i
 const REMOTE_IMAGE_MARKER = 'data-ownmail-has-remote-images'
 const EMAIL_THEME_PROPERTY = '--ownmail-email-theme'
 const MAX_CSS_BLOCK_DEPTH = 128
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
+
+/** Trusted serialized media definition consumed by the email custom element. */
+export const PICTURE_MEDIA_ATTRIBUTE = 'data-ownmail-picture-media'
 
 export interface SanitizeEmailOptions {
 	rewriteViewportMedia?: boolean
@@ -17,6 +21,18 @@ export interface SanitizeEmailOptions {
 interface ConvertedMediaBranch {
 	container: string
 	media?: string
+	pane?: string[]
+	theme?: 'dark' | 'light'
+}
+
+export interface PictureMediaBranch {
+	media?: string
+	pane?: string[]
+	theme?: 'dark' | 'light'
+}
+
+export interface PictureMediaDefinition {
+	branches: PictureMediaBranch[]
 }
 
 interface EmailThemeCondition {
@@ -94,9 +110,9 @@ function rewriteMediaBlock(
 	body: string,
 	options: { rewriteViewportMedia?: boolean; rewriteThemeMedia?: boolean },
 ): string {
-	const queries = splitMediaList(media.params).flatMap(
-		(query) => validMediaDisjunctionBranches(query) ?? [query],
-	)
+	const listedQueries = validMediaList(media.params)
+	if (!listedQueries) return `${header}{${body}}`
+	const queries = listedQueries.flatMap((query) => validMediaDisjunctionBranches(query) ?? [query])
 	const converted = queries.map((query) => ({
 		branch: convertMediaBranch(
 			query,
@@ -391,13 +407,15 @@ function convertMediaBranch(
 	rewriteViewportMedia: boolean,
 	rewriteThemeMedia: boolean,
 ): ConvertedMediaBranch | null {
-	const parts = splitMediaConjunction(query)
+	const parts = validMediaConjunctionParts(query)
+	if (!parts) return null
 	const notConditionStart = readNotConditionStart(query)
 	if (notConditionStart !== null && query.charAt(notConditionStart) !== '(') return null
 	if (hasInvalidBareNegationComposition(parts)) return null
 	const containerParts: string[] = []
+	const paneParts: string[] = []
 	const mediaParts: string[] = []
-	let theme: string | undefined
+	let theme: 'dark' | 'light' | undefined
 
 	for (const originalPart of parts) {
 		const part = originalPart.trim()
@@ -415,8 +433,10 @@ function convertMediaBranch(
 			DEVICE_WIDTH_FEATURE,
 			(_match, boundary: string, width: string) => `(${boundary}-width:${width})`,
 		)
-		if (rewriteViewportMedia && PANE_WIDTH_FEATURE.test(panePart)) containerParts.push(panePart)
-		else mediaParts.push(part)
+		if (rewriteViewportMedia && PANE_WIDTH_FEATURE.test(panePart)) {
+			containerParts.push(panePart)
+			paneParts.push(panePart)
+		} else mediaParts.push(part)
 	}
 
 	if (theme) containerParts.unshift(`style(${EMAIL_THEME_PROPERTY}: ${theme})`)
@@ -425,6 +445,8 @@ function convertMediaBranch(
 	return {
 		container: containerParts.join(' and '),
 		...(mediaParts.length > 0 ? { media: mediaParts.join(' and ') } : {}),
+		...(paneParts.length > 0 ? { pane: paneParts } : {}),
+		...(theme ? { theme } : {}),
 	}
 }
 
@@ -573,19 +595,22 @@ function splitMediaList(query: string): string[] {
 		}
 	}
 	parts.push(query.slice(start).trim())
-	return parts.filter(Boolean)
+	return parts
 }
 
-function splitMediaConjunction(query: string): string[] {
-	return splitMediaOperator(query, 'and')
+function validMediaList(query: string): string[] | null {
+	const parts = splitMediaList(query)
+	return parts.some((part) => inspectableMediaCss(part).trim() === '') ? null : parts
 }
 
-function splitMediaDisjunction(query: string): string[] {
-	return splitMediaOperator(query, 'or')
+function validMediaConjunctionParts(query: string): string[] | null {
+	const parts = splitMediaOperator(query, 'and')
+	return parts.some((part) => inspectableMediaCss(part).trim() === '') ? null : parts
 }
 
 function validMediaDisjunctionBranches(query: string): string[] | null {
-	const branches = splitMediaDisjunction(query)
+	const branches = splitMediaOperator(query, 'or')
+	if (branches.some((branch) => inspectableMediaCss(branch).trim() === '')) return null
 	// A bare `not <condition>` is a complete MQ4 condition and cannot be
 	// followed by `or`. Preserve malformed-but-recoverable input rather than
 	// changing its meaning; grouped `(not <condition>) or …` remains valid.
@@ -638,7 +663,7 @@ function splitMediaOperator(query: string, operator: 'and' | 'or'): string[] {
 		}
 	}
 	parts.push(query.slice(start).trim())
-	return parts.filter(Boolean)
+	return parts
 }
 
 /**
@@ -677,35 +702,99 @@ export function sanitizeProviderCss(css: string): string {
 /** True only for a real, parseable provider dark-color media rule. */
 export function providerCssSupportsDarkMode(css: string): boolean {
 	const root = parseCss(css)
-	return root ? cssContainerSupportsDarkMode(css, root) : false
+	return root
+		? cssContainerSupportsDarkMode(css, root, [
+				{ darkThemeMatched: false, maximumWidth: Number.POSITIVE_INFINITY, minimumWidth: 0 },
+			])
+		: false
 }
 
-function cssContainerSupportsDarkMode(css: string, container: CssContainer): boolean {
+interface ScreenMediaContext {
+	darkThemeMatched: boolean
+	maximumWidth: number
+	minimumWidth: number
+}
+
+function cssContainerSupportsDarkMode(
+	css: string,
+	container: CssContainer,
+	contexts: ScreenMediaContext[],
+): boolean {
 	return container.children.some((block) => {
 		const atRule = readAtRuleHeader(css.slice(block.headerStart, block.open))
+		if (atRule?.name !== 'media') {
+			if (
+				contexts.some((context) => context.darkThemeMatched) &&
+				(!atRule || !DECLARATION_AT_RULES.has(atRule.name)) &&
+				cssContainerHasDirectContent(css, block.body)
+			) {
+				return true
+			}
+			return cssContainerSupportsDarkMode(css, block.body, contexts)
+		}
+
+		const listedQueries = validMediaList(atRule.params)
+		if (!listedQueries) return false
+		const analyses = listedQueries.flatMap((query) => {
+			const branches = validMediaDisjunctionBranches(query)
+			if (!branches) return []
+			return branches.flatMap((branch) =>
+				contexts.flatMap((context) => analyzeScreenMediaBranch(branch, context) ?? []),
+			)
+		})
 		return (
-			(atRule?.name === 'media' &&
-				splitMediaList(atRule.params)
-					.flatMap((query) => validMediaDisjunctionBranches(query) ?? [])
-					.some(screenMediaBranchSupportsDarkMode)) ||
-			cssContainerSupportsDarkMode(css, block.body)
+			(analyses.some((analysis) => analysis.darkThemeMatched) &&
+				cssContainerHasDirectContent(css, block.body)) ||
+			(analyses.length > 0 && cssContainerSupportsDarkMode(css, block.body, analyses))
 		)
 	})
 }
 
-function screenMediaBranchSupportsDarkMode(query: string): boolean {
+function cssContainerHasDirectContent(css: string, container: CssContainer): boolean {
+	if (container.kind !== 'declarations') return false
+	let cursor = container.start
+	for (const block of container.children) {
+		if (inspectableCss(css.slice(cursor, block.headerStart)).replace(/[;\s]/g, '') !== '') return true
+		cursor = block.close + 1
+	}
+	return inspectableCss(css.slice(cursor, container.end)).replace(/[;\s]/g, '') !== ''
+}
+
+function analyzeScreenMediaBranch(query: string, parent: ScreenMediaContext): ScreenMediaContext | null {
 	const notConditionStart = readNotConditionStart(query)
-	if (notConditionStart !== null && query.charAt(notConditionStart) !== '(') return false
-	const parts = splitMediaConjunction(query)
-	if (hasInvalidBareNegationComposition(parts)) return false
-	if (
-		parts.some((part) => {
-			const inspected = inspectableMediaCss(part).trim()
-			return /^(?:only\s+)?(?:print|speech)$/i.test(inspected)
-		})
-	)
-		return false
-	return parts.some((part) => readEmailThemeCondition(part)?.theme === 'dark')
+	if (notConditionStart !== null && query.charAt(notConditionStart) !== '(') return null
+	const parts = validMediaConjunctionParts(query)
+	if (!parts || hasInvalidBareNegationComposition(parts)) return null
+	let requestedTheme: 'dark' | 'light' | undefined
+	let minimumWidth = parent.minimumWidth
+	let maximumWidth = parent.maximumWidth
+
+	for (const part of parts) {
+		const inspected = inspectableMediaCss(part).trim()
+		const mediaType = inspected.match(/^(?:only\s+)?([a-z][\w-]*)$/i)?.[1]?.toLowerCase()
+		if (mediaType && !['all', 'screen'].includes(mediaType)) return null
+		const themeCondition = readEmailThemeCondition(part)
+		if (themeCondition) {
+			if (requestedTheme && requestedTheme !== themeCondition.theme) return null
+			requestedTheme = themeCondition.theme
+			continue
+		}
+		const width = inspected.match(MEDIA_WIDTH_FEATURE)
+		if (width) {
+			const boundary = width[1]
+			/* v8 ignore next -- MEDIA_WIDTH_FEATURE always captures its numeric value and unit -- @preserve */
+			const value = Number(width[2]) * ((width[3] as string).toLowerCase() === 'px' ? 1 : 16)
+			if (boundary === 'min') minimumWidth = Math.max(minimumWidth, value)
+			else maximumWidth = Math.min(maximumWidth, value)
+		}
+	}
+
+	if (requestedTheme === 'light' || minimumWidth > maximumWidth) return null
+	return {
+		darkThemeMatched: parent.darkThemeMatched || requestedTheme === 'dark',
+		maximumWidth,
+		minimumWidth,
+	}
 }
 
 function isRemoteUrl(value: string): boolean {
@@ -892,10 +981,67 @@ function prepareSanitizedDocument(
 		style.removeAttribute('media')
 		style.textContent = normalizedCss
 	}
+	normalizePictureSourceMedia(sanitizedDocument, options)
 	if (!options.allowRemoteImages && blockRemoteImages(sanitizedDocument)) {
 		sanitizedDocument.setAttribute(REMOTE_IMAGE_MARKER, '')
 	}
 	return sanitizedDocument
+}
+
+function normalizePictureSourceMedia(sanitizedDocument: HTMLElement, options: SanitizeEmailOptions): void {
+	for (const source of sanitizedDocument.querySelectorAll<HTMLSourceElement>('picture > source')) {
+		source.removeAttribute(PICTURE_MEDIA_ATTRIBUTE)
+		const media = source.getAttribute('media')
+		if (!media || !inspectableMediaCss(media).includes('prefers-color-scheme')) continue
+
+		// A normalized source starts disabled so inserting the sanitized tree cannot
+		// briefly let the OS select it before the app-theme runtime applies its state.
+		source.setAttribute('media', 'not all')
+		const definition = pictureMediaDefinition(media, options.rewriteViewportMedia !== false)
+		if (definition) source.setAttribute(PICTURE_MEDIA_ATTRIBUTE, JSON.stringify(definition))
+	}
+}
+
+function pictureMediaDefinition(media: string, rewriteViewportMedia: boolean): PictureMediaDefinition | null {
+	if (!isStructurallyValidMediaQuery(media)) return null
+	const branches: PictureMediaBranch[] = []
+	const listedQueries = validMediaList(media)
+	/* v8 ignore next -- isStructurallyValidMediaQuery applies the same nonempty list validation -- @preserve */
+	if (!listedQueries) return null
+	for (const listedQuery of listedQueries) {
+		const disjunctions = validMediaDisjunctionBranches(listedQuery)
+		if (!disjunctions) return null
+		for (const query of disjunctions) {
+			const converted = convertMediaBranch(query, rewriteViewportMedia, true)
+			if (!converted) {
+				if (inspectableMediaCss(query).includes('prefers-color-scheme')) return null
+				branches.push({ media: query })
+				continue
+			}
+			branches.push({
+				...(converted.media ? { media: converted.media } : {}),
+				...(converted.pane ? { pane: converted.pane } : {}),
+				...(converted.theme ? { theme: converted.theme } : {}),
+			})
+		}
+	}
+	/* v8 ignore next -- every nonempty valid query either appends a branch or returns early -- @preserve */
+	return branches.length > 0 ? { branches } : null
+}
+
+function isStructurallyValidMediaQuery(query: string): boolean {
+	const validationCss = `@media ${query}{}`
+	const validationRoot = parseCss(validationCss)
+	const block = validationRoot?.children[0]
+	const atRule = block ? readAtRuleHeader(validationCss.slice(block.headerStart, block.open)) : null
+	return Boolean(
+		validationRoot?.children.length === 1 &&
+			block &&
+			block.headerStart === 0 &&
+			block.close === validationCss.length - 1 &&
+			atRule?.name === 'media' &&
+			validMediaList(atRule.params) !== null,
+	)
 }
 
 function normalizeStyleMedia(
@@ -909,20 +1055,7 @@ function normalizeStyleMedia(
 	}
 
 	const query = media.trim()
-	const validationCss = `@media ${query}{}`
-	const validationRoot = parseCss(validationCss)
-	const block = validationRoot?.children[0]
-	const atRule = block ? readAtRuleHeader(validationCss.slice(block.headerStart, block.open)) : null
-	if (
-		validationRoot?.children.length !== 1 ||
-		!block ||
-		block.headerStart !== 0 ||
-		block.close !== validationCss.length - 1 ||
-		atRule?.name !== 'media' ||
-		!splitMediaList(atRule.params).some((branch) => inspectableCss(branch).trim() !== '')
-	) {
-		return null
-	}
+	if (!isStructurallyValidMediaQuery(query)) return null
 
 	const wrapped = `@media ${query}{${css}}`
 	return shouldRewrite ? rewriteEmailMediaQueries(wrapped, options) : wrapped

@@ -13,7 +13,12 @@ import {
 	scaledHeight,
 	shadowStyleText,
 } from '../lib/email-render.js'
-import { sanitizedDocumentHasRemoteImages, sanitizeEmailDocument } from '../lib/sanitize-email.js'
+import {
+	PICTURE_MEDIA_ATTRIBUTE,
+	type PictureMediaDefinition,
+	sanitizedDocumentHasRemoteImages,
+	sanitizeEmailDocument,
+} from '../lib/sanitize-email.js'
 
 /**
  * `<ownmail-email>` — a Shadow-DOM custom element that renders sanitized email
@@ -132,6 +137,73 @@ interface RgbColor {
 }
 
 const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
+const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
+
+function parsedPictureMedia(value: string): PictureMediaDefinition | null {
+	try {
+		const parsed = JSON.parse(value) as unknown
+		if (!parsed || typeof parsed !== 'object' || !('branches' in parsed)) return null
+		const branches = parsed.branches
+		if (!Array.isArray(branches) || branches.length === 0 || branches.length > 128) return null
+		for (const branch of branches) {
+			if (!branch || typeof branch !== 'object' || Array.isArray(branch)) return null
+			const keys = Object.keys(branch)
+			if (
+				keys.length === 0 ||
+				keys.some((key) => !['media', 'pane', 'theme'].includes(key)) ||
+				('theme' in branch && branch.theme !== 'dark' && branch.theme !== 'light') ||
+				('media' in branch &&
+					(typeof branch.media !== 'string' || branch.media.length === 0 || branch.media.length > 4_096)) ||
+				('pane' in branch &&
+					(!Array.isArray(branch.pane) ||
+						branch.pane.length === 0 ||
+						branch.pane.length > 16 ||
+						branch.pane.some(
+							(condition: unknown) => typeof condition !== 'string' || !PICTURE_PANE_FEATURE.test(condition),
+						)))
+			) {
+				return null
+			}
+		}
+		return { branches } as PictureMediaDefinition
+	} catch {
+		return null
+	}
+}
+
+function paneConditionMatches(condition: string, paneWidth: number): boolean {
+	const match = condition.match(PICTURE_PANE_FEATURE)
+	/* v8 ignore next -- parsedPictureMedia validates every pane condition before this helper is called -- @preserve */
+	if (!match) return false
+	const boundary = match[1]
+	/* v8 ignore next -- the validated pane feature always captures its numeric value and unit -- @preserve */
+	const width = Number(match[2]) * ((match[3] as string).toLowerCase() === 'px' ? 1 : 16)
+	return boundary === 'min' ? paneWidth >= width : paneWidth <= width
+}
+
+/** Materialize trusted picture art direction from app theme + reading-pane width. */
+export function applyPictureSourceMedia(root: HTMLElement, theme: 'dark' | 'light', paneWidth: number): void {
+	for (const source of root.querySelectorAll<HTMLSourceElement>(
+		`picture > source[${PICTURE_MEDIA_ATTRIBUTE}]`,
+	)) {
+		const definition = parsedPictureMedia(
+			/* v8 ignore next -- the selector requires this attribute -- @preserve */
+			source.getAttribute(PICTURE_MEDIA_ATTRIBUTE) ?? '',
+		)
+		const active = definition?.branches.filter(
+			(branch) =>
+				(!branch.theme || branch.theme === theme) &&
+				(!branch.pane || branch.pane.every((condition) => paneConditionMatches(condition, paneWidth))),
+		)
+		const media =
+			!active || active.length === 0
+				? 'not all'
+				: active.some((branch) => !branch.media)
+					? 'all'
+					: active.map((branch) => branch.media).join(', ')
+		if (source.getAttribute('media') !== media) source.setAttribute('media', media)
+	}
+}
 
 function computedRgb(value: string): RgbColor | null {
 	const match = value.match(
@@ -312,6 +384,9 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				this.renderContent(this.contentRoot)
 				return
 			}
+			if (name === 'data-email-theme' && this.contentRoot) {
+				applyPictureSourceMedia(this.contentRoot, this.emailTheme(), this.clientWidth)
+			}
 			this.scheduleMeasure()
 		}
 
@@ -372,6 +447,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			if (documentElement) {
 				const blockedRemoteImages = sanitizedDocumentHasRemoteImages(documentElement)
 				if (!loadRemoteImages) this.hasRemoteImages = blockedRemoteImages
+				applyPictureSourceMedia(documentElement, this.emailTheme(), this.clientWidth)
 			}
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
 			applyInheritedSurfaceContrast(root, false)
@@ -403,6 +479,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const rtl = this.updateLogicalDirection(content)
 			const mode = this.layoutMode()
 			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
+			applyPictureSourceMedia(content, this.emailTheme(), containerWidth)
 			applyInheritedSurfaceContrast(
 				content,
 				this.getAttribute('data-email-theme') === 'dark' && !this.hasAttribute('data-dark-invert'),
@@ -456,6 +533,10 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		private layoutMode(): EmailLayoutMode {
 			return this.getAttribute('data-layout-mode') === 'original' ? 'original' : 'readable'
+		}
+
+		private emailTheme(): 'dark' | 'light' {
+			return this.getAttribute('data-email-theme') === 'dark' ? 'dark' : 'light'
 		}
 
 		private updateLogicalDirection(content: HTMLElement): boolean {

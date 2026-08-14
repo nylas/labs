@@ -55,7 +55,12 @@ describe('EmailHtml', () => {
 
 	it('leaves an adaptive dark stylesheet in control', () => {
 		document.documentElement.classList.add('dark')
-		render(<EmailHtml html="<style>@media (prefers-color-scheme:dark){}</style><p>x</p>" messageId="m4" />)
+		render(
+			<EmailHtml
+				html="<style>@media (prefers-color-scheme:dark){p{color:white}}</style><p>x</p>"
+				messageId="m4"
+			/>,
+		)
 		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
 	})

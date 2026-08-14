@@ -9,6 +9,7 @@ import {
 import {
 	anchorHref,
 	applyInheritedSurfaceContrast,
+	applyPictureSourceMedia,
 	ensureEmailElementDefined,
 	rewriteAnchors,
 } from './email-content-element.js'
@@ -174,6 +175,66 @@ describe('applyInheritedSurfaceContrast', () => {
 	})
 })
 
+describe('applyPictureSourceMedia', () => {
+	it('materializes app theme, pane width, and residual browser media conditions', () => {
+		const root = document.createElement('div')
+		root.innerHTML = `<picture>
+			<source class="dark" data-ownmail-picture-media='{"branches":[{"theme":"dark"}]}' media="not all">
+			<source class="light-pane" data-ownmail-picture-media='{"branches":[{"theme":"light","pane":["(max-width:40rem)"]}]}' media="not all">
+			<source class="residual" data-ownmail-picture-media='{"branches":[{"theme":"dark","media":"(orientation:landscape)"},{"pane":["(min-width:20em)","(max-width:50rem)"],"media":"(hover:hover)"}]}' media="not all">
+			<img>
+		</picture>`
+
+		applyPictureSourceMedia(root, 'dark', 375)
+		expect(root.querySelector('.dark')).toHaveAttribute('media', 'all')
+		expect(root.querySelector('.light-pane')).toHaveAttribute('media', 'not all')
+		expect(root.querySelector('.residual')).toHaveAttribute('media', '(orientation:landscape), (hover:hover)')
+
+		applyPictureSourceMedia(root, 'light', 700)
+		expect(root.querySelector('.dark')).toHaveAttribute('media', 'not all')
+		expect(root.querySelector('.light-pane')).toHaveAttribute('media', 'not all')
+		expect(root.querySelector('.residual')).toHaveAttribute('media', '(hover:hover)')
+	})
+
+	it('fails malformed trusted definitions and pane conditions closed', () => {
+		const root = document.createElement('div')
+		root.innerHTML = `<picture>
+			<source class="invalid-json" data-ownmail-picture-media="{" media="all">
+			<source class="null" data-ownmail-picture-media="null" media="all">
+			<source class="array" data-ownmail-picture-media="[]" media="all">
+			<source class="missing-branches" data-ownmail-picture-media="{}" media="all">
+			<source class="branches-not-array" data-ownmail-picture-media='{"branches":"dark"}' media="all">
+			<source class="empty" data-ownmail-picture-media='{"branches":[]}' media="all">
+			<source class="invalid-pane" data-ownmail-picture-media='{"branches":[{"pane":["(orientation:portrait)"]}]}' media="all">
+			<source class="pane-not-array" data-ownmail-picture-media='{"branches":[{"pane":"(max-width:600px)"}]}' media="all">
+			<source class="empty-pane" data-ownmail-picture-media='{"branches":[{"pane":[]}]}' media="all">
+			<source class="pane-number" data-ownmail-picture-media='{"branches":[{"pane":[42]}]}' media="all">
+			<source class="invalid-theme" data-ownmail-picture-media='{"branches":[{"theme":"system"}]}' media="all">
+			<source class="media-not-string" data-ownmail-picture-media='{"branches":[{"media":42}]}' media="all">
+			<source class="empty-media" data-ownmail-picture-media='{"branches":[{"media":""}]}' media="all">
+			<source class="unknown-key" data-ownmail-picture-media='{"branches":[{"theme":"dark","srcset":"https://example.test/tracker.png"}]}' media="all">
+			<source class="empty-branch" data-ownmail-picture-media='{"branches":[{}]}' media="all">
+			<source class="array-branch" data-ownmail-picture-media='{"branches":[[]]}' media="all">
+			<img>
+		</picture>`
+		const picture = root.querySelector('picture') as HTMLPictureElement
+		for (const [name, definition] of [
+			['too-many-branches', { branches: Array.from({ length: 129 }, () => ({ theme: 'dark' })) }],
+			['too-many-pane-parts', { branches: [{ pane: Array.from({ length: 17 }, () => '(max-width:1px)') }] }],
+			['media-too-long', { branches: [{ media: 'x'.repeat(4_097) }] }],
+		] as const) {
+			const source = document.createElement('source')
+			source.className = name
+			source.setAttribute('data-ownmail-picture-media', JSON.stringify(definition))
+			source.media = 'all'
+			picture.prepend(source)
+		}
+
+		applyPictureSourceMedia(root, 'dark', 375)
+		for (const source of root.querySelectorAll('source')) expect(source).toHaveAttribute('media', 'not all')
+	})
+})
+
 describe('ensureEmailElementDefined', () => {
 	it('registers the custom element and is idempotent', () => {
 		ensureEmailElementDefined()
@@ -208,6 +269,17 @@ describe('ensureEmailElementDefined', () => {
 		await nextFrame()
 
 		expect(measure).not.toHaveBeenCalled()
+	})
+
+	it('remeasures after the app theme changes computed provider layout', async () => {
+		const el = mount('<p>Theme layout</p>')
+		await nextFrame()
+		const measure = vi.spyOn(el, 'measure')
+
+		el.setAttribute('data-email-theme', 'dark')
+		await nextFrame()
+
+		expect(measure).toHaveBeenCalledOnce()
 	})
 })
 
