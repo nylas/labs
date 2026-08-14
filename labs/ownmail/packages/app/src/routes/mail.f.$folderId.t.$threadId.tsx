@@ -243,8 +243,19 @@ function ThreadView() {
 	return (
 		<div
 			{...swipeHandlers}
+			onTouchMove={(event) => {
+				if (event.touches.length > 1) swipeHandlers.onTouchCancel()
+			}}
+			onTouchEnd={(event) => {
+				if (event.touches.length > 0) {
+					swipeHandlers.onTouchCancel()
+					return
+				}
+				swipeHandlers.onTouchEnd(event)
+			}}
 			data-testid="thread-reader"
-			className="flex min-h-0 min-w-0 flex-1 touch-pan-y flex-col bg-background"
+			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
 			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
 				<button
