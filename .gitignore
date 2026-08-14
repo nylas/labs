@@ -11,3 +11,9 @@ dist-vercel/
 .vercel/
 .tanstack/
 .hallmark/
+.claude/
+.design-sync/
+.ds-sync/
+.playwright-mcp/
+ds-bundle/
+labs/ownmail/packages/app/design-sync-entry.tsx
