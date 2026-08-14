@@ -5,6 +5,7 @@ const DEVICE_WIDTH_FEATURE = /\(\s*((?:min|max))-device-width\s*:\s*(\d*\.?\d+(?
 const COLOR_SCHEME_FEATURE = /^\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)$/i
 const REMOTE_IMAGE_MARKER = 'data-ownmail-has-remote-images'
 const EMAIL_THEME_PROPERTY = '--ownmail-email-theme'
+const MAX_CSS_BLOCK_DEPTH = 128
 
 export interface SanitizeEmailOptions {
 	rewriteViewportMedia?: boolean
@@ -183,6 +184,9 @@ function parseCss(css: string): CssContainer | null {
 				context.valueBraces = 1
 				continue
 			}
+			// Every parsed block is later consumed recursively. Reject pathological
+			// provider nesting before it can exhaust the JavaScript call stack.
+			if (stack.length >= MAX_CSS_BLOCK_DEPTH) return null
 			const body: CssContainer & { statementStart: number; valueBraces: number } = {
 				children: [],
 				end: -1,
@@ -315,7 +319,63 @@ function cssBlockContentKind(header: string, parentKind: CssContainer['kind']): 
 }
 
 function isCustomPropertyPrelude(header: string): boolean {
-	return /^\s*--(?:[_a-z]|[^\0-\x7f]|\\.)[\w-]*(?:\s|\/\*[\s\S]*?\*\/)*:/i.test(header)
+	let index = 0
+	while (isRegexWhitespace(header.charAt(index))) index += 1
+	if (header.charAt(index) !== '-' || header.charAt(index + 1) !== '-') return false
+	index += 2
+
+	const first = header.charAt(index)
+	if (isAsciiIdentifierStart(first) || first.charCodeAt(0) >= 0x80) {
+		index += 1
+	} else if (first === '\\' && isEscapableRegexCharacter(header.charAt(index + 1))) {
+		index += 2
+	} else {
+		return false
+	}
+
+	while (isAsciiWordOrHyphen(header.charAt(index))) index += 1
+	while (index < header.length) {
+		if (isRegexWhitespace(header.charAt(index))) {
+			index += 1
+			continue
+		}
+		if (header.charAt(index) !== '/' || header.charAt(index + 1) !== '*') break
+		const close = header.indexOf('*/', index + 2)
+		/* v8 ignore next -- parseCss rejects unterminated comments before this helper is called -- @preserve */
+		if (close < 0) return false
+		index = close + 2
+	}
+	return header.charAt(index) === ':'
+}
+
+function isRegexWhitespace(character: string): boolean {
+	return character !== '' && /\s/u.test(character)
+}
+
+function isAsciiIdentifierStart(character: string): boolean {
+	const code = character.charCodeAt(0)
+	return character === '_' || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function isAsciiWordOrHyphen(character: string): boolean {
+	const code = character.charCodeAt(0)
+	return (
+		character === '-' ||
+		character === '_' ||
+		(code >= 48 && code <= 57) ||
+		(code >= 65 && code <= 90) ||
+		(code >= 97 && code <= 122)
+	)
+}
+
+function isEscapableRegexCharacter(character: string): boolean {
+	return (
+		character !== '' &&
+		character !== '\n' &&
+		character !== '\r' &&
+		character !== '\u2028' &&
+		character !== '\u2029'
+	)
 }
 
 function convertMediaBranch(

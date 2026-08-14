@@ -160,6 +160,50 @@ describe('adaptive app-theme media', () => {
 		}
 	})
 
+	it('bounds custom-property detection for adversarial comment repetitions', () => {
+		const maliciousPrelude = `--_${'/**/'.repeat(27)}not-a-declaration`
+		const legitimateControls =
+			'.card{--_token-1/**/ : {@media (prefers-color-scheme:dark){tone:blue}};--éclair:{tone:white};--\\x:{tone:black};color:black}'
+		const startedAt = performance.now()
+		const output = sanitizeEmailHtml(
+			`<style>.card{${maliciousPrelude}{color:red}--1{color:orange}}${legitimateControls}</style><p class="card">Body</p>`,
+		)
+		const elapsed = performance.now() - startedAt
+
+		expect(elapsed).toBeLessThan(250)
+		expect(output).toContain(`${maliciousPrelude}{color:red}`)
+		expect(output).toContain('--1{color:orange}')
+		expect(output).toContain(legitimateControls)
+		expect(output).toContain('color:black')
+	})
+
+	it('fails closed before excessive CSS nesting can overflow recursive consumers', () => {
+		const supportedOpening = '@media all{'.repeat(125)
+		const supportedClosing = '}'.repeat(125)
+		const supported = `${supportedOpening}@media (prefers-color-scheme:dark){.x{color:white}}${supportedClosing}`
+		expect(sanitizedEmailSupportsDarkMode(`<style>${supported}</style>`)).toBe(true)
+		expect(sanitizeEmailHtml(`<style>${supported}</style>`)).toContain(
+			'@container ownmail-email style(--ownmail-email-theme: dark)',
+		)
+
+		const opening = '@media all{'.repeat(4_000)
+		const closing = '}'.repeat(4_000)
+		const deeplyNested = `${opening}@media (prefers-color-scheme:dark){.x{color:white}}${closing}`
+		const startedAt = performance.now()
+
+		expect(sanitizedEmailSupportsDarkMode(`<style>${deeplyNested}</style>`)).toBe(false)
+		expect(sanitizeEmailHtml(`<style>${deeplyNested}</style><p>Body</p>`)).toContain(
+			'prefers-color-scheme:dark',
+		)
+		expect(performance.now() - startedAt).toBeLessThan(250)
+
+		const remote = sanitizeEmailDocument(
+			`<style>${opening}.x{background:url(https://images.example/deep.png)}${closing}</style><p>Body</p>`,
+		)
+		expect(sanitizedDocumentHasRemoteImages(remote as HTMLElement)).toBe(true)
+		expect(remote?.querySelector('style')).toBeNull()
+	})
+
 	it('preserves viewport semantics around app theme in Original mode', () => {
 		expect(
 			rewriteEmailMediaQueries(
