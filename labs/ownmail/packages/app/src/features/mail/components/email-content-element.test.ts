@@ -6,7 +6,13 @@ import {
 	type EmailLayoutStatusDetail,
 	LINK_PREVIEW_EVENT,
 } from '../lib/email-render.js'
-import { anchorHref, ensureEmailElementDefined, rewriteAnchors } from './email-content-element.js'
+import {
+	anchorHref,
+	applyInheritedSurfaceContrast,
+	applyPictureSourceMedia,
+	ensureEmailElementDefined,
+	rewriteAnchors,
+} from './email-content-element.js'
 
 const resizeCallbacks: ResizeObserverCallback[] = []
 
@@ -84,6 +90,149 @@ describe('rewriteAnchors', () => {
 			expect(anchor.getAttribute('rel')).toBe('noopener noreferrer nofollow')
 		}
 	})
+
+	it('enforces and restores trusted focus styles over sender inline important styles', () => {
+		const el = mount(
+			'<a class="focus" href="https://example.com" style="outline:none!important;box-shadow:none!important">Link</a><a class="unfocused" href="https://example.com/other">Other</a><p>Plain</p>',
+		)
+		const anchor = el.shadowRoot?.querySelector<HTMLAnchorElement>('.focus')
+		anchor?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+		anchor?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+		expect(anchor?.style.getPropertyValue('outline')).toBe('2px solid CanvasText')
+		expect(anchor?.style.getPropertyPriority('outline')).toBe('important')
+		expect(anchor?.style.getPropertyValue('outline-offset')).toBe('2px')
+
+		anchor?.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }))
+		expect(anchor?.style.getPropertyValue('outline')).toBe('none')
+		expect(anchor?.style.getPropertyPriority('outline')).toBe('important')
+		expect(anchor?.style.getPropertyValue('outline-offset')).toBe('')
+
+		el.shadowRoot
+			?.querySelector<HTMLAnchorElement>('.unfocused')
+			?.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }))
+		el.shadowRoot
+			?.querySelector('p')
+			?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }))
+		el.shadowRoot?.dispatchEvent(new FocusEvent('focusin'))
+	})
+})
+
+describe('applyInheritedSurfaceContrast', () => {
+	it('repairs inherited contrast per painted surface without changing authored colors', () => {
+		const root = document.createElement('div')
+		root.style.color = 'rgb(229, 231, 235)'
+		root.innerHTML = `<style>
+			.white{background-color:rgb(255,255,255)}
+			.dark{background-color:rgb(10,20,30)}
+			.card{background-color:rgba(255,255,255,.96)}
+			.explicit-rule{background-color:white;color:rgb(255,0,0)}
+			.explicit-same{background-color:white;color:rgb(229,231,235)}
+			.transparent{background-color:transparent}
+			.wide-gamut{background-color:color(display-p3 1 1 1)}
+			.near-transparent{background-color:rgba(255,255,255,.96)}
+			.too-transparent{background-color:rgba(255,255,255,.5)}
+		</style>
+		<div class="white">Inherited on white</div>
+		<div class="dark">Inherited on dark <div class="card">Nested light card</div></div>
+		<div class="explicit-rule">Stylesheet color</div>
+		<div class="explicit-same">Stylesheet color matching its parent</div>
+		<div class="white explicit-inline" style="color:rgb(0,0,255)">Inline color</div>
+		<div class="white explicit-legacy" color="#008000">Legacy color</div>
+		<div class="transparent">Transparent</div>
+		<div class="wide-gamut">Unsupported computed color syntax</div>
+		<div class="near-transparent">Nearly opaque direct surface</div>
+		<div class="too-transparent">Translucent direct surface</div>`
+		document.body.appendChild(root)
+
+		applyInheritedSurfaceContrast(root, true)
+
+		expect(root.querySelector('.white')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(root.querySelector('.dark')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.card')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(root.querySelector('.explicit-rule')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.explicit-same')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.explicit-inline')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.explicit-legacy')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.transparent')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.wide-gamut')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.near-transparent')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(root.querySelector('.too-transparent')).not.toHaveAttribute('data-ownmail-inherited-color')
+	})
+
+	it('chooses light inherited text for a dark nested surface and clears stale markers', () => {
+		const root = document.createElement('div')
+		root.style.color = 'rgb(26, 26, 26)'
+		root.innerHTML =
+			'<div class="dark" style="background-color:rgb(0,0,0)">Dark</div><div class="stale" data-ownmail-inherited-color="light">Stale</div>'
+		document.body.appendChild(root)
+
+		applyInheritedSurfaceContrast(root, true)
+		expect(root.querySelector('.dark')).toHaveAttribute('data-ownmail-inherited-color', 'light')
+		expect(root.querySelector('.stale')).not.toHaveAttribute('data-ownmail-inherited-color')
+
+		applyInheritedSurfaceContrast(root, false)
+		expect(root.querySelector('.dark')).not.toHaveAttribute('data-ownmail-inherited-color')
+	})
+})
+
+describe('applyPictureSourceMedia', () => {
+	it('materializes app theme, pane width, and residual browser media conditions', () => {
+		const root = document.createElement('div')
+		root.innerHTML = `<picture>
+			<source class="dark" data-ownmail-picture-media='{"branches":[{"theme":"dark"}]}' media="not all">
+			<source class="light-pane" data-ownmail-picture-media='{"branches":[{"theme":"light","pane":["(max-width:40rem)"]}]}' media="not all">
+			<source class="residual" data-ownmail-picture-media='{"branches":[{"theme":"dark","media":"(orientation:landscape)"},{"pane":["(min-width:20em)","(max-width:50rem)"],"media":"(hover:hover)"}]}' media="not all">
+			<img>
+		</picture>`
+
+		applyPictureSourceMedia(root, 'dark', 375)
+		expect(root.querySelector('.dark')).toHaveAttribute('media', 'all')
+		expect(root.querySelector('.light-pane')).toHaveAttribute('media', 'not all')
+		expect(root.querySelector('.residual')).toHaveAttribute('media', '(orientation:landscape), (hover:hover)')
+
+		applyPictureSourceMedia(root, 'light', 700)
+		expect(root.querySelector('.dark')).toHaveAttribute('media', 'not all')
+		expect(root.querySelector('.light-pane')).toHaveAttribute('media', 'not all')
+		expect(root.querySelector('.residual')).toHaveAttribute('media', '(hover:hover)')
+	})
+
+	it('fails malformed trusted definitions and pane conditions closed', () => {
+		const root = document.createElement('div')
+		root.innerHTML = `<picture>
+			<source class="invalid-json" data-ownmail-picture-media="{" media="all">
+			<source class="null" data-ownmail-picture-media="null" media="all">
+			<source class="array" data-ownmail-picture-media="[]" media="all">
+			<source class="missing-branches" data-ownmail-picture-media="{}" media="all">
+			<source class="branches-not-array" data-ownmail-picture-media='{"branches":"dark"}' media="all">
+			<source class="empty" data-ownmail-picture-media='{"branches":[]}' media="all">
+			<source class="invalid-pane" data-ownmail-picture-media='{"branches":[{"pane":["(orientation:portrait)"]}]}' media="all">
+			<source class="pane-not-array" data-ownmail-picture-media='{"branches":[{"pane":"(max-width:600px)"}]}' media="all">
+			<source class="empty-pane" data-ownmail-picture-media='{"branches":[{"pane":[]}]}' media="all">
+			<source class="pane-number" data-ownmail-picture-media='{"branches":[{"pane":[42]}]}' media="all">
+			<source class="invalid-theme" data-ownmail-picture-media='{"branches":[{"theme":"system"}]}' media="all">
+			<source class="media-not-string" data-ownmail-picture-media='{"branches":[{"media":42}]}' media="all">
+			<source class="empty-media" data-ownmail-picture-media='{"branches":[{"media":""}]}' media="all">
+			<source class="unknown-key" data-ownmail-picture-media='{"branches":[{"theme":"dark","srcset":"https://example.test/tracker.png"}]}' media="all">
+			<source class="empty-branch" data-ownmail-picture-media='{"branches":[{}]}' media="all">
+			<source class="array-branch" data-ownmail-picture-media='{"branches":[[]]}' media="all">
+			<img>
+		</picture>`
+		const picture = root.querySelector('picture') as HTMLPictureElement
+		for (const [name, definition] of [
+			['too-many-branches', { branches: Array.from({ length: 129 }, () => ({ theme: 'dark' })) }],
+			['too-many-pane-parts', { branches: [{ pane: Array.from({ length: 17 }, () => '(max-width:1px)') }] }],
+			['media-too-long', { branches: [{ media: 'x'.repeat(4_097) }] }],
+		] as const) {
+			const source = document.createElement('source')
+			source.className = name
+			source.setAttribute('data-ownmail-picture-media', JSON.stringify(definition))
+			source.media = 'all'
+			picture.prepend(source)
+		}
+
+		applyPictureSourceMedia(root, 'dark', 375)
+		for (const source of root.querySelectorAll('source')) expect(source).toHaveAttribute('media', 'not all')
+	})
 })
 
 describe('ensureEmailElementDefined', () => {
@@ -121,6 +270,17 @@ describe('ensureEmailElementDefined', () => {
 
 		expect(measure).not.toHaveBeenCalled()
 	})
+
+	it('remeasures after the app theme changes computed provider layout', async () => {
+		const el = mount('<p>Theme layout</p>')
+		await nextFrame()
+		const measure = vi.spyOn(el, 'measure')
+
+		el.setAttribute('data-email-theme', 'dark')
+		await nextFrame()
+
+		expect(measure).toHaveBeenCalledOnce()
+	})
 })
 
 describe('<ownmail-email> rendering', () => {
@@ -151,8 +311,17 @@ describe('<ownmail-email> rendering', () => {
 		expect(children.at(-1)?.textContent).toContain(':host([data-dark-invert])')
 	})
 
+	it('isolates a provider CSS background into the trusted dark-fidelity layer', () => {
+		const el = mount('<div class="hero" style="background-image:linear-gradient(red,blue)">Hero</div>')
+		const hero = el.shadowRoot?.querySelector<HTMLElement>('.hero')
+		expect(hero).toHaveAttribute('data-ownmail-background-media')
+		expect(hero?.style.getPropertyValue('--ownmail-background-image')).toContain('linear-gradient')
+		expect(hero?.style.getPropertyPriority('--ownmail-background-image')).toBe('important')
+	})
+
 	it('applies html set after the element is already connected', () => {
 		const el = mount()
+		el.emailHtml = '<p>Later</p>'
 		el.emailHtml = '<p>Later</p>'
 		expect(el.shadowRoot?.querySelector('.email-root')?.innerHTML).toContain('Later')
 		expect(el.emailHtml).toBe('<p>Later</p>')
@@ -275,6 +444,25 @@ describe('<ownmail-email> rendering', () => {
 })
 
 describe('<ownmail-email> scaling', () => {
+	it('reclassifies inherited surface colors when host dark handling changes', () => {
+		const el = mount('<div class="surface" style="background:rgb(255,255,255)">Text</div>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const surface = content.querySelector('.surface') as HTMLElement
+		for (let ancestor = surface.parentElement; ancestor; ancestor = ancestor.parentElement) {
+			ancestor.style.color = 'rgb(229, 231, 235)'
+			if (ancestor === content) break
+		}
+		stubSize(content, 'scrollWidth', 320)
+		stubSize(el, 'clientWidth', 320)
+
+		el.setAttribute('data-email-theme', 'dark')
+		expect(() => el.measure()).not.toThrow()
+
+		el.setAttribute('data-dark-invert', '')
+		el.measure()
+		expect(surface).not.toHaveAttribute('data-ownmail-inherited-color')
+	})
+
 	it('shrinks content wider than the pane and sizes the box to the scaled height', () => {
 		const el = mount('<p>wide</p>')
 		el.setAttribute('data-layout-mode', 'original')

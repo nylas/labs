@@ -50,12 +50,30 @@ describe('EmailHtml', () => {
 	it('does not invert email in light mode', () => {
 		render(<EmailHtml html="<p>x</p>" messageId="m3" />)
 		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
 	})
 
 	it('leaves an adaptive dark stylesheet in control', () => {
 		document.documentElement.classList.add('dark')
-		render(<EmailHtml html="<style>@media (prefers-color-scheme:dark){}</style><p>x</p>" messageId="m4" />)
+		render(
+			<EmailHtml
+				html="<style>@media (prefers-color-scheme:dark){p{color:white}}</style><p>x</p>"
+				messageId="m4"
+			/>,
+		)
 		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
+	})
+
+	it('does not trust dark-mode text that the sanitizer removes', () => {
+		document.documentElement.classList.add('dark')
+		render(
+			<EmailHtml
+				html={'<script>"@media (prefers-color-scheme:dark)"</script><p>plain</p>'}
+				messageId="m4-hostile"
+			/>,
+		)
+		expect(emailElement()).toHaveAttribute('data-dark-invert')
 	})
 
 	it('auto-darkens by default in dark mode, including email with only a color-scheme declaration', () => {
@@ -78,6 +96,23 @@ describe('EmailHtml', () => {
 			document.documentElement.classList.add('dark')
 		})
 		await waitFor(() => expect(emailElement()).toHaveAttribute('data-dark-invert'))
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
+	})
+
+	it('blocks remote images behind an accessible per-message opt-in', async () => {
+		render(
+			<EmailHtml
+				html='<img class="remote" src="https://images.example/tracker.png" width="600" height="200">'
+				messageId="m-remote"
+			/>,
+		)
+		const image = () => emailElement().shadowRoot?.querySelector<HTMLImageElement>('.remote')
+		expect(image()?.hasAttribute('src')).toBe(false)
+		expect(image()?.getAttribute('width')).toBe('600')
+		const load = await screen.findByRole('button', { name: 'Load images' })
+		fireEvent.click(load)
+		await waitFor(() => expect(image()?.getAttribute('src')).toBe('https://images.example/tracker.png'))
+		expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
 	})
 
 	it('offers readable and original layouts when legacy content needs compatibility reflow', () => {

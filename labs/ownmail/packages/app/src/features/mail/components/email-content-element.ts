@@ -2,8 +2,10 @@ import {
 	computeScale,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
+	EMAIL_REMOTE_IMAGES_EVENT,
 	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
+	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
 	type LinkPreviewDetail,
 	meaningfulContentWidth,
@@ -11,7 +13,12 @@ import {
 	scaledHeight,
 	shadowStyleText,
 } from '../lib/email-render.js'
-import { sanitizeEmailDocument } from '../lib/sanitize-email.js'
+import {
+	PICTURE_MEDIA_ATTRIBUTE,
+	type PictureMediaDefinition,
+	sanitizedDocumentHasRemoteImages,
+	sanitizeEmailDocument,
+} from '../lib/sanitize-email.js'
 
 /**
  * `<ownmail-email>` — a Shadow-DOM custom element that renders sanitized email
@@ -49,10 +56,51 @@ export function previewPoint(event: Event, target: EventTarget | null): PreviewP
 
 /** Force every link to open in a new tab without leaking the opener. */
 export function rewriteAnchors(root: HTMLElement): void {
-	for (const anchor of root.querySelectorAll('a[href]')) {
+	for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
 		anchor.setAttribute('target', '_blank')
 		anchor.setAttribute('rel', 'noopener noreferrer nofollow')
+		anchor.style.setProperty('color', 'LinkText', 'important')
+		anchor.style.setProperty('text-decoration', 'underline', 'important')
+		anchor.style.setProperty('text-decoration-thickness', 'max(1px, .08em)', 'important')
+		anchor.style.setProperty('text-underline-offset', '.15em', 'important')
 	}
+}
+
+const focusStyle = new WeakMap<HTMLAnchorElement, Map<string, { priority: string; value: string }>>()
+
+function enforceAnchorFocus(target: EventTarget | null, focused: boolean): void {
+	if (!(target instanceof Element)) return
+	const anchor = target.closest('a[href]') as HTMLAnchorElement | null
+	if (!anchor) return
+	const properties = ['outline', 'outline-offset', 'border-radius', 'box-shadow']
+	if (focused) {
+		if (!focusStyle.has(anchor)) {
+			focusStyle.set(
+				anchor,
+				new Map(
+					properties.map((property) => [
+						property,
+						{
+							priority: anchor.style.getPropertyPriority(property),
+							value: anchor.style.getPropertyValue(property),
+						},
+					]),
+				),
+			)
+		}
+		anchor.style.setProperty('outline', '2px solid CanvasText', 'important')
+		anchor.style.setProperty('outline-offset', '2px', 'important')
+		anchor.style.setProperty('border-radius', '2px', 'important')
+		anchor.style.setProperty('box-shadow', '0 0 0 4px Canvas', 'important')
+		return
+	}
+	const stored = focusStyle.get(anchor)
+	if (!stored) return
+	for (const [property, value] of stored) {
+		if (value.value) anchor.style.setProperty(property, value.value, value.priority)
+		else anchor.style.removeProperty(property)
+	}
+	focusStyle.delete(anchor)
 }
 
 function setImportantStyle(element: HTMLElement | SVGElement, property: string, value: string): void {
@@ -65,10 +113,226 @@ function setImportantStyle(element: HTMLElement | SVGElement, property: string, 
 	element.style.setProperty(property, value, 'important')
 }
 
+function isolateBackgroundMedia(root: HTMLElement): void {
+	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
+		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
+		const style = getComputedStyle(element)
+		if (!style.backgroundImage || style.backgroundImage === 'none') continue
+		element.setAttribute('data-ownmail-background-media', '')
+		for (const property of ['image', 'position', 'size', 'repeat', 'origin', 'clip'] as const) {
+			setImportantStyle(
+				element,
+				`--ownmail-background-${property}`,
+				style.getPropertyValue(`background-${property}`),
+			)
+		}
+	}
+}
+
+interface RgbColor {
+	alpha: number
+	blue: number
+	green: number
+	red: number
+}
+
+const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
+const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
+
+function parsedPictureMedia(value: string): PictureMediaDefinition | null {
+	try {
+		const parsed = JSON.parse(value) as unknown
+		if (!parsed || typeof parsed !== 'object' || !('branches' in parsed)) return null
+		const branches = parsed.branches
+		if (!Array.isArray(branches) || branches.length === 0 || branches.length > 128) return null
+		for (const branch of branches) {
+			if (!branch || typeof branch !== 'object' || Array.isArray(branch)) return null
+			const keys = Object.keys(branch)
+			if (
+				keys.length === 0 ||
+				keys.some((key) => !['media', 'pane', 'theme'].includes(key)) ||
+				('theme' in branch && branch.theme !== 'dark' && branch.theme !== 'light') ||
+				('media' in branch &&
+					(typeof branch.media !== 'string' || branch.media.length === 0 || branch.media.length > 4_096)) ||
+				('pane' in branch &&
+					(!Array.isArray(branch.pane) ||
+						branch.pane.length === 0 ||
+						branch.pane.length > 16 ||
+						branch.pane.some(
+							(condition: unknown) => typeof condition !== 'string' || !PICTURE_PANE_FEATURE.test(condition),
+						)))
+			) {
+				return null
+			}
+		}
+		return { branches } as PictureMediaDefinition
+	} catch {
+		return null
+	}
+}
+
+function paneConditionMatches(condition: string, paneWidth: number): boolean {
+	const match = condition.match(PICTURE_PANE_FEATURE)
+	/* v8 ignore next -- parsedPictureMedia validates every pane condition before this helper is called -- @preserve */
+	if (!match) return false
+	const boundary = match[1]
+	/* v8 ignore next -- the validated pane feature always captures its numeric value and unit -- @preserve */
+	const width = Number(match[2]) * ((match[3] as string).toLowerCase() === 'px' ? 1 : 16)
+	return boundary === 'min' ? paneWidth >= width : paneWidth <= width
+}
+
+/** Materialize trusted picture art direction from app theme + reading-pane width. */
+export function applyPictureSourceMedia(root: HTMLElement, theme: 'dark' | 'light', paneWidth: number): void {
+	for (const source of root.querySelectorAll<HTMLSourceElement>(
+		`picture > source[${PICTURE_MEDIA_ATTRIBUTE}]`,
+	)) {
+		const definition = parsedPictureMedia(
+			/* v8 ignore next -- the selector requires this attribute -- @preserve */
+			source.getAttribute(PICTURE_MEDIA_ATTRIBUTE) ?? '',
+		)
+		const active = definition?.branches.filter(
+			(branch) =>
+				(!branch.theme || branch.theme === theme) &&
+				(!branch.pane || branch.pane.every((condition) => paneConditionMatches(condition, paneWidth))),
+		)
+		const media =
+			!active || active.length === 0
+				? 'not all'
+				: active.some((branch) => !branch.media)
+					? 'all'
+					: active.map((branch) => branch.media).join(', ')
+		if (source.getAttribute('media') !== media) source.setAttribute('media', media)
+	}
+}
+
+function computedRgb(value: string): RgbColor | null {
+	const match = value.match(
+		/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d*\.?\d+))?\s*\)$/i,
+	)
+	if (!match) return null
+	const [red, green, blue, alpha = '1'] = match.slice(1)
+	/* v8 ignore next -- the expression requires all three captured RGB channels -- @preserve */
+	if (red === undefined || green === undefined || blue === undefined) return null
+	return {
+		red: Math.min(255, Number(red)),
+		green: Math.min(255, Number(green)),
+		blue: Math.min(255, Number(blue)),
+		alpha: Math.min(1, Number(alpha)),
+	}
+}
+
+function compositeColor(foreground: RgbColor, background: RgbColor): RgbColor {
+	const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha)
+	/* v8 ignore next -- callers require a painted foreground and background -- @preserve */
+	if (alpha === 0) return foreground
+	return {
+		red:
+			(foreground.red * foreground.alpha + background.red * background.alpha * (1 - foreground.alpha)) /
+			alpha,
+		green:
+			(foreground.green * foreground.alpha + background.green * background.alpha * (1 - foreground.alpha)) /
+			alpha,
+		blue:
+			(foreground.blue * foreground.alpha + background.blue * background.alpha * (1 - foreground.alpha)) /
+			alpha,
+		alpha,
+	}
+}
+
+function paintedSurfaceColor(element: Element, boundary: HTMLElement): RgbColor | null {
+	let surface = computedRgb(getComputedStyle(element).backgroundColor)
+	if (!surface || surface.alpha === 0) return null
+	let ancestor = element.parentElement
+	while (surface.alpha < 1 && ancestor) {
+		const behind = computedRgb(getComputedStyle(ancestor).backgroundColor)
+		if (behind && behind.alpha > 0) surface = compositeColor(surface, behind)
+		if (ancestor === boundary) break
+		ancestor = ancestor.parentElement
+	}
+	return surface.alpha >= 0.95 ? surface : null
+}
+
+function relativeLuminance(color: RgbColor): number {
+	const channel = (value: number): number => {
+		const normalized = value / 255
+		return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+	}
+	return channel(color.red) * 0.2126 + channel(color.green) * 0.7152 + channel(color.blue) * 0.0722
+}
+
+function colorContrast(first: RgbColor, second: RgbColor): number {
+	const firstLuminance = relativeLuminance(first)
+	const secondLuminance = relativeLuminance(second)
+	return (
+		(Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05)
+	)
+}
+
+function sameColor(first: RgbColor | null, second: RgbColor | null): boolean {
+	return Boolean(
+		first &&
+			second &&
+			Math.abs(first.red - second.red) < 0.5 &&
+			Math.abs(first.green - second.green) < 0.5 &&
+			Math.abs(first.blue - second.blue) < 0.5 &&
+			Math.abs(first.alpha - second.alpha) < 0.01,
+	)
+}
+
+function inheritsParentColor(element: HTMLElement | SVGElement): boolean {
+	const parent = element.parentElement
+	/* v8 ignore next -- querySelectorAll only supplies descendants of the email root -- @preserve */
+	if (!parent) return false
+	const originalStyle = parent.getAttribute('style')
+	parent.style.setProperty('color', 'rgb(1, 2, 3)', 'important')
+	const inherited = sameColor(computedRgb(getComputedStyle(element).color), {
+		red: 1,
+		green: 2,
+		blue: 3,
+		alpha: 1,
+	})
+	if (originalStyle === null) parent.removeAttribute('style')
+	else parent.setAttribute('style', originalStyle)
+	return inherited
+}
+
+/**
+ * Keep inherited text readable when a partially adaptive template leaves a
+ * provider surface light. Only painted surfaces with insufficient contrast are
+ * marked, and only when their computed color still comes from their parent.
+ * Direct inline/legacy colors and distinct stylesheet colors remain untouched.
+ * Processing in document order lets a light card inside a dark adaptive canvas
+ * choose dark text without flattening the canvas's genuinely dark treatment.
+ */
+export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolean): void {
+	for (const marked of root.querySelectorAll(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
+		marked.removeAttribute(INHERITED_COLOR_ATTRIBUTE)
+	}
+	if (!enabled) return
+
+	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
+		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
+		const surface = paintedSurfaceColor(element, root)
+		if (!surface) continue
+		const style = getComputedStyle(element)
+		const color = computedRgb(style.color)
+		if (!color || colorContrast(color, surface) >= 4.5) continue
+		if (element.style.getPropertyValue('color') || element.hasAttribute('color')) continue
+		if (!inheritsParentColor(element)) continue
+
+		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
+		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
+		element.setAttribute(
+			INHERITED_COLOR_ATTRIBUTE,
+			colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light',
+		)
+	}
+}
+
 function createEmailElementClass(Base: typeof HTMLElement) {
 	return class extends Base {
 		static get observedAttributes(): string[] {
-			return ['data-layout-mode']
+			return ['data-layout-mode', 'data-load-remote-images', 'data-email-theme', 'data-dark-invert']
 		}
 
 		private html = ''
@@ -79,6 +343,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private measurementQueued = false
 		private observedWidth = -1
 		private lastLayoutStatus = ''
+		private hasRemoteImages = false
+		private lastRemoteImagesStatus = ''
 
 		connectedCallback(): void {
 			const root = this.ensureShadow()
@@ -113,9 +379,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
-			if (name !== 'data-layout-mode' || oldValue === newValue) return
-			if (this.contentRoot) this.renderContent(this.contentRoot)
-			else this.scheduleMeasure()
+			if (oldValue === newValue) return
+			if (['data-layout-mode', 'data-load-remote-images'].includes(name) && this.contentRoot) {
+				this.renderContent(this.contentRoot)
+				return
+			}
+			if (name === 'data-email-theme' && this.contentRoot) {
+				applyPictureSourceMedia(this.contentRoot, this.emailTheme(), this.clientWidth)
+			}
+			this.scheduleMeasure()
 		}
 
 		private ensureShadow(): HTMLDivElement {
@@ -153,6 +425,11 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		set emailHtml(value: string) {
+			if (value !== this.html) {
+				this.hasRemoteImages = false
+				this.lastRemoteImagesStatus = ''
+				this.removeAttribute('data-load-remote-images')
+			}
 			this.html = value
 			if (this.contentRoot) this.renderContent(this.contentRoot)
 		}
@@ -162,12 +439,25 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		private renderContent(root: HTMLDivElement): void {
+			const loadRemoteImages = this.hasAttribute('data-load-remote-images')
 			const documentElement = sanitizeEmailDocument(this.html, {
+				allowRemoteImages: loadRemoteImages,
 				rewriteViewportMedia: this.layoutMode() === 'readable',
 			})
+			if (documentElement) {
+				const blockedRemoteImages = sanitizedDocumentHasRemoteImages(documentElement)
+				if (!loadRemoteImages) this.hasRemoteImages = blockedRemoteImages
+				applyPictureSourceMedia(documentElement, this.emailTheme(), this.clientWidth)
+			}
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
+			applyInheritedSurfaceContrast(root, false)
 			rewriteAnchors(root)
+			isolateBackgroundMedia(root)
 			this.lastLayoutStatus = ''
+			this.emitRemoteImagesStatus({
+				hasRemoteImages: this.hasRemoteImages,
+				loaded: loadRemoteImages && this.hasRemoteImages,
+			})
 			this.scheduleMeasure()
 		}
 
@@ -189,6 +479,14 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const rtl = this.updateLogicalDirection(content)
 			const mode = this.layoutMode()
 			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
+			applyPictureSourceMedia(content, this.emailTheme(), containerWidth)
+			applyInheritedSurfaceContrast(
+				content,
+				this.getAttribute('data-email-theme') === 'dark' && !this.hasAttribute('data-dark-invert'),
+			)
+			// The inheritance probe restores every temporary inline color synchronously;
+			// discard those observer records so the probe cannot schedule itself forever.
+			this.mutationObserver?.takeRecords()
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
 			const naturalWidth =
 				mode === 'original' ? Math.max(containerWidth, visibleWidth || content.scrollWidth) : containerWidth
@@ -235,6 +533,10 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		private layoutMode(): EmailLayoutMode {
 			return this.getAttribute('data-layout-mode') === 'original' ? 'original' : 'readable'
+		}
+
+		private emailTheme(): 'dark' | 'light' {
+			return this.getAttribute('data-email-theme') === 'dark' ? 'dark' : 'light'
 		}
 
 		private updateLogicalDirection(content: HTMLElement): boolean {
@@ -318,6 +620,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			)
 		}
 
+		private emitRemoteImagesStatus(detail: EmailRemoteImagesDetail): void {
+			const status = JSON.stringify(detail)
+			if (status === this.lastRemoteImagesStatus) return
+			this.lastRemoteImagesStatus = status
+			this.dispatchEvent(
+				new CustomEvent(EMAIL_REMOTE_IMAGES_EVENT, { detail, bubbles: true, composed: true }),
+			)
+		}
+
 		private readonly handleMediaSettled = (event: Event): void => {
 			if (event.target instanceof HTMLImageElement || event.target instanceof HTMLVideoElement) {
 				this.scheduleMeasure()
@@ -327,11 +638,13 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private readonly handleFontsLoaded = (): void => this.scheduleMeasure()
 
 		private readonly handleEnter = (event: Event): void => {
+			if (event.type === 'focusin') enforceAnchorFocus(event.target, true)
 			const href = anchorHref(event.target)
 			if (href) this.emitPreview(href, previewPoint(event, event.target))
 		}
 
-		private readonly handleLeave = (): void => {
+		private readonly handleLeave = (event: Event): void => {
+			if (event.type === 'focusout') enforceAnchorFocus(event.target, false)
 			this.emitPreview(null)
 		}
 

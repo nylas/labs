@@ -3,17 +3,21 @@ import {
 	applyDarkInvert,
 	applyEmailHtml,
 	applyEmailLayoutMode,
+	applyEmailTheme,
+	applyRemoteImages,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
+	EMAIL_REMOTE_IMAGES_EVENT,
 	type EmailElementLike,
 	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
-	emailSupportsDarkMode,
+	type EmailRemoteImagesDetail,
 	type LinkPreviewDetail,
 	linkPreviewText,
 	previewBoxStyle,
 	subscribeLinkPreview,
 } from '../lib/email-render.js'
+import { sanitizedEmailSupportsDarkMode } from '../lib/sanitize-email.js'
 import { ensureEmailElementDefined } from './email-content-element.js'
 
 // The custom element is a host tag, not a React component; the cast just gives it
@@ -61,9 +65,10 @@ export function EmailHtml({
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
 	const [layoutMode, setLayoutMode] = useState<EmailLayoutMode>('readable')
 	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
+	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
 
 	const isDark = useIsDark()
-	const supportsDark = useMemo(() => emailSupportsDarkMode(html), [html])
+	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
 	const invert = darken && isDark && !supportsDark
 
 	useLayoutEffect(() => {
@@ -77,13 +82,24 @@ export function EmailHtml({
 		const onLayoutStatus = (event: Event) => {
 			setLayoutStatus((event as CustomEvent<EmailLayoutStatusDetail>).detail)
 		}
+		const onRemoteImages = (event: Event) => {
+			setRemoteImages((event as CustomEvent<EmailRemoteImagesDetail>).detail)
+		}
 		element.addEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
-		return () => element.removeEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
+		element.addEventListener(EMAIL_REMOTE_IMAGES_EVENT, onRemoteImages)
+		return () => {
+			element.removeEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
+			element.removeEventListener(EMAIL_REMOTE_IMAGES_EVENT, onRemoteImages)
+		}
 	}, [ready])
 
 	useLayoutEffect(() => {
 		if (ready) applyEmailLayoutMode(ref.current, layoutMode)
 	}, [ready, layoutMode])
+
+	useLayoutEffect(() => {
+		if (ready) applyEmailTheme(ref.current, isDark ? 'dark' : 'light')
+	}, [ready, isDark])
 
 	// `ready` re-runs these once the custom element has mounted and `ref.current` is
 	// set (the linter can't see the ref dependency, so it is used explicitly here).
@@ -102,6 +118,18 @@ export function EmailHtml({
 
 	return (
 		<div className="relative" aria-busy={ready ? undefined : true}>
+			{remoteImages?.hasRemoteImages && !remoteImages.loaded ? (
+				<div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+					<span>Remote images are blocked to protect your privacy.</span>
+					<button
+						type="button"
+						className="min-h-11 shrink-0 rounded-md px-3 font-medium text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						onClick={() => applyRemoteImages(ref.current, true)}
+					>
+						Load images
+					</button>
+				</div>
+			) : null}
 			{showLayoutControl ? (
 				<div className="mb-2 flex justify-end">
 					<fieldset className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-xs">

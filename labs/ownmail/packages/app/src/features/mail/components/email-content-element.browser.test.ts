@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Browser, chromium, type Page } from 'playwright'
+import sharp from 'sharp'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sanitizeEmailHtml } from '../lib/sanitize-email.js'
@@ -94,6 +95,46 @@ function expectHorizontallyContained(metrics: ElementMetrics): void {
 	expect(metrics.probe).not.toBeNull()
 	expect(metrics.probe?.left).toBeGreaterThanOrEqual(metrics.host.left - 0.5)
 	expect(metrics.probe?.right).toBeLessThanOrEqual(metrics.host.right + 0.5)
+}
+
+function relativeLuminance(red: number, green: number, blue: number): number {
+	const channel = (value: number) => {
+		const normalized = value / 255
+		return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+	}
+	return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+}
+
+async function renderedContrast(
+	image: Buffer,
+): Promise<{ background: number; brightest: number; ratio: number }> {
+	const { data, info } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+	const background = relativeLuminance(data[0] ?? 0, data[1] ?? 0, data[2] ?? 0)
+	let brightest = 0
+	for (let offset = 0; offset < data.length; offset += info.channels) {
+		brightest = Math.max(
+			brightest,
+			relativeLuminance(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0),
+		)
+	}
+	return { background, brightest, ratio: (brightest + 0.05) / (background + 0.05) }
+}
+
+async function firstRenderedPixel(image: Buffer): Promise<[number, number, number]> {
+	const { data } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+	return [data[0] ?? 0, data[1] ?? 0, data[2] ?? 0]
+}
+
+async function renderedLightDarkContrast(image: Buffer): Promise<number> {
+	const { data, info } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+	let darkest = 1
+	let brightest = 0
+	for (let offset = 0; offset < data.length; offset += info.channels) {
+		const luminance = relativeLuminance(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0)
+		darkest = Math.min(darkest, luminance)
+		brightest = Math.max(brightest, luminance)
+	}
+	return (brightest + 0.05) / (darkest + 0.05)
 }
 
 describe.runIf(existsSync(chromium.executablePath()))('production email element in Chromium', () => {
@@ -366,6 +407,537 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.desktop).toBe('none')
 		expect(state.css).toContain('@container ownmail-email (max-width:600px)')
 		expect(state.css).toContain('@container ownmail-email (max-width:40rem)')
+	})
+
+	it('evaluates adaptive sender colors from the app theme instead of the OS theme', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const html = `<style>
+			.probe{background-color:rgb(245,245,245);color:rgb(20,20,20)}
+		</style>
+		<style media="(prefers-color-scheme:dark)">.probe{background-color:rgb(10,20,30);color:rgb(240,240,240)}</style>
+		<style media="(prefers-color-scheme:light)">.probe{background-color:rgb(245,245,245);color:rgb(20,20,20)}</style>
+		<div class="probe">Adaptive message</div>`
+		for (const testCase of [
+			{ app: 'light', os: 'light', background: 'rgb(245, 245, 245)' },
+			{ app: 'light', os: 'dark', background: 'rgb(245, 245, 245)' },
+			{ app: 'dark', os: 'light', background: 'rgb(10, 20, 30)' },
+			{ app: 'dark', os: 'dark', background: 'rgb(10, 20, 30)' },
+		] as const) {
+			await page.emulateMedia({ colorScheme: testCase.os })
+			await mountEmail(page, fixtureUrl, 375, html)
+			const state = await page.locator('ownmail-email').evaluate((host, appTheme) => {
+				host.setAttribute('data-email-theme', appTheme)
+				const probe = host.shadowRoot?.querySelector<HTMLElement>('.probe')
+				const providerStyles = Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+				return {
+					background: probe ? getComputedStyle(probe).backgroundColor : null,
+					rootBackground: host.shadowRoot?.querySelector('.email-root')
+						? getComputedStyle(host.shadowRoot.querySelector('.email-root') as Element).backgroundColor
+						: null,
+					providerStyle: providerStyles.map((style) => style.textContent).join(''),
+					mediaAttributeCount: providerStyles.filter((style) => style.hasAttribute('media')).length,
+				}
+			}, testCase.app)
+			expect(state.background, `${testCase.app} app / ${testCase.os} OS`).toBe(testCase.background)
+			expect(state.rootBackground).toBe('rgba(0, 0, 0, 0)')
+			expect(state.providerStyle).toContain('style(--ownmail-email-theme: dark)')
+			expect(state.providerStyle).not.toContain('prefers-color-scheme')
+			expect(state.mediaAttributeCount).toBe(0)
+		}
+		await page.close()
+	})
+
+	it('evaluates negated style media from app theme and pane mode instead of OS theme', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const html = `<style>.probe{background-color:rgb(120,120,120)}</style>
+			<style media="(not (prefers-color-scheme:light)) and (max-width:400px)">.probe{background-color:rgb(10,20,30)}</style>
+			<style media="not/**/(prefers-color-scheme:dark)">.probe{color:rgb(20,20,20)}</style>
+			<div class="probe">Negated theme</div>`
+		for (const testCase of [
+			{ app: 'dark', os: 'light', mode: 'readable', background: 'rgb(10, 20, 30)' },
+			{ app: 'dark', os: 'dark', mode: 'readable', background: 'rgb(10, 20, 30)' },
+			{ app: 'light', os: 'dark', mode: 'readable', background: 'rgb(120, 120, 120)' },
+			{ app: 'dark', os: 'dark', mode: 'original', background: 'rgb(120, 120, 120)' },
+		] as const) {
+			await page.emulateMedia({ colorScheme: testCase.os })
+			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
+			await page.locator('ownmail-email').evaluate((host, appTheme) => {
+				host.setAttribute('data-email-theme', appTheme)
+			}, testCase.app)
+			await settleLayout(page)
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const probe = host.shadowRoot?.querySelector<HTMLElement>('.probe')
+				const css = Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+					.map((style) => style.textContent)
+					.join('')
+				return { background: probe ? getComputedStyle(probe).backgroundColor : null, css }
+			})
+			expect(state.background, JSON.stringify(testCase)).toBe(testCase.background)
+			expect(state.css).not.toContain('prefers-color-scheme')
+			if (testCase.mode === 'readable') expect(state.css).toContain('(max-width:400px)')
+			else expect(state.css).toContain('@media (max-width:400px)')
+		}
+		await page.close()
+	})
+
+	it('selects remote picture artwork from app theme instead of OS theme after consent', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const darkPng = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#dc1414' },
+		})
+			.png()
+			.toBuffer()
+		const lightPng = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#1428dc' },
+		})
+			.png()
+			.toBuffer()
+
+		for (const testCase of [
+			{ app: 'dark', os: 'light', asset: 'dark.png', dominant: 'red' },
+			{ app: 'light', os: 'dark', asset: 'light.png', dominant: 'blue' },
+		] as const) {
+			const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+			const requests: string[] = []
+			await page.route('https://picture.example.test/**', async (route) => {
+				const url = route.request().url()
+				requests.push(url)
+				await route.fulfill({
+					contentType: 'image/png',
+					body: url.endsWith('dark.png') ? darkPng : lightPng,
+					headers: { 'cache-control': 'no-store' },
+				})
+			})
+			await page.emulateMedia({ colorScheme: testCase.os })
+			await mountEmail(
+				page,
+				fixtureUrl,
+				375,
+				`<picture>
+					<source media="(prefers-color-scheme:dark)" srcset="https://picture.example.test/dark.png">
+					<source media="(prefers-color-scheme:light)" srcset="https://picture.example.test/light.png">
+					<img class="picture-theme probe" src="https://picture.example.test/fallback.png" width="20" height="20">
+				</picture>`,
+			)
+			await page
+				.locator('ownmail-email')
+				.evaluate((host, appTheme) => host.setAttribute('data-email-theme', appTheme), testCase.app)
+			await settleLayout(page)
+			expect(requests, `${testCase.app} app / ${testCase.os} OS before consent`).toEqual([])
+
+			const selectedRequest = page.waitForRequest(`https://picture.example.test/${testCase.asset}`)
+			await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
+			await selectedRequest
+			await settleLayout(page, 5)
+			await page.locator('ownmail-email').evaluate((host) => {
+				const measurable = host as HTMLElement & { measure(): void }
+				measurable.measure()
+				measurable.measure()
+				measurable.measure()
+			})
+			await settleLayout(page, 4)
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const root = host.shadowRoot
+				const image = root?.querySelector<HTMLImageElement>('.picture-theme')
+				return {
+					currentSrc: image?.currentSrc ?? '',
+					media: Array.from(root?.querySelectorAll<HTMLSourceElement>('picture source') ?? []).map(
+						(source) => source.media,
+					),
+				}
+			})
+			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-theme').screenshot())
+			expect(state.currentSrc).toContain(testCase.asset)
+			expect(state.media).toContain('all')
+			expect(requests.filter((url) => url.endsWith(testCase.asset))).toHaveLength(1)
+			expect(requests.some((url) => url.includes(testCase.app === 'dark' ? 'light.png' : 'dark.png'))).toBe(
+				false,
+			)
+			if (testCase.dominant === 'red') expect(pixel[0]).toBeGreaterThan(pixel[2] * 3)
+			else expect(pixel[2]).toBeGreaterThan(pixel[0] * 3)
+			await page.close()
+		}
+	})
+
+	it('uses pane width for picture art direction only in Readable mode', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const red = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#dc1414' },
+		})
+			.png()
+			.toBuffer()
+		const blue = await sharp({
+			create: { width: 20, height: 20, channels: 3, background: '#1428dc' },
+		})
+			.png()
+			.toBuffer()
+		const redUrl = '/picture-pane-red.png'
+		const blueUrl = '/picture-pane-blue.png'
+		const html = `<picture>
+			<source media="(prefers-color-scheme:dark) and (max-width:400px)" srcset="${redUrl}">
+			<img class="picture-pane probe" src="${blueUrl}" width="20" height="20">
+		</picture>`
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		await page.route('**/picture-pane-red.png', (route) =>
+			route.fulfill({ contentType: 'image/png', body: red }),
+		)
+		await page.route('**/picture-pane-blue.png', (route) =>
+			route.fulfill({ contentType: 'image/png', body: blue }),
+		)
+		for (const testCase of [
+			{ mode: 'readable', dominant: 'red' },
+			{ mode: 'original', dominant: 'blue' },
+		] as const) {
+			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
+			await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+			await settleLayout(page, 4)
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const root = host.shadowRoot
+				return {
+					currentSrc: root?.querySelector<HTMLImageElement>('.picture-pane')?.currentSrc ?? '',
+					media: root?.querySelector<HTMLSourceElement>('picture source')?.media ?? '',
+					srcset: root?.querySelector<HTMLSourceElement>('picture source')?.srcset ?? '',
+					definition:
+						root
+							?.querySelector<HTMLSourceElement>('picture source')
+							?.getAttribute('data-ownmail-picture-media') ?? '',
+				}
+			})
+			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-pane').screenshot())
+			if (testCase.dominant === 'red') {
+				expect(state.media).toBe('all')
+				expect(state.currentSrc, JSON.stringify(state)).toContain(redUrl)
+				expect(pixel[0], JSON.stringify(state)).toBeGreaterThan(pixel[2] * 3)
+			} else {
+				expect(state.media).toBe('(max-width:400px)')
+				expect(state.currentSrc).toContain(blueUrl)
+				expect(pixel[2], JSON.stringify(state)).toBeGreaterThan(pixel[0] * 3)
+			}
+		}
+		await page.close()
+	})
+
+	it('keeps inherited text legible across partial adaptive light and dark surfaces', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 600, height: 500 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			414,
+			`<html><head><style>
+				.logo-dark{display:none}.adaptive{background:rgb(255,255,255)}
+				@media (prefers-color-scheme:dark){.logo-light{display:none}.logo-dark{display:inline}.adaptive{background:rgb(10,20,30)}}
+			</style></head><body bgcolor="#ffffff" style="margin:0;font-size:28px;line-height:36px">
+				<table class="white-table" bgcolor="#ffffff"><tr><td>White table text</td></tr></table>
+				<div class="adaptive">Adaptive dark surface <span class="logo-light">L</span><span class="logo-dark">D</span>
+					<div class="light-card" style="background:rgb(255,255,255)">Nested light card</div>
+					<div class="explicit" style="background:rgb(255,255,255);color:rgb(120,0,120)">Explicit color</div>
+				</div>
+			</body></html>`,
+		)
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+		await settleLayout(page, 5)
+		const dark = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			const read = (selector: string) => {
+				const element = root?.querySelector<HTMLElement>(selector)
+				const style = element ? getComputedStyle(element) : null
+				return {
+					background: style?.backgroundColor ?? null,
+					color: style?.color ?? null,
+					fallback: element?.getAttribute('data-ownmail-inherited-color') ?? null,
+				}
+			}
+			return {
+				body: read('body'),
+				table: read('.white-table'),
+				adaptive: read('.adaptive'),
+				card: read('.light-card'),
+				explicit: read('.explicit'),
+				logoDark: getComputedStyle(root?.querySelector('.logo-dark') as Element).display,
+			}
+		})
+		const tableContrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .white-table').screenshot(),
+		)
+		const adaptiveContrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .adaptive').screenshot(),
+		)
+		const cardContrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .light-card').screenshot(),
+		)
+
+		expect(dark.body).toMatchObject({
+			background: 'rgb(255, 255, 255)',
+			color: 'rgb(26, 26, 26)',
+			fallback: 'dark',
+		})
+		expect(dark.table.color).toBe('rgb(26, 26, 26)')
+		expect(dark.adaptive).toMatchObject({
+			background: 'rgb(10, 20, 30)',
+			color: 'rgb(245, 245, 245)',
+			fallback: 'light',
+		})
+		expect(dark.card).toMatchObject({ color: 'rgb(26, 26, 26)', fallback: 'dark' })
+		expect(dark.explicit).toMatchObject({ color: 'rgb(120, 0, 120)', fallback: null })
+		expect(dark.logoDark).toBe('inline')
+		expect(tableContrast).toBeGreaterThanOrEqual(4.5)
+		expect(adaptiveContrast).toBeGreaterThanOrEqual(4.5)
+		expect(cardContrast).toBeGreaterThanOrEqual(4.5)
+
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'light'))
+		await settleLayout(page, 4)
+		expect(
+			await page
+				.locator('ownmail-email')
+				.evaluate((host) => host.shadowRoot?.querySelectorAll('[data-ownmail-inherited-color]').length),
+		).toBe(0)
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
+		await settleLayout(page, 4)
+		expect(
+			await page
+				.locator('ownmail-email')
+				.evaluate((host) => host.shadowRoot?.querySelectorAll('[data-ownmail-inherited-color]').length),
+		).toBe(0)
+		await page.close()
+	})
+
+	it('evaluates style media width against the pane only in Readable mode', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const html = `<style>.probe{background-color:rgb(120,0,0)}</style>
+			<style media="(max-width:400px)">.probe{background-color:rgb(0,120,0)}</style>
+			<div class="probe">Pane query</div>`
+
+		await mountEmail(page, fixtureUrl, 375, html, 'readable')
+		const readable = await page.locator('ownmail-email').evaluate((host) => ({
+			background: getComputedStyle(host.shadowRoot?.querySelector('.probe') as Element).backgroundColor,
+			css: Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+				.map((style) => style.textContent)
+				.join(''),
+		}))
+		await mountEmail(page, fixtureUrl, 375, html, 'original')
+		const original = await page.locator('ownmail-email').evaluate((host) => ({
+			background: getComputedStyle(host.shadowRoot?.querySelector('.probe') as Element).backgroundColor,
+			css: Array.from(host.shadowRoot?.querySelectorAll('.email-root style') ?? [])
+				.map((style) => style.textContent)
+				.join(''),
+		}))
+		await page.close()
+
+		expect(readable.background).toBe('rgb(0, 120, 0)')
+		expect(readable.css).toContain('@container ownmail-email (max-width:400px)')
+		expect(original.background).toBe('rgb(120, 0, 0)')
+		expect(original.css).toContain('@media (max-width:400px)')
+	})
+
+	it('preserves media and CSS-background fidelity with a transparent accessible dark canvas', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+		const redBackground =
+			'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221%22%20height%3D%221%22%3E%3Crect%20width%3D%221%22%20height%3D%221%22%20fill%3D%22%23ff0000%22%2F%3E%3C%2Fsvg%3E'
+		await mountEmail(
+			page,
+			fixtureUrl,
+			375,
+			`<a class="focus-link" style="--ownmail-link-color:#111!important;color:#111!important;outline:none!important;box-shadow:none!important" href="https://example.com">Read more</a>
+			<img class="photo" src="${pixel}" alt="Photo"><picture><source srcset="${pixel}"><img class="picture-img" src="${pixel}" alt="Picture"></picture>
+			<svg class="logo" width="20" height="20"><rect width="20" height="20" fill="#123456"/></svg><canvas class="art" width="20" height="20"></canvas>
+			<div class="background" style="background-image:url('${redBackground}');width:80px;height:40px">Background copy</div>`,
+		)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+			const root = host.shadowRoot?.querySelector<HTMLElement>('.email-root')
+			const link = root?.querySelector<HTMLAnchorElement>('.focus-link')
+			link?.focus()
+			const background = root?.querySelector<HTMLElement>('.background')
+			const media = ['.photo', '.picture-img', '.logo', '.art'].map((selector) => {
+				const element = root?.querySelector<HTMLElement>(selector)
+				const style = element ? getComputedStyle(element) : null
+				return { filter: style?.filter ?? null, background: style?.backgroundColor ?? null }
+			})
+			const linkStyle = link ? getComputedStyle(link) : null
+			return {
+				rootBackground: root ? getComputedStyle(root).backgroundColor : null,
+				media,
+				backgroundMarked: background?.hasAttribute('data-ownmail-background-media') ?? false,
+				backgroundImage: background ? getComputedStyle(background).backgroundImage : null,
+				backgroundLayerImage: background ? getComputedStyle(background, '::before').backgroundImage : null,
+				backgroundLayerFilter: background ? getComputedStyle(background, '::before').filter : null,
+				linkOutline: linkStyle?.outlineStyle ?? null,
+				linkOutlineWidth: linkStyle?.outlineWidth ?? null,
+				linkFocusRing: linkStyle?.boxShadow ?? null,
+				linkColor: linkStyle?.color ?? null,
+			}
+		})
+		const backgroundPixel = await firstRenderedPixel(
+			await page.locator('ownmail-email .background').screenshot(),
+		)
+		await page.close()
+
+		expect(state.rootBackground).toBe('rgb(255, 255, 255)')
+		for (const media of state.media) {
+			expect(media.filter).not.toBe('none')
+			expect(media.background).toBe('rgb(255, 255, 255)')
+		}
+		expect(state.backgroundMarked).toBe(true)
+		expect(state.backgroundImage).toBe('none')
+		expect(state.backgroundLayerImage).not.toBe('none')
+		expect(state.backgroundLayerFilter).not.toBe('none')
+		expect(backgroundPixel[0]).toBeGreaterThan(150)
+		expect(backgroundPixel[0]).toBeGreaterThan(backgroundPixel[1] * 2)
+		expect(backgroundPixel[0]).toBeGreaterThan(backgroundPixel[2] * 2)
+		expect(backgroundPixel[1]).toBeLessThan(80)
+		expect(backgroundPixel[2]).toBeLessThan(80)
+		expect(state.linkOutline).not.toBe('none')
+		expect(state.linkOutlineWidth).toBe('2px')
+		expect(state.linkFocusRing).not.toBe('none')
+		expect(state.linkColor).not.toBe('rgb(17, 17, 17)')
+	})
+
+	it('renders non-adaptive plain text with dark-mode pixel contrast', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 500, height: 300 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			320,
+			'<p class="probe" style="font-size:32px;line-height:40px;margin:0">MMMM</p>',
+		)
+		await page.locator('ownmail-email').evaluate((host) => {
+			document.body.style.background = 'rgb(17,24,39)'
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
+		await settleLayout(page)
+		const contrast = await renderedContrast(await page.locator('ownmail-email').screenshot())
+		await page.close()
+
+		expect(contrast.background).toBeLessThan(0.03)
+		expect(contrast.brightest).toBeGreaterThan(0.6)
+		expect(contrast.ratio).toBeGreaterThanOrEqual(4.5)
+	})
+
+	it('makes no remote image request before opt-in and loads after consent', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		let requests = 0
+		await page.route('https://images.example.test/**', async (route) => {
+			requests += 1
+			await route.fulfill({
+				contentType: 'image/gif',
+				body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64'),
+			})
+		})
+		await mountEmail(
+			page,
+			fixtureUrl,
+			375,
+			'<img class="remote probe" src="https://images.example.test/tracker.gif" width="600" height="240">',
+		)
+		const blocked = await page.locator('ownmail-email').evaluate((host) => {
+			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.remote')
+			return {
+				src: image?.getAttribute('src') ?? null,
+				widthAttribute: image?.getAttribute('width'),
+				heightAttribute: image?.getAttribute('height'),
+				width: image?.width,
+				height: image?.height,
+			}
+		})
+		expect(requests).toBe(0)
+		expect(blocked.src).toBeNull()
+		expect(blocked.widthAttribute).toBe('600')
+		expect(blocked.heightAttribute).toBe('240')
+		expect((blocked.width ?? 0) / (blocked.height ?? 1)).toBeCloseTo(2.5, 1)
+
+		const request = page.waitForRequest('https://images.example.test/tracker.gif')
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
+		await request
+		await settleLayout(page)
+		const loadedSrc = await page
+			.locator('ownmail-email')
+			.evaluate(
+				(host) => host.shadowRoot?.querySelector<HTMLImageElement>('.remote')?.getAttribute('src') ?? null,
+			)
+		await page.close()
+
+		expect(requests).toBe(1)
+		expect(loadedSrc).toBe('https://images.example.test/tracker.gif')
+	})
+
+	it('blocks SVG resource references before consent and restores eligible references after opt-in', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const requests: string[] = []
+		await page.route('https://svg-images.example.test/**', async (route) => {
+			requests.push(route.request().url())
+			if (route.request().url().includes('sprite.svg')) {
+				await route.fulfill({
+					contentType: 'image/svg+xml',
+					body: '<svg xmlns="http://www.w3.org/2000/svg"><linearGradient id="paint"><stop stop-color="red"/></linearGradient></svg>',
+				})
+				return
+			}
+			await route.fulfill({
+				contentType: 'image/gif',
+				body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64'),
+			})
+		})
+		await mountEmail(
+			page,
+			fixtureUrl,
+			375,
+			`<svg class="probe" width="40" height="40">
+				<defs><linearGradient class="remote-gradient" id="local" href="https://svg-images.example.test/sprite.svg#paint"><stop stop-color="blue"/></linearGradient></defs>
+				<image class="remote-image" href="https://svg-images.example.test/pixel.gif" width="20" height="20"></image>
+				<use class="remote-use" href="https://svg-images.example.test/sprite.svg#icon"></use>
+				<rect width="40" height="40" fill="url(#local)"></rect>
+				<a class="remote-link" href="https://example.test/read"><text>Read</text></a>
+			</svg>`,
+		)
+		const blocked = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			return {
+				gradientHref: root?.querySelector('.remote-gradient')?.getAttribute('href') ?? null,
+				imageHref: root?.querySelector('.remote-image')?.getAttribute('href') ?? null,
+				usePresent: root?.querySelector('.remote-use') !== null,
+				linkHref: root?.querySelector('.remote-link')?.getAttribute('href') ?? null,
+			}
+		})
+		expect(requests).toEqual([])
+		expect(blocked).toEqual({
+			gradientHref: null,
+			imageHref: null,
+			usePresent: false,
+			linkHref: 'https://example.test/read',
+		})
+
+		const imageRequest = page.waitForRequest('https://svg-images.example.test/pixel.gif')
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
+		await imageRequest
+		await settleLayout(page)
+		const allowed = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			return {
+				gradientHref: root?.querySelector('.remote-gradient')?.getAttribute('href') ?? null,
+				imageHref: root?.querySelector('.remote-image')?.getAttribute('href') ?? null,
+				usePresent: root?.querySelector('.remote-use') !== null,
+			}
+		})
+		await page.close()
+
+		expect(requests).toContain('https://svg-images.example.test/pixel.gif')
+		expect(allowed.gradientHref).toBe('https://svg-images.example.test/sprite.svg#paint')
+		expect(allowed.imageHref).toBe('https://svg-images.example.test/pixel.gif')
+		expect(allowed.usePresent).toBe(false)
 	})
 
 	it('remeasures after late intrinsic media creates new overflow', async () => {
