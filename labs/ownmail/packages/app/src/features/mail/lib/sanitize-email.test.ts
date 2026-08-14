@@ -116,6 +116,50 @@ describe('adaptive app-theme media', () => {
 		expect(rewriteEmailMediaQueries(dangling)).toBe(dangling)
 	})
 
+	it('rewrites nested, commented, and escaped media grammar without scanning strings', () => {
+		const escaped = String.raw`@\6d edia/**/ (prefers-color-scheme/**/:dark)/**/or/**/(max-width:600px){.x{content:"}; @media (prefers-color-scheme:light){"}}`
+		expect(rewriteEmailMediaQueries(escaped)).toBe(
+			'@container ownmail-email style(--ownmail-email-theme: dark){.x{content:"}; @media (prefers-color-scheme:light){"}}@container ownmail-email (max-width:600px){.x{content:"}; @media (prefers-color-scheme:light){"}}',
+		)
+		const nested = '@supports (display:grid){@media (prefers-color-scheme:dark){.x{color:white}}}'
+		expect(rewriteEmailMediaQueries(nested)).toBe(
+			'@supports (display:grid){@container ownmail-email style(--ownmail-email-theme: dark){.x{color:white}}}',
+		)
+	})
+
+	it('preserves CSS when strings, comments, blocks, or component values are malformed', () => {
+		const malformed = [
+			'@media (prefers-color-scheme:dark){.x{content:"unterminated}}',
+			'@media (prefers-color-scheme:dark){.x{color:white}/* unterminated',
+			'@media (prefers-color-scheme:dark]{.x{color:white}}',
+			'@media (prefers-color-scheme:dark){.x{--tokens:{a:b}',
+			'@media (prefers-color-scheme:dark){.x{color:white}}}',
+			'@media (prefers-color-scheme:dark){.x{content:"line\nbreak"}}',
+			"@media (prefers-color-scheme:dark){.x{content:'trailing\\",
+			'@media (prefers-color-scheme:dark){.x{color:red}\\',
+			'@media (prefers-color-scheme:dark)){.x{color:white}}',
+		]
+		for (const css of malformed) {
+			expect(rewriteEmailMediaQueries(css)).toBe(css)
+			expect(providerCssSupportsDarkMode(css)).toBe(false)
+		}
+	})
+
+	it('handles leading trivia, nested custom-property blocks, and CSS line-continuation escapes', () => {
+		const css = '/* lead */ @media (prefers-color-scheme:dark){.x{--tokens:{{a:b}};color:white}}'
+		expect(rewriteEmailMediaQueries(css)).toBe(
+			'/* lead */ @container ownmail-email style(--ownmail-email-theme: dark){.x{--tokens:{{a:b}};color:white}}',
+		)
+		expect(rewriteEmailMediaQueries('@{color:red}')).toBe('@{color:red}')
+		expect(rewriteEmailMediaQueries('@keyframes pulse{from{color:red}}')).toBe(
+			'@keyframes pulse{from{color:red}}',
+		)
+		for (const continuation of ['\\\r\n', '\\\n', '\\\r', '\\\f']) {
+			const continued = `.x${continuation}{color:red}`
+			expect(rewriteEmailMediaQueries(continued)).toBe(continued)
+		}
+	})
+
 	it('preserves viewport semantics around app theme in Original mode', () => {
 		expect(
 			rewriteEmailMediaQueries(
@@ -152,6 +196,12 @@ describe('adaptive app-theme media', () => {
 		expect(
 			providerCssSupportsDarkMode('@media speech and (prefers-color-scheme:dark){.x{color:white}}'),
 		).toBe(false)
+		expect(
+			providerCssSupportsDarkMode(
+				'@supports (display:grid){.x{content:"@media (prefers-color-scheme:dark)"}@media (prefers-color-scheme:dark){.y{color:white}}}',
+			),
+		).toBe(true)
+		expect(providerCssSupportsDarkMode('.x{content:"@media (prefers-color-scheme:dark){}"}')).toBe(false)
 	})
 })
 
@@ -240,6 +290,68 @@ describe('sanitizeEmailHtml', () => {
 		)
 		expect(sanitizedDocumentHasRemoteImages(malformed as HTMLElement)).toBe(true)
 		expect(malformed?.querySelector('style')).toBeNull()
+	})
+
+	it('removes remote declarations through nesting, escapes, and structured custom properties', () => {
+		const html = String.raw`<style>
+			@supports (display:grid) {
+				.hero[data-copy="https://text.example"] {
+					--remote-art: { image: u\72l(h\74 tps://images.example/custom.png) };
+					background-image: image-set(url(https://images.example/hero.png) 1x);
+					background-image: url("data:image/png;base64,AAAA{;}");
+					color: red;
+				}
+			}
+			/* url(https://comments.example/not-a-request.png) */
+		</style><div class="hero" data-copy="https://text.example">Body</div>`
+		const blocked = sanitizeEmailDocument(html)
+		const css = blocked?.querySelector('style')?.textContent ?? ''
+		expect(css).not.toContain('--remote-art')
+		expect(css).not.toContain('images.example')
+		expect(css).toContain('data:image/png')
+		expect(css).toContain('color: red')
+		expect(css).toContain('comments.example')
+		expect(css).toContain('[data-copy="https://text.example"]')
+		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+	})
+
+	it('removes remote values from declaration at-rules and nested declaration lists', () => {
+		const html = String.raw`<style>
+			@font-face { src: url(https://fonts.example/mail.woff2); font-family: Mail; }
+			@page { @top-left { background-image: url(https://images.example/page.png); content: "mail"; } }
+			.card {
+				color/**/: blue;
+				--safe-brackets: [a;b];
+				--safe-escape: a\;b;
+				\63 olor: url(https://images.example/escaped-property.png);
+				@media (max-width:600px) { background: url(https://images.example/mobile.png); color: red; }
+			}
+		</style><div class="card">Body</div>`
+		const blocked = sanitizeEmailDocument(html)
+		const css = blocked?.querySelector('style')?.textContent ?? ''
+		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+		expect(css).not.toContain('fonts.example')
+		expect(css).not.toContain('images.example')
+		expect(css).toContain('font-family: Mail')
+		expect(css).toContain('content: "mail"')
+		expect(css).toContain('color/**/: blue')
+		expect(css).toContain('[a;b]')
+		expect(css).toContain('a\\;b')
+		expect(css).toContain('color: red')
+	})
+
+	it('fails closed for every malformed remote stylesheet recovery path', () => {
+		for (const css of [
+			'.x{background:url(https://images.example/a.png)',
+			'.x{background:url(https://images.example/a.png);/*',
+			'.x{background:url(https://images.example/a.png];}',
+			'.x{content:"https://images.example/a.png}',
+			'.x{--art:{background:url(https://images.example/a.png)}',
+		]) {
+			const blocked = sanitizeEmailDocument(`<style>${css}</style><p>Safe</p>`)
+			expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+			expect(blocked?.querySelector('style')).toBeNull()
+		}
 	})
 
 	it('keeps ordinary scoped email stylesheet rules', () => {

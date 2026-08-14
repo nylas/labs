@@ -1,5 +1,4 @@
 import DOMPurify from 'dompurify'
-import postcss from 'postcss'
 
 const PANE_WIDTH_FEATURE = /^\(\s*(?:min|max)-width\s*:\s*\d*\.?\d+(?:px|em|rem)\s*\)$/i
 const DEVICE_WIDTH_FEATURE = /\(\s*((?:min|max))-device-width\s*:\s*(\d*\.?\d+(?:px|em|rem))\s*\)/gi
@@ -18,11 +17,34 @@ interface ConvertedMediaBranch {
 	media?: string
 }
 
+interface CssContainer {
+	children: CssBlock[]
+	end: number
+	kind: 'declarations' | 'rules'
+	start: number
+}
+
+interface CssBlock {
+	body: CssContainer
+	close: number
+	headerStart: number
+	open: number
+}
+
+const DECLARATION_AT_RULES = new Set([
+	'counter-style',
+	'font-face',
+	'font-feature-values',
+	'page',
+	'property',
+])
+
 /**
  * Convert common email viewport breakpoints into named container queries so
  * responsive sender CSS follows the reading pane rather than the browser window.
- * PostCSS supplies the grammar-aware parse; malformed CSS is preserved for the
- * browser's own recovery instead of being rewritten by a fragile brace regex.
+ * A small component-value scanner supplies the grammar-aware parse without
+ * pulling a build-time CSS tool into the browser bundle. Malformed CSS is
+ * preserved for the browser's own recovery instead of being rewritten.
  */
 export function rewritePaneMediaQueries(css: string): string {
 	return rewriteEmailMediaQueries(css, { rewriteViewportMedia: true, rewriteThemeMedia: false })
@@ -33,47 +55,267 @@ export function rewriteEmailMediaQueries(
 	css: string,
 	options: { rewriteViewportMedia?: boolean; rewriteThemeMedia?: boolean } = {},
 ): string {
-	try {
-		const root = postcss.parse(css)
-		root.walkAtRules('media', (rule) => {
-			const queries = splitMediaList(rule.params).flatMap(splitMediaDisjunction)
-			const converted = queries.map((query) => ({
-				branch: convertMediaBranch(
-					query,
-					options.rewriteViewportMedia !== false,
-					options.rewriteThemeMedia !== false,
-				),
-				query,
-			}))
-			const branches = [
-				...new Map(
-					converted.flatMap(({ branch }) =>
-						branch ? [[`${branch.media ?? ''}\0${branch.container}`, branch] as const] : [],
-					),
-				).values(),
-			]
-			if (branches.length === 0) return
-			for (const branch of branches.slice().reverse()) {
-				const container = rule.clone({
-					name: 'container',
-					params: `ownmail-email ${branch.container}`,
-				})
-				if (branch.media) {
-					const media = postcss.atRule({ name: 'media', params: branch.media })
-					media.append(container)
-					rule.after(media)
-				} else {
-					rule.after(container)
-				}
-			}
-			const viewportQueries = converted.flatMap(({ branch, query }) => (branch ? [] : [query]))
-			if (viewportQueries.length > 0) rule.params = viewportQueries.join(', ')
-			else rule.remove()
-		})
-		return root.toString()
-	} catch {
-		return css
+	const root = parseCss(css)
+	return root ? rewriteCssContainer(css, root, options) : css
+}
+
+function rewriteCssContainer(
+	css: string,
+	container: CssContainer,
+	options: { rewriteViewportMedia?: boolean; rewriteThemeMedia?: boolean },
+): string {
+	let cursor = container.start
+	let output = ''
+	for (const block of container.children) {
+		output += css.slice(cursor, block.headerStart)
+		const header = css.slice(block.headerStart, block.open)
+		const body = rewriteCssContainer(css, block.body, options)
+		const media = readAtRuleHeader(header)
+		if (media?.name === 'media') {
+			output += rewriteMediaBlock(header, media, body, options)
+		} else {
+			output += `${header}{${body}}`
+		}
+		cursor = block.close + 1
 	}
+	return output + css.slice(cursor, container.end)
+}
+
+function rewriteMediaBlock(
+	header: string,
+	media: { params: string; prefix: string },
+	body: string,
+	options: { rewriteViewportMedia?: boolean; rewriteThemeMedia?: boolean },
+): string {
+	const queries = splitMediaList(media.params).flatMap(splitMediaDisjunction)
+	const converted = queries.map((query) => ({
+		branch: convertMediaBranch(
+			query,
+			options.rewriteViewportMedia !== false,
+			options.rewriteThemeMedia !== false,
+		),
+		query,
+	}))
+	const branches = [
+		...new Map(
+			converted.flatMap(({ branch }) =>
+				branch ? [[`${branch.media ?? ''}\0${branch.container}`, branch] as const] : [],
+			),
+		).values(),
+	]
+	if (branches.length === 0) return `${header}{${body}}`
+
+	const untouched = converted.flatMap(({ branch, query }) => (branch ? [] : [query]))
+	let output = media.prefix
+	if (untouched.length > 0) output += `@media ${untouched.join(', ')}{${body}}`
+	for (const branch of branches) {
+		const convertedBody = `@container ownmail-email ${branch.container}{${body}}`
+		output += branch.media ? `@media ${branch.media}{${convertedBody}}` : convertedBody
+	}
+	return output
+}
+
+/**
+ * Parse only the CSS structure needed by the renderer. The scanner understands
+ * component-value boundaries, strings, comments, and escapes; it deliberately
+ * does not attempt selector or value interpretation. Any unbalanced construct
+ * invalidates the tree so callers can preserve or reject the complete sheet.
+ */
+function parseCss(css: string): CssContainer | null {
+	const root: CssContainer = { children: [], end: css.length, kind: 'rules', start: 0 }
+	const stack: Array<CssContainer & { statementStart: number; valueBraces: number }> = [
+		{ ...root, statementStart: 0, valueBraces: 0 },
+	]
+	let parentheses = 0
+	let brackets = 0
+
+	for (let index = 0; index < css.length; index += 1) {
+		const character = css[index]
+		if (character === '/' && css[index + 1] === '*') {
+			const close = css.indexOf('*/', index + 2)
+			if (close < 0) return null
+			index = close + 1
+			continue
+		}
+		if (character === '"' || character === "'") {
+			const close = consumeCssString(css, index, character)
+			if (close < 0) return null
+			index = close
+			continue
+		}
+		if (character === '\\') {
+			const close = consumeCssEscape(css, index)
+			if (close < 0) return null
+			index = close
+			continue
+		}
+		if (character === '(') {
+			parentheses += 1
+			continue
+		}
+		if (character === ')') {
+			if (parentheses === 0) return null
+			parentheses -= 1
+			continue
+		}
+		if (character === '[') {
+			brackets += 1
+			continue
+		}
+		if (character === ']') {
+			if (brackets === 0) return null
+			brackets -= 1
+			continue
+		}
+		if (parentheses > 0 || brackets > 0) continue
+
+		const context = stack.at(-1)
+		/* v8 ignore next -- the root context remains on the stack until EOF -- @preserve */
+		if (!context) return null
+		if (context.valueBraces > 0) {
+			if (character === '{') context.valueBraces += 1
+			else if (character === '}') context.valueBraces -= 1
+			continue
+		}
+		if (character === '{') {
+			const header = css.slice(context.statementStart, index)
+			if (context.kind === 'declarations' && isCustomPropertyPrelude(header)) {
+				context.valueBraces = 1
+				continue
+			}
+			const body: CssContainer & { statementStart: number; valueBraces: number } = {
+				children: [],
+				end: -1,
+				kind: cssBlockContentKind(header, context.kind),
+				start: index + 1,
+				statementStart: index + 1,
+				valueBraces: 0,
+			}
+			context.children.push({ body, close: -1, headerStart: context.statementStart, open: index })
+			stack.push(body)
+			continue
+		}
+		if (character === '}') {
+			if (stack.length === 1) return null
+			const completed = stack.pop()
+			/* v8 ignore next -- guarded by the stack length check above -- @preserve */
+			if (!completed) return null
+			completed.end = index
+			const parent = stack.at(-1)
+			/* v8 ignore next -- every non-root context has a parent -- @preserve */
+			if (!parent) return null
+			const owner = parent.children.at(-1)
+			/* v8 ignore next -- a context is pushed only with its owning block -- @preserve */
+			if (!owner) return null
+			owner.close = index
+			parent.statementStart = index + 1
+			continue
+		}
+		if (character === ';') context.statementStart = index + 1
+	}
+
+	if (stack.length !== 1 || parentheses !== 0 || brackets !== 0 || stack[0]?.valueBraces !== 0) return null
+	const parsedRoot = stack[0]
+	/* v8 ignore next -- the initialized root is always retained -- @preserve */
+	if (!parsedRoot) return null
+	return parsedRoot
+}
+
+function consumeCssString(css: string, start: number, quote: string): number {
+	for (let index = start + 1; index < css.length; index += 1) {
+		const character = css[index]
+		if (character === quote) return index
+		if (character === '\n' || character === '\r' || character === '\f') return -1
+		if (character === '\\') {
+			const close = consumeCssEscape(css, index)
+			if (close < 0) return -1
+			index = close
+		}
+	}
+	return -1
+}
+
+function consumeCssEscape(css: string, start: number): number {
+	const first = css[start + 1]
+	if (!first) return -1
+	if (first === '\r' && css[start + 2] === '\n') return start + 2
+	if (first === '\n' || first === '\r' || first === '\f') return start + 1
+	if (!/[0-9a-f]/i.test(first)) return start + 1
+	let index = start + 1
+	let digits = 0
+	while (index < css.length && digits < 6 && /[0-9a-f]/i.test(css.charAt(index))) {
+		index += 1
+		digits += 1
+	}
+	if (index < css.length && /[\t\n\f\r ]/.test(css.charAt(index))) index += 1
+	return index - 1
+}
+
+function skipCssTrivia(css: string, start = 0): number {
+	let index = start
+	while (index < css.length) {
+		if (/\s/.test(css.charAt(index))) {
+			index += 1
+			continue
+		}
+		if (css[index] === '/' && css[index + 1] === '*') {
+			const close = css.indexOf('*/', index + 2)
+			/* v8 ignore next -- parseCss rejects unterminated comments first -- @preserve */
+			if (close < 0) return css.length
+			index = close + 2
+			continue
+		}
+		break
+	}
+	return index
+}
+
+function readAtRuleHeader(header: string): { name: string; params: string; prefix: string } | null {
+	const at = skipCssTrivia(header)
+	if (header[at] !== '@') return null
+	let index = at + 1
+	const nameStart = index
+	while (index < header.length) {
+		const character = header.charAt(index)
+		if (character === '/' && header[index + 1] === '*') {
+			const close = header.indexOf('*/', index + 2)
+			/* v8 ignore next -- parseCss rejects unterminated comments first -- @preserve */
+			if (close < 0) return null
+			index = close + 2
+			continue
+		}
+		if (character === '\\') {
+			const close = consumeCssEscape(header, index)
+			/* v8 ignore next -- parseCss rejects incomplete escapes first -- @preserve */
+			if (close < 0) return null
+			index = close + 1
+			continue
+		}
+		if (/[\w-]/.test(character) || character.charCodeAt(0) >= 0x80) {
+			index += 1
+			continue
+		}
+		break
+	}
+	if (index === nameStart) return null
+	return {
+		name: inspectableCss(header.slice(nameStart, index)),
+		params: header.slice(index).trim(),
+		prefix: header.slice(0, at),
+	}
+}
+
+function cssBlockContentKind(header: string, parentKind: CssContainer['kind']): CssContainer['kind'] {
+	const atRule = readAtRuleHeader(header)
+	if (!atRule || DECLARATION_AT_RULES.has(atRule.name)) return 'declarations'
+	// Conditional groups inherit whether they contain rules or nested
+	// declarations. Unknown nested at-rules inherit too: legacy @page margin
+	// boxes are browser-fetch-capable declaration lists and must fail closed.
+	return parentKind
+}
+
+function isCustomPropertyPrelude(header: string): boolean {
+	return /^\s*--(?:[_a-z]|[^\0-\x7f]|\\.)[\w-]*(?:\s|\/\*[\s\S]*?\*\/)*:/i.test(header)
 }
 
 function convertMediaBranch(
@@ -98,7 +340,7 @@ function convertMediaBranch(
 			theme = requestedTheme
 			continue
 		}
-		const panePart = part.replace(
+		const panePart = inspectedPart.replace(
 			DEVICE_WIDTH_FEATURE,
 			(_match, boundary: string, width: string) => `(${boundary}-width:${width})`,
 		)
@@ -133,6 +375,10 @@ function splitMediaList(query: string): string[] {
 		}
 		if (quote) {
 			if (character === quote) quote = ''
+			continue
+		}
+		if (character === '/' && query[index + 1] === '*') {
+			index = query.indexOf('*/', index + 2) + 1
 			continue
 		}
 		if (character === '"' || character === "'") {
@@ -176,6 +422,10 @@ function splitMediaOperator(query: string, operator: 'and' | 'or'): string[] {
 		}
 		if (quote) {
 			if (character === quote) quote = ''
+			continue
+		}
+		if (character === '/' && query[index + 1] === '*') {
+			index = query.indexOf('*/', index + 2) + 1
 			continue
 		}
 		if (character === '"' || character === "'") {
@@ -229,19 +479,21 @@ export function sanitizeProviderCss(css: string): string {
 
 /** True only for a real, parseable provider dark-color media rule. */
 export function providerCssSupportsDarkMode(css: string): boolean {
-	try {
-		let supportsDark = false
-		postcss.parse(css).walkAtRules('media', (rule) => {
-			if (
-				splitMediaList(rule.params).flatMap(splitMediaDisjunction).some(screenMediaBranchSupportsDarkMode)
-			) {
-				supportsDark = true
-			}
-		})
-		return supportsDark
-	} catch {
-		return false
-	}
+	const root = parseCss(css)
+	return root ? cssContainerSupportsDarkMode(css, root) : false
+}
+
+function cssContainerSupportsDarkMode(css: string, container: CssContainer): boolean {
+	return container.children.some((block) => {
+		const atRule = readAtRuleHeader(css.slice(block.headerStart, block.open))
+		return (
+			(atRule?.name === 'media' &&
+				splitMediaList(atRule.params)
+					.flatMap(splitMediaDisjunction)
+					.some(screenMediaBranchSupportsDarkMode)) ||
+			cssContainerSupportsDarkMode(css, block.body)
+		)
+	})
 }
 
 function screenMediaBranchSupportsDarkMode(query: string): boolean {
@@ -307,24 +559,113 @@ function blockRemoteImages(sanitizedDocument: HTMLElement): boolean {
 		}
 	}
 	for (const style of sanitizedDocument.querySelectorAll('style')) {
-		try {
-			const root = postcss.parse(style.textContent)
-			root.walkDecls((declaration) => {
-				if (containsRemoteResource(declaration.value)) {
-					found = true
-					declaration.remove()
-				}
-			})
-			style.textContent = root.toString()
-		} catch {
-			// Malformed provider CSS is removed when it contains a network-capable url().
-			if (containsRemoteResource(style.textContent)) {
-				found = true
-				style.remove()
-			}
+		const sanitized = removeRemoteCssDeclarations(style.textContent)
+		if (sanitized) {
+			style.textContent = sanitized.css
+			found ||= sanitized.removed
+		} else if (containsRemoteResource(style.textContent)) {
+			// Browser recovery differs across engines. A malformed sheet with a remote
+			// resource is removed in full so no recovery path can bypass consent.
+			found = true
+			style.remove()
 		}
 	}
 	return found
+}
+
+function removeRemoteCssDeclarations(css: string): { css: string; removed: boolean } | null {
+	const root = parseCss(css)
+	if (!root) return null
+	return sanitizeCssContainerResources(css, root)
+}
+
+function sanitizeCssContainerResources(
+	css: string,
+	container: CssContainer,
+): { css: string; removed: boolean } {
+	let cursor = container.start
+	let output = ''
+	let removed = false
+	for (const block of container.children) {
+		const preceding = css.slice(cursor, block.headerStart)
+		const sanitizedPreceding =
+			container.kind === 'declarations' ? removeRemoteDeclarationsFromText(preceding) : null
+		output += sanitizedPreceding?.css ?? preceding
+		removed ||= sanitizedPreceding?.removed ?? false
+
+		const header = css.slice(block.headerStart, block.open)
+		const sanitizedBody = sanitizeCssContainerResources(css, block.body)
+		output += `${header}{${sanitizedBody.css}}`
+		removed ||= sanitizedBody.removed
+		cursor = block.close + 1
+	}
+	const trailing = css.slice(cursor, container.end)
+	const sanitizedTrailing =
+		container.kind === 'declarations' ? removeRemoteDeclarationsFromText(trailing) : null
+	output += sanitizedTrailing?.css ?? trailing
+	removed ||= sanitizedTrailing?.removed ?? false
+	return { css: output, removed }
+}
+
+function removeRemoteDeclarationsFromText(css: string): { css: string; removed: boolean } {
+	let cursor = 0
+	let segmentStart = 0
+	let output = ''
+	let removed = false
+	let parentheses = 0
+	let brackets = 0
+	let braces = 0
+
+	for (let index = 0; index <= css.length; index += 1) {
+		const character = css[index]
+		if (character === '/' && css[index + 1] === '*') {
+			index = css.indexOf('*/', index + 2) + 1
+			continue
+		}
+		if (character === '"' || character === "'") {
+			index = consumeCssString(css, index, character)
+			continue
+		}
+		if (character === '\\') {
+			index = consumeCssEscape(css, index)
+			continue
+		}
+		if (character === '(') parentheses += 1
+		else if (character === ')') parentheses -= 1
+		else if (character === '[') brackets += 1
+		else if (character === ']') brackets -= 1
+		else if (character === '{') braces += 1
+		else if (character === '}') braces -= 1
+		const isEnd = index === css.length
+		if (!isEnd && (character !== ';' || parentheses > 0 || brackets > 0 || braces > 0)) continue
+
+		const end = isEnd ? index : index + 1
+		const declaration = css.slice(segmentStart, end)
+		const colon = findTopLevelColon(declaration)
+		if (colon >= 0 && containsRemoteResource(declaration.slice(colon + 1))) {
+			output += css.slice(cursor, segmentStart)
+			cursor = end
+			removed = true
+		}
+		segmentStart = end
+	}
+	return { css: output + css.slice(cursor), removed }
+}
+
+function findTopLevelColon(css: string): number {
+	for (let index = 0; index < css.length; index += 1) {
+		const character = css[index]
+		if (character === '/' && css[index + 1] === '*') {
+			index = css.indexOf('*/', index + 2) + 1
+			continue
+		}
+		if (character === '\\') {
+			index = consumeCssEscape(css, index)
+			continue
+		}
+		if (character === ':') return index
+	}
+	return -1
 }
 
 function prepareSanitizedDocument(
