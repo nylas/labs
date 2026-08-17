@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.14.1
+
+### Patch Changes
+
+- c787f4f: Improve mobile HTML email reflow and dark-mode image and link rendering.
+- 3349df1: Proxy remote email images securely and add dark-aware color treatment with automatic and original modes.
+
 ## 0.14.0
 
 ### Minor Changes
