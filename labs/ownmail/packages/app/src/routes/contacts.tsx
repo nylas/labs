@@ -292,7 +292,7 @@ export function ContactsShell({
 							autoCapitalize="none"
 						/>
 					</div>
-					{onRefresh ? <RefreshButton onRefresh={() => void onRefresh()} label="Refresh contacts" /> : null}
+					{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh contacts" /> : null}
 					<Link
 						to="/contacts/new"
 						search={linkSearch}

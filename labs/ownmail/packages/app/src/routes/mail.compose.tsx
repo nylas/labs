@@ -733,7 +733,6 @@ function Compose() {
 				ref={composePanelRef}
 				data-minimized={minimized ? 'true' : 'false'}
 				aria-busy={busy || attaching || closing || savingDraft}
-				aria-modal={!minimized || undefined}
 				aria-label="Compose message"
 				role="dialog"
 				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl"

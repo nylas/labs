@@ -394,7 +394,7 @@ export function CalendarRouteScreen({
 					{onRefresh ? (
 						<div className="flex items-center justify-between border-b border-border py-2 pl-1">
 							<span className="text-sm font-medium text-foreground">Refresh calendar</span>
-							<RefreshButton onRefresh={() => void onRefresh()} label="Refresh calendar" />
+							<RefreshButton onRefresh={onRefresh} label="Refresh calendar" />
 						</div>
 					) : null}
 					<CalendarSidebarPanel

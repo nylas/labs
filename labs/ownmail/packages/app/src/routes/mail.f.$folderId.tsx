@@ -418,7 +418,7 @@ export function MailFolderRouteScreen({
 								{unreadCount}
 							</span>
 						) : null}
-						{onRefresh ? <RefreshButton onRefresh={() => void onRefresh()} label="Refresh mail" /> : null}
+						{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
 					</div>
 				</div>
 

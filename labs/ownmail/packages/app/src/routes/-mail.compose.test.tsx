@@ -1251,7 +1251,7 @@ describe('mail.compose window controls', () => {
 		renderCompose()
 		const panel = screen.getByRole('dialog', { name: 'Compose message' })
 		expect(panel).toHaveClass('compose-panel')
-		expect(panel).toHaveAttribute('aria-modal', 'true')
+		expect(panel).not.toHaveAttribute('aria-modal')
 		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'sm:flex')
 		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11')
 	})
