@@ -156,7 +156,8 @@ function SearchResults() {
 		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
 		rows?.[cursor]?.scrollIntoView?.({ block: 'nearest' })
 		if (moveFocusToCursorRef.current) {
-			rows?.[cursor]?.focus()
+			const row = rows?.[cursor]
+			;(row?.querySelector<HTMLElement>('.thread-row-link') ?? row)?.focus()
 			moveFocusToCursorRef.current = false
 		}
 	}, [cursor])
@@ -521,7 +522,7 @@ function SearchThreadDetail({
 					to="/mail/search"
 					search={searchList}
 					aria-label="Back to list"
-					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</Link>

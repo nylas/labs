@@ -471,7 +471,12 @@ describe('toolbar actions', () => {
 	it('keeps mobile and tablet toolbar actions touch-friendly', () => {
 		renderThread()
 
-		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('h-11', 'w-11', 'shrink-0')
+		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass(
+			'h-11',
+			'w-11',
+			'shrink-0',
+			'xl:hidden',
+		)
 		for (const label of ['Archive', 'Delete', 'Star', 'Mark unread']) {
 			expect(screen.getByRole('button', { name: label })).toHaveClass(
 				'h-11',

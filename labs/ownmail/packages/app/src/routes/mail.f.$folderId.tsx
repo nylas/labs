@@ -257,7 +257,8 @@ export function MailFolderRouteScreen({
 		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
 		rows?.[cursor]?.scrollIntoView({ block: 'nearest' })
 		if (moveFocusToCursorRef.current) {
-			rows?.[cursor]?.focus()
+			const row = rows?.[cursor]
+			;(row?.querySelector<HTMLElement>('.thread-row-link') ?? row)?.focus()
 			moveFocusToCursorRef.current = false
 		}
 	}, [cursor])

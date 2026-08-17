@@ -946,7 +946,8 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		firstRow.focus()
 		fireEvent.keyDown(firstRow, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Second')
-		expect(document.activeElement).toHaveTextContent('Second')
+		expect(document.activeElement).toHaveClass('thread-row-link')
+		expect(document.activeElement).toHaveAttribute('aria-label', expect.stringMatching(/Open Second/))
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Third')
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
@@ -1008,9 +1009,11 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		fireEvent.keyDown(window, { key: 'j' })
-		fireEvent.keyDown(window, { key: 'j' })
-		fireEvent.keyDown(window, { key: 'Enter' })
+		const firstDraft = screen.getByRole('link', { name: /a@b.com.*One/ })
+		firstDraft.focus()
+		fireEvent.keyDown(firstDraft, { key: 'ArrowDown' })
+		expect(document.activeElement).toHaveTextContent('Two')
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
 		expect(navigate).toHaveBeenCalledWith({
 			to: '/mail/compose',
 			search: { draft: 'd2', folderId: 'drafts' },

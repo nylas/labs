@@ -326,12 +326,16 @@ describe('/mail/search results list', () => {
 		expect(rows[0]).toHaveTextContent('Newest appended result')
 		expect(rows[1]).toHaveTextContent('Updated duplicate')
 
-		for (const row of rows) (row as HTMLElement).tabIndex = 0
 		const lastRow = rows[rows.length - 1] as HTMLElement
-		lastRow.focus()
+		lastRow.querySelector<HTMLElement>('.thread-row-link')?.focus()
 		await user.keyboard('{Home}')
 		await waitFor(() =>
 			expect(container.querySelector('[data-nav-cursor="true"]')).toHaveTextContent('Newest appended result'),
+		)
+		expect(document.activeElement).toHaveClass('thread-row-link')
+		expect(document.activeElement).toHaveAttribute(
+			'aria-label',
+			expect.stringMatching(/Newest appended result/),
 		)
 		await user.keyboard('{Enter}')
 		expect(h.navigate).toHaveBeenLastCalledWith({
@@ -645,6 +649,7 @@ describe('/mail/search thread detail', () => {
 		})
 
 		renderRoute()
+		expect(screen.getByRole('link', { name: 'Back to list' })).toHaveClass('h-11', 'w-11', 'xl:hidden')
 
 		// The shared reader (same component as the folder thread view) shows the subject,
 		// label chip, and the last message's HTML body via the iframe renderer.
