@@ -4,7 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
-import { MobileAppNav } from '#app/components/MobileAppNav'
+import { MobileTabBar } from '#app/components/MobileTabBar'
 import {
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
@@ -359,7 +359,7 @@ export function CalendarRouteScreen({
 					)}
 				</div>
 			</div>
-			<MobileAppNav active="calendar" />
+			<MobileTabBar active="calendar" />
 
 			{editing ? (
 				<EventModal

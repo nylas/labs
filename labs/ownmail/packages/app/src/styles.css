@@ -812,6 +812,13 @@
 	border-radius: 0;
 }
 
+.compose-panel[data-minimized="true"] {
+	top: auto;
+	bottom: calc(var(--mobile-tab-bar-height) + var(--safe-area-bottom));
+	height: 2.75rem;
+	max-height: 2.75rem;
+}
+
 @media (min-width: 640px) {
 	.compose-panel {
 		inset: auto 1rem 0 auto;
@@ -825,7 +832,9 @@
 	}
 
 	.compose-panel[data-minimized="true"] {
+		bottom: 0;
 		height: 2.75rem;
+		max-height: 2.75rem;
 	}
 }
 

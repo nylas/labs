@@ -388,6 +388,7 @@ describe('ContactsLayout wrapper', () => {
 			.getAllByRole('link')
 			.filter((el) => el.getAttribute('data-to') === '/contacts/$contactId')
 		expect(links[0]).toHaveAttribute('aria-current', 'true')
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'contacts')
 		expect(screen.getByTestId('outlet')).toBeInTheDocument()
 	})
 

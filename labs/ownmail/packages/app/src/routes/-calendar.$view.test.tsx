@@ -324,6 +324,7 @@ describe('CalendarViewRoutePage wrapper', () => {
 		const Page = Route.options.component
 		render(<Page />)
 		expect(screen.getByTestId('app-rail-logo').textContent).toBe('OwnMail')
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'calendar')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 	})
 
