@@ -169,30 +169,38 @@ export function RefreshButton({
 	label?: string
 }) {
 	const [pending, setPending] = useState(false)
+	const [status, setStatus] = useState('')
 	const busy = Boolean(refreshing || pending)
 	async function handleRefresh() {
 		setPending(true)
+		setStatus('Refreshing…')
 		try {
 			await onRefresh()
+			setStatus('Updated')
 		} catch {
-			// Route-level live regions own generic failure feedback; never expose provider details here.
+			setStatus('Could not refresh. Check your connection, then try again.')
 		} finally {
 			setPending(false)
 		}
 	}
 
 	return (
-		<button
-			type="button"
-			onClick={() => void handleRefresh()}
-			disabled={busy}
-			aria-label={busy ? `Refreshing ${label.toLowerCase()}` : label}
-			className={cn(
-				'touch-target-square flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px disabled:cursor-wait disabled:opacity-50',
-				className,
-			)}
-		>
-			<RefreshCw className={cn('h-4 w-4', busy && 'animate-spin')} />
-		</button>
+		<>
+			<button
+				type="button"
+				onClick={() => void handleRefresh()}
+				disabled={busy}
+				aria-label={busy ? `Refreshing ${label.toLowerCase()}` : label}
+				className={cn(
+					'touch-target-square flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px disabled:cursor-wait disabled:opacity-50',
+					className,
+				)}
+			>
+				<RefreshCw className={cn('h-4 w-4', busy && 'animate-spin')} />
+			</button>
+			<span className="sr-only" role="status" aria-live="polite" aria-label={`${label} status`}>
+				{status}
+			</span>
+		</>
 	)
 }

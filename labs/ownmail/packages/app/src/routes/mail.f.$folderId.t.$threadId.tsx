@@ -262,7 +262,7 @@ function ThreadView() {
 					type="button"
 					onClick={goBackToList}
 					aria-label="Back to list"
-					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</button>

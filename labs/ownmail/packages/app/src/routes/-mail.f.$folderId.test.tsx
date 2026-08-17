@@ -212,8 +212,8 @@ describe('FolderView (route component)', () => {
 			</QueryClientProvider>,
 		)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		expect(await screen.findByRole('status', { name: 'Refresh mail status' })).toHaveTextContent(
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
@@ -412,13 +412,17 @@ describe('MailFolderRouteScreen — thread list', () => {
 		render(
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
 		)
+		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
+		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByLabelText('Inbox thread list')).toHaveAttribute('data-slot', 'scroll-area-viewport')
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
 		expect(screen.getByText('Select a conversation')).toBeInTheDocument()
+		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})
 
 	it('sorts threads newest-first and surfaces the authoritative folder unread count badge', () => {
-		render(
+		const { container } = render(
 			<MailFolderRouteScreen
 				threads={[
 					thread({ id: 'older', subject: 'Older', latest_message_received_date: 100 }),
@@ -430,10 +434,10 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		const links = screen.getAllByRole('link')
+		const rows = container.querySelectorAll('[data-nav-row]')
 		// Newest thread renders before the older one.
-		expect(links[0]).toHaveTextContent('Newer')
-		expect(links[1]).toHaveTextContent('Older')
+		expect(rows[0]).toHaveTextContent('Newer')
+		expect(rows[1]).toHaveTextContent('Older')
 		// The folder's authoritative unread count drives the badge.
 		expect(screen.getByText('1')).toBeInTheDocument()
 	})
@@ -509,6 +513,28 @@ describe('MailFolderRouteScreen — thread list', () => {
 			/>,
 		)
 		expect(screen.getByRole('button', { name: 'Unstar' })).toBeInTheDocument()
+	})
+
+	it('keeps the stretched thread link separate from the mobile-sized star action', () => {
+		const { container } = render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1', subject: 'Quarterly plan' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		const row = container.querySelector<HTMLElement>('[data-nav-row]')
+		const link = screen.getByRole('link', { name: 'Open Quarterly plan from Ada' })
+		const star = screen.getByRole('button', { name: 'Star' })
+
+		expect(row).toHaveAttribute('tabindex', '-1')
+		expect(link).toHaveClass('absolute', 'inset-0')
+		expect(link).not.toContainElement(star)
+		expect(row).toContainElement(link)
+		expect(row).toContainElement(star)
+		expect(star).toHaveClass('h-11', 'w-11', 'lg:h-8', 'lg:w-8')
 	})
 })
 
@@ -939,12 +965,13 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 			activeThreadId: 't1',
 		}
 		const { unmount } = render(<MailFolderRouteScreen {...props} />)
-		expect(screen.getByRole('link')).toHaveAttribute('data-active', 'true')
+		expect(screen.getByRole('link', { name: /Open Subject/ })).toHaveAttribute('data-active', 'true')
 		unmount()
 		render(<MailFolderRouteScreen {...props} composeThreadSearch={(threadId) => ({ to: [threadId] })} />)
-		expect(screen.getByRole('link')).toHaveAttribute('data-active', 'true')
+		const threadLink = screen.getByRole('link', { name: /Open Subject/ })
+		expect(threadLink).toHaveAttribute('data-active', 'true')
 		fireEvent.keyDown(window, { key: 'j' })
-		expect(screen.getByRole('link')).toHaveAttribute('data-nav-cursor', 'true')
+		expect(threadLink.closest('[data-nav-row]')).toHaveAttribute('data-nav-cursor', 'true')
 	})
 })
 
@@ -969,7 +996,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 	}
 
 	const cursored = () =>
-		screen.getAllByRole('link').find((link) => link.getAttribute('data-nav-cursor') === 'true')
+		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
 
 	it('moves a visible cursor down with j / ArrowDown and up with k / ArrowUp, clamping at the top', () => {
 		renderInbox()
@@ -1022,7 +1049,8 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		firstRow.focus()
 		fireEvent.keyDown(firstRow, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Second')
-		expect(document.activeElement).toHaveTextContent('Second')
+		expect(document.activeElement).toHaveClass('thread-row-link')
+		expect(document.activeElement).toHaveAttribute('aria-label', expect.stringMatching(/Open Second/))
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Third')
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
@@ -1084,9 +1112,11 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		fireEvent.keyDown(window, { key: 'j' })
-		fireEvent.keyDown(window, { key: 'j' })
-		fireEvent.keyDown(window, { key: 'Enter' })
+		const firstDraft = screen.getByRole('link', { name: /a@b.com.*One/ })
+		firstDraft.focus()
+		fireEvent.keyDown(firstDraft, { key: 'ArrowDown' })
+		expect(document.activeElement).toHaveTextContent('Two')
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
 		expect(navigate).toHaveBeenCalledWith({
 			to: '/mail/compose',
 			search: { draft: 'd2', folderId: 'drafts' },

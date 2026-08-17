@@ -365,6 +365,12 @@ describe('ContactsShell', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'close-sheet' }))
 		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
 	})
+
+	it('gives the mobile create action a name and preserves the search focus ring', () => {
+		shell()
+		expect(screen.getByRole('link', { name: 'New contact' })).toBeInTheDocument()
+		expect(screen.getByRole('searchbox', { name: 'Search contacts' })).not.toHaveClass('outline-none')
+	})
 })
 
 describe('ContactsLayout wrapper', () => {
@@ -382,6 +388,7 @@ describe('ContactsLayout wrapper', () => {
 			.getAllByRole('link')
 			.filter((el) => el.getAttribute('data-to') === '/contacts/$contactId')
 		expect(links[0]).toHaveAttribute('aria-current', 'true')
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'contacts')
 		expect(screen.getByTestId('outlet')).toBeInTheDocument()
 	})
 
@@ -396,8 +403,8 @@ describe('ContactsLayout wrapper', () => {
 		h.getContacts.mockRejectedValue(new Error('provider-secret-detail'))
 		renderLayout({ info, contacts }, {})
 
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh contacts' }))
+		expect(await screen.findByRole('status', { name: 'Refresh contacts status' })).toHaveTextContent(
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()

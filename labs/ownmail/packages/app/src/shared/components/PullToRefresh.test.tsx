@@ -193,10 +193,16 @@ describe('RefreshButton', () => {
 		expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
 	})
 
-	it('contains async refresh failures for callers that show feedback elsewhere', async () => {
+	it('announces async refresh failures without exposing provider details', async () => {
 		render(<RefreshButton onRefresh={() => Promise.reject(new Error('provider detail'))} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+		expect(screen.getByRole('status', { name: 'Refresh status' })).toHaveTextContent('Refreshing…')
+		await waitFor(() =>
+			expect(screen.getByRole('status', { name: 'Refresh status' })).toHaveTextContent(
+				'Could not refresh. Check your connection, then try again.',
+			),
+		)
+		expect(screen.getByRole('status', { name: 'Refresh status' })).not.toHaveTextContent('provider detail')
 	})
 
 	it('disables and spins while its own refresh promise is pending', async () => {
@@ -216,6 +222,9 @@ describe('RefreshButton', () => {
 		expect(onRefresh).toHaveBeenCalledOnce()
 
 		resolveRefresh?.()
-		await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh contacts' })).toBeEnabled())
+		await waitFor(() =>
+			expect(screen.getByRole('status', { name: 'Refresh contacts status' })).toHaveTextContent('Updated'),
+		)
+		expect(screen.getByRole('button', { name: 'Refresh contacts' })).toBeEnabled()
 	})
 })

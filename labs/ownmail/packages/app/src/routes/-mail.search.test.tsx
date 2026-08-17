@@ -26,6 +26,7 @@ vi.mock('@tanstack/react-router', () => ({
 	// Render a real anchor so structure is inspectable; object props are stashed as JSON.
 	Link: ({ to, search, mask, children, ...rest }: any) => (
 		<a
+			href={typeof to === 'string' ? to : undefined}
 			data-to={to}
 			data-search={JSON.stringify(search)}
 			data-mask={mask ? JSON.stringify(mask) : undefined}
@@ -227,10 +228,17 @@ describe('/mail/search results list', () => {
 		// Multi-message thread shows its count; single-message thread does not.
 		expect(screen.getByText('(2)')).toBeTruthy()
 		// The active thread and the unread thread are flagged for styling/state.
-		expect(container.querySelector('[data-active="true"]')?.getAttribute('data-to')).toBe('/mail/search')
+		expect(container.querySelector('[data-active="true"]')?.querySelector('a')).toHaveAttribute(
+			'data-to',
+			'/mail/search',
+		)
 		expect(container.querySelector('[data-unread="true"]')).toBeTruthy()
 		// No conversation selected -> the reader shows the empty prompt.
 		expect(screen.getByText('Select a conversation')).toBeTruthy()
+		const listPane = screen.getByRole('heading', { level: 1 }).closest('section')
+		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
+		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})
 
 	it('uses the starred cache key for the starred pseudo-folder', () => {
@@ -318,12 +326,16 @@ describe('/mail/search results list', () => {
 		expect(rows[0]).toHaveTextContent('Newest appended result')
 		expect(rows[1]).toHaveTextContent('Updated duplicate')
 
-		for (const row of rows) (row as HTMLElement).tabIndex = 0
 		const lastRow = rows[rows.length - 1] as HTMLElement
-		lastRow.focus()
+		lastRow.querySelector<HTMLElement>('.thread-row-link')?.focus()
 		await user.keyboard('{Home}')
 		await waitFor(() =>
 			expect(container.querySelector('[data-nav-cursor="true"]')).toHaveTextContent('Newest appended result'),
+		)
+		expect(document.activeElement).toHaveClass('thread-row-link')
+		expect(document.activeElement).toHaveAttribute(
+			'aria-label',
+			expect.stringMatching(/Newest appended result/),
 		)
 		await user.keyboard('{Enter}')
 		expect(h.navigate).toHaveBeenLastCalledWith({
@@ -452,6 +464,19 @@ describe('/mail/search results list', () => {
 			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
 		expect(h.invalidate).not.toHaveBeenCalled()
+	})
+
+	it('renders the result link and star as sibling actions with a mobile-sized star target', () => {
+		const { container } = renderRoute()
+		const row = container.querySelector<HTMLElement>('[data-nav-row]')
+		const link = screen.getByRole('link', { name: 'Open Hello there from Zoe' })
+		const star = screen.getByRole('button', { name: 'Star' })
+
+		expect(row).toHaveAttribute('tabindex', '-1')
+		expect(link).not.toContainElement(star)
+		expect(row).toContainElement(link)
+		expect(row).toContainElement(star)
+		expect(star).toHaveClass('h-11', 'w-11', 'lg:h-8', 'lg:w-8')
 	})
 })
 
@@ -624,6 +649,7 @@ describe('/mail/search thread detail', () => {
 		})
 
 		renderRoute()
+		expect(screen.getByRole('link', { name: 'Back to list' })).toHaveClass('h-11', 'w-11', 'xl:hidden')
 
 		// The shared reader (same component as the folder thread view) shows the subject,
 		// label chip, and the last message's HTML body via the iframe renderer.

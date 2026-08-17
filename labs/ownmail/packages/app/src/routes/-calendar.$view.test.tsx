@@ -26,6 +26,11 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
+	Link: ({ children, to, ...props }: any) => (
+		<a href={to} {...props}>
+			{children}
+		</a>
+	),
 	useNavigate: () => h.navigate,
 	useRouter: () => ({ invalidate: h.invalidate }),
 }))
@@ -319,6 +324,7 @@ describe('CalendarViewRoutePage wrapper', () => {
 		const Page = Route.options.component
 		render(<Page />)
 		expect(screen.getByTestId('app-rail-logo').textContent).toBe('OwnMail')
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'calendar')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 	})
 
@@ -341,8 +347,9 @@ describe('CalendarViewRoutePage wrapper', () => {
 		const Page = Route.options.component
 		render(<Page />)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh calendar' }))
+		expect(await screen.findByRole('status', { name: 'Refresh calendar status' })).toHaveTextContent(
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
@@ -360,26 +367,37 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'false')
 		expect(screen.getByRole('region', { name: 'Calendar time grid' })).toHaveClass('max-sm:overflow-x-auto')
-		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('min-w-[45rem]', 'sm:min-w-0')
-		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('min-w-[45rem]', 'sm:min-w-0')
+		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('max-sm:min-w-[54rem]')
+		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('max-sm:min-w-[54rem]')
 	})
 
 	it('keeps every calendar action available in the 320px mobile header', () => {
 		renderWeek()
 
 		const controls = screen.getByTestId('calendar-header-controls')
-		expect(controls).toHaveClass('min-w-0')
-		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('w-11', 'touch-target-square')
-		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('w-12', 'touch-target')
-		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('w-11', 'touch-target-square')
-		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('w-11', 'touch-target-square')
+		expect(controls.closest('.app-chrome-row')).toHaveClass('calendar-chrome-row')
+		expect(controls).toHaveClass('grid', 'min-w-0', 'sm:flex')
+		expect(screen.getByRole('heading', { level: 1 })).toBeVisible()
+		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass(
+			'size-11',
+			'sm:w-auto',
+			'touch-target-square',
+		)
+		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('size-11', 'sm:w-auto', 'touch-target')
+		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('size-11', 'touch-target-square')
+		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('size-11', 'touch-target-square')
 		expect(screen.getByRole('combobox', { name: 'Calendar view' })).toHaveClass(
-			'w-[4.5rem]',
+			'w-full',
 			'sm:hidden',
 			'touch-target',
 		)
 		for (const view of ['day', 'week', 'month']) {
-			expect(screen.getByRole('button', { name: view })).toHaveClass('whitespace-nowrap', 'sm:w-auto')
+			expect(screen.getByRole('button', { name: view })).toHaveClass(
+				'min-w-11',
+				'whitespace-nowrap',
+				'sm:w-auto',
+				'touch-target',
+			)
 		}
 	})
 
@@ -608,6 +626,14 @@ describe('week view time grid', () => {
 	it('draws inter-day column rules across a multi-day week', () => {
 		const { container } = renderWeek()
 		expect(container.querySelectorAll('.border-l').length).toBeGreaterThan(0)
+	})
+
+	it('keeps week columns readable through an intentional mobile horizontal viewport', () => {
+		renderWeek()
+		const scrollArea = screen.getByLabelText('Calendar time grid')
+		expect(scrollArea).toHaveClass('max-sm:overflow-x-auto')
+		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('max-sm:min-w-[54rem]')
+		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('max-sm:min-w-[54rem]')
 	})
 
 	it('labels an untitled all-day event in the band', () => {

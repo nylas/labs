@@ -225,6 +225,17 @@ function Compose() {
 		).values(),
 	] as MailThread[]
 	const selected = selectedQuery.data
+	const backdropPending =
+		(folderId === 'drafts'
+			? draftsQuery.isPending
+			: initialBackdrop.threads === undefined && threadsQuery.isPending) ||
+		(Boolean(search.threadId) && selectedQuery.isPending)
+	const backdropPendingLabel =
+		folderId === 'drafts'
+			? 'Loading drafts…'
+			: search.threadId
+				? 'Loading conversation…'
+				: 'Loading messages…'
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
@@ -700,46 +711,61 @@ function Compose() {
 
 	return (
 		<>
-			<MailFolderRouteScreen
-				threads={sortedThreads}
-				drafts={(draftsQuery.data ?? []) as MailDraft[]}
-				folders={folders}
-				folderId={folderId}
-				nextCursor={threadsQuery.data?.pages.at(-1)?.nextCursor}
-				loadingMore={threadsQuery.isFetchingNextPage}
-				loadMoreError={threadsQuery.isFetchNextPageError}
-				activeThreadId={selected?.thread.id}
-				composeThreadSearch={composeThreadSearch}
-				onLoadMore={async () => {
-					await threadsQuery.fetchNextPage({ cancelRefetch: false })
-				}}
-				onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
-			>
-				{selected ? (
-					<ComposeThreadBackdrop
-						key={JSON.stringify([selected.thread.id, composeListSearch()])}
-						thread={selected.thread}
-						messages={selected.messages}
-						isArchived={selectedThreadIsArchived}
-						onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
-						onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
-						onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
-						onReplyAll={() => replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)}
-						onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
-					/>
-				) : null}
-			</MailFolderRouteScreen>
+			<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+				{backdropPending ? (
+					<div
+						className="absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background text-sm text-muted-foreground"
+						role="status"
+						aria-live="polite"
+					>
+						<Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+						{backdropPendingLabel}
+					</div>
+				) : (
+					<MailFolderRouteScreen
+						threads={sortedThreads}
+						drafts={(draftsQuery.data ?? []) as MailDraft[]}
+						folders={folders}
+						folderId={folderId}
+						nextCursor={threadsQuery.data?.pages.at(-1)?.nextCursor}
+						loadingMore={threadsQuery.isFetchingNextPage}
+						loadMoreError={threadsQuery.isFetchNextPageError}
+						activeThreadId={selected?.thread.id}
+						composeThreadSearch={composeThreadSearch}
+						onLoadMore={async () => {
+							await threadsQuery.fetchNextPage({ cancelRefetch: false })
+						}}
+						onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
+					>
+						{selected ? (
+							<ComposeThreadBackdrop
+								key={JSON.stringify([selected.thread.id, composeListSearch()])}
+								thread={selected.thread}
+								messages={selected.messages}
+								isArchived={selectedThreadIsArchived}
+								onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
+								onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
+								onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
+								onReplyAll={() =>
+									replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)
+								}
+								onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
+							/>
+						) : null}
+					</MailFolderRouteScreen>
+				)}
+			</div>
 			<div
 				ref={composePanelRef}
 				data-minimized={minimized ? 'true' : 'false'}
 				aria-busy={busy || attaching || closing || savingDraft}
 				aria-label="Compose message"
 				role="dialog"
-				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl"
+				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl max-sm:pr-[env(safe-area-inset-right)] max-sm:pl-[env(safe-area-inset-left)]"
 			>
 				<div
 					className={cn(
-						'flex items-center justify-between rounded-t-xl bg-foreground px-3 pb-2.5 text-background sm:pt-2.5',
+						'flex min-h-11 items-center justify-between bg-foreground px-3 pb-2.5 text-background sm:rounded-t-xl sm:pt-2.5',
 						minimized ? 'pt-2.5' : 'pt-[calc(0.625rem+var(--safe-area-top))]',
 					)}
 				>
@@ -757,27 +783,31 @@ function Compose() {
 						) : null}
 					</div>
 					<div className="flex items-center gap-1">
-						<button
+						<Button
 							type="button"
+							variant="ghost"
+							size="icon"
 							onClick={() => setMinimized((value) => !value)}
 							aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
 							aria-expanded={!minimized}
 							className={cn(
-								'h-11 w-11 items-center justify-center rounded transition-colors hover:bg-background/20',
+								'h-11 w-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background max-md:size-11 sm:size-6',
 								minimized ? 'flex' : 'hidden sm:flex',
 							)}
 						>
 							{minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
+							variant="ghost"
+							size="icon"
 							onClick={() => void close()}
 							disabled={busy || closing}
 							aria-label="Close"
-							className="flex h-11 w-11 items-center justify-center rounded transition-colors hover:bg-background/20"
+							className="flex h-11 w-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background max-md:size-11 sm:size-6"
 						>
 							<X className="h-4 w-4" />
-						</button>
+						</Button>
 					</div>
 				</div>
 

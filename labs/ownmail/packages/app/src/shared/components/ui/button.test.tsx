@@ -25,6 +25,18 @@ describe('Button', () => {
 		const button = screen.getByRole('button', { name: 'Edit' })
 		expect(button.className).toContain('border')
 		expect(button.className).toContain('h-8')
+		expect(button.className).toContain('max-md:min-h-11')
+	})
+
+	it('uses property-specific motion and touch-safe mobile sizing', () => {
+		render(<Button>Save</Button>)
+		const button = screen.getByRole('button', { name: 'Save' })
+		expect(button).toHaveClass(
+			'transition-[background-color,border-color,color,filter,opacity,transform]',
+			'max-md:min-h-11',
+			'max-md:min-w-11',
+		)
+		expect(button).not.toHaveClass('transition-all')
 	})
 
 	it('renders as its child element when asChild is set (button-styled link)', () => {

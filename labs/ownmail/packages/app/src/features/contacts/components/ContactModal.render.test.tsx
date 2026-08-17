@@ -50,6 +50,7 @@ describe('ContactModal — create', () => {
 
 		const alert = await screen.findByRole('alert')
 		expect(alert).toHaveTextContent('Add a name, company, or email.')
+		expect(screen.getByRole('group', { name: 'Contact identity' })).toContainElement(alert)
 		const firstName = screen.getByLabelText('First name', { selector: 'input' })
 		expect(firstName).toHaveFocus()
 		expect(firstName).toHaveAttribute('aria-invalid', 'true')
@@ -71,10 +72,12 @@ describe('ContactModal — create', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Add contact' }))
 
-		expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email address.')
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Enter a valid email address.')
 		expect(email).toHaveFocus()
 		expect(email).toHaveAttribute('aria-invalid', 'true')
-		expect(email).toHaveAttribute('aria-describedby', 'contact-form-validation')
+		expect(email).toHaveAttribute('aria-describedby', 'contact-email-0-validation')
+		expect(screen.getByRole('group', { name: 'Email 1' })).toContainElement(alert)
 		expect(createContact).not.toHaveBeenCalled()
 
 		fireEvent.change(email, { target: { value: 'grace@x.com' } })
@@ -248,6 +251,37 @@ describe('ContactModal — create', () => {
 			expect(action).toHaveClass('min-h-11')
 			expectFocusFallback(action)
 		}
+	})
+
+	it('reflows identity and repeatable contact fields at the smallest widths', () => {
+		render(<ContactModal contact={null} onClose={vi.fn()} />)
+
+		const identityGrid = screen.getByLabelText('First name', { selector: 'input' }).closest('.grid')
+		expect(identityGrid).toHaveClass('grid-cols-1', 'min-[400px]:grid-cols-2')
+
+		const emailGroup = screen.getByRole('group', { name: 'Email 1' })
+		expect(emailGroup.firstElementChild?.nextElementSibling).toHaveClass(
+			'grid-cols-[minmax(0,1fr)_2.75rem]',
+			'min-[400px]:flex',
+		)
+		expect(screen.getByLabelText('Email 1')).toHaveClass(
+			'col-span-2',
+			'w-full',
+			'min-[400px]:col-span-1',
+			'min-[400px]:flex-1',
+		)
+		expect(screen.getByLabelText('Email 1 type')).toHaveClass('w-full', 'min-[400px]:w-auto')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add phone' }))
+		const phoneGroup = screen.getByRole('group', { name: 'Phone 1' })
+		expect(phoneGroup).toHaveClass('grid-cols-[minmax(0,1fr)_2.75rem]', 'min-[400px]:flex')
+		expect(screen.getByLabelText('Phone 1')).toHaveClass(
+			'col-span-2',
+			'w-full',
+			'min-[400px]:col-span-1',
+			'min-[400px]:flex-1',
+		)
+		expect(screen.getByLabelText('Phone 1 type')).toHaveClass('w-full', 'min-[400px]:w-auto')
 	})
 
 	it('surfaces a save error and keeps the dialog open', async () => {

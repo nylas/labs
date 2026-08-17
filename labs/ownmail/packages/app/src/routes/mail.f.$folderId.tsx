@@ -6,7 +6,7 @@ import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
 	ThreadRowContent,
-	ThreadRowStarButton,
+	threadRowLinkLabel,
 } from '#features/mail/components/ThreadRow'
 import {
 	draftRecipientName,
@@ -269,7 +269,8 @@ export function MailFolderRouteScreen({
 		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
 		rows?.[cursor]?.scrollIntoView({ block: 'nearest' })
 		if (moveFocusToCursorRef.current) {
-			rows?.[cursor]?.focus()
+			const row = rows?.[cursor]
+			;(row?.querySelector<HTMLElement>('.thread-row-link') ?? row)?.focus()
 			moveFocusToCursorRef.current = false
 		}
 	}, [cursor])
@@ -406,7 +407,7 @@ export function MailFolderRouteScreen({
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:w-[22rem] md:max-w-[22rem] md:flex-none',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 xl:w-[22rem] xl:max-w-[22rem] xl:flex-none',
 					hasThreadRoute ? 'hidden xl:flex' : 'flex',
 				)}
 			>
@@ -435,12 +436,12 @@ export function MailFolderRouteScreen({
 				)}
 			</section>
 			<section
-				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden md:flex')}
+				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden xl:flex')}
 			>
 				{hasThread ? (
 					(children ?? <Outlet />)
 				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 							<Reply className="h-6 w-6" />
 						</div>
@@ -545,42 +546,54 @@ function ThreadRow({
 	}
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
 	const className = cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')
+	const rowState = {
+		'data-active': active ? ('true' as const) : undefined,
+		'data-nav-row': '',
+		'data-nav-cursor': navActive ? ('true' as const) : undefined,
+		'data-unread': optimisticThread.unread ? ('true' as const) : undefined,
+	}
 
 	if (composeSearch) {
 		return (
-			<div className={className}>
+			<div className={className} tabIndex={-1} {...rowState}>
 				<Link
 					to="/mail/compose"
 					search={composeSearch}
+					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 					className={THREAD_ROW_LINK_CLASS}
-					data-nav-row=""
 					data-active={active ? 'true' : undefined}
 					data-nav-cursor={navActive ? 'true' : undefined}
 					data-unread={optimisticThread.unread ? 'true' : undefined}
-				>
-					<ThreadRowContent thread={optimisticThread} folderId={folderId} />
-				</Link>
-				<ThreadRowStarButton starred={Boolean(starred)} pending={starPending} onToggle={toggleStar} />
+				/>
+				<ThreadRowContent
+					thread={optimisticThread}
+					folderId={folderId}
+					onToggleStar={toggleStar}
+					starPending={starPending}
+				/>
 			</div>
 		)
 	}
 
 	return (
-		<div className={className}>
+		<div className={className} tabIndex={-1} {...rowState}>
 			<Link
 				to="/mail/f/$folderId/t/$threadId"
 				params={{ folderId, threadId: thread.id }}
 				search={baseFolderId ? { baseFolderId } : {}}
+				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 				className={THREAD_ROW_LINK_CLASS}
 				activeProps={{ 'data-active': 'true' }}
-				data-nav-row=""
 				data-active={active ? 'true' : undefined}
 				data-nav-cursor={navActive ? 'true' : undefined}
 				data-unread={optimisticThread.unread ? 'true' : undefined}
-			>
-				<ThreadRowContent thread={optimisticThread} folderId={folderId} />
-			</Link>
-			<ThreadRowStarButton starred={Boolean(starred)} pending={starPending} onToggle={toggleStar} />
+			/>
+			<ThreadRowContent
+				thread={optimisticThread}
+				folderId={folderId}
+				onToggleStar={toggleStar}
+				starPending={starPending}
+			/>
 		</div>
 	)
 }

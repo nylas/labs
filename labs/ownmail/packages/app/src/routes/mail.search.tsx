@@ -9,7 +9,7 @@ import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
 	ThreadRowContent,
-	ThreadRowStarButton,
+	threadRowLinkLabel,
 } from '#features/mail/components/ThreadRow'
 import {
 	forwardDraftSearch,
@@ -156,7 +156,8 @@ function SearchResults() {
 		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
 		rows?.[cursor]?.scrollIntoView?.({ block: 'nearest' })
 		if (moveFocusToCursorRef.current) {
-			rows?.[cursor]?.focus()
+			const row = rows?.[cursor]
+			;(row?.querySelector<HTMLElement>('.thread-row-link') ?? row)?.focus()
 			moveFocusToCursorRef.current = false
 		}
 	}, [cursor])
@@ -219,7 +220,7 @@ function SearchResults() {
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 xl:flex xl:w-[22rem] xl:max-w-[22rem] xl:flex-none',
 					selected ? 'hidden' : 'flex',
 				)}
 			>
@@ -310,7 +311,7 @@ function SearchResults() {
 					) : null}
 				</div>
 			</section>
-			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden md:flex')}>
+			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden xl:flex')}>
 				{selected ? (
 					<SearchThreadDetail
 						key={JSON.stringify([selected.thread.id, q, folderId ?? null])}
@@ -319,7 +320,7 @@ function SearchResults() {
 						folderId={folderId}
 					/>
 				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 							<Reply className="h-6 w-6" />
 						</div>
@@ -376,19 +377,26 @@ function SearchThreadRow({
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
 
 	return (
-		<div className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}>
+		<div
+			data-nav-row=""
+			data-active={active ? 'true' : undefined}
+			data-nav-cursor={keyboardActive ? 'true' : undefined}
+			data-unread={optimisticThread.unread ? 'true' : undefined}
+			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
+			tabIndex={-1}
+		>
 			<Link
 				to="/mail/search"
 				search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
-				data-nav-row=""
-				data-active={active ? 'true' : undefined}
-				data-nav-cursor={keyboardActive ? 'true' : undefined}
-				data-unread={optimisticThread.unread ? 'true' : undefined}
+				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 				className={THREAD_ROW_LINK_CLASS}
-			>
-				<ThreadRowContent thread={optimisticThread} folderId={folderId} />
-			</Link>
-			<ThreadRowStarButton starred={Boolean(starred)} pending={starPending} onToggle={toggleStar} />
+			/>
+			<ThreadRowContent
+				thread={optimisticThread}
+				folderId={folderId}
+				onToggleStar={toggleStar}
+				starPending={starPending}
+			/>
 		</div>
 	)
 }
@@ -514,7 +522,7 @@ function SearchThreadDetail({
 					to="/mail/search"
 					search={searchList}
 					aria-label="Back to list"
-					className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</Link>

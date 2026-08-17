@@ -1,6 +1,7 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
- * theme: Quiet · tone: native-utilitarian · anchor hue: green
- * contrast: pass (46–50) · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * theme: Quiet · tone: native-utilitarian · anchor hue: green · enrichment: none
+ * navigation: persistent mobile tab bar · contrast: pass (46–50)
+ * pre-emit critique: P5 H5 E5 S5 R5 V5
  */
 @import "tailwindcss";
 @import "./tokens.css";
@@ -34,8 +35,10 @@
 	h3,
 	h4,
 	h5 {
+		min-width: 0;
 		font-family: var(--font-display);
 		letter-spacing: -0.02em;
+		overflow-wrap: anywhere;
 	}
 
 	:focus {
@@ -65,6 +68,16 @@
 .app-chrome-row {
 	height: calc(2.75rem + var(--safe-area-top));
 	padding-top: var(--safe-area-top);
+}
+
+.calendar-chrome-row {
+	height: calc(5.5rem + var(--safe-area-top));
+}
+
+@media (min-width: 40rem) {
+	.calendar-chrome-row {
+		height: calc(2.75rem + var(--safe-area-top));
+	}
 }
 
 .mobile-tab-bar {
@@ -722,21 +735,25 @@
 	background: color-mix(in oklch, var(--muted), transparent 35%);
 }
 
+.thread-row[data-active="true"],
 .thread-row:has([data-active="true"]) {
 	background: var(--muted);
 	box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground), transparent 80%);
 }
 
+.thread-row[data-active="true"]:hover,
 .thread-row:has([data-active="true"]):hover {
 	background: var(--muted);
 }
 
-.thread-row:has([data-nav-cursor="true"]):not(:has([data-active="true"])) {
+.thread-row[data-nav-cursor="true"]:not([data-active="true"]):not(:has([data-active="true"])),
+.thread-row:has([data-nav-cursor="true"]):not([data-active="true"]):not(:has([data-active="true"])) {
 	background: color-mix(in oklch, var(--muted), transparent 20%);
 	box-shadow: inset 2px 0 0 var(--ring);
 }
 
-.thread-row:has([data-unread="true"]):not(:has([data-active="true"]))::before {
+.thread-row[data-unread="true"]:not([data-active="true"]):not(:has([data-active="true"]))::before,
+.thread-row:has([data-unread="true"]):not([data-active="true"]):not(:has([data-active="true"]))::before {
 	content: "";
 	position: absolute;
 	top: 50%;

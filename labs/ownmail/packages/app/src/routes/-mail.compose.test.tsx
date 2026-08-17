@@ -556,14 +556,14 @@ describe('mail.compose initial focus', () => {
 
 describe('mail.compose thread list', () => {
 	it('keeps the composer and draft context open when a backdrop thread is selected', () => {
-		renderCompose({
+		const { container } = renderCompose({
 			loader: {
 				threads: [makeThread({ id: 't-backdrop', subject: 'Backdrop thread' })],
 				reply: { to: 'ada@example.com', subject: 'Draft subject', body: 'Draft body' },
 			},
 			search: { to: 'ada@example.com', subject: 'Draft subject', body: 'Draft body' },
 		})
-		const row = screen.getByText('Backdrop thread').closest('a')
+		const row = container.querySelector('a[aria-label="Open Backdrop thread from Alice"]')
 
 		expect(row).toHaveAttribute('data-to', '/mail/compose')
 		expect(JSON.parse(row?.getAttribute('data-search') ?? '{}')).toEqual({
@@ -683,6 +683,24 @@ describe('mail.compose empty backdrop', () => {
 	it('prompts the reader to pick a conversation when none is selected', () => {
 		renderCompose({ loader: { threads: [makeThread()] } })
 		expect(screen.getByText('Select a conversation')).toBeInTheDocument()
+	})
+
+	it('shows loading feedback instead of a false empty folder while the backdrop query is pending', async () => {
+		let resolveThreads: (value: { threads: any[] }) => void = () => {}
+		getThreads.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveThreads = resolve
+				}),
+		)
+		renderCompose({ loader: { threads: undefined } })
+
+		expect(screen.getByRole('status')).toHaveTextContent('Loading messages…')
+		expect(screen.queryByText('All caught up')).not.toBeInTheDocument()
+
+		resolveThreads({ threads: [] })
+		await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+		expect(await screen.findByText('All caught up')).toBeVisible()
 	})
 })
 
@@ -1247,13 +1265,31 @@ describe('mail.compose keyboard escape', () => {
 })
 
 describe('mail.compose window controls', () => {
-	it('keeps the compose panel inside a narrow viewport and limits it to the dynamic viewport height', () => {
+	it('uses a safe-area-aware full viewport on mobile and retains the floating desktop composer', () => {
 		renderCompose()
 		const panel = screen.getByRole('dialog', { name: 'Compose message' })
 		expect(panel).toHaveClass('compose-panel')
+		expect(panel).toHaveAttribute('data-minimized', 'false')
 		expect(panel).not.toHaveAttribute('aria-modal')
+		expect(panel).toHaveClass('max-sm:pr-[env(safe-area-inset-right)]')
+		expect(panel).toHaveClass('max-sm:pl-[env(safe-area-inset-left)]')
 		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'sm:flex')
 		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11')
+	})
+
+	it('uses shared buttons for 44px mobile header and footer controls', () => {
+		renderCompose()
+
+		for (const name of ['Minimize composer', 'Close']) {
+			const control = screen.getByRole('button', { name })
+			expect(control).toHaveAttribute('data-slot', 'button')
+			expect(control).toHaveClass('max-md:size-11')
+		}
+		for (const name of ['Send', 'Save draft', 'Attach file', 'Discard draft']) {
+			const control = screen.getByRole('button', { name })
+			expect(control).toHaveAttribute('data-slot', 'button')
+			expect(control.className).toMatch(/max-md:(?:min-h-11|size-11)/)
+		}
 	})
 
 	it('exposes accurate controls while minimizing and restoring the composer body', () => {
