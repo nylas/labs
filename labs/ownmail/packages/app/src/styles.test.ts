@@ -46,6 +46,10 @@ describe('native mobile shell styles', () => {
 			/\.fab\s*\{[^}]*bottom: calc\(var\(--mobile-tab-bar-height\) \+ var\(--safe-area-bottom\) \+ 0\.75rem\);/,
 		)
 	})
+
+	it('hides the unlayered mobile tab bar at the desktop breakpoint', () => {
+		expect(styles).toMatch(/@media \(min-width: 48rem\)\s*\{\s*\.mobile-tab-bar\s*\{\s*display: none;/)
+	})
 })
 
 describe('mail search divider styles', () => {

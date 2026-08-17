@@ -80,6 +80,12 @@
 	color: var(--foreground);
 }
 
+@media (min-width: 48rem) {
+	.mobile-tab-bar {
+		display: none;
+	}
+}
+
 .mobile-tab {
 	position: relative;
 	display: flex;
