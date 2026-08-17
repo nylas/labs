@@ -14,5 +14,7 @@ describe('Input', () => {
 		expect(input.className).toContain('mt-2')
 		expect(input.className).toContain('text-base')
 		expect(input.className).toContain('sm:text-sm')
+		expect(input.className).toContain('touch-target')
+		expect(input.className).not.toContain('box-shadow')
 	})
 })

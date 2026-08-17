@@ -1,5 +1,13 @@
 [
 	{
+		"date": "2026-08-17",
+		"scope": "app",
+		"macrostructure": "Workbench",
+		"theme": "Quiet",
+		"enrichment": "none",
+		"brief": "OwnMail native mobile touch and usability pass"
+	},
+	{
 		"date": "2026-07-08",
 		"genre": "modern-minimal",
 		"macrostructure": "Workbench",

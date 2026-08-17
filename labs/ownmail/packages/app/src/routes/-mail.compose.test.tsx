@@ -1250,9 +1250,10 @@ describe('mail.compose window controls', () => {
 	it('keeps the compose panel inside a narrow viewport and limits it to the dynamic viewport height', () => {
 		renderCompose()
 		const panel = screen.getByRole('dialog', { name: 'Compose message' })
-		expect(panel).toHaveClass('inset-x-2')
-		expect(panel).toHaveClass('sm:inset-x-auto')
-		expect(panel).toHaveClass('h-[min(32rem,calc(100dvh-1rem))]')
+		expect(panel).toHaveClass('compose-panel')
+		expect(panel).not.toHaveAttribute('aria-modal')
+		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'sm:flex')
+		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11')
 	})
 
 	it('exposes accurate controls while minimizing and restoring the composer body', () => {
@@ -1271,6 +1272,8 @@ describe('mail.compose window controls', () => {
 		expect(screen.queryByPlaceholderText('Write your message...')).not.toBeInTheDocument()
 		const restore = screen.getByRole('button', { name: 'Restore composer' })
 		expect(restore).toHaveAttribute('aria-expanded', 'false')
+		expect(restore).toHaveClass('flex')
+		expect(restore).not.toHaveClass('hidden')
 		expect(restore.querySelector('svg')).toHaveClass('lucide-maximize-2')
 		fireEvent.click(restore)
 		expect(screen.getByLabelText('To')).toHaveValue('edited@example.com')

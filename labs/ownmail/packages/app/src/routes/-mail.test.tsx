@@ -62,6 +62,10 @@ vi.mock('#app/components/AppRail', () => ({
 	),
 }))
 
+vi.mock('#app/components/MobileTabBar', () => ({
+	MobileTabBar: ({ active }: { active: string }) => <nav data-testid="mobile-tabs" data-active={active} />,
+}))
+
 const paletteShortcut = vi.fn()
 vi.mock('#app/components/CommandPalette', () => ({
 	useCommandPaletteShortcut: (open: () => void) => paletteShortcut(open),
@@ -171,6 +175,7 @@ describe('/mail loader + layout', () => {
 		)
 		expect(screen.getByTestId('logo')).toHaveTextContent('OwnMail')
 		expect(screen.getByTestId('railnav')).toHaveAttribute('data-email', 'ada@example.com')
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'mail')
 	})
 
 	it('renders current observed mailbox info instead of stale infinite-route loader data', () => {

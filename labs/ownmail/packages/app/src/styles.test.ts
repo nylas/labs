@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 const stylesPath = fileURLToPath(new URL('./styles.css', import.meta.url))
 const styles = readFileSync(stylesPath, 'utf8')
+const tokensPath = fileURLToPath(new URL('./tokens.css', import.meta.url))
+const tokens = readFileSync(tokensPath, 'utf8')
 
 describe('touch editing styles', () => {
 	it('keeps every editable surface at 16px on touch-first devices to prevent iOS focus zoom', () => {
@@ -27,6 +29,48 @@ describe('navigation progress styles', () => {
 		expect(styles).toMatch(
 			/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.navigation-progress-bar\s*\{\s*width: 100%;\s*animation: none;/,
 		)
+	})
+})
+
+describe('native mobile shell styles', () => {
+	it('exports shared safe-area, touch-target, and bottom-tab tokens', () => {
+		expect(styles).toContain('@import "./tokens.css";')
+		expect(tokens).toContain('--safe-area-top: env(safe-area-inset-top, 0px);')
+		expect(tokens).toContain('--safe-area-bottom: env(safe-area-inset-bottom, 0px);')
+		expect(tokens).toContain('--touch-target-min: 2.75rem;')
+		expect(tokens).toContain('--mobile-tab-bar-height: 3.75rem;')
+	})
+
+	it('enforces the shared 44px touch floor only for coarse pointers', () => {
+		expect(styles).toMatch(
+			/@media \(hover: none\) and \(pointer: coarse\)\s*\{\s*\.touch-target\s*\{\s*min-height: var\(--touch-target-min\);\s*\}\s*\.touch-target-square\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);/,
+		)
+	})
+
+	it('keeps the compose action above the tab bar and device home indicator', () => {
+		expect(styles).toMatch(
+			/\.fab\s*\{[^}]*bottom: calc\(var\(--mobile-tab-bar-height\) \+ var\(--safe-area-bottom\) \+ 0\.75rem\);/,
+		)
+	})
+
+	it('keeps a minimized composer above the mobile tab bar', () => {
+		expect(styles).toMatch(
+			/\.compose-panel\[data-minimized="true"\]\s*\{[^}]*top: auto;[^}]*bottom: calc\(var\(--mobile-tab-bar-height\) \+ var\(--safe-area-bottom\)\);[^}]*height: 2\.75rem;/,
+		)
+	})
+
+	it('hides the unlayered mobile tab bar at the desktop breakpoint', () => {
+		expect(styles).toMatch(/@media \(min-width: 48rem\)\s*\{\s*\.mobile-tab-bar\s*\{\s*display: none;/)
+	})
+
+	it('uses full dynamic-viewport editors on phones and restores floating panels on larger screens', () => {
+		expect(styles).toMatch(
+			/\.compose-panel\s*\{[^}]*inset: 0;[^}]*height: 100dvh;[^}]*max-height: 100dvh;[^}]*width: 100%;/,
+		)
+		expect(styles).toMatch(
+			/\.event-composer-panel\s*\{[^}]*inset: 0;[^}]*height: 100dvh;[^}]*max-height: 100dvh;[^}]*width: 100%;/,
+		)
+		expect(styles).toMatch(/@media \(min-width: 640px\)\s*\{\s*\.compose-panel\s*\{/)
 	})
 })
 

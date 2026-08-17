@@ -12,6 +12,8 @@ describe('Button', () => {
 		expect(button).toHaveAttribute('data-slot', 'button')
 		expect(button.className).toContain('w-full')
 		expect(button.className).toContain('bg-primary')
+		expect(button.className).toContain('touch-target')
+		expect(button.className).not.toContain('transition-all')
 	})
 
 	it('applies the requested variant and size', () => {

@@ -5,7 +5,12 @@ import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Tra
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
+import {
+	THREAD_ROW_CLASS,
+	THREAD_ROW_LINK_CLASS,
+	ThreadRowContent,
+	ThreadRowStarButton,
+} from '#features/mail/components/ThreadRow'
 import {
 	forwardDraftSearch,
 	mailFolderTitle,
@@ -371,22 +376,20 @@ function SearchThreadRow({
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
 
 	return (
-		<Link
-			to="/mail/search"
-			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
-			data-nav-row=""
-			data-active={active ? 'true' : undefined}
-			data-nav-cursor={keyboardActive ? 'true' : undefined}
-			data-unread={optimisticThread.unread ? 'true' : undefined}
-			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
-		>
-			<ThreadRowContent
-				thread={optimisticThread}
-				folderId={folderId}
-				onToggleStar={toggleStar}
-				starPending={starPending}
-			/>
-		</Link>
+		<div className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}>
+			<Link
+				to="/mail/search"
+				search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
+				data-nav-row=""
+				data-active={active ? 'true' : undefined}
+				data-nav-cursor={keyboardActive ? 'true' : undefined}
+				data-unread={optimisticThread.unread ? 'true' : undefined}
+				className={THREAD_ROW_LINK_CLASS}
+			>
+				<ThreadRowContent thread={optimisticThread} folderId={folderId} />
+			</Link>
+			<ThreadRowStarButton starred={Boolean(starred)} pending={starPending} onToggle={toggleStar} />
+		</div>
 	)
 }
 

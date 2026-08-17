@@ -12,46 +12,22 @@ import {
 } from '../lib/mail-ui-model.js'
 import type { MailThread } from '../state/mail-queries.js'
 
-/** Shared class for a thread-list row link; active/unread/hover come from `.thread-row` CSS. */
-export const THREAD_ROW_CLASS =
-	'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent'
+/** Shared class for a thread-list row container; active/unread/hover come from `.thread-row` CSS. */
+export const THREAD_ROW_CLASS = 'thread-row group relative w-full border-b border-border text-left'
+
+/** Shared class for the row's stretched navigation target. */
+export const THREAD_ROW_LINK_CLASS =
+	'flex w-full cursor-pointer flex-col gap-1 py-3 pr-4 pl-14 outline-none focus-visible:bg-accent'
 
 /**
- * The inner content of a thread-list row (star, sender, date, subject, snippet, labels).
- * Callers own the surrounding `<Link>` (routing differs per surface); this keeps a single
- * row rendering shared by the folder list, the compose backdrop, and search results.
+ * The non-interactive content of a thread-list row (sender, date, subject, snippet, labels).
+ * Callers own the sibling navigation and star controls so a button is never nested in a link.
  */
-export function ThreadRowContent({
-	thread,
-	folderId,
-	onToggleStar,
-	starPending = false,
-}: {
-	thread: MailThread
-	folderId: string
-	onToggleStar: () => void
-	starPending?: boolean
-}) {
+export function ThreadRowContent({ thread, folderId }: { thread: MailThread; folderId: string }) {
 	const labels = threadLabels(thread)
 	return (
 		<>
 			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					disabled={starPending}
-					onClick={(event) => {
-						event.preventDefault()
-						event.stopPropagation()
-						onToggleStar()
-					}}
-					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					className={cn(
-						'shrink-0 text-muted-foreground transition-colors disabled:cursor-wait disabled:opacity-50',
-						STAR_HOVER_CLASS,
-					)}
-				>
-					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
-				</button>
 				<span
 					className={cn(
 						'min-w-0 flex-1 truncate text-sm',
@@ -88,5 +64,30 @@ export function ThreadRowContent({
 				))}
 			</div>
 		</>
+	)
+}
+
+export function ThreadRowStarButton({
+	starred,
+	pending,
+	onToggle,
+}: {
+	starred: boolean
+	pending?: boolean
+	onToggle: () => void
+}) {
+	return (
+		<button
+			type="button"
+			disabled={pending}
+			onClick={onToggle}
+			aria-label={starred ? 'Unstar' : 'Star'}
+			className={cn(
+				'touch-target-square absolute top-1 left-1 z-10 flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted active:translate-y-px disabled:cursor-wait disabled:opacity-50',
+				STAR_HOVER_CLASS,
+			)}
+		>
+			<Star className={cn('h-4 w-4', starred && STAR_FILLED_CLASS)} />
+		</button>
 	)
 }
