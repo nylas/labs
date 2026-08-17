@@ -149,6 +149,9 @@ export function EmailHtml({
 	useEffect(() => subscribeLinkPreview(ready ? ref.current : null, setPreview), [ready])
 
 	useEffect(() => {
+		// HTML replacement resets the custom element's load consent, so each new
+		// sanitized document must reapply the current automatic policy.
+		void html
 		if (!ready) return
 		if (preferences.remoteImagePolicy === 'always') {
 			applyRemoteImages(ref.current, true)
@@ -162,7 +165,7 @@ export function EmailHtml({
 		return () => {
 			active = false
 		}
-	}, [preferences.remoteImagePolicy, ready, senderAddress])
+	}, [preferences.remoteImagePolicy, ready, senderAddress, html])
 
 	useEffect(() => {
 		if (!displayOpen) return

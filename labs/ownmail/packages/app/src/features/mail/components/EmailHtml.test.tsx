@@ -204,6 +204,35 @@ describe('EmailHtml', () => {
 		)
 	})
 
+	it('reapplies saved image consent when the rendered HTML changes in place', async () => {
+		writeUserPreferences({ ...defaultUserPreferences(), remoteImagePolicy: 'always' })
+		const { rerender } = render(
+			<EmailHtml
+				html='<img class="first" src="https://images.example/first.png">'
+				messageId="m-always-update"
+			/>,
+		)
+		await waitFor(() =>
+			expect(emailElement().shadowRoot?.querySelector('.first')).toHaveAttribute(
+				'src',
+				'https://images.example/first.png',
+			),
+		)
+
+		rerender(
+			<EmailHtml
+				html='<img class="replacement" src="https://images.example/replacement.png">'
+				messageId="m-always-update"
+			/>,
+		)
+		await waitFor(() =>
+			expect(emailElement().shadowRoot?.querySelector('.replacement')).toHaveAttribute(
+				'src',
+				'https://images.example/replacement.png',
+			),
+		)
+	})
+
 	it('offers readable and original layouts when legacy content needs compatibility reflow', () => {
 		render(<EmailHtml html='<table width="800"><tr><td>Legacy</td></tr></table>' messageId="m7" />)
 		const el = emailElement()
