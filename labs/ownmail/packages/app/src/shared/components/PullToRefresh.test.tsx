@@ -198,4 +198,24 @@ describe('RefreshButton', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 		await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
 	})
+
+	it('disables and spins while its own refresh promise is pending', async () => {
+		let resolveRefresh: (() => void) | undefined
+		const onRefresh = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					resolveRefresh = resolve
+				}),
+		)
+		render(<RefreshButton onRefresh={onRefresh} label="Refresh contacts" />)
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh contacts' }))
+		const pendingButton = screen.getByRole('button', { name: 'Refreshing refresh contacts' })
+		expect(pendingButton).toBeDisabled()
+		expect(pendingButton.querySelector('svg')).toHaveClass('animate-spin')
+		fireEvent.click(pendingButton)
+		expect(onRefresh).toHaveBeenCalledOnce()
+
+		resolveRefresh?.()
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh contacts' })).toBeEnabled())
+	})
 })
