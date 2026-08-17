@@ -1,5 +1,19 @@
 # @ownmail/app
 
+## 0.15.0
+
+### Minor Changes
+
+- 3005c3b: Add adaptive mobile sheets, dialogs, and full-screen editors.
+- 3005c3b: Add pull-to-refresh and accessible route feedback for mobile mail, contacts, and calendar.
+- 3005c3b: Improve touch targets, thread-row semantics, and mobile calendar readability.
+- 3005c3b: Add safe-area-aware mobile app chrome, persistent primary tabs, and responsive navigation sheets.
+
+### Patch Changes
+
+- 5b7f4ff: Streamline email display controls and persist remote-image choices.
+- 6cef7bb: Add persistent mobile navigation, touch-safe mail and calendar controls, a full-screen mobile composer, readable week columns, and responsive contact editing across OwnMail.
+
 ## 0.14.1
 
 ### Patch Changes
