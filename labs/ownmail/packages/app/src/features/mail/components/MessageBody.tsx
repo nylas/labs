@@ -52,15 +52,20 @@ function PreparedHtmlBody({
 	darkenEmail: boolean
 }) {
 	const prepared = useMemo(
-		() => prepareEmailMessageContent(html, message.id, message.attachments ?? []),
-		[html, message.attachments, message.id],
+		() => prepareEmailMessageContent(html, message.id, message.attachments ?? [], message.ownmailImageTokens),
+		[html, message.attachments, message.id, message.ownmailImageTokens],
 	)
 	return (
 		<div
 			data-slot="html-email-content"
 			className={prepared.isProse ? 'w-full min-w-0 max-w-[72ch]' : 'w-full min-w-0'}
 		>
-			<EmailHtml html={prepared.html} messageId={message.id} darken={darkenEmail} />
+			<EmailHtml
+				html={prepared.html}
+				messageId={message.id}
+				darken={darkenEmail}
+				senderAddress={message.from?.[0]?.email}
+			/>
 		</div>
 	)
 }

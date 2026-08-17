@@ -3,6 +3,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId } from '#server/ids'
 import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
+import { protectMessageImageSources } from './email-image-sources.js'
 import {
 	type FolderIdInput,
 	type FolderNameInput,
@@ -268,23 +269,29 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 				const messageIds = thread.data.message_ids ?? []
 				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
 				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
+				const protectedMessages = await Promise.all(messages.map(protectMessageImageSources))
 				if (thread.data.unread) {
 					const updated = await mailbox.updateThread(data.threadId, { unread: false })
 					await signalLocalChange(grantId, 'mail')
 					return {
 						thread: updated.data,
-						messages,
+						messages: protectedMessages,
 						mailboxEmail: email,
 						markedRead: true,
 					}
 				}
-				return { thread: thread.data, messages, mailboxEmail: email }
+				return { thread: thread.data, messages: protectedMessages, mailboxEmail: email }
 			} catch (err) {
 				if (!isNotFound(err)) throw err
 				const drafts = await mailbox.listDrafts({ limit: 50 })
 				const draft = drafts.data.find((item) => item.id === data.threadId)
 				if (!draft) throw friendly(err)
-				return { ...draftThreadMessages(draft, email, displayName), mailboxEmail: email }
+				const detail = draftThreadMessages(draft, email, displayName)
+				return {
+					...detail,
+					messages: await Promise.all(detail.messages.map(protectMessageImageSources)),
+					mailboxEmail: email,
+				}
 			}
 		},
 	)

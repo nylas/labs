@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	applyDarkInvert,
 	applyEmailHtml,
+	applyEmailImageMode,
 	applyEmailLayoutMode,
 	applyEmailTheme,
 	applyRemoteImages,
@@ -345,6 +346,15 @@ describe('email theme and remote images', () => {
 		expect(el).toHaveAttribute('data-load-remote-images')
 		applyRemoteImages(el, false)
 		expect(el).not.toHaveAttribute('data-load-remote-images')
+	})
+
+	it('switches between automatic variants and original image colors', () => {
+		expect(() => applyEmailImageMode(null, 'automatic')).not.toThrow()
+		const el = document.createElement('div')
+		applyEmailImageMode(el, 'original')
+		expect(el).toHaveAttribute('data-image-mode', 'original')
+		applyEmailImageMode(el, 'automatic')
+		expect(el).toHaveAttribute('data-image-mode', 'automatic')
 	})
 })
 

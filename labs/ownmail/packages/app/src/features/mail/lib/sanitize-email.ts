@@ -8,6 +8,7 @@ const REMOTE_IMAGE_MARKER = 'data-ownmail-has-remote-images'
 const EMAIL_THEME_PROPERTY = '--ownmail-email-theme'
 const MAX_CSS_BLOCK_DEPTH = 128
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
+const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:[?#]|$)/
 
 /** Trusted serialized media definition consumed by the email custom element. */
 export const PICTURE_MEDIA_ATTRIBUTE = 'data-ownmail-picture-media'
@@ -802,12 +803,12 @@ function isRemoteUrl(value: string): boolean {
 		/\\/g,
 		'/',
 	)
-	return /^(?:https?:|\/\/)/i.test(normalized)
+	return /^(?:https?:|\/\/)/i.test(normalized) || CONTROLLED_IMAGE_PATH.test(normalized)
 }
 
 function containsRemoteResource(value: string): boolean {
 	const inspected = stripAsciiWhitespaceAndControls(inspectableCss(value)).replace(/\\/g, '/')
-	return /(?:https?:|\/\/)/i.test(inspected)
+	return /(?:https?:|\/\/)/i.test(inspected) || inspected.includes('/email-images/')
 }
 
 function stripAsciiWhitespaceAndControls(value: string): string {

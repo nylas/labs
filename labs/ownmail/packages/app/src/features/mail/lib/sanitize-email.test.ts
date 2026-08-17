@@ -572,6 +572,19 @@ describe('sanitizeEmailHtml', () => {
 		expect(allowed?.querySelector('style')?.textContent).toContain('images.example')
 	})
 
+	it('keeps signed image proxy paths behind the same consent boundary', () => {
+		const token = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+		const html = `<style>.hero{background:url('/email-images/${token}?mode=automatic&theme=light')}</style><img src="/email-images/${token}?mode=automatic&theme=light">`
+		const blocked = sanitizeEmailDocument(html)
+		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
+		expect(blocked?.querySelector('img')?.hasAttribute('src')).toBe(false)
+		expect(blocked?.querySelector('style')?.textContent).not.toContain('/email-images/')
+
+		const allowed = sanitizeEmailDocument(html, { allowRemoteImages: true })
+		expect(allowed?.querySelector('img')?.getAttribute('src')).toContain('/email-images/')
+		expect(allowed?.querySelector('style')?.textContent).toContain('/email-images/')
+	})
+
 	it('blocks browser-normalized and non-url CSS remote resource forms', () => {
 		const html = String.raw`<style>
 			.a{background-image:image-set("https://images.example/a.png" 1x)}

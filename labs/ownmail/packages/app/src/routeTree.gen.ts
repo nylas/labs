@@ -27,6 +27,7 @@ import { Route as CalendarViewRouteImport } from './routes/calendar.$view'
 import { Route as ContactsIndexRouteImport } from './routes/contacts.index'
 import { Route as ContactsContactIdRouteImport } from './routes/contacts.$contactId'
 import { Route as ContactsNewRouteImport } from './routes/contacts.new'
+import { Route as EmailImagesTokenRouteImport } from './routes/email-images.$token'
 import { Route as MailIndexRouteImport } from './routes/mail.index'
 import { Route as MailComposeRouteImport } from './routes/mail.compose'
 import { Route as MailSearchRouteImport } from './routes/mail.search'
@@ -125,6 +126,11 @@ const ContactsNewRoute = ContactsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => ContactsRoute,
 } as any)
+const EmailImagesTokenRoute = EmailImagesTokenRouteImport.update({
+  id: '/email-images/$token',
+  path: '/email-images/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MailIndexRoute = MailIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -179,6 +185,7 @@ export interface FileRoutesByFullPath {
   '/calendar/$view': typeof CalendarViewRoute
   '/contacts/$contactId': typeof ContactsContactIdRoute
   '/contacts/new': typeof ContactsNewRoute
+  '/email-images/$token': typeof EmailImagesTokenRoute
   '/mail/compose': typeof MailComposeRoute
   '/mail/search': typeof MailSearchRoute
   '/calendar/': typeof CalendarIndexRoute
@@ -203,6 +210,7 @@ export interface FileRoutesByTo {
   '/calendar/$view': typeof CalendarViewRoute
   '/contacts/$contactId': typeof ContactsContactIdRoute
   '/contacts/new': typeof ContactsNewRoute
+  '/email-images/$token': typeof EmailImagesTokenRoute
   '/mail/compose': typeof MailComposeRoute
   '/mail/search': typeof MailSearchRoute
   '/calendar': typeof CalendarIndexRoute
@@ -231,6 +239,7 @@ export interface FileRoutesById {
   '/calendar/$view': typeof CalendarViewRoute
   '/contacts/$contactId': typeof ContactsContactIdRoute
   '/contacts/new': typeof ContactsNewRoute
+  '/email-images/$token': typeof EmailImagesTokenRoute
   '/mail/compose': typeof MailComposeRoute
   '/mail/search': typeof MailSearchRoute
   '/calendar/': typeof CalendarIndexRoute
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/calendar/$view'
     | '/contacts/$contactId'
     | '/contacts/new'
+    | '/email-images/$token'
     | '/mail/compose'
     | '/mail/search'
     | '/calendar/'
@@ -284,6 +294,7 @@ export interface FileRouteTypes {
     | '/calendar/$view'
     | '/contacts/$contactId'
     | '/contacts/new'
+    | '/email-images/$token'
     | '/mail/compose'
     | '/mail/search'
     | '/calendar'
@@ -311,6 +322,7 @@ export interface FileRouteTypes {
     | '/calendar/$view'
     | '/contacts/$contactId'
     | '/contacts/new'
+    | '/email-images/$token'
     | '/mail/compose'
     | '/mail/search'
     | '/calendar/'
@@ -334,6 +346,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   ApiVersionRoute: typeof ApiVersionRoute
   AttachmentsAttachmentIdRoute: typeof AttachmentsAttachmentIdRoute
+  EmailImagesTokenRoute: typeof EmailImagesTokenRoute
   ApiWebhooksNylasRoute: typeof ApiWebhooksNylasRoute
   MessagesMessageIdDownloadRoute: typeof MessagesMessageIdDownloadRoute
 }
@@ -465,6 +478,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/contacts/new'
       preLoaderRoute: typeof ContactsNewRouteImport
       parentRoute: typeof ContactsRoute
+    }
+    '/email-images/$token': {
+      id: '/email-images/$token'
+      path: '/email-images/$token'
+      fullPath: '/email-images/$token'
+      preLoaderRoute: typeof EmailImagesTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/mail/': {
       id: '/mail/'
@@ -600,6 +620,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   ApiVersionRoute: ApiVersionRoute,
   AttachmentsAttachmentIdRoute: AttachmentsAttachmentIdRoute,
+  EmailImagesTokenRoute: EmailImagesTokenRoute,
   ApiWebhooksNylasRoute: ApiWebhooksNylasRoute,
   MessagesMessageIdDownloadRoute: MessagesMessageIdDownloadRoute,
 }

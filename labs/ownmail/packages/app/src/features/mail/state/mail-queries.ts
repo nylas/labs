@@ -9,6 +9,8 @@ const MAX_PROVIDER_ID_LENGTH = 1000
 export type MailMessage = Omit<Message, 'grant_id' | 'ownmailDraft'> & {
 	/** Server-attested provenance for messages synthesized from the drafts endpoint. */
 	ownmailDraft?: true
+	/** Server-attested signed proxy tokens keyed by inline attachment id. */
+	ownmailImageTokens?: Record<string, string>
 }
 export type MailDraft = Omit<Draft, 'grant_id'>
 export type MailThread = Omit<Thread, 'grant_id' | 'latest_draft_or_message'> & {
@@ -66,11 +68,46 @@ export function toMailMessage(message: Message, ownmailDraft = false): MailMessa
 	const {
 		grant_id: _grantId,
 		ownmailDraft: _providerMarker,
+		ownmailImageTokens: providerImageTokens,
+		ownmailImagesAttested: imageAttestation,
 		...safe
 	} = message as Message & {
 		ownmailDraft?: unknown
+		ownmailImageTokens?: unknown
+		ownmailImagesAttested?: unknown
 	}
-	return { ...safe, ...(ownmailDraft ? { ownmailDraft: true as const } : {}) }
+	const ownmailImageTokens =
+		imageAttestation === true ? validImageTokenMap(providerImageTokens, message.attachments ?? []) : undefined
+	return {
+		...safe,
+		...(ownmailDraft ? { ownmailDraft: true as const } : {}),
+		...(ownmailImageTokens ? { ownmailImageTokens } : {}),
+	}
+}
+
+function validImageTokenMap(
+	value: unknown,
+	attachments: NonNullable<Message['attachments']>,
+): Record<string, string> | undefined {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+	const inlineIds = new Set(
+		attachments.filter((attachment) => attachment.is_inline).map((attachment) => attachment.id),
+	)
+	const entries = Object.entries(value)
+	if (entries.length === 0 || entries.length > 100) return undefined
+	const tokens: Record<string, string> = {}
+	for (const [attachmentId, token] of entries) {
+		if (
+			!inlineIds.has(attachmentId) ||
+			typeof token !== 'string' ||
+			token.length > 12_000 ||
+			!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)
+		) {
+			return undefined
+		}
+		tokens[attachmentId] = token
+	}
+	return tokens
 }
 
 export function toMailDraft(draft: Draft): MailDraft {

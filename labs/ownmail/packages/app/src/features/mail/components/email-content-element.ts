@@ -152,6 +152,59 @@ interface RgbColor {
 
 const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
 const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
+const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+const CONTROLLED_IMAGE_IN_TEXT = /\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g
+
+function treatedImageUrl(
+	value: string,
+	mode: 'automatic' | 'original',
+	theme: 'dark' | 'light',
+): string | null {
+	let parsed: URL
+	try {
+		parsed = new URL(value, window.location.origin)
+	} catch {
+		return null
+	}
+	if (parsed.origin !== window.location.origin || !CONTROLLED_IMAGE_PATH.test(parsed.pathname)) return null
+	parsed.searchParams.set('mode', mode)
+	parsed.searchParams.set('theme', theme)
+	return `${parsed.pathname}${parsed.search}${parsed.hash}`
+}
+
+function treatImageUrlsInText(
+	value: string,
+	mode: 'automatic' | 'original',
+	theme: 'dark' | 'light',
+): string {
+	/* v8 ignore next -- the matcher accepts only controlled paths that treatedImageUrl can parse -- @preserve */
+	return value.replace(CONTROLLED_IMAGE_IN_TEXT, (url) => treatedImageUrl(url, mode, theme) ?? url)
+}
+
+/** Apply the reader's color policy to every controlled image reference before insertion. */
+export function applyControlledImageTreatment(
+	root: HTMLElement,
+	mode: 'automatic' | 'original',
+	theme: 'dark' | 'light',
+): void {
+	for (const element of [root, ...root.querySelectorAll<HTMLElement>('*')]) {
+		for (const attribute of ['src', 'poster', 'background', 'href', 'xlink:href']) {
+			const value = element.getAttribute(attribute)
+			if (!value) continue
+			const treated = treatedImageUrl(value, mode, theme)
+			if (treated) element.setAttribute(attribute, treated)
+		}
+		for (const attribute of ['srcset', 'style']) {
+			const value = element.getAttribute(attribute)
+			if (!value) continue
+			const treated = treatImageUrlsInText(value, mode, theme)
+			if (treated !== value) element.setAttribute(attribute, treated)
+		}
+	}
+	for (const style of root.querySelectorAll('style')) {
+		style.textContent = treatImageUrlsInText(style.textContent, mode, theme)
+	}
+}
 
 function parsedPictureMedia(value: string): PictureMediaDefinition | null {
 	try {
@@ -346,7 +399,13 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 function createEmailElementClass(Base: typeof HTMLElement) {
 	return class extends Base {
 		static get observedAttributes(): string[] {
-			return ['data-layout-mode', 'data-load-remote-images', 'data-email-theme', 'data-dark-invert']
+			return [
+				'data-layout-mode',
+				'data-load-remote-images',
+				'data-email-theme',
+				'data-dark-invert',
+				'data-image-mode',
+			]
 		}
 
 		private html = ''
@@ -400,6 +459,10 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			}
 			if (name === 'data-email-theme' && this.contentRoot) {
 				applyPictureSourceMedia(this.contentRoot, this.emailTheme(), this.clientWidth)
+				applyControlledImageTreatment(this.contentRoot, this.imageMode(), this.emailTheme())
+			}
+			if (name === 'data-image-mode' && this.contentRoot) {
+				applyControlledImageTreatment(this.contentRoot, this.imageMode(), this.emailTheme())
 			}
 			this.scheduleMeasure()
 		}
@@ -462,6 +525,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				const blockedRemoteImages = sanitizedDocumentHasRemoteImages(documentElement)
 				if (!loadRemoteImages) this.hasRemoteImages = blockedRemoteImages
 				applyPictureSourceMedia(documentElement, this.emailTheme(), this.clientWidth)
+				applyControlledImageTreatment(documentElement, this.imageMode(), this.emailTheme())
 			}
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
 			applyInheritedSurfaceContrast(root, false)
@@ -551,6 +615,10 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		private emailTheme(): 'dark' | 'light' {
 			return this.getAttribute('data-email-theme') === 'dark' ? 'dark' : 'light'
+		}
+
+		private imageMode(): 'automatic' | 'original' {
+			return this.getAttribute('data-image-mode') === 'original' ? 'original' : 'automatic'
 		}
 
 		private updateLogicalDirection(content: HTMLElement): boolean {
