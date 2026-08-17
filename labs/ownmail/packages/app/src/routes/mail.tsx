@@ -5,6 +5,7 @@ import { Menu, Pencil } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { MobileAppNav } from '#app/components/MobileAppNav'
 import {
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
@@ -230,6 +231,8 @@ export function MailRouteScreen({
 					<div className="flex min-h-0 flex-1 overflow-hidden">{children ?? <Outlet />}</div>
 				</div>
 			</div>
+
+			<MobileAppNav active="mail" />
 
 			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
 				<AppRailMobileNav {...railNavProps} onNavigate={() => setSidebarOpen(false)} />

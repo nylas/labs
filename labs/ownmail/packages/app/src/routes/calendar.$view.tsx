@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { MobileAppNav } from '#app/components/MobileAppNav'
 import {
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
@@ -324,6 +325,8 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					)}
 				</div>
 			</div>
+
+			<MobileAppNav active="calendar" />
 
 			{editing ? (
 				<EventModal

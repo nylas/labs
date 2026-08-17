@@ -26,6 +26,11 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
+	Link: ({ children, to, ...props }: any) => (
+		<a href={to} {...props}>
+			{children}
+		</a>
+	),
 	useNavigate: () => h.navigate,
 	useRouter: () => ({ invalidate: h.invalidate }),
 }))

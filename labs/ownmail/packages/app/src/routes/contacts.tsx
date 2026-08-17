@@ -4,6 +4,7 @@ import { Loader2, Menu, Plus, Search } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { MobileAppNav } from '#app/components/MobileAppNav'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	contactDisplayName,
@@ -259,7 +260,7 @@ export function ContactsShell({
 							value={query}
 							onChange={(event) => onQueryChange(event.target.value)}
 							placeholder="Search contacts"
-							className="h-full w-full border-0 bg-transparent py-2 pr-3 pl-7 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+							className="h-full w-full border-0 bg-transparent py-2 pr-3 pl-7 text-sm text-foreground placeholder:text-muted-foreground"
 							aria-label="Search contacts"
 							autoCapitalize="none"
 						/>
@@ -267,6 +268,7 @@ export function ContactsShell({
 					<Link
 						to="/contacts/new"
 						search={linkSearch}
+						aria-label="New contact"
 						className="flex shrink-0 items-center gap-2 border-l border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
 					>
 						<Plus className="h-4 w-4" />
@@ -311,6 +313,8 @@ export function ContactsShell({
 					<Outlet />
 				</div>
 			</div>
+
+			<MobileAppNav active="contacts" />
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} />
 
