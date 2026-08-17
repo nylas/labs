@@ -128,7 +128,7 @@ describe('EmailHtml', () => {
 		const first = render(<EmailHtml {...props} />)
 		fireEvent.click(await screen.findByRole('button', { name: 'Always load from sender' }))
 		await waitFor(() => expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull())
-		expect(localStorage.getItem('ownmail:trusted-image-senders:v1')).not.toContain('example.com')
+		expect(localStorage.getItem('ownmail:trusted-image-senders:v2') ?? '').not.toContain('example.com')
 
 		first.unmount()
 		render(<EmailHtml {...props} messageId="m-trusted-next" />)

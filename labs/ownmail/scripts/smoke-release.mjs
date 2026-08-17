@@ -40,6 +40,15 @@ for (const required of [
 		throw new Error(`Packed OwnMail CLI did not include ${required.trim()}.`)
 	}
 }
+for (const forbidden of [
+	/package\/dist\/template\/src\/.*\.(?:test|spec)\.[cm]?[jt]sx?\n/,
+	/package\/dist\/template\/src\/.*\.fixture\..*\n/,
+	/package\/dist\/template\/src\/.*\/real-email-fixtures\//,
+]) {
+	if (forbidden.test(cliPackageFiles)) {
+		throw new Error('Packed OwnMail CLI included development-only app tests or fixtures.')
+	}
+}
 if (statSync(tarballs[2]).size > 3_500_000) {
 	throw new Error('Packed OwnMail CLI exceeded the 3.5 MB cold-start package budget.')
 }
