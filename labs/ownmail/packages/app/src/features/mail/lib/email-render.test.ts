@@ -235,7 +235,9 @@ describe('shadowStyleText', () => {
 		expect(css).toContain('container:ownmail-email / inline-size')
 		expect(css).toContain('data-dark-invert')
 		expect(css).toContain('invert(1)')
-		expect(css).toContain(':host([data-dark-invert]){color-scheme:dark;filter:invert(1)')
+		expect(css).toContain(
+			':host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1)',
+		)
 		expect(css).not.toContain(':host([data-dark-invert]) .email-root{filter:')
 	})
 
@@ -261,13 +263,18 @@ describe('shadowStyleText', () => {
 		expect(css).toContain(':where(html, body, table, img, video, svg, canvas){max-width:100%!important;}')
 		expect(css).toContain(':where(table){min-width:0!important;table-layout:auto;}')
 		expect(css).toContain('[style*="white-space" i][style*="nowrap" i]')
+		expect(css).toContain(':where(img:not([src]):not([srcset])){display:none!important;}')
 		expect(css).toContain(':where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;')
 		expect(css).not.toContain('.email-root body{margin:0!important')
 		expect(css).toContain('background:transparent!important')
 		expect(css).toContain('[data-email-theme="dark"]')
+		expect(css).toContain('--ownmail-email-link-color:#7dd3fc')
+		expect(css).toContain('[data-dark-invert]){--ownmail-email-link-color:#075985')
 		expect(css).toContain(':where(a[href]):focus-visible{outline:2px solid CanvasText!important')
 		expect(css).toContain('box-shadow:0 0 0 4px Canvas!important')
-		expect(css).toContain(':where(img, video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important')
+		expect(css).toContain(
+			':where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important',
+		)
 		expect(css).toContain('[data-ownmail-background-media]::before')
 		expect(css).toContain(
 			':host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}',

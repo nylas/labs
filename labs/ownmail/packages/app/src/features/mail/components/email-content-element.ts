@@ -59,7 +59,7 @@ export function rewriteAnchors(root: HTMLElement): void {
 	for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
 		anchor.setAttribute('target', '_blank')
 		anchor.setAttribute('rel', 'noopener noreferrer nofollow')
-		anchor.style.setProperty('color', 'LinkText', 'important')
+		anchor.style.setProperty('color', 'var(--ownmail-email-link-color, LinkText)', 'important')
 		anchor.style.setProperty('text-decoration', 'underline', 'important')
 		anchor.style.setProperty('text-decoration-thickness', 'max(1px, .08em)', 'important')
 		anchor.style.setProperty('text-underline-offset', '.15em', 'important')
@@ -111,6 +111,20 @@ function setImportantStyle(element: HTMLElement | SVGElement, property: string, 
 		return
 	}
 	element.style.setProperty(property, value, 'important')
+}
+
+const NARROW_TABLE_REFLOW_WIDTH = 400
+
+function stackTableForNarrowPane(table: HTMLTableElement): void {
+	const sections = [table, ...table.querySelectorAll<HTMLElement>('thead, tbody, tfoot, tr, td, th')]
+	for (const section of sections) {
+		if (getComputedStyle(section).display === 'none') continue
+		setImportantStyle(section, 'box-sizing', 'border-box')
+		setImportantStyle(section, 'display', 'block')
+		setImportantStyle(section, 'min-width', '0px')
+		setImportantStyle(section, 'max-width', '100%')
+		setImportantStyle(section, 'width', '100%')
+	}
 }
 
 function isolateBackgroundMedia(root: HTMLElement): void {
@@ -552,9 +566,17 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		private applyReadableLayout(content: HTMLElement, containerWidth: number): boolean {
 			let changed = content.scrollWidth > containerWidth
+			const contentStyle = getComputedStyle(content)
+			const horizontalPadding = [contentStyle.paddingLeft, contentStyle.paddingRight]
+				.map(Number.parseFloat)
+				.filter(Number.isFinite)
+				.reduce((total, padding) => total + padding, 0)
+			const readableWidth = Math.max(0, containerWidth - horizontalPadding)
+			const contentRect = content.getBoundingClientRect()
 			const plans: Array<{
 				element: HTMLElement | SVGElement
 				isInline: boolean
+				normalizeHorizontalMargins: boolean
 				normalizeNoWrap: boolean
 				raiseFont: boolean
 				tooWide: boolean
@@ -563,6 +585,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue
 				if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
 				const style = getComputedStyle(element)
+				const rect = element.getBoundingClientRect()
 				const width = Number.parseFloat(style.width)
 				const minWidth = Number.parseFloat(style.minWidth)
 				const declaredPixels = [
@@ -576,24 +599,38 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				const scrollWidth =
 					element instanceof HTMLElement ? element.scrollWidth : element.getBoundingClientRect().width
 				const tooWide =
-					declaredPixels.some((declaredWidth) => declaredWidth > containerWidth) ||
-					(Number.isFinite(width) && width > containerWidth) ||
-					(Number.isFinite(minWidth) && minWidth > containerWidth) ||
-					scrollWidth > containerWidth
+					declaredPixels.some((declaredWidth) => declaredWidth > readableWidth) ||
+					(Number.isFinite(width) && width > readableWidth) ||
+					(Number.isFinite(minWidth) && minWidth > readableWidth) ||
+					scrollWidth > readableWidth
 				const isInline = style.display === 'inline' || style.display === 'contents'
+				const overflowsPane = rect.left < contentRect.left - 0.5 || rect.right > contentRect.right + 0.5
+				const normalizeHorizontalMargins =
+					overflowsPane &&
+					[style.marginLeft, style.marginRight]
+						.map(Number.parseFloat)
+						.some((margin) => Number.isFinite(margin) && margin !== 0)
 				const normalizeNoWrap = element.hasAttribute('nowrap') || style.whiteSpace === 'nowrap'
 				const hasDirectText = Array.from(element.childNodes).some(
 					(node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
 				)
 				const fontSize = Number.parseFloat(style.fontSize)
 				const raiseFont = hasDirectText && Number.isFinite(fontSize) && fontSize < 12
-				if (tooWide || normalizeNoWrap || raiseFont) {
-					plans.push({ element, isInline, normalizeNoWrap, raiseFont, tooWide })
+				if (tooWide || normalizeHorizontalMargins || normalizeNoWrap || raiseFont) {
+					plans.push({ element, isInline, normalizeHorizontalMargins, normalizeNoWrap, raiseFont, tooWide })
 					changed = true
 				}
 			}
-			for (const { element, isInline, normalizeNoWrap, raiseFont, tooWide } of plans) {
+			for (const {
+				element,
+				isInline,
+				normalizeHorizontalMargins,
+				normalizeNoWrap,
+				raiseFont,
+				tooWide,
+			} of plans) {
 				if (tooWide && !isInline) {
+					setImportantStyle(element, 'box-sizing', 'border-box')
 					setImportantStyle(element, 'min-width', '0px')
 					setImportantStyle(element, 'max-width', '100%')
 				}
@@ -602,6 +639,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				}
 				if (element.tagName === 'TABLE' && tooWide) {
 					setImportantStyle(element, 'table-layout', 'fixed')
+					if (readableWidth < NARROW_TABLE_REFLOW_WIDTH) {
+						stackTableForNarrowPane(element as HTMLTableElement)
+					}
+				}
+				if (normalizeHorizontalMargins) {
+					setImportantStyle(element, 'margin-left', '0px')
+					setImportantStyle(element, 'margin-right', '0px')
+					setImportantStyle(element, 'margin-inline-start', '0px')
+					setImportantStyle(element, 'margin-inline-end', '0px')
 				}
 				if (normalizeNoWrap) setImportantStyle(element, 'white-space', 'normal')
 				if (raiseFont) {

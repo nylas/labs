@@ -88,6 +88,7 @@ describe('rewriteAnchors', () => {
 		for (const anchor of root.querySelectorAll('a')) {
 			expect(anchor.getAttribute('target')).toBe('_blank')
 			expect(anchor.getAttribute('rel')).toBe('noopener noreferrer nofollow')
+			expect(anchor.style.getPropertyValue('color')).toBe('var(--ownmail-email-link-color, LinkText)')
 		}
 	})
 
@@ -585,6 +586,44 @@ describe('<ownmail-email> scaling', () => {
 
 		expect(nowrap.style.getPropertyValue('white-space')).toBe('normal')
 		expect(nowrap.style.getPropertyPriority('white-space')).toBe('important')
+	})
+
+	it('removes overflowing horizontal margins and stacks wide tables without revealing hidden rows', () => {
+		const el = mount(
+			'<div class="offset" style="margin-left:60px">Offset</div><table class="wide" width="600"><tbody><tr><td>Visible</td></tr><tr class="hidden" style="display:none"><td>Hidden</td></tr></tbody></table>',
+		)
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const offset = content.querySelector('.offset') as HTMLElement
+		const table = content.querySelector('.wide') as HTMLTableElement
+		const visibleCell = table.querySelector('td') as HTMLTableCellElement
+		const hiddenRow = table.querySelector('.hidden') as HTMLTableRowElement
+		content.getBoundingClientRect = () => ({ left: 0, right: 320, width: 320 }) as DOMRect
+		offset.getBoundingClientRect = () => ({ left: 60, right: 380, width: 320 }) as DOMRect
+		stubSize(content, 'scrollWidth', 600)
+		stubSize(el, 'clientWidth', 320)
+
+		el.measure()
+
+		for (const property of ['margin-left', 'margin-right', 'margin-inline-start', 'margin-inline-end']) {
+			expect(offset.style.getPropertyValue(property)).toBe('0px')
+			expect(offset.style.getPropertyPriority(property)).toBe('important')
+		}
+		expect(table.style.getPropertyValue('display')).toBe('block')
+		expect(visibleCell.style.getPropertyValue('display')).toBe('block')
+		expect(hiddenRow.style.getPropertyValue('display')).toBe('none')
+	})
+
+	it('keeps wide table semantics in a sufficiently large reading pane', () => {
+		const el = mount('<table class="wide" width="1200"><tbody><tr><td>Content</td></tr></tbody></table>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const table = content.querySelector('.wide') as HTMLTableElement
+		stubSize(content, 'scrollWidth', 1_200)
+		stubSize(el, 'clientWidth', 800)
+
+		el.measure()
+
+		expect(table.style.getPropertyValue('table-layout')).toBe('fixed')
+		expect(table.style.getPropertyValue('display')).toBe('')
 	})
 
 	it('normalizes computed fixed widths and safely skips non-HTML elements', () => {
