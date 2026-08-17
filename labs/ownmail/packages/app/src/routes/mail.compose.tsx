@@ -758,7 +758,10 @@ function Compose() {
 							onClick={() => setMinimized((value) => !value)}
 							aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
 							aria-expanded={!minimized}
-							className="hidden h-11 w-11 items-center justify-center rounded transition-colors hover:bg-background/20 sm:flex"
+							className={cn(
+								'h-11 w-11 items-center justify-center rounded transition-colors hover:bg-background/20',
+								minimized ? 'flex' : 'hidden sm:flex',
+							)}
 						>
 							{minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
 						</button>

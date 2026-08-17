@@ -1272,6 +1272,8 @@ describe('mail.compose window controls', () => {
 		expect(screen.queryByPlaceholderText('Write your message...')).not.toBeInTheDocument()
 		const restore = screen.getByRole('button', { name: 'Restore composer' })
 		expect(restore).toHaveAttribute('aria-expanded', 'false')
+		expect(restore).toHaveClass('flex')
+		expect(restore).not.toHaveClass('hidden')
 		expect(restore.querySelector('svg')).toHaveClass('lucide-maximize-2')
 		fireEvent.click(restore)
 		expect(screen.getByLabelText('To')).toHaveValue('edited@example.com')
