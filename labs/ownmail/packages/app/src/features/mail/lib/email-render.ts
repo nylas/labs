@@ -21,6 +21,7 @@ export const EMAIL_REMOTE_IMAGES_EVENT = 'email-remote-images'
 
 export type EmailLayoutMode = 'readable' | 'original'
 export type EmailTheme = 'light' | 'dark'
+export type EmailImageMode = 'automatic' | 'original'
 
 /** Measurements the React wrapper can use to offer an Original/Readable control. */
 export interface EmailLayoutStatusDetail {
@@ -255,7 +256,8 @@ export function shadowStyleText(): string {
 :host(:not([data-layout-mode="original"])) .email-root :where(img:not([src]):not([srcset])){display:none!important;}
 :host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}
-:host([data-dark-invert]) .email-root :where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color:#fff!important;}
+:host([data-dark-invert]) .email-root :where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color:#f3f4f6!important;}
+:host([data-email-theme="dark"]) .email-root :where(img[src*="/email-images/"], img[srcset*="/email-images/"]){background-color:#f3f4f6!important;}
 :where(.email-root) [data-ownmail-background-media]{position:relative!important;isolation:isolate;}
 :host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]{background-image:none!important;}
 :host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]::before{content:""!important;position:absolute!important;inset:0!important;z-index:-1!important;pointer-events:none!important;background-image:var(--ownmail-background-image)!important;background-position:var(--ownmail-background-position)!important;background-size:var(--ownmail-background-size)!important;background-repeat:var(--ownmail-background-repeat)!important;background-origin:var(--ownmail-background-origin)!important;background-clip:var(--ownmail-background-clip)!important;filter:invert(1) hue-rotate(180deg)!important;}
@@ -285,6 +287,11 @@ export function applyRemoteImages(element: Element | null, load: boolean): void 
 	if (!element) return
 	if (load) element.setAttribute('data-load-remote-images', '')
 	else element.removeAttribute('data-load-remote-images')
+}
+
+/** Select safe automatic variants or untouched colors without bypassing the proxy. */
+export function applyEmailImageMode(element: Element | null, mode: EmailImageMode): void {
+	if (element) element.setAttribute('data-image-mode', mode)
 }
 
 /** Reflect the reader's compatibility layout choice onto the custom element. */

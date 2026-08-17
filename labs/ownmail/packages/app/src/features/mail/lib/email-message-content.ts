@@ -67,6 +67,7 @@ export function prepareEmailMessageContent(
 	html: string,
 	messageId: string,
 	attachments: InlineAttachment[] = [],
+	imageTokens: Record<string, string> = {},
 ): PreparedEmailContent {
 	const parseableHtml = html.replace(MSO_CONDITIONAL_COMMENT, (_comment, contents: string) => {
 		return extractVmlCtas(contents)
@@ -78,7 +79,7 @@ export function prepareEmailMessageContent(
 	})
 	const document = new DOMParser().parseFromString(parseableHtml, 'text/html')
 	preserveLegacyVmlCtas(document)
-	rewriteCidImages(document, messageId, attachments)
+	rewriteCidImages(document, messageId, attachments, imageTokens)
 	collapseQuotedHistory(document)
 	return {
 		html: document.documentElement.outerHTML,
@@ -155,6 +156,7 @@ export function rewriteCidImages(
 	document: Document,
 	messageId: string,
 	attachments: InlineAttachment[],
+	imageTokens: Record<string, string> = {},
 ): void {
 	const contentIds = new Map<string, InlineAttachment>()
 	for (const attachment of attachments) {
@@ -167,9 +169,12 @@ export function rewriteCidImages(
 		if (!source.toLowerCase().startsWith('cid:')) continue
 		const attachment = contentIds.get(normalizeContentId(source.slice(4)))
 		if (attachment) {
+			const token = imageTokens[attachment.id]
 			image.setAttribute(
 				'src',
-				`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`,
+				token
+					? `/email-images/${token}?mode=automatic&theme=light`
+					: `/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`,
 			)
 			// A provider srcset can otherwise override the safely resolved src.
 			image.removeAttribute('srcset')

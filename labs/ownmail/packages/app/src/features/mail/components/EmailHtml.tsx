@@ -2,6 +2,7 @@ import { type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import {
 	applyDarkInvert,
 	applyEmailHtml,
+	applyEmailImageMode,
 	applyEmailLayoutMode,
 	applyEmailTheme,
 	applyRemoteImages,
@@ -9,6 +10,7 @@ import {
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
 	type EmailElementLike,
+	type EmailImageMode,
 	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
@@ -17,6 +19,7 @@ import {
 	previewBoxStyle,
 	subscribeLinkPreview,
 } from '../lib/email-render.js'
+import { senderImagesTrusted, trustSenderImages } from '../lib/image-sender-trust.js'
 import { sanitizedEmailSupportsDarkMode } from '../lib/sanitize-email.js'
 import { ensureEmailElementDefined } from './email-content-element.js'
 
@@ -55,15 +58,18 @@ export function EmailHtml({
 	html,
 	messageId,
 	darken = true,
+	senderAddress,
 }: {
 	html: string
 	messageId: string
 	darken?: boolean
+	senderAddress?: string
 }) {
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
 	const [layoutMode, setLayoutMode] = useState<EmailLayoutMode>('readable')
+	const [imageMode, setImageMode] = useState<EmailImageMode>('automatic')
 	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
 	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
 
@@ -101,6 +107,10 @@ export function EmailHtml({
 		if (ready) applyEmailTheme(ref.current, isDark ? 'dark' : 'light')
 	}, [ready, isDark])
 
+	useLayoutEffect(() => {
+		if (ready) applyEmailImageMode(ref.current, imageMode)
+	}, [ready, imageMode])
+
 	// `ready` re-runs these once the custom element has mounted and `ref.current` is
 	// set (the linter can't see the ref dependency, so it is used explicitly here).
 	useLayoutEffect(() => {
@@ -113,21 +123,70 @@ export function EmailHtml({
 
 	useEffect(() => subscribeLinkPreview(ready ? ref.current : null, setPreview), [ready])
 
+	useEffect(() => {
+		if (!ready || !senderAddress) return
+		let active = true
+		void senderImagesTrusted(senderAddress).then((trusted) => {
+			if (active && trusted) applyRemoteImages(ref.current, true)
+		})
+		return () => {
+			active = false
+		}
+	}, [ready, senderAddress])
+
 	const showLayoutControl =
 		layoutMode === 'original' || layoutStatus?.reflowed === true || layoutStatus?.needsFit === true
 
 	return (
 		<div className="relative" aria-busy={ready ? undefined : true}>
 			{remoteImages?.hasRemoteImages && !remoteImages.loaded ? (
-				<div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+				<div className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
 					<span>Remote images are blocked to protect your privacy.</span>
-					<button
-						type="button"
-						className="min-h-11 shrink-0 rounded-md px-3 font-medium text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						onClick={() => applyRemoteImages(ref.current, true)}
-					>
-						Load images
-					</button>
+					<div className="ml-auto flex flex-wrap justify-end gap-1">
+						<button
+							type="button"
+							className="min-h-11 shrink-0 rounded-md px-3 font-medium text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={() => applyRemoteImages(ref.current, true)}
+						>
+							Load images
+						</button>
+						{senderAddress ? (
+							<button
+								type="button"
+								className="min-h-11 shrink-0 rounded-md px-3 font-medium text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								onClick={() => {
+									void trustSenderImages(senderAddress).then((trusted) => {
+										if (trusted) applyRemoteImages(ref.current, true)
+									})
+								}}
+							>
+								Always load from sender
+							</button>
+						) : null}
+					</div>
+				</div>
+			) : null}
+			{remoteImages?.hasRemoteImages && remoteImages.loaded ? (
+				<div className="mb-2 flex justify-end">
+					<fieldset className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-xs">
+						<legend className="sr-only">Image colors</legend>
+						{(
+							[
+								['automatic', 'Automatic'],
+								['original', 'Original colors'],
+							] as const
+						).map(([mode, label]) => (
+							<button
+								key={mode}
+								type="button"
+								aria-pressed={imageMode === mode}
+								onClick={() => setImageMode(mode)}
+								className="min-h-11 rounded-md px-3 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm"
+							>
+								{label}
+							</button>
+						))}
+					</fieldset>
 				</div>
 			) : null}
 			{showLayoutControl ? (

@@ -8,6 +8,7 @@ import {
 } from '../lib/email-render.js'
 import {
 	anchorHref,
+	applyControlledImageTreatment,
 	applyInheritedSurfaceContrast,
 	applyPictureSourceMedia,
 	ensureEmailElementDefined,
@@ -77,6 +78,29 @@ describe('anchorHref', () => {
 		const span = document.createElement('span')
 		anchor.appendChild(span)
 		expect(anchorHref(span)).toBe('https://example.com/x')
+	})
+})
+
+describe('controlled image treatment', () => {
+	it('updates only signed same-origin proxy references across attributes and CSS', () => {
+		const token = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+		const root = document.createElement('div')
+		root.innerHTML = `<style>.hero{background:url('/email-images/${token}?mode=automatic&theme=light')}</style>
+			<img src="/email-images/${token}?mode=automatic&amp;theme=light" srcset="/email-images/${token}?mode=automatic&amp;theme=light 1x">
+			<img class="remote" src="https://images.example/a.png">`
+		applyControlledImageTreatment(root, 'original', 'dark')
+		const image = root.querySelector('img')
+		expect(image?.getAttribute('src')).toBe(`/email-images/${token}?mode=original&theme=dark`)
+		expect(image?.getAttribute('srcset')).toContain('mode=original&theme=dark')
+		expect(root.querySelector('style')?.textContent).toContain('mode=original&theme=dark')
+		expect(root.querySelector('.remote')?.getAttribute('src')).toBe('https://images.example/a.png')
+	})
+
+	it('ignores malformed image URLs without disrupting valid content', () => {
+		const root = document.createElement('div')
+		root.innerHTML = '<img src="http://["><p>Still readable</p>'
+		expect(() => applyControlledImageTreatment(root, 'automatic', 'dark')).not.toThrow()
+		expect(root.textContent).toContain('Still readable')
 	})
 })
 

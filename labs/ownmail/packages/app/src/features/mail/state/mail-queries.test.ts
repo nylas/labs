@@ -120,6 +120,47 @@ describe('mail query cache boundaries', () => {
 		).toMatchObject({ messages: [{ id: 'm1', subject: 'Hello', ownmailDraft: true }] })
 	})
 
+	it('accepts only bounded server-attested inline image token maps', () => {
+		const attachmentMessage = {
+			...message,
+			attachments: [{ id: 'inline-1', is_inline: true }],
+			ownmailImagesAttested: true,
+			ownmailImageTokens: { 'inline-1': 'signed.payload' },
+		} as unknown as Message
+		expect(toMailMessage(attachmentMessage).ownmailImageTokens).toEqual({
+			'inline-1': 'signed.payload',
+		})
+		expect(
+			toMailMessage({
+				...attachmentMessage,
+				ownmailImagesAttested: false,
+			} as unknown as Message),
+		).not.toHaveProperty('ownmailImageTokens')
+		expect(
+			toMailMessage({
+				...attachmentMessage,
+				ownmailImageTokens: { unknown: 'signed.payload' },
+			} as unknown as Message),
+		).not.toHaveProperty('ownmailImageTokens')
+	})
+
+	it('rejects absent, empty, and oversized attested image token maps', () => {
+		const base = {
+			...message,
+			attachments: [{ id: 'inline-1', is_inline: true }],
+			ownmailImagesAttested: true,
+		}
+		const oversized = Object.fromEntries(
+			Array.from({ length: 101 }, (_, index) => [`inline-${index}`, 'signed.payload']),
+		)
+		for (const ownmailImageTokens of [null, [], {}, oversized]) {
+			expect(toMailMessage({ ...base, ownmailImageTokens } as never)).not.toHaveProperty('ownmailImageTokens')
+		}
+		expect(
+			toMailMessage({ ...message, ownmailImagesAttested: true, ownmailImageTokens: {} } as never),
+		).not.toHaveProperty('ownmailImageTokens')
+	})
+
 	it('builds executable finite query options with sanitized results', async () => {
 		const client = new QueryClient()
 		await expect(client.fetchQuery(foldersQueryOptions(async () => [folder]))).resolves.toEqual([

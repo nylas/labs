@@ -7,6 +7,7 @@ import { EmailHtml } from './EmailHtml.js'
 afterEach(() => {
 	cleanup()
 	document.documentElement.classList.remove('dark')
+	localStorage.clear()
 })
 
 function emailElement(): HTMLElement & { emailHtml: string } {
@@ -113,6 +114,42 @@ describe('EmailHtml', () => {
 		fireEvent.click(load)
 		await waitFor(() => expect(image()?.getAttribute('src')).toBe('https://images.example/tracker.png'))
 		expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull()
+		expect(screen.getByRole('button', { name: 'Automatic' })).toHaveAttribute('aria-pressed', 'true')
+		fireEvent.click(screen.getByRole('button', { name: 'Original colors' }))
+		expect(emailElement()).toHaveAttribute('data-image-mode', 'original')
+	})
+
+	it('can remember proxy consent for a normalized sender without storing their address', async () => {
+		const props = {
+			html: '<img class="remote" src="https://images.example/logo.png">',
+			messageId: 'm-trusted',
+			senderAddress: 'News@Example.com',
+		}
+		const first = render(<EmailHtml {...props} />)
+		fireEvent.click(await screen.findByRole('button', { name: 'Always load from sender' }))
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull())
+		expect(localStorage.getItem('ownmail:trusted-image-senders:v2') ?? '').not.toContain('example.com')
+
+		first.unmount()
+		render(<EmailHtml {...props} messageId="m-trusted-next" />)
+		await waitFor(() =>
+			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute(
+				'src',
+				'https://images.example/logo.png',
+			),
+		)
+	})
+
+	it('keeps images blocked when an invalid sender cannot be trusted', async () => {
+		render(
+			<EmailHtml
+				html='<img class="remote" src="https://images.example/logo.png">'
+				messageId="m-invalid-sender"
+				senderAddress="not-an-email"
+			/>,
+		)
+		fireEvent.click(await screen.findByRole('button', { name: 'Always load from sender' }))
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Load images' })).toBeInTheDocument())
 	})
 
 	it('offers readable and original layouts when legacy content needs compatibility reflow', () => {

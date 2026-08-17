@@ -33,6 +33,19 @@ describe('inline Content-ID images', () => {
 		expect(images[1]?.getAttribute('src')).toBe('https://example.com/photo.png')
 	})
 
+	it('uses a server-attested controlled image token for resolved inline assets', () => {
+		const document = parse('<img src="cid:logo@example" srcset="https://tracker.example/pixel 2x">')
+		rewriteCidImages(
+			document,
+			'message-1',
+			[{ id: 'attachment-1', is_inline: true, content_id: 'logo@example' }],
+			{ 'attachment-1': 'signed.payload' },
+		)
+		const image = document.querySelector('img')
+		expect(image?.getAttribute('src')).toBe('/email-images/signed.payload?mode=automatic&theme=light')
+		expect(image?.hasAttribute('srcset')).toBe(false)
+	})
+
 	it('replaces unmatched and malformed CID references with inert accessible fallbacks', () => {
 		const document = parse('<img src="cid:missing" alt="Company signature"><img src="CID:%E0%A4%A">')
 		rewriteCidImages(document, 'm1', [])

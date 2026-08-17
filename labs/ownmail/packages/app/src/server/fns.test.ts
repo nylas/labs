@@ -106,7 +106,9 @@ beforeEach(() => {
 	mailbox.createContact.mockImplementation(async (fields) => ({
 		data: { id: 'contact-created', ...fields },
 	}))
-	platformMock.mockReset().mockResolvedValue({ env: { APP_NAME: 'ownmail' }, kv: null })
+	platformMock
+		.mockReset()
+		.mockResolvedValue({ env: { APP_NAME: 'ownmail', SESSION_SECRET: 'test-session-secret' }, kv: null })
 })
 
 describe('account settings security', () => {
