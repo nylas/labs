@@ -333,6 +333,7 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Jun')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('region', { name: 'Calendar time grid' })).toHaveClass('max-sm:overflow-x-auto')
 		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('min-w-[45rem]', 'sm:min-w-0')
 		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('min-w-[45rem]', 'sm:min-w-0')
 	})

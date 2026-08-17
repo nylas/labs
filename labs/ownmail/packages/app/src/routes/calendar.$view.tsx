@@ -858,7 +858,12 @@ function TimeGrid({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
+			<ScrollArea
+				aria-label="Calendar time grid"
+				viewportRef={scrollRef}
+				viewportClassName={days === 7 ? 'max-sm:overflow-x-auto' : undefined}
+				className="isolate min-h-0 flex-1"
+			>
 				<div
 					className={cn('sticky top-0 z-30 bg-background', days === 7 && 'min-w-[45rem] sm:min-w-0')}
 					data-testid="calendar-time-grid-header"
