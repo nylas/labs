@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Browser, chromium, type Page } from 'playwright'
@@ -17,6 +17,23 @@ interface ElementMetrics {
 
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
 const fixturePath = '/email-content-element.browser.fixture.html'
+const realEmailFixtures = [
+	'bare-legacy-tables',
+	'long-form-fixed-width',
+	'nested-background-cards',
+	'responsive-image-gallery',
+	'responsive-table-stack',
+] as const
+const realEmailWidths = [
+	{ viewportWidth: 320, hostWidth: 288 },
+	{ viewportWidth: 375, hostWidth: 343 },
+	{ viewportWidth: 414, hostWidth: 382 },
+	{ viewportWidth: 768, hostWidth: 448 },
+] as const
+
+function readRealEmailFixture(name: (typeof realEmailFixtures)[number]): string {
+	return readFileSync(`${componentDirectory}/real-email-fixtures/${name}.html`, 'utf8')
+}
 
 async function settleLayout(page: Page, frames = 3): Promise<void> {
 	await page.evaluate(async (frameCount) => {
@@ -241,6 +258,117 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			expect(layoutStatus?.reflowed).toBe(true)
 		},
 	)
+
+	it.each(
+		realEmailFixtures.flatMap((fixture) =>
+			realEmailWidths.map(({ viewportWidth, hostWidth }) => ({ fixture, hostWidth, viewportWidth })),
+		),
+	)(
+		'keeps scrubbed $fixture mail readable in a $viewportWidth px viewport',
+		async ({ fixture, hostWidth, viewportWidth }) => {
+			if (!browser) throw new Error('Chromium failed to launch')
+			const page = await browser.newPage({ viewport: { width: viewportWidth, height: 900 } })
+			await mountEmail(page, fixtureUrl, hostWidth, readRealEmailFixture(fixture))
+			const state = await page.locator('ownmail-email').evaluate((host) => {
+				const root = host.shadowRoot?.querySelector<HTMLElement>('.email-root')
+				if (!root) throw new Error('Production email root was not mounted')
+				const hostRect = host.getBoundingClientRect()
+				const rootRect = root.getBoundingClientRect()
+				const directTextSizes = Array.from(root.querySelectorAll<HTMLElement>('*'))
+					.filter((element) => {
+						const style = getComputedStyle(element)
+						return (
+							style.display !== 'none' &&
+							style.visibility !== 'hidden' &&
+							Array.from(element.childNodes).some(
+								(node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
+							)
+						)
+					})
+					.map((element) => Number.parseFloat(getComputedStyle(element).fontSize))
+					.filter(Number.isFinite)
+				return {
+					hostScrollWidth: host.scrollWidth,
+					minimumDirectTextSize: Math.min(...directTextSizes),
+					rootLeft: rootRect.left,
+					rootRight: rootRect.right,
+					rootScrollWidth: root.scrollWidth,
+					hostLeft: hostRect.left,
+					hostRight: hostRect.right,
+					pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+					status: (window as Window & { __ownmailLastLayoutStatus?: { scale?: number } })
+						.__ownmailLastLayoutStatus,
+				}
+			})
+			await page.close()
+
+			expect(state.pageOverflow).toBe(0)
+			expect(state.hostScrollWidth).toBeLessThanOrEqual(hostWidth + 1)
+			expect(state.rootScrollWidth).toBeLessThanOrEqual(hostWidth + 1)
+			expect(state.rootLeft).toBeGreaterThanOrEqual(state.hostLeft - 0.5)
+			expect(state.rootRight).toBeLessThanOrEqual(state.hostRight + 0.5)
+			expect(state.minimumDirectTextSize).toBeGreaterThanOrEqual(12)
+			expect(state.status?.scale).toBe(1)
+		},
+	)
+
+	it.each(realEmailFixtures)(
+		'renders scrubbed %s mail on a dark canvas with usable contrast',
+		async (fixture) => {
+			if (!browser) throw new Error('Chromium failed to launch')
+			const page = await browser.newPage({ viewport: { width: 375, height: 900 } })
+			await mountEmail(page, fixtureUrl, 343, readRealEmailFixture(fixture))
+			await page.locator('ownmail-email').evaluate((host) => {
+				host.setAttribute('data-email-theme', 'dark')
+				host.setAttribute('data-dark-invert', '')
+			})
+			await settleLayout(page)
+			const image = await page.locator('ownmail-email').screenshot()
+			const contrast = await renderedLightDarkContrast(image)
+			const canvas = await firstRenderedPixel(image)
+			await page.close()
+
+			expect(contrast).toBeGreaterThanOrEqual(4.5)
+			expect(relativeLuminance(...canvas)).toBeLessThan(0.1)
+		},
+	)
+
+	it('renders trusted links with dark-mode pixel contrast', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 375, height: 300 } })
+		await mountEmail(page, fixtureUrl, 343, '<a class="probe" href="https://example.test">Readable link</a>')
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
+		await settleLayout(page)
+		const contrast = await renderedContrast(await page.locator('ownmail-email .probe').screenshot())
+		await page.close()
+
+		expect(contrast.ratio).toBeGreaterThanOrEqual(4.5)
+	})
+
+	it.each(realEmailFixtures)('keeps scrubbed %s mail contained at 200% zoom', async (fixture) => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 375, height: 900 } })
+		await mountEmail(page, fixtureUrl, 155, readRealEmailFixture(fixture))
+		await page.evaluate(() => {
+			document.documentElement.style.zoom = '2'
+		})
+		await settleLayout(page)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot?.querySelector<HTMLElement>('.email-root')
+			return {
+				hostWidth: host.clientWidth,
+				pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+				rootScrollWidth: root?.scrollWidth ?? Number.POSITIVE_INFINITY,
+			}
+		})
+		await page.close()
+
+		expect(state.pageOverflow).toBe(0)
+		expect(state.rootScrollWidth).toBeLessThanOrEqual(state.hostWidth + 1)
+	})
 
 	it('keeps fitting when sender CSS declares transform:none!important', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
@@ -842,9 +970,17 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			375,
 			'<img class="remote probe" src="https://images.example.test/tracker.gif" width="600" height="240">',
 		)
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
 		const blocked = await page.locator('ownmail-email').evaluate((host) => {
 			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.remote')
+			const style = image ? getComputedStyle(image) : null
 			return {
+				background: style?.backgroundColor ?? null,
+				display: style?.display ?? null,
+				filter: style?.filter ?? null,
 				src: image?.getAttribute('src') ?? null,
 				widthAttribute: image?.getAttribute('width'),
 				heightAttribute: image?.getAttribute('height'),
@@ -853,6 +989,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			}
 		})
 		expect(requests).toBe(0)
+		expect(blocked.background).toBe('rgba(0, 0, 0, 0)')
+		expect(blocked.display).toBe('none')
+		expect(blocked.filter).toBe('none')
 		expect(blocked.src).toBeNull()
 		expect(blocked.widthAttribute).toBe('600')
 		expect(blocked.heightAttribute).toBe('240')
@@ -862,15 +1001,23 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
 		await request
 		await settleLayout(page)
-		const loadedSrc = await page
-			.locator('ownmail-email')
-			.evaluate(
-				(host) => host.shadowRoot?.querySelector<HTMLImageElement>('.remote')?.getAttribute('src') ?? null,
-			)
+		const loaded = await page.locator('ownmail-email').evaluate((host) => {
+			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.remote')
+			const style = image ? getComputedStyle(image) : null
+			return {
+				background: style?.backgroundColor ?? null,
+				display: style?.display ?? null,
+				filter: style?.filter ?? null,
+				src: image?.getAttribute('src') ?? null,
+			}
+		})
 		await page.close()
 
 		expect(requests).toBe(1)
-		expect(loadedSrc).toBe('https://images.example.test/tracker.gif')
+		expect(loaded.background).toBe('rgb(255, 255, 255)')
+		expect(loaded.display).not.toBe('none')
+		expect(loaded.filter).not.toBe('none')
+		expect(loaded.src).toBe('https://images.example.test/tracker.gif')
 	})
 
 	it('blocks SVG resource references before consent and restores eligible references after opt-in', async () => {

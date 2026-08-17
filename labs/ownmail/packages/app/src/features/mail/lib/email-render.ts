@@ -1,3 +1,4 @@
+/* Hallmark · component: email reader · genre: modern-minimal · theme: Quiet · pre-emit critique: P5 H5 E5 S5 R5 V5 · contrast: pass · mobile: pass */
 /**
  * Pure logic + thin DOM adapters for the HTML-email renderer. Everything here is
  * free of module-load-time DOM references so it can be imported on the server
@@ -233,8 +234,8 @@ export function shadowStyleText(): string {
 	// cancel the transform. Layout/paint containment also bounds positioned provider
 	// content to the message surface. Media is re-inverted so photos keep true colors.
 	return `
-:host{--ownmail-email-theme:light;display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
-:host([data-email-theme="dark"]){--ownmail-email-theme:dark;color:#e5e7eb;color-scheme:dark;}
+:host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
+:host([data-email-theme="dark"]){--ownmail-email-theme:dark;--ownmail-email-link-color:#7dd3fc;color:#e5e7eb;color-scheme:dark;}
 .email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:transparent!important;color:inherit;padding:20px;overflow-wrap:anywhere;word-break:break-word;}
 .email-root[data-ownmail-direction="rtl"]{transform-origin:top right!important;}
 :where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}
@@ -242,8 +243,7 @@ export function shadowStyleText(): string {
 :where(.email-root) :where(body){margin:0;}
 :where(.email-root) :where(body:not([bgcolor])){background-color:transparent;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
-:where(.email-root) :where(a[href]){color:#075985!important;text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
-:host([data-email-theme="dark"]):not([data-dark-invert]) :where(.email-root) :where(a[href]){color:#7dd3fc!important;}
+:where(.email-root) :where(a[href]){color:var(--ownmail-email-link-color)!important;text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
 :where(.email-root) [data-ownmail-inherited-color="dark"]{color:#1a1a1a!important;}
 :where(.email-root) [data-ownmail-inherited-color="light"]{color:#f5f5f5!important;}
 :where(.email-root) :where(a[href]):focus-visible{outline:2px solid CanvasText!important;outline-offset:2px!important;border-radius:2px!important;box-shadow:0 0 0 4px Canvas!important;}
@@ -252,9 +252,10 @@ export function shadowStyleText(): string {
 :host(:not([data-layout-mode="original"])) .email-root :where(td, th){min-width:0!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where([nowrap], [style*="white-space" i][style*="nowrap" i]){white-space:normal!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(img, video, svg, canvas){height:auto;}
-:host([data-dark-invert]){color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
+:host(:not([data-layout-mode="original"])) .email-root :where(img:not([src]):not([srcset])){display:none!important;}
+:host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}
-:host([data-dark-invert]) .email-root :where(img, video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color:#fff!important;}
+:host([data-dark-invert]) .email-root :where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color:#fff!important;}
 :where(.email-root) [data-ownmail-background-media]{position:relative!important;isolation:isolate;}
 :host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]{background-image:none!important;}
 :host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]::before{content:""!important;position:absolute!important;inset:0!important;z-index:-1!important;pointer-events:none!important;background-image:var(--ownmail-background-image)!important;background-position:var(--ownmail-background-position)!important;background-size:var(--ownmail-background-size)!important;background-repeat:var(--ownmail-background-repeat)!important;background-origin:var(--ownmail-background-origin)!important;background-clip:var(--ownmail-background-clip)!important;filter:invert(1) hue-rotate(180deg)!important;}

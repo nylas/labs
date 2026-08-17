@@ -6,7 +6,15 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!**/dist", "!**/node_modules", "!**/.turbo", "!**/.wrangler", "!**/routeTree.gen.ts"]
+		"includes": [
+			"**",
+			"!**/dist",
+			"!**/node_modules",
+			"!**/.turbo",
+			"!**/.wrangler",
+			"!**/routeTree.gen.ts",
+			"!labs/ownmail/packages/app/src/features/mail/components/real-email-fixtures"
+		]
 	},
 	"formatter": {
 		"enabled": true,
