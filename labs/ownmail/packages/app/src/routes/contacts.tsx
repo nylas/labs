@@ -60,7 +60,7 @@ function ContactsLayout() {
 			loadingMore={contactsQuery.isFetchingNextPage}
 			loadMoreError={contactsQuery.isFetchNextPageError}
 			onLoadMore={loadMoreContacts}
-			onRefresh={() => contactsQuery.refetch()}
+			onRefresh={() => contactsQuery.refetch({ throwOnError: true })}
 			query={q ?? ''}
 			selectedId={contactIdFromPath(pathname)}
 			onQueryChange={(next) => navigate({ to: '/contacts', search: next ? { q: next } : {}, replace: true })}

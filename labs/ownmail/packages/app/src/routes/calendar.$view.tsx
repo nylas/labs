@@ -77,7 +77,7 @@ function CalendarViewRoutePage() {
 		<CalendarRouteScreen
 			view={view}
 			data={calendarQuery.data}
-			onRefresh={() => calendarQuery.refetch().then(() => undefined)}
+			onRefresh={() => calendarQuery.refetch({ throwOnError: true }).then(() => undefined)}
 		/>
 	)
 }

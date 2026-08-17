@@ -392,6 +392,17 @@ describe('ContactsLayout wrapper', () => {
 		await waitFor(() => expect(h.getContacts).toHaveBeenCalledWith({ data: {} }))
 	})
 
+	it('announces a generic failure when the live contacts refresh rejects', async () => {
+		h.getContacts.mockRejectedValue(new Error('provider-secret-detail'))
+		renderLayout({ info, contacts }, {})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Could not refresh. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
+
 	it('pushes a typed query into the URL', () => {
 		renderLayout({ info, contacts }, {})
 		fireEvent.change(screen.getByLabelText('Search contacts'), { target: { value: 'ada' } })

@@ -131,8 +131,11 @@ function FolderView() {
 	}
 
 	async function refreshThreads() {
-		if (folderId === 'drafts') await draftsQuery.refetch()
-		else await threadsQuery.refetch()
+		const activeListRefresh =
+			folderId === 'drafts'
+				? draftsQuery.refetch({ throwOnError: true })
+				: threadsQuery.refetch({ throwOnError: true })
+		await Promise.all([activeListRefresh, folderQuery.refetch({ throwOnError: true })])
 	}
 
 	return (

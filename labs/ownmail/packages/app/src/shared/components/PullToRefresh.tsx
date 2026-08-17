@@ -1,6 +1,7 @@
 import { Loader2, RefreshCw } from 'lucide-react'
 import {
 	type CSSProperties,
+	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 	type TouchEvent as ReactTouchEvent,
 	type RefObject,
@@ -13,7 +14,7 @@ import { cn } from '../lib/utils.js'
 const PULL_THRESHOLD = 64
 const MAX_PULL_DISTANCE = 88
 const AXIS_LOCK_DISTANCE = 8
-const INTERACTIVE_TARGET = 'button, a, input, textarea, select, [contenteditable="true"], [role="slider"]'
+const GESTURE_BLOCKING_TARGET = 'input, textarea, select, [contenteditable="true"], [role="slider"]'
 
 type Gesture = {
 	startX: number
@@ -36,6 +37,7 @@ export function PullToRefresh({
 }) {
 	const rootRef = useRef<HTMLDivElement>(null)
 	const gestureRef = useRef<Gesture | null>(null)
+	const suppressClickRef = useRef(false)
 	const distanceRef = useRef(0)
 	const [distance, setDistance] = useState(0)
 	const [refreshing, setRefreshing] = useState(false)
@@ -62,6 +64,7 @@ export function PullToRefresh({
 	}
 
 	function onTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
+		suppressClickRef.current = false
 		const touch = event.touches[0]
 		const scroller = scrollRef?.current ?? rootRef.current
 		const selection = window.getSelection?.()?.toString()
@@ -72,7 +75,7 @@ export function PullToRefresh({
 			!touch ||
 			(scroller?.scrollTop ?? 0) > 0 ||
 			selection ||
-			target.closest(INTERACTIVE_TARGET)
+			target.closest(GESTURE_BLOCKING_TARGET)
 		) {
 			gestureRef.current = null
 			return
@@ -93,6 +96,7 @@ export function PullToRefresh({
 				return
 			}
 			gesture.axis = 'vertical'
+			suppressClickRef.current = true
 		}
 		if (deltaY <= 0) return
 		if (event.cancelable) event.preventDefault()
@@ -104,7 +108,22 @@ export function PullToRefresh({
 	function onTouchEnd() {
 		const shouldRefresh = distanceRef.current >= PULL_THRESHOLD
 		resetGesture()
+		window.setTimeout(() => {
+			suppressClickRef.current = false
+		}, 0)
 		if (shouldRefresh) void refresh()
+	}
+
+	function onClickCapture(event: ReactMouseEvent<HTMLDivElement>) {
+		if (!suppressClickRef.current) return
+		suppressClickRef.current = false
+		event.preventDefault()
+		event.stopPropagation()
+	}
+
+	function onTouchCancel() {
+		suppressClickRef.current = false
+		resetGesture()
 	}
 
 	const armed = distance >= PULL_THRESHOLD
@@ -116,7 +135,8 @@ export function PullToRefresh({
 			onTouchStart={onTouchStart}
 			onTouchMove={onTouchMove}
 			onTouchEnd={onTouchEnd}
-			onTouchCancel={resetGesture}
+			onTouchCancel={onTouchCancel}
+			onClickCapture={onClickCapture}
 		>
 			<div
 				className="pull-to-refresh-indicator pointer-events-none absolute inset-x-0 top-0 z-30 flex h-12 items-center justify-center gap-2 text-xs font-medium text-muted-foreground"
@@ -151,7 +171,7 @@ export function RefreshButton({
 	return (
 		<button
 			type="button"
-			onClick={onRefresh}
+			onClick={() => void Promise.resolve(onRefresh()).catch(() => undefined)}
 			disabled={refreshing}
 			aria-label={refreshing ? `Refreshing ${label.toLowerCase()}` : label}
 			className={cn(

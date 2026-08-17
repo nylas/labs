@@ -332,6 +332,21 @@ describe('CalendarViewRoutePage wrapper', () => {
 		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
 		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalled())
 	})
+
+	it('announces a generic failure when the live calendar refresh rejects', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		h.getEvents.mockRejectedValue(new Error('provider-secret-detail'))
+		const Page = Route.options.component
+		render(<Page />)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Could not refresh. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
 })
 
 // ---- week view (route navigation) -----------------------------------------

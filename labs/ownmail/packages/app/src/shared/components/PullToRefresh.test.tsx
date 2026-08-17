@@ -89,22 +89,58 @@ describe('PullToRefresh', () => {
 		expect(onRefresh).not.toHaveBeenCalled()
 	})
 
-	it('does not claim touches away from the scroll top or from interactive content', () => {
+	it('does not claim touches away from the scroll top', () => {
 		const scrolled = renderPull(undefined, { scrollTop: 1 })
 		gesture(scrolled.root, 10, 160)
 		expect(scrolled.onRefresh).not.toHaveBeenCalled()
-		cleanup()
+	})
 
+	it('allows a pull to start on an interactive row but preserves ordinary taps', async () => {
 		const interactive = renderPull(undefined, { interactive: true })
 		const button = screen.getByRole('button', { name: 'Child action' })
 		gesture(button, 10, 160)
-		expect(interactive.onRefresh).not.toHaveBeenCalled()
+		await waitFor(() => expect(interactive.onRefresh).toHaveBeenCalledOnce())
+
+		const onClick = vi.fn()
+		button.addEventListener('click', onClick)
+		fireEvent.touchStart(button, { touches: [touch(10, 10)] })
+		fireEvent.touchEnd(button, { touches: [] })
+		fireEvent.click(button)
+		expect(onClick).toHaveBeenCalledOnce()
+	})
+
+	it('suppresses the synthetic click after an interactive row becomes a vertical drag', () => {
+		const onClick = vi.fn()
+		render(
+			<PullToRefresh onRefresh={vi.fn().mockResolvedValue(undefined)}>
+				<a href="/message" onClick={onClick}>
+					Message row
+				</a>
+			</PullToRefresh>,
+		)
+		const link = screen.getByRole('link', { name: 'Message row' })
+		fireEvent.touchStart(link, { touches: [touch(10, 10)] })
+		fireEvent.touchMove(link, { touches: [touch(10, 40)], cancelable: true })
+		fireEvent.touchEnd(link, { touches: [] })
+		fireEvent.click(link)
+		expect(onClick).not.toHaveBeenCalled()
 	})
 
 	it('does not claim a pull while the user has selected text', () => {
 		vi.spyOn(window, 'getSelection').mockReturnValue({ toString: () => 'selected text' } as Selection)
 		const { root, onRefresh } = renderPull()
 		gesture(root, 10, 160)
+		expect(onRefresh).not.toHaveBeenCalled()
+	})
+
+	it('does not claim text-entry gestures', () => {
+		const onRefresh = vi.fn().mockResolvedValue(undefined)
+		render(
+			<PullToRefresh onRefresh={onRefresh}>
+				<input aria-label="Editable value" />
+			</PullToRefresh>,
+		)
+		gesture(screen.getByRole('textbox', { name: 'Editable value' }), 10, 160)
 		expect(onRefresh).not.toHaveBeenCalled()
 	})
 
@@ -155,5 +191,11 @@ describe('RefreshButton', () => {
 	it('uses the default accessible label', () => {
 		render(<RefreshButton onRefresh={() => undefined} />)
 		expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+	})
+
+	it('contains async refresh failures for callers that show feedback elsewhere', async () => {
+		render(<RefreshButton onRefresh={() => Promise.reject(new Error('provider detail'))} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
 	})
 })
