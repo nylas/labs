@@ -2,6 +2,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+	clearTrustedImageSenders,
 	createSenderTrustKeyStore,
 	type SenderTrustKeyStore,
 	senderImagesTrusted,
@@ -107,6 +108,22 @@ describe('trusted image senders', () => {
 		const memoryKeyStore = createSenderTrustKeyStore(undefined, crypto)
 		await expect(trustSenderImages('news@example.com', localStorage, memoryKeyStore)).resolves.toBe(true)
 		await expect(senderImagesTrusted('news@example.com', localStorage, memoryKeyStore)).resolves.toBe(true)
+	})
+
+	it('clears current and legacy remembered sender permissions without reading their contents', async () => {
+		localStorage.setItem(STORAGE_KEY, 'encrypted-record')
+		localStorage.setItem('ownmail:trusted-image-senders:v1', 'legacy-record')
+
+		expect(clearTrustedImageSenders()).toBe(true)
+		expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+		expect(localStorage.getItem('ownmail:trusted-image-senders:v1')).toBeNull()
+
+		const unavailable = {
+			removeItem: () => {
+				throw new Error('storage unavailable')
+			},
+		} as unknown as Storage
+		expect(clearTrustedImageSenders(unavailable)).toBe(false)
 	})
 
 	it('fails closed when browser key persistence or ephemeral key generation fails', async () => {

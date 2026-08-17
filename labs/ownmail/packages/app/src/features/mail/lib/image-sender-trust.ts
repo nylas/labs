@@ -199,3 +199,14 @@ export async function trustSenderImages(
 	const senders = (await readTrustedSenders(storage, key)).filter((candidate) => candidate !== canonical)
 	return writeTrustedSenders(storage, key, [canonical, ...senders].slice(0, MAX_TRUSTED_SENDERS))
 }
+
+/** Remove every remembered per-sender image permission without exposing stored identities. */
+export function clearTrustedImageSenders(storage: Storage = localStorage): boolean {
+	try {
+		storage.removeItem(STORAGE_KEY)
+		storage.removeItem(LEGACY_STORAGE_KEY)
+		return true
+	} catch {
+		return false
+	}
+}

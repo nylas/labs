@@ -3,10 +3,13 @@ import { useCallback, useEffect, useState } from 'react'
 export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
 
+export type RemoteImagePolicy = 'ask' | 'always'
+
 export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
 	emailDarkMode: boolean
+	remoteImagePolicy: RemoteImagePolicy
 	primaryTimezone: string
 	secondaryTimezone: string
 }
@@ -40,6 +43,7 @@ export function defaultUserPreferences(): UserPreferences {
 		displayName: '',
 		autoSaveContacts: true,
 		emailDarkMode: true,
+		remoteImagePolicy: 'ask',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
 	}
@@ -65,6 +69,7 @@ function normalizePreferences(value: unknown): UserPreferences {
 		displayName,
 		autoSaveContacts: input.autoSaveContacts !== false,
 		emailDarkMode: input.emailDarkMode !== false,
+		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
 		primaryTimezone,
 		secondaryTimezone,
 	}
