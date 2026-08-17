@@ -347,8 +347,9 @@ describe('CalendarViewRoutePage wrapper', () => {
 		const Page = Route.options.component
 		render(<Page />)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh calendar' }))
+		expect(await screen.findByRole('status', { name: 'Refresh calendar status' })).toHaveTextContent(
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()

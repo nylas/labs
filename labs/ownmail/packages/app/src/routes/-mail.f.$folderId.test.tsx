@@ -212,8 +212,8 @@ describe('FolderView (route component)', () => {
 			</QueryClientProvider>,
 		)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		expect(await screen.findByRole('status', { name: 'Refresh mail status' })).toHaveTextContent(
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()

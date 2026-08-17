@@ -403,8 +403,8 @@ describe('ContactsLayout wrapper', () => {
 		h.getContacts.mockRejectedValue(new Error('provider-secret-detail'))
 		renderLayout({ info, contacts }, {})
 
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(await screen.findByRole('status')).toHaveTextContent(
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh contacts' }))
+		expect(await screen.findByRole('status', { name: 'Refresh contacts status' })).toHaveTextContent(
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()

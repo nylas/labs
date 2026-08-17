@@ -198,7 +198,7 @@ export function RefreshButton({
 			>
 				<RefreshCw className={cn('h-4 w-4', busy && 'animate-spin')} />
 			</button>
-			<span className="sr-only" role="status" aria-live="polite">
+			<span className="sr-only" role="status" aria-live="polite" aria-label={`${label} status`}>
 				{status}
 			</span>
 		</>

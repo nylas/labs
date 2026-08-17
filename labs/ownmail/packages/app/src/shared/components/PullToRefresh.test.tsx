@@ -196,13 +196,13 @@ describe('RefreshButton', () => {
 	it('announces async refresh failures without exposing provider details', async () => {
 		render(<RefreshButton onRefresh={() => Promise.reject(new Error('provider detail'))} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-		expect(screen.getByRole('status')).toHaveTextContent('Refreshing…')
+		expect(screen.getByRole('status', { name: 'Refresh status' })).toHaveTextContent('Refreshing…')
 		await waitFor(() =>
-			expect(screen.getByRole('status')).toHaveTextContent(
+			expect(screen.getByRole('status', { name: 'Refresh status' })).toHaveTextContent(
 				'Could not refresh. Check your connection, then try again.',
 			),
 		)
-		expect(screen.getByRole('status')).not.toHaveTextContent('provider detail')
+		expect(screen.getByRole('status', { name: 'Refresh status' })).not.toHaveTextContent('provider detail')
 	})
 
 	it('disables and spins while its own refresh promise is pending', async () => {
@@ -222,7 +222,9 @@ describe('RefreshButton', () => {
 		expect(onRefresh).toHaveBeenCalledOnce()
 
 		resolveRefresh?.()
-		await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Updated'))
+		await waitFor(() =>
+			expect(screen.getByRole('status', { name: 'Refresh contacts status' })).toHaveTextContent('Updated'),
+		)
 		expect(screen.getByRole('button', { name: 'Refresh contacts' })).toBeEnabled()
 	})
 })
