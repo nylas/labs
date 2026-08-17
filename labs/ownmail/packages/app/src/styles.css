@@ -724,6 +724,70 @@
 	animation: fade-in 140ms ease;
 }
 
+.dialog-overlay[data-state="open"] {
+	animation: fade-in var(--dur-medium) var(--ease-out);
+}
+
+.dialog-content[data-presentation="bottom-sheet"][data-state="open"] {
+	animation: bottom-sheet-in var(--dur-medium) var(--ease-out);
+}
+
+.dialog-content[data-presentation="side"][data-side="left"][data-state="open"] {
+	animation: side-sheet-left-in var(--dur-medium) var(--ease-out);
+}
+
+.dialog-content[data-presentation="side"][data-side="right"][data-state="open"] {
+	animation: side-sheet-right-in var(--dur-medium) var(--ease-out);
+}
+
+.event-composer-panel {
+	inset: 0;
+	height: 100dvh;
+	max-height: 100dvh;
+	width: 100%;
+	max-width: none;
+	border-radius: 0;
+}
+
+.compose-panel {
+	inset: 0;
+	height: 100dvh;
+	max-height: 100dvh;
+	width: 100%;
+	max-width: none;
+	border-radius: 0;
+}
+
+@media (min-width: 640px) {
+	.compose-panel {
+		inset: auto 1rem 0 auto;
+		width: min(30rem, calc(100vw - 2rem));
+		max-height: calc(100dvh - 1rem);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+	}
+
+	.compose-panel[data-minimized="false"] {
+		height: min(32rem, calc(100dvh - 1rem));
+	}
+
+	.compose-panel[data-minimized="true"] {
+		height: 2.75rem;
+	}
+}
+
+@media (min-width: 640px) {
+	.event-composer-panel {
+		inset: auto;
+		left: var(--event-composer-left);
+		top: var(--event-composer-top);
+		height: auto;
+		max-height: var(--event-composer-max-height);
+		width: 28rem;
+		max-width: calc(100vw - 1rem);
+		border-radius: var(--radius-xl);
+	}
+}
+
 .navigation-progress {
 	position: fixed;
 	inset: 0 0 auto;
@@ -777,6 +841,27 @@
 	}
 	to {
 		opacity: 1;
+	}
+}
+
+@keyframes bottom-sheet-in {
+	from {
+		opacity: 0;
+		transform: translateY(1.5rem);
+	}
+}
+
+@keyframes side-sheet-left-in {
+	from {
+		opacity: 0;
+		transform: translateX(-1.5rem);
+	}
+}
+
+@keyframes side-sheet-right-in {
+	from {
+		opacity: 0;
+		transform: translateX(1.5rem);
 	}
 }
 

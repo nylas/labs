@@ -52,6 +52,16 @@ describe('native mobile shell styles', () => {
 			/\.fab\s*\{[^}]*bottom: calc\(var\(--mobile-tab-bar-height\) \+ var\(--safe-area-bottom\) \+ 0\.75rem\);/,
 		)
 	})
+
+	it('uses full dynamic-viewport editors on phones and restores floating panels on larger screens', () => {
+		expect(styles).toMatch(
+			/\.compose-panel\s*\{[^}]*inset: 0;[^}]*height: 100dvh;[^}]*max-height: 100dvh;[^}]*width: 100%;/,
+		)
+		expect(styles).toMatch(
+			/\.event-composer-panel\s*\{[^}]*inset: 0;[^}]*height: 100dvh;[^}]*max-height: 100dvh;[^}]*width: 100%;/,
+		)
+		expect(styles).toMatch(/@media \(min-width: 640px\)\s*\{\s*\.compose-panel\s*\{/)
+	})
 })
 
 describe('mail search divider styles', () => {

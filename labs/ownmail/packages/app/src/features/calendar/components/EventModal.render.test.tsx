@@ -672,10 +672,10 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		const dialog = screen.getByRole('dialog', { name: 'New event' })
-		// The composer floats: it positions itself with inline left/top instead of a dimmed backdrop.
+		// Desktop positioning is exported through custom properties; mobile CSS keeps the panel fullscreen.
 		expect(dialog.className).toContain('fixed')
-		expect(dialog.style.left).not.toBe('')
-		expect(dialog.style.top).not.toBe('')
+		expect(dialog.style.getPropertyValue('--event-composer-left')).not.toBe('')
+		expect(dialog.style.getPropertyValue('--event-composer-top')).not.toBe('')
 
 		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 		expect(onClose).toHaveBeenCalledWith(false)
@@ -695,9 +695,9 @@ describe('EventModal — new event', () => {
 		)
 		const dialog = screen.getByRole('dialog', { name: 'New event' })
 		// Anchor right edge (50 + 60) + gap (12) = 122; top aligns with the slot.
-		expect(dialog.style.left).toBe('122px')
-		expect(dialog.style.top).toBe('100px')
-		expect(dialog.style.maxHeight).toBe('calc(100dvh - 108px)')
+		expect(dialog.style.getPropertyValue('--event-composer-left')).toBe('122px')
+		expect(dialog.style.getPropertyValue('--event-composer-top')).toBe('100px')
+		expect(dialog.style.getPropertyValue('--event-composer-max-height')).toBe('calc(100dvh - 108px)')
 		expect(dialog.firstElementChild?.nextElementSibling?.nextElementSibling).toHaveClass(
 			'overflow-y-auto',
 			'overscroll-contain',
@@ -724,9 +724,9 @@ describe('EventModal — new event', () => {
 			const dialog = screen.getByRole('dialog', { name: 'New event' })
 			fireEvent(window, new Event('resize'))
 
-			expect(dialog.style.left).toBe('12px')
-			expect(dialog.style.top).toBe('8px')
-			expect(dialog.style.maxHeight).toBe('calc(100dvh - 16px)')
+			expect(dialog.style.getPropertyValue('--event-composer-left')).toBe('12px')
+			expect(dialog.style.getPropertyValue('--event-composer-top')).toBe('8px')
+			expect(dialog.style.getPropertyValue('--event-composer-max-height')).toBe('calc(100dvh - 16px)')
 		} finally {
 			Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
 			Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
@@ -769,14 +769,37 @@ describe('EventModal — new event', () => {
 		fireEvent.pointerMove(window, { clientX: 240, clientY: 230 })
 		// Started at 122,100; moved by (+40, +30), with the taller composer
 		// clamped to the viewport's bottom margin.
-		expect(dialog.style.left).toBe('162px')
-		expect(dialog.style.top).toBe('120px')
+		expect(dialog.style.getPropertyValue('--event-composer-left')).toBe('162px')
+		expect(dialog.style.getPropertyValue('--event-composer-top')).toBe('120px')
 
 		fireEvent.pointerUp(window)
 		// After release the move listeners are detached, so further motion is ignored.
 		fireEvent.pointerMove(window, { clientX: 900, clientY: 900 })
-		expect(dialog.style.left).toBe('162px')
-		expect(dialog.style.top).toBe('120px')
+		expect(dialog.style.getPropertyValue('--event-composer-left')).toBe('162px')
+		expect(dialog.style.getPropertyValue('--event-composer-top')).toBe('120px')
+	})
+
+	it('does not claim touch gestures for positional dragging', () => {
+		render(
+			<EventModal
+				event={null}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				anchorRect={{ top: 100, left: 50, width: 60, height: 40 }}
+				onClose={vi.fn()}
+			/>,
+		)
+		const dialog = screen.getByRole('dialog', { name: 'New event' })
+		fireEvent.pointerDown(screen.getByRole('heading', { name: 'New event' }), {
+			pointerType: 'touch',
+			clientX: 200,
+			clientY: 200,
+		})
+		fireEvent.pointerMove(window, { pointerType: 'touch', clientX: 240, clientY: 230 })
+		expect(dialog.style.getPropertyValue('--event-composer-left')).toBe('122px')
+		expect(dialog.style.getPropertyValue('--event-composer-top')).toBe('100px')
 	})
 
 	it('tears down an in-flight drag when the composer unmounts', () => {
@@ -809,6 +832,7 @@ describe('EventModal — existing event', () => {
 				onClose={vi.fn()}
 			/>,
 		)
+		expect(screen.getByRole('dialog')).toHaveAttribute('data-presentation', 'bottom-sheet')
 		expect(screen.getByRole('heading', { name: 'Team Sync' })).toBeInTheDocument()
 		expect(screen.getByText('Work calendar')).toBeInTheDocument()
 		expect(screen.getByText('Room 5')).toBeInTheDocument()

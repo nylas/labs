@@ -54,15 +54,15 @@ describe('EventModal helpers', () => {
 		expect(className).not.toContain('border-transparent')
 	})
 
-	it('matches the reference dialog panel shell', () => {
+	it('uses the adaptive, scrollable event detail shell', () => {
 		expect(EVENT_DIALOG_PANEL_CLASS).toBe(
-			'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl',
+			'w-full overflow-y-auto overscroll-contain bg-card sm:max-h-[85vh] sm:max-w-md',
 		)
 		expect(EVENT_DIALOG_PANEL_CLASS).not.toContain('relative')
 	})
 
-	it('bounds the floating composer to the remaining dynamic viewport height', () => {
-		expect(EVENT_COMPOSER_PANEL_CLASS).toContain('max-h-[calc(100dvh-1rem)]')
+	it('delegates mobile and desktop composer bounds to the adaptive panel contract', () => {
+		expect(EVENT_COMPOSER_PANEL_CLASS).toContain('event-composer-panel')
 		expect(eventComposerMaxHeight(100)).toBe('calc(100dvh - 108px)')
 		expect(eventComposerMaxHeight(-20)).toBe('calc(100dvh - 8px)')
 	})
