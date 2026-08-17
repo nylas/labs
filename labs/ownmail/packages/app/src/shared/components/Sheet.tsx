@@ -8,12 +8,14 @@ export function Sheet({
 	onClose,
 	title,
 	side = 'left',
+	hideAt = 'md',
 	children,
 }: {
 	open: boolean
 	onClose: () => void
 	title: string
 	side?: 'left' | 'right'
+	hideAt?: 'md' | 'lg'
 	children: ReactNode
 }) {
 	const panelRef = useRef<HTMLElement>(null)
@@ -63,10 +65,25 @@ export function Sheet({
 		if (open) panelRef.current?.focus()
 	}, [open])
 
+	useEffect(() => {
+		if (!open || typeof window.matchMedia !== 'function') return
+		const query = hideAt === 'lg' ? '(min-width: 64rem)' : '(min-width: 48rem)'
+		const media = window.matchMedia(query)
+		const closeAtDesktopBreakpoint = (event: MediaQueryListEvent | MediaQueryList) => {
+			if (event.matches) onClose()
+		}
+		closeAtDesktopBreakpoint(media)
+		media.addEventListener('change', closeAtDesktopBreakpoint)
+		return () => media.removeEventListener('change', closeAtDesktopBreakpoint)
+	}, [hideAt, onClose, open])
+
 	if (!open) return null
 
 	return (
-		<div className="fixed inset-0 z-50 md:hidden" role="presentation">
+		<div
+			className={cn('fixed inset-0 z-50', hideAt === 'lg' ? 'lg:hidden' : 'md:hidden')}
+			role="presentation"
+		>
 			<button
 				type="button"
 				aria-label="Close panel"
@@ -80,7 +97,7 @@ export function Sheet({
 				aria-label={title}
 				tabIndex={-1}
 				className={cn(
-					'absolute top-0 flex h-dvh max-h-full w-[min(20rem,calc(100%_-_2rem))] flex-col border-border bg-background pt-[env(safe-area-inset-top)] shadow-2xl outline-none',
+					'absolute top-0 flex h-dvh max-h-full w-[min(20rem,calc(100%_-_2rem))] flex-col border-border bg-background pt-[var(--safe-area-top)] shadow-2xl outline-none',
 					side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
 				)}
 			>
@@ -95,7 +112,7 @@ export function Sheet({
 						<X className="h-4 w-4" />
 					</button>
 				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+				<div className="min-h-0 flex-1 overflow-y-auto pb-[var(--safe-area-bottom)]">{children}</div>
 			</aside>
 		</div>
 	)

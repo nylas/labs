@@ -4,6 +4,7 @@ import { Loader2, Menu, Plus, Search } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { MobileTabBar } from '#app/components/MobileTabBar'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	contactDisplayName,
@@ -311,11 +312,16 @@ export function ContactsShell({
 					<Outlet />
 				</div>
 			</div>
+			<MobileTabBar active="contacts" />
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} />
 
 			<Sheet open={navigationOpen} onClose={() => setNavigationOpen(false)} title="Navigation">
-				<AppRailMobileNav {...railNavProps} onNavigate={() => setNavigationOpen(false)} />
+				<AppRailMobileNav
+					{...railNavProps}
+					onNavigate={() => setNavigationOpen(false)}
+					showDestinations={false}
+				/>
 			</Sheet>
 		</div>
 	)

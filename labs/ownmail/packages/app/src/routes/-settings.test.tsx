@@ -29,6 +29,10 @@ vi.mock('#app/components/AppRail', () => ({
 	),
 }))
 
+vi.mock('#app/components/MobileTabBar', () => ({
+	MobileTabBar: ({ active }: { active: string }) => <nav data-testid="mobile-tabs" data-active={active} />,
+}))
+
 vi.mock('#shared/components/Sheet', () => ({
 	Sheet: (props: any) =>
 		props.open ? (

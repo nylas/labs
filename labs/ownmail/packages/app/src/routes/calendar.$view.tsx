@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { MobileTabBar } from '#app/components/MobileTabBar'
 import {
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
@@ -324,6 +325,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					)}
 				</div>
 			</div>
+			<MobileTabBar active="calendar" />
 
 			{editing ? (
 				<EventModal
@@ -348,7 +350,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 				/>
 			) : null}
 
-			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
+			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation" hideAt="lg">
 				<AppRailMobileNav
 					email={info.email}
 					displayName={info.displayName}
@@ -356,6 +358,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					active="calendar"
 					onOpenCommandPalette={openPalette}
 					onNavigate={() => setSidebarOpen(false)}
+					showDestinations={false}
 				/>
 				<div className="border-t border-border px-3 pt-2">
 					<CalendarSidebarPanel

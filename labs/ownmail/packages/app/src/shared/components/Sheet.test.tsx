@@ -3,7 +3,23 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Sheet } from './Sheet.js'
 
-afterEach(cleanup)
+afterEach(() => {
+	cleanup()
+	vi.unstubAllGlobals()
+})
+
+function stubMatchMedia(matches = false) {
+	const addEventListener = vi.fn()
+	const removeEventListener = vi.fn()
+	const media = {
+		matches,
+		addEventListener,
+		removeEventListener,
+	} as unknown as MediaQueryList
+	const matchMedia = vi.fn(() => media)
+	vi.stubGlobal('matchMedia', matchMedia)
+	return { addEventListener, matchMedia, media, removeEventListener }
+}
 
 function renderSheet(overrides: Partial<Parameters<typeof Sheet>[0]> = {}) {
 	const onClose = vi.fn()
@@ -89,5 +105,32 @@ describe('Sheet', () => {
 		const dialog = screen.getByRole('dialog')
 		expect(dialog.className).toContain('right-0')
 		expect(dialog.className).toContain('border-l')
+	})
+
+	it('lets calendar utility sheets remain available through the large breakpoint', () => {
+		const { matchMedia } = stubMatchMedia()
+		const { container } = renderSheet({ hideAt: 'lg' })
+		expect(matchMedia).toHaveBeenCalledWith('(min-width: 64rem)')
+		expect(container.firstChild).toHaveClass('lg:hidden')
+		expect(container.firstChild).not.toHaveClass('md:hidden')
+		expect(screen.getByRole('dialog').lastElementChild).toHaveClass('pb-[var(--safe-area-bottom)]')
+	})
+
+	it('closes and releases its breakpoint listener when a default sheet becomes desktop-only', () => {
+		const { addEventListener, matchMedia, media, removeEventListener } = stubMatchMedia()
+		const { onClose, unmount } = renderSheet()
+		expect(matchMedia).toHaveBeenCalledWith('(min-width: 48rem)')
+		const changeListener = addEventListener.mock.calls[0]?.[1]
+		expect(changeListener).toBeTypeOf('function')
+		changeListener({ ...media, matches: true })
+		expect(onClose).toHaveBeenCalledTimes(1)
+		unmount()
+		expect(removeEventListener).toHaveBeenCalledWith('change', changeListener)
+	})
+
+	it('closes immediately if it mounts beyond its responsive breakpoint', () => {
+		stubMatchMedia(true)
+		const { onClose } = renderSheet()
+		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 })
