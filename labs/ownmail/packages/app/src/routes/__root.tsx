@@ -121,11 +121,38 @@ function RootComponent() {
 			</head>
 			<body suppressHydrationWarning>
 				<NavigationProgress />
+				<RouteAnnouncer />
 				<Outlet />
 				<Scripts />
 			</body>
 		</html>
 	)
+}
+
+function RouteAnnouncer() {
+	const navigationPending = useRouterState({ select: (state) => state.isLoading })
+	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	const settledPathname = useRef(pathname)
+	const [announcement, setAnnouncement] = useState('')
+
+	useEffect(() => {
+		if (navigationPending || pathname === settledPathname.current) return
+		settledPathname.current = pathname
+		setAnnouncement(`${routeLabel(pathname)} loaded`)
+	}, [navigationPending, pathname])
+
+	return (
+		<span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+			{announcement}
+		</span>
+	)
+}
+
+function routeLabel(pathname: string): string {
+	if (pathname.startsWith('/calendar')) return 'Calendar'
+	if (pathname.startsWith('/contacts')) return 'Contacts'
+	if (pathname.startsWith('/settings')) return 'Settings'
+	return 'Mail'
 }
 
 function NavigationProgress() {

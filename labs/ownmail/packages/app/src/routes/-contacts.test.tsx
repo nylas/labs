@@ -156,6 +156,14 @@ describe('ContactsShell', () => {
 		expect(onQueryChange).toHaveBeenCalledWith('ada')
 	})
 
+	it('offers an explicit refresh action alongside pull-to-refresh', () => {
+		const onRefresh = vi.fn().mockResolvedValue(undefined)
+		shell({ onRefresh })
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh contacts' }))
+		expect(onRefresh).toHaveBeenCalledOnce()
+		expect(screen.getByText('Pull to refresh')).toBeInTheDocument()
+	})
+
 	it('links "New contact" to the create route with the active search', () => {
 		shell({ query: 'ada' })
 		const newLink = screen.getAllByRole('link').find((el) => el.getAttribute('data-to') === '/contacts/new')
@@ -375,6 +383,24 @@ describe('ContactsLayout wrapper', () => {
 			.filter((el) => el.getAttribute('data-to') === '/contacts/$contactId')
 		expect(links[0]).toHaveAttribute('aria-current', 'true')
 		expect(screen.getByTestId('outlet')).toBeInTheDocument()
+	})
+
+	it('connects refresh interactions to the live contacts query', async () => {
+		h.getContacts.mockResolvedValue({ contacts })
+		renderLayout({ info, contacts }, {})
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh contacts' }))
+		await waitFor(() => expect(h.getContacts).toHaveBeenCalledWith({ data: {} }))
+	})
+
+	it('announces a generic failure when the live contacts refresh rejects', async () => {
+		h.getContacts.mockRejectedValue(new Error('provider-secret-detail'))
+		renderLayout({ info, contacts }, {})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Could not refresh. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
 	})
 
 	it('pushes a typed query into the URL', () => {

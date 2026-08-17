@@ -155,6 +155,70 @@ describe('validateSearch', () => {
 })
 
 describe('FolderView (route component)', () => {
+	it.each([
+		['inbox', getThreads],
+		['drafts', listDrafts],
+	] as const)('connects %s refresh interactions to its live query', async (folderId, queryFn) => {
+		Route.useLoaderData = vi.fn(() => ({ threads: [], drafts: [], folders: [], nextCursor: undefined }))
+		Route.useParams = vi.fn(() => ({ folderId }))
+		Route.useSearch = vi.fn(() => ({}))
+		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
+		listDrafts.mockResolvedValue([])
+		getFolders.mockResolvedValue([])
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		await waitFor(() => expect(queryFn).toHaveBeenCalled())
+		await waitFor(() => expect(getFolders).toHaveBeenCalled())
+	})
+
+	it('refreshes the folder unread count with the active thread list', async () => {
+		Route.useLoaderData = vi.fn(() => ({
+			threads: [],
+			drafts: [],
+			folders: [{ id: 'inbox', unread_count: 1 }],
+			nextCursor: undefined,
+		}))
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox' }))
+		Route.useSearch = vi.fn(() => ({}))
+		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
+		getFolders.mockResolvedValue([{ id: 'inbox', unread_count: 3 }])
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(screen.getByText('1')).toBeInTheDocument()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		expect(await screen.findByText('3')).toBeInTheDocument()
+	})
+
+	it('announces a generic failure when the live mail refresh rejects', async () => {
+		Route.useLoaderData = vi.fn(() => ({ threads: [], drafts: [], folders: [], nextCursor: undefined }))
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox' }))
+		Route.useSearch = vi.fn(() => ({}))
+		getThreads.mockRejectedValue(new Error('provider-secret-detail'))
+		getFolders.mockResolvedValue([])
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Could not refresh. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
+
 	it('wires loader data, folder param, and baseFolderId search into the screen', () => {
 		Route.useLoaderData = vi.fn(() => ({ threads: [], drafts: [], folders: [], nextCursor: undefined }))
 		Route.useParams = vi.fn(() => ({ folderId: 'inbox' }))
@@ -306,6 +370,23 @@ describe('FolderView (route component)', () => {
 })
 
 describe('MailFolderRouteScreen — thread list', () => {
+	it('offers an explicit mail refresh action alongside pull-to-refresh', () => {
+		const onRefresh = vi.fn().mockResolvedValue(undefined)
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+				onRefresh={onRefresh}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		expect(onRefresh).toHaveBeenCalledOnce()
+		expect(screen.getByText('Pull to refresh')).toBeInTheDocument()
+	})
+
 	it('gives an open message the full tablet reader width and restores the list on wide screens', () => {
 		routerState = {
 			location: { pathname: '/mail/f/inbox/t/t1' },
