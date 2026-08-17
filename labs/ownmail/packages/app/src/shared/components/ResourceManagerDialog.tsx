@@ -114,7 +114,8 @@ export function ResourceManagerDialog({
 			}}
 		>
 			<DialogContent
-				className="flex max-h-[85vh] max-w-md flex-col"
+				presentation="bottom-sheet"
+				className="flex flex-col sm:max-h-[85vh] sm:max-w-md"
 				aria-busy={busy || undefined}
 				onPointerDownOutside={(event) => event.preventDefault()}
 				onBackdropClick={requestClose}
@@ -132,7 +133,7 @@ export function ResourceManagerDialog({
 					</button>
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+				<div className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-[calc(1rem+var(--safe-area-bottom))]">
 					{action?.kind === 'delete' ? (
 						<fieldset className="space-y-4 border-0 p-0">
 							<legend className="font-semibold">Delete {action.resource.name}?</legend>

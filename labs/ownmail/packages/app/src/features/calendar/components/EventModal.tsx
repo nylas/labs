@@ -11,7 +11,7 @@ import {
 	Users,
 	X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '#shared/components/RecipientInput'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#shared/components/ui/select'
@@ -60,10 +60,10 @@ const WEEKDAY_BY_DAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const satis
 type RepeatOption = 'none' | 'weekly' | 'biweekly' | 'yearly'
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
-	'w-full max-w-md overflow-hidden rounded-sm border border-border bg-card shadow-2xl'
+	'w-full overflow-y-auto overscroll-contain bg-card sm:max-h-[85vh] sm:max-w-md'
 /** Floating, draggable composer panel — no backdrop, positioned beside the slot. */
 export const EVENT_COMPOSER_PANEL_CLASS =
-	'fixed z-50 flex max-h-[calc(100dvh-1rem)] w-[28rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl'
+	'event-composer-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl'
 
 export function eventComposerMaxHeight(top: number): string {
 	return `calc(100dvh - ${Math.max(0, top) + 8}px)`
@@ -148,6 +148,7 @@ export function EventModal({
 	const dragCleanup = useRef<(() => void) | null>(null)
 
 	function startPanelDrag(pointerEvent: React.PointerEvent) {
+		if (pointerEvent.pointerType === 'touch') return
 		const start = { x: pointerEvent.clientX, y: pointerEvent.clientY }
 		const origin = { x: panelPos.x, y: panelPos.y }
 		function onMove(moveEvent: PointerEvent) {
@@ -413,7 +414,7 @@ export function EventModal({
 					}
 				}}
 			>
-				<DialogContent className={EVENT_DIALOG_PANEL_CLASS}>
+				<DialogContent presentation="bottom-sheet" className={EVENT_DIALOG_PANEL_CLASS}>
 					<DialogTitle className="sr-only">Event details</DialogTitle>
 					<div className={cn('h-1.5 w-full', eventBarClass(tone))} />
 					<div className="flex items-start justify-between gap-3 px-5 pt-4">
@@ -466,7 +467,7 @@ export function EventModal({
 									<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
 								) : null}
 							</div>
-							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
+							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))]">
 								<button
 									type="button"
 									onClick={cancelEdit}
@@ -524,7 +525,7 @@ export function EventModal({
 								) : null}
 							</div>
 
-							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 py-3">
+							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))]">
 								{confirmingDelete ? (
 									<fieldset
 										className="flex w-full flex-wrap items-center justify-end gap-2"
@@ -618,16 +619,18 @@ export function EventModal({
 			role="dialog"
 			aria-label="New event"
 			className={EVENT_COMPOSER_PANEL_CLASS}
-			style={{
-				left: panelPos.x,
-				top: panelPos.y,
-				maxHeight: eventComposerMaxHeight(panelPos.y),
-			}}
+			style={
+				{
+					'--event-composer-left': `${panelPos.x}px`,
+					'--event-composer-top': `${panelPos.y}px`,
+					'--event-composer-max-height': eventComposerMaxHeight(panelPos.y),
+				} as CSSProperties
+			}
 		>
 			<div className={cn('h-1 w-full shrink-0', eventBarClass(selectedCalendarTone))} />
 			<div
 				onPointerDown={startPanelDrag}
-				className="flex touch-none items-center justify-between gap-3 border-b border-border px-5 py-3 select-none"
+				className="flex touch-auto items-center justify-between gap-3 border-b border-border px-5 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 select-none sm:touch-none sm:pt-3"
 			>
 				<div className="flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
 					<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -773,7 +776,7 @@ export function EventModal({
 				) : null}
 			</div>
 
-			<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
+			<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))] sm:pb-3">
 				<button
 					type="button"
 					onClick={() => onClose(false)}

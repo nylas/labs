@@ -53,18 +53,18 @@ describe('Sheet', () => {
 
 	it('locks body scroll while open and restores it on close', () => {
 		const { rerender } = renderSheet()
-		expect(document.body.style.overflow).toBe('hidden')
+		expect(document.body).toHaveAttribute('data-scroll-locked', '1')
 		rerender(
 			<Sheet open={false} onClose={vi.fn()} title="Navigation">
 				<a href="/inbox">Inbox</a>
 			</Sheet>,
 		)
-		expect(document.body.style.overflow).not.toBe('hidden')
+		expect(document.body).not.toHaveAttribute('data-scroll-locked')
 	})
 
-	it('moves focus to the panel when it opens', () => {
+	it('moves focus inside the panel when it opens', () => {
 		renderSheet()
-		expect(document.activeElement).toBe(screen.getByRole('dialog'))
+		expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement)
 	})
 
 	it('closes on the Escape key', () => {
@@ -81,7 +81,7 @@ describe('Sheet', () => {
 
 	it('closes when the backdrop is clicked', () => {
 		const { onClose } = renderSheet()
-		fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+		fireEvent.click(document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement)
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 
@@ -109,11 +109,12 @@ describe('Sheet', () => {
 
 	it('lets calendar utility sheets remain available through the large breakpoint', () => {
 		const { matchMedia } = stubMatchMedia()
-		const { container } = renderSheet({ hideAt: 'lg' })
+		renderSheet({ hideAt: 'lg' })
 		expect(matchMedia).toHaveBeenCalledWith('(min-width: 64rem)')
-		expect(container.firstChild).toHaveClass('lg:hidden')
-		expect(container.firstChild).not.toHaveClass('md:hidden')
-		expect(screen.getByRole('dialog').lastElementChild).toHaveClass('pb-[var(--safe-area-bottom)]')
+		const dialog = screen.getByRole('dialog')
+		expect(dialog).toHaveClass('lg:hidden')
+		expect(dialog).not.toHaveClass('md:hidden')
+		expect(dialog.lastElementChild).toHaveClass('pb-[var(--safe-area-bottom)]')
 	})
 
 	it('closes and releases its breakpoint listener when a default sheet becomes desktop-only', () => {
