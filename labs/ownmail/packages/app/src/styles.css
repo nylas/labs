@@ -177,6 +177,17 @@
  * This unlayered rule deliberately overrides Tailwind's layered text utilities.
  */
 @media (hover: none) and (pointer: coarse) {
+	.touch-target {
+		min-height: var(--touch-target-min);
+	}
+
+	.touch-target-square {
+		min-width: var(--touch-target-min);
+		min-height: var(--touch-target-min);
+	}
+}
+
+@media (hover: none) and (pointer: coarse) {
 	input,
 	textarea,
 	select,
@@ -664,25 +675,25 @@
 	background: color-mix(in oklch, var(--muted), transparent 35%);
 }
 
-.thread-row[data-active="true"] {
+.thread-row:has([data-active="true"]) {
 	background: var(--muted);
 	box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground), transparent 80%);
 }
 
-.thread-row[data-active="true"]:hover {
+.thread-row:has([data-active="true"]):hover {
 	background: var(--muted);
 }
 
-.thread-row[data-nav-cursor="true"]:not([data-active="true"]) {
+.thread-row:has([data-nav-cursor="true"]):not(:has([data-active="true"])) {
 	background: color-mix(in oklch, var(--muted), transparent 20%);
 	box-shadow: inset 2px 0 0 var(--ring);
 }
 
-.thread-row[data-unread="true"]:not([data-active="true"])::before {
+.thread-row:has([data-unread="true"]):not(:has([data-active="true"]))::before {
 	content: "";
 	position: absolute;
 	top: 50%;
-	left: 0.625rem;
+	left: 3rem;
 	width: 5px;
 	height: 5px;
 	border-radius: 50%;

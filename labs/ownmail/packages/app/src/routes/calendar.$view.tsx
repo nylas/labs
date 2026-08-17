@@ -182,7 +182,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 						type="button"
 						onClick={() => setSidebarOpen(true)}
 						className={cn(
-							'flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:hidden',
+							'touch-target-square flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:hidden',
 						)}
 						aria-label="Open navigation"
 					>
@@ -199,7 +199,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 									setComposerAnchor(null)
 									setEditing('new')
 								}}
-								className="flex h-11 w-10 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:justify-start sm:px-3"
+								className="touch-target-square flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:justify-start sm:px-3"
 								aria-label="Create"
 							>
 								<Plus className="h-4 w-4" strokeWidth={2} />
@@ -207,7 +207,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							</button>
 							<button
 								type="button"
-								className="flex h-11 w-10 shrink-0 items-center justify-center border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:px-3"
+								className="touch-target flex h-11 w-12 shrink-0 items-center justify-center border-r border-border text-xs font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:px-3 sm:text-sm"
 								onClick={() => go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))}
 							>
 								Today
@@ -216,7 +216,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="flex h-11 w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:w-11"
+										className="touch-target-square flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
 										aria-label="Previous"
 									>
@@ -229,7 +229,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="flex h-11 w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:w-11"
+										className="touch-target-square flex h-11 w-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
 										aria-label="Next"
 									>
@@ -243,8 +243,21 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 									{title}
 								</h1>
 							</div>
+							<select
+								aria-label="Calendar view"
+								value={currentView}
+								onChange={(event) => {
+									const nextView = event.currentTarget.value
+									if (nextView === 'day' || nextView === 'week' || nextView === 'month') go(nextView, anchor)
+								}}
+								className="touch-target h-11 w-[4.5rem] shrink-0 border-0 bg-background px-2 text-sm font-medium text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring sm:hidden"
+							>
+								<option value="day">Day</option>
+								<option value="week">Week</option>
+								<option value="month">Month</option>
+							</select>
 							<fieldset
-								className="m-0 flex min-w-0 shrink-0 items-stretch border-0 p-0"
+								className="m-0 hidden min-w-0 shrink-0 items-stretch border-0 p-0 sm:flex"
 								aria-label="Calendar view"
 							>
 								{(['day', 'week', 'month'] as const).map((v) => (
@@ -254,7 +267,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 										onClick={() => go(v, anchor)}
 										aria-pressed={v === currentView}
 										className={cn(
-											'flex h-11 w-11 items-center justify-center whitespace-nowrap border-r border-border px-0 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
+											'touch-target flex h-11 w-11 items-center justify-center whitespace-nowrap border-r border-border px-0 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
 											v === currentView
 												? 'bg-muted text-foreground'
 												: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -433,7 +446,7 @@ function CalendarSidebarPanel({
 						type="button"
 						onClick={onManageCalendars}
 						aria-label="Manage calendars"
-						className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
+						className="touch-target-square flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
 					>
 						<Settings2 className="h-4 w-4" />
 					</button>
@@ -448,7 +461,7 @@ function CalendarSidebarPanel({
 								type="button"
 								aria-pressed={!hidden}
 								onClick={() => onToggleCalendar(cal.id)}
-								className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
+								className="touch-target flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
 							>
 								<span
 									className={cn(
@@ -549,7 +562,7 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 						type="button"
 						aria-label="Previous month"
 						onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-						className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+						className="touch-target-square flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted"
 					>
 						<ChevronLeft className="h-4 w-4" />
 					</button>
@@ -557,7 +570,7 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 						type="button"
 						aria-label="Next month"
 						onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-						className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+						className="touch-target-square flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted"
 					>
 						<ChevronRight className="h-4 w-4" />
 					</button>
@@ -846,7 +859,10 @@ function TimeGrid({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
-				<div className="sticky top-0 z-30 bg-background">
+				<div
+					className={cn('sticky top-0 z-30 bg-background', days === 7 && 'min-w-[45rem] sm:min-w-0')}
+					data-testid="calendar-time-grid-header"
+				>
 					<div
 						className="grid border-b border-border pr-3"
 						style={{ gridTemplateColumns: dayGridTemplateColumns }}
@@ -949,7 +965,10 @@ function TimeGrid({
 						</div>
 					) : null}
 				</div>
-				<div className="relative">
+				<div
+					className={cn('relative', days === 7 && 'min-w-[45rem] sm:min-w-0')}
+					data-testid="calendar-time-grid-body"
+				>
 					<ContinuousDayColumnRules days={days} gridTemplateColumns={dayGridTemplateColumns} />
 					<div className="grid pr-3" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
 						<div style={{ gridColumn: 1, gridRow: 1 }}>

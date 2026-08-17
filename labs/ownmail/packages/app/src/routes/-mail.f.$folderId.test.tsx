@@ -408,7 +408,10 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Star' }))
+		const star = screen.getByRole('button', { name: 'Star' })
+		expect(star).toHaveClass('h-11', 'w-11', 'touch-target-square')
+		expect(star.closest('a')).toBeNull()
+		fireEvent.click(star)
 		await waitFor(() =>
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
@@ -843,6 +846,24 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		const link = screen.getAllByRole('link')[0]
 		expect(link).toHaveAttribute('data-mask', 'no')
 		expect(link).toHaveAttribute('data-search', JSON.stringify({ baseFolderId: 'inbox' }))
+	})
+
+	it('marks the selected row active in both reader and compose list modes', () => {
+		const props = {
+			threads: [thread({ id: 't1' })],
+			drafts: [],
+			folders: [],
+			folderId: 'inbox',
+			nextCursor: undefined,
+			activeThreadId: 't1',
+		}
+		const { unmount } = render(<MailFolderRouteScreen {...props} />)
+		expect(screen.getByRole('link')).toHaveAttribute('data-active', 'true')
+		unmount()
+		render(<MailFolderRouteScreen {...props} composeThreadSearch={(threadId) => ({ to: [threadId] })} />)
+		expect(screen.getByRole('link')).toHaveAttribute('data-active', 'true')
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(screen.getByRole('link')).toHaveAttribute('data-nav-cursor', 'true')
 	})
 })
 

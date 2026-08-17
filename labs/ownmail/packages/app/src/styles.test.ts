@@ -41,6 +41,12 @@ describe('native mobile shell styles', () => {
 		expect(tokens).toContain('--mobile-tab-bar-height: 3.75rem;')
 	})
 
+	it('enforces the shared 44px touch floor only for coarse pointers', () => {
+		expect(styles).toMatch(
+			/@media \(hover: none\) and \(pointer: coarse\)\s*\{\s*\.touch-target\s*\{\s*min-height: var\(--touch-target-min\);\s*\}\s*\.touch-target-square\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);/,
+		)
+	})
+
 	it('keeps the compose action above the tab bar and device home indicator', () => {
 		expect(styles).toMatch(
 			/\.fab\s*\{[^}]*bottom: calc\(var\(--mobile-tab-bar-height\) \+ var\(--safe-area-bottom\) \+ 0\.75rem\);/,

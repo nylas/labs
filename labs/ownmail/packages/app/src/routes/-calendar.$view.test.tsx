@@ -333,6 +333,8 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Jun')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('min-w-[45rem]', 'sm:min-w-0')
+		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('min-w-[45rem]', 'sm:min-w-0')
 	})
 
 	it('keeps every calendar action available in the 320px mobile header', () => {
@@ -340,13 +342,39 @@ describe('week view + header navigation', () => {
 
 		const controls = screen.getByTestId('calendar-header-controls')
 		expect(controls).toHaveClass('min-w-0')
-		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('w-10', 'sm:w-auto')
-		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('w-10', 'sm:w-auto')
-		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('w-8', 'sm:w-11')
-		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('w-8', 'sm:w-11')
+		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('w-11', 'touch-target-square')
+		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('w-12', 'touch-target')
+		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('w-11', 'touch-target-square')
+		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('w-11', 'touch-target-square')
+		expect(screen.getByRole('combobox', { name: 'Calendar view' })).toHaveClass(
+			'w-[4.5rem]',
+			'sm:hidden',
+			'touch-target',
+		)
 		for (const view of ['day', 'week', 'month']) {
-			expect(screen.getByRole('button', { name: view })).toHaveClass('w-11', 'whitespace-nowrap', 'sm:w-auto')
+			expect(screen.getByRole('button', { name: view })).toHaveClass('whitespace-nowrap', 'sm:w-auto')
 		}
+	})
+
+	it('switches view from the allow-listed compact mobile picker', () => {
+		renderWeek()
+		const picker = screen.getByRole('combobox', { name: 'Calendar view' })
+		fireEvent.change(picker, { target: { value: 'day' } })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'day' },
+			search: { date: '2024-06-15' },
+		})
+		fireEvent.change(picker, { target: { value: 'week' } })
+		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ params: { view: 'week' } }))
+		fireEvent.change(picker, { target: { value: 'month' } })
+		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ params: { view: 'month' } }))
+		const invalidOption = document.createElement('option')
+		invalidOption.value = 'agenda'
+		picker.append(invalidOption)
+		h.navigate.mockClear()
+		fireEvent.change(picker, { target: { value: 'agenda' } })
+		expect(h.navigate).not.toHaveBeenCalled()
 	})
 
 	it('jumps to today keeping the current view', async () => {

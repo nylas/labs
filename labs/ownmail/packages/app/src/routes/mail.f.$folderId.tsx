@@ -2,7 +2,12 @@ import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
+import {
+	THREAD_ROW_CLASS,
+	THREAD_ROW_LINK_CLASS,
+	ThreadRowContent,
+	ThreadRowStarButton,
+} from '#features/mail/components/ThreadRow'
 import {
 	draftRecipientName,
 	folderCount,
@@ -513,40 +518,43 @@ function ThreadRow({
 		}
 	}
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
-	const content = (
-		<ThreadRowContent
-			thread={optimisticThread}
-			folderId={folderId}
-			onToggleStar={toggleStar}
-			starPending={starPending}
-		/>
-	)
 	const className = cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')
-	const rowState = {
-		'data-active': active ? ('true' as const) : undefined,
-		'data-nav-row': '',
-		'data-nav-cursor': navActive ? ('true' as const) : undefined,
-		'data-unread': optimisticThread.unread ? ('true' as const) : undefined,
-	}
 
 	if (composeSearch) {
 		return (
-			<Link to="/mail/compose" search={composeSearch} className={className} {...rowState}>
-				{content}
-			</Link>
+			<div className={className}>
+				<Link
+					to="/mail/compose"
+					search={composeSearch}
+					className={THREAD_ROW_LINK_CLASS}
+					data-nav-row=""
+					data-active={active ? 'true' : undefined}
+					data-nav-cursor={navActive ? 'true' : undefined}
+					data-unread={optimisticThread.unread ? 'true' : undefined}
+				>
+					<ThreadRowContent thread={optimisticThread} folderId={folderId} />
+				</Link>
+				<ThreadRowStarButton starred={Boolean(starred)} pending={starPending} onToggle={toggleStar} />
+			</div>
 		)
 	}
 
 	return (
-		<Link
-			to="/mail/f/$folderId/t/$threadId"
-			params={{ folderId, threadId: thread.id }}
-			search={baseFolderId ? { baseFolderId } : {}}
-			className={className}
-			activeProps={{ 'data-active': 'true' }}
-			{...rowState}
-		>
-			{content}
-		</Link>
+		<div className={className}>
+			<Link
+				to="/mail/f/$folderId/t/$threadId"
+				params={{ folderId, threadId: thread.id }}
+				search={baseFolderId ? { baseFolderId } : {}}
+				className={THREAD_ROW_LINK_CLASS}
+				activeProps={{ 'data-active': 'true' }}
+				data-nav-row=""
+				data-active={active ? 'true' : undefined}
+				data-nav-cursor={navActive ? 'true' : undefined}
+				data-unread={optimisticThread.unread ? 'true' : undefined}
+			>
+				<ThreadRowContent thread={optimisticThread} folderId={folderId} />
+			</Link>
+			<ThreadRowStarButton starred={Boolean(starred)} pending={starPending} onToggle={toggleStar} />
+		</div>
 	)
 }
