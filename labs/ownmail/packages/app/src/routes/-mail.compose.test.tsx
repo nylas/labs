@@ -1270,7 +1270,7 @@ describe('mail.compose window controls', () => {
 		const panel = screen.getByRole('dialog', { name: 'Compose message' })
 		expect(panel).toHaveClass('compose-panel')
 		expect(panel).toHaveAttribute('data-minimized', 'false')
-		expect(panel).toHaveAttribute('aria-modal', 'true')
+		expect(panel).not.toHaveAttribute('aria-modal')
 		expect(panel).toHaveClass('max-sm:pr-[env(safe-area-inset-right)]')
 		expect(panel).toHaveClass('max-sm:pl-[env(safe-area-inset-left)]')
 		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'sm:flex')
