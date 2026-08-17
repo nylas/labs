@@ -155,6 +155,25 @@ describe('validateSearch', () => {
 })
 
 describe('FolderView (route component)', () => {
+	it.each([
+		['inbox', getThreads],
+		['drafts', listDrafts],
+	] as const)('connects %s refresh interactions to its live query', async (folderId, queryFn) => {
+		Route.useLoaderData = vi.fn(() => ({ threads: [], drafts: [], folders: [], nextCursor: undefined }))
+		Route.useParams = vi.fn(() => ({ folderId }))
+		Route.useSearch = vi.fn(() => ({}))
+		getThreads.mockResolvedValue({ threads: [], nextCursor: undefined })
+		listDrafts.mockResolvedValue([])
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		await waitFor(() => expect(queryFn).toHaveBeenCalled())
+	})
+
 	it('wires loader data, folder param, and baseFolderId search into the screen', () => {
 		Route.useLoaderData = vi.fn(() => ({ threads: [], drafts: [], folders: [], nextCursor: undefined }))
 		Route.useParams = vi.fn(() => ({ folderId: 'inbox' }))
@@ -306,6 +325,23 @@ describe('FolderView (route component)', () => {
 })
 
 describe('MailFolderRouteScreen — thread list', () => {
+	it('offers an explicit mail refresh action alongside pull-to-refresh', () => {
+		const onRefresh = vi.fn().mockResolvedValue(undefined)
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+				onRefresh={onRefresh}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
+		expect(onRefresh).toHaveBeenCalledOnce()
+		expect(screen.getByText('Pull to refresh')).toBeInTheDocument()
+	})
+
 	it('gives an open message the full tablet reader width and restores the list on wide screens', () => {
 		routerState = {
 			location: { pathname: '/mail/f/inbox/t/t1' },

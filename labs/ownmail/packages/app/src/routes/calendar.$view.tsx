@@ -44,6 +44,7 @@ import {
 	loadCalendarRouteData,
 	useCalendarRouteData,
 } from '#features/calendar/state/calendar-state'
+import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
@@ -70,12 +71,26 @@ function CalendarViewRoutePage() {
 	const { view } = Route.useParams()
 	const { date } = Route.useSearch()
 	const initialData = Route.useLoaderData()
-	const { data } = useCalendarRouteData(view, date, initialData)
+	const calendarQuery = useCalendarRouteData(view, date, initialData)
 
-	return <CalendarRouteScreen view={view} data={data} />
+	return (
+		<CalendarRouteScreen
+			view={view}
+			data={calendarQuery.data}
+			onRefresh={() => calendarQuery.refetch().then(() => undefined)}
+		/>
+	)
 }
 
-export function CalendarRouteScreen({ view, data }: { view: CalView; data: CalendarRouteData }) {
+export function CalendarRouteScreen({
+	view,
+	data,
+	onRefresh,
+}: {
+	view: CalView
+	data: CalendarRouteData
+	onRefresh?: () => Promise<unknown>
+}) {
 	const { events, calendar, calendars, info, anchorIso } = data
 	const navigate = useNavigate()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
@@ -315,6 +330,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							anchor={anchor}
 							events={visibleEvents}
 							calendarById={calendarById}
+							onRefresh={onRefresh}
 							onPickDay={(d) => go('day', d)}
 							onPickEvent={setEditing}
 							timeZone={primaryTimezone}
@@ -328,6 +344,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							onPickEvent={setEditing}
 							timeZone={primaryTimezone}
 							secondaryTimezone={secondaryTimezone}
+							onRefresh={onRefresh}
 							onPickSlot={(date, hour, rect) => {
 								setNewStart(calendarSlotTime(date, hour, primaryTimezone))
 								setNewStartIsSlot(true)
@@ -374,6 +391,12 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					showDestinations={false}
 				/>
 				<div className="border-t border-border px-3 pt-2">
+					{onRefresh ? (
+						<div className="flex items-center justify-between border-b border-border py-2 pl-1">
+							<span className="text-sm font-medium text-foreground">Refresh calendar</span>
+							<RefreshButton onRefresh={() => void onRefresh()} label="Refresh calendar" />
+						</div>
+					) : null}
 					<CalendarSidebarPanel
 						anchor={anchor}
 						calendars={calendars}
@@ -637,6 +660,7 @@ function MonthGrid({
 	timeZone,
 	onPickDay,
 	onPickEvent,
+	onRefresh,
 }: {
 	anchor: Date
 	events: Event[]
@@ -644,6 +668,7 @@ function MonthGrid({
 	timeZone: string
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
+	onRefresh?: () => Promise<unknown>
 }) {
 	const { start, end } = viewRange('month', anchor)
 	const days: Date[] = []
@@ -654,7 +679,7 @@ function MonthGrid({
 	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
 	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
-	return (
+	const monthGrid = (
 		/* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: The native table structure provides the required row and cell ownership for this interactive ARIA grid. */
 		<table className="flex min-h-0 flex-1 flex-col" role="grid" aria-label="Month calendar">
 			<thead className="block shrink-0">
@@ -784,6 +809,13 @@ function MonthGrid({
 			</tbody>
 		</table>
 	)
+	return onRefresh ? (
+		<PullToRefresh onRefresh={onRefresh} className="flex min-h-0 flex-1 flex-col">
+			{monthGrid}
+		</PullToRefresh>
+	) : (
+		monthGrid
+	)
 }
 
 function TimeGrid({
@@ -795,6 +827,7 @@ function TimeGrid({
 	secondaryTimezone,
 	onPickEvent,
 	onPickSlot,
+	onRefresh,
 }: {
 	days: number
 	start: Date
@@ -804,6 +837,7 @@ function TimeGrid({
 	secondaryTimezone: string
 	onPickEvent: (e: Event) => void
 	onPickSlot: (date: Date, hour: number, rect: Rect) => void
+	onRefresh?: () => Promise<unknown>
 }) {
 	const HOUR_PX = 52
 	// Render the full day so selections made in the event composer always
@@ -856,7 +890,7 @@ function TimeGrid({
 		)
 	}
 
-	return (
+	const timeGrid = (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
 				<div
@@ -1087,6 +1121,13 @@ function TimeGrid({
 				</div>
 			</ScrollArea>
 		</div>
+	)
+	return onRefresh ? (
+		<PullToRefresh onRefresh={onRefresh} scrollRef={scrollRef} className="flex min-h-0 flex-1 flex-col">
+			{timeGrid}
+		</PullToRefresh>
+	) : (
+		timeGrid
 	)
 }
 

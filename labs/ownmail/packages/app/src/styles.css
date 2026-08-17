@@ -138,6 +138,47 @@
 	white-space: nowrap;
 }
 
+.pull-to-refresh {
+	overscroll-behavior-y: contain;
+}
+
+.pull-to-refresh-indicator {
+	opacity: 0.85;
+	transform: translateY(calc(-100% + var(--pull-distance)));
+	transition:
+		opacity var(--dur-fast) var(--ease-out),
+		transform var(--dur-fast) var(--ease-out);
+}
+
+.pull-to-refresh[aria-busy="true"] .pull-to-refresh-indicator {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+.pull-refresh-keyboard-action {
+	position: absolute;
+	top: 0.5rem;
+	right: 0.5rem;
+	z-index: 35;
+	min-height: var(--touch-target-min);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--card);
+	color: var(--foreground);
+	padding: 0 0.75rem;
+	font-size: 0.75rem;
+	font-weight: 600;
+	opacity: 0;
+	pointer-events: none;
+	transform: translateY(-0.5rem);
+}
+
+.pull-refresh-keyboard-action:focus-visible {
+	opacity: 1;
+	pointer-events: auto;
+	transform: translateY(0);
+}
+
 @media (hover: hover) and (pointer: fine) {
 	.mobile-tab:hover {
 		background: var(--muted);

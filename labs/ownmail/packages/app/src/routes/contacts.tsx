@@ -15,6 +15,7 @@ import {
 } from '#features/contacts/lib/contacts-model'
 import { flattenContactPages, useContactsPages } from '#features/contacts/state/contacts-state'
 import { getContacts, getMailboxInfo } from '#server/fns'
+import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { initials } from '#shared/lib/presentation'
@@ -59,6 +60,7 @@ function ContactsLayout() {
 			loadingMore={contactsQuery.isFetchingNextPage}
 			loadMoreError={contactsQuery.isFetchNextPageError}
 			onLoadMore={loadMoreContacts}
+			onRefresh={() => contactsQuery.refetch()}
 			query={q ?? ''}
 			selectedId={contactIdFromPath(pathname)}
 			onQueryChange={(next) => navigate({ to: '/contacts', search: next ? { q: next } : {}, replace: true })}
@@ -76,6 +78,7 @@ export function ContactsShell({
 	loadingMore: controlledLoadingMore,
 	loadMoreError: controlledLoadMoreError,
 	onLoadMore,
+	onRefresh,
 }: {
 	info: ContactsInfo
 	contacts: Contact[]
@@ -86,6 +89,7 @@ export function ContactsShell({
 	loadingMore?: boolean
 	loadMoreError?: boolean
 	onLoadMore?: () => Promise<unknown>
+	onRefresh?: () => Promise<unknown>
 }) {
 	const [extra, setExtra] = useState<Contact[]>([])
 	const [nextCursor, setNextCursor] = useState(initialCursor)
@@ -97,6 +101,7 @@ export function ContactsShell({
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const [cursor, setCursor] = useState(-1)
 	const loadMorePendingRef = useRef(false)
+	const listScrollRef = useRef<HTMLUListElement>(null)
 	const listGenerationRef = useRef({ contacts, initialCursor, generation: 0 })
 	if (
 		listGenerationRef.current.contacts !== contacts ||
@@ -233,6 +238,28 @@ export function ContactsShell({
 		active: 'contacts' as const,
 		onOpenCommandPalette: openPalette,
 	}
+	const contactsList =
+		filtered.length === 0 ? (
+			<ContactsEmptyState query={query} moreAvailable={Boolean(nextCursor)}>
+				{paginationControls}
+			</ContactsEmptyState>
+		) : (
+			<>
+				<ul ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+					{filtered.map((contact, index) => (
+						<li key={contact.id}>
+							<ContactListItem
+								contact={contact}
+								active={contact.id === selectedId}
+								keyboardActive={cursor === index}
+								search={linkSearch}
+							/>
+						</li>
+					))}
+				</ul>
+				{paginationControls}
+			</>
+		)
 
 	return (
 		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
@@ -265,6 +292,7 @@ export function ContactsShell({
 							autoCapitalize="none"
 						/>
 					</div>
+					{onRefresh ? <RefreshButton onRefresh={() => void onRefresh()} label="Refresh contacts" /> : null}
 					<Link
 						to="/contacts/new"
 						search={linkSearch}
@@ -285,26 +313,16 @@ export function ContactsShell({
 						selectedId && 'hidden md:flex',
 					)}
 				>
-					{filtered.length === 0 ? (
-						<ContactsEmptyState query={query} moreAvailable={Boolean(nextCursor)}>
-							{paginationControls}
-						</ContactsEmptyState>
+					{onRefresh ? (
+						<PullToRefresh
+							onRefresh={onRefresh}
+							scrollRef={listScrollRef}
+							className="flex min-h-0 flex-1 flex-col"
+						>
+							{contactsList}
+						</PullToRefresh>
 					) : (
-						<>
-							<ul className="min-h-0 flex-1 overflow-y-auto py-1">
-								{filtered.map((contact, index) => (
-									<li key={contact.id}>
-										<ContactListItem
-											contact={contact}
-											active={contact.id === selectedId}
-											keyboardActive={cursor === index}
-											search={linkSearch}
-										/>
-									</li>
-								))}
-							</ul>
-							{paginationControls}
-						</>
+						contactsList
 					)}
 				</div>
 
