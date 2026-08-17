@@ -2,7 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Check, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
+import { Check, Images, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { MobileTabBar } from '#app/components/MobileTabBar'
@@ -15,6 +15,7 @@ import {
 	useUserPreferences,
 } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { clearTrustedImageSenders } from '#features/mail/lib/image-sender-trust'
 import {
 	getAccountCapabilities,
 	getMailboxInfo,
@@ -64,6 +65,7 @@ function preferencesMatch(left: UserPreferences, right: UserPreferences): boolea
 		left.displayName === right.displayName &&
 		left.autoSaveContacts === right.autoSaveContacts &&
 		left.emailDarkMode === right.emailDarkMode &&
+		left.remoteImagePolicy === right.remoteImagePolicy &&
 		left.primaryTimezone === right.primaryTimezone &&
 		left.secondaryTimezone === right.secondaryTimezone
 	)
@@ -77,6 +79,7 @@ function SettingsPage() {
 	const [displayName, setDisplayName] = useState(info.displayName ?? '')
 	const [persistedDisplayName, setPersistedDisplayName] = useState(info.displayName ?? '')
 	const [saveStatus, setSaveStatus] = useState<SettingsFeedback | null>(null)
+	const [imageChoiceStatus, setImageChoiceStatus] = useState<SettingsFeedback | null>(null)
 	const [saving, setSaving] = useState(false)
 	const savePendingRef = useRef(false)
 	const settingsRevisionRef = useRef(0)
@@ -120,6 +123,14 @@ function SettingsPage() {
 		settingsRevisionRef.current += 1
 		setDraft((current) => ({ ...current, ...next }))
 		setSaveStatus(null)
+	}
+
+	function clearSenderImageChoices() {
+		setImageChoiceStatus(
+			clearTrustedImageSenders()
+				? { kind: 'success', message: 'Saved sender choices cleared.' }
+				: { kind: 'error', message: 'We could not clear saved sender choices. Try again.' },
+		)
 	}
 
 	async function save() {
@@ -276,6 +287,54 @@ function SettingsPage() {
 									</span>
 								</span>
 							</label>
+							<div className="mt-4 border-t border-border pt-4">
+								<div className="flex items-center gap-2">
+									<Images className="h-4 w-4 text-muted-foreground" />
+									<label className="text-sm font-medium" htmlFor="settings-remote-images">
+										External images
+									</label>
+								</div>
+								<select
+									id="settings-remote-images"
+									value={draft.remoteImagePolicy}
+									disabled={saving}
+									onChange={(event) =>
+										update({ remoteImagePolicy: event.target.value === 'always' ? 'always' : 'ask' })
+									}
+									aria-describedby="settings-remote-images-help"
+									className="mt-2 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									<option value="ask">Ask before showing</option>
+									<option value="always">Always show</option>
+								</select>
+								<p
+									id="settings-remote-images-help"
+									className="mt-1 text-sm leading-relaxed text-muted-foreground"
+								>
+									“Ask” keeps images off until you show them once or remember a sender.
+								</p>
+								<div className="mt-2 flex flex-wrap items-center gap-3">
+									<button
+										type="button"
+										disabled={saving}
+										onClick={clearSenderImageChoices}
+										className="inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+									>
+										Clear saved senders
+									</button>
+									{imageChoiceStatus ? (
+										<span
+											role={imageChoiceStatus.kind === 'error' ? 'alert' : 'status'}
+											className={cn(
+												'text-sm',
+												imageChoiceStatus.kind === 'error' ? 'text-destructive' : 'text-muted-foreground',
+											)}
+										>
+											{imageChoiceStatus.message}
+										</span>
+									) : null}
+								</div>
+							</div>
 							<label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
 								<input
 									type="checkbox"

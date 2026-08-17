@@ -128,6 +128,7 @@ describe('/settings', () => {
 
 		const fixedHeightFields = [
 			screen.getByLabelText('Display name'),
+			screen.getByRole('combobox', { name: 'External images' }),
 			screen.getByRole('combobox', { name: /Primary timezone/ }),
 			screen.getByRole('combobox', { name: /Secondary timezone/ }),
 		]
@@ -192,7 +193,8 @@ describe('/settings', () => {
 		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: ' Ada Lovelace ' } })
 		fireEvent.click(screen.getByLabelText('Save recipients to contacts automatically'))
 		fireEvent.click(screen.getByLabelText('Darken email content automatically'))
-		const [primaryTimezone, secondaryTimezone] = screen.getAllByRole('combobox')
+		const primaryTimezone = screen.getByRole('combobox', { name: /Primary timezone/ })
+		const secondaryTimezone = screen.getByRole('combobox', { name: /Secondary timezone/ })
 		fireEvent.change(primaryTimezone, { target: { value: 'UTC' } })
 		fireEvent.change(secondaryTimezone, { target: { value: 'America/Toronto' } })
 		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
@@ -208,6 +210,7 @@ describe('/settings', () => {
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
 			emailDarkMode: false,
+			remoteImagePolicy: 'ask',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',
 		})
@@ -226,13 +229,50 @@ describe('/settings', () => {
 		expect(screen.getByText('Password changes are disabled by your administrator.')).toBeInTheDocument()
 	})
 
+	it('persists the external-image default and clears remembered sender choices', async () => {
+		renderSettings()
+		const externalImages = screen.getByRole('combobox', { name: 'External images' })
+		expect(externalImages).toHaveValue('ask')
+
+		fireEvent.change(externalImages, { target: { value: 'always' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		await waitFor(() =>
+			expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+				remoteImagePolicy: 'always',
+			}),
+		)
+
+		localStorage.setItem('ownmail:trusted-image-senders:v2', 'encrypted-record')
+		localStorage.setItem('ownmail:trusted-image-senders:v1', 'legacy-record')
+		fireEvent.click(screen.getByRole('button', { name: 'Clear saved senders' }))
+
+		expect(screen.getByText('Saved sender choices cleared.')).toHaveAttribute('role', 'status')
+		expect(localStorage.getItem('ownmail:trusted-image-senders:v2')).toBeNull()
+		expect(localStorage.getItem('ownmail:trusted-image-senders:v1')).toBeNull()
+
+		fireEvent.change(externalImages, { target: { value: 'ask' } })
+		expect(externalImages).toHaveValue('ask')
+	})
+
+	it('keeps sender-choice reset failures generic', () => {
+		const removeItem = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+			throw new Error('private storage detail')
+		})
+		renderSettings()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Clear saved senders' }))
+
+		expect(screen.getByRole('alert')).toHaveTextContent('We could not clear saved sender choices. Try again.')
+		removeItem.mockRestore()
+	})
+
 	it('keeps the saved timezone when the selected zone cannot be resolved', async () => {
 		// A stored zone can be dropped from the tz database, and the value can be edited by
 		// hand or by a browser autofill heuristic. Neither may blank out the clock preview
 		// nor be written back to preferences, or the settings page becomes unusable.
 		renderSettings()
 		const savedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-		const [primaryTimezone] = screen.getAllByRole('combobox')
+		const primaryTimezone = screen.getByRole('combobox', { name: /Primary timezone/ })
 		expect(primaryTimezone).toHaveValue(savedTimezone)
 
 		primaryTimezone.append(new Option('Stale zone', 'Mars/Olympus_Mons'))

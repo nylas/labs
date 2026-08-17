@@ -16,6 +16,7 @@ describe('user preferences', () => {
 		const preferences = defaultUserPreferences()
 		expect(preferences.autoSaveContacts).toBe(true)
 		expect(preferences.emailDarkMode).toBe(true)
+		expect(preferences.remoteImagePolicy).toBe('ask')
 		expect(isSupportedTimezone(preferences.primaryTimezone)).toBe(true)
 		expect(readUserPreferences()).toEqual(preferences)
 	})
@@ -25,6 +26,7 @@ describe('user preferences', () => {
 			displayName: '  Ada Lovelace  ',
 			autoSaveContacts: false,
 			emailDarkMode: false,
+			remoteImagePolicy: 'always',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
 		})
@@ -32,6 +34,7 @@ describe('user preferences', () => {
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
 			emailDarkMode: false,
+			remoteImagePolicy: 'always',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
 		})
@@ -47,10 +50,12 @@ describe('user preferences', () => {
 			displayName: 123 as never,
 			autoSaveContacts: true,
 			emailDarkMode: true,
+			remoteImagePolicy: 'invalid' as never,
 			primaryTimezone: 'not/a-timezone',
 			secondaryTimezone: 'UTC',
 		})
 		expect(saved.displayName).toBe('')
+		expect(saved.remoteImagePolicy).toBe('ask')
 		expect(saved.primaryTimezone).toBe(defaultUserPreferences().primaryTimezone)
 		// CI commonly uses UTC as the browser timezone. In that case the
 		// normalizer correctly removes the duplicate secondary timezone.
@@ -88,6 +93,7 @@ describe('user preferences', () => {
 				displayName: 'Ada',
 				autoSaveContacts: true,
 				emailDarkMode: true,
+				remoteImagePolicy: 'ask',
 				primaryTimezone: 'UTC',
 				secondaryTimezone: '',
 			}),
