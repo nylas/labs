@@ -20,8 +20,7 @@ import { useCreateContactMutation, useUpdateContactMutation } from '../state/con
 
 const FIELD_TYPES = ['', 'work', 'home', 'other'] as const
 
-export const CONTACT_DIALOG_PANEL_CLASS =
-	'flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl'
+export const CONTACT_DIALOG_PANEL_CLASS = 'flex flex-col overflow-hidden bg-card sm:max-h-[85vh] sm:max-w-lg'
 
 /** Create (contact = null) or edit a contact. Resolves with whether it changed. */
 export function ContactModal({
@@ -141,6 +140,7 @@ export function ContactModal({
 			}}
 		>
 			<DialogContent
+				presentation="bottom-sheet"
 				className={CONTACT_DIALOG_PANEL_CLASS}
 				aria-busy={busy || undefined}
 				{...(confirmingDiscard
@@ -183,7 +183,7 @@ export function ContactModal({
 				<div hidden={confirmingDiscard} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
 					<fieldset className="space-y-1.5">
 						<legend className="sr-only">Contact identity</legend>
-						<div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
+						<div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-2">
 							<Field id="contact-given-name" label="First name">
 								<Input
 									ref={givenNameRef}
@@ -377,7 +377,7 @@ export function ContactModal({
 
 				<div
 					hidden={confirmingDiscard}
-					className="flex items-center justify-end gap-2 border-t border-border px-5 py-3"
+					className="flex items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))]"
 				>
 					<button
 						ref={cancelButtonRef}
@@ -527,7 +527,7 @@ function RemoveRowButton({
 			aria-label={label}
 			disabled={disabled}
 			onClick={onClick}
-			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
+			className="flex h-11 w-11 shrink-0 self-end items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50 sm:self-auto"
 		>
 			<X className="h-4 w-4" />
 		</button>

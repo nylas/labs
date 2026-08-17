@@ -12,6 +12,8 @@ describe('Button', () => {
 		expect(button).toHaveAttribute('data-slot', 'button')
 		expect(button.className).toContain('w-full')
 		expect(button.className).toContain('bg-primary')
+		expect(button.className).toContain('touch-target')
+		expect(button.className).not.toContain('transition-all')
 	})
 
 	it('applies the requested variant and size', () => {
@@ -30,7 +32,7 @@ describe('Button', () => {
 		render(<Button>Save</Button>)
 		const button = screen.getByRole('button', { name: 'Save' })
 		expect(button).toHaveClass(
-			'transition-[background-color,color,filter,transform]',
+			'transition-[background-color,border-color,color,filter,opacity,transform]',
 			'max-md:min-h-11',
 			'max-md:min-w-11',
 		)

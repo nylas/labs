@@ -473,4 +473,18 @@ describe('AppRailMobileNav', () => {
 
 		expect(screen.queryByRole('combobox', { name: 'Switch inbox' })).toBeNull()
 	})
+
+	it('can leave primary destinations to the persistent bottom tabs', () => {
+		render(
+			<AppRailMobileNav
+				email="ada@ownmail.com"
+				active="mail"
+				onNavigate={vi.fn()}
+				showDestinations={false}
+			/>,
+		)
+		expect(screen.queryByText('Navigate')).toBeNull()
+		expect(screen.queryByRole('link', { name: 'Mail' })).toBeNull()
+		expect(screen.getByText('Tools')).toBeInTheDocument()
+	})
 })

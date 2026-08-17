@@ -5,7 +5,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Check, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
-import { MobileAppNav } from '#app/components/MobileAppNav'
+import { MobileTabBar } from '#app/components/MobileTabBar'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
 	affectsUserPreferences,
@@ -421,8 +421,7 @@ function SettingsPage() {
 					</div>
 				</main>
 			</div>
-
-			<MobileAppNav active="settings" />
+			<MobileTabBar active="settings" />
 
 			<Sheet open={navigationOpen} onClose={() => setNavigationOpen(false)} title="Navigation">
 				<AppRailMobileNav
@@ -431,6 +430,7 @@ function SettingsPage() {
 					accounts={info.accounts}
 					active="settings"
 					onNavigate={() => setNavigationOpen(false)}
+					showDestinations={false}
 				/>
 			</Sheet>
 		</div>

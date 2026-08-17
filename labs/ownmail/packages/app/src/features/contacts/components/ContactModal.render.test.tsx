@@ -196,6 +196,13 @@ describe('ContactModal — create', () => {
 
 	it('provides touch-friendly, focus-visible contact controls', () => {
 		render(<ContactModal contact={null} onClose={vi.fn()} />)
+		const dialog = screen.getByRole('dialog', { name: 'New contact' })
+		expect(dialog).toHaveAttribute('data-presentation', 'bottom-sheet')
+		expect(dialog).toHaveClass('sm:max-h-[85vh]', 'sm:max-w-lg')
+		expect(screen.getByLabelText('First name').parentElement?.parentElement).toHaveClass(
+			'grid-cols-1',
+			'sm:grid-cols-2',
+		)
 		const expectFocusFallback = (control: HTMLElement) =>
 			expect(control).toHaveClass(
 				'focus-visible:ring-[3px]',
@@ -217,7 +224,7 @@ describe('ContactModal — create', () => {
 		expect(addEmail).toHaveClass('min-h-11')
 		expectFocusFallback(addEmail)
 		const removeEmail = screen.getByRole('button', { name: 'Remove email 1' })
-		expect(removeEmail).toHaveClass('h-11', 'w-11')
+		expect(removeEmail).toHaveClass('h-11', 'w-11', 'self-end', 'sm:self-auto')
 		expectFocusFallback(removeEmail)
 		const cancel = screen.getByRole('button', { name: 'Cancel' })
 		expect(cancel).toHaveClass('min-h-11')

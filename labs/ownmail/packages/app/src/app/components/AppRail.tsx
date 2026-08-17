@@ -32,6 +32,7 @@ type AppRailNavProps = {
 
 type AppRailMobileNavProps = AppRailNavProps & {
 	onNavigate: () => void
+	showDestinations?: boolean
 }
 
 function formatOrgLabel(appName: string): string {
@@ -156,6 +157,7 @@ export function AppRailMobileNav({
 	active,
 	onOpenCommandPalette,
 	onNavigate,
+	showDestinations = true,
 }: AppRailMobileNavProps) {
 	const { isDark, mounted } = useThemeToggleState()
 	const [preferences] = useUserPreferences()
@@ -196,30 +198,37 @@ export function AppRailMobileNav({
 				/>
 			</Link>
 
-			<div className="space-y-1">
-				<p className="px-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-					Navigate
-				</p>
-				<MobileNavLink to={MAIL_HOME_PATH} label="Mail" isActive={active === 'mail'} onNavigate={onNavigate}>
-					<Mail className="h-5 w-5" aria-hidden="true" />
-				</MobileNavLink>
-				<MobileNavLink
-					to={CALENDAR_HOME_PATH}
-					label="Calendar"
-					isActive={active === 'calendar'}
-					onNavigate={onNavigate}
-				>
-					<Calendar className="h-5 w-5" aria-hidden="true" />
-				</MobileNavLink>
-				<MobileNavLink
-					to={CONTACTS_HOME_PATH}
-					label="Contacts"
-					isActive={active === 'contacts'}
-					onNavigate={onNavigate}
-				>
-					<Users className="h-5 w-5" aria-hidden="true" />
-				</MobileNavLink>
-			</div>
+			{showDestinations ? (
+				<div className="space-y-1">
+					<p className="px-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+						Navigate
+					</p>
+					<MobileNavLink
+						to={MAIL_HOME_PATH}
+						label="Mail"
+						isActive={active === 'mail'}
+						onNavigate={onNavigate}
+					>
+						<Mail className="h-5 w-5" aria-hidden="true" />
+					</MobileNavLink>
+					<MobileNavLink
+						to={CALENDAR_HOME_PATH}
+						label="Calendar"
+						isActive={active === 'calendar'}
+						onNavigate={onNavigate}
+					>
+						<Calendar className="h-5 w-5" aria-hidden="true" />
+					</MobileNavLink>
+					<MobileNavLink
+						to={CONTACTS_HOME_PATH}
+						label="Contacts"
+						isActive={active === 'contacts'}
+						onNavigate={onNavigate}
+					>
+						<Users className="h-5 w-5" aria-hidden="true" />
+					</MobileNavLink>
+				</div>
+			) : null}
 
 			<div className="space-y-1 border-t border-border pt-3">
 				<p className="px-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">

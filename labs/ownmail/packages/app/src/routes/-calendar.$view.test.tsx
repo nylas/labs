@@ -60,6 +60,10 @@ vi.mock('#app/components/AppRail', () => ({
 	),
 }))
 
+vi.mock('#app/components/MobileTabBar', () => ({
+	MobileTabBar: ({ active }: { active: string }) => <nav data-testid="mobile-tabs" data-active={active} />,
+}))
+
 vi.mock('#app/components/CommandPalette', () => ({
 	CommandPalette: (props: any) =>
 		props.open ? (
@@ -322,6 +326,32 @@ describe('CalendarViewRoutePage wrapper', () => {
 		expect(screen.getByTestId('app-rail-logo').textContent).toBe('OwnMail')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 	})
+
+	it('connects refresh interactions to the live calendar query', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		const Page = Route.options.component
+		render(<Page />)
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalled())
+	})
+
+	it('announces a generic failure when the live calendar refresh rejects', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		h.getEvents.mockRejectedValue(new Error('provider-secret-detail'))
+		const Page = Route.options.component
+		render(<Page />)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Could not refresh. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
 })
 
 // ---- week view (route navigation) -----------------------------------------
@@ -334,6 +364,9 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Jun')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('region', { name: 'Calendar time grid' })).toHaveClass('max-sm:overflow-x-auto')
+		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('max-sm:min-w-[54rem]')
+		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('max-sm:min-w-[54rem]')
 	})
 
 	it('keeps every calendar action available in the 320px mobile header', () => {
@@ -342,17 +375,48 @@ describe('week view + header navigation', () => {
 		const controls = screen.getByTestId('calendar-header-controls')
 		expect(controls).toHaveClass('grid', 'min-w-0', 'sm:flex')
 		expect(screen.getByRole('heading', { level: 1 })).toBeVisible()
-		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('size-11', 'sm:w-auto')
-		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('size-11', 'sm:w-auto')
-		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('size-11')
-		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('size-11')
+		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass(
+			'size-11',
+			'sm:w-auto',
+			'touch-target-square',
+		)
+		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('size-11', 'sm:w-auto', 'touch-target')
+		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('size-11', 'touch-target-square')
+		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('size-11', 'touch-target-square')
+		expect(screen.getByRole('combobox', { name: 'Calendar view' })).toHaveClass(
+			'w-full',
+			'sm:hidden',
+			'touch-target',
+		)
 		for (const view of ['day', 'week', 'month']) {
 			expect(screen.getByRole('button', { name: view })).toHaveClass(
 				'min-w-11',
 				'whitespace-nowrap',
 				'sm:w-auto',
+				'touch-target',
 			)
 		}
+	})
+
+	it('switches view from the allow-listed compact mobile picker', () => {
+		renderWeek()
+		const picker = screen.getByRole('combobox', { name: 'Calendar view' })
+		fireEvent.change(picker, { target: { value: 'day' } })
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/calendar/$view',
+			params: { view: 'day' },
+			search: { date: '2024-06-15' },
+		})
+		fireEvent.change(picker, { target: { value: 'week' } })
+		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ params: { view: 'week' } }))
+		fireEvent.change(picker, { target: { value: 'month' } })
+		expect(h.navigate).toHaveBeenCalledWith(expect.objectContaining({ params: { view: 'month' } }))
+		const invalidOption = document.createElement('option')
+		invalidOption.value = 'agenda'
+		picker.append(invalidOption)
+		h.navigate.mockClear()
+		fireEvent.change(picker, { target: { value: 'agenda' } })
+		expect(h.navigate).not.toHaveBeenCalled()
 	})
 
 	it('jumps to today keeping the current view', async () => {
@@ -941,6 +1005,15 @@ describe('event editor', () => {
 // ---- mobile sheet ---------------------------------------------------------
 
 describe('mobile calendar sheet', () => {
+	it('offers an explicit calendar refresh action in the contextual sheet', () => {
+		const onRefresh = vi.fn().mockResolvedValue(undefined)
+		render(<CalendarRouteScreen view="week" data={richData()} onRefresh={onRefresh} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
+		expect(onRefresh).toHaveBeenCalledOnce()
+		expect(screen.getByText('Pull to refresh')).toBeInTheDocument()
+	})
+
 	it('closes the sheet when mobile primary navigation is chosen', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))

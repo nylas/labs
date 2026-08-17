@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const routerState = vi.hoisted(() => ({ isLoading: false }))
+const routerState = vi.hoisted(() => ({ isLoading: false, pathname: '/' }))
 
 vi.mock('@tanstack/react-router', () => ({
 	createRootRouteWithContext: () => (opts: any) => ({ options: opts }),
@@ -11,7 +11,7 @@ vi.mock('@tanstack/react-router', () => ({
 	Scripts: () => null,
 	useRouterState: (options: {
 		select: (state: { isLoading: boolean; location: { pathname: string } }) => unknown
-	}) => options.select({ isLoading: routerState.isLoading, location: { pathname: '/' } }),
+	}) => options.select({ isLoading: routerState.isLoading, location: { pathname: routerState.pathname } }),
 	Link: ({ to, children, ...rest }: any) => (
 		<a href={to} {...rest}>
 			{children}
@@ -32,6 +32,7 @@ import { Route } from './__root.js'
 
 afterEach(() => {
 	routerState.isLoading = false
+	routerState.pathname = '/'
 	cleanup()
 	vi.useRealTimers()
 })
@@ -97,6 +98,43 @@ describe('root route', () => {
 		expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument()
 		act(() => vi.advanceTimersByTime(1))
 		expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument()
+	})
+
+	it('announces meaningful route changes after navigation settles', () => {
+		const RootComponent = Route.options.component
+		const { rerender } = render(<RootComponent />)
+
+		routerState.isLoading = true
+		routerState.pathname = '/calendar/week'
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('')
+
+		routerState.isLoading = false
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('Calendar loaded')
+
+		routerState.pathname = '/contacts/abc'
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('Contacts loaded')
+
+		routerState.pathname = '/settings'
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('Settings loaded')
+
+		routerState.pathname = '/mail/f/inbox'
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('Mail loaded')
+	})
+
+	it('does not repeat announcements when only search state changes', () => {
+		const RootComponent = Route.options.component
+		const { rerender } = render(<RootComponent />)
+		routerState.pathname = '/contacts'
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('Contacts loaded')
+
+		rerender(<RootComponent />)
+		expect(screen.getByRole('status')).toHaveTextContent('Contacts loaded')
 	})
 
 	it('renders a not-found page with a route back home so bad URLs are recoverable, not a dead end', () => {

@@ -757,17 +757,14 @@ function Compose() {
 			</div>
 			<div
 				ref={composePanelRef}
+				data-minimized={minimized ? 'true' : 'false'}
 				aria-busy={busy || attaching || closing || savingDraft}
-				className={cn(
-					'fixed inset-x-0 bottom-0 z-50 flex w-full flex-col border-0 bg-card shadow-2xl max-sm:pr-[env(safe-area-inset-right)] max-sm:pl-[env(safe-area-inset-left)] sm:inset-x-auto sm:right-4 sm:w-[min(30rem,calc(100vw-2rem))] sm:rounded-t-xl sm:border',
-					minimized
-						? 'h-[calc(2.75rem+env(safe-area-inset-bottom))] max-sm:pb-[env(safe-area-inset-bottom)] sm:h-11'
-						: 'top-0 h-dvh max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] sm:top-auto sm:h-[min(32rem,calc(100dvh-1rem))]',
-				)}
-				role="dialog"
+				aria-modal={!minimized || undefined}
 				aria-label="Compose message"
+				role="dialog"
+				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl max-sm:pr-[env(safe-area-inset-right)] max-sm:pl-[env(safe-area-inset-left)]"
 			>
-				<div className="flex min-h-11 items-center justify-between bg-foreground px-3 py-0 text-background sm:rounded-t-xl sm:py-2.5">
+				<div className="flex min-h-11 items-center justify-between bg-foreground px-3 pt-[calc(0.625rem+var(--safe-area-top))] pb-2.5 text-background sm:rounded-t-xl sm:pt-2.5">
 					<div className="flex min-w-0 items-center gap-2">
 						<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
 						{busy ? <span className="text-xs text-background/70">Sending…</span> : null}
@@ -789,7 +786,10 @@ function Compose() {
 							onClick={() => setMinimized((value) => !value)}
 							aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
 							aria-expanded={!minimized}
-							className="text-background hover:bg-background/20 hover:text-background sm:size-6"
+							className={cn(
+								'h-11 w-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background max-md:size-11 sm:size-6',
+								minimized ? 'flex' : 'hidden sm:flex',
+							)}
 						>
 							{minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
 						</Button>
@@ -800,7 +800,7 @@ function Compose() {
 							onClick={() => void close()}
 							disabled={busy || closing}
 							aria-label="Close"
-							className="text-background hover:bg-background/20 hover:text-background sm:size-6"
+							className="flex h-11 w-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background max-md:size-11 sm:size-6"
 						>
 							<X className="h-4 w-4" />
 						</Button>
@@ -876,7 +876,7 @@ function Compose() {
 											disabled={closing}
 											onClick={() => removeAttachment(index)}
 											aria-label={`Remove ${attachment.filename}`}
-											className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+											className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
 										>
 											<X className="h-3.5 w-3.5" />
 										</button>
@@ -885,7 +885,7 @@ function Compose() {
 							</div>
 						) : null}
 						{error ? <ErrorBanner message={error} /> : null}
-						<div className="flex items-center gap-2 border-t border-border px-3 py-2.5">
+						<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-2.5 pb-[calc(0.625rem+var(--safe-area-bottom))] sm:pb-2.5">
 							<Button
 								type="button"
 								disabled={busy || attaching || closing}
@@ -894,8 +894,14 @@ function Compose() {
 							>
 								<Send className="h-4 w-4" /> {attaching ? 'Attaching...' : busy ? 'Sending...' : 'Send'}
 							</Button>
-							<Button type="button" variant="ghost" disabled={busy || attaching || closing} onClick={saveNow}>
-								<Save className="h-4 w-4" /> Save draft
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={busy || attaching || closing}
+								onClick={saveNow}
+								aria-label="Save draft"
+							>
+								<Save className="h-4 w-4" /> <span className="hidden sm:inline">Save draft</span>
 							</Button>
 							<Button
 								type="button"

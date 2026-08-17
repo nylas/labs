@@ -113,6 +113,10 @@ describe('ResourceManagerDialog', () => {
 	it('renders an empty state and supports close button, backdrop, and Escape dismissal', async () => {
 		const props = setup({ items: [] })
 		const user = userEvent.setup()
+		expect(screen.getByRole('dialog', { name: 'Manage folders' })).toHaveAttribute(
+			'data-presentation',
+			'bottom-sheet',
+		)
 		expect(screen.getByText('No folders yet.')).toBeInTheDocument()
 
 		await user.click(screen.getByRole('button', { name: 'Close' }))

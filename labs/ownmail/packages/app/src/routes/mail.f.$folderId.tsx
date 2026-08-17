@@ -26,6 +26,7 @@ import {
 } from '#features/mail/state/mail-queries'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
 import { ClientListDate } from '#shared/components/ClientTime'
+import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
@@ -129,6 +130,14 @@ function FolderView() {
 		}
 	}
 
+	async function refreshThreads() {
+		const activeListRefresh =
+			folderId === 'drafts'
+				? draftsQuery.refetch({ throwOnError: true })
+				: threadsQuery.refetch({ throwOnError: true })
+		await Promise.all([activeListRefresh, folderQuery.refetch({ throwOnError: true })])
+	}
+
 	return (
 		<MailFolderRouteScreen
 			threads={threads}
@@ -140,6 +149,7 @@ function FolderView() {
 			loadingMore={threadsQuery.isFetchingNextPage}
 			loadMoreError={threadsQuery.isFetchNextPageError}
 			onLoadMore={loadMoreThreads}
+			onRefresh={refreshThreads}
 			onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
 		/>
 	)
@@ -159,6 +169,7 @@ export function MailFolderRouteScreen({
 	loadingMore: managedLoadingMore,
 	loadMoreError: managedLoadMoreError,
 	onLoadMore,
+	onRefresh,
 	onUpdateThread,
 	activeThreadId,
 	composeThreadSearch,
@@ -169,6 +180,7 @@ export function MailFolderRouteScreen({
 	loadingMore?: boolean
 	loadMoreError?: boolean
 	onLoadMore?: () => Promise<void>
+	onRefresh?: () => Promise<unknown>
 	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
 	activeThreadId?: string
 	composeThreadSearch?: (threadId: string) => ComposeThreadSearch
@@ -357,6 +369,39 @@ export function MailFolderRouteScreen({
 			</button>
 		</div>
 	) : null
+	const threadList = (
+		<ScrollArea
+			aria-label={`${folderTitle} thread list`}
+			viewportRef={listScrollRef}
+			className="min-h-0 flex-1"
+		>
+			{folderId === 'drafts' ? (
+				drafts.length === 0 ? (
+					<EmptyState />
+				) : (
+					drafts.map((draft, index) => <DraftRow key={draft.id} draft={draft} navActive={cursor === index} />)
+				)
+			) : sortedThreads.length === 0 ? (
+				<EmptyState moreAvailable={Boolean(nextCursor)}>{paginationControls}</EmptyState>
+			) : (
+				<>
+					{sortedThreads.map((thread, index) => (
+						<ThreadRow
+							key={thread.id}
+							thread={thread}
+							folderId={folderId}
+							baseFolderId={baseFolderId}
+							active={thread.id === activeThreadId}
+							composeSearch={composeThreadSearch?.(thread.id)}
+							navActive={cursor === index}
+							onUpdateThread={onUpdateThread}
+						/>
+					))}
+					{paginationControls}
+				</>
+			)}
+		</ScrollArea>
+	)
 
 	return (
 		<>
@@ -368,46 +413,27 @@ export function MailFolderRouteScreen({
 			>
 				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
-					{unreadCount > 0 ? (
-						<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-							{unreadCount}
-						</span>
-					) : null}
+					<div className="flex items-center gap-1">
+						{unreadCount > 0 ? (
+							<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+								{unreadCount}
+							</span>
+						) : null}
+						{onRefresh ? <RefreshButton onRefresh={() => void onRefresh()} label="Refresh mail" /> : null}
+					</div>
 				</div>
 
-				<ScrollArea
-					aria-label={`${folderTitle} thread list`}
-					viewportRef={listScrollRef}
-					className="min-h-0 flex-1"
-				>
-					{folderId === 'drafts' ? (
-						drafts.length === 0 ? (
-							<EmptyState />
-						) : (
-							drafts.map((draft, index) => (
-								<DraftRow key={draft.id} draft={draft} navActive={cursor === index} />
-							))
-						)
-					) : sortedThreads.length === 0 ? (
-						<EmptyState moreAvailable={Boolean(nextCursor)}>{paginationControls}</EmptyState>
-					) : (
-						<>
-							{sortedThreads.map((thread, index) => (
-								<ThreadRow
-									key={thread.id}
-									thread={thread}
-									folderId={folderId}
-									baseFolderId={baseFolderId}
-									active={thread.id === activeThreadId}
-									composeSearch={composeThreadSearch?.(thread.id)}
-									navActive={cursor === index}
-									onUpdateThread={onUpdateThread}
-								/>
-							))}
-							{paginationControls}
-						</>
-					)}
-				</ScrollArea>
+				{onRefresh ? (
+					<PullToRefresh
+						onRefresh={onRefresh}
+						scrollRef={listScrollRef}
+						className="flex min-h-0 flex-1 flex-col"
+					>
+						{threadList}
+					</PullToRefresh>
+				) : (
+					threadList
+				)}
 			</section>
 			<section
 				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden xl:flex')}
@@ -535,6 +561,9 @@ function ThreadRow({
 					search={composeSearch}
 					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 					className={THREAD_ROW_LINK_CLASS}
+					data-active={active ? 'true' : undefined}
+					data-nav-cursor={navActive ? 'true' : undefined}
+					data-unread={optimisticThread.unread ? 'true' : undefined}
 				/>
 				<ThreadRowContent
 					thread={optimisticThread}
@@ -555,6 +584,9 @@ function ThreadRow({
 				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 				className={THREAD_ROW_LINK_CLASS}
 				activeProps={{ 'data-active': 'true' }}
+				data-active={active ? 'true' : undefined}
+				data-nav-cursor={navActive ? 'true' : undefined}
+				data-unread={optimisticThread.unread ? 'true' : undefined}
 			/>
 			<ThreadRowContent
 				thread={optimisticThread}

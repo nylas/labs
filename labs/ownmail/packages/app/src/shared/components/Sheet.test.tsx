@@ -3,7 +3,23 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Sheet } from './Sheet.js'
 
-afterEach(cleanup)
+afterEach(() => {
+	cleanup()
+	vi.unstubAllGlobals()
+})
+
+function stubMatchMedia(matches = false) {
+	const addEventListener = vi.fn()
+	const removeEventListener = vi.fn()
+	const media = {
+		matches,
+		addEventListener,
+		removeEventListener,
+	} as unknown as MediaQueryList
+	const matchMedia = vi.fn(() => media)
+	vi.stubGlobal('matchMedia', matchMedia)
+	return { addEventListener, matchMedia, media, removeEventListener }
+}
 
 function renderSheet(overrides: Partial<Parameters<typeof Sheet>[0]> = {}) {
 	const onClose = vi.fn()
@@ -37,18 +53,18 @@ describe('Sheet', () => {
 
 	it('locks body scroll while open and restores it on close', () => {
 		const { rerender } = renderSheet()
-		expect(document.body.style.overflow).toBe('hidden')
+		expect(document.body).toHaveAttribute('data-scroll-locked', '1')
 		rerender(
 			<Sheet open={false} onClose={vi.fn()} title="Navigation">
 				<a href="/inbox">Inbox</a>
 			</Sheet>,
 		)
-		expect(document.body.style.overflow).not.toBe('hidden')
+		expect(document.body).not.toHaveAttribute('data-scroll-locked')
 	})
 
-	it('moves focus to the panel when it opens', () => {
+	it('moves focus inside the panel when it opens', () => {
 		renderSheet()
-		expect(document.activeElement).toBe(screen.getByRole('dialog'))
+		expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement)
 	})
 
 	it('closes on the Escape key', () => {
@@ -65,7 +81,7 @@ describe('Sheet', () => {
 
 	it('closes when the backdrop is clicked', () => {
 		const { onClose } = renderSheet()
-		fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+		fireEvent.click(document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement)
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 
@@ -89,5 +105,33 @@ describe('Sheet', () => {
 		const dialog = screen.getByRole('dialog')
 		expect(dialog.className).toContain('right-0')
 		expect(dialog.className).toContain('border-l')
+	})
+
+	it('lets calendar utility sheets remain available through the large breakpoint', () => {
+		const { matchMedia } = stubMatchMedia()
+		renderSheet({ hideAt: 'lg' })
+		expect(matchMedia).toHaveBeenCalledWith('(min-width: 64rem)')
+		const dialog = screen.getByRole('dialog')
+		expect(dialog).toHaveClass('lg:hidden')
+		expect(dialog).not.toHaveClass('md:hidden')
+		expect(dialog.lastElementChild).toHaveClass('pb-[var(--safe-area-bottom)]')
+	})
+
+	it('closes and releases its breakpoint listener when a default sheet becomes desktop-only', () => {
+		const { addEventListener, matchMedia, media, removeEventListener } = stubMatchMedia()
+		const { onClose, unmount } = renderSheet()
+		expect(matchMedia).toHaveBeenCalledWith('(min-width: 48rem)')
+		const changeListener = addEventListener.mock.calls[0]?.[1]
+		expect(changeListener).toBeTypeOf('function')
+		changeListener({ ...media, matches: true })
+		expect(onClose).toHaveBeenCalledTimes(1)
+		unmount()
+		expect(removeEventListener).toHaveBeenCalledWith('change', changeListener)
+	})
+
+	it('closes immediately if it mounts beyond its responsive breakpoint', () => {
+		stubMatchMedia(true)
+		const { onClose } = renderSheet()
+		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 })
