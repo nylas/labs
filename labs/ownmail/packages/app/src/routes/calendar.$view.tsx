@@ -185,7 +185,7 @@ export function CalendarRouteScreen({
 
 	return (
 		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-			<div className={cn(CHROME_ROW_SHELL_CLASS, 'h-[5.5rem] sm:h-11')}>
+			<div className={cn(CHROME_ROW_SHELL_CLASS, 'calendar-chrome-row')}>
 				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(

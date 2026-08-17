@@ -70,6 +70,16 @@
 	padding-top: var(--safe-area-top);
 }
 
+.calendar-chrome-row {
+	height: calc(5.5rem + var(--safe-area-top));
+}
+
+@media (min-width: 40rem) {
+	.calendar-chrome-row {
+		height: calc(2.75rem + var(--safe-area-top));
+	}
+}
+
 .mobile-tab-bar {
 	z-index: 40;
 	display: grid;

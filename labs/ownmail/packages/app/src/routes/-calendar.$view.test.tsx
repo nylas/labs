@@ -374,6 +374,7 @@ describe('week view + header navigation', () => {
 		renderWeek()
 
 		const controls = screen.getByTestId('calendar-header-controls')
+		expect(controls.closest('.app-chrome-row')).toHaveClass('calendar-chrome-row')
 		expect(controls).toHaveClass('grid', 'min-w-0', 'sm:flex')
 		expect(screen.getByRole('heading', { level: 1 })).toBeVisible()
 		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass(
