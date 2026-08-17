@@ -321,6 +321,32 @@ describe('CalendarViewRoutePage wrapper', () => {
 		expect(screen.getByTestId('app-rail-logo').textContent).toBe('OwnMail')
 		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
 	})
+
+	it('connects refresh interactions to the live calendar query', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		const Page = Route.options.component
+		render(<Page />)
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalled())
+	})
+
+	it('announces a generic failure when the live calendar refresh rejects', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		h.getEvents.mockRejectedValue(new Error('provider-secret-detail'))
+		const Page = Route.options.component
+		render(<Page />)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Could not refresh. Check your connection, then try again.',
+		)
+		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
 })
 
 // ---- week view (route navigation) -----------------------------------------
@@ -955,6 +981,15 @@ describe('event editor', () => {
 // ---- mobile sheet ---------------------------------------------------------
 
 describe('mobile calendar sheet', () => {
+	it('offers an explicit calendar refresh action in the contextual sheet', () => {
+		const onRefresh = vi.fn().mockResolvedValue(undefined)
+		render(<CalendarRouteScreen view="week" data={richData()} onRefresh={onRefresh} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
+		expect(onRefresh).toHaveBeenCalledOnce()
+		expect(screen.getByText('Pull to refresh')).toBeInTheDocument()
+	})
+
 	it('closes the sheet when mobile primary navigation is chosen', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
