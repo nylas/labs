@@ -737,7 +737,12 @@ function Compose() {
 				role="dialog"
 				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl"
 			>
-				<div className="flex items-center justify-between rounded-t-xl bg-foreground px-3 pt-[calc(0.625rem+var(--safe-area-top))] pb-2.5 text-background sm:pt-2.5">
+				<div
+					className={cn(
+						'flex items-center justify-between rounded-t-xl bg-foreground px-3 pb-2.5 text-background sm:pt-2.5',
+						minimized ? 'pt-2.5' : 'pt-[calc(0.625rem+var(--safe-area-top))]',
+					)}
+				>
 					<div className="flex min-w-0 items-center gap-2">
 						<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
 						{busy ? <span className="text-xs text-background/70">Sending…</span> : null}

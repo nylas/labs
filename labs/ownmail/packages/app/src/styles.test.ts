@@ -53,6 +53,12 @@ describe('native mobile shell styles', () => {
 		)
 	})
 
+	it('keeps a minimized composer above the mobile tab bar', () => {
+		expect(styles).toMatch(
+			/\.compose-panel\[data-minimized="true"\]\s*\{[^}]*top: auto;[^}]*bottom: calc\(var\(--mobile-tab-bar-height\) \+ var\(--safe-area-bottom\)\);[^}]*height: 2\.75rem;/,
+		)
+	})
+
 	it('hides the unlayered mobile tab bar at the desktop breakpoint', () => {
 		expect(styles).toMatch(/@media \(min-width: 48rem\)\s*\{\s*\.mobile-tab-bar\s*\{\s*display: none;/)
 	})
