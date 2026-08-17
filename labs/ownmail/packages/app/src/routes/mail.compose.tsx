@@ -225,6 +225,17 @@ function Compose() {
 		).values(),
 	] as MailThread[]
 	const selected = selectedQuery.data
+	const backdropPending =
+		(folderId === 'drafts'
+			? draftsQuery.isPending
+			: initialBackdrop.threads === undefined && threadsQuery.isPending) ||
+		(Boolean(search.threadId) && selectedQuery.isPending)
+	const backdropPendingLabel =
+		folderId === 'drafts'
+			? 'Loading drafts…'
+			: search.threadId
+				? 'Loading conversation…'
+				: 'Loading messages…'
 	const [draftId, setDraftId] = useState<string | undefined>(draft?.id)
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
@@ -700,46 +711,63 @@ function Compose() {
 
 	return (
 		<>
-			<MailFolderRouteScreen
-				threads={sortedThreads}
-				drafts={(draftsQuery.data ?? []) as MailDraft[]}
-				folders={folders}
-				folderId={folderId}
-				nextCursor={threadsQuery.data?.pages.at(-1)?.nextCursor}
-				loadingMore={threadsQuery.isFetchingNextPage}
-				loadMoreError={threadsQuery.isFetchNextPageError}
-				activeThreadId={selected?.thread.id}
-				composeThreadSearch={composeThreadSearch}
-				onLoadMore={async () => {
-					await threadsQuery.fetchNextPage({ cancelRefetch: false })
-				}}
-				onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
-			>
-				{selected ? (
-					<ComposeThreadBackdrop
-						key={JSON.stringify([selected.thread.id, composeListSearch()])}
-						thread={selected.thread}
-						messages={selected.messages}
-						isArchived={selectedThreadIsArchived}
-						onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
-						onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
-						onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
-						onReplyAll={() => replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)}
-						onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
-					/>
-				) : null}
-			</MailFolderRouteScreen>
+			<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+				{backdropPending ? (
+					<div
+						className="absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background text-sm text-muted-foreground"
+						role="status"
+						aria-live="polite"
+					>
+						<Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+						{backdropPendingLabel}
+					</div>
+				) : (
+					<MailFolderRouteScreen
+						threads={sortedThreads}
+						drafts={(draftsQuery.data ?? []) as MailDraft[]}
+						folders={folders}
+						folderId={folderId}
+						nextCursor={threadsQuery.data?.pages.at(-1)?.nextCursor}
+						loadingMore={threadsQuery.isFetchingNextPage}
+						loadMoreError={threadsQuery.isFetchNextPageError}
+						activeThreadId={selected?.thread.id}
+						composeThreadSearch={composeThreadSearch}
+						onLoadMore={async () => {
+							await threadsQuery.fetchNextPage({ cancelRefetch: false })
+						}}
+						onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
+					>
+						{selected ? (
+							<ComposeThreadBackdrop
+								key={JSON.stringify([selected.thread.id, composeListSearch()])}
+								thread={selected.thread}
+								messages={selected.messages}
+								isArchived={selectedThreadIsArchived}
+								onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
+								onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
+								onReply={() => replyFromBackdrop(selected.thread, selected.messages)}
+								onReplyAll={() =>
+									replyAllFromBackdrop(selected.thread, selected.messages, selected.mailboxEmail)
+								}
+								onForward={() => forwardFromBackdrop(selected.thread, selected.messages)}
+							/>
+						) : null}
+					</MailFolderRouteScreen>
+				)}
+			</div>
 			<div
 				ref={composePanelRef}
 				aria-busy={busy || attaching || closing || savingDraft}
 				className={cn(
-					'fixed inset-x-2 bottom-0 z-50 flex flex-col rounded-t-xl border border-border bg-card shadow-2xl sm:inset-x-auto sm:right-4 sm:w-[min(30rem,calc(100vw-2rem))]',
-					minimized ? 'h-11' : 'h-[min(32rem,calc(100dvh-1rem))]',
+					'fixed inset-x-0 bottom-0 z-50 flex w-full flex-col border-0 bg-card shadow-2xl max-sm:pr-[env(safe-area-inset-right)] max-sm:pl-[env(safe-area-inset-left)] sm:inset-x-auto sm:right-4 sm:w-[min(30rem,calc(100vw-2rem))] sm:rounded-t-xl sm:border',
+					minimized
+						? 'h-[calc(2.75rem+env(safe-area-inset-bottom))] max-sm:pb-[env(safe-area-inset-bottom)] sm:h-11'
+						: 'top-0 h-dvh max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] sm:top-auto sm:h-[min(32rem,calc(100dvh-1rem))]',
 				)}
 				role="dialog"
 				aria-label="Compose message"
 			>
-				<div className="flex items-center justify-between rounded-t-xl bg-foreground px-3 py-2.5 text-background">
+				<div className="flex min-h-11 items-center justify-between bg-foreground px-3 py-0 text-background sm:rounded-t-xl sm:py-2.5">
 					<div className="flex min-w-0 items-center gap-2">
 						<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
 						{busy ? <span className="text-xs text-background/70">Sending…</span> : null}
@@ -754,24 +782,28 @@ function Compose() {
 						) : null}
 					</div>
 					<div className="flex items-center gap-1">
-						<button
+						<Button
 							type="button"
+							variant="ghost"
+							size="icon"
 							onClick={() => setMinimized((value) => !value)}
 							aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
 							aria-expanded={!minimized}
-							className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-background/20"
+							className="text-background hover:bg-background/20 hover:text-background sm:size-6"
 						>
 							{minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
+							variant="ghost"
+							size="icon"
 							onClick={() => void close()}
 							disabled={busy || closing}
 							aria-label="Close"
-							className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-background/20"
+							className="text-background hover:bg-background/20 hover:text-background sm:size-6"
 						>
 							<X className="h-4 w-4" />
-						</button>
+						</Button>
 					</div>
 				</div>
 

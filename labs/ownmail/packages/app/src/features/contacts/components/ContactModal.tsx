@@ -181,60 +181,70 @@ export function ContactModal({
 				</div>
 
 				<div hidden={confirmingDiscard} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
-					<div className="grid grid-cols-2 gap-3">
-						<Field id="contact-given-name" label="First name">
-							<Input
-								ref={givenNameRef}
-								id="contact-given-name"
-								autoComplete="given-name"
-								disabled={busy}
-								value={form.givenName}
-								aria-invalid={validation?.field === 'identity' || undefined}
-								aria-describedby={validation?.field === 'identity' ? 'contact-form-validation' : undefined}
-								className="h-11"
-								onChange={(e) => {
-									patch({ givenName: e.target.value })
-									clearIdentityValidation()
-								}}
-							/>
-						</Field>
-						<Field id="contact-surname" label="Last name">
-							<Input
-								id="contact-surname"
-								autoComplete="family-name"
-								disabled={busy}
-								value={form.surname}
-								className="h-11"
-								onChange={(e) => {
-									patch({ surname: e.target.value })
-									clearIdentityValidation()
-								}}
-							/>
-						</Field>
-						<Field id="contact-company" label="Company">
-							<Input
-								id="contact-company"
-								autoComplete="organization"
-								disabled={busy}
-								value={form.companyName}
-								className="h-11"
-								onChange={(e) => {
-									patch({ companyName: e.target.value })
-									clearIdentityValidation()
-								}}
-							/>
-						</Field>
-						<Field id="contact-job-title" label="Job title">
-							<Input
-								id="contact-job-title"
-								autoComplete="organization-title"
-								disabled={busy}
-								value={form.jobTitle}
-								className="h-11"
-								onChange={(e) => patch({ jobTitle: e.target.value })}
-							/>
-						</Field>
-					</div>
+					<fieldset className="space-y-1.5">
+						<legend className="sr-only">Contact identity</legend>
+						<div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
+							<Field id="contact-given-name" label="First name">
+								<Input
+									ref={givenNameRef}
+									id="contact-given-name"
+									autoComplete="given-name"
+									disabled={busy}
+									value={form.givenName}
+									aria-invalid={validation?.field === 'identity' || undefined}
+									aria-describedby={validation?.field === 'identity' ? 'contact-form-validation' : undefined}
+									className="h-11"
+									onChange={(e) => {
+										patch({ givenName: e.target.value })
+										clearIdentityValidation()
+									}}
+								/>
+							</Field>
+							<Field id="contact-surname" label="Last name">
+								<Input
+									id="contact-surname"
+									autoComplete="family-name"
+									disabled={busy}
+									value={form.surname}
+									className="h-11"
+									onChange={(e) => {
+										patch({ surname: e.target.value })
+										clearIdentityValidation()
+									}}
+								/>
+							</Field>
+							<Field id="contact-company" label="Company">
+								<Input
+									id="contact-company"
+									autoComplete="organization"
+									disabled={busy}
+									value={form.companyName}
+									className="h-11"
+									onChange={(e) => {
+										patch({ companyName: e.target.value })
+										clearIdentityValidation()
+									}}
+								/>
+							</Field>
+							<Field id="contact-job-title" label="Job title">
+								<Input
+									id="contact-job-title"
+									autoComplete="organization-title"
+									disabled={busy}
+									value={form.jobTitle}
+									className="h-11"
+									onChange={(e) => patch({ jobTitle: e.target.value })}
+								/>
+							</Field>
+						</div>
+						<div className="min-h-4">
+							{validation?.field === 'identity' ? (
+								<p id="contact-form-validation" role="alert" className="text-xs text-destructive">
+									{validation.message}
+								</p>
+							) : null}
+						</div>
+					</fieldset>
 
 					<RowGroup
 						legend="Email"
@@ -242,51 +252,61 @@ export function ContactModal({
 						disabled={busy}
 						onAdd={() => patch({ emails: [...form.emails, { email: '', type: '' }] })}
 					>
-						{form.emails.map((row, index) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
-							<div key={index} className="flex items-center gap-2">
-								<Input
-									ref={(node) => {
-										emailRefs.current[index] = node
-									}}
-									id={`contact-email-${index}`}
-									name={`contact-email-${index}`}
-									type="email"
-									autoComplete={index === 0 ? 'email' : `section-contact-email-${index + 1} email`}
-									disabled={busy}
-									aria-label={`Email ${index + 1}`}
-									aria-invalid={
-										validation?.field === 'email' && validation.index === index ? true : undefined
-									}
-									aria-describedby={
-										validation?.field === 'email' && validation.index === index
-											? 'contact-form-validation'
-											: undefined
-									}
-									placeholder="name@example.com"
-									value={row.email}
-									onChange={(e) => {
-										patch({ emails: replaceAt(form.emails, index, { ...row, email: e.target.value }) })
-										clearEmailValidation(index)
-									}}
-									className="h-11 flex-1"
-								/>
-								<TypeSelect
-									label={`Email ${index + 1} type`}
-									disabled={busy}
-									value={row.type}
-									onChange={(type) => patch({ emails: replaceAt(form.emails, index, { ...row, type }) })}
-								/>
-								<RemoveRowButton
-									label={`Remove email ${index + 1}`}
-									disabled={busy}
-									onClick={() => {
-										patch({ emails: removeAt(form.emails, index) })
-										setValidation(null)
-									}}
-								/>
-							</div>
-						))}
+						{form.emails.map((row, index) => {
+							const emailValidation =
+								validation?.field === 'email' && validation.index === index ? validation : null
+							const invalid = Boolean(emailValidation)
+							const errorId = `contact-email-${index}-validation`
+							return (
+								// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
+								<fieldset key={index} className="space-y-1">
+									<legend className="sr-only">Email {index + 1}</legend>
+									<div className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2 min-[400px]:flex">
+										<Input
+											ref={(node) => {
+												emailRefs.current[index] = node
+											}}
+											id={`contact-email-${index}`}
+											name={`contact-email-${index}`}
+											type="email"
+											autoComplete={index === 0 ? 'email' : `section-contact-email-${index + 1} email`}
+											disabled={busy}
+											aria-label={`Email ${index + 1}`}
+											aria-invalid={invalid || undefined}
+											aria-describedby={invalid ? errorId : undefined}
+											placeholder="name@example.com"
+											value={row.email}
+											onChange={(e) => {
+												patch({ emails: replaceAt(form.emails, index, { ...row, email: e.target.value }) })
+												clearEmailValidation(index)
+											}}
+											className="col-span-2 h-11 w-full min-[400px]:col-span-1 min-[400px]:flex-1"
+										/>
+										<TypeSelect
+											label={`Email ${index + 1} type`}
+											disabled={busy}
+											value={row.type}
+											onChange={(type) => patch({ emails: replaceAt(form.emails, index, { ...row, type }) })}
+										/>
+										<RemoveRowButton
+											label={`Remove email ${index + 1}`}
+											disabled={busy}
+											onClick={() => {
+												patch({ emails: removeAt(form.emails, index) })
+												setValidation(null)
+											}}
+										/>
+									</div>
+									<div className="min-h-4">
+										{emailValidation ? (
+											<p id={errorId} role="alert" className="text-xs text-destructive">
+												{emailValidation.message}
+											</p>
+										) : null}
+									</div>
+								</fieldset>
+							)
+						})}
 					</RowGroup>
 
 					<RowGroup
@@ -296,8 +316,12 @@ export function ContactModal({
 						onAdd={() => patch({ phoneNumbers: [...form.phoneNumbers, { number: '', type: '' }] })}
 					>
 						{form.phoneNumbers.map((row, index) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
-							<div key={index} className="flex items-center gap-2">
+							<fieldset
+								// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
+								key={index}
+								className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2 min-[400px]:flex"
+							>
+								<legend className="sr-only">Phone {index + 1}</legend>
 								<Input
 									id={`contact-phone-${index}`}
 									name={`contact-phone-${index}`}
@@ -315,7 +339,7 @@ export function ContactModal({
 											}),
 										})
 									}
-									className="h-11 flex-1"
+									className="col-span-2 h-11 w-full min-[400px]:col-span-1 min-[400px]:flex-1"
 								/>
 								<TypeSelect
 									label={`Phone ${index + 1} type`}
@@ -330,7 +354,7 @@ export function ContactModal({
 									disabled={busy}
 									onClick={() => patch({ phoneNumbers: removeAt(form.phoneNumbers, index) })}
 								/>
-							</div>
+							</fieldset>
 						))}
 					</RowGroup>
 
@@ -344,15 +368,6 @@ export function ContactModal({
 						/>
 					</Field>
 
-					{validation ? (
-						<p
-							id="contact-form-validation"
-							role="alert"
-							className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
-						>
-							{validation.message}
-						</p>
-					) : null}
 					{error ? (
 						<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
 							{error}
@@ -485,7 +500,7 @@ function TypeSelect({
 			disabled={disabled}
 			onChange={(e) => onChange(e.target.value)}
 			className={cn(
-				'h-11 rounded-md border border-border bg-card px-2 text-sm text-muted-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
+				'h-11 w-full rounded-md border border-border bg-card px-2 text-sm text-muted-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid min-[400px]:w-auto',
 			)}
 		>
 			{FIELD_TYPES.map((type) => (

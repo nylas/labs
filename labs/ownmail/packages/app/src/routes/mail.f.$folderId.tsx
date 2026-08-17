@@ -2,7 +2,12 @@ import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
+import {
+	THREAD_ROW_CLASS,
+	THREAD_ROW_LINK_CLASS,
+	ThreadRowContent,
+	threadRowLinkLabel,
+} from '#features/mail/components/ThreadRow'
 import {
 	draftRecipientName,
 	folderCount,
@@ -356,7 +361,7 @@ export function MailFolderRouteScreen({
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:w-[22rem] md:max-w-[22rem] md:flex-none',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 xl:w-[22rem] xl:max-w-[22rem] xl:flex-none',
 					hasThreadRoute ? 'hidden xl:flex' : 'flex',
 				)}
 			>
@@ -404,12 +409,12 @@ export function MailFolderRouteScreen({
 				</ScrollArea>
 			</section>
 			<section
-				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden md:flex')}
+				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden xl:flex')}
 			>
 				{hasThread ? (
 					(children ?? <Outlet />)
 				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 							<Reply className="h-6 w-6" />
 						</div>
@@ -513,14 +518,6 @@ function ThreadRow({
 		}
 	}
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
-	const content = (
-		<ThreadRowContent
-			thread={optimisticThread}
-			folderId={folderId}
-			onToggleStar={toggleStar}
-			starPending={starPending}
-		/>
-	)
 	const className = cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')
 	const rowState = {
 		'data-active': active ? ('true' as const) : undefined,
@@ -531,22 +528,39 @@ function ThreadRow({
 
 	if (composeSearch) {
 		return (
-			<Link to="/mail/compose" search={composeSearch} className={className} {...rowState}>
-				{content}
-			</Link>
+			<div className={className} tabIndex={-1} {...rowState}>
+				<Link
+					to="/mail/compose"
+					search={composeSearch}
+					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+					className={THREAD_ROW_LINK_CLASS}
+				/>
+				<ThreadRowContent
+					thread={optimisticThread}
+					folderId={folderId}
+					onToggleStar={toggleStar}
+					starPending={starPending}
+				/>
+			</div>
 		)
 	}
 
 	return (
-		<Link
-			to="/mail/f/$folderId/t/$threadId"
-			params={{ folderId, threadId: thread.id }}
-			search={baseFolderId ? { baseFolderId } : {}}
-			className={className}
-			activeProps={{ 'data-active': 'true' }}
-			{...rowState}
-		>
-			{content}
-		</Link>
+		<div className={className} tabIndex={-1} {...rowState}>
+			<Link
+				to="/mail/f/$folderId/t/$threadId"
+				params={{ folderId, threadId: thread.id }}
+				search={baseFolderId ? { baseFolderId } : {}}
+				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+				className={THREAD_ROW_LINK_CLASS}
+				activeProps={{ 'data-active': 'true' }}
+			/>
+			<ThreadRowContent
+				thread={optimisticThread}
+				folderId={folderId}
+				onToggleStar={toggleStar}
+				starPending={starPending}
+			/>
+		</div>
 	)
 }

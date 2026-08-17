@@ -340,13 +340,18 @@ describe('week view + header navigation', () => {
 		renderWeek()
 
 		const controls = screen.getByTestId('calendar-header-controls')
-		expect(controls).toHaveClass('min-w-0')
-		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('w-10', 'sm:w-auto')
-		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('w-10', 'sm:w-auto')
-		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('w-8', 'sm:w-11')
-		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('w-8', 'sm:w-11')
+		expect(controls).toHaveClass('grid', 'min-w-0', 'sm:flex')
+		expect(screen.getByRole('heading', { level: 1 })).toBeVisible()
+		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass('size-11', 'sm:w-auto')
+		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('size-11', 'sm:w-auto')
+		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('size-11')
+		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('size-11')
 		for (const view of ['day', 'week', 'month']) {
-			expect(screen.getByRole('button', { name: view })).toHaveClass('w-11', 'whitespace-nowrap', 'sm:w-auto')
+			expect(screen.getByRole('button', { name: view })).toHaveClass(
+				'min-w-11',
+				'whitespace-nowrap',
+				'sm:w-auto',
+			)
 		}
 	})
 
@@ -554,6 +559,14 @@ describe('week view time grid', () => {
 	it('draws inter-day column rules across a multi-day week', () => {
 		const { container } = renderWeek()
 		expect(container.querySelectorAll('.border-l').length).toBeGreaterThan(0)
+	})
+
+	it('keeps week columns readable through an intentional mobile horizontal viewport', () => {
+		renderWeek()
+		const scrollArea = screen.getByLabelText('Calendar time grid')
+		expect(scrollArea).toHaveClass('max-sm:overflow-x-auto')
+		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('max-sm:min-w-[54rem]')
+		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('max-sm:min-w-[54rem]')
 	})
 
 	it('labels an untitled all-day event in the band', () => {

@@ -331,13 +331,17 @@ describe('MailFolderRouteScreen — thread list', () => {
 		render(
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
 		)
+		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
+		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByLabelText('Inbox thread list')).toHaveAttribute('data-slot', 'scroll-area-viewport')
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
 		expect(screen.getByText('Select a conversation')).toBeInTheDocument()
+		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})
 
 	it('sorts threads newest-first and surfaces the authoritative folder unread count badge', () => {
-		render(
+		const { container } = render(
 			<MailFolderRouteScreen
 				threads={[
 					thread({ id: 'older', subject: 'Older', latest_message_received_date: 100 }),
@@ -349,10 +353,10 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		const links = screen.getAllByRole('link')
+		const rows = container.querySelectorAll('[data-nav-row]')
 		// Newest thread renders before the older one.
-		expect(links[0]).toHaveTextContent('Newer')
-		expect(links[1]).toHaveTextContent('Older')
+		expect(rows[0]).toHaveTextContent('Newer')
+		expect(rows[1]).toHaveTextContent('Older')
 		// The folder's authoritative unread count drives the badge.
 		expect(screen.getByText('1')).toBeInTheDocument()
 	})
@@ -425,6 +429,28 @@ describe('MailFolderRouteScreen — thread list', () => {
 			/>,
 		)
 		expect(screen.getByRole('button', { name: 'Unstar' })).toBeInTheDocument()
+	})
+
+	it('keeps the stretched thread link separate from the mobile-sized star action', () => {
+		const { container } = render(
+			<MailFolderRouteScreen
+				threads={[thread({ id: 't1', subject: 'Quarterly plan' })]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		const row = container.querySelector<HTMLElement>('[data-nav-row]')
+		const link = screen.getByRole('link', { name: 'Open Quarterly plan from Ada' })
+		const star = screen.getByRole('button', { name: 'Star' })
+
+		expect(row).toHaveAttribute('tabindex', '-1')
+		expect(link).toHaveClass('absolute', 'inset-0')
+		expect(link).not.toContainElement(star)
+		expect(row).toContainElement(link)
+		expect(row).toContainElement(star)
+		expect(star).toHaveClass('h-11', 'w-11', 'lg:h-8', 'lg:w-8')
 	})
 })
 
@@ -867,7 +893,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 	}
 
 	const cursored = () =>
-		screen.getAllByRole('link').find((link) => link.getAttribute('data-nav-cursor') === 'true')
+		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
 
 	it('moves a visible cursor down with j / ArrowDown and up with k / ArrowUp, clamping at the top', () => {
 		renderInbox()

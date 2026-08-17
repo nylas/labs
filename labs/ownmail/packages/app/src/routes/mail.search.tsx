@@ -5,7 +5,12 @@ import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Tra
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
-import { THREAD_ROW_CLASS, ThreadRowContent } from '#features/mail/components/ThreadRow'
+import {
+	THREAD_ROW_CLASS,
+	THREAD_ROW_LINK_CLASS,
+	ThreadRowContent,
+	threadRowLinkLabel,
+} from '#features/mail/components/ThreadRow'
 import {
 	forwardDraftSearch,
 	mailFolderTitle,
@@ -214,7 +219,7 @@ function SearchResults() {
 		<>
 			<section
 				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 md:flex md:w-[22rem] md:max-w-[22rem] md:flex-none',
+					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 xl:flex xl:w-[22rem] xl:max-w-[22rem] xl:flex-none',
 					selected ? 'hidden' : 'flex',
 				)}
 			>
@@ -305,7 +310,7 @@ function SearchResults() {
 					) : null}
 				</div>
 			</section>
-			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden md:flex')}>
+			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden xl:flex')}>
 				{selected ? (
 					<SearchThreadDetail
 						key={JSON.stringify([selected.thread.id, q, folderId ?? null])}
@@ -314,7 +319,7 @@ function SearchResults() {
 						folderId={folderId}
 					/>
 				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center md:flex">
+					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 							<Reply className="h-6 w-6" />
 						</div>
@@ -371,22 +376,27 @@ function SearchThreadRow({
 	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
 
 	return (
-		<Link
-			to="/mail/search"
-			search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
+		<div
 			data-nav-row=""
 			data-active={active ? 'true' : undefined}
 			data-nav-cursor={keyboardActive ? 'true' : undefined}
 			data-unread={optimisticThread.unread ? 'true' : undefined}
 			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
+			tabIndex={-1}
 		>
+			<Link
+				to="/mail/search"
+				search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
+				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+				className={THREAD_ROW_LINK_CLASS}
+			/>
 			<ThreadRowContent
 				thread={optimisticThread}
 				folderId={folderId}
 				onToggleStar={toggleStar}
 				starPending={starPending}
 			/>
-		</Link>
+		</div>
 	)
 }
 

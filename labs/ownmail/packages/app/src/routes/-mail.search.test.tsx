@@ -26,6 +26,7 @@ vi.mock('@tanstack/react-router', () => ({
 	// Render a real anchor so structure is inspectable; object props are stashed as JSON.
 	Link: ({ to, search, mask, children, ...rest }: any) => (
 		<a
+			href={typeof to === 'string' ? to : undefined}
 			data-to={to}
 			data-search={JSON.stringify(search)}
 			data-mask={mask ? JSON.stringify(mask) : undefined}
@@ -227,10 +228,17 @@ describe('/mail/search results list', () => {
 		// Multi-message thread shows its count; single-message thread does not.
 		expect(screen.getByText('(2)')).toBeTruthy()
 		// The active thread and the unread thread are flagged for styling/state.
-		expect(container.querySelector('[data-active="true"]')?.getAttribute('data-to')).toBe('/mail/search')
+		expect(container.querySelector('[data-active="true"]')?.querySelector('a')).toHaveAttribute(
+			'data-to',
+			'/mail/search',
+		)
 		expect(container.querySelector('[data-unread="true"]')).toBeTruthy()
 		// No conversation selected -> the reader shows the empty prompt.
 		expect(screen.getByText('Select a conversation')).toBeTruthy()
+		const listPane = screen.getByRole('heading', { level: 1 }).closest('section')
+		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
+		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})
 
 	it('uses the starred cache key for the starred pseudo-folder', () => {
@@ -452,6 +460,19 @@ describe('/mail/search results list', () => {
 			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: true } }),
 		)
 		expect(h.invalidate).not.toHaveBeenCalled()
+	})
+
+	it('renders the result link and star as sibling actions with a mobile-sized star target', () => {
+		const { container } = renderRoute()
+		const row = container.querySelector<HTMLElement>('[data-nav-row]')
+		const link = screen.getByRole('link', { name: 'Open Hello there from Zoe' })
+		const star = screen.getByRole('button', { name: 'Star' })
+
+		expect(row).toHaveAttribute('tabindex', '-1')
+		expect(link).not.toContainElement(star)
+		expect(row).toContainElement(link)
+		expect(row).toContainElement(star)
+		expect(star).toHaveClass('h-11', 'w-11', 'lg:h-8', 'lg:w-8')
 	})
 })
 

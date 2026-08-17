@@ -170,12 +170,13 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 
 	return (
 		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-			<div className={CHROME_ROW_SHELL_CLASS}>
+			<div className={cn(CHROME_ROW_SHELL_CLASS, 'h-[5.5rem] sm:h-11')}>
 				<AppRailLogo appName={info.appName} className="hidden md:flex" />
 				<header
 					className={cn(
 						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
 						CHROME_ROW_CLASS,
+						'h-[5.5rem] sm:h-11',
 					)}
 				>
 					<button
@@ -190,7 +191,10 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 					</button>
 					<div className={cn('min-w-0 flex-1', CALENDAR_HEADER_GRID_CLASS)}>
 						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
-						<div className="flex min-w-0 items-stretch" data-testid="calendar-header-controls">
+						<div
+							className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem_2.75rem] grid-rows-[2.75rem_2.75rem] items-stretch sm:flex"
+							data-testid="calendar-header-controls"
+						>
 							<button
 								type="button"
 								onClick={() => {
@@ -199,7 +203,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 									setComposerAnchor(null)
 									setEditing('new')
 								}}
-								className="flex h-11 w-10 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:justify-start sm:px-3"
+								className="col-start-1 row-start-1 flex size-11 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:justify-start sm:px-3"
 								aria-label="Create"
 							>
 								<Plus className="h-4 w-4" strokeWidth={2} />
@@ -207,7 +211,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 							</button>
 							<button
 								type="button"
-								className="flex h-11 w-10 shrink-0 items-center justify-center border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:px-3"
+								className="col-start-1 row-start-2 flex size-11 shrink-0 items-center justify-center border-r border-t border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:border-t-0 sm:px-3"
 								onClick={() => go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))}
 							>
 								Today
@@ -216,7 +220,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="flex h-11 w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:w-11"
+										className="col-start-3 row-start-1 flex size-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, -1))}
 										aria-label="Previous"
 									>
@@ -229,7 +233,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="flex h-11 w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground sm:w-11"
+										className="col-start-4 row-start-1 flex size-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
 										aria-label="Next"
 									>
@@ -238,13 +242,13 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 								</TooltipTrigger>
 								<TooltipContent>Next {currentView}</TooltipContent>
 							</Tooltip>
-							<div className="hidden min-w-0 flex-1 items-center border-r border-border px-3 sm:flex">
+							<div className="col-start-2 row-start-1 flex min-w-0 items-center border-r border-border px-3 sm:flex-1">
 								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">
 									{title}
 								</h1>
 							</div>
 							<fieldset
-								className="m-0 flex min-w-0 shrink-0 items-stretch border-0 p-0"
+								className="col-start-2 col-end-5 row-start-2 m-0 grid min-w-0 grid-cols-3 items-stretch border-0 border-t border-border p-0 sm:flex sm:shrink-0 sm:border-t-0"
 								aria-label="Calendar view"
 							>
 								{(['day', 'week', 'month'] as const).map((v) => (
@@ -254,7 +258,7 @@ export function CalendarRouteScreen({ view, data }: { view: CalView; data: Calen
 										onClick={() => go(v, anchor)}
 										aria-pressed={v === currentView}
 										className={cn(
-											'flex h-11 w-11 items-center justify-center whitespace-nowrap border-r border-border px-0 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
+											'flex h-11 min-w-11 items-center justify-center whitespace-nowrap border-r border-border px-2 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
 											v === currentView
 												? 'bg-muted text-foreground'
 												: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -845,8 +849,16 @@ function TimeGrid({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<ScrollArea aria-label="Calendar time grid" viewportRef={scrollRef} className="isolate min-h-0 flex-1">
-				<div className="sticky top-0 z-30 bg-background">
+			<ScrollArea
+				aria-label="Calendar time grid"
+				viewportRef={scrollRef}
+				viewportClassName={days > 1 ? 'max-sm:overflow-x-auto' : undefined}
+				className="isolate min-h-0 flex-1"
+			>
+				<div
+					className={cn('sticky top-0 z-30 bg-background', days > 1 && 'max-sm:min-w-[54rem]')}
+					data-testid="calendar-time-grid-header"
+				>
 					<div
 						className="grid border-b border-border pr-3"
 						style={{ gridTemplateColumns: dayGridTemplateColumns }}
@@ -949,7 +961,10 @@ function TimeGrid({
 						</div>
 					) : null}
 				</div>
-				<div className="relative">
+				<div
+					className={cn('relative', days > 1 && 'max-sm:min-w-[54rem]')}
+					data-testid="calendar-time-grid-body"
+				>
 					<ContinuousDayColumnRules days={days} gridTemplateColumns={dayGridTemplateColumns} />
 					<div className="grid pr-3" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
 						<div style={{ gridColumn: 1, gridRow: 1 }}>

@@ -12,14 +12,21 @@ import {
 } from '../lib/mail-ui-model.js'
 import type { MailThread } from '../state/mail-queries.js'
 
-/** Shared class for a thread-list row link; active/unread/hover come from `.thread-row` CSS. */
+/** Shared class for a thread-list row; active/unread/hover come from `.thread-row` CSS. */
 export const THREAD_ROW_CLASS =
-	'thread-row group flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent'
+	'thread-row group isolate flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent'
+
+/** A route-specific link can stretch across the row while remaining a sibling of row actions. */
+export const THREAD_ROW_LINK_CLASS =
+	'thread-row-link absolute inset-0 z-0 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-[-2px] forced-colors:focus-visible:outline-solid'
+
+export function threadRowLinkLabel(thread: MailThread, folderId: string) {
+	return `Open ${thread.subject || '(no subject)'} from ${threadSender(thread, folderId)}`
+}
 
 /**
- * The inner content of a thread-list row (star, sender, date, subject, snippet, labels).
- * Callers own the surrounding `<Link>` (routing differs per surface); this keeps a single
- * row rendering shared by the folder list, the compose backdrop, and search results.
+ * The visible content and secondary star action for a thread-list row. Callers place a
+ * stretched route link before this content so the link and button remain semantic siblings.
  */
 export function ThreadRowContent({
 	thread,
@@ -35,7 +42,7 @@ export function ThreadRowContent({
 	const labels = threadLabels(thread)
 	return (
 		<>
-			<div className="flex items-center gap-2">
+			<div className="pointer-events-none relative z-10 flex items-center gap-2">
 				<button
 					type="button"
 					disabled={starPending}
@@ -45,12 +52,13 @@ export function ThreadRowContent({
 						onToggleStar()
 					}}
 					aria-label={thread.starred ? 'Unstar' : 'Star'}
+					aria-busy={starPending || undefined}
 					className={cn(
-						'shrink-0 text-muted-foreground transition-colors disabled:cursor-wait disabled:opacity-50',
+						'pointer-events-auto relative z-20 -m-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-wait disabled:opacity-50 lg:-m-2 lg:h-8 lg:w-8',
 						STAR_HOVER_CLASS,
 					)}
 				>
-					<Star className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
+					<Star aria-hidden="true" className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
 				</button>
 				<span
 					className={cn(
@@ -71,13 +79,13 @@ export function ThreadRowContent({
 			</div>
 			<p
 				className={cn(
-					'truncate text-sm',
+					'pointer-events-none relative z-10 truncate text-sm',
 					thread.unread ? 'font-semibold text-foreground' : 'text-foreground/80',
 				)}
 			>
 				{thread.subject || '(no subject)'}
 			</p>
-			<div className="flex items-center gap-2">
+			<div className="pointer-events-none relative z-10 flex items-center gap-2">
 				<p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
 					{readableSnippet(thread.snippet)}
 				</p>
