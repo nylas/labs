@@ -1,6 +1,6 @@
 {
 	"name": "@ownmail/app",
-	"version": "0.14.1",
+	"version": "0.15.0",
 	"description": "The customizable OwnMail web app for mail, calendar, and contacts",
 	"license": "MIT",
 	"repository": {
