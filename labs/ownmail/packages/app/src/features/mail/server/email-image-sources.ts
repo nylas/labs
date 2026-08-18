@@ -3,6 +3,7 @@ import { parse, serialize } from 'parse5'
 import { platform } from '#server/platform'
 
 const IMAGE_SOURCE_TTL_MS = 14 * 24 * 60 * 60 * 1000
+const IMAGE_SOURCE_BUCKET_MS = 24 * 60 * 60 * 1000
 const MAX_REMOTE_SOURCE_LENGTH = 4_096
 const MAX_IMAGE_SOURCES_PER_MESSAGE = 256
 const MAX_PROVIDER_ID_LENGTH = 1_000
@@ -212,15 +213,25 @@ function splitSrcset(value: string): string[] {
 	return candidates
 }
 
+function srcsetCandidate(candidate: string): { leading: string; resource: string; suffix: string } | null {
+	const match = candidate.match(/^(\s*)(?:(['"])(.*?)\2|(\S+))([\s\S]*)$/)
+	if (!match) return null
+	return {
+		leading: match[1] as string,
+		resource: (match[3] ?? match[4]) as string,
+		suffix: match[5] as string,
+	}
+}
+
 function rewriteSrcset(value: string, sources: Map<string, string>): string {
 	return splitSrcset(value)
-		.map((candidate) => {
-			const match = candidate.match(/^(\s*)(\S+)([\s\S]*)$/)
-			if (!match) return candidate
-			const [, leading, resource, suffix] = match as unknown as [string, string, string, string]
-			const remote = normalizedRemoteUrl(resource)
+		.flatMap((candidate) => {
+			const parsed = srcsetCandidate(candidate)
+			if (!parsed) return [candidate]
+			const remote = normalizedRemoteUrl(parsed.resource)
 			const replacement = remote ? sources.get(remote) : undefined
-			return replacement ? `${leading}${replacement}${suffix}` : candidate
+			if (remote && !replacement) return []
+			return [replacement ? `${parsed.leading}${replacement}${parsed.suffix}` : candidate]
 		})
 		.join(',')
 }
@@ -239,7 +250,8 @@ function rewriteCssUrls(value: string, sources: Map<string, string>): string {
 	return value.replace(CSS_URL, (original, _quote: string, quoted: string, bare: string) => {
 		const remote = normalizedRemoteUrl((quoted ?? bare).trim())
 		const replacement = remote ? sources.get(remote) : undefined
-		return replacement ? `url("${replacement}")` : original
+		if (remote) return replacement ? `url("${replacement}")` : 'url("")'
+		return original
 	})
 }
 
@@ -259,9 +271,11 @@ export async function protectMessageImageSources(message: Message): Promise<Imag
 		ownmailImagesAttested: _providerAttestationLookalike,
 		...cleanMessage
 	} = providerMessage
-	// Bucket expirations so identical authenticated sources receive stable tokens
-	// during the cache window without extending any token beyond one full TTL.
-	const expiresAt = (Math.floor(Date.now() / IMAGE_SOURCE_TTL_MS) + 1) * IMAGE_SOURCE_TTL_MS
+	// A short stability bucket keeps identical sources cacheable while ensuring a
+	// newly rendered message receives almost the full TTL instead of expiring at
+	// the next global 14-day boundary.
+	const expiresAt =
+		Math.floor(Date.now() / IMAGE_SOURCE_BUCKET_MS) * IMAGE_SOURCE_BUCKET_MS + IMAGE_SOURCE_TTL_MS
 	const attachmentTokens: Record<string, string> = {}
 	for (const attachment of message.attachments ?? []) {
 		if (!attachment.is_inline || !validProviderId(attachment.id) || !validProviderId(message.id)) continue
@@ -301,8 +315,8 @@ export async function protectMessageImageSources(message: Message): Promise<Imag
 			}
 			if (name === 'srcset') {
 				for (const candidate of splitSrcset(attribute.value)) {
-					const [resource] = candidate.trim().split(/\s+/, 1) as [string]
-					const remote = normalizedRemoteUrl(resource)
+					const parsed = srcsetCandidate(candidate)
+					const remote = parsed ? normalizedRemoteUrl(parsed.resource) : null
 					if (remote && requests.size < MAX_IMAGE_SOURCES_PER_MESSAGE) {
 						requests.set(remote, {
 							url: remote,
@@ -356,18 +370,22 @@ export async function protectMessageImageSources(message: Message): Promise<Imag
 	)
 
 	walk(document, (node) => {
+		const retainedAttributes: NonNullable<ParseNode['attrs']> = []
 		for (const attribute of node.attrs ?? []) {
 			const name = attribute.name.toLowerCase()
 			if (isImageResourceAttribute(node, name)) {
 				const remote = normalizedRemoteUrl(attribute.value)
 				const replacement = remote ? protectedSources.get(remote) : undefined
+				if (remote && !replacement) continue
 				if (replacement) attribute.value = replacement
 			} else if (name === 'srcset') {
 				attribute.value = rewriteSrcset(attribute.value, protectedSources)
 			} else if (name === 'style') {
 				attribute.value = rewriteCssUrls(attribute.value, protectedSources)
 			}
+			retainedAttributes.push(attribute)
 		}
+		if (node.attrs) node.attrs = retainedAttributes
 		if (node.tagName === 'style') {
 			const children = node.childNodes as ParseNode[]
 			for (const child of children) {

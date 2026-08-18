@@ -22,6 +22,7 @@ export const EMAIL_REMOTE_IMAGES_EVENT = 'email-remote-images'
 export type EmailLayoutMode = 'readable' | 'original'
 export type EmailTheme = 'light' | 'dark'
 export type EmailImageMode = 'automatic' | 'original'
+export type EmailColorMode = 'automatic' | 'original'
 
 /** Measurements the React wrapper can use to offer an Original/Readable control. */
 export interface EmailLayoutStatusDetail {
@@ -34,8 +35,10 @@ export interface EmailLayoutStatusDetail {
 }
 
 export interface EmailRemoteImagesDetail {
+	failedImages?: number
 	hasRemoteImages: boolean
 	loaded: boolean
+	pendingImages?: number
 }
 
 /**
@@ -80,6 +83,7 @@ export function previewBoxStyle(
 /** Minimal structural view of the element the React wrapper drives imperatively. */
 export interface EmailElementLike extends EventTarget {
 	emailHtml: string
+	retryFailedImages?: () => void
 }
 
 const MAX_PREVIEW_LENGTH = 120
@@ -244,7 +248,7 @@ export function shadowStyleText(): string {
 :where(.email-root) :where(body){margin:0;}
 :where(.email-root) :where(body:not([bgcolor])){background-color:transparent;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
-:where(.email-root) :where(a[href]){color:var(--ownmail-email-link-color)!important;text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
+:where(.email-root) :where(a[href]){color:var(--ownmail-email-link-color);text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
 :where(.email-root) [data-ownmail-inherited-color="dark"]{color:#1a1a1a!important;}
 :where(.email-root) [data-ownmail-inherited-color="light"]{color:#f5f5f5!important;}
 :where(.email-root) :where(a[href]):focus-visible{outline:2px solid CanvasText!important;outline-offset:2px!important;border-radius:2px!important;box-shadow:0 0 0 4px Canvas!important;}
@@ -256,6 +260,7 @@ export function shadowStyleText(): string {
 :host(:not([data-layout-mode="original"])) .email-root :where(img:not([src]):not([srcset])){display:none!important;}
 :host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}
+:host([data-color-mode="original"][data-email-theme="light"]) .email-root{background:#fff!important;color:#1a1a1a!important;}
 :host([data-dark-invert]) .email-root :where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color:#f3f4f6!important;}
 :host([data-email-theme="dark"]) .email-root :where(img[src*="/email-images/"], img[srcset*="/email-images/"]){background-color:#f3f4f6!important;}
 :where(.email-root) [data-ownmail-background-media]{position:relative!important;isolation:isolate;}
@@ -289,9 +294,19 @@ export function applyRemoteImages(element: Element | null, load: boolean): void 
 	else element.removeAttribute('data-load-remote-images')
 }
 
+/** Retry failed images through their existing signed, same-origin proxy URLs. */
+export function retryRemoteImages(element: EmailElementLike | null): void {
+	element?.retryFailedImages?.()
+}
+
 /** Select safe automatic variants or untouched colors without bypassing the proxy. */
 export function applyEmailImageMode(element: Element | null, mode: EmailImageMode): void {
 	if (element) element.setAttribute('data-image-mode', mode)
+}
+
+/** Preserve sender colors or allow OwnMail's safe automatic dark treatment. */
+export function applyEmailColorMode(element: Element | null, mode: EmailColorMode): void {
+	if (element) element.setAttribute('data-color-mode', mode)
 }
 
 /** Reflect the reader's compatibility layout choice onto the custom element. */

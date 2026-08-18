@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	applyDarkInvert,
+	applyEmailColorMode,
 	applyEmailHtml,
 	applyEmailImageMode,
 	applyEmailLayoutMode,
@@ -15,6 +16,7 @@ import {
 	linkPreviewText,
 	meaningfulContentWidth,
 	previewBoxStyle,
+	retryRemoteImages,
 	scaledHeight,
 	shadowStyleText,
 	subscribeLinkPreview,
@@ -355,6 +357,17 @@ describe('email theme and remote images', () => {
 		expect(el).toHaveAttribute('data-image-mode', 'original')
 		applyEmailImageMode(el, 'automatic')
 		expect(el).toHaveAttribute('data-image-mode', 'automatic')
+	})
+
+	it('switches message color treatment and delegates signed-image retries', () => {
+		expect(() => applyEmailColorMode(null, 'automatic')).not.toThrow()
+		expect(() => retryRemoteImages(null)).not.toThrow()
+		const retryFailedImages = vi.fn()
+		const el = Object.assign(document.createElement('div'), { emailHtml: '', retryFailedImages })
+		applyEmailColorMode(el, 'original')
+		retryRemoteImages(el)
+		expect(el).toHaveAttribute('data-color-mode', 'original')
+		expect(retryFailedImages).toHaveBeenCalledOnce()
 	})
 })
 

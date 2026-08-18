@@ -70,7 +70,9 @@ describe('email image route', () => {
 			trackingHint: true,
 		})
 		const response = await request()
-		expect(response.status).toBe(204)
+		expect(response.status).toBe(200)
+		expect(response.headers.get('Content-Type')).toBe('image/png')
+		expect(Number(response.headers.get('Content-Length'))).toBeGreaterThan(0)
 		expect(response.headers.get('X-OwnMail-Image-Class')).toBe('tracking')
 		expect(mocks.fetchRemoteImage).not.toHaveBeenCalled()
 	})
@@ -148,7 +150,7 @@ describe('email image route', () => {
 		expect(mocks.processEmailImage).not.toHaveBeenCalled()
 	})
 
-	it('returns no content when processor classification discovers a tracking pixel', async () => {
+	it('returns a transparent image when processor classification discovers a tracking pixel', async () => {
 		mocks.verifyEmailImageSource.mockResolvedValue({
 			kind: 'remote',
 			url: 'https://images.example/tiny.png',
@@ -160,7 +162,10 @@ describe('email image route', () => {
 			classification: 'tracking',
 			contentType: 'image/png',
 		})
-		expect((await request()).status).toBe(204)
+		const response = await request()
+		expect(response.status).toBe(200)
+		expect(response.headers.get('Content-Type')).toBe('image/png')
+		expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0)
 	})
 
 	it('contains all upstream and processing failures behind one generic response', async () => {

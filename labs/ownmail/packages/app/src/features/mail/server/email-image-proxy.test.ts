@@ -177,7 +177,10 @@ describe('remote image fetch policy', () => {
 		const init = fetcher.mock.calls[0]?.[1] as RequestInit
 		expect(init.credentials).toBe('omit')
 		expect(init.redirect).toBe('manual')
-		expect(new Headers(init.headers).has('cookie')).toBe(false)
+		const headers = new Headers(init.headers)
+		expect(headers.has('cookie')).toBe(false)
+		expect(headers.get('accept')).toBe('image/webp,image/png,image/jpeg,image/gif;q=0.9')
+		expect(headers.get('accept')).not.toContain('avif')
 		expect(resolveHost).toHaveBeenCalledTimes(3)
 	})
 

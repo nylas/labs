@@ -266,7 +266,7 @@ export async function fetchRemoteImage(
 		for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
 			const response = await fetcher(validated.url.toString(), {
 				method: 'GET',
-				headers: { Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9' },
+				headers: { Accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.9' },
 				redirect: 'manual',
 				credentials: 'omit',
 				referrerPolicy: 'no-referrer',

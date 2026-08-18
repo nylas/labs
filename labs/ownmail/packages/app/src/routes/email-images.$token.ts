@@ -10,6 +10,12 @@ import { nylas } from '#server/nylas'
 import { getSession } from '#server/session'
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+const TRANSPARENT_TRACKING_PIXEL = Uint8Array.from(
+	atob(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==',
+	),
+	(character) => character.charCodeAt(0),
+)
 
 function requestedMode(url: URL): EmailImageMode | null {
 	const mode = url.searchParams.get('mode') ?? 'automatic'
@@ -29,10 +35,13 @@ function unavailable(): Response {
 }
 
 function trackingResponse(): Response {
-	return new Response(null, {
-		status: 204,
+	return new Response(TRANSPARENT_TRACKING_PIXEL.slice().buffer, {
+		status: 200,
 		headers: {
 			'Cache-Control': 'private, max-age=86400',
+			'Content-Length': String(TRANSPARENT_TRACKING_PIXEL.length),
+			'Content-Security-Policy': "default-src 'none'; sandbox",
+			'Content-Type': 'image/png',
 			'Cross-Origin-Resource-Policy': 'same-origin',
 			'X-Content-Type-Options': 'nosniff',
 			'X-OwnMail-Image-Class': 'tracking',

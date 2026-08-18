@@ -3,7 +3,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
+	EMAIL_REMOTE_IMAGES_EVENT,
 	type EmailLayoutStatusDetail,
+	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
 } from '../lib/email-render.js'
 import {
@@ -37,7 +39,7 @@ beforeAll(() => {
 	)
 })
 
-type EmailEl = HTMLElement & { emailHtml: string; measure: () => void }
+type EmailEl = HTMLElement & { emailHtml: string; measure: () => void; retryFailedImages: () => void }
 
 function mount(html?: string): EmailEl {
 	ensureEmailElementDefined()
@@ -112,7 +114,9 @@ describe('rewriteAnchors', () => {
 		for (const anchor of root.querySelectorAll('a')) {
 			expect(anchor.getAttribute('target')).toBe('_blank')
 			expect(anchor.getAttribute('rel')).toBe('noopener noreferrer nofollow')
-			expect(anchor.style.getPropertyValue('color')).toBe('var(--ownmail-email-link-color, LinkText)')
+			expect(anchor.style.getPropertyValue('color')).toBe('')
+			expect(anchor.style.getPropertyValue('text-decoration')).toBe('underline')
+			expect(anchor.style.getPropertyPriority('text-decoration')).toBe('important')
 		}
 	})
 
@@ -352,9 +356,56 @@ describe('<ownmail-email> rendering', () => {
 		expect(el.emailHtml).toBe('<p>Later</p>')
 	})
 
+	it('reports failed controlled images, renders an accessible fallback, and retries the signed URL', () => {
+		const token = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+		const el = mount(
+			`<picture><source srcset="/email-images/${token}?asset=dark"><img class="hero" alt="Campaign artwork" src="/email-images/${token}"></picture>`,
+		)
+		const statuses: EmailRemoteImagesDetail[] = []
+		el.addEventListener(EMAIL_REMOTE_IMAGES_EVENT, (event) => {
+			statuses.push((event as CustomEvent<EmailRemoteImagesDetail>).detail)
+		})
+
+		el.setAttribute('data-load-remote-images', '')
+		const image = el.shadowRoot?.querySelector<HTMLImageElement>('.hero') as HTMLImageElement
+		expect(statuses.at(-1)).toMatchObject({ failedImages: 0, pendingImages: 1 })
+		el.retryFailedImages()
+		expect(image.src).not.toContain('retry=')
+
+		image.dispatchEvent(new Event('error'))
+		expect(statuses.at(-1)).toMatchObject({ failedImages: 1, pendingImages: 0 })
+		expect(image).toHaveAttribute('hidden')
+		expect(el.shadowRoot?.querySelector('[role="img"]')).toHaveAccessibleName('Campaign artwork')
+		image.dispatchEvent(new Event('error'))
+		expect(el.shadowRoot?.querySelectorAll('[role="img"]')).toHaveLength(1)
+		image.dispatchEvent(new Event('load'))
+		expect(image).not.toHaveAttribute('hidden')
+		expect(el.shadowRoot?.querySelector('[role="img"]')).toBeNull()
+
+		image.alt = ''
+		image.dispatchEvent(new Event('error'))
+		expect(el.shadowRoot?.querySelector('[role="img"]')).toHaveAccessibleName('Image unavailable')
+
+		el.retryFailedImages()
+		expect(image).not.toHaveAttribute('hidden')
+		expect(image.src).toContain('retry=1')
+		expect(el.shadowRoot?.querySelector('source')?.srcset).toContain('retry=1')
+		expect(statuses.at(-1)).toMatchObject({ failedImages: 0, pendingImages: 1 })
+
+		image.dispatchEvent(new Event('load'))
+		expect(statuses.at(-1)).toMatchObject({ failedImages: 0, pendingImages: 0 })
+		expect(el.shadowRoot?.querySelector('[role="img"]')).toBeNull()
+		image.dispatchEvent(new Event('error'))
+		el.shadowRoot?.querySelector('[role="img"]')?.remove()
+		el.retryFailedImages()
+		expect(image.src).toContain('retry=2')
+	})
+
 	it('stores html set before connection and renders it on connect', () => {
 		ensureEmailElementDefined()
 		const el = document.createElement(EMAIL_ELEMENT_TAG) as EmailEl
+		el.setAttribute('data-message-id', 'before-connect')
+		el.retryFailedImages()
 		el.emailHtml = '<p>Early</p>' // set while contentRoot is still null
 		expect(el.shadowRoot).toBeNull()
 		document.body.appendChild(el)

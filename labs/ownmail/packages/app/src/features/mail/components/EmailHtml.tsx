@@ -12,6 +12,7 @@ import {
 } from '#app/preferences/user-preferences'
 import {
 	applyDarkInvert,
+	applyEmailColorMode,
 	applyEmailHtml,
 	applyEmailImageMode,
 	applyEmailLayoutMode,
@@ -20,6 +21,7 @@ import {
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
+	type EmailColorMode,
 	type EmailElementLike,
 	type EmailImageMode,
 	type EmailLayoutMode,
@@ -28,6 +30,7 @@ import {
 	type LinkPreviewDetail,
 	linkPreviewText,
 	previewBoxStyle,
+	retryRemoteImages,
 	subscribeLinkPreview,
 } from '../lib/email-render.js'
 import { senderImagesTrusted, trustSenderImages } from '../lib/image-sender-trust.js'
@@ -40,6 +43,7 @@ const OwnmailEmail = EMAIL_ELEMENT_TAG as unknown as (props: {
 	ref?: Ref<HTMLElement>
 	title?: string
 	className?: string
+	'data-message-id'?: string
 }) => null
 
 const displayTriggerClass =
@@ -87,7 +91,7 @@ export function EmailHtml({
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
 	const [layoutMode, setLayoutMode] = useState<EmailLayoutMode>('readable')
-	const [imageMode, setImageMode] = useState<EmailImageMode>('automatic')
+	const [colorMode, setColorMode] = useState<EmailColorMode>('automatic')
 	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
 	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
 	const [preferences] = useUserPreferences()
@@ -100,7 +104,10 @@ export function EmailHtml({
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
-	const invert = darken && isDark && !supportsDark
+	const automaticDarkColors = darken && isDark && colorMode === 'automatic'
+	const emailTheme = automaticDarkColors ? 'dark' : 'light'
+	const imageMode: EmailImageMode = colorMode
+	const invert = automaticDarkColors && !supportsDark
 
 	useLayoutEffect(() => {
 		ensureEmailElementDefined()
@@ -129,8 +136,12 @@ export function EmailHtml({
 	}, [ready, layoutMode])
 
 	useLayoutEffect(() => {
-		if (ready) applyEmailTheme(ref.current, isDark ? 'dark' : 'light')
-	}, [ready, isDark])
+		if (ready) applyEmailTheme(ref.current, emailTheme)
+	}, [ready, emailTheme])
+
+	useLayoutEffect(() => {
+		if (ready) applyEmailColorMode(ref.current, colorMode)
+	}, [ready, colorMode])
 
 	useLayoutEffect(() => {
 		if (ready) applyEmailImageMode(ref.current, imageMode)
@@ -152,6 +163,7 @@ export function EmailHtml({
 		// HTML replacement resets the custom element's load consent, so each new
 		// sanitized document must reapply the current automatic policy.
 		void html
+		void messageId
 		if (!ready) return
 		if (preferences.remoteImagePolicy === 'always') {
 			applyRemoteImages(ref.current, true)
@@ -165,7 +177,7 @@ export function EmailHtml({
 		return () => {
 			active = false
 		}
-	}, [preferences.remoteImagePolicy, ready, senderAddress, html])
+	}, [preferences.remoteImagePolicy, ready, senderAddress, html, messageId])
 
 	useEffect(() => {
 		if (!displayOpen) return
@@ -197,7 +209,10 @@ export function EmailHtml({
 		layoutMode === 'original' || layoutStatus?.reflowed === true || layoutStatus?.needsFit === true
 	const hasRemoteImages = remoteImages?.hasRemoteImages === true
 	const imagesBlocked = hasRemoteImages && remoteImages.loaded === false
-	const showDisplayControl = hasRemoteImages || showLayoutControl
+	const failedImages = remoteImages?.failedImages ?? 0
+	const pendingImages = remoteImages?.pendingImages ?? 0
+	const showColorControl = darken && isDark
+	const showDisplayControl = hasRemoteImages || showLayoutControl || showColorControl
 
 	function showImagesOnce() {
 		applyRemoteImages(ref.current, true)
@@ -239,8 +254,18 @@ export function EmailHtml({
 						aria-controls={displayPanelId}
 						className={displayTriggerClass}
 					>
-						{imagesBlocked ? <ImageOff className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
-						{imagesBlocked ? 'Images blocked' : 'Display'}
+						{imagesBlocked || failedImages > 0 ? (
+							<ImageOff className="h-4 w-4" />
+						) : (
+							<SlidersHorizontal className="h-4 w-4" />
+						)}
+						{imagesBlocked
+							? 'Images blocked'
+							: failedImages > 0
+								? 'Image unavailable'
+								: pendingImages > 0
+									? 'Loading images'
+									: 'Display'}
 						<ChevronDown
 							className={`h-3.5 w-3.5 transition-transform duration-[var(--dur-fast)] ease-[var(--ease-out)] ${displayOpen ? 'rotate-180' : ''}`}
 						/>
@@ -300,6 +325,23 @@ export function EmailHtml({
 								</div>
 							) : null}
 
+							{failedImages > 0 ? (
+								<div className="mt-3 border-t border-border pt-3">
+									<p role="status" className="text-sm leading-relaxed text-muted-foreground">
+										{failedImages === 1
+											? 'One image could not be loaded.'
+											: `${failedImages} images could not be loaded.`}
+									</p>
+									<button
+										type="button"
+										onClick={() => retryRemoteImages(ref.current)}
+										className={`${imageActionClass} mt-2 border border-border bg-background text-foreground hover:bg-muted`}
+									>
+										Retry images
+									</button>
+								</div>
+							) : null}
+
 							{showLayoutControl ? (
 								<fieldset className="mt-3 border-t border-border pt-3">
 									<legend className="text-xs font-medium text-foreground">Layout</legend>
@@ -325,9 +367,13 @@ export function EmailHtml({
 								</fieldset>
 							) : null}
 
-							{hasRemoteImages && remoteImages.loaded ? (
+							{showColorControl ? (
 								<fieldset className="mt-3 border-t border-border pt-3">
-									<legend className="text-xs font-medium text-foreground">Image colors</legend>
+									<legend className="text-xs font-medium text-foreground">Message colors</legend>
+									<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+										Automatic adapts light messages and eligible images for dark mode. Original preserves the
+										sender’s colors on a light canvas.
+									</p>
 									<div className="mt-1.5 flex rounded-md bg-muted/60 p-0.5">
 										{(
 											[
@@ -338,11 +384,12 @@ export function EmailHtml({
 											<button
 												key={mode}
 												type="button"
-												aria-pressed={imageMode === mode}
-												onClick={() => setImageMode(mode)}
+												aria-label={`${label} message colors`}
+												aria-pressed={colorMode === mode}
+												onClick={() => setColorMode(mode)}
 												className={displayOptionClass}
 											>
-												{imageMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
+												{colorMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
 												{label}
 											</button>
 										))}
@@ -361,7 +408,12 @@ export function EmailHtml({
 				</div>
 			) : null}
 			{ready ? (
-				<OwnmailEmail ref={ref} title={`Email content ${messageId}`} className="block w-full" />
+				<OwnmailEmail
+					ref={ref}
+					title={`Email content ${messageId}`}
+					data-message-id={messageId}
+					className="block w-full"
+				/>
 			) : (
 				<div
 					data-slot="html-email-placeholder"

@@ -2,7 +2,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { defaultUserPreferences, writeUserPreferences } from '#app/preferences/user-preferences'
-import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT, LINK_PREVIEW_EVENT } from '../lib/email-render.js'
+import {
+	EMAIL_ELEMENT_TAG,
+	EMAIL_LAYOUT_STATUS_EVENT,
+	EMAIL_REMOTE_IMAGES_EVENT,
+	LINK_PREVIEW_EVENT,
+} from '../lib/email-render.js'
 import { EmailHtml } from './EmailHtml.js'
 
 afterEach(() => {
@@ -14,6 +19,8 @@ afterEach(() => {
 function emailElement(): HTMLElement & { emailHtml: string } {
 	return document.querySelector(EMAIL_ELEMENT_TAG) as HTMLElement & { emailHtml: string }
 }
+
+const CONTROLLED_IMAGE = `/email-images/${'a'.repeat(20)}.${'b'.repeat(20)}?mode=automatic&theme=light`
 
 describe('EmailHtml', () => {
 	it('mounts the shadow-DOM element and feeds it sanitized html', () => {
@@ -102,9 +109,10 @@ describe('EmailHtml', () => {
 	})
 
 	it('keeps blocked-image privacy and display controls in one compact popover', async () => {
+		document.documentElement.classList.add('dark')
 		render(
 			<EmailHtml
-				html='<img class="remote" src="https://images.example/tracker.png" width="600" height="200">'
+				html={`<img class="remote" src="${CONTROLLED_IMAGE}" width="600" height="200">`}
 				messageId="m-remote"
 			/>,
 		)
@@ -116,16 +124,76 @@ describe('EmailHtml', () => {
 		fireEvent.click(display)
 		expect(screen.getByRole('dialog', { name: 'Message display' })).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
-		await waitFor(() => expect(image()?.getAttribute('src')).toBe('https://images.example/tracker.png'))
+		await waitFor(() =>
+			expect(image()?.getAttribute('src')).toBe(
+				`${CONTROLLED_IMAGE.split('?')[0]}?mode=automatic&theme=dark`,
+			),
+		)
+		fireEvent.load(image() as HTMLImageElement)
 		expect(screen.queryByRole('dialog', { name: 'Message display' })).toBeNull()
-		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
-		expect(screen.getByRole('button', { name: 'Automatic' })).toHaveAttribute('aria-pressed', 'true')
-		fireEvent.click(screen.getByRole('button', { name: 'Original' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Display' }))
+		expect(screen.getByRole('button', { name: 'Automatic message colors' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Original message colors' }))
 		expect(emailElement()).toHaveAttribute('data-image-mode', 'original')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
+		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
+	})
+
+	it('replaces a broken image with a retryable fallback instead of reporting it as loaded', async () => {
+		render(
+			<EmailHtml
+				html={`<img class="remote" alt="Newsletter chart" src="${CONTROLLED_IMAGE}">`}
+				messageId="m-failed-image"
+			/>,
+		)
+		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
+		const image = emailElement().shadowRoot?.querySelector<HTMLImageElement>('.remote') as HTMLImageElement
+
+		fireEvent.error(image)
+		fireEvent.click(await screen.findByRole('button', { name: 'Image unavailable' }))
+		expect(screen.getByRole('status')).toHaveTextContent('One image could not be loaded.')
+		expect(emailElement().shadowRoot?.querySelector('[role="img"]')).toHaveAccessibleName('Newsletter chart')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry images' }))
+		expect(image.src).toContain('retry=1')
+		expect(await screen.findByRole('button', { name: 'Loading images' })).toBeInTheDocument()
+	})
+
+	it('summarizes multiple failed images without exposing proxy details', () => {
+		render(<EmailHtml html="<p>Digest</p>" messageId="m-multiple-failures" />)
+		act(() => {
+			emailElement().dispatchEvent(
+				new CustomEvent(EMAIL_REMOTE_IMAGES_EVENT, {
+					detail: { failedImages: 2, hasRemoteImages: true, loaded: true, pendingImages: 0 },
+				}),
+			)
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'Image unavailable' }))
+		expect(screen.getByRole('status')).toHaveTextContent('2 images could not be loaded.')
+	})
+
+	it('does not carry show-once consent to a different message with identical HTML', async () => {
+		const html = `<img class="remote" src="${CONTROLLED_IMAGE}">`
+		const { rerender } = render(<EmailHtml html={html} messageId="m-consent-first" />)
+		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
+		await waitFor(() =>
+			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
+		)
+
+		rerender(<EmailHtml html={html} messageId="m-consent-second" />)
+		await waitFor(() =>
+			expect(emailElement().shadowRoot?.querySelector('.remote')).not.toHaveAttribute('src'),
+		)
+		expect(screen.getByRole('button', { name: 'Images blocked' })).toBeInTheDocument()
 	})
 
 	it('dismisses display controls outside the menu and returns focus after Escape', async () => {
-		render(<EmailHtml html='<img src="https://images.example/tracker.png">' messageId="m-display-dismiss" />)
+		render(<EmailHtml html={`<img src="${CONTROLLED_IMAGE}">`} messageId="m-display-dismiss" />)
 		const display = await screen.findByRole('button', { name: 'Images blocked' })
 		fireEvent.click(display)
 		fireEvent.keyDown(document, { key: 'Tab' })
@@ -148,7 +216,7 @@ describe('EmailHtml', () => {
 
 	it('can remember proxy consent for a normalized sender without storing their address', async () => {
 		const props = {
-			html: '<img class="remote" src="https://images.example/logo.png">',
+			html: `<img class="remote" src="${CONTROLLED_IMAGE}">`,
 			messageId: 'm-trusted',
 			senderAddress: 'News@Example.com',
 		}
@@ -161,17 +229,14 @@ describe('EmailHtml', () => {
 		first.unmount()
 		render(<EmailHtml {...props} messageId="m-trusted-next" />)
 		await waitFor(() =>
-			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute(
-				'src',
-				'https://images.example/logo.png',
-			),
+			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
 		)
 	})
 
 	it('keeps images blocked when an invalid sender cannot be trusted', async () => {
 		render(
 			<EmailHtml
-				html='<img class="remote" src="https://images.example/logo.png">'
+				html={`<img class="remote" src="${CONTROLLED_IMAGE}">`}
 				messageId="m-invalid-sender"
 				senderAddress="not-an-email"
 			/>,
@@ -183,7 +248,7 @@ describe('EmailHtml', () => {
 	})
 
 	it('persists an always-show choice and applies it to later messages', async () => {
-		const html = '<img class="remote" src="https://images.example/logo.png">'
+		const html = `<img class="remote" src="${CONTROLLED_IMAGE}">`
 		const first = render(<EmailHtml html={html} messageId="m-always-first" />)
 		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Always show all' }))
@@ -197,38 +262,26 @@ describe('EmailHtml', () => {
 		writeUserPreferences({ ...defaultUserPreferences(), remoteImagePolicy: 'always' })
 		render(<EmailHtml html={html} messageId="m-always-next" />)
 		await waitFor(() =>
-			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute(
-				'src',
-				'https://images.example/logo.png',
-			),
+			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
 		)
 	})
 
 	it('reapplies saved image consent when the rendered HTML changes in place', async () => {
 		writeUserPreferences({ ...defaultUserPreferences(), remoteImagePolicy: 'always' })
 		const { rerender } = render(
-			<EmailHtml
-				html='<img class="first" src="https://images.example/first.png">'
-				messageId="m-always-update"
-			/>,
+			<EmailHtml html={`<img class="first" src="${CONTROLLED_IMAGE}">`} messageId="m-always-update" />,
 		)
 		await waitFor(() =>
-			expect(emailElement().shadowRoot?.querySelector('.first')).toHaveAttribute(
-				'src',
-				'https://images.example/first.png',
-			),
+			expect(emailElement().shadowRoot?.querySelector('.first')).toHaveAttribute('src', CONTROLLED_IMAGE),
 		)
 
 		rerender(
-			<EmailHtml
-				html='<img class="replacement" src="https://images.example/replacement.png">'
-				messageId="m-always-update"
-			/>,
+			<EmailHtml html={`<img class="replacement" src="${CONTROLLED_IMAGE}">`} messageId="m-always-update" />,
 		)
 		await waitFor(() =>
 			expect(emailElement().shadowRoot?.querySelector('.replacement')).toHaveAttribute(
 				'src',
-				'https://images.example/replacement.png',
+				CONTROLLED_IMAGE,
 			),
 		)
 	})

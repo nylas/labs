@@ -154,28 +154,37 @@ function createVmlFallback(document: Document, cta: LegacyVmlCta): HTMLElement {
 /** Rewrite only exact inline Content-ID image references to the authenticated route. */
 export function rewriteCidImages(
 	document: Document,
-	messageId: string,
+	_messageId: string,
 	attachments: InlineAttachment[],
 	imageTokens: Record<string, string> = {},
 ): void {
-	const contentIds = new Map<string, InlineAttachment>()
+	const contentIds = new Map<string, string>()
 	for (const attachment of attachments) {
-		if (!attachment.is_inline || !attachment.content_id) continue
-		contentIds.set(normalizeContentId(attachment.content_id), attachment)
+		const token = imageTokens[attachment.id]
+		if (!attachment.is_inline || !attachment.content_id || !token) continue
+		contentIds.set(
+			normalizeContentId(attachment.content_id),
+			`/email-images/${token}?mode=automatic&theme=light`,
+		)
 	}
+	const resolveCid = (value: string): string | null | undefined => {
+		const source = value.trim()
+		if (!source.toLowerCase().startsWith('cid:')) return undefined
+		return contentIds.get(normalizeContentId(source.slice(4))) ?? null
+	}
+	const rewriteCssCids = (value: string): string =>
+		value.replace(/url\(\s*(?:(['"])(.*?)\1|([^)]*?))\s*\)/giu, (original, _quote, quoted, bare) => {
+			const replacement = resolveCid(((quoted ?? bare) as string).trim())
+			if (replacement === undefined) return original
+			return replacement ? `url("${replacement}")` : 'url("")'
+		})
 
 	for (const image of document.querySelectorAll<HTMLImageElement>('img[src]')) {
 		const source = (image.getAttribute('src') as string).trim()
-		if (!source.toLowerCase().startsWith('cid:')) continue
-		const attachment = contentIds.get(normalizeContentId(source.slice(4)))
-		if (attachment) {
-			const token = imageTokens[attachment.id]
-			image.setAttribute(
-				'src',
-				token
-					? `/email-images/${token}?mode=automatic&theme=light`
-					: `/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`,
-			)
+		const replacement = resolveCid(source)
+		if (replacement === undefined) continue
+		if (replacement) {
+			image.setAttribute('src', replacement)
 			// A provider srcset can otherwise override the safely resolved src.
 			image.removeAttribute('srcset')
 			continue
@@ -188,6 +197,44 @@ export function rewriteCidImages(
 		fallback.textContent = label
 		image.replaceWith(fallback)
 	}
+
+	for (const element of document.querySelectorAll<HTMLElement>('*')) {
+		const exactCidAttributes = ['background']
+		if (['IMG', 'SOURCE'].includes(element.tagName)) exactCidAttributes.push('src')
+		if (element.namespaceURI === 'http://www.w3.org/2000/svg' && element.tagName.toLowerCase() === 'image') {
+			exactCidAttributes.push('href', 'xlink:href')
+		}
+		for (const attribute of exactCidAttributes) {
+			const value = element.getAttribute(attribute)
+			if (!value) continue
+			const replacement = resolveCid(value)
+			if (replacement === null) element.removeAttribute(attribute)
+			else if (replacement) element.setAttribute(attribute, replacement)
+		}
+
+		if (['IMG', 'SOURCE'].includes(element.tagName)) {
+			const srcset = element.getAttribute('srcset')
+			if (srcset) {
+				const candidates = srcset
+					.split(',')
+					.flatMap((candidate) => {
+						const match = candidate.trim().match(/^(\S+)([\s\S]*)$/)
+						if (!match) return []
+						const replacement = resolveCid(match[1] as string)
+						if (replacement === null) return []
+						return [`${replacement ?? (match[1] as string)}${match[2] as string}`]
+					})
+					.join(', ')
+				if (candidates) element.setAttribute('srcset', candidates)
+				else element.removeAttribute('srcset')
+			}
+		}
+
+		if (element.hasAttribute('style'))
+			element.setAttribute('style', rewriteCssCids(element.getAttribute('style') as string))
+	}
+	for (const style of document.querySelectorAll('style'))
+		style.textContent = rewriteCssCids(style.textContent)
 }
 
 /**
