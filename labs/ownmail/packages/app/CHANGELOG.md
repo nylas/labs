@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.15.1
+
+### Patch Changes
+
+- b3cc00c: Preserve original email colors and recover gracefully when protected images fail to load.
+
 ## 0.15.0
 
 ### Minor Changes
