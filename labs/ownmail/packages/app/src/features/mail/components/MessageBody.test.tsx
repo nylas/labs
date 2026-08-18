@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_ELEMENT_TAG } from '../lib/email-render.js'
 import { markdownToDraftBody } from '../lib/html-to-markdown.js'
@@ -261,24 +261,31 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		expect(root?.querySelector('body > blockquote')).toHaveTextContent('Visible callout')
 	})
 
-	it('resolves matched CID images and renders unmatched references as inert text', () => {
+	it('resolves matched CID images and renders unmatched references as inert text', async () => {
 		render(
 			<MessageBody
 				message={message({
 					id: 'msg/cid',
 					body: '<img src="cid:logo@example.com" alt="Logo"><img src="cid:missing" alt="Missing signature">',
 					attachments: [{ id: 'inline/logo', is_inline: true, content_id: '<logo@example.com>' }],
+					ownmailImageTokens: { 'inline/logo': 'signed.payload' },
 				})}
 			/>,
 		)
 		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
 
-		expect(root?.querySelector('img')).toHaveAttribute(
-			'src',
-			'/attachments/inline%2Flogo?message_id=msg%2Fcid',
-		)
+		expect(root?.querySelector('img')).not.toHaveAttribute('src')
 		expect(root?.querySelector('[role="img"]')).toHaveTextContent('Missing signature')
 		expect(root?.innerHTML).not.toContain('cid:')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Images blocked' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
+		await waitFor(() =>
+			expect(root?.querySelector('img')).toHaveAttribute(
+				'src',
+				'/email-images/signed.payload?mode=automatic&theme=light',
+			),
+		)
 	})
 
 	it('preserves a safe fallback link from an Outlook VML-only CTA', () => {

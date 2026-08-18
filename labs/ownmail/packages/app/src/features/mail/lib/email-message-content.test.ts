@@ -25,12 +25,10 @@ describe('inline Content-ID images', () => {
 			{ id: 'no-content-id', is_inline: true },
 		])
 
-		const images = document.querySelectorAll('img')
-		expect(images[0]?.getAttribute('src')).toBe(
-			'/attachments/attachment%20%2F%201?message_id=message%20%2F%201',
-		)
-		expect(images[0]?.hasAttribute('srcset')).toBe(false)
-		expect(images[1]?.getAttribute('src')).toBe('https://example.com/photo.png')
+		const fallback = document.querySelector('[role="img"]')
+		expect(fallback?.getAttribute('aria-label')).toBe('Logo')
+		expect(fallback?.textContent).toBe('Logo')
+		expect(document.querySelector('img')?.getAttribute('src')).toBe('https://example.com/photo.png')
 	})
 
 	it('uses a server-attested controlled image token for resolved inline assets', () => {
@@ -44,6 +42,36 @@ describe('inline Content-ID images', () => {
 		const image = document.querySelector('img')
 		expect(image?.getAttribute('src')).toBe('/email-images/signed.payload?mode=automatic&theme=light')
 		expect(image?.hasAttribute('srcset')).toBe(false)
+	})
+
+	it('resolves attested CID artwork across picture, legacy background, CSS, and SVG representations', () => {
+		const document = parse(`<picture>
+			<source class="source" srcset="cid:logo@example 1x, cid:missing 2x, safe.png 3x">
+			<source class="missing-source" srcset=", cid:missing 2x">
+			<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+		</picture>
+		<table class="legacy" background="cid:logo@example"><tr><td>Card</td></tr></table>
+		<table class="missing-legacy" background="cid:missing"><tr><td>Missing</td></tr></table>
+		<div class="inline" style="background-image:url(cid:logo@example)"></div>
+		<style>.hero{background:url('cid:logo@example')}.missing{background:url(cid:missing)}.safe{background:url(data:image/png;base64,AAAA)}</style>
+		<svg><image class="vector" href="cid:logo@example"></image></svg>`)
+		rewriteCidImages(
+			document,
+			'message-1',
+			[{ id: 'attachment-1', is_inline: true, content_id: 'logo@example' }],
+			{ 'attachment-1': 'signed.payload' },
+		)
+		const expected = '/email-images/signed.payload?mode=automatic&theme=light'
+
+		expect(document.querySelector('.source')?.getAttribute('srcset')).toBe(`${expected} 1x, safe.png 3x`)
+		expect(document.querySelector('.missing-source')?.hasAttribute('srcset')).toBe(false)
+		expect(document.querySelector('.legacy')?.getAttribute('background')).toBe(expected)
+		expect(document.querySelector('.missing-legacy')?.hasAttribute('background')).toBe(false)
+		expect(document.querySelector('.inline')?.getAttribute('style')).toContain(`url("${expected}")`)
+		expect(document.querySelector('style')?.textContent).toContain(`url("${expected}")`)
+		expect(document.querySelector('style')?.textContent).toContain('url("")')
+		expect(document.querySelector('style')?.textContent).toContain('url(data:image/png;base64,AAAA)')
+		expect(document.querySelector('.vector')?.getAttribute('href')).toBe(expected)
 	})
 
 	it('replaces unmatched and malformed CID references with inert accessible fallbacks', () => {

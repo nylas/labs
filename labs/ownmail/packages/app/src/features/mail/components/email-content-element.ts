@@ -59,7 +59,6 @@ export function rewriteAnchors(root: HTMLElement): void {
 	for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
 		anchor.setAttribute('target', '_blank')
 		anchor.setAttribute('rel', 'noopener noreferrer nofollow')
-		anchor.style.setProperty('color', 'var(--ownmail-email-link-color, LinkText)', 'important')
 		anchor.style.setProperty('text-decoration', 'underline', 'important')
 		anchor.style.setProperty('text-decoration-thickness', 'max(1px, .08em)', 'important')
 		anchor.style.setProperty('text-underline-offset', '.15em', 'important')
@@ -154,6 +153,7 @@ const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
 const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
 const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const CONTROLLED_IMAGE_IN_TEXT = /\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g
+const IMAGE_FALLBACK_ATTRIBUTE = 'data-ownmail-image-fallback'
 
 function treatedImageUrl(
 	value: string,
@@ -405,6 +405,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				'data-email-theme',
 				'data-dark-invert',
 				'data-image-mode',
+				'data-message-id',
 			]
 		}
 
@@ -418,6 +419,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private lastLayoutStatus = ''
 		private hasRemoteImages = false
 		private lastRemoteImagesStatus = ''
+		private imageStates = new WeakMap<HTMLImageElement, 'failed' | 'loaded' | 'pending'>()
+		private imageRetry = 0
 
 		connectedCallback(): void {
 			const root = this.ensureShadow()
@@ -453,6 +456,13 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
 			if (oldValue === newValue) return
+			if (name === 'data-message-id') {
+				this.hasRemoteImages = false
+				this.lastRemoteImagesStatus = ''
+				this.removeAttribute('data-load-remote-images')
+				if (this.contentRoot) this.renderContent(this.contentRoot)
+				return
+			}
 			if (['data-layout-mode', 'data-load-remote-images'].includes(name) && this.contentRoot) {
 				this.renderContent(this.contentRoot)
 				return
@@ -528,15 +538,78 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				applyControlledImageTreatment(documentElement, this.imageMode(), this.emailTheme())
 			}
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
+			this.imageStates = new WeakMap()
+			for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
+				if (this.controlledImageReferences(image)) this.imageStates.set(image, 'pending')
+			}
 			applyInheritedSurfaceContrast(root, false)
 			rewriteAnchors(root)
 			isolateBackgroundMedia(root)
 			this.lastLayoutStatus = ''
+			this.emitCurrentRemoteImagesStatus(loadRemoteImages)
+			this.scheduleMeasure()
+		}
+
+		retryFailedImages(): void {
+			const root = this.contentRoot
+			if (!root) return
+			const failed = Array.from(root.querySelectorAll<HTMLImageElement>('img')).filter(
+				(image) => this.imageStates.get(image) === 'failed',
+			)
+			if (failed.length === 0) return
+			this.imageRetry += 1
+			for (const image of failed) {
+				this.imageStates.set(image, 'pending')
+				image.hidden = false
+				image.removeAttribute('data-ownmail-image-failed')
+				if (image.nextElementSibling?.matches(`[${IMAGE_FALLBACK_ATTRIBUTE}]`)) {
+					image.nextElementSibling.remove()
+				}
+				const references: Array<{ attribute: 'src' | 'srcset'; element: Element }> = [
+					{ attribute: 'src', element: image },
+					{ attribute: 'srcset', element: image },
+				]
+				for (const source of image.closest('picture')?.querySelectorAll('source[srcset]') ?? []) {
+					references.push({ attribute: 'srcset', element: source })
+				}
+				for (const { attribute, element } of references) {
+					const value = element.getAttribute(attribute)
+					if (!value) continue
+					element.setAttribute(
+						attribute,
+						value.replace(CONTROLLED_IMAGE_IN_TEXT, (url) => {
+							const parsed = new URL(url, window.location.origin)
+							parsed.searchParams.set('retry', String(this.imageRetry))
+							return `${parsed.pathname}${parsed.search}`
+						}),
+					)
+				}
+			}
+			this.emitCurrentRemoteImagesStatus(true)
+			this.scheduleMeasure()
+		}
+
+		private controlledImageReferences(image: HTMLImageElement): boolean {
+			return ['src', 'srcset'].some(
+				(attribute) => (image.getAttribute(attribute) ?? '').search(CONTROLLED_IMAGE_IN_TEXT) >= 0,
+			)
+		}
+
+		private emitCurrentRemoteImagesStatus(loadRemoteImages: boolean): void {
+			let failedImages = 0
+			let pendingImages = 0
+			/* v8 ignore next -- Status emission only occurs after the shadow content root is initialized. @preserve */
+			for (const image of this.contentRoot?.querySelectorAll<HTMLImageElement>('img') ?? []) {
+				const state = this.imageStates.get(image)
+				if (state === 'failed') failedImages += 1
+				if (state === 'pending') pendingImages += 1
+			}
 			this.emitRemoteImagesStatus({
+				failedImages,
 				hasRemoteImages: this.hasRemoteImages,
 				loaded: loadRemoteImages && this.hasRemoteImages,
+				pendingImages,
 			})
-			this.scheduleMeasure()
 		}
 
 		/** Shrink the content to fit the pane; wide emails scale down, never up. */
@@ -744,9 +817,35 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		}
 
 		private readonly handleMediaSettled = (event: Event): void => {
-			if (event.target instanceof HTMLImageElement || event.target instanceof HTMLVideoElement) {
+			if (event.target instanceof HTMLImageElement) {
+				const image = event.target
+				if (this.imageStates.has(image)) {
+					this.imageStates.set(image, event.type === 'error' ? 'failed' : 'loaded')
+					if (event.type === 'error') {
+						image.hidden = true
+						image.setAttribute('data-ownmail-image-failed', '')
+						if (!image.nextElementSibling?.matches(`[${IMAGE_FALLBACK_ATTRIBUTE}]`)) {
+							const fallback = document.createElement('span')
+							const label = image.alt.trim() || 'Image unavailable'
+							fallback.setAttribute(IMAGE_FALLBACK_ATTRIBUTE, '')
+							fallback.setAttribute('role', 'img')
+							fallback.setAttribute('aria-label', label)
+							fallback.textContent = label
+							image.parentNode?.insertBefore(fallback, image.nextSibling)
+						}
+					} else {
+						image.hidden = false
+						image.removeAttribute('data-ownmail-image-failed')
+						if (image.nextElementSibling?.matches(`[${IMAGE_FALLBACK_ATTRIBUTE}]`)) {
+							image.nextElementSibling.remove()
+						}
+					}
+					this.emitCurrentRemoteImagesStatus(this.hasAttribute('data-load-remote-images'))
+				}
 				this.scheduleMeasure()
+				return
 			}
+			if (event.target instanceof HTMLVideoElement) this.scheduleMeasure()
 		}
 
 		private readonly handleFontsLoaded = (): void => this.scheduleMeasure()

@@ -130,10 +130,13 @@ describe('protectMessageImageSources', () => {
 	it('keeps signed source identifiers stable within one cache window', async () => {
 		vi.useFakeTimers()
 		try {
-			vi.setSystemTime(new Date('2026-08-17T00:00:00Z'))
+			const now = new Date('2026-08-17T00:00:00Z')
+			vi.setSystemTime(now)
 			const first = await protectMessageImageSources(
 				message({ body: '<img src="https://images.example/logo.png">' }),
 			)
+			const firstSource = await verifyEmailImageSource(tokensFromHtml(first.body ?? '')[0] ?? '')
+			expect((firstSource?.expiresAt ?? 0) - now.getTime()).toBe(14 * 24 * 60 * 60 * 1000)
 			vi.setSystemTime(new Date('2026-08-17T01:00:00Z'))
 			const second = await protectMessageImageSources(
 				message({ body: '<img src="https://images.example/logo.png">' }),
@@ -150,6 +153,7 @@ describe('protectMessageImageSources', () => {
 				body: `
 					<a href="https://links.example/read">Read</a>
 					<img src="file:///tmp/blocked.png" style="background-image:url(data:image/png;base64,abc)">
+					<source srcset="cid:logo@example 1x">
 					<img src="https://images.example/logo.png" srcset="https://images.example/small.png 1x, https://images.example/large.png 2x">
 					<table background="//images.example/background.jpg"><tr><td style="background-image:url('https://images.example/card.png')">Card</td></tr></table>
 					<style>.hero{background:url(https://images.example/hero.webp)}</style>
@@ -160,6 +164,7 @@ describe('protectMessageImageSources', () => {
 
 		expect(result.ownmailImagesAttested).toBe(true)
 		expect(result.body).toContain('href="https://links.example/read"')
+		expect(result.body).toContain('srcset="cid:logo@example 1x"')
 		expect(result.body).not.toContain('https://images.example/')
 		expect(tokensFromHtml(result.body ?? '')).toHaveLength(7)
 		for (const token of tokensFromHtml(result.body ?? '')) {
@@ -243,11 +248,12 @@ describe('protectMessageImageSources', () => {
 		).join('')
 		const result = await protectMessageImageSources(
 			message({
-				body: `<img srcset=", 'https://images.example/a.png' 1x, https://images.example/b.png?size=(1,2) 2x">${many}<div style="background:url(https://images.example/late.png)"></div><style>.late{background:url(https://images.example/later.png)}</style>`,
+				body: `<img srcset=", 'https://images.example/a.png' 1x, https://images.example/b.png?size=(1,2) 2x">${many}<source srcset="https://images.example/late-srcset.png 1x"><div style="background:url(https://images.example/late.png)"></div><style>.late{background:url(https://images.example/later.png)}</style>`,
 			}),
 		)
 		expect(tokensFromHtml(result.body ?? '')).toHaveLength(256)
-		expect(result.body).toContain('https://images.example/269.png')
+		expect(result.body).not.toContain('https://images.example/')
+		expect(result.body).toContain('background:url("")')
 	})
 
 	it('returns both inline attachment tokens and remote proxy references together', async () => {

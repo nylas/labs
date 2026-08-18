@@ -17,6 +17,8 @@ interface ElementMetrics {
 
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
 const fixturePath = '/email-content-element.browser.fixture.html'
+const controlledImagePath = (asset: string) =>
+	`/email-images/${'a'.repeat(20)}.${'b'.repeat(20)}?asset=${encodeURIComponent(asset)}&mode=automatic&theme=light`
 const realEmailFixtures = [
 	'bare-legacy-tables',
 	'long-form-fixed-width',
@@ -629,12 +631,13 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		] as const) {
 			const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
 			const requests: string[] = []
-			await page.route('https://picture.example.test/**', async (route) => {
+			await page.route('**/email-images/**', async (route) => {
 				const url = route.request().url()
 				requests.push(url)
+				const asset = new URL(url).searchParams.get('asset')
 				await route.fulfill({
 					contentType: 'image/png',
-					body: url.endsWith('dark.png') ? darkPng : lightPng,
+					body: asset === 'dark.png' ? darkPng : lightPng,
 					headers: { 'cache-control': 'no-store' },
 				})
 			})
@@ -644,9 +647,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 				fixtureUrl,
 				375,
 				`<picture>
-					<source media="(prefers-color-scheme:dark)" srcset="https://picture.example.test/dark.png">
-					<source media="(prefers-color-scheme:light)" srcset="https://picture.example.test/light.png">
-					<img class="picture-theme probe" src="https://picture.example.test/fallback.png" width="20" height="20">
+					<source media="(prefers-color-scheme:dark)" srcset="${controlledImagePath('dark.png')}">
+					<source media="(prefers-color-scheme:light)" srcset="${controlledImagePath('light.png')}">
+					<img class="picture-theme probe" src="${controlledImagePath('fallback.png')}" width="20" height="20">
 				</picture>`,
 			)
 			await page
@@ -655,7 +658,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			await settleLayout(page)
 			expect(requests, `${testCase.app} app / ${testCase.os} OS before consent`).toEqual([])
 
-			const selectedRequest = page.waitForRequest(`https://picture.example.test/${testCase.asset}`)
+			const selectedRequest = page.waitForRequest(
+				(request) => new URL(request.url()).searchParams.get('asset') === testCase.asset,
+			)
 			await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
 			await selectedRequest
 			await settleLayout(page, 5)
@@ -677,12 +682,17 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 				}
 			})
 			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-theme').screenshot())
-			expect(state.currentSrc).toContain(testCase.asset)
+			expect(new URL(state.currentSrc).searchParams.get('asset')).toBe(testCase.asset)
 			expect(state.media).toContain('all')
-			expect(requests.filter((url) => url.endsWith(testCase.asset))).toHaveLength(1)
-			expect(requests.some((url) => url.includes(testCase.app === 'dark' ? 'light.png' : 'dark.png'))).toBe(
-				false,
-			)
+			expect(
+				requests.filter((url) => new URL(url).searchParams.get('asset') === testCase.asset),
+			).toHaveLength(1)
+			expect(
+				requests.some(
+					(url) =>
+						new URL(url).searchParams.get('asset') === (testCase.app === 'dark' ? 'light.png' : 'dark.png'),
+				),
+			).toBe(false)
 			if (testCase.dominant === 'red') expect(pixel[0]).toBeGreaterThan(pixel[2] * 3)
 			else expect(pixel[2]).toBeGreaterThan(pixel[0] * 3)
 			await page.close()
@@ -701,25 +711,26 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		})
 			.png()
 			.toBuffer()
-		const redUrl = '/picture-pane-red.png'
-		const blueUrl = '/picture-pane-blue.png'
+		const redUrl = controlledImagePath('picture-pane-red.png')
+		const blueUrl = controlledImagePath('picture-pane-blue.png')
 		const html = `<picture>
 			<source media="(prefers-color-scheme:dark) and (max-width:400px)" srcset="${redUrl}">
 			<img class="picture-pane probe" src="${blueUrl}" width="20" height="20">
 		</picture>`
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
-		await page.route('**/picture-pane-red.png', (route) =>
-			route.fulfill({ contentType: 'image/png', body: red }),
-		)
-		await page.route('**/picture-pane-blue.png', (route) =>
-			route.fulfill({ contentType: 'image/png', body: blue }),
-		)
+		await page.route('**/email-images/**', (route) => {
+			const asset = new URL(route.request().url()).searchParams.get('asset')
+			return route.fulfill({ contentType: 'image/png', body: asset === 'picture-pane-red.png' ? red : blue })
+		})
 		for (const testCase of [
 			{ mode: 'readable', dominant: 'red' },
 			{ mode: 'original', dominant: 'blue' },
 		] as const) {
 			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
-			await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+			await page.locator('ownmail-email').evaluate((host) => {
+				host.setAttribute('data-email-theme', 'dark')
+				host.setAttribute('data-load-remote-images', '')
+			})
 			await settleLayout(page, 4)
 			const state = await page.locator('ownmail-email').evaluate((host) => {
 				const root = host.shadowRoot
@@ -736,11 +747,13 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-pane').screenshot())
 			if (testCase.dominant === 'red') {
 				expect(state.media).toBe('all')
-				expect(state.currentSrc, JSON.stringify(state)).toContain(redUrl)
+				expect(new URL(state.currentSrc).searchParams.get('asset'), JSON.stringify(state)).toBe(
+					'picture-pane-red.png',
+				)
 				expect(pixel[0], JSON.stringify(state)).toBeGreaterThan(pixel[2] * 3)
 			} else {
 				expect(state.media).toBe('(max-width:400px)')
-				expect(state.currentSrc).toContain(blueUrl)
+				expect(new URL(state.currentSrc).searchParams.get('asset')).toBe('picture-pane-blue.png')
 				expect(pixel[2], JSON.stringify(state)).toBeGreaterThan(pixel[0] * 3)
 			}
 		}
@@ -927,7 +940,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.linkOutline).not.toBe('none')
 		expect(state.linkOutlineWidth).toBe('2px')
 		expect(state.linkFocusRing).not.toBe('none')
-		expect(state.linkColor).not.toBe('rgb(17, 17, 17)')
+		expect(state.linkColor).toBe('rgb(17, 17, 17)')
 	})
 
 	it('renders non-adaptive plain text with dark-mode pixel contrast', async () => {
@@ -957,7 +970,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
 		let requests = 0
-		await page.route('https://images.example.test/**', async (route) => {
+		await page.route('**/email-images/**', async (route) => {
 			requests += 1
 			await route.fulfill({
 				contentType: 'image/gif',
@@ -968,7 +981,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			page,
 			fixtureUrl,
 			375,
-			'<img class="remote probe" src="https://images.example.test/tracker.gif" width="600" height="240">',
+			`<img class="remote probe" src="${controlledImagePath('tracker.gif')}" width="600" height="240">`,
 		)
 		await page.locator('ownmail-email').evaluate((host) => {
 			host.setAttribute('data-email-theme', 'dark')
@@ -997,7 +1010,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(blocked.heightAttribute).toBe('240')
 		expect((blocked.width ?? 0) / (blocked.height ?? 1)).toBeCloseTo(2.5, 1)
 
-		const request = page.waitForRequest('https://images.example.test/tracker.gif')
+		const request = page.waitForRequest(
+			(request) => new URL(request.url()).searchParams.get('asset') === 'tracker.gif',
+		)
 		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
 		await request
 		await settleLayout(page)
@@ -1017,16 +1032,16 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(loaded.background).toBe('rgb(243, 244, 246)')
 		expect(loaded.display).not.toBe('none')
 		expect(loaded.filter).not.toBe('none')
-		expect(loaded.src).toBe('https://images.example.test/tracker.gif')
+		expect(new URL(loaded.src ?? fixtureUrl, fixtureUrl).searchParams.get('asset')).toBe('tracker.gif')
 	})
 
 	it('blocks SVG resource references before consent and restores eligible references after opt-in', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
 		const requests: string[] = []
-		await page.route('https://svg-images.example.test/**', async (route) => {
+		await page.route('**/email-images/**', async (route) => {
 			requests.push(route.request().url())
-			if (route.request().url().includes('sprite.svg')) {
+			if (new URL(route.request().url()).searchParams.get('asset') === 'sprite.svg') {
 				await route.fulfill({
 					contentType: 'image/svg+xml',
 					body: '<svg xmlns="http://www.w3.org/2000/svg"><linearGradient id="paint"><stop stop-color="red"/></linearGradient></svg>',
@@ -1043,9 +1058,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			fixtureUrl,
 			375,
 			`<svg class="probe" width="40" height="40">
-				<defs><linearGradient class="remote-gradient" id="local" href="https://svg-images.example.test/sprite.svg#paint"><stop stop-color="blue"/></linearGradient></defs>
-				<image class="remote-image" href="https://svg-images.example.test/pixel.gif" width="20" height="20"></image>
-				<use class="remote-use" href="https://svg-images.example.test/sprite.svg#icon"></use>
+				<defs><linearGradient class="remote-gradient" id="local" href="${controlledImagePath('sprite.svg')}#paint"><stop stop-color="blue"/></linearGradient></defs>
+				<image class="remote-image" href="${controlledImagePath('pixel.gif')}" width="20" height="20"></image>
+				<use class="remote-use" href="${controlledImagePath('sprite.svg')}#icon"></use>
 				<rect width="40" height="40" fill="url(#local)"></rect>
 				<a class="remote-link" href="https://example.test/read"><text>Read</text></a>
 			</svg>`,
@@ -1067,7 +1082,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			linkHref: 'https://example.test/read',
 		})
 
-		const imageRequest = page.waitForRequest('https://svg-images.example.test/pixel.gif')
+		const imageRequest = page.waitForRequest(
+			(request) => new URL(request.url()).searchParams.get('asset') === 'pixel.gif',
+		)
 		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-load-remote-images', ''))
 		await imageRequest
 		await settleLayout(page)
@@ -1081,9 +1098,11 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		})
 		await page.close()
 
-		expect(requests).toContain('https://svg-images.example.test/pixel.gif')
-		expect(allowed.gradientHref).toBe('https://svg-images.example.test/sprite.svg#paint')
-		expect(allowed.imageHref).toBe('https://svg-images.example.test/pixel.gif')
+		expect(requests.some((url) => new URL(url).searchParams.get('asset') === 'pixel.gif')).toBe(true)
+		expect(new URL(allowed.gradientHref ?? fixtureUrl, fixtureUrl).searchParams.get('asset')).toBe(
+			'sprite.svg',
+		)
+		expect(new URL(allowed.imageHref ?? fixtureUrl, fixtureUrl).searchParams.get('asset')).toBe('pixel.gif')
 		expect(allowed.usePresent).toBe(false)
 	})
 

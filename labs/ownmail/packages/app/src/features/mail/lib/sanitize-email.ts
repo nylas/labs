@@ -811,6 +811,29 @@ function containsRemoteResource(value: string): boolean {
 	return /(?:https?:|\/\/)/i.test(inspected) || inspected.includes('/email-images/')
 }
 
+function isUncontrolledImageUrl(value: string): boolean {
+	const normalized = stripAsciiWhitespaceAndControls(value.trim().replace(/^(['"])(.*)\1$/, '$2')).replace(
+		/\\/g,
+		'/',
+	)
+	if (!normalized || normalized.startsWith('#') || /^(?:cid:|data:image\/)/i.test(normalized)) return false
+	return !CONTROLLED_IMAGE_PATH.test(normalized)
+}
+
+function containsUncontrolledResource(value: string): boolean {
+	const inspected = stripAsciiWhitespaceAndControls(inspectableCss(value)).replace(/\\/g, '/')
+	const withoutControlled = inspected.replace(
+		/\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g,
+		'',
+	)
+	if (/(?:https?:|\/\/)/i.test(withoutControlled)) return true
+	for (const match of withoutControlled.matchAll(/url\(\s*(?:(['"])(.*?)\1|([^)]*?))\s*\)/giu)) {
+		const candidate = ((match[2] ?? match[3]) as string).trim()
+		if (isUncontrolledImageUrl(candidate)) return true
+	}
+	return /(?:image-set\([^)]*|[,('"])(?:\.{0,2}\/)[^\s"')>,]+/i.test(withoutControlled)
+}
+
 function stripAsciiWhitespaceAndControls(value: string): string {
 	return Array.from(value)
 		.filter((character) => character.charCodeAt(0) > 0x20)
@@ -868,15 +891,52 @@ function blockRemoteImages(sanitizedDocument: HTMLElement): boolean {
 	return found
 }
 
-function removeRemoteCssDeclarations(css: string): { css: string; removed: boolean } | null {
+/**
+ * Never let provider-relative or raw third-party image references resolve in the
+ * authenticated OwnMail origin. Production messages use signed `/email-images/`
+ * paths; anything else fails closed even after the reader grants consent.
+ */
+function removeUncontrolledImageResources(sanitizedDocument: HTMLElement): void {
+	for (const element of [sanitizedDocument, ...sanitizedDocument.querySelectorAll<HTMLElement>('*')]) {
+		const imageAttributes = ['src', 'poster', 'background']
+		if (element.namespaceURI === SVG_NAMESPACE && element.tagName.toUpperCase() !== 'A') {
+			imageAttributes.push('href', 'xlink:href')
+		}
+		for (const attribute of imageAttributes) {
+			const value = element.getAttribute(attribute)
+			if (value && isUncontrolledImageUrl(value)) element.removeAttribute(attribute)
+		}
+		const srcset = element.getAttribute('srcset')
+		if (srcset && containsUncontrolledResource(srcset)) element.removeAttribute('srcset')
+		for (const declaration of Array.from(element.style)) {
+			if (containsUncontrolledResource(element.style.getPropertyValue(declaration))) {
+				element.style.removeProperty(declaration)
+			}
+		}
+	}
+	for (const style of Array.from(sanitizedDocument.querySelectorAll('style'))) {
+		const sanitized = removeRemoteCssDeclarations(style.textContent, containsUncontrolledResource)
+		if (!sanitized) {
+			if (containsUncontrolledResource(style.textContent)) style.remove()
+			continue
+		}
+		style.textContent = sanitized.css
+	}
+}
+
+function removeRemoteCssDeclarations(
+	css: string,
+	containsResource: (value: string) => boolean = containsRemoteResource,
+): { css: string; removed: boolean } | null {
 	const root = parseCss(css)
 	if (!root) return null
-	return sanitizeCssContainerResources(css, root)
+	return sanitizeCssContainerResources(css, root, containsResource)
 }
 
 function sanitizeCssContainerResources(
 	css: string,
 	container: CssContainer,
+	containsResource: (value: string) => boolean,
 ): { css: string; removed: boolean } {
 	let cursor = container.start
 	let output = ''
@@ -884,25 +944,28 @@ function sanitizeCssContainerResources(
 	for (const block of container.children) {
 		const preceding = css.slice(cursor, block.headerStart)
 		const sanitizedPreceding =
-			container.kind === 'declarations' ? removeRemoteDeclarationsFromText(preceding) : null
+			container.kind === 'declarations' ? removeRemoteDeclarationsFromText(preceding, containsResource) : null
 		output += sanitizedPreceding?.css ?? preceding
 		removed ||= sanitizedPreceding?.removed ?? false
 
 		const header = css.slice(block.headerStart, block.open)
-		const sanitizedBody = sanitizeCssContainerResources(css, block.body)
+		const sanitizedBody = sanitizeCssContainerResources(css, block.body, containsResource)
 		output += `${header}{${sanitizedBody.css}}`
 		removed ||= sanitizedBody.removed
 		cursor = block.close + 1
 	}
 	const trailing = css.slice(cursor, container.end)
 	const sanitizedTrailing =
-		container.kind === 'declarations' ? removeRemoteDeclarationsFromText(trailing) : null
+		container.kind === 'declarations' ? removeRemoteDeclarationsFromText(trailing, containsResource) : null
 	output += sanitizedTrailing?.css ?? trailing
 	removed ||= sanitizedTrailing?.removed ?? false
 	return { css: output, removed }
 }
 
-function removeRemoteDeclarationsFromText(css: string): { css: string; removed: boolean } {
+function removeRemoteDeclarationsFromText(
+	css: string,
+	containsResource: (value: string) => boolean,
+): { css: string; removed: boolean } {
 	let cursor = 0
 	let segmentStart = 0
 	let output = ''
@@ -937,7 +1000,7 @@ function removeRemoteDeclarationsFromText(css: string): { css: string; removed: 
 		const end = isEnd ? index : index + 1
 		const declaration = css.slice(segmentStart, end)
 		const colon = findTopLevelColon(declaration)
-		if (colon >= 0 && containsRemoteResource(declaration.slice(colon + 1))) {
+		if (colon >= 0 && containsResource(declaration.slice(colon + 1))) {
 			output += css.slice(cursor, segmentStart)
 			cursor = end
 			removed = true
@@ -986,6 +1049,7 @@ function prepareSanitizedDocument(
 	if (!options.allowRemoteImages && blockRemoteImages(sanitizedDocument)) {
 		sanitizedDocument.setAttribute(REMOTE_IMAGE_MARKER, '')
 	}
+	removeUncontrolledImageResources(sanitizedDocument)
 	return sanitizedDocument
 }
 

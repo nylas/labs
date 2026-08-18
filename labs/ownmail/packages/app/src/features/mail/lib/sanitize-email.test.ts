@@ -566,10 +566,10 @@ describe('sanitizeEmailHtml', () => {
 		expect(blocked?.querySelector('.hero')?.getAttribute('style')).not.toContain('images.example')
 
 		const allowed = sanitizeEmailDocument(html, { allowRemoteImages: true })
-		expect(allowed?.querySelector('img:not(.cid):not(.data)')?.getAttribute('src')).toContain('https://')
-		expect(allowed?.querySelector('source')?.getAttribute('srcset')).toContain('https://')
+		expect(allowed?.querySelector('img:not(.cid):not(.data)')?.hasAttribute('src')).toBe(false)
+		expect(allowed?.querySelector('source')?.hasAttribute('srcset')).toBe(false)
 		expect(allowed?.querySelector('source')?.getAttribute('media')).toBe('not all')
-		expect(allowed?.querySelector('style')?.textContent).toContain('images.example')
+		expect(allowed?.querySelector('style')?.textContent).not.toContain('images.example')
 	})
 
 	it('keeps signed image proxy paths behind the same consent boundary', () => {
@@ -599,7 +599,7 @@ describe('sanitizeEmailHtml', () => {
 		expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
 		expect(blocked?.querySelector('.slashes')?.hasAttribute('src')).toBe(false)
 		expect(blocked?.querySelector('.newline')?.hasAttribute('src')).toBe(false)
-		expect(blocked?.querySelector('.relative')?.getAttribute('src')).toBe('/authenticated/image')
+		expect(blocked?.querySelector('.relative')?.hasAttribute('src')).toBe(false)
 		expect(blocked?.querySelector('.remote-svg')?.hasAttribute('href')).toBe(false)
 		expect(blocked?.querySelector('.filtered')?.hasAttribute('filter')).toBe(false)
 		expect(blocked?.querySelector('style')?.textContent).not.toContain('images.example')
@@ -608,6 +608,12 @@ describe('sanitizeEmailHtml', () => {
 		)
 		expect(sanitizedDocumentHasRemoteImages(malformed as HTMLElement)).toBe(true)
 		expect(malformed?.querySelector('style')).toBeNull()
+		const relativeCss = sanitizeEmailDocument(
+			'<style>.x{background:url(../authenticated/image.png)}</style><div class="x" style="background:url(/session/image.png)">Safe</div>',
+			{ allowRemoteImages: true },
+		)
+		expect(relativeCss?.querySelector('style')?.textContent).not.toContain('authenticated')
+		expect(relativeCss?.querySelector('.x')?.getAttribute('style')).not.toContain('/session/')
 	})
 
 	it('blocks remote SVG resource references while preserving local references and anchors', () => {
@@ -631,9 +637,7 @@ describe('sanitizeEmailHtml', () => {
 		expect(blocked?.querySelector('.remote-gradient')?.hasAttribute('href')).toBe(false)
 		expect(blocked?.querySelector('.remote-xlink')?.hasAttribute('xlink:href')).toBe(false)
 		expect(blocked?.querySelector('.remote-text-path')?.hasAttribute('href')).toBe(false)
-		expect(blocked?.querySelector('.local-pattern')?.getAttribute('href')).toBe(
-			'/authenticated/sprite.svg#pattern',
-		)
+		expect(blocked?.querySelector('.local-pattern')?.hasAttribute('href')).toBe(false)
 		expect(blocked?.querySelector('.cid-pattern')?.getAttribute('href')).toBe('cid:sprite#pattern')
 		expect(blocked?.querySelector('.data-image')?.getAttribute('href')).toContain('data:image/svg+xml')
 		expect(blocked?.querySelector('.svg-link')?.getAttribute('href')).toBe('https://example.test/read')
@@ -641,16 +645,16 @@ describe('sanitizeEmailHtml', () => {
 
 		const allowed = sanitizeEmailDocument(html, { allowRemoteImages: true })
 		expect(allowed?.querySelector('use')).toBeNull()
-		expect(allowed?.querySelector('.remote-gradient')?.getAttribute('href')).toContain('https://')
-		expect(allowed?.querySelector('.remote-xlink')?.getAttribute('xlink:href')).toContain('//')
-		expect(allowed?.querySelector('.remote-text-path')?.getAttribute('href')).toContain('https://')
+		expect(allowed?.querySelector('.remote-gradient')?.hasAttribute('href')).toBe(false)
+		expect(allowed?.querySelector('.remote-xlink')?.hasAttribute('xlink:href')).toBe(false)
+		expect(allowed?.querySelector('.remote-text-path')?.hasAttribute('href')).toBe(false)
 
 		const localOnly = sanitizeEmailDocument(
 			'<svg xmlns="http://www.w3.org/2000/svg"><pattern class="local" href="/authenticated/sprite.svg#paint"></pattern><image class="cid" href="cid:logo"></image><image class="data" href="data:image/gif;base64,R0lGODlhAQABAAAAACw="></image></svg>',
 		)
 		expect(sanitizedDocumentHasRemoteImages(localOnly as HTMLElement)).toBe(false)
 		expect(localOnly?.querySelector('svg')?.getAttribute('xmlns')).toBe('http://www.w3.org/2000/svg')
-		expect(localOnly?.querySelector('.local')?.getAttribute('href')).toContain('/authenticated/')
+		expect(localOnly?.querySelector('.local')?.hasAttribute('href')).toBe(false)
 		expect(localOnly?.querySelector('.cid')?.getAttribute('href')).toBe('cid:logo')
 		expect(localOnly?.querySelector('.data')?.getAttribute('href')).toContain('data:image/gif')
 	})
@@ -715,6 +719,11 @@ describe('sanitizeEmailHtml', () => {
 			expect(sanitizedDocumentHasRemoteImages(blocked as HTMLElement)).toBe(true)
 			expect(blocked?.querySelector('style')).toBeNull()
 		}
+		const allowed = sanitizeEmailDocument(
+			'<style>.x{background:url(../authenticated/image.png)</style><p>Safe</p>',
+			{ allowRemoteImages: true },
+		)
+		expect(allowed?.querySelector('style')).toBeNull()
 	})
 
 	it('keeps ordinary scoped email stylesheet rules', () => {
