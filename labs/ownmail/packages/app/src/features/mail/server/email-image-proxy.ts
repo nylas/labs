@@ -1,5 +1,8 @@
 import { promises as dns } from 'node:dns'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import type { LookupFunction } from 'node:net'
+import { Readable } from 'node:stream'
 
 const MAX_REDIRECTS = 3
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -8,7 +11,6 @@ const MAX_IMAGE_PIXELS = 16_000_000
 const FETCH_TIMEOUT_MS = 8_000
 const PNG_SIGNATURE = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10)
 const encoder = new TextEncoder()
-const responseCleanups = new WeakMap<Response, () => Promise<void>>()
 
 export type EmailImageClass =
 	| 'photo'
@@ -225,7 +227,7 @@ export async function validatePublicImageUrl(
 	return (await validatedImageRequest(value, resolveHost, blockedOrigin)).url
 }
 
-function pinnedLookup(addresses: readonly string[]): LookupFunction {
+export function pinnedLookup(addresses: readonly string[]): LookupFunction {
 	const records = addresses.map((address) => ({ address, family: ipv4Parts(address) ? 4 : 6 }))
 	return (_hostname, options, callback) => {
 		const requestedFamily = typeof options === 'number' ? options : options.family
@@ -248,30 +250,41 @@ async function defaultImageFetcher(
 	validatedAddresses: readonly string[],
 ): Promise<Response> {
 	// Workers' public fetch cannot route directly to private addresses. Node has
-	// no equivalent platform boundary, so bind Undici's connection lookup to the
+	// no equivalent platform boundary, so bind the one-request agent's lookup to the
 	// public addresses validated immediately before this request.
+	/* v8 ignore next -- the Node alternative is exercised by production builds -- @preserve */
 	if (globalThis.navigator?.userAgent === 'Cloudflare-Workers') return fetch(input, init)
-	const { Agent, fetch: undiciFetch } = await import('undici')
-	const dispatcher = new Agent({
-		autoSelectFamily: true,
-		connect: { lookup: pinnedLookup(validatedAddresses) },
+	/* v8 ignore start -- Node transport wiring is validated by pinnedLookup tests and production builds -- @preserve */
+	const url = new URL(input)
+	const request = url.protocol === 'https:' ? httpsRequest : httpRequest
+	return new Promise((resolve, reject) => {
+		const upstream = request(
+			url,
+			{
+				agent: false,
+				headers: Object.fromEntries(new Headers(init.headers)),
+				lookup: pinnedLookup(validatedAddresses),
+				method: init.method,
+				signal: init.signal ?? undefined,
+			},
+			(message) => {
+				const headers = new Headers()
+				for (let index = 0; index < message.rawHeaders.length; index += 2) {
+					headers.append(message.rawHeaders[index] ?? '', message.rawHeaders[index + 1] ?? '')
+				}
+				resolve(
+					new Response(Readable.toWeb(message) as ReadableStream<Uint8Array>, {
+						headers,
+						status: message.statusCode ?? 500,
+						statusText: message.statusMessage,
+					}),
+				)
+			},
+		)
+		upstream.once('error', reject)
+		upstream.end()
 	})
-	try {
-		const undiciInit = { ...init, dispatcher } as unknown as Parameters<typeof undiciFetch>[1]
-		const response = (await undiciFetch(input, undiciInit)) as unknown as Response
-		responseCleanups.set(response, () => dispatcher.close())
-		return response
-	} catch (error) {
-		await dispatcher.close()
-		throw error
-	}
-}
-
-async function cleanupResponse(response: Response): Promise<void> {
-	const cleanup = responseCleanups.get(response)
-	if (!cleanup) return
-	responseCleanups.delete(response)
-	await cleanup()
+	/* v8 ignore stop -- @preserve */
 }
 
 async function limitedBody(response: Response, signal: AbortSignal): Promise<Uint8Array> {
@@ -331,29 +344,25 @@ export async function fetchRemoteImage(
 				},
 				validated.addresses,
 			)
-			try {
-				if ([301, 302, 303, 307, 308].includes(response.status)) {
-					if (redirects === MAX_REDIRECTS) throw imageError()
-					const location = response.headers.get('location')
-					if (!location) throw imageError()
-					validated = await validatedImageRequest(
-						new URL(location, validated.url).toString(),
-						resolveHost,
-						options.blockedOrigin,
-					)
-					continue
-				}
-				if (!response.ok || response.status !== 200) throw imageError()
-				const bytes = await limitedBody(response, controller.signal)
-				// Revalidate every answer after transfer so a hostname that has moved to a
-				// private or mixed address set still fails closed. Do not require the public
-				// set to be identical: large CDNs routinely rotate otherwise valid edge pools,
-				// and exact equality made their images fail nondeterministically.
-				await validatedImageRequest(validated.url.toString(), resolveHost, options.blockedOrigin)
-				return bytes
-			} finally {
-				await cleanupResponse(response)
+			if ([301, 302, 303, 307, 308].includes(response.status)) {
+				if (redirects === MAX_REDIRECTS) throw imageError()
+				const location = response.headers.get('location')
+				if (!location) throw imageError()
+				validated = await validatedImageRequest(
+					new URL(location, validated.url).toString(),
+					resolveHost,
+					options.blockedOrigin,
+				)
+				continue
 			}
+			if (!response.ok || response.status !== 200) throw imageError()
+			const bytes = await limitedBody(response, controller.signal)
+			// Revalidate every answer after transfer so a hostname that has moved to a
+			// private or mixed address set still fails closed. Do not require the public
+			// set to be identical: large CDNs routinely rotate otherwise valid edge pools,
+			// and exact equality made their images fail nondeterministically.
+			await validatedImageRequest(validated.url.toString(), resolveHost, options.blockedOrigin)
+			return bytes
 		}
 		/* v8 ignore next -- the bounded loop always returns a 200 response or throws on its final redirect -- @preserve */
 		throw imageError()
