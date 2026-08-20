@@ -943,6 +943,46 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.linkColor).toBe('rgb(17, 17, 17)')
 	})
 
+	it('renders transformed transparent color artwork directly on the dark canvas', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 420, height: 300 } })
+		const width = 112
+		const height = 112
+		const pixels = Uint8Array.from({ length: width * height * 4 }, (_, offset) => {
+			const index = Math.floor(offset / 4)
+			const channel = offset % 4
+			const color = index > 0 && index % 7 === 0 ? [0, 0, 0, 0] : [112, 162, 247, 255]
+			return color[channel] ?? 0
+		})
+		const transformed = await sharp(pixels, { raw: { width, height, channels: 4 } })
+			.png()
+			.toBuffer()
+		const dataUrl = `data:image/png;base64,${transformed.toString('base64')}`
+		await mountEmail(
+			page,
+			fixtureUrl,
+			240,
+			`<img class="color-art" width="112" height="112" src="${dataUrl}" alt="Workflow">`,
+		)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.color-art')
+			const style = image ? getComputedStyle(image) : null
+			return { background: style?.backgroundColor ?? null, filter: style?.filter ?? null }
+		})
+		const renderedPixel = await firstRenderedPixel(
+			await page.locator('ownmail-email .color-art').screenshot(),
+		)
+		await page.close()
+
+		expect(state.background).toBe('rgba(0, 0, 0, 0)')
+		expect(state.filter).not.toBe('none')
+		expect(renderedPixel[2]).toBeGreaterThan(renderedPixel[1])
+		expect(renderedPixel[1]).toBeGreaterThan(renderedPixel[0])
+		expect(renderedPixel[0]).toBeGreaterThan(66)
+	})
+
 	it('renders non-adaptive plain text with dark-mode pixel contrast', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 500, height: 300 } })

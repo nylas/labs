@@ -13,6 +13,7 @@ export type EmailImageClass =
 	| 'screenshot'
 	| 'transparent-light-logo'
 	| 'transparent-dark-logo'
+	| 'transparent-color-art'
 	| 'monochrome-icon'
 	| 'animated'
 	| 'tracking'
@@ -750,10 +751,11 @@ function classifyPng(decoded: DecodedPng): { classification: EmailImageClass; av
 	const averageSaturation = visible ? saturation / visible : 1
 	/* v8 ignore next -- processEmailImage blocks tiny dimensions before pixel classification -- @preserve */
 	if (decoded.width <= 2 && decoded.height <= 2) return { classification: 'tracking', averageLuma }
-	if (transparent && colors.size <= 24) {
+	if (transparent && visible > 0 && colors.size <= 24) {
 		if (averageLuma < 0.4) return { classification: 'transparent-dark-logo', averageLuma }
 		if (averageLuma > 0.68) return { classification: 'transparent-light-logo', averageLuma }
 		if (averageSaturation < 0.14) return { classification: 'monochrome-icon', averageLuma }
+		return { classification: 'transparent-color-art', averageLuma }
 	}
 	return {
 		classification: transparent
@@ -880,7 +882,8 @@ export async function processEmailImage(
 	const lighten =
 		mode === 'automatic' &&
 		theme === 'dark' &&
-		(result.classification === 'transparent-dark-logo' ||
+		(result.classification === 'transparent-color-art' ||
+			result.classification === 'transparent-dark-logo' ||
 			(result.classification === 'monochrome-icon' && result.averageLuma < 0.55))
 	return {
 		...metadata,

@@ -319,6 +319,35 @@ describe('image classification and safe variants', () => {
 		expect(originalPixels).toContainEqual([0, 82, 204, 255])
 	})
 
+	it('adapts mid-tone transparent color artwork only for automatic dark mode', async () => {
+		const source = await png(112, 112, 4, (index) =>
+			index % 7 === 0 ? [0, 0, 0, 0] : index % 2 ? [66, 133, 244, 255] : [146, 184, 246, 255],
+		)
+		const automaticDark = await processEmailImage(source, 'automatic', 'dark')
+		const automaticLight = await processEmailImage(source, 'automatic', 'light')
+		const originalDark = await processEmailImage(source, 'original', 'dark')
+		const darkPixels = await sharp(automaticDark.bytes).ensureAlpha().raw().toBuffer()
+		const lightPixels = await sharp(automaticLight.bytes).ensureAlpha().raw().toBuffer()
+		const originalPixels = await sharp(originalDark.bytes).ensureAlpha().raw().toBuffer()
+		const pixelAt = (pixels: Buffer, index: number) => Array.from(pixels.subarray(index * 4, index * 4 + 4))
+		const darkBrand = pixelAt(darkPixels, 1)
+		const lightBrand = pixelAt(lightPixels, 1)
+		const originalBrand = pixelAt(originalPixels, 1)
+
+		expect(automaticDark.classification).toBe('transparent-color-art')
+		expect(automaticLight.classification).toBe('transparent-color-art')
+		expect(originalDark.classification).toBe('transparent-color-art')
+		expect(automaticDark.bytes).not.toEqual(originalDark.bytes)
+		expect(automaticLight.bytes).toEqual(originalDark.bytes)
+		expect(darkBrand[2]).toBeGreaterThan(darkBrand[1] ?? 0)
+		expect(darkBrand[1]).toBeGreaterThan(darkBrand[0] ?? 0)
+		expect(darkBrand[0]).toBeGreaterThan(originalBrand[0] ?? 255)
+		expect(darkBrand[1]).toBeGreaterThan(originalBrand[1] ?? 255)
+		expect(lightBrand).toEqual([66, 133, 244, 255])
+		expect(originalBrand).toEqual([66, 133, 244, 255])
+		expect(pixelAt(darkPixels, 0)).toEqual([0, 0, 0, 0])
+	})
+
 	it('preserves light transparent logos and classifies neutral monochrome icons', async () => {
 		const light = await png(8, 8, 4, (index) => [245, 245, 245, index % 2 ? 255 : 0])
 		const neutral = await png(8, 8, 4, (index) => [128, 128, 128, index % 2 ? 255 : 0])
@@ -328,9 +357,14 @@ describe('image classification and safe variants', () => {
 		expect((await processEmailImage(neutral, 'automatic', 'light')).classification).toBe('monochrome-icon')
 	})
 
-	it('preserves opaque PNG screenshots and uncertain transparent color artwork', async () => {
+	it('preserves opaque PNG screenshots and complex transparent color artwork', async () => {
 		const screenshot = await png(80, 80, 3, (index) => [index % 255, (index * 7) % 255, 180])
-		const unknown = await png(8, 8, 4, (index) => [255, index % 2 ? 0 : 140, 40, index % 3 ? 255 : 0])
+		const unknown = await png(32, 32, 4, (index) => [
+			index % 255,
+			(index * 7) % 255,
+			180,
+			index % 3 ? 255 : 0,
+		])
 		expect((await processEmailImage(screenshot, 'automatic', 'dark')).classification).toBe('screenshot')
 		expect((await processEmailImage(unknown, 'automatic', 'dark')).classification).toBe('unknown')
 	})
