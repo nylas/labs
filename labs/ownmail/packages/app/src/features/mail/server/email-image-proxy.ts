@@ -17,6 +17,7 @@ export type EmailImageClass =
 	| 'screenshot'
 	| 'transparent-light-logo'
 	| 'transparent-dark-logo'
+	| 'transparent-color-art'
 	| 'monochrome-icon'
 	| 'animated'
 	| 'tracking'
@@ -816,10 +817,11 @@ function classifyPng(decoded: DecodedPng): { classification: EmailImageClass; av
 	const averageSaturation = visible ? saturation / visible : 1
 	/* v8 ignore next -- processEmailImage blocks tiny dimensions before pixel classification -- @preserve */
 	if (decoded.width <= 2 && decoded.height <= 2) return { classification: 'tracking', averageLuma }
-	if (transparent && colors.size <= 24 && averageSaturation < 0.14) {
+	if (transparent && visible > 0 && colors.size <= 24) {
 		if (averageLuma < 0.4) return { classification: 'transparent-dark-logo', averageLuma }
 		if (averageLuma > 0.68) return { classification: 'transparent-light-logo', averageLuma }
-		return { classification: 'monochrome-icon', averageLuma }
+		if (averageSaturation < 0.14) return { classification: 'monochrome-icon', averageLuma }
+		return { classification: 'transparent-color-art', averageLuma }
 	}
 	return {
 		classification: transparent
@@ -869,9 +871,27 @@ async function encodePng(decoded: DecodedPng): Promise<Uint8Array> {
 		const rowOffset =
 			Math.floor(index / decoded.width) * (decoded.width * 4 + 1) + 1 + (index % decoded.width) * 4
 		if (!rows[rowOffset + 3]) continue
-		rows[rowOffset] = 238
-		rows[rowOffset + 1] = 242
-		rows[rowOffset + 2] = 246
+		const red = valueAt(rows, rowOffset) / 255
+		const green = valueAt(rows, rowOffset + 1) / 255
+		const blue = valueAt(rows, rowOffset + 2) / 255
+		const maximum = Math.max(red, green, blue)
+		const minimum = Math.min(red, green, blue)
+		const saturation = maximum === 0 ? 0 : (maximum - minimum) / maximum
+		const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722
+		// Keep light pixels untouched. Neutral lettering gets the reader's cool
+		// foreground; saturated marks blend toward white only far enough to remain
+		// legible while preserving their hue ordering.
+		if (luma >= 0.55) continue
+		if (saturation < 0.2) {
+			rows[rowOffset] = 238
+			rows[rowOffset + 1] = 242
+			rows[rowOffset + 2] = 246
+			continue
+		}
+		const blend = Math.min(1, (0.62 - luma) / (1 - luma))
+		rows[rowOffset] = Math.round((red + (1 - red) * blend) * 255)
+		rows[rowOffset + 1] = Math.round((green + (1 - green) * blend) * 255)
+		rows[rowOffset + 2] = Math.round((blue + (1 - blue) * blend) * 255)
 	}
 	const compressedStream = new Blob([rows.buffer]).stream().pipeThrough(new CompressionStream('deflate'))
 	const compressed = new Uint8Array(await new Response(compressedStream).arrayBuffer())
@@ -928,7 +948,8 @@ export async function processEmailImage(
 	const lighten =
 		mode === 'automatic' &&
 		theme === 'dark' &&
-		(result.classification === 'transparent-dark-logo' ||
+		(result.classification === 'transparent-color-art' ||
+			result.classification === 'transparent-dark-logo' ||
 			(result.classification === 'monochrome-icon' && result.averageLuma < 0.55))
 	return {
 		...metadata,

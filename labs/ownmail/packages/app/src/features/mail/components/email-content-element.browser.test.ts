@@ -968,7 +968,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			const media = ['.photo', '.picture-img', '.logo', '.art'].map((selector) => {
 				const element = root?.querySelector<HTMLElement>(selector)
 				const style = element ? getComputedStyle(element) : null
-				return { filter: style?.filter ?? null, background: style?.backgroundColor ?? null }
+				return { selector, filter: style?.filter ?? null, background: style?.backgroundColor ?? null }
 			})
 			const linkStyle = link ? getComputedStyle(link) : null
 			return {
@@ -992,7 +992,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.rootBackground).toBe('rgb(255, 255, 255)')
 		for (const media of state.media) {
 			expect(media.filter).not.toBe('none')
-			expect(media.background).toBe('rgb(243, 244, 246)')
+			expect(media.background).toBe(
+				['.logo', '.art'].includes(media.selector) ? 'rgb(243, 244, 246)' : 'rgba(0, 0, 0, 0)',
+			)
 		}
 		expect(state.backgroundMarked).toBe(true)
 		expect(state.backgroundImage).toBe('none')
@@ -1007,6 +1009,83 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.linkOutlineWidth).toBe('2px')
 		expect(state.linkFocusRing).not.toBe('none')
 		expect(state.linkColor).toBe('rgb(17, 17, 17)')
+	})
+
+	it('renders transformed transparent color artwork directly on the dark canvas', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 420, height: 300 } })
+		const width = 112
+		const height = 112
+		const pixels = Uint8Array.from({ length: width * height * 4 }, (_, offset) => {
+			const index = Math.floor(offset / 4)
+			const channel = offset % 4
+			const color = index > 0 && index % 7 === 0 ? [0, 0, 0, 0] : [112, 162, 247, 255]
+			return color[channel] ?? 0
+		})
+		const transformed = await sharp(pixels, { raw: { width, height, channels: 4 } })
+			.png()
+			.toBuffer()
+		const dataUrl = `data:image/png;base64,${transformed.toString('base64')}`
+		await mountEmail(
+			page,
+			fixtureUrl,
+			240,
+			`<img class="color-art" width="112" height="112" src="${dataUrl}" alt="Workflow">`,
+		)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.color-art')
+			const style = image ? getComputedStyle(image) : null
+			return { background: style?.backgroundColor ?? null, filter: style?.filter ?? null }
+		})
+		const renderedPixel = await firstRenderedPixel(
+			await page.locator('ownmail-email .color-art').screenshot(),
+		)
+		await page.close()
+
+		expect(state.background).toBe('rgba(0, 0, 0, 0)')
+		expect(state.filter).not.toBe('none')
+		expect(renderedPixel[2]).toBeGreaterThan(renderedPixel[1])
+		expect(renderedPixel[1]).toBeGreaterThan(renderedPixel[0])
+		expect(renderedPixel[0]).toBeGreaterThan(66)
+	})
+
+	it('adds a dark-mode backing only when delivered transparent pixels remain dark', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 420, height: 300 } })
+		const source = await sharp(
+			Uint8Array.from({ length: 32 * 32 * 4 }, (_, offset) => {
+				const channel = offset % 4
+				return [8, 20, 38, Math.floor(offset / 4) % 3 === 0 ? 0 : 255][channel] ?? 0
+			}),
+			{ raw: { width: 32, height: 32, channels: 4 } },
+		)
+			.png()
+			.toBuffer()
+		await mountEmail(
+			page,
+			fixtureUrl,
+			240,
+			`<img class="dark-art" width="32" height="32" src="data:image/png;base64,${source.toString('base64')}" alt="Dark artwork">`,
+		)
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
+		await page.locator('ownmail-email .dark-art').evaluate((image) => (image as HTMLImageElement).decode())
+		await page.waitForFunction(() =>
+			document
+				.querySelector('ownmail-email')
+				?.shadowRoot?.querySelector('.dark-art')
+				?.hasAttribute('data-ownmail-image-backing'),
+		)
+		const background = await page
+			.locator('ownmail-email .dark-art')
+			.evaluate((image) => getComputedStyle(image).backgroundColor)
+		await page.close()
+
+		expect(background).toBe('rgb(243, 244, 246)')
 	})
 
 	it('renders non-adaptive plain text with dark-mode pixel contrast', async () => {
@@ -1095,7 +1174,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 
 		expect(requests).toBe(1)
-		expect(loaded.background).toBe('rgb(243, 244, 246)')
+		expect(loaded.background).toBe('rgba(0, 0, 0, 0)')
 		expect(loaded.display).not.toBe('none')
 		expect(loaded.filter).not.toBe('none')
 		expect(new URL(loaded.src ?? fixtureUrl, fixtureUrl).searchParams.get('asset')).toBe('tracker.gif')

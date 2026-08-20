@@ -154,6 +154,47 @@ const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)
 const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const CONTROLLED_IMAGE_IN_TEXT = /\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g
 const IMAGE_FALLBACK_ATTRIBUTE = 'data-ownmail-image-fallback'
+const IMAGE_BACKING_ATTRIBUTE = 'data-ownmail-image-backing'
+
+/** Keep dark transparent pixels legible when the proxy returned an unadapted format or original colors. */
+/* v8 ignore start -- pixel sampling and canvas failures are exercised by the Chromium suite -- @preserve */
+function updateDarkImageBacking(image: HTMLImageElement, darkInvert: boolean): void {
+	image.removeAttribute(IMAGE_BACKING_ATTRIBUTE)
+	if (!darkInvert || image.naturalWidth <= 0 || image.naturalHeight <= 0) return
+	const longestSide = Math.max(image.naturalWidth, image.naturalHeight)
+	const scale = Math.min(1, 48 / longestSide)
+	const width = Math.max(1, Math.round(image.naturalWidth * scale))
+	const height = Math.max(1, Math.round(image.naturalHeight * scale))
+	try {
+		const canvas = document.createElement('canvas')
+		canvas.width = width
+		canvas.height = height
+		const context = canvas.getContext('2d', { willReadFrequently: true })
+		if (!context) throw new Error('Canvas unavailable')
+		context.drawImage(image, 0, 0, width, height)
+		const pixels = context.getImageData(0, 0, width, height).data
+		let transparent = false
+		let visible = 0
+		let luma = 0
+		for (let offset = 0; offset < pixels.length; offset += 4) {
+			const alpha = pixels[offset + 3] ?? 0
+			if (alpha < 248) transparent = true
+			if (alpha <= 16) continue
+			const red = pixels[offset] ?? 0
+			const green = pixels[offset + 1] ?? 0
+			const blue = pixels[offset + 2] ?? 0
+			luma += (red * 0.2126 + green * 0.7152 + blue * 0.0722) / 255
+			visible += 1
+		}
+		if (transparent && visible > 0 && luma / visible < 0.55) {
+			image.setAttribute(IMAGE_BACKING_ATTRIBUTE, '')
+		}
+	} catch {
+		// A controlled image should be same-origin; fail visibly if a runtime cannot inspect it.
+		image.setAttribute(IMAGE_BACKING_ATTRIBUTE, '')
+	}
+}
+/* v8 ignore stop -- @preserve */
 
 function treatedImageUrl(
 	value: string,
@@ -474,6 +515,11 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			if (name === 'data-image-mode' && this.contentRoot) {
 				applyControlledImageTreatment(this.contentRoot, this.imageMode(), this.emailTheme())
 			}
+			if (['data-dark-invert', 'data-email-theme', 'data-image-mode'].includes(name) && this.contentRoot) {
+				for (const image of this.contentRoot.querySelectorAll<HTMLImageElement>('img')) {
+					if (image.complete) updateDarkImageBacking(image, this.darkImageBackingEnabled())
+				}
+			}
 			this.scheduleMeasure()
 		}
 
@@ -544,6 +590,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			this.imageStates = new WeakMap()
 			for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
 				if (this.controlledImageReferences(image)) this.imageStates.set(image, 'pending')
+				if (image.complete) updateDarkImageBacking(image, this.darkImageBackingEnabled())
 			}
 			applyInheritedSurfaceContrast(root, false)
 			rewriteAnchors(root)
@@ -697,6 +744,10 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			return this.getAttribute('data-image-mode') === 'original' ? 'original' : 'automatic'
 		}
 
+		private darkImageBackingEnabled(): boolean {
+			return this.emailTheme() === 'dark' && this.hasAttribute('data-dark-invert')
+		}
+
 		private updateLogicalDirection(content: HTMLElement): boolean {
 			const documentElement = content.querySelector('html')
 			const body = content.querySelector('body')
@@ -840,6 +891,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private readonly handleMediaSettled = (event: Event): void => {
 			if (event.target instanceof HTMLImageElement) {
 				const image = event.target
+				if (event.type === 'load') updateDarkImageBacking(image, this.darkImageBackingEnabled())
+				else image.removeAttribute(IMAGE_BACKING_ATTRIBUTE)
 				if (this.imageStates.has(image)) {
 					this.imageStates.set(image, event.type === 'error' ? 'failed' : 'loaded')
 					if (event.type === 'error') {
