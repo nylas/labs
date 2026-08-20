@@ -529,7 +529,10 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const loadRemoteImages = this.hasAttribute('data-load-remote-images')
 			const documentElement = sanitizeEmailDocument(this.html, {
 				allowRemoteImages: loadRemoteImages,
-				rewriteViewportMedia: this.layoutMode() === 'readable',
+				// The message is embedded in a reading pane, so sender breakpoints must
+				// follow that pane in both layouts. Original preserves sender CSS and
+				// structure; it must not bind responsive rules to the outer app viewport.
+				rewriteViewportMedia: true,
 			})
 			if (documentElement) {
 				const blockedRemoteImages = sanitizedDocumentHasRemoteImages(documentElement)
