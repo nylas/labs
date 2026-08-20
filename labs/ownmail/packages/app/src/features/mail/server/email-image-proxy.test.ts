@@ -211,6 +211,19 @@ describe('remote image fetch policy', () => {
 		expect(resolveHost).toHaveBeenCalledTimes(3)
 	})
 
+	it('prefers a validated IPv4 address on Node hosts while retaining IPv6 fallback', async () => {
+		const fetcher = vi.fn(async () => new Response(bytes('safe-image')))
+		await fetchRemoteImage('https://images.example/a.png', {
+			fetcher,
+			resolveHost: async () => ['2606:4700:4700::1111', '8.8.8.8'],
+		})
+
+		expect(fetcher).toHaveBeenCalledWith('https://images.example/a.png', expect.any(Object), [
+			'8.8.8.8',
+			'2606:4700:4700::1111',
+		])
+	})
+
 	it('rejects redirects to private DNS, redirect loops, failures, missing bodies, and oversized bodies', async () => {
 		const redirect = vi.fn(
 			async () => new Response(null, { status: 302, headers: { Location: 'http://private.test/a' } }),

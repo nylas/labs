@@ -16,6 +16,8 @@ describe('user preferences', () => {
 		const preferences = defaultUserPreferences()
 		expect(preferences.autoSaveContacts).toBe(true)
 		expect(preferences.emailDarkMode).toBe(true)
+		expect(preferences.emailLayoutMode).toBe('readable')
+		expect(preferences.emailColorMode).toBe('automatic')
 		expect(preferences.remoteImagePolicy).toBe('ask')
 		expect(isSupportedTimezone(preferences.primaryTimezone)).toBe(true)
 		expect(readUserPreferences()).toEqual(preferences)
@@ -26,6 +28,8 @@ describe('user preferences', () => {
 			displayName: '  Ada Lovelace  ',
 			autoSaveContacts: false,
 			emailDarkMode: false,
+			emailLayoutMode: 'original',
+			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
@@ -34,6 +38,8 @@ describe('user preferences', () => {
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
 			emailDarkMode: false,
+			emailLayoutMode: 'original',
+			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
@@ -50,12 +56,16 @@ describe('user preferences', () => {
 			displayName: 123 as never,
 			autoSaveContacts: true,
 			emailDarkMode: true,
+			emailLayoutMode: 'invalid' as never,
+			emailColorMode: 'invalid' as never,
 			remoteImagePolicy: 'invalid' as never,
 			primaryTimezone: 'not/a-timezone',
 			secondaryTimezone: 'UTC',
 		})
 		expect(saved.displayName).toBe('')
 		expect(saved.remoteImagePolicy).toBe('ask')
+		expect(saved.emailLayoutMode).toBe('readable')
+		expect(saved.emailColorMode).toBe('automatic')
 		expect(saved.primaryTimezone).toBe(defaultUserPreferences().primaryTimezone)
 		// CI commonly uses UTC as the browser timezone. In that case the
 		// normalizer correctly removes the duplicate secondary timezone.
@@ -93,6 +103,8 @@ describe('user preferences', () => {
 				displayName: 'Ada',
 				autoSaveContacts: true,
 				emailDarkMode: true,
+				emailLayoutMode: 'readable',
+				emailColorMode: 'automatic',
 				remoteImagePolicy: 'ask',
 				primaryTimezone: 'UTC',
 				secondaryTimezone: '',

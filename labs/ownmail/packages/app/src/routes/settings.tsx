@@ -61,14 +61,7 @@ function normalizeSettingsPreferences(
 }
 
 function preferencesMatch(left: UserPreferences, right: UserPreferences): boolean {
-	return (
-		left.displayName === right.displayName &&
-		left.autoSaveContacts === right.autoSaveContacts &&
-		left.emailDarkMode === right.emailDarkMode &&
-		left.remoteImagePolicy === right.remoteImagePolicy &&
-		left.primaryTimezone === right.primaryTimezone &&
-		left.secondaryTimezone === right.secondaryTimezone
-	)
+	return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function SettingsPage() {

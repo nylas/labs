@@ -216,7 +216,13 @@ async function validatedImageRequest(
 	}
 	const addresses = await resolveHost(hostname)
 	if (addresses.length === 0 || addresses.some((address) => !publicIpAddress(address))) throw imageError()
-	return { addresses: [...new Set(addresses)].sort(), url }
+	return {
+		addresses: [...new Set(addresses)].sort((first, second) => {
+			const family = Number(Boolean(ipv4Parts(second))) - Number(Boolean(ipv4Parts(first)))
+			return family || first.localeCompare(second)
+		}),
+		url,
+	}
 }
 
 /** Validate scheme, hostname, port, and every resolved address before a fetch. */

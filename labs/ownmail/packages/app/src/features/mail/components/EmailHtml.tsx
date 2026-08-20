@@ -5,11 +5,7 @@
 
 import { Check, ChevronDown, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
 import { type Ref, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import {
-	readUserPreferences,
-	useUserPreferences,
-	writeUserPreferences,
-} from '#app/preferences/user-preferences'
+import { useUserPreferences } from '#app/preferences/user-preferences'
 import {
 	applyDarkInvert,
 	applyEmailColorMode,
@@ -21,10 +17,8 @@ import {
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
-	type EmailColorMode,
 	type EmailElementLike,
 	type EmailImageMode,
-	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	type LinkPreviewDetail,
@@ -90,17 +84,17 @@ export function EmailHtml({
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
-	const [layoutMode, setLayoutMode] = useState<EmailLayoutMode>('readable')
-	const [colorMode, setColorMode] = useState<EmailColorMode>('automatic')
-	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
+	const [layoutControlAvailable, setLayoutControlAvailable] = useState(false)
 	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
-	const [preferences] = useUserPreferences()
+	const [preferences, savePreferences] = useUserPreferences()
 	const [displayOpen, setDisplayOpen] = useState(false)
 	const [senderTrustStatus, setSenderTrustStatus] = useState<'idle' | 'loading' | 'error'>('idle')
 	const displayRootRef = useRef<HTMLDivElement>(null)
 	const displayTriggerRef = useRef<HTMLButtonElement>(null)
 	const displayPanelId = useId()
 	const displayHeadingId = useId()
+	const layoutMode = preferences.emailLayoutMode
+	const colorMode = preferences.emailColorMode
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
@@ -115,10 +109,17 @@ export function EmailHtml({
 	}, [])
 
 	useLayoutEffect(() => {
+		void html
+		void messageId
+		setLayoutControlAvailable(false)
+	}, [html, messageId])
+
+	useLayoutEffect(() => {
 		if (!ready || !ref.current) return
 		const element = ref.current
 		const onLayoutStatus = (event: Event) => {
-			setLayoutStatus((event as CustomEvent<EmailLayoutStatusDetail>).detail)
+			const detail = (event as CustomEvent<EmailLayoutStatusDetail>).detail
+			if (detail.reflowed || detail.needsFit) setLayoutControlAvailable(true)
 		}
 		const onRemoteImages = (event: Event) => {
 			setRemoteImages((event as CustomEvent<EmailRemoteImagesDetail>).detail)
@@ -205,8 +206,7 @@ export function EmailHtml({
 		}
 	}, [displayOpen])
 
-	const showLayoutControl =
-		layoutMode === 'original' || layoutStatus?.reflowed === true || layoutStatus?.needsFit === true
+	const showLayoutControl = layoutControlAvailable || layoutMode === 'original'
 	const hasRemoteImages = remoteImages?.hasRemoteImages === true
 	const imagesBlocked = hasRemoteImages && remoteImages.loaded === false
 	const failedImages = remoteImages?.failedImages ?? 0
@@ -220,7 +220,7 @@ export function EmailHtml({
 	}
 
 	function alwaysShowImages() {
-		writeUserPreferences({ ...readUserPreferences(), remoteImagePolicy: 'always' })
+		savePreferences({ ...preferences, remoteImagePolicy: 'always' })
 		applyRemoteImages(ref.current, true)
 		setDisplayOpen(false)
 	}
@@ -356,7 +356,7 @@ export function EmailHtml({
 												key={mode}
 												type="button"
 												aria-pressed={layoutMode === mode}
-												onClick={() => setLayoutMode(mode)}
+												onClick={() => savePreferences({ ...preferences, emailLayoutMode: mode })}
 												className={displayOptionClass}
 											>
 												{layoutMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
@@ -386,7 +386,7 @@ export function EmailHtml({
 												type="button"
 												aria-label={`${label} message colors`}
 												aria-pressed={colorMode === mode}
-												onClick={() => setColorMode(mode)}
+												onClick={() => savePreferences({ ...preferences, emailColorMode: mode })}
 												className={displayOptionClass}
 											>
 												{colorMode === mode ? <Check className="h-3.5 w-3.5" /> : null}

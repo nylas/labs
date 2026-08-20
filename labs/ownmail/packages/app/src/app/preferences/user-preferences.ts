@@ -9,6 +9,8 @@ export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
 	emailDarkMode: boolean
+	emailLayoutMode: 'readable' | 'original'
+	emailColorMode: 'automatic' | 'original'
 	remoteImagePolicy: RemoteImagePolicy
 	primaryTimezone: string
 	secondaryTimezone: string
@@ -43,6 +45,8 @@ export function defaultUserPreferences(): UserPreferences {
 		displayName: '',
 		autoSaveContacts: true,
 		emailDarkMode: true,
+		emailLayoutMode: 'readable',
+		emailColorMode: 'automatic',
 		remoteImagePolicy: 'ask',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
@@ -69,6 +73,8 @@ function normalizePreferences(value: unknown): UserPreferences {
 		displayName,
 		autoSaveContacts: input.autoSaveContacts !== false,
 		emailDarkMode: input.emailDarkMode !== false,
+		emailLayoutMode: input.emailLayoutMode === 'original' ? 'original' : 'readable',
+		emailColorMode: input.emailColorMode === 'original' ? 'original' : 'automatic',
 		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
 		primaryTimezone,
 		secondaryTimezone,
