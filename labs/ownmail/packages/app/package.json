@@ -87,7 +87,8 @@
 		"parse5": "8.0.1",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
-		"tailwind-merge": "^3.6.0"
+		"tailwind-merge": "^3.6.0",
+		"undici": "^7.28.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.47.0",

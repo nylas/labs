@@ -256,6 +256,7 @@ describe('remote image fetch policy', () => {
 	it('uses hardened defaults when no fetch dependencies are injected', async () => {
 		const fetcher = vi.fn(async () => new Response(bytes('image')))
 		vi.stubGlobal('fetch', fetcher)
+		vi.stubGlobal('navigator', { userAgent: 'Cloudflare-Workers' })
 		try {
 			await expect(fetchRemoteImage('https://8.8.8.8/a.png')).resolves.toEqual(bytes('image'))
 			expect(fetcher).toHaveBeenCalledOnce()
@@ -264,8 +265,25 @@ describe('remote image fetch policy', () => {
 		}
 	})
 
-	it('rejects DNS rebinding when the validated address set changes during transfer', async () => {
-		for (const rebound of [['1.1.1.1'], ['1.1.1.1', '8.8.8.8']]) {
+	it('allows rotating public CDN pools while rejecting private or mixed post-transfer DNS', async () => {
+		const rotatingPublic = vi
+			.fn()
+			.mockResolvedValueOnce(['8.8.8.8', '1.1.1.1'])
+			.mockResolvedValueOnce(['9.9.9.9', '2606:4700:4700::1111'])
+		const fetcher = vi.fn(async () => new Response(bytes('image')))
+		await expect(
+			fetchRemoteImage('https://images.example/a.png', {
+				fetcher,
+				resolveHost: rotatingPublic,
+			}),
+		).resolves.toEqual(bytes('image'))
+		expect(rotatingPublic).toHaveBeenCalledTimes(2)
+		expect(fetcher).toHaveBeenCalledWith('https://images.example/a.png', expect.any(Object), [
+			'1.1.1.1',
+			'8.8.8.8',
+		])
+
+		for (const rebound of [['127.0.0.1'], ['1.1.1.1', '10.0.0.1'], []]) {
 			const resolveHost = vi.fn().mockResolvedValueOnce(['8.8.8.8']).mockResolvedValueOnce(rebound)
 			await expect(
 				fetchRemoteImage('https://images.example/a.png', {
