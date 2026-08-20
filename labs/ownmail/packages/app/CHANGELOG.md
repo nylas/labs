@@ -1,5 +1,14 @@
 # @ownmail/app
 
+## 0.15.2
+
+### Patch Changes
+
+- 227946f: Keep transparent branded artwork readable in dark mode by adapting low-color artwork palettes without adding pale rectangular backings.
+- 7126bd9: Allow valid CDN-hosted email images to load when public DNS address pools rotate.
+- a449fff: Preserve readable table columns around small media while constraining only genuinely oversized content.
+- 02bef6c: Evaluate responsive email breakpoints against the reading pane in Original and Readable layouts.
+
 ## 0.15.1
 
 ### Patch Changes
