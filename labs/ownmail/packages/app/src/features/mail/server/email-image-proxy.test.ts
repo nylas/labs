@@ -12,6 +12,7 @@ vi.mock('node:dns', () => ({ promises: dnsMocks }))
 import {
 	fetchRemoteImage,
 	pinnedLookup,
+	pinnedRequestOptions,
 	processEmailImage,
 	publicIpAddress,
 	validatePublicImageUrl,
@@ -188,6 +189,29 @@ describe('remote image fetch policy', () => {
 		])
 		expect(ipv6).toEqual({ address: '2606:4700:4700::1111', family: 6 })
 		expect(missing.message).toBe('No validated address')
+	})
+
+	it('tries every validated address family for Node image requests', () => {
+		const addresses = ['2606:4700:4700::1111', '8.8.8.8']
+		const options = pinnedRequestOptions(
+			'https:',
+			{ method: 'GET', headers: { Accept: 'image/png' } },
+			addresses,
+		)
+		const agentOptions = (options.agent as { options: Record<string, unknown> }).options
+
+		expect(agentOptions.autoSelectFamily).toBe(true)
+		expect(agentOptions.autoSelectFamilyAttemptTimeout).toBe(250)
+		expect(agentOptions.lookup).toBeTypeOf('function')
+		expect(agentOptions.maxCachedSessions).toBe(0)
+		expect(options.headers).toEqual({ accept: 'image/png' })
+		expect(
+			(
+				pinnedRequestOptions('http:', { method: 'GET' }, addresses).agent as {
+					options: Record<string, unknown>
+				}
+			).options.maxCachedSessions,
+		).toBeUndefined()
 	})
 
 	it('follows a bounded validated redirect without forwarding user headers', async () => {

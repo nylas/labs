@@ -4,11 +4,15 @@ export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
 
 export type RemoteImagePolicy = 'ask' | 'always'
+export type EmailLayoutPreference = 'readable' | 'original'
+export type EmailColorPreference = 'automatic' | 'original'
 
 export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
 	emailDarkMode: boolean
+	emailLayoutMode: EmailLayoutPreference
+	emailColorMode: EmailColorPreference
 	remoteImagePolicy: RemoteImagePolicy
 	primaryTimezone: string
 	secondaryTimezone: string
@@ -43,6 +47,8 @@ export function defaultUserPreferences(): UserPreferences {
 		displayName: '',
 		autoSaveContacts: true,
 		emailDarkMode: true,
+		emailLayoutMode: 'readable',
+		emailColorMode: 'automatic',
 		remoteImagePolicy: 'ask',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
@@ -69,6 +75,8 @@ function normalizePreferences(value: unknown): UserPreferences {
 		displayName,
 		autoSaveContacts: input.autoSaveContacts !== false,
 		emailDarkMode: input.emailDarkMode !== false,
+		emailLayoutMode: input.emailLayoutMode === 'original' ? 'original' : 'readable',
+		emailColorMode: input.emailColorMode === 'original' ? 'original' : 'automatic',
 		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
 		primaryTimezone,
 		secondaryTimezone,

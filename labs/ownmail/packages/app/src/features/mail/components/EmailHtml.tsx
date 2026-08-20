@@ -90,9 +90,8 @@ export function EmailHtml({
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
-	const [layoutMode, setLayoutMode] = useState<EmailLayoutMode>('readable')
-	const [colorMode, setColorMode] = useState<EmailColorMode>('automatic')
 	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
+	const [layoutControlAvailable, setLayoutControlAvailable] = useState(false)
 	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
 	const [preferences] = useUserPreferences()
 	const [displayOpen, setDisplayOpen] = useState(false)
@@ -101,6 +100,8 @@ export function EmailHtml({
 	const displayTriggerRef = useRef<HTMLButtonElement>(null)
 	const displayPanelId = useId()
 	const displayHeadingId = useId()
+	const layoutMode: EmailLayoutMode = preferences.emailLayoutMode
+	const colorMode: EmailColorMode = preferences.emailColorMode
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
@@ -118,7 +119,9 @@ export function EmailHtml({
 		if (!ready || !ref.current) return
 		const element = ref.current
 		const onLayoutStatus = (event: Event) => {
-			setLayoutStatus((event as CustomEvent<EmailLayoutStatusDetail>).detail)
+			const detail = (event as CustomEvent<EmailLayoutStatusDetail>).detail
+			setLayoutStatus(detail)
+			if (detail.reflowed || detail.needsFit) setLayoutControlAvailable(true)
 		}
 		const onRemoteImages = (event: Event) => {
 			setRemoteImages((event as CustomEvent<EmailRemoteImagesDetail>).detail)
@@ -206,7 +209,10 @@ export function EmailHtml({
 	}, [displayOpen])
 
 	const showLayoutControl =
-		layoutMode === 'original' || layoutStatus?.reflowed === true || layoutStatus?.needsFit === true
+		layoutControlAvailable ||
+		layoutMode === 'original' ||
+		layoutStatus?.reflowed === true ||
+		layoutStatus?.needsFit === true
 	const hasRemoteImages = remoteImages?.hasRemoteImages === true
 	const imagesBlocked = hasRemoteImages && remoteImages.loaded === false
 	const failedImages = remoteImages?.failedImages ?? 0
@@ -356,7 +362,9 @@ export function EmailHtml({
 												key={mode}
 												type="button"
 												aria-pressed={layoutMode === mode}
-												onClick={() => setLayoutMode(mode)}
+												onClick={() =>
+													writeUserPreferences({ ...readUserPreferences(), emailLayoutMode: mode })
+												}
 												className={displayOptionClass}
 											>
 												{layoutMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
@@ -386,7 +394,9 @@ export function EmailHtml({
 												type="button"
 												aria-label={`${label} message colors`}
 												aria-pressed={colorMode === mode}
-												onClick={() => setColorMode(mode)}
+												onClick={() =>
+													writeUserPreferences({ ...readUserPreferences(), emailColorMode: mode })
+												}
 												className={displayOptionClass}
 											>
 												{colorMode === mode ? <Check className="h-3.5 w-3.5" /> : null}

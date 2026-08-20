@@ -210,6 +210,8 @@ describe('/settings', () => {
 			displayName: 'Ada Lovelace',
 			autoSaveContacts: false,
 			emailDarkMode: false,
+			emailLayoutMode: 'readable',
+			emailColorMode: 'automatic',
 			remoteImagePolicy: 'ask',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',

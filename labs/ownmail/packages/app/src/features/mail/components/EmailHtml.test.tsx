@@ -316,4 +316,62 @@ describe('EmailHtml', () => {
 		expect(original).toHaveAttribute('aria-pressed', 'true')
 		expect(el).toHaveAttribute('data-layout-mode', 'original')
 	})
+
+	it('persists display choices and keeps Layout available after message colors remeasure', async () => {
+		document.documentElement.classList.add('dark')
+		const first = render(
+			<EmailHtml html='<table width="800"><tr><td>Legacy</td></tr></table>' messageId="m-display-1" />,
+		)
+		const el = emailElement()
+
+		act(() => {
+			el.dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+					detail: {
+						mode: 'readable',
+						naturalWidth: 800,
+						containerWidth: 320,
+						scale: 1,
+						reflowed: true,
+						needsFit: false,
+					},
+				}),
+			)
+		})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Original message colors' }))
+		act(() => {
+			el.dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+					detail: {
+						mode: 'original',
+						naturalWidth: 320,
+						containerWidth: 320,
+						scale: 1,
+						reflowed: false,
+						needsFit: false,
+					},
+				}),
+			)
+		})
+
+		expect(screen.getByText('Layout')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Original' }))
+		await waitFor(() =>
+			expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+				emailLayoutMode: 'original',
+				emailColorMode: 'original',
+			}),
+		)
+
+		first.unmount()
+		render(<EmailHtml html="<p>Next message</p>" messageId="m-display-2" />)
+		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
+		expect(screen.getByRole('button', { name: 'Original' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.getByRole('button', { name: 'Original message colors' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		)
+	})
 })
