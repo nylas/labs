@@ -347,17 +347,31 @@ function compositeColor(foreground: RgbColor, background: RgbColor): RgbColor {
 	}
 }
 
-function paintedSurfaceColor(element: Element, boundary: HTMLElement): RgbColor | null {
-	let surface = computedRgb(getComputedStyle(element).backgroundColor)
-	if (!surface || surface.alpha === 0) return null
-	let ancestor = element.parentElement
-	while (surface.alpha < 1 && ancestor) {
-		const behind = computedRgb(getComputedStyle(ancestor).backgroundColor)
-		if (behind && behind.alpha > 0) surface = compositeColor(surface, behind)
-		if (ancestor === boundary) break
-		ancestor = ancestor.parentElement
+function paintedSurfaceColor(
+	element: Element,
+	boundary: HTMLElement,
+	cache: WeakMap<Element, RgbColor | null>,
+): RgbColor | null {
+	const path: Element[] = []
+	let surface: RgbColor | null = null
+	let current: Element | null = element
+	while (current) {
+		if (cache.has(current)) {
+			surface = cache.get(current) ?? null
+			break
+		}
+		path.push(current)
+		if (current === boundary) break
+		current = current.parentElement
 	}
-	return surface.alpha >= 0.95 ? surface : null
+	for (let index = path.length - 1; index >= 0; index -= 1) {
+		/* v8 ignore next -- the bounded loop always reads an element collected above -- @preserve */
+		const pathElement = path[index] as Element
+		const layer = computedRgb(getComputedStyle(pathElement).backgroundColor)
+		if (layer && layer.alpha > 0) surface = surface ? compositeColor(layer, surface) : layer
+		cache.set(pathElement, surface)
+	}
+	return surface && surface.alpha >= 0.95 ? surface : null
 }
 
 function relativeLuminance(color: RgbColor): number {
@@ -376,57 +390,28 @@ function colorContrast(first: RgbColor, second: RgbColor): number {
 	)
 }
 
-function sameColor(first: RgbColor | null, second: RgbColor | null): boolean {
-	return Boolean(
-		first &&
-			second &&
-			Math.abs(first.red - second.red) < 0.5 &&
-			Math.abs(first.green - second.green) < 0.5 &&
-			Math.abs(first.blue - second.blue) < 0.5 &&
-			Math.abs(first.alpha - second.alpha) < 0.01,
-	)
-}
-
-function inheritsParentColor(element: HTMLElement | SVGElement): boolean {
-	const parent = element.parentElement
-	/* v8 ignore next -- querySelectorAll only supplies descendants of the email root -- @preserve */
-	if (!parent) return false
-	const originalStyle = parent.getAttribute('style')
-	parent.style.setProperty('color', 'rgb(1, 2, 3)', 'important')
-	const inherited = sameColor(computedRgb(getComputedStyle(element).color), {
-		red: 1,
-		green: 2,
-		blue: 3,
-		alpha: 1,
-	})
-	if (originalStyle === null) parent.removeAttribute('style')
-	else parent.setAttribute('style', originalStyle)
-	return inherited
-}
-
 /**
- * Keep inherited text readable when a partially adaptive template leaves a
- * provider surface light. Only painted surfaces with insufficient contrast are
- * marked, and only when their computed color still comes from their parent.
- * Direct inline/legacy colors and distinct stylesheet colors remain untouched.
- * Processing in document order lets a light card inside a dark adaptive canvas
- * choose dark text without flattening the canvas's genuinely dark treatment.
+ * Keep text readable when a partially adaptive template leaves a local surface
+ * light. Transparent text wrappers are evaluated against their nearest painted
+ * ancestor, and authored colors are preserved unless their effective contrast
+ * falls below the readability threshold. Processing in document order lets a
+ * light card inside a dark adaptive canvas choose dark text without flattening
+ * the canvas's genuinely dark treatment.
  */
 export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolean): void {
 	for (const marked of root.querySelectorAll(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
 		marked.removeAttribute(INHERITED_COLOR_ATTRIBUTE)
 	}
 	if (!enabled) return
+	const surfaceCache = new WeakMap<Element, RgbColor | null>()
 
 	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
 		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
-		const surface = paintedSurfaceColor(element, root)
+		const surface = paintedSurfaceColor(element, root, surfaceCache)
 		if (!surface) continue
 		const style = getComputedStyle(element)
 		const color = computedRgb(style.color)
 		if (!color || colorContrast(color, surface) >= 4.5) continue
-		if (element.style.getPropertyValue('color') || element.hasAttribute('color')) continue
-		if (!inheritsParentColor(element)) continue
 
 		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
 		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
