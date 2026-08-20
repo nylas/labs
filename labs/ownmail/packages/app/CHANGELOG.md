@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.15.3
+
+### Patch Changes
+
+- 6761131: Restore reliable proxied email images and persist Layout and Message colors choices.
+- 5f50fe1: Preserve readable text contrast on nested email surfaces after automatic color adaptation.
+
 ## 0.15.2
 
 ### Patch Changes
