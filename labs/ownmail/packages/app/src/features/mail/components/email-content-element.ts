@@ -797,6 +797,20 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 					setImportantStyle(element, 'font-size', '12px')
 				}
 			}
+			// Ancestor width constraints can reduce a flex/grid allocation after the
+			// initial measurements. Re-evaluate nowrap descendants against that final
+			// allocation so their min-content width cannot keep the pane overflowing.
+			for (const element of content.querySelectorAll<HTMLElement>('[nowrap], [style*="white-space" i]')) {
+				const style = getComputedStyle(element)
+				if (!element.hasAttribute('nowrap') && style.whiteSpace !== 'nowrap') continue
+				const rect = element.getBoundingClientRect()
+				const parentRect = element.parentElement?.getBoundingClientRect() ?? contentRect
+				const exceedsOwnBox = element.scrollWidth > rect.width + 0.5
+				const exceedsAllocation = rect.left < parentRect.left - 0.5 || rect.right > parentRect.right + 0.5
+				if (!exceedsOwnBox && !exceedsAllocation) continue
+				setImportantStyle(element, 'white-space', 'normal')
+				changed = true
+			}
 			return changed
 		}
 
