@@ -317,6 +317,41 @@ describe('EmailHtml', () => {
 		expect(el).toHaveAttribute('data-layout-mode', 'original')
 	})
 
+	it('resets latched Layout availability when the rendered message changes', () => {
+		const firstHtml = '<table width="800"><tr><td>Legacy</td></tr></table>'
+		const nextHtml = '<p>Ordinary message</p>'
+		const view = render(<EmailHtml html={firstHtml} messageId="m-layout-reset-1" />)
+		const el = emailElement()
+		const reportReflow = () => {
+			act(() => {
+				el.dispatchEvent(
+					new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+						detail: {
+							mode: 'readable',
+							naturalWidth: 800,
+							containerWidth: 320,
+							scale: 1,
+							reflowed: true,
+							needsFit: false,
+						},
+					}),
+				)
+			})
+		}
+
+		reportReflow()
+		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
+		expect(screen.getByText('Layout')).toBeInTheDocument()
+
+		view.rerender(<EmailHtml html={nextHtml} messageId="m-layout-reset-1" />)
+		expect(screen.queryByText('Layout')).toBeNull()
+
+		reportReflow()
+		expect(screen.getByText('Layout')).toBeInTheDocument()
+		view.rerender(<EmailHtml html={nextHtml} messageId="m-layout-reset-2" />)
+		expect(screen.queryByText('Layout')).toBeNull()
+	})
+
 	it('persists display choices and keeps Layout available after message colors remeasure', async () => {
 		document.documentElement.classList.add('dark')
 		const first = render(

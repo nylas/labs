@@ -109,6 +109,12 @@ export function EmailHtml({
 	}, [])
 
 	useLayoutEffect(() => {
+		void html
+		void messageId
+		setLayoutControlAvailable(false)
+	}, [html, messageId])
+
+	useLayoutEffect(() => {
 		if (!ready || !ref.current) return
 		const element = ref.current
 		const onLayoutStatus = (event: Event) => {
