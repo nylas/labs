@@ -11,6 +11,7 @@ vi.mock('node:dns', () => ({ promises: dnsMocks }))
 
 import {
 	fetchRemoteImage,
+	pinnedLookup,
 	processEmailImage,
 	publicIpAddress,
 	validatePublicImageUrl,
@@ -163,6 +164,32 @@ describe('public image destination validation', () => {
 })
 
 describe('remote image fetch policy', () => {
+	it('pins Node lookups to only the prevalidated address set', async () => {
+		const lookup = pinnedLookup(['8.8.8.8', '2606:4700:4700::1111'])
+		const all = await new Promise<unknown>((resolve, reject) => {
+			lookup('images.example', { all: true }, (error, addresses) =>
+				error ? reject(error) : resolve(addresses),
+			)
+		})
+		const ipv6 = await new Promise<unknown>((resolve, reject) => {
+			lookup('images.example', 6, (error, address, family) =>
+				error ? reject(error) : resolve({ address, family }),
+			)
+		})
+		const missing = await new Promise<Error>((resolve) => {
+			pinnedLookup(['2606:4700:4700::1111'])('images.example', { family: 4 }, (error) =>
+				resolve(error as Error),
+			)
+		})
+
+		expect(all).toEqual([
+			{ address: '8.8.8.8', family: 4 },
+			{ address: '2606:4700:4700::1111', family: 6 },
+		])
+		expect(ipv6).toEqual({ address: '2606:4700:4700::1111', family: 6 })
+		expect(missing.message).toBe('No validated address')
+	})
+
 	it('follows a bounded validated redirect without forwarding user headers', async () => {
 		const fetcher = vi
 			.fn()
