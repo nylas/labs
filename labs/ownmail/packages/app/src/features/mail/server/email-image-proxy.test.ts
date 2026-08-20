@@ -264,8 +264,20 @@ describe('remote image fetch policy', () => {
 		}
 	})
 
-	it('rejects DNS rebinding when the validated address set changes during transfer', async () => {
-		for (const rebound of [['1.1.1.1'], ['1.1.1.1', '8.8.8.8']]) {
+	it('allows rotating public CDN pools while rejecting private or mixed post-transfer DNS', async () => {
+		const rotatingPublic = vi
+			.fn()
+			.mockResolvedValueOnce(['8.8.8.8', '1.1.1.1'])
+			.mockResolvedValueOnce(['9.9.9.9', '2606:4700:4700::1111'])
+		await expect(
+			fetchRemoteImage('https://images.example/a.png', {
+				fetcher: async () => new Response(bytes('image')),
+				resolveHost: rotatingPublic,
+			}),
+		).resolves.toEqual(bytes('image'))
+		expect(rotatingPublic).toHaveBeenCalledTimes(2)
+
+		for (const rebound of [['127.0.0.1'], ['1.1.1.1', '10.0.0.1'], []]) {
 			const resolveHost = vi.fn().mockResolvedValueOnce(['8.8.8.8']).mockResolvedValueOnce(rebound)
 			await expect(
 				fetchRemoteImage('https://images.example/a.png', {

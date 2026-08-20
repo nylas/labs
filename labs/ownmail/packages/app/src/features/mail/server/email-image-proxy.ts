@@ -176,7 +176,7 @@ async function validatedImageRequest(
 	value: string,
 	resolveHost: ResolveHost,
 	blockedOrigin?: string,
-): Promise<{ addresses: string[]; url: URL }> {
+): Promise<{ url: URL }> {
 	let url: URL
 	try {
 		url = new URL(value)
@@ -207,7 +207,7 @@ async function validatedImageRequest(
 	}
 	const addresses = await resolveHost(hostname)
 	if (addresses.length === 0 || addresses.some((address) => !publicIpAddress(address))) throw imageError()
-	return { addresses: [...new Set(addresses)].sort(), url }
+	return { url }
 }
 
 /** Validate scheme, hostname, port, and every resolved address before a fetch. */
@@ -285,17 +285,11 @@ export async function fetchRemoteImage(
 			}
 			if (!response.ok || response.status !== 200) throw imageError()
 			const bytes = await limitedBody(response, controller.signal)
-			const afterTransfer = await validatedImageRequest(
-				validated.url.toString(),
-				resolveHost,
-				options.blockedOrigin,
-			)
-			if (
-				afterTransfer.addresses.length !== validated.addresses.length ||
-				afterTransfer.addresses.some((address, index) => address !== validated.addresses[index])
-			) {
-				throw imageError()
-			}
+			// Revalidate every answer after transfer so a hostname that has moved to a
+			// private or mixed address set still fails closed. Do not require the public
+			// set to be identical: large CDNs routinely rotate otherwise valid edge pools,
+			// and exact equality made their images fail nondeterministically.
+			await validatedImageRequest(validated.url.toString(), resolveHost, options.blockedOrigin)
 			return bytes
 		}
 		/* v8 ignore next -- the bounded loop always returns a 200 response or throws on its final redirect -- @preserve */
