@@ -282,6 +282,7 @@ describe('shadowStyleText', () => {
 			'video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color',
 		)
 		expect(css).toContain('img[data-ownmail-image-backing]{background-color:#f3f4f6')
+		expect(css).toContain(':where(svg, canvas){background-color:#f3f4f6')
 		expect(css).toContain('[data-ownmail-background-media]::before')
 		expect(css).toContain(
 			':host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}',

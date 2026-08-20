@@ -263,6 +263,7 @@ export function shadowStyleText(): string {
 :host([data-color-mode="original"][data-email-theme="light"]) .email-root{background:#fff!important;color:#1a1a1a!important;}
 :host([data-dark-invert]) .email-root :where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;}
 :host([data-dark-invert]) .email-root img[data-ownmail-image-backing]{background-color:#f3f4f6!important;}
+:host([data-dark-invert]) .email-root :where(svg, canvas){background-color:#f3f4f6!important;}
 :where(.email-root) [data-ownmail-background-media]{position:relative!important;isolation:isolate;}
 :host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]{background-image:none!important;}
 :host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]::before{content:""!important;position:absolute!important;inset:0!important;z-index:-1!important;pointer-events:none!important;background-image:var(--ownmail-background-image)!important;background-position:var(--ownmail-background-position)!important;background-size:var(--ownmail-background-size)!important;background-repeat:var(--ownmail-background-repeat)!important;background-origin:var(--ownmail-background-origin)!important;background-clip:var(--ownmail-background-clip)!important;filter:invert(1) hue-rotate(180deg)!important;}

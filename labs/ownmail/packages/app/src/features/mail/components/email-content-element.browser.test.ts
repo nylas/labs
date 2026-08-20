@@ -902,7 +902,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			const media = ['.photo', '.picture-img', '.logo', '.art'].map((selector) => {
 				const element = root?.querySelector<HTMLElement>(selector)
 				const style = element ? getComputedStyle(element) : null
-				return { filter: style?.filter ?? null, background: style?.backgroundColor ?? null }
+				return { selector, filter: style?.filter ?? null, background: style?.backgroundColor ?? null }
 			})
 			const linkStyle = link ? getComputedStyle(link) : null
 			return {
@@ -926,7 +926,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.rootBackground).toBe('rgb(255, 255, 255)')
 		for (const media of state.media) {
 			expect(media.filter).not.toBe('none')
-			expect(media.background).toBe('rgba(0, 0, 0, 0)')
+			expect(media.background).toBe(
+				['.logo', '.art'].includes(media.selector) ? 'rgb(243, 244, 246)' : 'rgba(0, 0, 0, 0)',
+			)
 		}
 		expect(state.backgroundMarked).toBe(true)
 		expect(state.backgroundImage).toBe('none')
