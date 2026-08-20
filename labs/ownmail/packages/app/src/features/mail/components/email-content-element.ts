@@ -347,33 +347,6 @@ function compositeColor(foreground: RgbColor, background: RgbColor): RgbColor {
 	}
 }
 
-function paintedSurfaceColor(
-	element: Element,
-	boundary: HTMLElement,
-	cache: WeakMap<Element, RgbColor | null>,
-): RgbColor | null {
-	const path: Element[] = []
-	let surface: RgbColor | null = null
-	let current: Element | null = element
-	while (current) {
-		if (cache.has(current)) {
-			surface = cache.get(current) ?? null
-			break
-		}
-		path.push(current)
-		if (current === boundary) break
-		current = current.parentElement
-	}
-	for (let index = path.length - 1; index >= 0; index -= 1) {
-		/* v8 ignore next -- the bounded loop always reads an element collected above -- @preserve */
-		const pathElement = path[index] as Element
-		const layer = computedRgb(getComputedStyle(pathElement).backgroundColor)
-		if (layer && layer.alpha > 0) surface = surface ? compositeColor(layer, surface) : layer
-		cache.set(pathElement, surface)
-	}
-	return surface && surface.alpha >= 0.95 ? surface : null
-}
-
 function relativeLuminance(color: RgbColor): number {
 	const channel = (value: number): number => {
 		const normalized = value / 255
@@ -404,14 +377,31 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 	}
 	if (!enabled) return
 	const surfaceCache = new WeakMap<Element, RgbColor | null>()
+	const rootSurface = computedRgb(getComputedStyle(root).backgroundColor)
+	surfaceCache.set(root, rootSurface?.alpha ? rootSurface : null)
 
 	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
-		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
-		const surface = paintedSurfaceColor(element, root, surfaceCache)
-		if (!surface) continue
 		const style = getComputedStyle(element)
+		/* v8 ignore next -- every descendant's parent was cached earlier in document order -- @preserve */
+		const parentSurface = surfaceCache.get(element.parentElement as Element) as RgbColor | null
+		const layer = ['contents', 'none'].includes(style.display) ? null : computedRgb(style.backgroundColor)
+		const surface = layer?.alpha
+			? parentSurface
+				? compositeColor(layer, parentSurface)
+				: layer
+			: parentSurface
+		surfaceCache.set(element, surface)
+		if (
+			['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName) ||
+			!surface ||
+			surface.alpha < 0.95
+		) {
+			continue
+		}
 		const color = computedRgb(style.color)
-		if (!color || colorContrast(color, surface) >= 4.5) continue
+		if (!color) continue
+		const renderedColor = color.alpha < 1 ? compositeColor(color, surface) : color
+		if (colorContrast(renderedColor, surface) >= 4.5) continue
 
 		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
 		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
