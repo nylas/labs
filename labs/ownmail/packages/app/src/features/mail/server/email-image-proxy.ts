@@ -1,6 +1,6 @@
 import { promises as dns } from 'node:dns'
-import { Agent as HttpAgent, request as httpRequest, type RequestOptions } from 'node:http'
-import { Agent as HttpsAgent, request as httpsRequest } from 'node:https'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import type { LookupFunction } from 'node:net'
 import { Readable } from 'node:stream'
 
@@ -216,7 +216,13 @@ async function validatedImageRequest(
 	}
 	const addresses = await resolveHost(hostname)
 	if (addresses.length === 0 || addresses.some((address) => !publicIpAddress(address))) throw imageError()
-	return { addresses: [...new Set(addresses)].sort(), url }
+	return {
+		addresses: [...new Set(addresses)].sort((first, second) => {
+			const family = Number(Boolean(ipv4Parts(second))) - Number(Boolean(ipv4Parts(first)))
+			return family || first.localeCompare(second)
+		}),
+		url,
+	}
 }
 
 /** Validate scheme, hostname, port, and every resolved address before a fetch. */
@@ -245,31 +251,6 @@ export function pinnedLookup(addresses: readonly string[]): LookupFunction {
 	}
 }
 
-/** Keep Node's happy-eyeballs fallback while restricting every attempt to the validated address set. */
-export function pinnedRequestOptions(
-	protocol: 'http:' | 'https:',
-	init: RequestInit,
-	validatedAddresses: readonly string[],
-): RequestOptions {
-	const connection = {
-		autoSelectFamily: true,
-		autoSelectFamilyAttemptTimeout: 250,
-		keepAlive: false,
-		lookup: pinnedLookup(validatedAddresses),
-		maxSockets: 1,
-		maxTotalSockets: 1,
-	}
-	return {
-		agent:
-			protocol === 'https:'
-				? new HttpsAgent({ ...connection, maxCachedSessions: 0 })
-				: new HttpAgent(connection),
-		headers: Object.fromEntries(new Headers(init.headers)),
-		method: init.method,
-		signal: init.signal ?? undefined,
-	}
-}
-
 async function defaultImageFetcher(
 	input: string,
 	init: RequestInit,
@@ -286,7 +267,13 @@ async function defaultImageFetcher(
 	return new Promise((resolve, reject) => {
 		const upstream = request(
 			url,
-			pinnedRequestOptions(url.protocol as 'http:' | 'https:', init, validatedAddresses),
+			{
+				agent: false,
+				headers: Object.fromEntries(new Headers(init.headers)),
+				lookup: pinnedLookup(validatedAddresses),
+				method: init.method,
+				signal: init.signal ?? undefined,
+			},
 			(message) => {
 				const headers = new Headers()
 				for (let index = 0; index < message.rawHeaders.length; index += 2) {

@@ -5,11 +5,7 @@
 
 import { Check, ChevronDown, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
 import { type Ref, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import {
-	readUserPreferences,
-	useUserPreferences,
-	writeUserPreferences,
-} from '#app/preferences/user-preferences'
+import { useUserPreferences } from '#app/preferences/user-preferences'
 import {
 	applyDarkInvert,
 	applyEmailColorMode,
@@ -21,10 +17,8 @@ import {
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
-	type EmailColorMode,
 	type EmailElementLike,
 	type EmailImageMode,
-	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	type LinkPreviewDetail,
@@ -90,18 +84,17 @@ export function EmailHtml({
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
-	const [layoutStatus, setLayoutStatus] = useState<EmailLayoutStatusDetail | null>(null)
 	const [layoutControlAvailable, setLayoutControlAvailable] = useState(false)
 	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
-	const [preferences] = useUserPreferences()
+	const [preferences, savePreferences] = useUserPreferences()
 	const [displayOpen, setDisplayOpen] = useState(false)
 	const [senderTrustStatus, setSenderTrustStatus] = useState<'idle' | 'loading' | 'error'>('idle')
 	const displayRootRef = useRef<HTMLDivElement>(null)
 	const displayTriggerRef = useRef<HTMLButtonElement>(null)
 	const displayPanelId = useId()
 	const displayHeadingId = useId()
-	const layoutMode: EmailLayoutMode = preferences.emailLayoutMode
-	const colorMode: EmailColorMode = preferences.emailColorMode
+	const layoutMode = preferences.emailLayoutMode
+	const colorMode = preferences.emailColorMode
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
@@ -120,7 +113,6 @@ export function EmailHtml({
 		const element = ref.current
 		const onLayoutStatus = (event: Event) => {
 			const detail = (event as CustomEvent<EmailLayoutStatusDetail>).detail
-			setLayoutStatus(detail)
 			if (detail.reflowed || detail.needsFit) setLayoutControlAvailable(true)
 		}
 		const onRemoteImages = (event: Event) => {
@@ -208,11 +200,7 @@ export function EmailHtml({
 		}
 	}, [displayOpen])
 
-	const showLayoutControl =
-		layoutControlAvailable ||
-		layoutMode === 'original' ||
-		layoutStatus?.reflowed === true ||
-		layoutStatus?.needsFit === true
+	const showLayoutControl = layoutControlAvailable || layoutMode === 'original'
 	const hasRemoteImages = remoteImages?.hasRemoteImages === true
 	const imagesBlocked = hasRemoteImages && remoteImages.loaded === false
 	const failedImages = remoteImages?.failedImages ?? 0
@@ -226,7 +214,7 @@ export function EmailHtml({
 	}
 
 	function alwaysShowImages() {
-		writeUserPreferences({ ...readUserPreferences(), remoteImagePolicy: 'always' })
+		savePreferences({ ...preferences, remoteImagePolicy: 'always' })
 		applyRemoteImages(ref.current, true)
 		setDisplayOpen(false)
 	}
@@ -362,9 +350,7 @@ export function EmailHtml({
 												key={mode}
 												type="button"
 												aria-pressed={layoutMode === mode}
-												onClick={() =>
-													writeUserPreferences({ ...readUserPreferences(), emailLayoutMode: mode })
-												}
+												onClick={() => savePreferences({ ...preferences, emailLayoutMode: mode })}
 												className={displayOptionClass}
 											>
 												{layoutMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
@@ -394,9 +380,7 @@ export function EmailHtml({
 												type="button"
 												aria-label={`${label} message colors`}
 												aria-pressed={colorMode === mode}
-												onClick={() =>
-													writeUserPreferences({ ...readUserPreferences(), emailColorMode: mode })
-												}
+												onClick={() => savePreferences({ ...preferences, emailColorMode: mode })}
 												className={displayOptionClass}
 											>
 												{colorMode === mode ? <Check className="h-3.5 w-3.5" /> : null}

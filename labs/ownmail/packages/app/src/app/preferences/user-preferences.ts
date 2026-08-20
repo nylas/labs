@@ -4,15 +4,13 @@ export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
 
 export type RemoteImagePolicy = 'ask' | 'always'
-export type EmailLayoutPreference = 'readable' | 'original'
-export type EmailColorPreference = 'automatic' | 'original'
 
 export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
 	emailDarkMode: boolean
-	emailLayoutMode: EmailLayoutPreference
-	emailColorMode: EmailColorPreference
+	emailLayoutMode: 'readable' | 'original'
+	emailColorMode: 'automatic' | 'original'
 	remoteImagePolicy: RemoteImagePolicy
 	primaryTimezone: string
 	secondaryTimezone: string
