@@ -157,6 +157,7 @@ const IMAGE_FALLBACK_ATTRIBUTE = 'data-ownmail-image-fallback'
 const IMAGE_BACKING_ATTRIBUTE = 'data-ownmail-image-backing'
 
 /** Keep dark transparent pixels legible when the proxy returned an unadapted format or original colors. */
+/* v8 ignore start -- pixel sampling and canvas failures are exercised by the Chromium suite -- @preserve */
 function updateDarkImageBacking(image: HTMLImageElement, darkInvert: boolean): void {
 	image.removeAttribute(IMAGE_BACKING_ATTRIBUTE)
 	if (!darkInvert || image.naturalWidth <= 0 || image.naturalHeight <= 0) return
@@ -193,6 +194,7 @@ function updateDarkImageBacking(image: HTMLImageElement, darkInvert: boolean): v
 		image.setAttribute(IMAGE_BACKING_ATTRIBUTE, '')
 	}
 }
+/* v8 ignore stop -- @preserve */
 
 function treatedImageUrl(
 	value: string,
