@@ -252,10 +252,8 @@ export function shadowStyleText(): string {
 :where(.email-root) [data-ownmail-inherited-color="dark"]{color:#1a1a1a!important;}
 :where(.email-root) [data-ownmail-inherited-color="light"]{color:#f5f5f5!important;}
 :where(.email-root) :where(a[href]):focus-visible{outline:2px solid CanvasText!important;outline-offset:2px!important;border-radius:2px!important;box-shadow:0 0 0 4px Canvas!important;}
-:host(:not([data-layout-mode="original"])) .email-root :where(html, body, table, img, video, svg, canvas){max-width:100%!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(table){min-width:0!important;table-layout:auto;}
 :host(:not([data-layout-mode="original"])) .email-root :where(td, th){min-width:0!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
-:host(:not([data-layout-mode="original"])) .email-root :where([nowrap], [style*="white-space" i][style*="nowrap" i]){white-space:normal!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(img, video, svg, canvas){height:auto;}
 :host(:not([data-layout-mode="original"])) .email-root :where(img:not([src]):not([srcset])){display:none!important;}
 :host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
