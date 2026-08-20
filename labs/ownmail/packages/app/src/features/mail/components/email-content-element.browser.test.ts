@@ -983,6 +983,43 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(renderedPixel[0]).toBeGreaterThan(66)
 	})
 
+	it('adds a dark-mode backing only when delivered transparent pixels remain dark', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 420, height: 300 } })
+		const source = await sharp(
+			Uint8Array.from({ length: 32 * 32 * 4 }, (_, offset) => {
+				const channel = offset % 4
+				return [8, 20, 38, Math.floor(offset / 4) % 3 === 0 ? 0 : 255][channel] ?? 0
+			}),
+			{ raw: { width: 32, height: 32, channels: 4 } },
+		)
+			.png()
+			.toBuffer()
+		await mountEmail(
+			page,
+			fixtureUrl,
+			240,
+			`<img class="dark-art" width="32" height="32" src="data:image/png;base64,${source.toString('base64')}" alt="Dark artwork">`,
+		)
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-email-theme', 'dark')
+			host.setAttribute('data-dark-invert', '')
+		})
+		await page.locator('ownmail-email .dark-art').evaluate((image) => (image as HTMLImageElement).decode())
+		await page.waitForFunction(() =>
+			document
+				.querySelector('ownmail-email')
+				?.shadowRoot?.querySelector('.dark-art')
+				?.hasAttribute('data-ownmail-image-backing'),
+		)
+		const background = await page
+			.locator('ownmail-email .dark-art')
+			.evaluate((image) => getComputedStyle(image).backgroundColor)
+		await page.close()
+
+		expect(background).toBe('rgb(243, 244, 246)')
+	})
+
 	it('renders non-adaptive plain text with dark-mode pixel contrast', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 500, height: 300 } })
