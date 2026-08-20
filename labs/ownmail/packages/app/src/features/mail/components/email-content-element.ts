@@ -800,6 +800,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			// Ancestor width constraints can reduce a flex/grid allocation after the
 			// initial measurements. Re-evaluate nowrap descendants against that final
 			// allocation so their min-content width cannot keep the pane overflowing.
+			/* v8 ignore start -- final flex/grid allocation is exercised by the Chromium suite -- @preserve */
 			for (const element of content.querySelectorAll<HTMLElement>('[nowrap], [style*="white-space" i]')) {
 				const style = getComputedStyle(element)
 				if (!element.hasAttribute('nowrap') && style.whiteSpace !== 'nowrap') continue
@@ -811,6 +812,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				setImportantStyle(element, 'white-space', 'normal')
 				changed = true
 			}
+			/* v8 ignore stop -- @preserve */
 			return changed
 		}
 
