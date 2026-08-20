@@ -278,6 +278,7 @@ describe('shadowStyleText', () => {
 		expect(css).toContain(
 			':where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important',
 		)
+		expect(css).not.toContain('background-color:#f3f4f6')
 		expect(css).toContain('[data-ownmail-background-media]::before')
 		expect(css).toContain(
 			':host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}',

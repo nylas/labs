@@ -290,6 +290,35 @@ describe('image classification and safe variants', () => {
 		expect(Array.from(raw).some((channel) => channel === 246)).toBe(true)
 	})
 
+	it('lifts dark logo marks while preserving saturated brand hue ordering', async () => {
+		const source = await png(8, 8, 4, (index) =>
+			index % 3 === 0 ? [0, 0, 0, 0] : index % 2 ? [0, 0, 0, 255] : [0, 82, 204, 255],
+		)
+		const automatic = await processEmailImage(source, 'automatic', 'dark')
+		const original = await processEmailImage(source, 'original', 'dark')
+		const { data, info } = await sharp(automatic.bytes)
+			.ensureAlpha()
+			.raw()
+			.toBuffer({ resolveWithObject: true })
+		const originalData = await sharp(original.bytes).ensureAlpha().raw().toBuffer()
+		const pixels = Array.from({ length: info.width * info.height }, (_, index) =>
+			Array.from(data.subarray(index * 4, index * 4 + 4)),
+		)
+		const originalPixels = Array.from({ length: info.width * info.height }, (_, index) =>
+			Array.from(originalData.subarray(index * 4, index * 4 + 4)),
+		)
+		const liftedBrand = pixels.find(
+			(pixel) =>
+				(pixel[3] ?? 0) === 255 && (pixel[2] ?? 0) > (pixel[1] ?? 0) && (pixel[1] ?? 0) > (pixel[0] ?? 0),
+		)
+
+		expect(automatic.classification).toBe('transparent-dark-logo')
+		expect(pixels).toContainEqual([238, 242, 246, 255])
+		expect(liftedBrand).toBeDefined()
+		expect(liftedBrand?.[2]).toBeGreaterThan(204)
+		expect(originalPixels).toContainEqual([0, 82, 204, 255])
+	})
+
 	it('preserves light transparent logos and classifies neutral monochrome icons', async () => {
 		const light = await png(8, 8, 4, (index) => [245, 245, 245, index % 2 ? 255 : 0])
 		const neutral = await png(8, 8, 4, (index) => [128, 128, 128, index % 2 ? 255 : 0])

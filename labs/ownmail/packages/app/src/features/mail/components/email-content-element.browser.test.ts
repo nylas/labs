@@ -926,7 +926,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.rootBackground).toBe('rgb(255, 255, 255)')
 		for (const media of state.media) {
 			expect(media.filter).not.toBe('none')
-			expect(media.background).toBe('rgb(243, 244, 246)')
+			expect(media.background).toBe('rgba(0, 0, 0, 0)')
 		}
 		expect(state.backgroundMarked).toBe(true)
 		expect(state.backgroundImage).toBe('none')
@@ -1029,7 +1029,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 
 		expect(requests).toBe(1)
-		expect(loaded.background).toBe('rgb(243, 244, 246)')
+		expect(loaded.background).toBe('rgba(0, 0, 0, 0)')
 		expect(loaded.display).not.toBe('none')
 		expect(loaded.filter).not.toBe('none')
 		expect(new URL(loaded.src ?? fixtureUrl, fixtureUrl).searchParams.get('asset')).toBe('tracker.gif')
