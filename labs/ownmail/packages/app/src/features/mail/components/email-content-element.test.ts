@@ -189,12 +189,16 @@ describe('applyInheritedSurfaceContrast', () => {
 		expect(root.querySelector('.unsupported-color')).not.toHaveAttribute('data-ownmail-inherited-color')
 		expect(root.querySelector('.near-transparent')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
 		expect(root.querySelector('.too-transparent')).not.toHaveAttribute('data-ownmail-inherited-color')
+
+		applyInheritedSurfaceContrast(root, false)
+		expect(root.querySelector('.white')).not.toHaveAttribute('style')
+		expect(root.querySelector('.white')).not.toHaveAttribute('data-ownmail-inherited-color')
 	})
 
 	it('repairs explicit text inside a transparent wrapper on a light card', () => {
 		const root = document.createElement('div')
 		root.innerHTML = `<div class="card" style="background-color:rgb(220,220,220);color:rgb(26,26,26)">
-			<p class="copy" style="color:rgb(255,255,255)">Card copy</p>
+			<p class="copy" style="color:rgb(255,255,255)!important">Card copy</p>
 			<p class="translucent" style="color:rgba(0,0,0,.1)">Translucent copy</p>
 			<p class="readable" style="color:rgb(26,26,26)">Readable copy</p>
 		</div>`
@@ -202,9 +206,17 @@ describe('applyInheritedSurfaceContrast', () => {
 
 		applyInheritedSurfaceContrast(root, true)
 
-		expect(root.querySelector('.copy')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		const copy = root.querySelector<HTMLElement>('.copy')
+		expect(copy).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+		expect(copy?.style.color).toBe('rgb(26, 26, 26)')
+		expect(copy?.style.getPropertyPriority('color')).toBe('important')
 		expect(root.querySelector('.translucent')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
 		expect(root.querySelector('.readable')).not.toHaveAttribute('data-ownmail-inherited-color')
+
+		applyInheritedSurfaceContrast(root, false)
+		expect(copy).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(copy?.style.color).toBe('rgb(255, 255, 255)')
+		expect(copy?.style.getPropertyPriority('color')).toBe('important')
 	})
 
 	it('ignores backgrounds on wrappers that do not generate boxes', () => {
@@ -222,6 +234,21 @@ describe('applyInheritedSurfaceContrast', () => {
 
 		expect(root.querySelector('.contents-copy')).not.toHaveAttribute('data-ownmail-inherited-color')
 		expect(root.querySelector('.hidden-copy')).not.toHaveAttribute('data-ownmail-inherited-color')
+	})
+
+	it('does not infer a solid surface through a painted background image', () => {
+		const root = document.createElement('div')
+		root.style.backgroundColor = 'rgb(255,255,255)'
+		root.innerHTML = `<div style="background-image:linear-gradient(rgb(0,0,0),rgb(0,0,0))">
+			<span class="image-copy" style="color:rgb(255,255,255)">Readable on the image</span>
+			<span class="opaque-copy" style="background:rgb(255,255,255);color:rgb(255,255,255)">Opaque child</span>
+		</div>`
+		document.body.appendChild(root)
+
+		applyInheritedSurfaceContrast(root, true)
+
+		expect(root.querySelector('.image-copy')).not.toHaveAttribute('data-ownmail-inherited-color')
+		expect(root.querySelector('.opaque-copy')).toHaveAttribute('data-ownmail-inherited-color', 'dark')
 	})
 
 	it('chooses light inherited text for a dark nested surface and clears stale markers', () => {

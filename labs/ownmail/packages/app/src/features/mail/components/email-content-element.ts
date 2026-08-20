@@ -150,6 +150,10 @@ interface RgbColor {
 }
 
 const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
+const contrastColorStyle = new WeakMap<
+	HTMLElement | SVGElement,
+	{ hadStyle: boolean; priority: string; value: string }
+>()
 const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
 const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const CONTROLLED_IMAGE_IN_TEXT = /\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g
@@ -372,27 +376,42 @@ function colorContrast(first: RgbColor, second: RgbColor): number {
  * the canvas's genuinely dark treatment.
  */
 export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolean): void {
-	for (const marked of root.querySelectorAll(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
+	for (const marked of root.querySelectorAll<HTMLElement | SVGElement>(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
+		const original = contrastColorStyle.get(marked)
+		if (original) {
+			if (original.value) marked.style.setProperty('color', original.value, original.priority)
+			else marked.style.removeProperty('color')
+			if (!original.hadStyle && marked.style.length === 0) marked.removeAttribute('style')
+			contrastColorStyle.delete(marked)
+		}
 		marked.removeAttribute(INHERITED_COLOR_ATTRIBUTE)
 	}
 	if (!enabled) return
 	const surfaceCache = new WeakMap<Element, RgbColor | null>()
+	const ambiguousSurface = new WeakSet<Element>()
 	const rootSurface = computedRgb(getComputedStyle(root).backgroundColor)
 	surfaceCache.set(root, rootSurface?.alpha ? rootSurface : null)
 
 	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
 		const style = getComputedStyle(element)
 		/* v8 ignore next -- every descendant's parent was cached earlier in document order -- @preserve */
-		const parentSurface = surfaceCache.get(element.parentElement as Element) as RgbColor | null
-		const layer = ['contents', 'none'].includes(style.display) ? null : computedRgb(style.backgroundColor)
+		const parent = element.parentElement as Element
+		const parentSurface = surfaceCache.get(parent) as RgbColor | null
+		const paintsBox = !['contents', 'none'].includes(style.display)
+		const layer = paintsBox ? computedRgb(style.backgroundColor) : null
 		const surface = layer?.alpha
 			? parentSurface
 				? compositeColor(layer, parentSurface)
 				: layer
 			: parentSurface
 		surfaceCache.set(element, surface)
+		const ambiguous =
+			(paintsBox && Boolean(style.backgroundImage) && style.backgroundImage !== 'none') ||
+			(ambiguousSurface.has(parent) && (!layer || layer.alpha < 0.95))
+		if (ambiguous) ambiguousSurface.add(element)
 		if (
 			['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName) ||
+			ambiguous ||
 			!surface ||
 			surface.alpha < 0.95
 		) {
@@ -405,10 +424,14 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 
 		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
 		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
-		element.setAttribute(
-			INHERITED_COLOR_ATTRIBUTE,
-			colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light',
-		)
+		const fallback = colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light'
+		contrastColorStyle.set(element, {
+			hadStyle: element.hasAttribute('style'),
+			priority: element.style.getPropertyPriority('color'),
+			value: element.style.getPropertyValue('color'),
+		})
+		element.setAttribute(INHERITED_COLOR_ATTRIBUTE, fallback)
+		element.style.setProperty('color', fallback === 'dark' ? '#1a1a1a' : '#f5f5f5', 'important')
 	}
 }
 
@@ -660,8 +683,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				content,
 				this.getAttribute('data-email-theme') === 'dark' && !this.hasAttribute('data-dark-invert'),
 			)
-			// The inheritance probe restores every temporary inline color synchronously;
-			// discard those observer records so the probe cannot schedule itself forever.
+			// The contrast pass restores and reapplies its inline fallback synchronously;
+			// discard those observer records so the repair cannot schedule itself forever.
 			this.mutationObserver?.takeRecords()
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
 			const naturalWidth =
