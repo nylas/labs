@@ -150,6 +150,10 @@ interface RgbColor {
 }
 
 const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
+const contrastColorStyle = new WeakMap<
+	HTMLElement | SVGElement,
+	{ hadStyle: boolean; priority: string; value: string }
+>()
 const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
 const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const CONTROLLED_IMAGE_IN_TEXT = /\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g
@@ -347,19 +351,6 @@ function compositeColor(foreground: RgbColor, background: RgbColor): RgbColor {
 	}
 }
 
-function paintedSurfaceColor(element: Element, boundary: HTMLElement): RgbColor | null {
-	let surface = computedRgb(getComputedStyle(element).backgroundColor)
-	if (!surface || surface.alpha === 0) return null
-	let ancestor = element.parentElement
-	while (surface.alpha < 1 && ancestor) {
-		const behind = computedRgb(getComputedStyle(ancestor).backgroundColor)
-		if (behind && behind.alpha > 0) surface = compositeColor(surface, behind)
-		if (ancestor === boundary) break
-		ancestor = ancestor.parentElement
-	}
-	return surface.alpha >= 0.95 ? surface : null
-}
-
 function relativeLuminance(color: RgbColor): number {
 	const channel = (value: number): number => {
 		const normalized = value / 255
@@ -376,64 +367,71 @@ function colorContrast(first: RgbColor, second: RgbColor): number {
 	)
 }
 
-function sameColor(first: RgbColor | null, second: RgbColor | null): boolean {
-	return Boolean(
-		first &&
-			second &&
-			Math.abs(first.red - second.red) < 0.5 &&
-			Math.abs(first.green - second.green) < 0.5 &&
-			Math.abs(first.blue - second.blue) < 0.5 &&
-			Math.abs(first.alpha - second.alpha) < 0.01,
-	)
-}
-
-function inheritsParentColor(element: HTMLElement | SVGElement): boolean {
-	const parent = element.parentElement
-	/* v8 ignore next -- querySelectorAll only supplies descendants of the email root -- @preserve */
-	if (!parent) return false
-	const originalStyle = parent.getAttribute('style')
-	parent.style.setProperty('color', 'rgb(1, 2, 3)', 'important')
-	const inherited = sameColor(computedRgb(getComputedStyle(element).color), {
-		red: 1,
-		green: 2,
-		blue: 3,
-		alpha: 1,
-	})
-	if (originalStyle === null) parent.removeAttribute('style')
-	else parent.setAttribute('style', originalStyle)
-	return inherited
-}
-
 /**
- * Keep inherited text readable when a partially adaptive template leaves a
- * provider surface light. Only painted surfaces with insufficient contrast are
- * marked, and only when their computed color still comes from their parent.
- * Direct inline/legacy colors and distinct stylesheet colors remain untouched.
- * Processing in document order lets a light card inside a dark adaptive canvas
- * choose dark text without flattening the canvas's genuinely dark treatment.
+ * Keep text readable when a partially adaptive template leaves a local surface
+ * light. Transparent text wrappers are evaluated against their nearest painted
+ * ancestor, and authored colors are preserved unless their effective contrast
+ * falls below the readability threshold. Processing in document order lets a
+ * light card inside a dark adaptive canvas choose dark text without flattening
+ * the canvas's genuinely dark treatment.
  */
 export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolean): void {
-	for (const marked of root.querySelectorAll(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
+	for (const marked of root.querySelectorAll<HTMLElement | SVGElement>(`[${INHERITED_COLOR_ATTRIBUTE}]`)) {
+		const original = contrastColorStyle.get(marked)
+		if (original) {
+			if (original.value) marked.style.setProperty('color', original.value, original.priority)
+			else marked.style.removeProperty('color')
+			if (!original.hadStyle && marked.style.length === 0) marked.removeAttribute('style')
+			contrastColorStyle.delete(marked)
+		}
 		marked.removeAttribute(INHERITED_COLOR_ATTRIBUTE)
 	}
 	if (!enabled) return
+	const surfaceCache = new WeakMap<Element, RgbColor | null>()
+	const ambiguousSurface = new WeakSet<Element>()
+	const rootSurface = computedRgb(getComputedStyle(root).backgroundColor)
+	surfaceCache.set(root, rootSurface?.alpha ? rootSurface : null)
 
 	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
-		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
-		const surface = paintedSurfaceColor(element, root)
-		if (!surface) continue
 		const style = getComputedStyle(element)
+		/* v8 ignore next -- every descendant's parent was cached earlier in document order -- @preserve */
+		const parent = element.parentElement as Element
+		const parentSurface = surfaceCache.get(parent) as RgbColor | null
+		const paintsBox = !['contents', 'none'].includes(style.display)
+		const layer = paintsBox ? computedRgb(style.backgroundColor) : null
+		const surface = layer?.alpha
+			? parentSurface
+				? compositeColor(layer, parentSurface)
+				: layer
+			: parentSurface
+		surfaceCache.set(element, surface)
+		const ambiguous =
+			(paintsBox && Boolean(style.backgroundImage) && style.backgroundImage !== 'none') ||
+			(ambiguousSurface.has(parent) && (!layer || layer.alpha < 0.95))
+		if (ambiguous) ambiguousSurface.add(element)
+		if (
+			['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName) ||
+			ambiguous ||
+			!surface ||
+			surface.alpha < 0.95
+		) {
+			continue
+		}
 		const color = computedRgb(style.color)
-		if (!color || colorContrast(color, surface) >= 4.5) continue
-		if (element.style.getPropertyValue('color') || element.hasAttribute('color')) continue
-		if (!inheritsParentColor(element)) continue
+		if (!color) continue
+		const renderedColor = color.alpha < 1 ? compositeColor(color, surface) : color
+		if (colorContrast(renderedColor, surface) >= 4.5) continue
 
 		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
 		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
-		element.setAttribute(
-			INHERITED_COLOR_ATTRIBUTE,
-			colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light',
-		)
+		const fallback = colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light'
+		contrastColorStyle.set(element, {
+			hadStyle: element.hasAttribute('style'),
+			priority: element.style.getPropertyPriority('color'),
+			value: element.style.getPropertyValue('color'),
+		})
+		element.setAttribute(INHERITED_COLOR_ATTRIBUTE, fallback)
+		element.style.setProperty('color', fallback === 'dark' ? '#1a1a1a' : '#f5f5f5', 'important')
 	}
 }
 
@@ -685,8 +683,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				content,
 				this.getAttribute('data-email-theme') === 'dark' && !this.hasAttribute('data-dark-invert'),
 			)
-			// The inheritance probe restores every temporary inline color synchronously;
-			// discard those observer records so the probe cannot schedule itself forever.
+			// The contrast pass restores and reapplies its inline fallback synchronously;
+			// discard those observer records so the repair cannot schedule itself forever.
 			this.mutationObserver?.takeRecords()
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
 			const naturalWidth =

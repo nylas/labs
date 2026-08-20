@@ -913,6 +913,84 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 	})
 
+	it('repairs explicit white text against a transformed light card', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 600, height: 400 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			414,
+			`<html><head><style>
+				body{margin:0;background:rgb(255,255,255);color:rgb(26,26,26)}
+				.card{padding:16px;background:rgb(238,238,238)}
+				.copy{margin:0;padding:8px;color:rgb(26,26,26)}
+				@media (prefers-color-scheme:dark){
+					body{background:rgb(42,42,42);color:rgb(245,245,245)}
+					.card{background:rgb(220,220,220)}
+					.copy{color:rgb(255,255,255)!important}
+				}
+			</style></head><body><section class="card"><p class="copy" style="color:rgb(255,255,255)!important">Card copy</p></section></body></html>`,
+		)
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+		await settleLayout(page, 5)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			const read = (selector: string) => {
+				const element = root?.querySelector<HTMLElement>(selector)
+				const style = element ? getComputedStyle(element) : null
+				return {
+					background: style?.backgroundColor ?? null,
+					color: style?.color ?? null,
+					fallback: element?.getAttribute('data-ownmail-inherited-color') ?? null,
+				}
+			}
+			return { body: read('body'), card: read('.card'), copy: read('.copy') }
+		})
+		const contrast = await renderedLightDarkContrast(await page.locator('ownmail-email .copy').screenshot())
+
+		expect(state.body.background).toBe('rgb(42, 42, 42)')
+		expect(state.card.background).toBe('rgb(220, 220, 220)')
+		expect(state.copy).toMatchObject({ color: 'rgb(26, 26, 26)', fallback: 'dark' })
+		expect(contrast).toBeGreaterThanOrEqual(4.5)
+		await page.close()
+	})
+
+	it('preserves readable text on an image-backed surface while repairing an opaque child', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 600, height: 400 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			414,
+			`<body style="margin:0;background:rgb(255,255,255)">
+				<div class="gradient" style="padding:16px;background-image:linear-gradient(rgb(0,0,0),rgb(0,0,0));color:rgb(255,255,255)">
+					<p class="image-copy">Readable on the image</p>
+					<p class="opaque-copy" style="background:rgb(255,255,255);color:rgb(255,255,255)">Opaque child</p>
+				</div>
+			</body>`,
+		)
+		await page.locator('ownmail-email').evaluate((host) => host.setAttribute('data-email-theme', 'dark'))
+		await settleLayout(page, 5)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const read = (selector: string) => {
+				const element = host.shadowRoot?.querySelector<HTMLElement>(selector)
+				return {
+					color: element ? getComputedStyle(element).color : null,
+					fallback: element?.getAttribute('data-ownmail-inherited-color') ?? null,
+				}
+			}
+			return { image: read('.image-copy'), opaque: read('.opaque-copy') }
+		})
+		const contrast = await renderedLightDarkContrast(
+			await page.locator('ownmail-email .image-copy').screenshot(),
+		)
+
+		expect(state.image).toEqual({ color: 'rgb(255, 255, 255)', fallback: null })
+		expect(state.opaque).toEqual({ color: 'rgb(26, 26, 26)', fallback: 'dark' })
+		expect(contrast).toBeGreaterThanOrEqual(4.5)
+		await page.close()
+	})
+
 	it('evaluates style media width against the pane in both layout modes', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
