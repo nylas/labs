@@ -589,7 +589,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			{ app: 'dark', os: 'light', mode: 'readable', background: 'rgb(10, 20, 30)' },
 			{ app: 'dark', os: 'dark', mode: 'readable', background: 'rgb(10, 20, 30)' },
 			{ app: 'light', os: 'dark', mode: 'readable', background: 'rgb(120, 120, 120)' },
-			{ app: 'dark', os: 'dark', mode: 'original', background: 'rgb(120, 120, 120)' },
+			{ app: 'dark', os: 'dark', mode: 'original', background: 'rgb(10, 20, 30)' },
 		] as const) {
 			await page.emulateMedia({ colorScheme: testCase.os })
 			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
@@ -606,8 +606,8 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			})
 			expect(state.background, JSON.stringify(testCase)).toBe(testCase.background)
 			expect(state.css).not.toContain('prefers-color-scheme')
-			if (testCase.mode === 'readable') expect(state.css).toContain('(max-width:400px)')
-			else expect(state.css).toContain('@media (max-width:400px)')
+			expect(state.css).toContain('@container ownmail-email')
+			expect(state.css).toContain('(max-width:400px)')
 		}
 		await page.close()
 	})
@@ -699,7 +699,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		}
 	})
 
-	it('uses pane width for picture art direction only in Readable mode', async () => {
+	it('uses pane width for picture art direction in both layout modes', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const red = await sharp({
 			create: { width: 20, height: 20, channels: 3, background: '#dc1414' },
@@ -722,10 +722,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			const asset = new URL(route.request().url()).searchParams.get('asset')
 			return route.fulfill({ contentType: 'image/png', body: asset === 'picture-pane-red.png' ? red : blue })
 		})
-		for (const testCase of [
-			{ mode: 'readable', dominant: 'red' },
-			{ mode: 'original', dominant: 'blue' },
-		] as const) {
+		for (const testCase of [{ mode: 'readable' }, { mode: 'original' }] as const) {
 			await mountEmail(page, fixtureUrl, 375, html, testCase.mode)
 			await page.locator('ownmail-email').evaluate((host) => {
 				host.setAttribute('data-email-theme', 'dark')
@@ -745,17 +742,11 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 				}
 			})
 			const pixel = await firstRenderedPixel(await page.locator('ownmail-email .picture-pane').screenshot())
-			if (testCase.dominant === 'red') {
-				expect(state.media).toBe('all')
-				expect(new URL(state.currentSrc).searchParams.get('asset'), JSON.stringify(state)).toBe(
-					'picture-pane-red.png',
-				)
-				expect(pixel[0], JSON.stringify(state)).toBeGreaterThan(pixel[2] * 3)
-			} else {
-				expect(state.media).toBe('(max-width:400px)')
-				expect(new URL(state.currentSrc).searchParams.get('asset')).toBe('picture-pane-blue.png')
-				expect(pixel[2], JSON.stringify(state)).toBeGreaterThan(pixel[0] * 3)
-			}
+			expect(state.media).toBe('all')
+			expect(new URL(state.currentSrc).searchParams.get('asset'), JSON.stringify(state)).toBe(
+				'picture-pane-red.png',
+			)
+			expect(pixel[0], JSON.stringify(state)).toBeGreaterThan(pixel[2] * 3)
 		}
 		await page.close()
 	})
@@ -848,7 +839,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 	})
 
-	it('evaluates style media width against the pane only in Readable mode', async () => {
+	it('evaluates style media width against the pane in both layout modes', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
 		const html = `<style>.probe{background-color:rgb(120,0,0)}</style>
@@ -873,8 +864,9 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 
 		expect(readable.background).toBe('rgb(0, 120, 0)')
 		expect(readable.css).toContain('@container ownmail-email (max-width:400px)')
-		expect(original.background).toBe('rgb(120, 0, 0)')
-		expect(original.css).toContain('@media (max-width:400px)')
+		expect(original.background).toBe('rgb(0, 120, 0)')
+		expect(original.css).toContain('@container ownmail-email (max-width:400px)')
+		expect(original.css).not.toContain('@media (max-width:400px)')
 	})
 
 	it('preserves media and CSS-background fidelity with a transparent accessible dark canvas', async () => {
