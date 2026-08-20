@@ -449,6 +449,80 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(metrics.probe?.height).toBeGreaterThanOrEqual(20)
 	})
 
+	it('preserves intrinsic table columns around small media and bounded nowrap cells', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+		await mountEmail(
+			page,
+			fixtureUrl,
+			375,
+			`<table class="probe" style="border-collapse:collapse;width:100%">
+				<tr><th style="width:24px;padding:16px 0 16px 16px">Status</th><th style="width:100%;padding:16px">Job</th><th class="annotations" style="white-space:nowrap;padding:16px 16px 16px 0">Annotations</th></tr>
+				<tr><td style="padding:16px 0 16px 16px"><img class="icon" src="${pixel}" width="20" height="20" alt="Status"></td><td style="width:100%;padding:16px">Build, lint, test and deploy</td><td style="white-space:nowrap;padding:16px 16px 16px 0">3</td></tr>
+			</table><img class="oversized" src="${pixel}" width="600" height="240" alt="Wide artwork">`,
+		)
+		const metrics = await readMetrics(page)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			return {
+				headings: Array.from(root?.querySelectorAll('th') ?? []).map((heading) => ({
+					height: heading.getBoundingClientRect().height,
+					width: heading.getBoundingClientRect().width,
+				})),
+				annotationWhiteSpace: root?.querySelector('.annotations')
+					? getComputedStyle(root.querySelector('.annotations') as Element).whiteSpace
+					: null,
+				iconWidth: root?.querySelector('.icon')?.getBoundingClientRect().width ?? 0,
+				oversizedWidth: root?.querySelector('.oversized')?.getBoundingClientRect().width ?? 0,
+			}
+		})
+		await page.close()
+
+		expectHorizontallyContained(metrics)
+		expect(state.headings).toHaveLength(3)
+		expect(Math.max(...state.headings.map((heading) => heading.height))).toBeLessThan(100)
+		expect(state.headings[0]?.width).toBeGreaterThanOrEqual(32)
+		expect(state.headings[2]?.width).toBeGreaterThanOrEqual(80)
+		expect(state.annotationWhiteSpace).toBe('nowrap')
+		expect(state.iconWidth).toBe(20)
+		expect(state.oversizedWidth).toBeLessThanOrEqual(335)
+	})
+
+	it('rechecks nowrap children after narrowing their flex allocation', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			375,
+			`<div class="probe row" style="display:flex;width:600px">
+				<div class="item" style="flex:1 1 300px;width:300px;white-space:nowrap">First readable column label with several words</div>
+				<div class="item" style="flex:1 1 300px;width:300px;white-space:nowrap">Second readable column label with several words</div>
+			</div>`,
+		)
+		const metrics = await readMetrics(page)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot
+			return {
+				rowWidth: root?.querySelector('.row')?.getBoundingClientRect().width ?? 0,
+				items: Array.from(root?.querySelectorAll('.item') ?? []).map((item) => ({
+					whiteSpace: getComputedStyle(item).whiteSpace,
+					width: item.getBoundingClientRect().width,
+				})),
+			}
+		})
+		await page.close()
+
+		expectHorizontallyContained(metrics)
+		expect(state.rowWidth).toBeLessThanOrEqual(335)
+		expect(state.items).toHaveLength(2)
+		expect(state.items.map((item) => item.whiteSpace)).toContain('normal')
+		for (const item of state.items) {
+			expect(item.width).toBeLessThanOrEqual(state.rowWidth)
+		}
+	})
+
 	it('neutralizes non-table minimum widths and raises text to the readable floor', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 375, height: 700 } })

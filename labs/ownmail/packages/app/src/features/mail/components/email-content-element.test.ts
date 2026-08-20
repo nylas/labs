@@ -663,6 +663,17 @@ describe('<ownmail-email> scaling', () => {
 		expect(nowrap.style.getPropertyPriority('white-space')).toBe('important')
 	})
 
+	it('preserves bounded nowrap text in readable mode', () => {
+		const el = mount('<div class="nowrap" nowrap>Short label</div>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const nowrap = content.querySelector('.nowrap') as HTMLElement
+		stubSize(content, 'scrollWidth', 300)
+		stubSize(el, 'clientWidth', 320)
+		el.measure()
+
+		expect(nowrap.style.getPropertyValue('white-space')).toBe('')
+	})
+
 	it('removes overflowing horizontal margins and stacks wide tables without revealing hidden rows', () => {
 		const el = mount(
 			'<div class="offset" style="margin-left:60px">Offset</div><table class="wide" width="600"><tbody><tr><td>Visible</td></tr><tr class="hidden" style="display:none"><td>Hidden</td></tr></tbody></table>',

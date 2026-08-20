@@ -718,8 +718,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const readableWidth = Math.max(0, containerWidth - horizontalPadding)
 			const contentRect = content.getBoundingClientRect()
 			const plans: Array<{
+				canResize: boolean
 				element: HTMLElement | SVGElement
-				isInline: boolean
 				normalizeHorizontalMargins: boolean
 				normalizeNoWrap: boolean
 				raiseFont: boolean
@@ -748,37 +748,39 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 					(Number.isFinite(minWidth) && minWidth > readableWidth) ||
 					scrollWidth > readableWidth
 				const isInline = style.display === 'inline' || style.display === 'contents'
+				const canResize = !isInline || ['IMG', 'VIDEO', 'SVG', 'CANVAS'].includes(element.tagName)
 				const overflowsPane = rect.left < contentRect.left - 0.5 || rect.right > contentRect.right + 0.5
 				const normalizeHorizontalMargins =
 					overflowsPane &&
 					[style.marginLeft, style.marginRight]
 						.map(Number.parseFloat)
 						.some((margin) => Number.isFinite(margin) && margin !== 0)
-				const normalizeNoWrap = element.hasAttribute('nowrap') || style.whiteSpace === 'nowrap'
+				const normalizeNoWrap =
+					(element.hasAttribute('nowrap') || style.whiteSpace === 'nowrap') && (tooWide || overflowsPane)
 				const hasDirectText = Array.from(element.childNodes).some(
 					(node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
 				)
 				const fontSize = Number.parseFloat(style.fontSize)
 				const raiseFont = hasDirectText && Number.isFinite(fontSize) && fontSize < 12
 				if (tooWide || normalizeHorizontalMargins || normalizeNoWrap || raiseFont) {
-					plans.push({ element, isInline, normalizeHorizontalMargins, normalizeNoWrap, raiseFont, tooWide })
+					plans.push({ canResize, element, normalizeHorizontalMargins, normalizeNoWrap, raiseFont, tooWide })
 					changed = true
 				}
 			}
 			for (const {
+				canResize,
 				element,
-				isInline,
 				normalizeHorizontalMargins,
 				normalizeNoWrap,
 				raiseFont,
 				tooWide,
 			} of plans) {
-				if (tooWide && !isInline) {
+				if (tooWide && canResize) {
 					setImportantStyle(element, 'box-sizing', 'border-box')
 					setImportantStyle(element, 'min-width', '0px')
 					setImportantStyle(element, 'max-width', '100%')
 				}
-				if (tooWide && !isInline && !['TD', 'TH', 'TR'].includes(element.tagName)) {
+				if (tooWide && canResize && !['TD', 'TH', 'TR'].includes(element.tagName)) {
 					setImportantStyle(element, 'width', '100%')
 				}
 				if (element.tagName === 'TABLE' && tooWide) {
@@ -798,6 +800,22 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 					setImportantStyle(element, 'font-size', '12px')
 				}
 			}
+			// Ancestor width constraints can reduce a flex/grid allocation after the
+			// initial measurements. Re-evaluate nowrap descendants against that final
+			// allocation so their min-content width cannot keep the pane overflowing.
+			/* v8 ignore start -- final flex/grid allocation is exercised by the Chromium suite -- @preserve */
+			for (const element of content.querySelectorAll<HTMLElement>('[nowrap], [style*="white-space" i]')) {
+				const style = getComputedStyle(element)
+				if (!element.hasAttribute('nowrap') && style.whiteSpace !== 'nowrap') continue
+				const rect = element.getBoundingClientRect()
+				const parentRect = element.parentElement?.getBoundingClientRect() ?? contentRect
+				const exceedsOwnBox = element.scrollWidth > rect.width + 0.5
+				const exceedsAllocation = rect.left < parentRect.left - 0.5 || rect.right > parentRect.right + 0.5
+				if (!exceedsOwnBox && !exceedsAllocation) continue
+				setImportantStyle(element, 'white-space', 'normal')
+				changed = true
+			}
+			/* v8 ignore stop -- @preserve */
 			return changed
 		}
 
