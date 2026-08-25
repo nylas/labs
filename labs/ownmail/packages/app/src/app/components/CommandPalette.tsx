@@ -110,6 +110,11 @@ export function CommandPalette({
 	useEffect(() => {
 		if (!open) return
 		function onKeyDown(event: KeyboardEvent) {
+			const target = event.target
+			const isCommandContext =
+				target === inputRef.current || (target instanceof Node && Boolean(listRef.current?.contains(target)))
+			if (!isCommandContext) return
+
 			if (event.key === 'ArrowDown') {
 				event.preventDefault()
 				setActiveIndex((index) => Math.min(index + 1, Math.max(filtered.length - 1, 0)))

@@ -52,7 +52,7 @@ describe('CommandPalette', () => {
 		await user.type(input, 'zzznope')
 		expect(screen.getByText('No matching commands')).toBeInTheDocument()
 		// Enter with no match must not navigate or throw.
-		fireEvent.keyDown(document, { key: 'Enter' })
+		fireEvent.keyDown(input, { key: 'Enter' })
 		expect(navigateSpy).not.toHaveBeenCalled()
 	})
 
@@ -63,17 +63,18 @@ describe('CommandPalette', () => {
 		// First row is active by default.
 		expect(rows()[0]).toHaveAttribute('aria-selected', 'true')
 		expect(rows()[0]).toHaveClass('min-h-12')
+		const input = screen.getByLabelText('Filter commands')
 
-		fireEvent.keyDown(document, { key: 'ArrowDown' })
+		fireEvent.keyDown(input, { key: 'ArrowDown' })
 		expect(rows()[1]).toHaveAttribute('aria-selected', 'true')
 
 		// Clamp at the top.
-		fireEvent.keyDown(document, { key: 'ArrowUp' })
-		fireEvent.keyDown(document, { key: 'ArrowUp' })
+		fireEvent.keyDown(input, { key: 'ArrowUp' })
+		fireEvent.keyDown(input, { key: 'ArrowUp' })
 		expect(rows()[0]).toHaveAttribute('aria-selected', 'true')
 
 		// Clamp at the bottom.
-		for (let i = 0; i < 40; i += 1) fireEvent.keyDown(document, { key: 'ArrowDown' })
+		for (let i = 0; i < 40; i += 1) fireEvent.keyDown(input, { key: 'ArrowDown' })
 		const list = rows()
 		expect(list[list.length - 1]).toHaveAttribute('aria-selected', 'true')
 	})
@@ -85,7 +86,7 @@ describe('CommandPalette', () => {
 		try {
 			render(<CommandPalette open={true} onClose={vi.fn()} />)
 
-			fireEvent.keyDown(document, { key: 'ArrowDown' })
+			fireEvent.keyDown(screen.getByLabelText('Filter commands'), { key: 'ArrowDown' })
 
 			expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
 		} finally {
@@ -97,7 +98,7 @@ describe('CommandPalette', () => {
 		const onClose = vi.fn()
 		render(<CommandPalette open={true} onClose={onClose} />)
 		// Index 0 is "Compose new message".
-		fireEvent.keyDown(document, { key: 'Enter' })
+		fireEvent.keyDown(screen.getByLabelText('Filter commands'), { key: 'Enter' })
 		expect(navigateSpy).toHaveBeenCalledWith({ to: '/mail/compose' })
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
@@ -182,13 +183,18 @@ describe('CommandPalette', () => {
 		expect(calendarRow).toHaveAttribute('aria-selected', 'true')
 	})
 
-	it('offers an explicit touch-sized close action', () => {
+	it('offers an explicit touch-sized close action that retains native keyboard behavior', async () => {
+		const user = userEvent.setup()
 		const onClose = vi.fn()
 		render(<CommandPalette open={true} onClose={onClose} />)
 		const close = screen.getByRole('button', { name: 'Close command palette' })
 		expect(close).toHaveClass('h-11', 'w-11', 'focus-visible:ring-ring')
-		fireEvent.click(close)
+		await waitFor(() => expect(screen.getByLabelText('Filter commands')).toHaveFocus())
+		await user.tab()
+		expect(close).toHaveFocus()
+		await user.keyboard('{Enter}')
 		expect(onClose).toHaveBeenCalledTimes(1)
+		expect(navigateSpy).not.toHaveBeenCalled()
 	})
 
 	it('closes on Escape via the dialog dismiss layer', () => {
