@@ -100,7 +100,7 @@ export function ContactDetailScreen({
 			<button
 				type="button"
 				onClick={onBack}
-				className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground md:hidden"
+				className="mb-4 flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
 			>
 				<ArrowLeft className="h-4 w-4" /> All contacts
 			</button>
@@ -118,7 +118,10 @@ export function ContactDetailScreen({
 					<DetailSection icon={<Mail className="h-4 w-4" />} title="Email">
 						{contact.emails.map((entry) => (
 							<DetailRow key={entry.email} label={entry.type}>
-								<a href={`mailto:${entry.email}`} className="text-primary hover:underline">
+								<a
+									href={`mailto:${entry.email}`}
+									className="flex min-h-11 items-center rounded-lg px-2 text-primary transition-colors hover:bg-muted hover:underline"
+								>
 									{entry.email}
 								</a>
 							</DetailRow>
@@ -130,7 +133,12 @@ export function ContactDetailScreen({
 					<DetailSection icon={<Phone className="h-4 w-4" />} title="Phone">
 						{contact.phone_numbers.map((entry) => (
 							<DetailRow key={entry.number} label={entry.type}>
-								{entry.number}
+								<a
+									href={`tel:${entry.number}`}
+									className="flex min-h-11 items-center rounded-lg px-2 text-primary transition-colors hover:bg-muted hover:underline"
+								>
+									{entry.number}
+								</a>
 							</DetailRow>
 						))}
 					</DetailSection>
@@ -150,15 +158,17 @@ export function ContactDetailScreen({
 			</div>
 
 			{deleteError ? (
-				<p className="mt-5 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{deleteError}</p>
+				<p role="alert" className="mt-5 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+					{deleteError}
+				</p>
 			) : null}
 
-			<div className="mt-6 flex items-center gap-2 border-t border-border pt-4">
+			<div className="mt-6 flex flex-col items-stretch gap-2 border-t border-border pt-4 min-[400px]:flex-row min-[400px]:flex-wrap min-[400px]:items-center">
 				<button
 					type="button"
 					onClick={onEdit}
 					disabled={deleting}
-					className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+					className="flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 min-[400px]:justify-start"
 				>
 					<Pencil className="h-4 w-4" /> Edit
 				</button>
@@ -168,7 +178,7 @@ export function ContactDetailScreen({
 							type="button"
 							onClick={onConfirmDelete}
 							disabled={deleting}
-							className="flex items-center gap-2 rounded-lg bg-destructive px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90"
+							className="flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-destructive px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50 min-[400px]:justify-start"
 						>
 							<Trash2 className="h-4 w-4" /> {deleting ? 'Deleting…' : 'Confirm delete'}
 						</button>
@@ -176,7 +186,7 @@ export function ContactDetailScreen({
 							type="button"
 							onClick={onCancelDelete}
 							disabled={deleting}
-							className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+							className="min-h-11 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							Cancel
 						</button>
@@ -186,7 +196,7 @@ export function ContactDetailScreen({
 						type="button"
 						onClick={onRequestDelete}
 						disabled={deleting}
-						className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+						className="flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50 min-[400px]:justify-start"
 					>
 						<Trash2 className="h-4 w-4" /> Delete
 					</button>
@@ -209,8 +219,8 @@ function DetailSection({ icon, title, children }: { icon: ReactNode; title: stri
 
 function DetailRow({ label, children }: { label?: string; children: ReactNode }) {
 	return (
-		<div className="flex items-baseline gap-2">
-			<span>{children}</span>
+		<div className="flex min-h-11 items-center gap-2">
+			<span className="min-w-0">{children}</span>
 			{label ? <span className="text-xs text-muted-foreground capitalize">{label}</span> : null}
 		</div>
 	)

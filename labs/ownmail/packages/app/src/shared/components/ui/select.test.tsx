@@ -49,11 +49,17 @@ describe('Select', () => {
 		expect(trigger.className).toContain('text-base')
 		expect(trigger.className).toContain('sm:text-sm')
 		expect(trigger.className).toContain('touch-target')
+		expect(trigger).toHaveClass(
+			'focus-visible:ring-ring',
+			'aria-invalid:border-destructive',
+			'[@media(any-pointer:coarse)]:min-h-11',
+		)
 
 		await user.click(trigger)
 		// Opening renders the portalled content + items (with the checked indicator).
 		const option = await screen.findByRole('option', { name: '9 AM' })
 		expect(option.className).toContain('touch-target')
+		expect(option).toHaveClass('max-md:min-h-11', '[@media(any-pointer:coarse)]:min-h-11')
 		await user.click(option)
 
 		expect(onValueChange).toHaveBeenCalledWith('9')

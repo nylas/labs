@@ -369,6 +369,7 @@ describe('ContactsShell', () => {
 	it('gives the mobile create action a name and preserves the search focus ring', () => {
 		shell()
 		expect(screen.getByRole('link', { name: 'New contact' })).toBeInTheDocument()
+		expect(screen.getByRole('searchbox', { name: 'Search contacts' })).toHaveClass('min-h-11')
 		expect(screen.getByRole('searchbox', { name: 'Search contacts' })).not.toHaveClass('outline-none')
 	})
 })

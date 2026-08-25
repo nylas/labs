@@ -662,7 +662,7 @@ describe('/mail/search thread detail', () => {
 		await user.click(screen.getByRole('button', { name: 'Reply' }))
 		await user.click(screen.getByRole('button', { name: 'Reply all' }))
 		await user.click(screen.getByRole('button', { name: 'Forward' }))
-		// The mobile "Write a reply…" footer also routes to the composer.
+		// The desktop inline reply affordance also routes to the composer.
 		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
 		await waitFor(() =>
 			expect(h.navigate).toHaveBeenCalledWith(
@@ -1108,7 +1108,9 @@ describe('/mail/search thread detail', () => {
 		expect(toolbar).toHaveClass('mobile-thread-tabs')
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
-		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveClass('hidden', 'sm:flex')
+		const desktopReply = screen.getByRole('button', { name: /Write a reply/ })
+		expect(desktopReply).toHaveClass('hidden', 'md:flex')
+		expect(desktopReply.parentElement).not.toHaveClass('border-t')
 
 		await user.click(reply)
 		expect(h.navigate).toHaveBeenLastCalledWith(

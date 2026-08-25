@@ -54,6 +54,8 @@ describe('MailSearchBar', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Show advanced search help' }))
 		expect(screen.getByRole('listbox', { name: 'Advanced search suggestions' })).toBeInTheDocument()
+		expect(screen.getByText('Search with precision')).toHaveClass('min-w-0', 'truncate')
+		expect(screen.getByText('↑↓ choose · Enter apply')).toHaveClass('hidden', 'md:inline')
 		expect(screen.getByText('Exact phrase')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('option', { name: /Exact phrase/ }))
 		expect(input().value).toBe('""')

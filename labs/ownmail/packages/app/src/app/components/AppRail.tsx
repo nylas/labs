@@ -115,7 +115,11 @@ export function AppRailNav({
 				<div className="app-rail-divider" aria-hidden="true" />
 				{accounts.length > 1 ? <DesktopAccountSwitcher accounts={accounts} /> : null}
 				<RailTooltip label="Add inbox">
-					<a href="/auth" className="app-rail-item app-rail-item-utility" aria-label="Add inbox">
+					<a
+						href="/auth"
+						className="app-rail-item app-rail-item-utility [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11"
+						aria-label="Add inbox"
+					>
 						<Plus className="h-[17px] w-[17px]" />
 					</a>
 				</RailTooltip>
@@ -129,7 +133,7 @@ export function AppRailNav({
 					<Link
 						to={SETTINGS_PATH}
 						className={cn(
-							'app-rail-account mt-1',
+							'app-rail-account mt-1 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11',
 							active === 'settings' && 'ring-2 ring-primary ring-offset-2',
 						)}
 						aria-label={`Account settings for ${accountLabel}`}
@@ -280,7 +284,7 @@ function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[]
 		<details ref={detailsRef} className="group relative">
 			<RailTooltip label={`Switch inbox · Current: ${active.email}`}>
 				<summary
-					className="flex min-h-11 w-11 cursor-pointer list-none flex-col items-center justify-center rounded-md border border-border bg-card px-1 text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+					className="flex min-h-11 w-11 cursor-pointer list-none flex-col items-center justify-center rounded-md border border-border bg-card px-1 text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 					aria-label={`Switch inbox. Current inbox: ${active.email}`}
 				>
 					<span className="text-[10px] font-bold leading-none" aria-hidden="true">
@@ -305,7 +309,7 @@ function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[]
 								if (detailsRef.current) detailsRef.current.open = false
 							}}
 							className={cn(
-								'flex min-h-11 min-w-0 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted',
+								'flex min-h-11 min-w-0 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
 								account.active && 'bg-muted font-medium',
 							)}
 						>
@@ -351,7 +355,7 @@ function AccountSwitcher({
 						onNavigate?.()
 						event.currentTarget.form?.requestSubmit()
 					}}
-					className="mt-1 h-12 w-full cursor-pointer rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+					className="mt-1 h-12 w-full cursor-pointer rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 				>
 					{accounts.map((account) => (
 						<option key={account.handle} value={account.handle}>
@@ -386,7 +390,10 @@ function RailLink({
 				to={to}
 				aria-label={ariaLabel}
 				aria-current={isActive ? 'page' : undefined}
-				className={cn('app-rail-item', isActive && 'app-rail-item-active')}
+				className={cn(
+					'app-rail-item [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11',
+					isActive && 'app-rail-item-active',
+				)}
 			>
 				{isActive ? <span className="app-rail-item-indicator" aria-hidden="true" /> : null}
 				{children}
@@ -413,7 +420,7 @@ function RailButton({
 			<button
 				type={type}
 				onClick={onClick}
-				className="app-rail-item app-rail-item-utility"
+				className="app-rail-item app-rail-item-utility [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11"
 				aria-label={ariaLabel}
 			>
 				{children}

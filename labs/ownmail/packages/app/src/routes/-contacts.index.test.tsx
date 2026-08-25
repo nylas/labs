@@ -28,6 +28,7 @@ describe('ContactsIndex', () => {
 		const link = screen.getByRole('link', { name: /New contact/ })
 		expect(link).toHaveAttribute('data-to', '/contacts/new')
 		expect(link).toHaveAttribute('data-search', JSON.stringify({ q: 'ada' }))
+		expect(link).toHaveClass('min-h-11')
 	})
 
 	it('links to create with no search when none is active', () => {

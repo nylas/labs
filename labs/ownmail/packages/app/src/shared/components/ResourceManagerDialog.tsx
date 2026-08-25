@@ -115,7 +115,7 @@ export function ResourceManagerDialog({
 		>
 			<DialogContent
 				presentation="bottom-sheet"
-				className="flex flex-col sm:max-h-[85vh] sm:max-w-md"
+				className="flex flex-col sm:max-h-[85dvh] sm:max-w-md"
 				aria-busy={busy || undefined}
 				onPointerDownOutside={(event) => event.preventDefault()}
 				onBackdropClick={requestClose}

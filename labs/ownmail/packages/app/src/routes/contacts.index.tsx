@@ -15,7 +15,7 @@ function ContactsIndex() {
 			<Link
 				to="/contacts/new"
 				search={q ? { q } : {}}
-				className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
+				className="flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
 			>
 				<Plus className="h-4 w-4" /> New contact
 			</Link>

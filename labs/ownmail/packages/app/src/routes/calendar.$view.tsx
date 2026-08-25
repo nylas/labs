@@ -1,7 +1,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Check, ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import { MobileTabBar } from '#app/components/MobileTabBar'
@@ -103,6 +103,7 @@ export function CalendarRouteScreen({
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [managingCalendars, setManagingCalendars] = useState(false)
 	const [preferences] = useUserPreferences()
+	const mobileCalendarLayout = useMobileCalendarLayout()
 	const primaryTimezone = preferences.primaryTimezone
 	const secondaryTimezone = preferences.secondaryTimezone
 	const today = useMemo(() => calendarDateInTimeZone(new Date(), primaryTimezone), [primaryTimezone])
@@ -222,7 +223,7 @@ export function CalendarRouteScreen({
 								aria-label="Create"
 							>
 								<Plus className="h-4 w-4" strokeWidth={2} />
-								<span className="hidden sm:inline">Create</span>
+								<span className="hidden md:inline">Create</span>
 							</button>
 							<button
 								type="button"
@@ -316,6 +317,7 @@ export function CalendarRouteScreen({
 					)}
 				>
 					<CalendarSidebarPanel
+						mobile={mobileCalendarLayout}
 						anchor={anchor}
 						calendars={calendars}
 						calendarById={calendarById}
@@ -402,6 +404,7 @@ export function CalendarRouteScreen({
 						</div>
 					) : null}
 					<CalendarSidebarPanel
+						mobile
 						anchor={anchor}
 						calendars={calendars}
 						calendarById={calendarById}
@@ -451,6 +454,7 @@ function CalendarSidebarPanel({
 	onToggleCalendar,
 	onPickEvent,
 	onManageCalendars,
+	mobile = false,
 }: {
 	anchor: Date
 	calendars: Calendar[]
@@ -462,10 +466,11 @@ function CalendarSidebarPanel({
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
 	onManageCalendars: () => void
+	mobile?: boolean
 }) {
 	return (
 		<div className="flex flex-col gap-5 px-1 py-2">
-			<MiniCalendar refDate={anchor} onPick={onPickDate} />
+			<MiniCalendar refDate={anchor} onPick={onPickDate} mobile={mobile} />
 			<div>
 				<div className="mb-2 flex items-center justify-between">
 					<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">My calendars</p>
@@ -521,7 +526,7 @@ function CalendarSidebarPanel({
 									key={event.id}
 									type="button"
 									onClick={() => onPickEvent(event)}
-									className="flex items-start gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted"
+									className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted"
 								>
 									<span
 										className={cn(
@@ -567,8 +572,42 @@ function formatWeekTitle(anchor: Date): string {
 	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
+const MOBILE_CALENDAR_MEDIA_QUERY = '(max-width: 63.999rem)'
+
+function subscribeMobileCalendarLayout(onStoreChange: () => void) {
+	if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
+	const media = window.matchMedia(MOBILE_CALENDAR_MEDIA_QUERY)
+	media.addEventListener('change', onStoreChange)
+	return () => media.removeEventListener('change', onStoreChange)
+}
+
+function readMobileCalendarLayout() {
+	return (
+		typeof window !== 'undefined' &&
+		typeof window.matchMedia === 'function' &&
+		window.matchMedia(MOBILE_CALENDAR_MEDIA_QUERY).matches
+	)
+}
+
+function useMobileCalendarLayout() {
+	return useSyncExternalStore(
+		subscribeMobileCalendarLayout,
+		readMobileCalendarLayout,
+		/* v8 ignore next -- this snapshot runs only during server rendering -- @preserve */
+		() => false,
+	)
+}
+
 /* v8 ignore start -- grid movement is unit-tested in moveCalendarDay; pointer rendering is covered separately -- @preserve */
-function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date) => void }) {
+function MiniCalendar({
+	refDate,
+	onPick,
+	mobile,
+}: {
+	refDate: Date
+	onPick: (date: Date) => void
+	mobile: boolean
+}) {
 	const [cursor, setCursor] = useState(() => new Date(refDate.getFullYear(), refDate.getMonth(), 1))
 	const [activeDay, setActiveDay] = useState(() => new Date(refDate))
 	useEffect(() => setActiveDay(new Date(refDate)), [refDate])
@@ -577,6 +616,23 @@ function MiniCalendar({ refDate, onPick }: { refDate: Date; onPick: (date: Date)
 	for (let day = new Date(start); day < end; day = addDays(day, 1)) days.push(new Date(day))
 	const todayIso = ymd(new Date())
 	const refIso = ymd(refDate)
+	if (mobile) {
+		return (
+			<label className="block text-sm font-medium" htmlFor="mobile-calendar-date">
+				Go to date
+				<input
+					id="mobile-calendar-date"
+					type="date"
+					value={refIso}
+					onChange={(event) => {
+						if (!isCalendarDate(event.currentTarget.value)) return
+						onPick(new Date(`${event.currentTarget.value}T00:00:00`))
+					}}
+					className="mt-2 h-12 w-full rounded-lg border border-border bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
+				/>
+			</label>
+		)
+	}
 
 	return (
 		<div>
@@ -681,6 +737,7 @@ function MonthGrid({
 	const visibleDayIds = new Set(days.map(ymd))
 	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
 	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
+	const mobileLayout = useMobileCalendarLayout()
 	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
 	const monthGrid = (
@@ -731,12 +788,12 @@ function MonthGrid({
 									}}
 									// biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: This focusable table cell is an interactive day in the ARIA grid.
 									role="gridcell"
-									aria-label={day.toLocaleDateString(undefined, {
+									aria-label={`${day.toLocaleDateString(undefined, {
 										weekday: 'long',
 										month: 'long',
 										day: 'numeric',
 										year: 'numeric',
-									})}
+									})}; ${dayEvents.length} ${dayEvents.length === 1 ? 'event' : 'events'}`}
 									aria-selected={ymd(day) === ymd(activeDay)}
 									tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
 									data-month-calendar-day={iso}
@@ -765,21 +822,8 @@ function MonthGrid({
 											const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 											const allDay = times.allDay
 											const preview = isNewEventPreview(event)
-											return (
-												<button
-													key={event.id}
-													type="button"
-													onClick={(clickEvent) => {
-														clickEvent.stopPropagation()
-														if (!preview) onPickEvent(event)
-													}}
-													disabled={preview}
-													className={cn(
-														'pointer-events-auto flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform hover:scale-[1.01]',
-														allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
-														preview && 'border border-dashed border-primary/70 opacity-70',
-													)}
-												>
+											const content = (
+												<>
 													{!allDay ? (
 														<span className={cn('h-2 w-2 shrink-0 rounded-full', eventDotClass(tone))} />
 													) : null}
@@ -796,6 +840,31 @@ function MonthGrid({
 													>
 														{event.title || '(untitled)'}
 													</span>
+												</>
+											)
+											const chipClass = cn(
+												'flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform',
+												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
+												preview && 'border border-dashed border-primary/70 opacity-70',
+											)
+											if (mobileLayout)
+												return (
+													<div key={event.id} aria-hidden="true" className={chipClass}>
+														{content}
+													</div>
+												)
+											return (
+												<button
+													key={event.id}
+													type="button"
+													onClick={(clickEvent) => {
+														clickEvent.stopPropagation()
+														if (!preview) onPickEvent(event)
+													}}
+													disabled={preview}
+													className={cn('pointer-events-auto hover:scale-[1.01]', chipClass)}
+												>
+													{content}
 												</button>
 											)
 										})}
@@ -858,10 +927,23 @@ function TimeGrid({
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [nowOffset, setNowOffset] = useState<number | null>(null)
 	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
+	const mobileLayout = useMobileCalendarLayout()
 	const allDaySegments = allDayEventSegments(events, columns)
 	const allDayRowCount = Math.max(1, ...allDaySegments.map((segment) => segment.row + 1))
 	const hasAllDay = allDaySegments.length > 0
 	const dayGridTemplateColumns = days === 1 ? '3.5rem minmax(0, 1fr)' : '3.5rem repeat(7, minmax(0, 1fr))'
+	const mobileAgendaEvents = mobileLayout
+		? events
+				.filter(
+					(event) =>
+						!isNewEventPreview(event) &&
+						columns.some((day) => eventsOnDay([event], day, timeZone).length > 0),
+				)
+				.sort(
+					(first, second) =>
+						(eventTimes(first)?.start.getTime() ?? 0) - (eventTimes(second)?.start.getTime() ?? 0),
+				)
+		: []
 
 	useEffect(() => {
 		function updateNowOffset() {
@@ -896,6 +978,49 @@ function TimeGrid({
 
 	const timeGrid = (
 		<div className="flex min-h-0 flex-1 flex-col">
+			{mobileAgendaEvents.length > 0 ? (
+				<section
+					aria-labelledby="mobile-calendar-agenda-heading"
+					className="shrink-0 border-b border-border bg-card"
+				>
+					<h2
+						id="mobile-calendar-agenda-heading"
+						className="px-3 pt-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+					>
+						{days === 1 ? 'Events this day' : 'Events this week'}
+					</h2>
+					<div className="max-h-48 overflow-y-auto px-2 py-1">
+						{mobileAgendaEvents.map((event, index) => {
+							const times = eventTimes(event)
+							if (!times) return null
+							const tone = eventTone(event, index, calendarById.get(event.calendar_id))
+							const day = columns.find((column) => eventsOnDay([event], column, timeZone).length > 0)
+							return (
+								<button
+									key={event.id}
+									type="button"
+									onClick={() => onPickEvent(event)}
+									className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-muted"
+								>
+									<span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', eventDotClass(tone))} />
+									<span className="min-w-0 flex-1">
+										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
+										<span className="block truncate text-xs text-muted-foreground">
+											{day?.toLocaleDateString(undefined, {
+												weekday: 'short',
+												month: 'short',
+												day: 'numeric',
+											})}
+											{' · '}
+											{times.allDay ? 'All day' : fmtTime(times.start, timeZone)}
+										</span>
+									</span>
+								</button>
+							)
+						})}
+					</div>
+				</section>
+			) : null}
 			<ScrollArea
 				aria-label="Calendar time grid"
 				viewportRef={scrollRef}
@@ -983,6 +1108,21 @@ function TimeGrid({
 								const { event } = segment
 								const tone = eventTone(event, segment.index, calendarById.get(event.calendar_id))
 								const preview = isNewEventPreview(event)
+								const style = {
+									gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
+									gridRow: segment.row + 1,
+								}
+								const className = cn(
+									'z-10 mx-1 min-w-0 self-center truncate rounded-sm px-2 py-1 text-left text-xs font-medium text-primary-foreground',
+									eventBarClass(tone),
+									preview && 'border border-dashed border-primary-foreground/80 opacity-70',
+								)
+								if (mobileLayout)
+									return (
+										<div key={event.id} aria-hidden="true" style={style} className={className}>
+											{event.title || '(untitled)'}
+										</div>
+									)
 								return (
 									<button
 										key={event.id}
@@ -991,15 +1131,8 @@ function TimeGrid({
 											if (!preview) onPickEvent(event)
 										}}
 										disabled={preview}
-										style={{
-											gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
-											gridRow: segment.row + 1,
-										}}
-										className={cn(
-											'z-10 mx-1 min-w-0 self-center truncate rounded-sm px-2 py-1 text-left text-xs font-medium text-primary-foreground',
-											eventBarClass(tone),
-											preview && 'border border-dashed border-primary-foreground/80 opacity-70',
-										)}
+										style={style}
+										className={className}
 									>
 										{event.title || '(untitled)'}
 									</button>
@@ -1094,24 +1227,14 @@ function TimeGrid({
 											timeZone,
 										})
 										if (!layout) return null
-										return (
-											<button
-												key={event.id}
-												type="button"
-												onClick={() => {
-													if (!preview) onPickEvent(event)
-												}}
-												disabled={preview}
-												style={{
-													top: layout.top,
-													height: layout.height,
-												}}
-												className={cn(
-													'absolute right-1 left-1 z-10 flex min-w-0 flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow hover:shadow-md',
-													eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
-													preview && 'border border-dashed border-primary/70 opacity-70',
-												)}
-											>
+										const style = { top: layout.top, height: layout.height }
+										const className = cn(
+											'absolute right-1 left-1 z-10 flex min-w-0 flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow',
+											eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+											preview && 'border border-dashed border-primary/70 opacity-70',
+										)
+										const content = (
+											<>
 												<span className="truncate text-xs leading-tight font-semibold">
 													{event.title || '(untitled)'}
 												</span>
@@ -1120,6 +1243,26 @@ function TimeGrid({
 														{fmtTime(s, timeZone)} – {fmtTime(e, timeZone)}
 													</span>
 												) : null}
+											</>
+										)
+										if (mobileLayout)
+											return (
+												<div key={event.id} aria-hidden="true" style={style} className={className}>
+													{content}
+												</div>
+											)
+										return (
+											<button
+												key={event.id}
+												type="button"
+												onClick={() => {
+													if (!preview) onPickEvent(event)
+												}}
+												disabled={preview}
+												style={style}
+												className={cn('hover:shadow-md', className)}
+											>
+												{content}
 											</button>
 										)
 									})}

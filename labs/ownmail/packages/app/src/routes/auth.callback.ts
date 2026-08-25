@@ -113,7 +113,7 @@ function tokenExchangeFailureMessage(error: unknown): string {
 
 function loginFailedResponse(message: string, clearCookie?: string): Response {
 	const html = `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
-<body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0">
+<body style="font-family:system-ui;display:grid;place-items:center;min-height:100dvh;margin:0">
 <div style="text-align:center">
 <h1 style="font-size:1.25rem">Couldn’t sign you in</h1>
 <p style="color:#666">${escapeHtml(message)}</p>

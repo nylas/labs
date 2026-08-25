@@ -4,7 +4,7 @@ import type * as React from 'react'
 import { cn } from '#shared/lib/utils'
 
 export const buttonVariants = cva(
-	"touch-target inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap outline-none transition-[background-color,border-color,color,filter,opacity,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+	"touch-target inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap outline-none transition-[background-color,border-color,color,filter,opacity,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px aria-busy:cursor-wait disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 	{
 		variants: {
 			variant: {
@@ -16,10 +16,11 @@ export const buttonVariants = cva(
 				link: 'text-primary underline-offset-4 hover:underline',
 			},
 			size: {
-				default: 'h-9 px-4 py-2 has-[>svg]:px-3 max-md:min-h-11 max-md:min-w-11',
-				sm: 'h-8 gap-1.5 px-3 has-[>svg]:px-2.5 max-md:min-h-11 max-md:min-w-11',
-				lg: 'h-10 px-6 has-[>svg]:px-4 max-md:min-h-11 max-md:min-w-11',
-				icon: 'size-9 max-md:size-11',
+				default:
+					'h-9 px-4 py-2 has-[>svg]:px-3 max-md:min-h-11 max-md:min-w-11 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11',
+				sm: 'h-8 gap-1.5 px-3 has-[>svg]:px-2.5 max-md:min-h-11 max-md:min-w-11 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11',
+				lg: 'h-10 px-6 has-[>svg]:px-4 max-md:min-h-11 max-md:min-w-11 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11',
+				icon: 'size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11',
 			},
 		},
 		defaultVariants: { variant: 'default', size: 'default' },

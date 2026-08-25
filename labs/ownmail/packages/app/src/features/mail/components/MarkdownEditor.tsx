@@ -355,7 +355,12 @@ export function MarkdownEditor({
 	}, [])
 
 	return (
-		<div className={cn('flex min-h-0 flex-1 flex-col', className)}>
+		<div
+			className={cn(
+				'flex min-h-0 flex-1 flex-col rounded-sm focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring',
+				className,
+			)}
+		>
 			<div className="relative min-h-0 flex-1 overflow-y-auto">
 				{empty ? (
 					<p

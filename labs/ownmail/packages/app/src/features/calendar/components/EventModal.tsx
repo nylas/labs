@@ -659,7 +659,7 @@ export function EventModal({
 						value={title}
 						onChange={(e) => setTitle(e.target.value)}
 						placeholder="Add title"
-						className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-base font-medium outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+						className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-base font-medium outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 					/>
 				</label>
 
@@ -674,7 +674,7 @@ export function EventModal({
 							</h3>
 							<p className="text-xs text-muted-foreground">{formatFullDate(dateFromInput(eventDate))}</p>
 						</div>
-						<label className="flex items-center gap-2 text-sm font-medium">
+						<label className="flex min-h-11 items-center gap-2 rounded-lg px-1 text-sm font-medium">
 							<span>All day</span>
 							<input
 								type="checkbox"
@@ -684,7 +684,7 @@ export function EventModal({
 							/>
 							<span
 								aria-hidden="true"
-								className="relative h-6 w-10 rounded-full bg-muted-foreground/35 transition-colors before:absolute before:top-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-background before:shadow-sm before:transition-transform peer-checked:bg-primary peer-checked:before:translate-x-4 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/40"
+								className="relative h-6 w-10 rounded-full bg-muted-foreground/35 transition-colors before:absolute before:top-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-background before:shadow-sm before:transition-transform peer-checked:bg-primary peer-checked:before:translate-x-4 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring"
 							/>
 						</label>
 					</div>
@@ -701,7 +701,7 @@ export function EventModal({
 								if (!weekdaysTouched && isDateInput(nextDate))
 									setWeekdays([defaultWeekday(dateFromInput(nextDate))])
 							}}
-							className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+							className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 						/>
 					</label>
 					<EventTimeFields
@@ -729,7 +729,7 @@ export function EventModal({
 
 				<section className="space-y-1.5">
 					<h3 className="text-sm font-medium">Guests</h3>
-					<div className="rounded-lg border border-input bg-background px-3 py-1.5 transition-colors hover:bg-muted/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/40">
+					<div className="rounded-lg border border-input bg-background px-3 py-1.5 transition-colors hover:bg-muted/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring">
 						<RecipientInput
 							id="event-guests"
 							label="Guests"
@@ -772,7 +772,9 @@ export function EventModal({
 					</div>
 				</section>
 				{error ? (
-					<p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+					<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+						{error}
+					</p>
 				) : null}
 			</div>
 
@@ -871,7 +873,7 @@ function EventDetailsFields({
 					value={location}
 					onChange={(event) => onLocation(event.target.value)}
 					placeholder="Add location"
-					className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+					className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 				/>
 			</label>
 			<label className="block space-y-1.5" htmlFor="event-description">
@@ -948,7 +950,7 @@ function RecurrenceFields({
 				<select
 					value={repeat}
 					onChange={(event) => onRepeat(event.target.value as RepeatOption)}
-					className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+					className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 				>
 					<option value="none">Does not repeat</option>
 					<option value="weekly">Weekly</option>

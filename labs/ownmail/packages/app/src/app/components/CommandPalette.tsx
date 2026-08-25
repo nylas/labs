@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Calendar, Mail, Moon, Pencil, Search, Sun, Users } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Calendar, Mail, Moon, Pencil, Search, Sun, Users, X } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MAIL_FOLDERS } from '#features/mail/lib/mail-ui-model'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { cn } from '#shared/lib/utils'
@@ -31,6 +31,7 @@ export function CommandPalette({
 	const { isDark, mounted } = useThemeToggleState()
 	const inputRef = useRef<HTMLInputElement>(null)
 	const listRef = useRef<HTMLDivElement>(null)
+	const listboxId = useId()
 
 	const go = useCallback(
 		(run: () => void) => {
@@ -95,6 +96,8 @@ export function CommandPalette({
 		if (!needle) return commands
 		return commands.filter((command) => command.label.toLowerCase().includes(needle))
 	}, [commands, query])
+	const activeCommand = filtered[activeIndex]
+	const activeCommandId = activeCommand ? `${listboxId}-option-${activeCommand.id}` : undefined
 
 	useEffect(() => {
 		if (!open) return
@@ -128,7 +131,7 @@ export function CommandPalette({
 		if (!open) return
 		const selectedCommand = filtered[activeIndex]
 		if (!selectedCommand) return
-		const activeElement = listRef.current?.querySelector<HTMLElement>('[aria-current="true"]')
+		const activeElement = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
 		activeElement?.scrollIntoView?.({ block: 'nearest' })
 	}, [activeIndex, filtered, open])
 
@@ -142,14 +145,14 @@ export function CommandPalette({
 		>
 			<DialogContent
 				aria-label="Command palette"
-				className="command-palette top-[12vh] translate-y-0"
+				className="command-palette top-[calc(var(--safe-area-top)+1rem)] max-h-[calc(100dvh-var(--safe-area-top)-var(--safe-area-bottom)-2rem)] translate-y-0 sm:top-[12dvh]"
 				onOpenAutoFocus={(event) => {
 					event.preventDefault()
 					inputRef.current?.focus()
 				}}
 			>
 				<DialogTitle className="sr-only">Command palette</DialogTitle>
-				<div className="flex items-center gap-3 border-b border-border px-4 py-3">
+				<div className="flex min-h-14 items-center gap-3 border-b border-border px-3 py-2 sm:px-4">
 					<Search className="h-4 w-4 shrink-0 text-muted-foreground" />
 					<input
 						ref={inputRef}
@@ -159,26 +162,50 @@ export function CommandPalette({
 							setActiveIndex(0)
 						}}
 						placeholder="Search commands…"
-						className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+						className="min-h-11 min-w-0 flex-1 rounded-md bg-transparent px-1 text-base outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring sm:text-sm forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 						aria-label="Filter commands"
+						role="combobox"
+						aria-autocomplete="list"
+						aria-expanded="true"
+						aria-controls={listboxId}
+						aria-activedescendant={activeCommandId}
 						autoComplete="off"
 						spellCheck={false}
 					/>
 					<kbd className="kbd hidden sm:inline-flex">esc</kbd>
+					<button
+						type="button"
+						onClick={onClose}
+						aria-label="Close command palette"
+						className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
+					>
+						<X className="h-4 w-4" aria-hidden="true" />
+					</button>
 				</div>
-				<div ref={listRef} className="max-h-[min(24rem,50vh)] overflow-y-auto p-2">
+				<div
+					ref={listRef}
+					id={listboxId}
+					role="listbox"
+					aria-label="Commands"
+					className="max-h-[min(24rem,50dvh)] overflow-y-auto p-2"
+				>
 					{filtered.length === 0 ? (
-						<p className="px-3 py-6 text-center text-sm text-muted-foreground">No matching commands</p>
+						<p role="status" className="px-3 py-6 text-center text-sm text-muted-foreground">
+							No matching commands
+						</p>
 					) : (
 						filtered.map((command, index) => (
 							<button
 								key={command.id}
+								id={`${listboxId}-option-${command.id}`}
 								type="button"
+								role="option"
+								tabIndex={-1}
 								onMouseEnter={() => setActiveIndex(index)}
 								onClick={() => go(command.run)}
-								aria-current={index === activeIndex ? 'true' : undefined}
+								aria-selected={index === activeIndex}
 								className={cn(
-									'command-row flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm',
+									'command-row flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
 									index === activeIndex && 'bg-accent text-accent-foreground',
 								)}
 							>

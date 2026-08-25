@@ -84,8 +84,12 @@ describe('ContactDetailScreen', () => {
 		expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument()
 		// The role line appears as the tagline under the name and again in the Work section.
 		expect(screen.getAllByText('Mathematician · Engines')).toHaveLength(2)
-		expect(screen.getByRole('link', { name: 'ada@x.com' })).toHaveAttribute('href', 'mailto:ada@x.com')
-		expect(screen.getByText('555-0100')).toBeInTheDocument()
+		const emailLink = screen.getByRole('link', { name: 'ada@x.com' })
+		expect(emailLink).toHaveAttribute('href', 'mailto:ada@x.com')
+		expect(emailLink).toHaveClass('min-h-11')
+		const phoneLink = screen.getByRole('link', { name: '555-0100' })
+		expect(phoneLink).toHaveAttribute('href', 'tel:555-0100')
+		expect(phoneLink).toHaveClass('min-h-11')
 		expect(screen.getByText(/multi\s+line/)).toBeInTheDocument()
 	})
 
@@ -123,7 +127,15 @@ describe('ContactDetailScreen', () => {
 				{...handlers}
 			/>,
 		)
-		expect(screen.getByText('Could not delete')).toBeInTheDocument()
+		expect(screen.getByRole('alert')).toHaveTextContent('Could not delete')
+		for (const name of ['Edit', 'Confirm delete', 'Cancel']) {
+			expect(screen.getByRole('button', { name })).toHaveClass('min-h-11', 'whitespace-nowrap')
+		}
+		expect(screen.getByRole('button', { name: 'Edit' }).parentElement).toHaveClass(
+			'flex-col',
+			'min-[400px]:flex-row',
+			'min-[400px]:flex-wrap',
+		)
 		fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 		expect(handlers.onConfirmDelete).toHaveBeenCalled()

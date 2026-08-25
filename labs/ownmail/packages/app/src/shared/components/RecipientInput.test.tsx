@@ -119,7 +119,10 @@ describe('RecipientInput', () => {
 	it('removes a chip when its remove button is pressed', () => {
 		const onChangeSpy = vi.fn()
 		render(<Harness initial="mina@example.com, alex@acme.com" onChangeSpy={onChangeSpy} />)
-		fireEvent.mouseDown(screen.getByRole('button', { name: 'Remove mina@example.com' }))
+		const remove = screen.getByRole('button', { name: 'Remove mina@example.com' })
+		expect(remove).toHaveClass('touch-target-square', 'max-md:min-h-11', 'max-md:min-w-11')
+		fireEvent.pointerDown(remove)
+		fireEvent.click(remove)
 		expect(onChangeSpy).toHaveBeenCalledWith('alex@acme.com')
 	})
 
@@ -159,7 +162,7 @@ describe('RecipientInput', () => {
 		fireEvent.change(field(), { target: { value: 'a' } })
 		await flushDebounce()
 		expect(mockSearch).not.toHaveBeenCalled()
-		expect(screen.queryByRole('list')).toBeNull()
+		expect(screen.queryByRole('listbox')).toBeNull()
 	})
 
 	it('shows autocomplete results after the debounce, with and without names', async () => {
@@ -171,7 +174,13 @@ describe('RecipientInput', () => {
 		fireEvent.change(field(), { target: { value: 'jo' } })
 		await flushDebounce()
 
-		expect(screen.getByRole('list')).toBeInTheDocument()
+		const listbox = screen.getByRole('listbox', { name: 'Recipients suggestions' })
+		expect(listbox).toBeInTheDocument()
+		expect(field()).toHaveAttribute('role', 'combobox')
+		expect(field()).toHaveAttribute('aria-expanded', 'true')
+		expect(field()).toHaveAttribute('aria-controls', listbox.id)
+		expect(field()).toHaveAttribute('aria-activedescendant')
+		expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true')
 		expect(mockSearch).toHaveBeenCalledWith({ data: { q: 'jo' } })
 		expect(screen.getByText('Jordan Lee')).toBeInTheDocument()
 		// Name and email render on their own truncating lines (no angle brackets).
@@ -185,7 +194,7 @@ describe('RecipientInput', () => {
 		fireEvent.change(field(), { target: { value: 'zz' } })
 		await flushDebounce()
 		expect(mockSearch).toHaveBeenCalled()
-		expect(screen.queryByRole('list')).toBeNull()
+		expect(screen.queryByRole('listbox')).toBeNull()
 	})
 
 	it('swallows lookup failures without surfacing suggestions', async () => {
@@ -193,7 +202,7 @@ describe('RecipientInput', () => {
 		render(<Harness />)
 		fireEvent.change(field(), { target: { value: 'fa' } })
 		await flushDebounce()
-		expect(screen.queryByRole('list')).toBeNull()
+		expect(screen.queryByRole('listbox')).toBeNull()
 	})
 
 	it('picks a suggestion with the mouse, committing it as a chip', async () => {
@@ -203,9 +212,12 @@ describe('RecipientInput', () => {
 		fireEvent.change(field(), { target: { value: 'jo' } })
 		await flushDebounce()
 
-		fireEvent.mouseDown(screen.getByRole('button', { name: /Jordan Lee/ }))
+		const option = screen.getByRole('option', { name: /Jordan Lee/ })
+		expect(option).toHaveClass('min-h-12')
+		fireEvent.pointerDown(option)
+		fireEvent.click(option)
 		expect(onChangeSpy).toHaveBeenCalledWith('jordan@acme.com')
-		expect(screen.queryByRole('list')).toBeNull()
+		expect(screen.queryByRole('listbox')).toBeNull()
 	})
 
 	it('appends a picked suggestion to existing chips', async () => {
@@ -215,7 +227,7 @@ describe('RecipientInput', () => {
 		fireEvent.change(field(), { target: { value: 'jo' } })
 		await flushDebounce()
 
-		fireEvent.mouseDown(screen.getByRole('button', { name: /Jordan Lee/ }))
+		fireEvent.click(screen.getByRole('option', { name: /Jordan Lee/ }))
 		expect(onChangeSpy).toHaveBeenCalledWith('taylor@acme.com, jordan@acme.com')
 	})
 
@@ -272,9 +284,9 @@ describe('RecipientInput', () => {
 		const input = field()
 		fireEvent.change(input, { target: { value: 'jo' } })
 		await flushDebounce()
-		expect(screen.getByRole('list')).toBeInTheDocument()
+		expect(screen.getByRole('listbox')).toBeInTheDocument()
 		fireEvent.keyDown(input, { key: 'Escape' })
-		expect(screen.queryByRole('list')).toBeNull()
+		expect(screen.queryByRole('listbox')).toBeNull()
 	})
 
 	it('hovering a suggestion moves the highlight so Enter picks it', async () => {
@@ -287,7 +299,7 @@ describe('RecipientInput', () => {
 		const input = field()
 		fireEvent.change(input, { target: { value: 'an' } })
 		await flushDebounce()
-		fireEvent.mouseEnter(screen.getByRole('button', { name: /Bo/ }))
+		fireEvent.mouseEnter(screen.getByRole('option', { name: /Bo/ }))
 		fireEvent.keyDown(input, { key: 'Enter' })
 		expect(onChangeSpy).toHaveBeenLastCalledWith('b@acme.com')
 	})

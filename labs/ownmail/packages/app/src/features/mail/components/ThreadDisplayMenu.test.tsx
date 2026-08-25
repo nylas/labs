@@ -52,11 +52,19 @@ function renderMenu({
 }
 
 describe('ThreadDisplayMenu', () => {
+	it('focuses the dialog itself if it has no available action', () => {
+		renderMenu()
+		const panelQuery = vi.spyOn(HTMLElement.prototype, 'querySelector').mockReturnValueOnce(null)
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		expect(screen.getByRole('dialog')).toHaveFocus()
+		panelQuery.mockRestore()
+	})
+
 	it('dismisses outside and on Escape while ignoring inside and unrelated keys', () => {
 		renderMenu()
 		const trigger = screen.getByRole('button', { name: 'Thread display' })
 		fireEvent.click(trigger)
-		expect(screen.getByRole('dialog')).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: 'Manage image choices' })).toHaveFocus()
 
 		fireEvent.pointerDown(trigger)
 		fireEvent.keyDown(document, { key: 'ArrowDown' })
@@ -81,6 +89,7 @@ describe('ThreadDisplayMenu', () => {
 
 		const trigger = screen.getByRole('button', { name: 'Thread display' })
 		fireEvent.click(trigger)
+		expect(screen.getByRole('button', { name: 'Show images in this thread' })).toHaveFocus()
 		expect(screen.getByText('One image could not be loaded.')).toBeInTheDocument()
 		expect(screen.getByText('Loading one image…')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Retry images' }))
@@ -95,11 +104,13 @@ describe('ThreadDisplayMenu', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Always show all' }))
 		expect(callbacks.onAlwaysShowImages).toHaveBeenCalledOnce()
 		expect(screen.queryByRole('dialog')).toBeNull()
+		expect(trigger).toHaveFocus()
 
 		fireEvent.click(trigger)
 		fireEvent.click(screen.getByRole('button', { name: 'Show images in this thread' }))
 		expect(callbacks.onShowThreadImages).toHaveBeenCalledOnce()
 		expect(screen.queryByRole('dialog')).toBeNull()
+		expect(trigger).toHaveFocus()
 	})
 
 	it('shows loading and error sender states and plural image progress', () => {

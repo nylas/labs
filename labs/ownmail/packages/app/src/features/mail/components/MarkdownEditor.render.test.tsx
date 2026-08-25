@@ -89,8 +89,12 @@ describe('MarkdownEditor rendering', () => {
 	})
 
 	it('exposes an accessible multiline textbox with no toolbar', () => {
-		setup()
-		expect(screen.getByRole('textbox')).toHaveAttribute('aria-multiline', 'true')
+		const { editor } = setup()
+		expect(editor).toHaveAttribute('aria-multiline', 'true')
+		expect(editor.parentElement?.parentElement).toHaveClass(
+			'focus-within:ring-[3px]',
+			'focus-within:ring-ring',
+		)
 		expect(screen.queryByRole('button')).not.toBeInTheDocument()
 	})
 

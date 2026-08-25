@@ -4,7 +4,7 @@
  */
 
 import { Check, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
@@ -44,6 +44,7 @@ export function ThreadDisplayMenu({
 	const [open, setOpen] = useState(false)
 	const rootRef = useRef<HTMLDivElement>(null)
 	const triggerRef = useRef<HTMLButtonElement>(null)
+	const panelRef = useRef<HTMLElement>(null)
 	const panelId = useId()
 	const headingId = useId()
 	const statusValues = [...statuses.values()]
@@ -63,6 +64,16 @@ export function ThreadDisplayMenu({
 	const trustableSender = blockedSenders.length === 1 ? blockedSenders[0] : undefined
 	const isTrustingSender =
 		senderTrustStatus.state === 'loading' && senderTrustStatus.address === trustableSender
+
+	useLayoutEffect(() => {
+		if (!open) return
+		const panel = panelRef.current
+		/* v8 ignore next -- the dialog mounts before React runs this layout effect -- @preserve */
+		if (!panel) return
+		const firstControl = panel.querySelector<HTMLElement>('button:not(:disabled), a[href]')
+		if (firstControl) firstControl.focus()
+		else panel.focus()
+	}, [open])
 
 	useEffect(() => {
 		if (!open) return
@@ -112,8 +123,10 @@ export function ThreadDisplayMenu({
 
 			{open ? (
 				<section
+					ref={panelRef}
 					id={panelId}
 					role="dialog"
+					tabIndex={-1}
 					aria-labelledby={headingId}
 					className="fixed inset-x-3 bottom-[calc(var(--mobile-tab-bar-height)+var(--safe-area-bottom)+0.75rem)] z-50 max-h-[calc(100dvh-var(--mobile-tab-bar-height)-var(--safe-area-bottom)-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-sm sm:absolute sm:inset-x-auto sm:right-0 sm:bottom-auto sm:mt-1 sm:w-[min(20rem,calc(100vw-3rem))] sm:max-h-[min(32rem,calc(100dvh-6rem))]"
 				>
@@ -132,6 +145,7 @@ export function ThreadDisplayMenu({
 									onClick={() => {
 										onShowThreadImages()
 										setOpen(false)
+										triggerRef.current?.focus()
 									}}
 									className={`${imageActionClass} bg-foreground text-background hover:opacity-90`}
 								>
@@ -159,6 +173,7 @@ export function ThreadDisplayMenu({
 									onClick={() => {
 										onAlwaysShowImages()
 										setOpen(false)
+										triggerRef.current?.focus()
 									}}
 									className={`${imageActionClass} text-muted-foreground hover:bg-muted hover:text-foreground`}
 								>

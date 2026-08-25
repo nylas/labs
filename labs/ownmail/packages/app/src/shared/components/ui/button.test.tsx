@@ -35,7 +35,11 @@ describe('Button', () => {
 			'transition-[background-color,border-color,color,filter,opacity,transform]',
 			'max-md:min-h-11',
 			'max-md:min-w-11',
+			'focus-visible:ring-ring',
+			'[@media(any-pointer:coarse)]:min-h-11',
+			'[@media(any-pointer:coarse)]:min-w-11',
 		)
+		expect(button).not.toHaveClass('focus-visible:ring-ring/40')
 		expect(button).not.toHaveClass('transition-all')
 	})
 

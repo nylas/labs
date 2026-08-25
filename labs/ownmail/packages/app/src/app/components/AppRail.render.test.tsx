@@ -34,7 +34,9 @@ describe('AppRailLogo', () => {
 describe('AppRailNav', () => {
 	it('marks the active section and reflects it in aria-current', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
-		expect(screen.getByRole('link', { name: 'Mail' })).toHaveAttribute('aria-current', 'page')
+		const mail = screen.getByRole('link', { name: 'Mail' })
+		expect(mail).toHaveAttribute('aria-current', 'page')
+		expect(mail).toHaveClass('[@media(any-pointer:coarse)]:min-h-11', '[@media(any-pointer:coarse)]:min-w-11')
 		expect(screen.getByRole('link', { name: 'Calendar' })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: 'Contacts' })).not.toHaveAttribute('aria-current')
 	})
@@ -52,6 +54,10 @@ describe('AppRailNav', () => {
 		const account = screen.getByRole('link', { name: 'Account settings for ada@ownmail.com' })
 		expect(account).toHaveAttribute('href', '/settings')
 		expect(account).toHaveAttribute('aria-current', 'page')
+		expect(account).toHaveClass(
+			'[@media(any-pointer:coarse)]:min-h-11',
+			'[@media(any-pointer:coarse)]:min-w-11',
+		)
 		expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull()
 	})
 
@@ -274,7 +280,7 @@ describe('theme control synchronization', () => {
 			</>,
 		)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Switch to dark mode' }))
+		fireEvent.click(screen.getByRole('option', { name: 'Switch to dark mode' }))
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
 		expect(onClose).toHaveBeenCalledTimes(1)
 		view.rerender(
@@ -310,13 +316,13 @@ describe('theme control synchronization', () => {
 				<CommandPalette open onClose={onClose} />
 			</>,
 		)
-		expect(screen.getByRole('button', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
+		expect(screen.getByRole('option', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
 			'lucide-moon',
 		)
 
 		fireEvent.click(railControl)
 
-		const paletteControl = screen.getByRole('button', { name: 'Switch to light mode' })
+		const paletteControl = screen.getByRole('option', { name: 'Switch to light mode' })
 		expect(paletteControl.querySelector('svg')).toHaveClass('lucide-sun')
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
 		expect(onClose).not.toHaveBeenCalled()

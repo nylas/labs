@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from 'react'
 import { searchContacts } from '#server/fns'
 import { addToken, moveHighlight, removeTokenAt, tokensToValue, valueToTokens } from '../lib/contact-token.js'
 import { cn } from '../lib/utils.js'
@@ -48,6 +48,7 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 	const [suggestions, setSuggestions] = useState<{ email: string; name?: string }[]>([])
 	const [open, setOpen] = useState(false)
 	const [highlight, setHighlight] = useState(0)
+	const listboxId = useId()
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const currentValueRef = useRef(value)
 	// Contact lookups can finish out of order. Keep a monotonically increasing
@@ -55,6 +56,8 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 	// suggestions for what the user is currently typing.
 	const searchRequestId = useRef(0)
 	const query = draft.trim()
+	const highlightedSuggestion = open ? suggestions[highlight] : undefined
+	const highlightedSuggestionId = highlightedSuggestion ? `${listboxId}-option-${highlight}` : undefined
 	currentValueRef.current = query ? tokensToValue(addToken(tokens, query)) : value
 	useImperativeHandle(ref, () => ({ getCurrentValue: () => currentValueRef.current }), [])
 
@@ -167,11 +170,9 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 							type="button"
 							disabled={disabled}
 							aria-label={`Remove ${token}`}
-							onMouseDown={(e) => {
-								e.preventDefault()
-								removeAt(index)
-							}}
-							className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+							onPointerDown={(event) => event.preventDefault()}
+							onClick={() => removeAt(index)}
+							className="touch-target-square flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px max-md:min-h-11 max-md:min-w-11 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11 disabled:cursor-not-allowed disabled:opacity-50 forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 						>
 							<X className="h-3 w-3" />
 						</button>
@@ -189,7 +190,7 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 						setOpen(false)
 					}}
 					placeholder={tokens.length ? '' : (placeholder ?? 'To (comma-separated)')}
-					className="min-h-0 w-auto min-w-[8rem] flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+					className="min-h-0 w-auto min-w-[8rem] flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-[3px] focus-visible:ring-ring [@media(any-pointer:coarse)]:min-h-11"
 					type="email"
 					inputMode="email"
 					autoComplete="off"
@@ -198,22 +199,34 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 					disabled={disabled}
 					aria-invalid={invalid || undefined}
 					aria-describedby={describedBy}
+					role="combobox"
+					aria-autocomplete="list"
+					aria-expanded={open}
+					aria-controls={listboxId}
+					aria-activedescendant={highlightedSuggestionId}
 				/>
 			</div>
 			{open ? (
-				<ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
+				<div
+					id={listboxId}
+					role="listbox"
+					aria-label={`${label} suggestions`}
+					className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg"
+				>
 					{suggestions.map((suggestion, index) => (
-						<li key={suggestion.email}>
+						<div key={suggestion.email} role="presentation">
 							<button
+								id={`${listboxId}-option-${index}`}
 								type="button"
+								role="option"
+								tabIndex={-1}
 								disabled={disabled}
 								data-highlighted={index === highlight ? 'true' : undefined}
+								aria-selected={index === highlight}
 								onMouseEnter={() => setHighlight(index)}
-								onMouseDown={(e) => {
-									e.preventDefault()
-									commit(suggestion.email)
-								}}
-								className="command-row block w-full px-3 py-2 text-left text-sm data-[highlighted=true]:bg-muted"
+								onPointerDown={(event) => event.preventDefault()}
+								onClick={() => commit(suggestion.email)}
+								className="command-row block min-h-12 w-full px-3 py-2 text-left text-sm focus-visible:ring-[3px] focus-visible:ring-ring data-[highlighted=true]:bg-muted forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 							>
 								{suggestion.name ? (
 									<>
@@ -224,9 +237,9 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 									<span className="block truncate">{suggestion.email}</span>
 								)}
 							</button>
-						</li>
+						</div>
 					))}
-				</ul>
+				</div>
 			) : null}
 		</div>
 	)

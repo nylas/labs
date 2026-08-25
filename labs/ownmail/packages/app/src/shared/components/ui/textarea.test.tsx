@@ -14,5 +14,6 @@ describe('Textarea', () => {
 		expect(textarea.className).toContain('min-h-40')
 		expect(textarea.className).toContain('text-base')
 		expect(textarea.className).toContain('sm:text-sm')
+		expect(textarea).toHaveClass('resize-y', 'focus-visible:ring-ring', 'aria-invalid:border-destructive')
 	})
 })
