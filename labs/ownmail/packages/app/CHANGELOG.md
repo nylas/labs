@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.15.5
+
+### Patch Changes
+
+- b4057de: Standardize mobile touch targets, focus behavior, and responsive interaction surfaces across mail, calendar, contacts, settings, and shared controls.
+
 ## 0.15.4
 
 ### Patch Changes
