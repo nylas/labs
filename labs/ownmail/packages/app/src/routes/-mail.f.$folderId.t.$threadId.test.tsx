@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID } from '#app/components/MobileTabBar'
 
 // A single navigate/invalidate pair backs the mocked router hooks; `routerState`
 // supplies the router state consumed via useRouter().
@@ -788,14 +789,23 @@ describe('compose navigation', () => {
 
 	it('offers complete mobile response actions with the same compose payloads', async () => {
 		const user = userEvent.setup()
+		render(
+			<div
+				id={MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID}
+				role="toolbar"
+				aria-label="Thread actions"
+				className="mobile-thread-tabs"
+			/>,
+		)
 		renderThread(composeData())
-		const group = screen.getByRole('group', { name: 'Thread response actions' })
+		const toolbar = screen.getByRole('toolbar', { name: 'Thread actions' })
 		const reply = screen.getByRole('button', { name: 'Reply to thread' })
 		const replyAll = screen.getByRole('button', { name: 'Reply all to thread' })
 		const forward = screen.getByRole('button', { name: 'Forward thread' })
 
-		expect(group).toHaveClass('grid-cols-3', 'pr-14', 'sm:hidden')
+		expect(toolbar).toHaveClass('mobile-thread-tabs')
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
+		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
 		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveClass('hidden', 'sm:flex')
 
 		await user.click(reply)

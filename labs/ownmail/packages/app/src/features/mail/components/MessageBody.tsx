@@ -1,18 +1,31 @@
 import { useMemo } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
 import { prepareEmailMessageContent, splitPlainQuotedHistory } from '../lib/email-message-content.js'
+import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
 import { ownMailDraftMarkdown } from '../lib/html-to-markdown.js'
 import { messageHasHtml } from '../lib/mail-ui-model.js'
 import { markdownToEmailHtml } from '../lib/markdown-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
-import { EmailHtml } from './EmailHtml.js'
+import { type EmailDisplayStatus, EmailHtml } from './EmailHtml.js'
 
 export function MessageBody({
 	message,
 	darkenEmail = true,
+	layoutMode = 'readable',
+	colorMode = 'automatic',
+	loadRemoteImagesForThread = false,
+	loadRemoteImagesForSender = false,
+	retryRevision = 0,
+	onDisplayStatus,
 }: {
 	message: MailMessage
 	darkenEmail?: boolean
+	layoutMode?: EmailLayoutMode
+	colorMode?: EmailColorMode
+	loadRemoteImagesForThread?: boolean
+	loadRemoteImagesForSender?: boolean
+	retryRevision?: number
+	onDisplayStatus?: (messageId: string, status: EmailDisplayStatus | null) => void
 }) {
 	const mounted = useMounted()
 
@@ -24,7 +37,19 @@ export function MessageBody({
 	if (draftMarkdown !== undefined) {
 		const html = markdownToEmailHtml(draftMarkdown)
 		if (!mounted) return html ? <HtmlBodyPlaceholder /> : null
-		return <PreparedHtmlBody html={html} message={message} darkenEmail={darkenEmail} />
+		return (
+			<PreparedHtmlBody
+				html={html}
+				message={message}
+				darkenEmail={darkenEmail}
+				layoutMode={layoutMode}
+				colorMode={colorMode}
+				loadRemoteImagesForThread={loadRemoteImagesForThread}
+				loadRemoteImagesForSender={loadRemoteImagesForSender}
+				retryRevision={retryRevision}
+				onDisplayStatus={onDisplayStatus}
+			/>
+		)
 	}
 
 	if (messageHasHtml(message)) {
@@ -33,7 +58,19 @@ export function MessageBody({
 		// sanitizer and isolated shadow root after the client has mounted.
 		if (!mounted) return <HtmlBodyPlaceholder />
 		/* v8 ignore next -- `?? ''` is unreachable: this branch only runs when messageHasHtml() confirmed message.body is a non-empty string -- @preserve */
-		return <PreparedHtmlBody html={message.body ?? ''} message={message} darkenEmail={darkenEmail} />
+		return (
+			<PreparedHtmlBody
+				html={message.body ?? ''}
+				message={message}
+				darkenEmail={darkenEmail}
+				layoutMode={layoutMode}
+				colorMode={colorMode}
+				loadRemoteImagesForThread={loadRemoteImagesForThread}
+				loadRemoteImagesForSender={loadRemoteImagesForSender}
+				retryRevision={retryRevision}
+				onDisplayStatus={onDisplayStatus}
+			/>
+		)
 	}
 
 	const text = plainBodyText(message)
@@ -46,10 +83,22 @@ function PreparedHtmlBody({
 	html,
 	message,
 	darkenEmail,
+	layoutMode,
+	colorMode,
+	loadRemoteImagesForThread,
+	loadRemoteImagesForSender,
+	retryRevision,
+	onDisplayStatus,
 }: {
 	html: string
 	message: MailMessage
 	darkenEmail: boolean
+	layoutMode: EmailLayoutMode
+	colorMode: EmailColorMode
+	loadRemoteImagesForThread: boolean
+	loadRemoteImagesForSender: boolean
+	retryRevision: number
+	onDisplayStatus?: (messageId: string, status: EmailDisplayStatus | null) => void
 }) {
 	const prepared = useMemo(
 		() => prepareEmailMessageContent(html, message.id, message.attachments ?? [], message.ownmailImageTokens),
@@ -65,6 +114,12 @@ function PreparedHtmlBody({
 				messageId={message.id}
 				darken={darkenEmail}
 				senderAddress={message.from?.[0]?.email}
+				layoutMode={layoutMode}
+				colorMode={colorMode}
+				loadRemoteImagesForThread={loadRemoteImagesForThread}
+				loadRemoteImagesForSender={loadRemoteImagesForSender}
+				retryRevision={retryRevision}
+				onDisplayStatus={onDisplayStatus}
 			/>
 		</div>
 	)

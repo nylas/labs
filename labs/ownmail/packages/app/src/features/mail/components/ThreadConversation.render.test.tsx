@@ -1,12 +1,29 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT } from '../lib/email-render'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
-afterEach(cleanup)
+const { trustSenderImagesMock } = vi.hoisted(() => ({ trustSenderImagesMock: vi.fn() }))
+vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../lib/image-sender-trust')>()),
+	trustSenderImages: trustSenderImagesMock,
+}))
+
+afterEach(() => {
+	cleanup()
+	document.documentElement.classList.remove('dark')
+	localStorage.clear()
+})
+
+beforeEach(() => {
+	trustSenderImagesMock.mockReset()
+})
+
+const CONTROLLED_IMAGE = `/email-images/${'a'.repeat(20)}.${'b'.repeat(20)}?mode=automatic&theme=light`
 
 function thread(id: string): MailThread {
 	return { id, subject: `Thread ${id}`, starred: false }
@@ -18,6 +35,14 @@ function message(id: string): MailMessage {
 		from: [{ email: 'sender@example.com' }],
 		to: [{ email: 'reader@example.com' }],
 		body: `Message ${id}`,
+	}
+}
+
+function htmlMessage(id: string, sender = 'sender@example.com'): MailMessage {
+	return {
+		...message(id),
+		from: [{ email: sender }],
+		body: `<img class="remote-${id}" src="${CONTROLLED_IMAGE}" width="600" height="200"><table width="800"><tr><td>${id}</td></tr></table>`,
 	}
 }
 
@@ -68,22 +93,22 @@ describe('ThreadConversation rendering', () => {
 		const expand = screen.getByRole('button', { name: 'Expand all 3 messages' })
 		const collapse = screen.getByRole('button', { name: 'Collapse all 3 messages' })
 
-		expect(expand).toHaveTextContent('Expand all')
+		expect(expand).toHaveTextContent('')
+		expect(expand).toHaveAttribute('title', 'Expand all messages')
 		expect(expand).toHaveClass(
 			'h-11',
 			'w-11',
-			'xl:w-auto',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'forced-colors:focus-visible:outline-2',
 			'forced-colors:focus-visible:outline-offset-2',
 			'forced-colors:focus-visible:outline-solid',
 		)
-		expect(collapse).toHaveTextContent('Collapse all')
+		expect(collapse).toHaveTextContent('')
+		expect(collapse).toHaveAttribute('title', 'Collapse all messages')
 		expect(collapse).toHaveClass(
 			'h-11',
 			'w-11',
-			'xl:w-auto',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'forced-colors:focus-visible:outline-2',
@@ -98,6 +123,157 @@ describe('ThreadConversation rendering', () => {
 		fireEvent.click(collapse)
 		expect(collapse).toBeDisabled()
 		expect(screen.getAllByRole('button', { name: /Expand message from/ })).toHaveLength(3)
+	})
+
+	it('renders one thread display menu and applies layout and color choices to every message', async () => {
+		document.documentElement.classList.add('dark')
+		const { container } = render(
+			<ThreadConversation
+				thread={thread('display-thread')}
+				messages={[htmlMessage('m1'), htmlMessage('m2')]}
+			/>,
+		)
+		const trigger = screen.getByRole('button', { name: 'Thread display' })
+		expect(screen.getAllByRole('button', { name: 'Thread display' })).toHaveLength(1)
+		expect(trigger).toHaveClass('h-11', 'w-11', 'focus-visible:ring-[3px]')
+		expect(trigger.closest('[data-slot="thread-message"]')).toBeNull()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		const emailElements = [...container.querySelectorAll<HTMLElement>(EMAIL_ELEMENT_TAG)]
+		expect(emailElements).toHaveLength(2)
+		act(() => {
+			emailElements[0]?.dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+					detail: {
+						mode: 'readable',
+						naturalWidth: 800,
+						containerWidth: 320,
+						scale: 1,
+						reflowed: true,
+						needsFit: false,
+					},
+				}),
+			)
+		})
+
+		fireEvent.click(trigger)
+		expect(screen.getByRole('dialog', { name: 'Thread display' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Original' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Original message colors' }))
+		await waitFor(() => {
+			for (const element of emailElements) {
+				expect(element).toHaveAttribute('data-layout-mode', 'original')
+				expect(element).toHaveAttribute('data-color-mode', 'original')
+			}
+		})
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+			emailLayoutMode: 'original',
+			emailColorMode: 'original',
+		})
+
+		fireEvent.keyDown(document, { key: 'Escape' })
+		expect(screen.queryByRole('dialog', { name: 'Thread display' })).toBeNull()
+		expect(trigger).toHaveFocus()
+	})
+
+	it('loads remote images for the current thread, including messages expanded later', async () => {
+		const rendered = render(
+			<ThreadConversation
+				thread={thread('image-thread')}
+				messages={[htmlMessage('m1'), htmlMessage('m2')]}
+			/>,
+		)
+		const latestImage = () =>
+			rendered.container
+				.querySelector<HTMLElement>(EMAIL_ELEMENT_TAG)
+				?.shadowRoot?.querySelector<HTMLImageElement>('.remote-m2')
+		expect(latestImage()).not.toHaveAttribute('src')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Show images in this thread' }))
+		await waitFor(() => expect(latestImage()).toHaveAttribute('src', CONTROLLED_IMAGE))
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		await waitFor(() => {
+			const images = [...rendered.container.querySelectorAll<HTMLElement>(EMAIL_ELEMENT_TAG)].map((element) =>
+				element.shadowRoot?.querySelector<HTMLImageElement>('img'),
+			)
+			expect(images).toHaveLength(2)
+			for (const image of images) expect(image).toHaveAttribute('src', CONTROLLED_IMAGE)
+		})
+
+		rendered.rerender(<ThreadConversation thread={thread('another-thread')} messages={[htmlMessage('m3')]} />)
+		await waitFor(() =>
+			expect(
+				rendered.container.querySelector<HTMLElement>(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('img'),
+			).not.toHaveAttribute('src'),
+		)
+	})
+
+	it('keeps persistent sender trust unavailable when blocked images have multiple senders', async () => {
+		render(
+			<ThreadConversation
+				thread={thread('multi-sender')}
+				messages={[htmlMessage('m1', 'alex@example.com'), htmlMessage('m2', 'sam@example.com')]}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+
+		expect(await screen.findByRole('button', { name: 'Show images in this thread' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Always show from/ })).toBeNull()
+	})
+
+	it('persists a single sender image choice and applies it across the current thread', async () => {
+		trustSenderImagesMock.mockResolvedValue(true)
+		const rendered = render(
+			<ThreadConversation
+				thread={thread('trusted-sender')}
+				messages={[htmlMessage('m1'), htmlMessage('m2')]}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Always show from sender@example.com' }))
+
+		await waitFor(() => expect(trustSenderImagesMock).toHaveBeenCalledWith('sender@example.com'))
+		await waitFor(() => {
+			const images = [...rendered.container.querySelectorAll<HTMLElement>(EMAIL_ELEMENT_TAG)].map((element) =>
+				element.shadowRoot?.querySelector<HTMLImageElement>('img'),
+			)
+			for (const image of images) expect(image).toHaveAttribute('src', CONTROLLED_IMAGE)
+		})
+	})
+
+	it('fails closed with a generic error when sender image trust cannot be saved', async () => {
+		trustSenderImagesMock.mockResolvedValue(false)
+		render(<ThreadConversation thread={thread('trust-error')} messages={[htmlMessage('m1')]} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Always show from sender@example.com' }))
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save that image choice. Try again.')
+	})
+
+	it('applies the global image choice and retries failed images from the thread menu', async () => {
+		const rendered = render(
+			<ThreadConversation thread={thread('global-images')} messages={[htmlMessage('m1')]} />,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Always show all' }))
+		await waitFor(() =>
+			expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+				remoteImagePolicy: 'always',
+			}),
+		)
+
+		const image = rendered.container
+			.querySelector<HTMLElement>(EMAIL_ELEMENT_TAG)
+			?.shadowRoot?.querySelector<HTMLImageElement>('img') as HTMLImageElement
+		await waitFor(() => expect(image).toHaveAttribute('src', CONTROLLED_IMAGE))
+		fireEvent.error(image)
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Retry images' }))
+		await waitFor(() => expect(image.src).toContain('retry=1'))
 	})
 
 	it('uses a compact, scroll-away summary without duplicating attachment links', () => {

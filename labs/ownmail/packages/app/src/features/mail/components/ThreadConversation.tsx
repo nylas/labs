@@ -1,15 +1,19 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · genre: modern-minimal · theme: Quiet */
 import { ChevronDown, ChevronsDown, ChevronsUp, Download, Paperclip } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
 import { labelBadgeClass } from '#shared/lib/color-tone'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
-import { collapsedMessagePreview, threadLabels } from '../lib/mail-ui-model.js'
+import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
+import { trustSenderImages } from '../lib/image-sender-trust.js'
+import { collapsedMessagePreview, messageHasHtml, threadLabels } from '../lib/mail-ui-model.js'
 import type { MailMessage, MailThread } from '../state/mail-queries.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
+import type { EmailDisplayStatus } from './EmailHtml.js'
 import { MessageBody } from './MessageBody.js'
+import { ThreadDisplayMenu } from './ThreadDisplayMenu.js'
 
 /**
  * The canonical thread reader: subject header, thread-level attachments, and the
@@ -17,22 +21,104 @@ import { MessageBody } from './MessageBody.js'
  * and search results so there is a single reading-pane implementation.
  */
 export function ThreadConversation({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
+	return <ThreadConversationController key={thread.id} thread={thread} messages={messages} />
+}
+
+function ThreadConversationController({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
+	const [preferences, savePreferences] = useUserPreferences()
+	const [displayStatuses, setDisplayStatuses] = useState<Map<string, EmailDisplayStatus>>(() => new Map())
+	const [loadRemoteImagesForThread, setLoadRemoteImagesForThread] = useState(false)
+	const [trustedDuringThisView, setTrustedDuringThisView] = useState<Set<string>>(() => new Set())
+	const [retryRevision, setRetryRevision] = useState(0)
+	const [senderTrustStatus, setSenderTrustStatus] = useState<{
+		address?: string
+		state: 'idle' | 'loading' | 'error'
+	}>({ state: 'idle' })
 	const latestMessageId = messages.at(-1)?.id
+	const onDisplayStatus = useCallback((messageId: string, status: EmailDisplayStatus | null) => {
+		setDisplayStatuses((current) => {
+			const next = new Map(current)
+			if (status) next.set(messageId, status)
+			else next.delete(messageId)
+			return next
+		})
+	}, [])
+
+	const onTrustSender = useCallback(async (address: string) => {
+		setSenderTrustStatus({ address, state: 'loading' })
+		const trusted = await trustSenderImages(address)
+		if (!trusted) {
+			setSenderTrustStatus({ address, state: 'error' })
+			return
+		}
+		setTrustedDuringThisView((current) => new Set(current).add(address.trim().toLowerCase()))
+		setSenderTrustStatus({ address, state: 'idle' })
+	}, [])
 
 	// Reset expansion state as part of the conversation identity so a thread swap
 	// cannot paint once with the previous thread's open message IDs. Including the
 	// latest message also preserves the existing behaviour when a new reply arrives.
 	return (
 		<ThreadConversationContent
-			key={JSON.stringify([thread.id, latestMessageId])}
+			key={latestMessageId}
 			thread={thread}
 			messages={messages}
+			displayStatuses={displayStatuses}
+			layoutMode={preferences.emailLayoutMode}
+			colorMode={preferences.emailColorMode}
+			darkenEmail={preferences.emailDarkMode}
+			loadRemoteImagesForThread={loadRemoteImagesForThread}
+			trustedDuringThisView={trustedDuringThisView}
+			retryRevision={retryRevision}
+			senderTrustStatus={senderTrustStatus}
+			onDisplayStatus={onDisplayStatus}
+			onLayoutModeChange={(emailLayoutMode) => savePreferences({ ...preferences, emailLayoutMode })}
+			onColorModeChange={(emailColorMode) => savePreferences({ ...preferences, emailColorMode })}
+			onShowThreadImages={() => setLoadRemoteImagesForThread(true)}
+			onAlwaysShowImages={() => savePreferences({ ...preferences, remoteImagePolicy: 'always' })}
+			onTrustSender={(address) => void onTrustSender(address)}
+			onRetryImages={() => setRetryRevision((current) => current + 1)}
 		/>
 	)
 }
 
-function ThreadConversationContent({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
-	const [preferences] = useUserPreferences()
+function ThreadConversationContent({
+	thread,
+	messages,
+	displayStatuses,
+	layoutMode,
+	colorMode,
+	darkenEmail,
+	loadRemoteImagesForThread,
+	trustedDuringThisView,
+	retryRevision,
+	senderTrustStatus,
+	onDisplayStatus,
+	onLayoutModeChange,
+	onColorModeChange,
+	onShowThreadImages,
+	onAlwaysShowImages,
+	onTrustSender,
+	onRetryImages,
+}: {
+	thread: MailThread
+	messages: MailMessage[]
+	displayStatuses: ReadonlyMap<string, EmailDisplayStatus>
+	layoutMode: EmailLayoutMode
+	colorMode: EmailColorMode
+	darkenEmail: boolean
+	loadRemoteImagesForThread: boolean
+	trustedDuringThisView: ReadonlySet<string>
+	retryRevision: number
+	senderTrustStatus: { address?: string; state: 'idle' | 'loading' | 'error' }
+	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
+	onLayoutModeChange: (mode: EmailLayoutMode) => void
+	onColorModeChange: (mode: EmailColorMode) => void
+	onShowThreadImages: () => void
+	onAlwaysShowImages: () => void
+	onTrustSender: (address: string) => void
+	onRetryImages: () => void
+}) {
 	const latestMessageId = messages.at(-1)?.id
 	const [openMessageIds, setOpenMessageIds] = useState<Set<string>>(
 		() => new Set(latestMessageId ? [latestMessageId] : []),
@@ -53,6 +139,7 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 	)
 	const allMessagesOpen = messages.length > 0 && messages.every((message) => openMessageIds.has(message.id))
 	const allMessagesClosed = messages.every((message) => !openMessageIds.has(message.id))
+	const hasHtmlMessages = messages.some(messageHasHtml)
 
 	function toggleMessage(messageId: string) {
 		setOpenMessageIds((current) => {
@@ -85,31 +172,49 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 						) : null}
 					</div>
 
-					{messages.length > 1 ? (
-						<fieldset className="flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0 xl:gap-1">
-							<legend className="sr-only">Message display controls</legend>
-							<button
-								type="button"
-								onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
-								disabled={allMessagesOpen}
-								aria-label={`Expand all ${messages.length} messages`}
-								className="inline-flex h-11 w-11 items-center justify-center rounded-md text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40 xl:w-auto xl:px-2.5 xl:py-1.5"
-							>
-								<ChevronsDown className="h-4 w-4 xl:hidden" aria-hidden="true" />
-								<span className="sr-only xl:not-sr-only">Expand all</span>
-							</button>
-							<button
-								type="button"
-								onClick={() => setOpenMessageIds(new Set())}
-								disabled={allMessagesClosed}
-								aria-label={`Collapse all ${messages.length} messages`}
-								className="inline-flex h-11 w-11 items-center justify-center rounded-md text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40 xl:w-auto xl:px-2.5 xl:py-1.5"
-							>
-								<ChevronsUp className="h-4 w-4 xl:hidden" aria-hidden="true" />
-								<span className="sr-only xl:not-sr-only">Collapse all</span>
-							</button>
-						</fieldset>
-					) : null}
+					<div className="flex min-w-0 shrink-0 items-center gap-0.5 xl:gap-1">
+						{hasHtmlMessages ? (
+							<ThreadDisplayMenu
+								messages={messages}
+								statuses={displayStatuses}
+								layoutMode={layoutMode}
+								colorMode={colorMode}
+								showColorControl={darkenEmail}
+								senderTrustStatus={senderTrustStatus}
+								onLayoutModeChange={onLayoutModeChange}
+								onColorModeChange={onColorModeChange}
+								onShowThreadImages={onShowThreadImages}
+								onAlwaysShowImages={onAlwaysShowImages}
+								onTrustSender={onTrustSender}
+								onRetryImages={onRetryImages}
+							/>
+						) : null}
+						{messages.length > 1 ? (
+							<fieldset className="flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0 xl:gap-1">
+								<legend className="sr-only">Message display controls</legend>
+								<button
+									type="button"
+									onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
+									disabled={allMessagesOpen}
+									aria-label={`Expand all ${messages.length} messages`}
+									title="Expand all messages"
+									className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
+								>
+									<ChevronsDown className="h-4 w-4" aria-hidden="true" />
+								</button>
+								<button
+									type="button"
+									onClick={() => setOpenMessageIds(new Set())}
+									disabled={allMessagesClosed}
+									aria-label={`Collapse all ${messages.length} messages`}
+									title="Collapse all messages"
+									className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
+								>
+									<ChevronsUp className="h-4 w-4" aria-hidden="true" />
+								</button>
+							</fieldset>
+						) : null}
+					</div>
 				</div>
 
 				{messages.length > 1 && threadAttachments.length > 0 ? (
@@ -133,7 +238,15 @@ function ThreadConversationContent({ thread, messages }: { thread: MailThread; m
 						message={message}
 						open={openMessageIds.has(message.id)}
 						onToggle={() => toggleMessage(message.id)}
-						darkenEmail={preferences.emailDarkMode}
+						darkenEmail={darkenEmail}
+						layoutMode={layoutMode}
+						colorMode={colorMode}
+						loadRemoteImagesForThread={loadRemoteImagesForThread}
+						loadRemoteImagesForSender={trustedDuringThisView.has(
+							message.from?.[0]?.email?.trim().toLowerCase() ?? '',
+						)}
+						retryRevision={retryRevision}
+						onDisplayStatus={onDisplayStatus}
 					/>
 				))}
 			</div>
@@ -146,11 +259,23 @@ function MessageBlock({
 	open,
 	onToggle,
 	darkenEmail,
+	layoutMode,
+	colorMode,
+	loadRemoteImagesForThread,
+	loadRemoteImagesForSender,
+	retryRevision,
+	onDisplayStatus,
 }: {
 	message: MailMessage
 	open: boolean
 	onToggle: () => void
 	darkenEmail: boolean
+	layoutMode: EmailLayoutMode
+	colorMode: EmailColorMode
+	loadRemoteImagesForThread: boolean
+	loadRemoteImagesForSender: boolean
+	retryRevision: number
+	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 }) {
 	const contentId = useId()
 	const senderHeadingId = useId()
@@ -228,7 +353,16 @@ function MessageBlock({
 			{open ? (
 				<div id={contentId} data-slot="expanded-message-content" className="mt-5 w-full min-w-0">
 					<CalendarInvitationCard message={message} />
-					<MessageBody message={message} darkenEmail={darkenEmail} />
+					<MessageBody
+						message={message}
+						darkenEmail={darkenEmail}
+						layoutMode={layoutMode}
+						colorMode={colorMode}
+						loadRemoteImagesForThread={loadRemoteImagesForThread}
+						loadRemoteImagesForSender={loadRemoteImagesForSender}
+						retryRevision={retryRevision}
+						onDisplayStatus={onDisplayStatus}
+					/>
 					<MessageAttachments message={message} />
 				</div>
 			) : null}

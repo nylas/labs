@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultUserPreferences, writeUserPreferences } from '#app/preferences/user-preferences'
 import {
 	EMAIL_ELEMENT_TAG,
@@ -10,10 +10,18 @@ import {
 } from '../lib/email-render.js'
 import { EmailHtml } from './EmailHtml.js'
 
+const { senderImagesTrustedMock } = vi.hoisted(() => ({ senderImagesTrustedMock: vi.fn() }))
+vi.mock('../lib/image-sender-trust.js', () => ({ senderImagesTrusted: senderImagesTrustedMock }))
+
 afterEach(() => {
 	cleanup()
 	document.documentElement.classList.remove('dark')
 	localStorage.clear()
+})
+
+beforeEach(() => {
+	senderImagesTrustedMock.mockReset()
+	senderImagesTrustedMock.mockResolvedValue(false)
 })
 
 function emailElement(): HTMLElement & { emailHtml: string } {
@@ -108,9 +116,9 @@ describe('EmailHtml', () => {
 		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
 	})
 
-	it('keeps blocked-image privacy and display controls in one compact popover', async () => {
+	it('keeps remote images blocked until the thread controller opts in', async () => {
 		document.documentElement.classList.add('dark')
-		render(
+		const view = render(
 			<EmailHtml
 				html={`<img class="remote" src="${CONTROLLED_IMAGE}" width="600" height="200">`}
 				messageId="m-remote"
@@ -119,68 +127,143 @@ describe('EmailHtml', () => {
 		const image = () => emailElement().shadowRoot?.querySelector<HTMLImageElement>('.remote')
 		expect(image()?.hasAttribute('src')).toBe(false)
 		expect(image()?.getAttribute('width')).toBe('600')
-		const display = await screen.findByRole('button', { name: 'Images blocked' })
-		expect(screen.queryByText('Remote images are blocked to protect your privacy.')).toBeNull()
-		fireEvent.click(display)
-		expect(screen.getByRole('dialog', { name: 'Message display' })).toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
+
+		view.rerender(
+			<EmailHtml
+				html={`<img class="remote" src="${CONTROLLED_IMAGE}" width="600" height="200">`}
+				messageId="m-remote"
+				loadRemoteImagesForThread
+			/>,
+		)
 		await waitFor(() =>
 			expect(image()?.getAttribute('src')).toBe(
 				`${CONTROLLED_IMAGE.split('?')[0]}?mode=automatic&theme=dark`,
 			),
 		)
-		fireEvent.load(image() as HTMLImageElement)
-		expect(screen.queryByRole('dialog', { name: 'Message display' })).toBeNull()
-		fireEvent.click(await screen.findByRole('button', { name: 'Display' }))
-		expect(screen.getByRole('button', { name: 'Automatic message colors' })).toHaveAttribute(
-			'aria-pressed',
-			'true',
+	})
+
+	it('applies controlled layout and color modes without rendering message-level chrome', () => {
+		render(
+			<EmailHtml
+				html="<p>Newsletter</p>"
+				messageId="m-controlled-display"
+				layoutMode="original"
+				colorMode="original"
+			/>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Original message colors' }))
+
+		expect(screen.queryByRole('button')).toBeNull()
+		expect(emailElement()).toHaveAttribute('data-layout-mode', 'original')
 		expect(emailElement()).toHaveAttribute('data-image-mode', 'original')
 		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
 		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 	})
 
-	it('replaces a broken image with a retryable fallback instead of reporting it as loaded', async () => {
-		render(
+	it('reports renderer status and retries failures when the thread revision advances', async () => {
+		const onDisplayStatus = vi.fn()
+		const view = render(
 			<EmailHtml
 				html={`<img class="remote" alt="Newsletter chart" src="${CONTROLLED_IMAGE}">`}
 				messageId="m-failed-image"
+				loadRemoteImagesForThread
+				onDisplayStatus={onDisplayStatus}
 			/>,
 		)
-		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
 		const image = emailElement().shadowRoot?.querySelector<HTMLImageElement>('.remote') as HTMLImageElement
+		await waitFor(() => expect(image).toHaveAttribute('src', CONTROLLED_IMAGE))
 
 		fireEvent.error(image)
-		fireEvent.click(await screen.findByRole('button', { name: 'Image unavailable' }))
-		expect(screen.getByRole('status')).toHaveTextContent('One image could not be loaded.')
+		expect(onDisplayStatus).toHaveBeenLastCalledWith(
+			'm-failed-image',
+			expect.objectContaining({
+				remoteImages: expect.objectContaining({ failedImages: 1 }),
+			}),
+		)
 		expect(emailElement().shadowRoot?.querySelector('[role="img"]')).toHaveAccessibleName('Newsletter chart')
 
-		fireEvent.click(screen.getByRole('button', { name: 'Retry images' }))
+		view.rerender(
+			<EmailHtml
+				html={`<img class="remote" alt="Newsletter chart" src="${CONTROLLED_IMAGE}">`}
+				messageId="m-failed-image"
+				loadRemoteImagesForThread
+				retryRevision={1}
+				onDisplayStatus={onDisplayStatus}
+			/>,
+		)
 		expect(image.src).toContain('retry=1')
-		expect(await screen.findByRole('button', { name: 'Loading images' })).toBeInTheDocument()
 	})
 
-	it('summarizes multiple failed images without exposing proxy details', () => {
-		render(<EmailHtml html="<p>Digest</p>" messageId="m-multiple-failures" />)
+	it('reports layout capability and clears it when the message changes', () => {
+		const onDisplayStatus = vi.fn()
+		const view = render(
+			<EmailHtml
+				html="<table width=800><tr><td>Digest</td></tr></table>"
+				messageId="m-layout"
+				onDisplayStatus={onDisplayStatus}
+			/>,
+		)
 		act(() => {
 			emailElement().dispatchEvent(
-				new CustomEvent(EMAIL_REMOTE_IMAGES_EVENT, {
-					detail: { failedImages: 2, hasRemoteImages: true, loaded: true, pendingImages: 0 },
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+					detail: {
+						mode: 'readable',
+						naturalWidth: 800,
+						containerWidth: 320,
+						scale: 1,
+						reflowed: true,
+						needsFit: false,
+					},
 				}),
 			)
 		})
-		fireEvent.click(screen.getByRole('button', { name: 'Image unavailable' }))
-		expect(screen.getByRole('status')).toHaveTextContent('2 images could not be loaded.')
+		expect(onDisplayStatus).toHaveBeenLastCalledWith(
+			'm-layout',
+			expect.objectContaining({ layoutAvailable: true }),
+		)
+
+		view.rerender(<EmailHtml html="<p>Ordinary</p>" messageId="m-layout" onDisplayStatus={onDisplayStatus} />)
+		expect(onDisplayStatus).toHaveBeenLastCalledWith(
+			'm-layout',
+			expect.objectContaining({ layoutAvailable: false }),
+		)
 	})
 
-	it('does not carry show-once consent to a different message with identical HTML', async () => {
+	it('reports fit-only layouts while leaving ordinary layouts unavailable', () => {
+		const onDisplayStatus = vi.fn()
+		render(<EmailHtml html="<p>Layout</p>" messageId="m-fit-layout" onDisplayStatus={onDisplayStatus} />)
+		const detail = {
+			mode: 'readable',
+			naturalWidth: 320,
+			containerWidth: 320,
+			scale: 1,
+			reflowed: false,
+			needsFit: false,
+		}
+
+		act(() => {
+			emailElement().dispatchEvent(new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, { detail }))
+		})
+		expect(onDisplayStatus).toHaveBeenLastCalledWith(
+			'm-fit-layout',
+			expect.objectContaining({ layoutAvailable: false }),
+		)
+
+		act(() => {
+			emailElement().dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, { detail: { ...detail, needsFit: true } }),
+			)
+		})
+		expect(onDisplayStatus).toHaveBeenLastCalledWith(
+			'm-fit-layout',
+			expect.objectContaining({ layoutAvailable: true }),
+		)
+	})
+
+	it('does not carry thread consent when its controller resets the opt-in', async () => {
 		const html = `<img class="remote" src="${CONTROLLED_IMAGE}">`
-		const { rerender } = render(<EmailHtml html={html} messageId="m-consent-first" />)
-		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
+		const { rerender } = render(
+			<EmailHtml html={html} messageId="m-consent-first" loadRemoteImagesForThread />,
+		)
 		await waitFor(() =>
 			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
 		)
@@ -189,81 +272,89 @@ describe('EmailHtml', () => {
 		await waitFor(() =>
 			expect(emailElement().shadowRoot?.querySelector('.remote')).not.toHaveAttribute('src'),
 		)
-		expect(screen.getByRole('button', { name: 'Images blocked' })).toBeInTheDocument()
 	})
 
-	it('dismisses display controls outside the menu and returns focus after Escape', async () => {
-		render(<EmailHtml html={`<img src="${CONTROLLED_IMAGE}">`} messageId="m-display-dismiss" />)
-		const display = await screen.findByRole('button', { name: 'Images blocked' })
-		fireEvent.click(display)
-		fireEvent.keyDown(document, { key: 'Tab' })
-		expect(screen.getByRole('dialog', { name: 'Message display' })).toBeInTheDocument()
-
-		fireEvent.keyDown(document, { key: 'Escape' })
-		expect(screen.queryByRole('dialog', { name: 'Message display' })).toBeNull()
-		expect(display).toHaveFocus()
-
-		fireEvent.click(display)
-		fireEvent.pointerDown(display)
-		expect(screen.getByRole('dialog', { name: 'Message display' })).toBeInTheDocument()
-		fireEvent.pointerDown(document.body)
-		expect(screen.queryByRole('dialog', { name: 'Message display' })).toBeNull()
-
-		fireEvent.click(display)
-		fireEvent.focusIn(document.body)
-		expect(screen.queryByRole('dialog', { name: 'Message display' })).toBeNull()
-	})
-
-	it('can remember proxy consent for a normalized sender without storing their address', async () => {
-		const props = {
-			html: `<img class="remote" src="${CONTROLLED_IMAGE}">`,
-			messageId: 'm-trusted',
-			senderAddress: 'News@Example.com',
-		}
-		const first = render(<EmailHtml {...props} />)
-		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Always from sender' }))
-		await waitFor(() => expect(screen.queryByRole('button', { name: 'Images blocked' })).toBeNull())
-		expect(localStorage.getItem('ownmail:trusted-image-senders:v2') ?? '').not.toContain('example.com')
-
-		first.unmount()
-		render(<EmailHtml {...props} messageId="m-trusted-next" />)
-		await waitFor(() =>
-			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
-		)
-	})
-
-	it('keeps images blocked when an invalid sender cannot be trusted', async () => {
+	it('loads images after a matching sender is trusted by the thread controller', async () => {
 		render(
 			<EmailHtml
 				html={`<img class="remote" src="${CONTROLLED_IMAGE}">`}
-				messageId="m-invalid-sender"
-				senderAddress="not-an-email"
+				messageId="m-trusted-sender"
+				senderAddress="news@example.com"
+				loadRemoteImagesForSender
 			/>,
 		)
-		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Always from sender' }))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save that image choice. Try again.')
-		expect(screen.getByRole('button', { name: 'Always from sender' })).toBeInTheDocument()
-	})
-
-	it('persists an always-show choice and applies it to later messages', async () => {
-		const html = `<img class="remote" src="${CONTROLLED_IMAGE}">`
-		const first = render(<EmailHtml html={html} messageId="m-always-first" />)
-		fireEvent.click(await screen.findByRole('button', { name: 'Images blocked' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Always show all' }))
-		await waitFor(() =>
-			expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
-				remoteImagePolicy: 'always',
-			}),
-		)
-
-		first.unmount()
-		writeUserPreferences({ ...defaultUserPreferences(), remoteImagePolicy: 'always' })
-		render(<EmailHtml html={html} messageId="m-always-next" />)
 		await waitFor(() =>
 			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
 		)
+	})
+
+	it('loads images for a sender remembered from a previous thread', async () => {
+		senderImagesTrustedMock.mockResolvedValue(true)
+		render(
+			<EmailHtml
+				html={`<img class="remote" src="${CONTROLLED_IMAGE}">`}
+				messageId="m-remembered-sender"
+				senderAddress="remembered@example.com"
+			/>,
+		)
+
+		await waitFor(() => expect(senderImagesTrustedMock).toHaveBeenCalledWith('remembered@example.com'))
+		await waitFor(() =>
+			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
+		)
+	})
+
+	it('ignores a remembered-sender result after its rendered document is replaced', async () => {
+		let resolveTrust: ((trusted: boolean) => void) | undefined
+		senderImagesTrustedMock.mockImplementation(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveTrust = resolve
+				}),
+		)
+		const view = render(
+			<EmailHtml
+				html={`<img class="old" src="${CONTROLLED_IMAGE}">`}
+				messageId="m-old-sender"
+				senderAddress="remembered@example.com"
+			/>,
+		)
+		view.rerender(<EmailHtml html="<p>Replacement</p>" messageId="m-replacement" />)
+		await act(async () => resolveTrust?.(true))
+
+		expect(emailElement().shadowRoot?.querySelector('.old')).toBeNull()
+		expect(emailElement()).not.toHaveAttribute('data-load-remote-images')
+	})
+
+	it('does not retry when the revision advances without failed images', () => {
+		const view = render(<EmailHtml html="<p>No failures</p>" messageId="m-no-failures" />)
+		act(() => {
+			emailElement().dispatchEvent(
+				new CustomEvent(EMAIL_REMOTE_IMAGES_EVENT, {
+					detail: { hasRemoteImages: true, loaded: true, failedImages: 0, pendingImages: 0 },
+				}),
+			)
+		})
+		view.rerender(<EmailHtml html="<p>No failures</p>" messageId="m-no-failures" retryRevision={1} />)
+		act(() => {
+			emailElement().dispatchEvent(
+				new CustomEvent(EMAIL_REMOTE_IMAGES_EVENT, {
+					detail: { hasRemoteImages: true, loaded: true },
+				}),
+			)
+		})
+		view.rerender(<EmailHtml html="<p>No failures</p>" messageId="m-no-failures" retryRevision={2} />)
+		expect(emailElement()).not.toHaveAttribute('data-retry-revision')
+	})
+
+	it('removes its thread status when unmounted', () => {
+		const onDisplayStatus = vi.fn()
+		const view = render(
+			<EmailHtml html="<p>Status</p>" messageId="m-status" onDisplayStatus={onDisplayStatus} />,
+		)
+
+		view.unmount()
+		expect(onDisplayStatus).toHaveBeenLastCalledWith('m-status', null)
 	})
 
 	it('reapplies saved image consent when the rendered HTML changes in place', async () => {
@@ -283,130 +374,6 @@ describe('EmailHtml', () => {
 				'src',
 				CONTROLLED_IMAGE,
 			),
-		)
-	})
-
-	it('offers readable and original layouts when legacy content needs compatibility reflow', () => {
-		render(<EmailHtml html='<table width="800"><tr><td>Legacy</td></tr></table>' messageId="m7" />)
-		const el = emailElement()
-
-		act(() => {
-			el.dispatchEvent(
-				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
-					detail: {
-						mode: 'readable',
-						naturalWidth: 320,
-						containerWidth: 320,
-						scale: 1,
-						reflowed: true,
-						needsFit: false,
-					},
-				}),
-			)
-		})
-
-		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
-		const readable = screen.getByRole('button', { name: 'Readable' })
-		const original = screen.getByRole('button', { name: 'Original' })
-		expect(readable).toHaveAttribute('aria-pressed', 'true')
-		expect(el).toHaveAttribute('data-layout-mode', 'readable')
-
-		fireEvent.click(original)
-
-		expect(original).toHaveAttribute('aria-pressed', 'true')
-		expect(el).toHaveAttribute('data-layout-mode', 'original')
-	})
-
-	it('resets latched Layout availability when the rendered message changes', () => {
-		const firstHtml = '<table width="800"><tr><td>Legacy</td></tr></table>'
-		const nextHtml = '<p>Ordinary message</p>'
-		const view = render(<EmailHtml html={firstHtml} messageId="m-layout-reset-1" />)
-		const el = emailElement()
-		const reportReflow = () => {
-			act(() => {
-				el.dispatchEvent(
-					new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
-						detail: {
-							mode: 'readable',
-							naturalWidth: 800,
-							containerWidth: 320,
-							scale: 1,
-							reflowed: true,
-							needsFit: false,
-						},
-					}),
-				)
-			})
-		}
-
-		reportReflow()
-		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
-		expect(screen.getByText('Layout')).toBeInTheDocument()
-
-		view.rerender(<EmailHtml html={nextHtml} messageId="m-layout-reset-1" />)
-		expect(screen.queryByText('Layout')).toBeNull()
-
-		reportReflow()
-		expect(screen.getByText('Layout')).toBeInTheDocument()
-		view.rerender(<EmailHtml html={nextHtml} messageId="m-layout-reset-2" />)
-		expect(screen.queryByText('Layout')).toBeNull()
-	})
-
-	it('persists display choices and keeps Layout available after message colors remeasure', async () => {
-		document.documentElement.classList.add('dark')
-		const first = render(
-			<EmailHtml html='<table width="800"><tr><td>Legacy</td></tr></table>' messageId="m-display-1" />,
-		)
-		const el = emailElement()
-
-		act(() => {
-			el.dispatchEvent(
-				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
-					detail: {
-						mode: 'readable',
-						naturalWidth: 800,
-						containerWidth: 320,
-						scale: 1,
-						reflowed: true,
-						needsFit: false,
-					},
-				}),
-			)
-		})
-
-		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Original message colors' }))
-		act(() => {
-			el.dispatchEvent(
-				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
-					detail: {
-						mode: 'original',
-						naturalWidth: 320,
-						containerWidth: 320,
-						scale: 1,
-						reflowed: false,
-						needsFit: false,
-					},
-				}),
-			)
-		})
-
-		expect(screen.getByText('Layout')).toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Original' }))
-		await waitFor(() =>
-			expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
-				emailLayoutMode: 'original',
-				emailColorMode: 'original',
-			}),
-		)
-
-		first.unmount()
-		render(<EmailHtml html="<p>Next message</p>" messageId="m-display-2" />)
-		fireEvent.click(screen.getByRole('button', { name: 'Display' }))
-		expect(screen.getByRole('button', { name: 'Original' })).toHaveAttribute('aria-pressed', 'true')
-		expect(screen.getByRole('button', { name: 'Original message colors' })).toHaveAttribute(
-			'aria-pressed',
-			'true',
 		)
 	})
 })

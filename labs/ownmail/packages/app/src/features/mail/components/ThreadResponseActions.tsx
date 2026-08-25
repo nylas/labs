@@ -1,4 +1,7 @@
 import { Forward, Reply, ReplyAll } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID } from '#app/components/MobileTabBar'
+import { useMounted } from '#shared/components/ClientTime'
 
 export function MobileThreadResponseActions({
 	onReply,
@@ -9,22 +12,23 @@ export function MobileThreadResponseActions({
 	onReplyAll: () => void
 	onForward: () => void
 }) {
-	return (
-		<fieldset className="m-0 grid min-w-0 grid-cols-3 gap-2 border-0 p-0 pr-14 sm:hidden">
-			<legend className="sr-only">Thread response actions</legend>
+	const mounted = useMounted()
+	const target = mounted ? document.getElementById(MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID) : null
+	if (!target) return null
+
+	return createPortal(
+		<>
 			<ResponseButton label="Reply to thread" onClick={onReply}>
-				<Reply className="h-4 w-4 shrink-0" />
-				<span>Reply</span>
+				<Reply className="h-5 w-5" aria-hidden="true" />
 			</ResponseButton>
 			<ResponseButton label="Reply all to thread" onClick={onReplyAll}>
-				<ReplyAll className="h-4 w-4 shrink-0" />
-				<span>Reply all</span>
+				<ReplyAll className="h-5 w-5" aria-hidden="true" />
 			</ResponseButton>
 			<ResponseButton label="Forward thread" onClick={onForward}>
-				<Forward className="h-4 w-4 shrink-0" />
-				<span>Forward</span>
+				<Forward className="h-5 w-5" aria-hidden="true" />
 			</ResponseButton>
-		</fieldset>
+		</>,
+		target,
 	)
 }
 
@@ -42,7 +46,8 @@ function ResponseButton({
 			type="button"
 			onClick={onClick}
 			aria-label={label}
-			className="flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/30 px-2 text-sm font-medium text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-[399px]:flex-col max-[399px]:gap-0.5 max-[399px]:px-1 max-[399px]:text-xs"
+			title={label}
+			className="mobile-tab min-h-11 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 		>
 			{children}
 		</button>

@@ -1,7 +1,7 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
  * theme: Quiet · tone: native-utilitarian · anchor hue: green · enrichment: none
- * navigation: persistent mobile tab bar · contrast: pass (46–50)
- * pre-emit critique: P5 H5 E5 S5 R5 V5
+ * navigation: one context-replacing mobile bottom bar · contrast: pass (46–50)
+ * slop: pass (1–69) · mobile: pass (36, 59, 61–69) · pre-emit critique: P5 H5 E5 S5 R5 V5
  */
 @import "tailwindcss";
 @import "./tokens.css";
@@ -82,15 +82,24 @@
 
 .mobile-tab-bar {
 	z-index: 40;
-	display: grid;
 	min-height: calc(var(--mobile-tab-bar-height) + var(--safe-area-bottom));
-	grid-template-columns: repeat(4, minmax(0, 1fr));
 	padding-right: var(--safe-area-right);
 	padding-bottom: var(--safe-area-bottom);
 	padding-left: var(--safe-area-left);
 	border-top: 1px solid var(--border);
 	background: var(--background);
 	color: var(--foreground);
+}
+
+.mobile-primary-tabs,
+.mobile-thread-tabs {
+	display: grid;
+	min-height: var(--mobile-tab-bar-height);
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mobile-thread-tabs {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @media (min-width: 48rem) {
@@ -145,16 +154,6 @@
 	height: 1.5rem;
 	align-items: center;
 	justify-content: center;
-}
-
-.mobile-tab-label {
-	max-width: 100%;
-	overflow: hidden;
-	font-size: 0.6875rem;
-	font-weight: 500;
-	line-height: 1;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .pull-to-refresh {

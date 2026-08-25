@@ -75,6 +75,9 @@ export function MailRouteScreen({
 	const isSearchRoute = useRouterState({
 		select: (state) => state.matches.some((match) => match.routeId === '/mail/search'),
 	})
+	const isThreadRoute = useRouterState({
+		select: (state) => state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId'),
+	})
 	const searchParams = useRouterState({ select: (state) => state.location.search as Record<string, unknown> })
 	const searchScopeFolderId = typeof searchParams.folderId === 'string' ? searchParams.folderId : undefined
 	const routeSearchQuery = typeof searchParams.q === 'string' ? searchParams.q : undefined
@@ -83,6 +86,7 @@ export function MailRouteScreen({
 		[defaultFolderId, pathname, searchScopeFolderId],
 	)
 	const selectedSearchThreadId = typeof searchParams.threadId === 'string' ? searchParams.threadId : undefined
+	const hasThreadActions = isThreadRoute || (isSearchRoute && Boolean(selectedSearchThreadId))
 	const labelBaseFolder =
 		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
 	const activeSearchFolderId = currentFolderId ?? searchScopeFolderId
@@ -231,7 +235,7 @@ export function MailRouteScreen({
 					<div className="flex min-h-0 flex-1 overflow-hidden">{children ?? <Outlet />}</div>
 				</div>
 			</div>
-			<MobileTabBar active="mail" />
+			<MobileTabBar active="mail" context={hasThreadActions ? 'thread' : 'primary'} />
 
 			<Sheet open={sidebarOpen} onClose={() => setSidebarOpen(false)} title="Navigation">
 				<AppRailMobileNav
@@ -246,9 +250,16 @@ export function MailRouteScreen({
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} onFocusSearch={focusSearch} />
 
-			<Link to="/mail/compose" search={composeSearch} className="fab md:hidden" aria-label="Compose message">
-				<Pencil className="h-5 w-5" strokeWidth={2.5} />
-			</Link>
+			{hasThreadActions ? null : (
+				<Link
+					to="/mail/compose"
+					search={composeSearch}
+					className="fab md:hidden"
+					aria-label="Compose message"
+				>
+					<Pencil className="h-5 w-5" strokeWidth={2.5} />
+				</Link>
+			)}
 		</div>
 	)
 }

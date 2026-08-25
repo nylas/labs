@@ -14,6 +14,8 @@ import {
 
 export type MobileTab = 'mail' | 'calendar' | 'contacts' | 'settings'
 
+export const MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID = 'mobile-bottom-bar-thread-actions'
+
 const TABS = [
 	{ id: 'mail', label: 'Mail', to: MAIL_HOME_PATH, icon: Mail },
 	{ id: 'calendar', label: 'Calendar', to: CALENDAR_HOME_PATH, icon: Calendar },
@@ -21,26 +23,44 @@ const TABS = [
 	{ id: 'settings', label: 'Settings', to: SETTINGS_PATH, icon: Settings },
 ] as const
 
-export function MobileTabBar({ active }: { active: MobileTab }) {
+export function MobileTabBar({
+	active,
+	context = 'primary',
+}: {
+	active: MobileTab
+	context?: 'primary' | 'thread'
+}) {
 	return (
-		<nav aria-label="Primary mobile" className="mobile-tab-bar md:hidden">
-			{TABS.map((tab) => {
-				const Icon = tab.icon
-				const selected = tab.id === active
-				return (
-					<Link
-						key={tab.id}
-						to={tab.to}
-						aria-current={selected ? 'page' : undefined}
-						className={cn('mobile-tab', selected && 'mobile-tab-active')}
-					>
-						<span className="mobile-tab-icon" aria-hidden="true">
-							<Icon className="h-5 w-5" strokeWidth={selected ? 2.25 : 1.75} />
-						</span>
-						<span className="mobile-tab-label">{tab.label}</span>
-					</Link>
-				)
-			})}
-		</nav>
+		<div data-slot="mobile-bottom-bar" data-context={context} className="mobile-tab-bar md:hidden">
+			{context === 'primary' ? (
+				<nav aria-label="Primary mobile" className="mobile-primary-tabs">
+					{TABS.map((tab) => {
+						const Icon = tab.icon
+						const selected = tab.id === active
+						return (
+							<Link
+								key={tab.id}
+								to={tab.to}
+								aria-label={tab.label}
+								title={tab.label}
+								aria-current={selected ? 'page' : undefined}
+								className={cn('mobile-tab', selected && 'mobile-tab-active')}
+							>
+								<span className="mobile-tab-icon" aria-hidden="true">
+									<Icon className="h-5 w-5" strokeWidth={selected ? 2.25 : 1.75} />
+								</span>
+							</Link>
+						)
+					})}
+				</nav>
+			) : (
+				<div
+					id={MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID}
+					role="toolbar"
+					aria-label="Thread actions"
+					className="mobile-thread-tabs"
+				/>
+			)}
+		</div>
 	)
 }

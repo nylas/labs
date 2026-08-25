@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_ELEMENT_TAG } from '../lib/email-render.js'
 import { markdownToDraftBody } from '../lib/html-to-markdown.js'
@@ -262,7 +262,7 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 	})
 
 	it('resolves matched CID images and renders unmatched references as inert text', async () => {
-		render(
+		const view = render(
 			<MessageBody
 				message={message({
 					id: 'msg/cid',
@@ -278,8 +278,17 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		expect(root?.querySelector('[role="img"]')).toHaveTextContent('Missing signature')
 		expect(root?.innerHTML).not.toContain('cid:')
 
-		fireEvent.click(screen.getByRole('button', { name: 'Images blocked' }))
-		fireEvent.click(screen.getByRole('button', { name: 'Show once' }))
+		view.rerender(
+			<MessageBody
+				message={message({
+					id: 'msg/cid',
+					body: '<img src="cid:logo@example.com" alt="Logo"><img src="cid:missing" alt="Missing signature">',
+					attachments: [{ id: 'inline/logo', is_inline: true, content_id: '<logo@example.com>' }],
+					ownmailImageTokens: { 'inline/logo': 'signed.payload' },
+				})}
+				loadRemoteImagesForThread
+			/>,
+		)
 		await waitFor(() =>
 			expect(root?.querySelector('img')).toHaveAttribute(
 				'src',

@@ -373,6 +373,16 @@ describe('ensureEmailElementDefined', () => {
 
 		expect(measure).toHaveBeenCalledOnce()
 	})
+
+	it('defers dark image backing analysis until an image finishes loading', () => {
+		const el = mount('<img alt="Still loading">')
+		const image = el.shadowRoot?.querySelector('img') as HTMLImageElement
+		Object.defineProperty(image, 'complete', { configurable: true, value: false })
+
+		el.setAttribute('data-email-theme', 'dark')
+
+		expect(image).not.toHaveAttribute('data-ownmail-image-backing')
+	})
 })
 
 describe('<ownmail-email> rendering', () => {
