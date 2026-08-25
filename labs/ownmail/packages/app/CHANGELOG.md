@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.15.4
+
+### Patch Changes
+
+- 648bb6d: Use one contextual mobile bottom bar and thread-wide email display controls.
+
 ## 0.15.3
 
 ### Patch Changes
