@@ -51,14 +51,28 @@ mobile rows prefer 48 pixels.
 ## Navigation
 
 - Desktop: persistent application rail.
-- Mobile: persistent Mail, Calendar, Contacts, and Settings bottom tabs.
+- Mobile: one persistent bottom surface. Mail, Calendar, Contacts, and Settings
+  occupy it at top-level destinations; contextual workflows replace those items
+  in the same surface instead of stacking a second bar above or below it.
 - Contextual folders, calendars, mailboxes, theme, and command tools live in
   sheets rather than competing with primary destinations.
+
+## Icon controls
+
+- Compact navigation and familiar toolbar actions use icons without repeated
+  visible labels when the icon remains unambiguous in context.
+- Every icon-only control keeps an explicit accessible name, visible keyboard
+  focus, and a minimum 44 CSS-pixel touch target. A hover `title` may supplement
+  the accessible name but never replaces it.
+- Keep visible text for ambiguous actions, primary submission, destructive
+  confirmation, dynamic destinations, and status or error communication.
 
 ## Mobile surface rules
 
 - Honor top, inline, and bottom safe areas without padding the global `body`.
 - Bottom actions share `--mobile-tab-bar-height` and `--safe-area-bottom`.
+- Exactly one mobile bottom surface is visible at a time; contextual actions
+  replace primary tabs and suppress competing floating actions.
 - App scroll belongs to explicit content regions, not the document.
 - Sheets and full-screen editors use `dvh` and remain usable above the software
   keyboard.

@@ -640,7 +640,7 @@ function IconButton({
 			disabled={disabled && !loading}
 			aria-disabled={disabled || undefined}
 			aria-busy={loading || undefined}
-			className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+			className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 xl:h-9 xl:w-9"
 		>
 			{children}
 		</button>
@@ -660,10 +660,11 @@ function ActionButton({
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+			aria-label={label}
+			title={label}
+			className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
 		>
 			{children}
-			<span className="hidden md:inline">{label}</span>
 		</button>
 	)
 }

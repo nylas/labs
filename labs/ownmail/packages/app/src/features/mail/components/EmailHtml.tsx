@@ -3,8 +3,7 @@
  * contrast: existing application tokens · pre-emit critique: P5 H5 E4 S5 R5 V5
  */
 
-import { Check, ChevronDown, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
-import { type Ref, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import {
 	applyDarkInvert,
@@ -17,8 +16,10 @@ import {
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
+	type EmailColorMode,
 	type EmailElementLike,
 	type EmailImageMode,
+	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	type LinkPreviewDetail,
@@ -27,7 +28,7 @@ import {
 	retryRemoteImages,
 	subscribeLinkPreview,
 } from '../lib/email-render.js'
-import { senderImagesTrusted, trustSenderImages } from '../lib/image-sender-trust.js'
+import { senderImagesTrusted } from '../lib/image-sender-trust.js'
 import { sanitizedEmailSupportsDarkMode } from '../lib/sanitize-email.js'
 import { ensureEmailElementDefined } from './email-content-element.js'
 
@@ -40,12 +41,10 @@ const OwnmailEmail = EMAIL_ELEMENT_TAG as unknown as (props: {
 	'data-message-id'?: string
 }) => null
 
-const displayTriggerClass =
-	'inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-border bg-background px-3 text-xs font-medium text-muted-foreground shadow-xs transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-const displayOptionClass =
-	'inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 text-xs font-medium text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-foreground aria-pressed:text-background'
-const imageActionClass =
-	'inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+export type EmailDisplayStatus = {
+	layoutAvailable: boolean
+	remoteImages: EmailRemoteImagesDetail | null
+}
 
 /** Tracks the app's dark theme (the `.dark` class the theme toggle sets on <html>). */
 function useIsDark(): boolean {
@@ -75,26 +74,33 @@ export function EmailHtml({
 	messageId,
 	darken = true,
 	senderAddress,
+	layoutMode = 'readable',
+	colorMode = 'automatic',
+	loadRemoteImagesForThread = false,
+	loadRemoteImagesForSender = false,
+	retryRevision = 0,
+	onDisplayStatus,
 }: {
 	html: string
 	messageId: string
 	darken?: boolean
 	senderAddress?: string
+	layoutMode?: EmailLayoutMode
+	colorMode?: EmailColorMode
+	loadRemoteImagesForThread?: boolean
+	loadRemoteImagesForSender?: boolean
+	retryRevision?: number
+	onDisplayStatus?: (messageId: string, status: EmailDisplayStatus | null) => void
 }) {
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
 	const [preview, setPreview] = useState<LinkPreviewDetail | null>(null)
 	const [layoutControlAvailable, setLayoutControlAvailable] = useState(false)
 	const [remoteImages, setRemoteImages] = useState<EmailRemoteImagesDetail | null>(null)
-	const [preferences, savePreferences] = useUserPreferences()
-	const [displayOpen, setDisplayOpen] = useState(false)
-	const [senderTrustStatus, setSenderTrustStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-	const displayRootRef = useRef<HTMLDivElement>(null)
-	const displayTriggerRef = useRef<HTMLButtonElement>(null)
-	const displayPanelId = useId()
-	const displayHeadingId = useId()
-	const layoutMode = preferences.emailLayoutMode
-	const colorMode = preferences.emailColorMode
+	const [preferences] = useUserPreferences()
+	const lastRetryRevisionRef = useRef(retryRevision)
+	const displayStatusCallbackRef = useRef(onDisplayStatus)
+	displayStatusCallbackRef.current = onDisplayStatus
 
 	const isDark = useIsDark()
 	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
@@ -112,6 +118,7 @@ export function EmailHtml({
 		void html
 		void messageId
 		setLayoutControlAvailable(false)
+		setRemoteImages(null)
 	}, [html, messageId])
 
 	useLayoutEffect(() => {
@@ -166,7 +173,11 @@ export function EmailHtml({
 		void html
 		void messageId
 		if (!ready) return
-		if (preferences.remoteImagePolicy === 'always') {
+		if (
+			preferences.remoteImagePolicy === 'always' ||
+			loadRemoteImagesForThread ||
+			loadRemoteImagesForSender
+		) {
 			applyRemoteImages(ref.current, true)
 			return
 		}
@@ -178,235 +189,30 @@ export function EmailHtml({
 		return () => {
 			active = false
 		}
-	}, [preferences.remoteImagePolicy, ready, senderAddress, html, messageId])
+	}, [
+		preferences.remoteImagePolicy,
+		ready,
+		senderAddress,
+		html,
+		messageId,
+		loadRemoteImagesForThread,
+		loadRemoteImagesForSender,
+	])
 
-	useEffect(() => {
-		if (!displayOpen) return
+	useLayoutEffect(() => {
+		onDisplayStatus?.(messageId, { layoutAvailable: layoutControlAvailable, remoteImages })
+	}, [layoutControlAvailable, messageId, onDisplayStatus, remoteImages])
 
-		function closeOutside(event: PointerEvent | FocusEvent) {
-			const target = event.target
-			if (target instanceof Node && !displayRootRef.current?.contains(target)) setDisplayOpen(false)
-		}
+	useLayoutEffect(() => () => displayStatusCallbackRef.current?.(messageId, null), [messageId])
 
-		function closeOnEscape(event: KeyboardEvent) {
-			if (event.key !== 'Escape') return
-			event.preventDefault()
-			event.stopPropagation()
-			setDisplayOpen(false)
-			displayTriggerRef.current?.focus()
-		}
-
-		document.addEventListener('pointerdown', closeOutside)
-		document.addEventListener('focusin', closeOutside)
-		document.addEventListener('keydown', closeOnEscape)
-		return () => {
-			document.removeEventListener('pointerdown', closeOutside)
-			document.removeEventListener('focusin', closeOutside)
-			document.removeEventListener('keydown', closeOnEscape)
-		}
-	}, [displayOpen])
-
-	const showLayoutControl = layoutControlAvailable || layoutMode === 'original'
-	const hasRemoteImages = remoteImages?.hasRemoteImages === true
-	const imagesBlocked = hasRemoteImages && remoteImages.loaded === false
-	const failedImages = remoteImages?.failedImages ?? 0
-	const pendingImages = remoteImages?.pendingImages ?? 0
-	const showColorControl = darken && isDark
-	const showDisplayControl = hasRemoteImages || showLayoutControl || showColorControl
-
-	function showImagesOnce() {
-		applyRemoteImages(ref.current, true)
-		setDisplayOpen(false)
-	}
-
-	function alwaysShowImages() {
-		savePreferences({ ...preferences, remoteImagePolicy: 'always' })
-		applyRemoteImages(ref.current, true)
-		setDisplayOpen(false)
-	}
-
-	async function alwaysShowSenderImages() {
-		/* v8 ignore next -- The loading action is disabled; this guard prevents programmatic re-entry. @preserve */
-		if (senderTrustStatus === 'loading') return
-		setSenderTrustStatus('loading')
-		const trusted = await trustSenderImages(senderAddress)
-		if (!trusted) {
-			setSenderTrustStatus('error')
-			return
-		}
-		applyRemoteImages(ref.current, true)
-		setSenderTrustStatus('idle')
-		setDisplayOpen(false)
-	}
+	useLayoutEffect(() => {
+		if (!ready || retryRevision <= lastRetryRevisionRef.current) return
+		lastRetryRevisionRef.current = retryRevision
+		if ((remoteImages?.failedImages ?? 0) > 0) retryRemoteImages(ref.current)
+	}, [ready, remoteImages, retryRevision])
 
 	return (
 		<div className="relative" aria-busy={ready ? undefined : true}>
-			{showDisplayControl ? (
-				<div ref={displayRootRef} className="relative z-20 mb-1 flex justify-end">
-					<button
-						ref={displayTriggerRef}
-						type="button"
-						onClick={() => {
-							setSenderTrustStatus('idle')
-							setDisplayOpen((current) => !current)
-						}}
-						aria-expanded={displayOpen}
-						aria-controls={displayPanelId}
-						className={displayTriggerClass}
-					>
-						{imagesBlocked || failedImages > 0 ? (
-							<ImageOff className="h-4 w-4" />
-						) : (
-							<SlidersHorizontal className="h-4 w-4" />
-						)}
-						{imagesBlocked
-							? 'Images blocked'
-							: failedImages > 0
-								? 'Image unavailable'
-								: pendingImages > 0
-									? 'Loading images'
-									: 'Display'}
-						<ChevronDown
-							className={`h-3.5 w-3.5 transition-transform duration-[var(--dur-fast)] ease-[var(--ease-out)] ${displayOpen ? 'rotate-180' : ''}`}
-						/>
-					</button>
-
-					{displayOpen ? (
-						<section
-							id={displayPanelId}
-							role="dialog"
-							aria-labelledby={displayHeadingId}
-							className="fixed inset-x-3 bottom-20 z-30 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-sm sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:z-20 sm:mt-1 sm:w-[min(20rem,calc(100vw-3rem))] sm:max-h-[min(32rem,calc(100dvh-6rem))]"
-						>
-							<h3 id={displayHeadingId} className="font-display text-sm font-semibold text-foreground">
-								Message display
-							</h3>
-
-							{imagesBlocked ? (
-								<div className="mt-3 border-t border-border pt-3">
-									<p className="text-sm leading-relaxed text-muted-foreground">
-										External images stay off to limit tracking until you choose how to show them.
-									</p>
-									<div className="mt-3 grid gap-1.5">
-										<button
-											type="button"
-											onClick={showImagesOnce}
-											className={`${imageActionClass} bg-foreground text-background hover:opacity-90`}
-										>
-											Show once
-										</button>
-										{senderAddress ? (
-											<button
-												type="button"
-												disabled={senderTrustStatus === 'loading'}
-												aria-busy={senderTrustStatus === 'loading' || undefined}
-												onClick={() => void alwaysShowSenderImages()}
-												className={`${imageActionClass} border border-border bg-background text-foreground hover:bg-muted`}
-											>
-												{senderTrustStatus === 'loading' ? (
-													<LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-												) : null}
-												{senderTrustStatus === 'loading' ? 'Saving…' : 'Always from sender'}
-											</button>
-										) : null}
-										<button
-											type="button"
-											onClick={alwaysShowImages}
-											className={`${imageActionClass} text-muted-foreground hover:bg-muted hover:text-foreground`}
-										>
-											Always show all
-										</button>
-									</div>
-									{senderTrustStatus === 'error' ? (
-										<p role="alert" className="mt-2 text-xs text-destructive">
-											Couldn’t save that image choice. Try again.
-										</p>
-									) : null}
-								</div>
-							) : null}
-
-							{failedImages > 0 ? (
-								<div className="mt-3 border-t border-border pt-3">
-									<p role="status" className="text-sm leading-relaxed text-muted-foreground">
-										{failedImages === 1
-											? 'One image could not be loaded.'
-											: `${failedImages} images could not be loaded.`}
-									</p>
-									<button
-										type="button"
-										onClick={() => retryRemoteImages(ref.current)}
-										className={`${imageActionClass} mt-2 border border-border bg-background text-foreground hover:bg-muted`}
-									>
-										Retry images
-									</button>
-								</div>
-							) : null}
-
-							{showLayoutControl ? (
-								<fieldset className="mt-3 border-t border-border pt-3">
-									<legend className="text-xs font-medium text-foreground">Layout</legend>
-									<div className="mt-1.5 flex rounded-md bg-muted/60 p-0.5">
-										{(
-											[
-												['readable', 'Readable'],
-												['original', 'Original'],
-											] as const
-										).map(([mode, label]) => (
-											<button
-												key={mode}
-												type="button"
-												aria-pressed={layoutMode === mode}
-												onClick={() => savePreferences({ ...preferences, emailLayoutMode: mode })}
-												className={displayOptionClass}
-											>
-												{layoutMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
-												{label}
-											</button>
-										))}
-									</div>
-								</fieldset>
-							) : null}
-
-							{showColorControl ? (
-								<fieldset className="mt-3 border-t border-border pt-3">
-									<legend className="text-xs font-medium text-foreground">Message colors</legend>
-									<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-										Automatic adapts light messages and eligible images for dark mode. Original preserves the
-										sender’s colors on a light canvas.
-									</p>
-									<div className="mt-1.5 flex rounded-md bg-muted/60 p-0.5">
-										{(
-											[
-												['automatic', 'Automatic'],
-												['original', 'Original'],
-											] as const
-										).map(([mode, label]) => (
-											<button
-												key={mode}
-												type="button"
-												aria-label={`${label} message colors`}
-												aria-pressed={colorMode === mode}
-												onClick={() => savePreferences({ ...preferences, emailColorMode: mode })}
-												className={displayOptionClass}
-											>
-												{colorMode === mode ? <Check className="h-3.5 w-3.5" /> : null}
-												{label}
-											</button>
-										))}
-									</div>
-								</fieldset>
-							) : null}
-
-							<a
-								href="/settings"
-								className="mt-3 inline-flex min-h-11 items-center whitespace-nowrap text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							>
-								Manage image choices
-							</a>
-						</section>
-					) : null}
-				</div>
-			) : null}
 			{ready ? (
 				<OwnmailEmail
 					ref={ref}

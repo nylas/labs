@@ -63,7 +63,9 @@ vi.mock('#app/components/AppRail', () => ({
 }))
 
 vi.mock('#app/components/MobileTabBar', () => ({
-	MobileTabBar: ({ active }: { active: string }) => <nav data-testid="mobile-tabs" data-active={active} />,
+	MobileTabBar: ({ active, context }: { active: string; context?: string }) => (
+		<nav data-testid="mobile-tabs" data-active={active} data-context={context ?? 'primary'} />
+	),
 }))
 
 const paletteShortcut = vi.fn()
@@ -198,6 +200,41 @@ describe('/mail loader + layout', () => {
 })
 
 describe('MailRouteScreen — layout wiring', () => {
+	it('switches the one mobile bottom surface to thread actions for direct and search readers', () => {
+		const direct = renderScreen(
+			{},
+			{
+				location: { pathname: '/mail/f/inbox/t/t1', search: {} },
+				matches: [{ routeId: '/mail/f/$folderId/t/$threadId' }],
+			},
+		)
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-context', 'thread')
+		expect(screen.queryByRole('link', { name: 'Compose message' })).toBeNull()
+
+		direct.unmount()
+		renderScreen(
+			{},
+			{
+				location: { pathname: '/mail/search', search: { q: 'roadmap', threadId: 't2' } },
+				matches: [{ routeId: '/mail/search' }],
+			},
+		)
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-context', 'thread')
+		expect(screen.queryByRole('link', { name: 'Compose message' })).toBeNull()
+	})
+
+	it('keeps primary mobile destinations and compose on list surfaces', () => {
+		renderScreen(
+			{},
+			{
+				location: { pathname: '/mail/search', search: { q: 'roadmap' } },
+				matches: [{ routeId: '/mail/search' }],
+			},
+		)
+		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-context', 'primary')
+		expect(screen.getByRole('link', { name: 'Compose message' })).toBeInTheDocument()
+	})
+
 	it('recovers to Inbox only when the deleted folder is active', () => {
 		renderScreen({}, { location: { pathname: '/mail/f/work', search: {} } })
 		fireEvent.click(screen.getAllByRole('button', { name: 'delete-work-folder' })[0] as HTMLElement)
