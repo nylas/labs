@@ -118,6 +118,7 @@ import { Route } from './mail.compose.js'
 afterEach(() => {
 	cleanup()
 	vi.useRealTimers()
+	vi.unstubAllGlobals()
 	window.history.replaceState(null, '')
 })
 beforeEach(() => {
@@ -204,6 +205,22 @@ function renderCompose({
 
 function fileInput(container: HTMLElement) {
 	return container.querySelector('input[type="file"]') as HTMLInputElement
+}
+
+function mockMobileViewport() {
+	vi.stubGlobal(
+		'matchMedia',
+		vi.fn((query: string) => ({
+			matches: query === '(max-width: 47.999rem)',
+			media: query,
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		})),
+	)
 }
 
 function runComposeLoader(
@@ -1271,19 +1288,49 @@ describe('mail.compose window controls', () => {
 		expect(panel).toHaveClass('compose-panel')
 		expect(panel).toHaveAttribute('data-minimized', 'false')
 		expect(panel).not.toHaveAttribute('aria-modal')
-		expect(panel).toHaveClass('max-sm:pr-[env(safe-area-inset-right)]')
-		expect(panel).toHaveClass('max-sm:pl-[env(safe-area-inset-left)]')
-		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'sm:flex')
-		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11')
+		expect(panel).toHaveClass('max-md:pr-[env(safe-area-inset-right)]')
+		expect(panel).toHaveClass('max-md:pl-[env(safe-area-inset-left)]')
+		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'md:flex')
+		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('size-11', 'md:size-6')
+	})
+
+	it('is modal and contains keyboard focus throughout the mobile breakpoint', async () => {
+		mockMobileViewport()
+		renderCompose()
+		const panel = screen.getByRole('dialog', { name: 'Compose message' })
+		await waitFor(() => expect(panel).toHaveAttribute('aria-modal', 'true'))
+		await waitFor(() => expect(screen.getByLabelText('To')).toHaveFocus())
+
+		const outside = document.createElement('button')
+		document.body.appendChild(outside)
+		outside.focus()
+		fireEvent.keyDown(outside, { key: 'Tab', shiftKey: true })
+		expect(panel).toContainElement(document.activeElement as HTMLElement)
+
+		outside.focus()
+		fireEvent.keyDown(outside, { key: 'Tab' })
+		expect(panel).toContainElement(document.activeElement as HTMLElement)
+		outside.remove()
 	})
 
 	it('uses shared buttons for 44px mobile header and footer controls', () => {
 		renderCompose()
+		expect(screen.getByLabelText('To').parentElement).toHaveClass(
+			'min-h-12',
+			'focus-within:ring-[3px]',
+			'focus-within:ring-ring',
+		)
+		expect(screen.getByLabelText('Subject').closest('label')).toHaveClass(
+			'min-h-12',
+			'focus-within:ring-[3px]',
+			'focus-within:ring-ring',
+		)
+		expect(screen.getByLabelText('Subject')).toHaveClass('h-12')
 
 		for (const name of ['Minimize composer', 'Close']) {
 			const control = screen.getByRole('button', { name })
 			expect(control).toHaveAttribute('data-slot', 'button')
-			expect(control).toHaveClass('max-md:size-11')
+			expect(control).toHaveClass('size-11', 'md:size-6')
 		}
 		for (const name of ['Send', 'Save draft', 'Attach file', 'Discard draft']) {
 			const control = screen.getByRole('button', { name })

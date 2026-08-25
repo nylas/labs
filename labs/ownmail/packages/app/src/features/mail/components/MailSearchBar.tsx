@@ -198,8 +198,12 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 					) : (
 						<>
 							<div className="mail-search-panel-heading">
-								<span>{value.trim() ? 'Continue your search' : 'Search with precision'}</span>
-								<span className="font-normal text-muted-foreground">↑↓ choose · Enter apply</span>
+								<span className="min-w-0 truncate">
+									{value.trim() ? 'Continue your search' : 'Search with precision'}
+								</span>
+								<span className="hidden shrink-0 font-normal text-muted-foreground md:inline">
+									↑↓ choose · Enter apply
+								</span>
 							</div>
 							<div id={listboxId} role="listbox" aria-label="Advanced search suggestions">
 								{suggestions.map((suggestion, index) => (

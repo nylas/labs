@@ -707,12 +707,12 @@ describe('action errors', () => {
 describe('ErrorBanner', () => {
 	it('strips the QUOTA: prefix so plan-limit copy reads naturally', () => {
 		render(<ErrorBanner message="QUOTA:  You hit a limit" />)
-		expect(screen.getByText('You hit a limit')).toBeInTheDocument()
+		expect(screen.getByRole('alert')).toHaveTextContent('You hit a limit')
 	})
 
 	it('shows a non-quota message verbatim', () => {
 		render(<ErrorBanner message="Plain error" />)
-		expect(screen.getByText('Plain error')).toBeInTheDocument()
+		expect(screen.getByRole('alert')).toHaveTextContent('Plain error')
 	})
 })
 
@@ -806,7 +806,9 @@ describe('compose navigation', () => {
 		expect(toolbar).toHaveClass('mobile-thread-tabs')
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
-		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveClass('hidden', 'sm:flex')
+		const desktopReply = screen.getByRole('button', { name: /Write a reply/ })
+		expect(desktopReply).toHaveClass('hidden', 'md:flex')
+		expect(desktopReply.parentElement).not.toHaveClass('border-t')
 
 		await user.click(reply)
 		expect(navigate).toHaveBeenLastCalledWith(

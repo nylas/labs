@@ -17,6 +17,11 @@ describe('ScrollArea', () => {
 		expect(screen.getByLabelText('Thread conversation')).toHaveClass('size-full', 'min-w-0')
 		expect(screen.getByLabelText('Thread conversation')).toHaveAttribute('tabindex', '0')
 		expect(screen.getByLabelText('Thread conversation')).toHaveClass('overflow-x-hidden', 'overflow-y-auto')
+		expect(screen.getByLabelText('Thread conversation')).toHaveClass(
+			'focus-visible:ring-[3px]',
+			'focus-visible:ring-inset',
+			'focus-visible:ring-ring',
+		)
 		expect(screen.getByLabelText('Thread conversation').parentElement).toHaveAttribute(
 			'data-slot',
 			'scroll-area',

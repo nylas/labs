@@ -353,17 +353,17 @@ function ThreadView() {
 			</ScrollArea>
 
 			{lastMessage ? (
-				<div className="shrink-0 border-t border-border bg-background px-5 py-3 lg:px-8">
+				<>
 					<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
 					<button
 						type="button"
 						onClick={reply}
-						className="hidden w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground sm:flex"
+						className="mx-5 my-3 hidden min-h-11 items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground md:flex lg:mx-8"
 					>
 						<Reply className="h-4 w-4 shrink-0" />
 						<span>Write a reply…</span>
 					</button>
-				</div>
+				</>
 			) : null}
 		</div>
 	)
@@ -422,7 +422,7 @@ function ActionButton({
 export function ErrorBanner({ message }: { message: string }) {
 	const isQuota = message.startsWith('QUOTA:')
 	return (
-		<p className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+		<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 			{isQuota ? message.slice(6).trim() : message}
 		</p>
 	)

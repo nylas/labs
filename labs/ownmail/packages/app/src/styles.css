@@ -226,7 +226,7 @@
 
 .app-input:focus-visible {
 	border-color: var(--ring);
-	box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 82%);
+	box-shadow: 0 0 0 2px var(--ring);
 }
 
 /*
@@ -235,8 +235,9 @@
  * on touch-first devices; larger viewports retain their compact desktop type.
  * This unlayered rule deliberately overrides Tailwind's layered text utilities.
  */
-@media (hover: none) and (pointer: coarse) {
+@media (max-width: 48rem), (any-pointer: coarse) {
 	.touch-target {
+		min-width: var(--touch-target-min);
 		min-height: var(--touch-target-min);
 	}
 
@@ -263,9 +264,14 @@
 		color 120ms ease;
 }
 
-.command-row:hover,
 .command-row:focus-visible {
 	background: var(--muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.command-row:hover {
+		background: var(--muted);
+	}
 }
 
 .kbd {
@@ -828,7 +834,7 @@
 	max-height: 2.75rem;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 48rem) {
 	.compose-panel {
 		inset: auto 1rem 0 auto;
 		width: min(30rem, calc(100vw - 2rem));
@@ -844,6 +850,14 @@
 		bottom: 0;
 		height: 2.75rem;
 		max-height: 2.75rem;
+	}
+}
+
+@media (max-width: 48rem), (any-pointer: coarse) {
+	.app-rail-item,
+	.app-rail-account {
+		min-width: var(--touch-target-min);
+		min-height: var(--touch-target-min);
 	}
 }
 

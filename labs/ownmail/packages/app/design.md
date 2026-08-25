@@ -76,7 +76,42 @@ mobile rows prefer 48 pixels.
 - App scroll belongs to explicit content regions, not the document.
 - Sheets and full-screen editors use `dvh` and remain usable above the software
   keyboard.
-- Verify 320, 375, 414, and 768 CSS-pixel widths with no horizontal overflow.
+- Verify 320, 375, 414, 640, 767, and 768 CSS-pixel widths with no horizontal
+  overflow. The 640 and 767 checks protect the final mobile breakpoint before
+  desktop chrome takes over.
+
+## Mobile interaction contract
+
+This contract is normative for application-owned UI. It intentionally uses the
+44 CSS-pixel enhanced target size as the product floor rather than relying on
+the smaller WCAG 2.2 AA minimum.
+
+- Every touch-reachable control has an effective target at least 44 by 44 CSS
+  pixels. Primary navigation, menu, picker, and result rows are at least 48
+  pixels high. A compact glyph may remain 16–20 pixels inside that target.
+- The floor applies to mobile layouts and to touch-capable hybrid/tablet input.
+  Targets may not overlap, and spacing alone does not excuse an undersized
+  application control.
+- Semantic activation uses `click`; pointer- or mouse-down handlers may only
+  prevent blur or provide supplementary feedback. Enter and Space must perform
+  the same action as a tap where the element's native role requires it.
+- Icon-only controls have an accessible name. Disclosures, selections, busy
+  actions, validation, and expanded surfaces expose their current state through
+  native semantics or ARIA.
+- Keyboard focus uses an immediate, visible two-pixel treatment with at least
+  3:1 contrast against adjacent colors. Removing an outline requires an equal
+  or stronger replacement on the same focusable surface.
+- Editable controls remain at least 16 pixels in type, use stable labels and
+  helper/error space, set `aria-invalid` and `aria-describedby` when invalid,
+  and announce submitted errors without exposing internal details.
+- Overlays use dynamic viewport units, all four safe-area insets, an explicit
+  close path, focus containment when modal, and focus restoration on dismissal.
+- Visible action labels stay on one line. At narrow widths, actions may become
+  icon-only with an accessible name or stack to full-width rows rather than
+  wrap or overflow.
+- Sanitized sender-authored email links are the sole target-size exemption.
+  They retain readable scaling, underlines, safe navigation, and visible focus;
+  application-added controls inside message content are not exempt.
 
 ## CTA voice
 

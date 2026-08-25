@@ -174,7 +174,7 @@ export function ScrollArea({
 				// biome-ignore lint/a11y/noNoninteractiveTabindex: Native scroll regions must be keyboard focusable.
 				tabIndex={0}
 				className={cn(
-					'size-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[inherit] focus-visible:outline-none',
+					'size-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[inherit] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid',
 					viewportClassName,
 				)}
 			>

@@ -247,6 +247,7 @@ const monthData = () => ({
 
 afterEach(() => {
 	cleanup()
+	vi.unstubAllGlobals()
 	vi.clearAllMocks()
 	localStorage.clear()
 })
@@ -503,6 +504,22 @@ describe('week view mini-calendar', () => {
 			params: { view: 'week' },
 			search: { date: '2024-06-10' },
 		})
+	})
+})
+
+describe('mobile event access', () => {
+	it('uses touch-sized agenda rows while calendar event chips become noninteractive visuals', () => {
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+		)
+		render(<CalendarRouteScreen view="day" data={richData()} />)
+		expect(screen.getByRole('heading', { name: 'Events this day' })).toBeInTheDocument()
+		const standup = screen.getByRole('button', { name: /Standup/ })
+		expect(standup).toHaveClass('min-h-12')
+		const standupCopies = screen.getAllByText('Standup')
+		expect(standupCopies).toHaveLength(2)
+		expect(standupCopies.filter((node) => node.closest('button'))).toHaveLength(1)
 	})
 })
 
@@ -1032,7 +1049,9 @@ describe('mobile calendar sheet', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
-		fireEvent.click(within(sheet).getByRole('button', { name: '10' }))
+		const dateInput = within(sheet).getByLabelText('Go to date')
+		expect(dateInput).toHaveClass('h-12')
+		fireEvent.change(dateInput, { target: { value: '2024-06-10' } })
 		expect(h.navigate).toHaveBeenCalledWith({
 			to: '/calendar/$view',
 			params: { view: 'week' },
@@ -1046,7 +1065,7 @@ describe('mobile calendar sheet', () => {
 		render(<CalendarRouteScreen view="month" data={monthData()} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
-		fireEvent.click(within(sheet).getByRole('button', { name: '12' }))
+		fireEvent.change(within(sheet).getByLabelText('Go to date'), { target: { value: '2024-06-12' } })
 		expect(h.navigate).toHaveBeenCalledWith({
 			to: '/calendar/$view',
 			params: { view: 'day' },

@@ -255,7 +255,7 @@ function SettingsPage() {
 								maxLength={120}
 								autoComplete="name"
 								required
-								className="mt-1 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+								className="mt-1 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 							/>
 						</section>
 
@@ -295,7 +295,7 @@ function SettingsPage() {
 										update({ remoteImagePolicy: event.target.value === 'always' ? 'always' : 'ask' })
 									}
 									aria-describedby="settings-remote-images-help"
-									className="mt-2 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+									className="mt-2 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
 								>
 									<option value="ask">Ask before showing</option>
 									<option value="always">Always show</option>
@@ -516,7 +516,7 @@ function TimezoneField({
 				value={value}
 				disabled={disabled}
 				onChange={(event) => onChange(event.target.value)}
-				className="mt-1 h-11 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				className="mt-1 h-11 w-full rounded-md border border-border bg-card px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 			>
 				{includeNone ? <option value="">None</option> : null}
 				{timezones.map((timezone) => (
@@ -556,7 +556,7 @@ function PasswordField({
 				maxLength={40}
 				autoComplete="new-password"
 				required
-				className="mt-1 min-h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+				className="mt-1 min-h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 			/>
 		</label>
 	)

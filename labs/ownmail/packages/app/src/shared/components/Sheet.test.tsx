@@ -115,6 +115,7 @@ describe('Sheet', () => {
 		expect(dialog).toHaveClass('lg:hidden')
 		expect(dialog).not.toHaveClass('md:hidden')
 		expect(dialog.lastElementChild).toHaveClass('pb-[var(--safe-area-bottom)]')
+		expect(dialog.lastElementChild).toHaveClass('pl-[var(--safe-area-left)]', 'pr-[var(--safe-area-right)]')
 	})
 
 	it('closes and releases its breakpoint listener when a default sheet becomes desktop-only', () => {

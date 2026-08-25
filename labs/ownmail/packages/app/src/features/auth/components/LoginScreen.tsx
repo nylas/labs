@@ -73,7 +73,7 @@ export function LoginScreen({
 
 	return (
 		<main
-			className="flex min-h-screen w-full items-center bg-background px-6 py-12"
+			className="flex min-h-dvh w-full items-center bg-background px-6 py-12"
 			style={accentVariables(host) as CSSProperties}
 		>
 			<div className="mx-auto w-full max-w-[28rem]">

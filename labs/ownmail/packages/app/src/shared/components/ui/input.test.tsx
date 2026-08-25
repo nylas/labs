@@ -15,6 +15,12 @@ describe('Input', () => {
 		expect(input.className).toContain('text-base')
 		expect(input.className).toContain('sm:text-sm')
 		expect(input.className).toContain('touch-target')
+		expect(input).toHaveClass(
+			'focus-visible:ring-ring',
+			'aria-invalid:border-destructive',
+			'[@media(any-pointer:coarse)]:min-h-11',
+		)
+		expect(input).not.toHaveClass('focus-visible:ring-ring/40')
 		expect(input.className).not.toContain('box-shadow')
 	})
 })

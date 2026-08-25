@@ -41,9 +41,15 @@ describe('native mobile shell styles', () => {
 		expect(tokens).toContain('--mobile-tab-bar-height: 3.75rem;')
 	})
 
-	it('enforces the shared 44px touch floor only for coarse pointers', () => {
+	it('enforces the shared 44px touch floor on mobile and touch-capable hybrid devices', () => {
 		expect(styles).toMatch(
-			/@media \(hover: none\) and \(pointer: coarse\)\s*\{\s*\.touch-target\s*\{\s*min-height: var\(--touch-target-min\);\s*\}\s*\.touch-target-square\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);/,
+			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.touch-target\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);\s*\}\s*\.touch-target-square\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);/,
+		)
+	})
+
+	it('gives tablet rail actions the same 44px floor', () => {
+		expect(styles).toMatch(
+			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.app-rail-item,\s*\.app-rail-account\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);/,
 		)
 	})
 
@@ -63,14 +69,14 @@ describe('native mobile shell styles', () => {
 		expect(styles).toMatch(/@media \(min-width: 48rem\)\s*\{\s*\.mobile-tab-bar\s*\{\s*display: none;/)
 	})
 
-	it('uses full dynamic-viewport editors on phones and restores floating panels on larger screens', () => {
+	it('uses full dynamic-viewport editors through mobile and restores floating panels at the desktop breakpoint', () => {
 		expect(styles).toMatch(
 			/\.compose-panel\s*\{[^}]*inset: 0;[^}]*height: 100dvh;[^}]*max-height: 100dvh;[^}]*width: 100%;/,
 		)
 		expect(styles).toMatch(
 			/\.event-composer-panel\s*\{[^}]*inset: 0;[^}]*height: 100dvh;[^}]*max-height: 100dvh;[^}]*width: 100%;/,
 		)
-		expect(styles).toMatch(/@media \(min-width: 640px\)\s*\{\s*\.compose-panel\s*\{/)
+		expect(styles).toMatch(/@media \(min-width: 48rem\)\s*\{\s*\.compose-panel\s*\{/)
 	})
 })
 

@@ -50,18 +50,20 @@ export function Sheet({
 					hideAt === 'lg' ? 'lg:hidden' : 'md:hidden',
 				)}
 			>
-				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
+				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border pr-[max(0.75rem,var(--safe-area-right))] pl-[max(0.75rem,var(--safe-area-left))]">
 					<DialogTitle className="font-display text-sm font-semibold">{title}</DialogTitle>
 					<button
 						type="button"
 						onClick={onClose}
 						aria-label={`Close ${title.toLowerCase()}`}
-						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px"
+						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 					>
 						<X className="h-4 w-4" />
 					</button>
 				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto pb-[var(--safe-area-bottom)]">{children}</div>
+				<div className="min-h-0 flex-1 overflow-y-auto pr-[var(--safe-area-right)] pb-[var(--safe-area-bottom)] pl-[var(--safe-area-left)]">
+					{children}
+				</div>
 			</DialogContent>
 		</Dialog>
 	)

@@ -71,6 +71,16 @@ import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
 
 const MAX_COMPOSE_ATTACHMENTS = 10
 const MAX_COMPOSE_ATTACHMENT_BYTES = 2 * 1024 * 1024
+const MOBILE_COMPOSE_QUERY = '(max-width: 47.999rem)'
+const COMPOSE_FOCUSABLE_SELECTOR = [
+	'button:not(:disabled)',
+	'[href]',
+	'input:not(:disabled)',
+	'select:not(:disabled)',
+	'textarea:not(:disabled)',
+	'[contenteditable="true"]',
+	'[tabindex]:not([tabindex="-1"])',
+].join(',')
 
 type ComposeFocusTarget = 'compose-to' | 'compose-subject' | 'compose-body'
 type PendingComposeBackdropAction = 'archive' | 'restore' | 'delete' | 'star'
@@ -92,6 +102,26 @@ function composeFocusTarget({
 
 function focusComposeTarget(target: ComposeFocusTarget) {
 	document.getElementById(target)?.focus()
+}
+
+function useMobileComposePresentation(): boolean {
+	const [mobile, setMobile] = useState(false)
+	useEffect(() => {
+		if (typeof window.matchMedia !== 'function') return
+		const media = window.matchMedia(MOBILE_COMPOSE_QUERY)
+		const update = () => setMobile(media.matches)
+		update()
+		media.addEventListener('change', update)
+		return () => media.removeEventListener('change', update)
+	}, [])
+	return mobile
+}
+
+function visibleComposeControls(root: HTMLElement): HTMLElement[] {
+	return [...root.querySelectorAll<HTMLElement>(COMPOSE_FOCUSABLE_SELECTOR)].filter((element) => {
+		const style = window.getComputedStyle(element)
+		return style.display !== 'none' && style.visibility !== 'hidden'
+	})
 }
 
 function draftSaveErrorMessage(error: unknown): string {
@@ -265,6 +295,7 @@ function Compose() {
 	const [attaching, setAttaching] = useState(false)
 	const [closing, setClosing] = useState(false)
 	const [savingDraft, setSavingDraft] = useState(false)
+	const mobileCompose = useMobileComposePresentation()
 	const [preferences] = useUserPreferences()
 	const selectedThreadIsArchived =
 		folderId === 'archive' || selected?.thread.folders?.includes('archive') === true
@@ -672,6 +703,33 @@ function Compose() {
 	}, [])
 
 	useEffect(() => {
+		if (!mobileCompose || minimized) return
+		function trapMobileComposeFocus(event: KeyboardEvent) {
+			if (event.key !== 'Tab') return
+			const panel = composePanelRef.current
+			if (!panel) return
+			const controls = visibleComposeControls(panel)
+			if (controls.length === 0) {
+				event.preventDefault()
+				panel.focus()
+				return
+			}
+			const first = controls[0] as HTMLElement
+			const last = controls.at(-1) as HTMLElement
+			const active = document.activeElement
+			if (event.shiftKey && (active === first || !panel.contains(active))) {
+				event.preventDefault()
+				last.focus()
+			} else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+				event.preventDefault()
+				first.focus()
+			}
+		}
+		document.addEventListener('keydown', trapMobileComposeFocus)
+		return () => document.removeEventListener('keydown', trapMobileComposeFocus)
+	}, [minimized, mobileCompose])
+
+	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			if (!composePanelRef.current?.contains(event.target as Node) || event.defaultPrevented) return
 			const target = event.target as HTMLElement | null
@@ -760,12 +818,14 @@ function Compose() {
 				data-minimized={minimized ? 'true' : 'false'}
 				aria-busy={busy || attaching || closing || savingDraft}
 				aria-label="Compose message"
+				aria-modal={mobileCompose && !minimized ? true : undefined}
 				role="dialog"
-				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl max-sm:pr-[env(safe-area-inset-right)] max-sm:pl-[env(safe-area-inset-left)]"
+				tabIndex={-1}
+				className="compose-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl max-md:pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]"
 			>
 				<div
 					className={cn(
-						'flex min-h-11 items-center justify-between bg-foreground px-3 pb-2.5 text-background sm:rounded-t-xl sm:pt-2.5',
+						'flex min-h-11 items-center justify-between bg-foreground px-3 pb-2.5 text-background md:rounded-t-xl md:pt-2.5',
 						minimized ? 'pt-2.5' : 'pt-[calc(0.625rem+var(--safe-area-top))]',
 					)}
 				>
@@ -791,8 +851,8 @@ function Compose() {
 							aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
 							aria-expanded={!minimized}
 							className={cn(
-								'h-11 w-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background max-md:size-11 sm:size-6',
-								minimized ? 'flex' : 'hidden sm:flex',
+								'size-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background md:size-6',
+								minimized ? 'flex' : 'hidden md:flex',
 							)}
 						>
 							{minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
@@ -804,7 +864,7 @@ function Compose() {
 							onClick={() => void close()}
 							disabled={busy || closing}
 							aria-label="Close"
-							className="flex h-11 w-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background max-md:size-11 sm:size-6"
+							className="flex size-11 items-center justify-center rounded text-background transition-colors hover:bg-background/20 hover:text-background md:size-6"
 						>
 							<X className="h-4 w-4" />
 						</Button>
@@ -814,8 +874,8 @@ function Compose() {
 				{!minimized ? (
 					<>
 						<div className="flex flex-col">
-							<div className="border-b border-border px-3 py-2 text-sm">
-								<div className="flex items-center gap-2">
+							<div className="border-b border-border text-sm">
+								<div className="flex min-h-12 items-center gap-2 px-3 focus-within:bg-muted/30 focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring">
 									<span className="w-14 shrink-0 text-muted-foreground">To</span>
 									<RecipientInput
 										ref={recipientInputRef}
@@ -842,7 +902,7 @@ function Compose() {
 							</div>
 							<label
 								htmlFor="compose-subject"
-								className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm"
+								className="flex min-h-12 items-center gap-2 border-b border-border px-3 text-sm focus-within:bg-muted/30 focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring"
 							>
 								<span className="w-14 text-muted-foreground">Subject</span>
 								<input
@@ -850,7 +910,7 @@ function Compose() {
 									value={subject}
 									disabled={closing}
 									onChange={(event) => setSubject(event.target.value)}
-									className="compose-field flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-wait disabled:opacity-60"
+									className="compose-field h-12 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-wait disabled:opacity-60"
 								/>
 							</label>
 						</div>
@@ -889,7 +949,7 @@ function Compose() {
 							</div>
 						) : null}
 						{error ? <ErrorBanner message={error} /> : null}
-						<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-2.5 pb-[calc(0.625rem+var(--safe-area-bottom))] sm:pb-2.5">
+						<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-2.5 pb-[calc(0.625rem+var(--safe-area-bottom))] md:pb-2.5">
 							<Button
 								type="button"
 								disabled={busy || attaching || closing}
@@ -905,7 +965,7 @@ function Compose() {
 								onClick={saveNow}
 								aria-label="Save draft"
 							>
-								<Save className="h-4 w-4" /> <span className="hidden sm:inline">Save draft</span>
+								<Save className="h-4 w-4" /> <span className="hidden md:inline">Save draft</span>
 							</Button>
 							<Button
 								type="button"

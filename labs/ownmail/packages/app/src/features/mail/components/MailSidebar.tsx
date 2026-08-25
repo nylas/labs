@@ -67,7 +67,7 @@ export function MailSidebar({
 					search={composeSearch}
 					onClick={onNavigate}
 					className={cn(
-						'flex w-full items-center justify-center gap-2 border border-border text-sm font-medium transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+						'touch-target flex w-full items-center justify-center gap-2 border border-border text-sm font-medium transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
 						mobile
 							? 'min-h-12 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 active:translate-y-px'
 							: 'h-9 bg-background text-foreground hover:bg-muted',
@@ -91,7 +91,7 @@ export function MailSidebar({
 							params={{ folderId: folder.id }}
 							onClick={onNavigate}
 							className={cn(
-								'relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
+								'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
 								mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
 								active
 									? cn('nav-item-active', mobile && 'mobile-nav-item-active')
@@ -120,7 +120,7 @@ export function MailSidebar({
 						onClick={() => setManagingFolders(true)}
 						aria-label="Manage folders"
 						className={cn(
-							'flex items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:ring-[3px] focus-visible:ring-ring',
+							'touch-target-square flex items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:ring-[3px] focus-visible:ring-ring',
 							mobile ? 'h-11 w-11' : 'h-8 w-8',
 						)}
 					>
@@ -141,7 +141,7 @@ export function MailSidebar({
 									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
 									onClick={onNavigate}
 									className={cn(
-										'relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
+										'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
 										mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
 										active
 											? cn('nav-item-active', mobile && 'mobile-nav-item-active')

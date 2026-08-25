@@ -29,7 +29,14 @@ describe('CommandPalette', () => {
 
 	it('focuses the filter input when opened', async () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
-		await waitFor(() => expect(screen.getByLabelText('Filter commands')).toHaveFocus())
+		const input = screen.getByLabelText('Filter commands')
+		await waitFor(() => expect(input).toHaveFocus())
+		const listbox = screen.getByRole('listbox', { name: 'Commands' })
+		expect(input).toHaveAttribute('role', 'combobox')
+		expect(input).toHaveAttribute('aria-expanded', 'true')
+		expect(input).toHaveAttribute('aria-controls', listbox.id)
+		expect(input).toHaveAttribute('aria-activedescendant', screen.getAllByRole('option')[0]?.id)
+		expect(input).toHaveClass('focus-visible:ring-ring')
 	})
 
 	it('filters commands by label and shows an empty state when nothing matches', async () => {
@@ -45,29 +52,31 @@ describe('CommandPalette', () => {
 		await user.type(input, 'zzznope')
 		expect(screen.getByText('No matching commands')).toBeInTheDocument()
 		// Enter with no match must not navigate or throw.
-		fireEvent.keyDown(document, { key: 'Enter' })
+		fireEvent.keyDown(input, { key: 'Enter' })
 		expect(navigateSpy).not.toHaveBeenCalled()
 	})
 
 	it('navigates through commands with arrow keys, clamping at both ends', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
-		const rows = () => screen.getAllByRole('button').filter((b) => b.className.includes('command-row'))
+		const rows = () => screen.getAllByRole('option')
 
 		// First row is active by default.
-		expect(rows()[0]).toHaveAttribute('aria-current', 'true')
+		expect(rows()[0]).toHaveAttribute('aria-selected', 'true')
+		expect(rows()[0]).toHaveClass('min-h-12')
+		const input = screen.getByLabelText('Filter commands')
 
-		fireEvent.keyDown(document, { key: 'ArrowDown' })
-		expect(rows()[1]).toHaveAttribute('aria-current', 'true')
+		fireEvent.keyDown(input, { key: 'ArrowDown' })
+		expect(rows()[1]).toHaveAttribute('aria-selected', 'true')
 
 		// Clamp at the top.
-		fireEvent.keyDown(document, { key: 'ArrowUp' })
-		fireEvent.keyDown(document, { key: 'ArrowUp' })
-		expect(rows()[0]).toHaveAttribute('aria-current', 'true')
+		fireEvent.keyDown(input, { key: 'ArrowUp' })
+		fireEvent.keyDown(input, { key: 'ArrowUp' })
+		expect(rows()[0]).toHaveAttribute('aria-selected', 'true')
 
 		// Clamp at the bottom.
-		for (let i = 0; i < 40; i += 1) fireEvent.keyDown(document, { key: 'ArrowDown' })
+		for (let i = 0; i < 40; i += 1) fireEvent.keyDown(input, { key: 'ArrowDown' })
 		const list = rows()
-		expect(list[list.length - 1]).toHaveAttribute('aria-current', 'true')
+		expect(list[list.length - 1]).toHaveAttribute('aria-selected', 'true')
 	})
 
 	it('scrolls the active command into view when navigating with arrow keys', () => {
@@ -77,7 +86,7 @@ describe('CommandPalette', () => {
 		try {
 			render(<CommandPalette open={true} onClose={vi.fn()} />)
 
-			fireEvent.keyDown(document, { key: 'ArrowDown' })
+			fireEvent.keyDown(screen.getByLabelText('Filter commands'), { key: 'ArrowDown' })
 
 			expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
 		} finally {
@@ -89,7 +98,7 @@ describe('CommandPalette', () => {
 		const onClose = vi.fn()
 		render(<CommandPalette open={true} onClose={onClose} />)
 		// Index 0 is "Compose new message".
-		fireEvent.keyDown(document, { key: 'Enter' })
+		fireEvent.keyDown(screen.getByLabelText('Filter commands'), { key: 'Enter' })
 		expect(navigateSpy).toHaveBeenCalledWith({ to: '/mail/compose' })
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
@@ -134,19 +143,19 @@ describe('CommandPalette', () => {
 	it('toggles the theme both directions and persists the choice', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		// From light -> dark.
-		const darkModeCommand = screen.getByRole('button', { name: 'Switch to dark mode' })
+		const darkModeCommand = screen.getByRole('option', { name: 'Switch to dark mode' })
 		expect(darkModeCommand.querySelector('svg')).toHaveClass('lucide-moon')
 		fireEvent.click(darkModeCommand)
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
 		expect(document.documentElement.classList.contains('dark')).toBe(true)
 
 		// The still-mounted command immediately offers the inverse action.
-		const lightModeCommand = screen.getByRole('button', { name: 'Switch to light mode' })
+		const lightModeCommand = screen.getByRole('option', { name: 'Switch to light mode' })
 		expect(lightModeCommand.querySelector('svg')).toHaveClass('lucide-sun')
 		fireEvent.click(lightModeCommand)
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
 		expect(document.documentElement.classList.contains('light')).toBe(true)
-		expect(screen.getByRole('button', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
+		expect(screen.getByRole('option', { name: 'Switch to dark mode' }).querySelector('svg')).toHaveClass(
 			'lucide-moon',
 		)
 	})
@@ -171,7 +180,21 @@ describe('CommandPalette', () => {
 		const calendarRow = screen.getByText('Open calendar').closest('button')
 		if (!calendarRow) throw new Error('expected calendar row')
 		fireEvent.mouseEnter(calendarRow)
-		expect(calendarRow).toHaveAttribute('aria-current', 'true')
+		expect(calendarRow).toHaveAttribute('aria-selected', 'true')
+	})
+
+	it('offers an explicit touch-sized close action that retains native keyboard behavior', async () => {
+		const user = userEvent.setup()
+		const onClose = vi.fn()
+		render(<CommandPalette open={true} onClose={onClose} />)
+		const close = screen.getByRole('button', { name: 'Close command palette' })
+		expect(close).toHaveClass('h-11', 'w-11', 'focus-visible:ring-ring')
+		await waitFor(() => expect(screen.getByLabelText('Filter commands')).toHaveFocus())
+		await user.tab()
+		expect(close).toHaveFocus()
+		await user.keyboard('{Enter}')
+		expect(onClose).toHaveBeenCalledTimes(1)
+		expect(navigateSpy).not.toHaveBeenCalled()
 	})
 
 	it('closes on Escape via the dialog dismiss layer', () => {

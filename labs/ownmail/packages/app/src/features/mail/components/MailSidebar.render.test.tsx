@@ -102,10 +102,14 @@ describe('MailSidebar', () => {
 		)
 
 		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" />)
-		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('h-9')
-		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('h-9')
+		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('touch-target', 'h-9')
+		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('touch-target', 'h-9')
 		expect(screen.getByRole('link', { name: /Inbox/ })).not.toHaveClass('mobile-nav-item-active')
-		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass('h-8', 'w-8')
+		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass(
+			'touch-target-square',
+			'h-8',
+			'w-8',
+		)
 
 		view.rerender(
 			<MailSidebar

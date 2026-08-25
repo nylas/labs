@@ -55,7 +55,7 @@ export const Route = createRootRouteWithContext<OwnmailRouterContext>()({
 
 function AppError() {
 	return (
-		<div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+		<div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background px-6 text-center">
 			<div>
 				<p className="font-display text-sm font-semibold text-foreground">We couldn’t load this page.</p>
 				<p className="mt-1 text-sm text-muted-foreground">
@@ -85,7 +85,7 @@ function AppError() {
 
 function NotFoundComponent() {
 	return (
-		<div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+		<div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background px-6 text-center">
 			<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
 				<Compass className="h-6 w-6" />
 			</div>
