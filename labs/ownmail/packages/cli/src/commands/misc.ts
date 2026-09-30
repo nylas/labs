@@ -11,7 +11,7 @@ import { stepDashboardAuth } from '../steps/provision.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { pickExistingProject } from './shared.js'
 
-const LOGIN_PROJECT_SLUG = '__login__'
+export const LOGIN_PROJECT_SLUG = '__login__'
 
 /** Force a fresh dashboard login. */
 export async function runLogin(): Promise<void> {

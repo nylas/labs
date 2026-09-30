@@ -188,6 +188,6 @@ function isSafeProjectSlug(slug: string): boolean {
 	return ProjectSlugSchema.safeParse(slug).success
 }
 
-function isUserProjectSlug(slug: string): boolean {
+export function isUserProjectSlug(slug: string): boolean {
 	return isSafeProjectSlug(slug) && !isReservedProjectSlug(slug)
 }

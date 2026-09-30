@@ -406,9 +406,29 @@ export async function ensureNetlifySite(
 	dir: string,
 	siteName: string,
 	existingSiteId?: string,
+	/** Host of a site that must already exist in this account; no site is created. */
+	requiredHost?: string,
 ): Promise<NetlifySite> {
 	if (existingSiteId) return { siteId: requireUuid(existingSiteId, 'Netlify site ID') }
 	await ensureProviderLogin('netlify')
+	// A site this account already owns under the name (e.g. set up on another computer).
+	const found = await runProviderCli('netlify', [
+		'api',
+		'getSite',
+		'--data',
+		JSON.stringify({ site_id: requiredHost ?? `${siteName}.netlify.app` }),
+	])
+	const site = found.code === 0 ? parseJsonOutput(found.stdout) : undefined
+	const foundId = isRecord(site) && typeof site.id === 'string' ? site.id : undefined
+	if (requiredHost) {
+		if (foundId) return { siteId: requireUuid(foundId, 'Netlify site ID') }
+		throw new Error(
+			`Could not find the Netlify site at ${requiredHost} in the Netlify account you are signed in to. Nothing was deployed and your app's API key was not revoked. Sign in to the account that hosts it with \`npx netlify login\`, then re-run \`npx ownmail\`.`,
+		)
+	}
+	if (foundId && isRecord(site) && site.name === siteName) {
+		return { siteId: requireUuid(foundId, 'Netlify site ID') }
+	}
 	const created = await runProviderCli('netlify', ['sites:create', '--name', siteName, '--json'], {
 		cwd: dir,
 	})

@@ -124,6 +124,18 @@ provisioning, check the recorded provider project's Domain settings for required
 DNS records or verification, then retry the exact command OwnMail prints.
 OwnMail resumes the pending setup without creating duplicate routes or webhooks.
 
+## Resume on another computer
+
+Run `npx ownmail` on the new computer and log in with the same Nylas account.
+OwnMail lists the projects on that account; pick yours to continue managing it.
+Nothing needs to be copied between computers. OwnMail finds the app, inbox,
+domain, and hosting provider from your Nylas account, installs a fresh API key,
+and revokes the previous key after the redeploy succeeds when it can identify
+it. Confirm the app's display name when prompted, and sign in to your hosting
+provider's CLI if asked. Apps run with local or manual hosting are rebuilt on
+the new computer. Keep managing a project from one computer at a time: each
+computer installs its own key and retires the other's.
+
 ## Local UI development
 
 To work on the OwnMail UI without deploying or configuring real accounts:
