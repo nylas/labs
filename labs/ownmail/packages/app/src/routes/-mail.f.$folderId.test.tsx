@@ -1023,20 +1023,75 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 	})
 
 	it('keeps advancing on repeated j/k while the previous conversation is still loading', () => {
+		const committed = {
+			routeId: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'inbox', threadId: 't1' },
+		}
+		routerState = { location: { pathname: '/mail/f/inbox/t/t1' }, matches: [committed] } as RouterState
+		// Like the router, a navigation moves the location at once while the
+		// committed match stays on t1 until the destination finishes loading.
+		navigate.mockImplementation(({ params }: any) => {
+			routerState = {
+				location: { pathname: `/mail/f/inbox/t/${params.threadId}` },
+				matches: [committed],
+				isLoading: true,
+			} as RouterState
+		})
+		const view = renderInbox()
+		const press = (key: string) => {
+			fireEvent.keyDown(window, { key })
+			view.rerender(
+				<MailFolderRouteScreen
+					threads={threads}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>,
+			)
+		}
+
+		try {
+			press('j')
+			press('j')
+			press('k')
+			expect(navigate.mock.calls.map(([options]) => options.params.threadId)).toEqual(['t2', 't3', 't2'])
+		} finally {
+			navigate.mockReset()
+		}
+	})
+
+	it('continues from a clicked or history destination that is still loading', () => {
+		// Committed on t3, but the user clicked t1 (or went back) and it is loading.
 		routerState = {
 			location: { pathname: '/mail/f/inbox/t/t1' },
-			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't1' } }],
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't3' } }],
 			isLoading: true,
 		} as RouterState
 		renderInbox()
-		const opened = () => navigate.mock.calls.map(([options]) => options.params.threadId)
-
 		fireEvent.keyDown(window, { key: 'j' })
-		fireEvent.keyDown(window, { key: 'j' })
-		fireEvent.keyDown(window, { key: 'k' })
+		expect(navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't2' } }),
+		)
+	})
 
-		// The committed route is still t1; each press must build on the last request.
-		expect(opened()).toEqual(['t2', 't3', 't2'])
+	it('falls back to the committed conversation when the loading location is not a thread', () => {
+		for (const pathname of ['/mail/f/inbox', '/mail/f/inbox/t/%E0%A4%A']) {
+			cleanup()
+			navigate.mockClear()
+			routerState = {
+				location: { pathname },
+				matches: [
+					{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't1' } },
+				],
+				isLoading: true,
+			} as RouterState
+			renderInbox()
+			fireEvent.keyDown(window, { key: 'j' })
+			expect(navigate).toHaveBeenLastCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't2' } }),
+			)
+		}
 	})
 
 	it('stays on the edge conversation instead of wrapping', () => {

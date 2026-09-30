@@ -155,6 +155,16 @@ function FolderView() {
 	)
 }
 
+function threadIdFromPath(pathname: string): string | undefined {
+	const encoded = /^\/mail\/f\/[^/]+\/t\/([^/]+)\/?$/.exec(pathname)?.[1]
+	if (!encoded) return undefined
+	try {
+		return decodeURIComponent(encoded)
+	} catch {
+		return undefined
+	}
+}
+
 function dedupeThreads<T extends { id: string }>(threads: T[]): T[] {
 	return [...new Map(threads.map((thread) => [thread.id, thread])).values()]
 }
@@ -221,10 +231,11 @@ export function MailFolderRouteScreen({
 			)?.threadId,
 	})
 	const openThreadId = activeThreadId ?? routedThreadId
-	// While a j/k navigation is still loading, the committed route lags behind;
-	// further presses continue from the requested conversation instead.
-	const navigationPending = useRouterState({ select: (state) => state.isLoading })
-	const requestedThreadIdRef = useRef<string | null>(null)
+	// While any navigation (j/k, click, or history) is loading, the committed
+	// match lags behind; the router location already names the destination.
+	const destinationThreadId = useRouterState({
+		select: (state) => (state.isLoading ? threadIdFromPath(state.location.pathname) : undefined),
+	})
 	const hasThread = hasThreadRoute || Boolean(children)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
@@ -308,7 +319,7 @@ export function MailFolderRouteScreen({
 			if (!action) return
 			// With a conversation open, j/k move straight to the adjacent
 			// conversation instead of only moving the list cursor.
-			const fromThreadId = (navigationPending && requestedThreadIdRef.current) || openThreadId
+			const fromThreadId = destinationThreadId ?? openThreadId
 			const openIndex =
 				fromThreadId && (event.key === 'j' || event.key === 'k')
 					? navItems.findIndex((item) => 'threadId' in item && item.threadId === fromThreadId)
@@ -317,11 +328,7 @@ export function MailFolderRouteScreen({
 				event.preventDefault()
 				const nextIndex = moveCursor(openIndex, event.key === 'j' ? 1 : -1, navItems.length)
 				setCursor(nextIndex)
-				const next = navItems[nextIndex]
-				if (nextIndex !== openIndex && next && 'threadId' in next) {
-					requestedThreadIdRef.current = next.threadId
-					openItem(nextIndex)
-				}
+				if (nextIndex !== openIndex) openItem(nextIndex)
 				return
 			}
 			event.preventDefault()
@@ -342,7 +349,7 @@ export function MailFolderRouteScreen({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, navigationPending, navItems, openItem, openThreadId])
+	}, [cursor, destinationThreadId, navItems, openItem, openThreadId])
 
 	async function loadMore() {
 		if (!nextCursor || loadMorePendingRef.current || loadingMore || folderId === 'drafts') return
