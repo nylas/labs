@@ -205,6 +205,7 @@ describe('materialize', () => {
 describe('Node provider materialization', () => {
 	it('copies prebuilt Vercel output into a private temporary directory', () => {
 		existsMap.set('/fake/template/.vercel/output', true)
+		existsMap.set('/fake/template/.vercel/output/static', true)
 		const result = materializeVercel('acme')
 		expect(result.dir).toContain('/ownmail/acme/vercel-abc123')
 		expect(cpSync).toHaveBeenCalledWith(
@@ -236,9 +237,57 @@ describe('Node provider materialization', () => {
 		]) {
 			existsMap.set(path, true)
 		}
+		existsMap.set('/fake/template/dist-vercel/client', true)
 		expect(materializeLocal('/runtime/acme')).toEqual({ dir: '/runtime/acme' })
 		expect(rmSync).toHaveBeenCalledWith('/runtime/acme', { recursive: true, force: true })
 		expect(cpSync).toHaveBeenCalledTimes(3)
+	})
+
+	describe('from the packed template, which ships the browser client once', () => {
+		// The published CLI must stay small for `npx ownmail`, so the byte-identical
+		// Node client copies are dropped at pack time and must be restored here.
+		function sharedClientCopy() {
+			const call = vi
+				.mocked(cpSync)
+				.mock.calls.find(([from]) => String(from) === '/fake/template/dist/client')
+			const filter = (call?.[2] as { filter?: (source: string) => boolean } | undefined)?.filter
+			return { to: String(call?.[1]), filter }
+		}
+
+		beforeEach(() => existsMap.set('/fake/template/dist/client', true))
+
+		it('restores Vercel static assets without the Cloudflare-only asset ignore file', () => {
+			existsMap.set('/fake/template/.vercel/output', true)
+			materializeVercel('acme')
+			const { to, filter } = sharedClientCopy()
+			expect(to).toMatch(/\/vercel-abc123\/\.vercel\/output\/static$/)
+			expect(filter?.('/fake/template/dist/client/.assetsignore')).toBe(false)
+			expect(filter?.('/fake/template/dist/client/assets/index.js')).toBe(true)
+		})
+
+		it('publishes the shared client for Netlify', () => {
+			existsMap.set('/fake/template/dist-vercel/server', true)
+			materializeNetlify('acme')
+			expect(sharedClientCopy().to).toMatch(/\/netlify-abc123\/dist\/client$/)
+		})
+
+		it('restores the local Node server client next to its server bundle', () => {
+			for (const path of [
+				'/fake/template/dist-vercel',
+				'/fake/template/scripts/node-adapter.mjs',
+				'/fake/template/scripts/serve-node.mjs',
+			]) {
+				existsMap.set(path, true)
+			}
+			materializeLocal('/runtime/acme')
+			expect(sharedClientCopy().to).toBe('/runtime/acme/dist-vercel/client')
+		})
+
+		it('fails closed when the shared client is missing too', () => {
+			existsMap.delete('/fake/template/dist/client')
+			existsMap.set('/fake/template/.vercel/output', true)
+			expect(() => materializeVercel('acme')).toThrow(/bundled Vercel app target is missing/)
+		})
 	})
 
 	it('fails closed when a required bundled target is missing', () => {

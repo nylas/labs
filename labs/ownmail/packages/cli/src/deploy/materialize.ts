@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OWNMAIL_VERSION } from '../usage-attribution.js'
 import { sourceImports } from './source-imports.js'
@@ -121,10 +121,37 @@ export type NodeMaterialized = {
 	dir: string
 }
 
+/** Cloudflare-only files the browser client build carries next to its assets. */
+const CLOUDFLARE_ONLY_CLIENT_FILES = new Set(['.assetsignore'])
+
+/**
+ * Copies a Node target's browser client. Every build emits byte-identical
+ * client files, so the packed template ships them once (in the Cloudflare
+ * build, `dist/client`) and restores the Node copies from it; an unpacked
+ * template that still has the target's own copy uses that directly.
+ */
+function copyClient(root: string, ownClient: string, to: string, provider: string): void {
+	if (existsSync(ownClient)) {
+		cpSync(ownClient, to, { recursive: true })
+		return
+	}
+	const sharedClient = join(root, 'dist', 'client')
+	copyRequired(
+		sharedClient,
+		to,
+		provider,
+		(source) => !CLOUDFLARE_ONLY_CLIENT_FILES.has(relative(sharedClient, source)),
+	)
+}
+
 /** Copies the prebuilt Vercel Build Output API directory into an isolated deployment directory. */
 export function materializeVercel(slug: string): NodeMaterialized {
 	const dir = providerTempDir(slug, 'vercel')
-	copyRequired(join(templateRoot(), '.vercel', 'output'), join(dir, '.vercel', 'output'), 'Vercel')
+	const root = templateRoot()
+	const output = join(dir, '.vercel', 'output')
+	copyRequired(join(root, '.vercel', 'output'), output, 'Vercel')
+	const staticDir = join(root, '.vercel', 'output', 'static')
+	if (!existsSync(staticDir)) copyClient(root, staticDir, join(output, 'static'), 'Vercel')
 	return { dir }
 }
 
@@ -136,7 +163,7 @@ export function materializeVercel(slug: string): NodeMaterialized {
 export function materializeNetlify(slug: string): NodeMaterialized {
 	const dir = providerTempDir(slug, 'netlify')
 	const root = templateRoot()
-	copyRequired(join(root, 'dist-vercel', 'client'), join(dir, 'dist', 'client'), 'Netlify')
+	copyClient(root, join(root, 'dist-vercel', 'client'), join(dir, 'dist', 'client'), 'Netlify')
 	copyRequired(join(root, 'dist-vercel', 'server'), join(dir, 'netlify', 'functions', 'server'), 'Netlify')
 	writeFileSync(
 		join(dir, 'netlify', 'functions', 'ssr.mjs'),
@@ -159,6 +186,8 @@ export function materializeLocal(targetDir: string): NodeMaterialized {
 	mkdirSync(dir, { recursive: true, mode: 0o700 })
 	const root = templateRoot()
 	copyRequired(join(root, 'dist-vercel'), join(dir, 'dist-vercel'), 'local')
+	const nodeClient = join(root, 'dist-vercel', 'client')
+	if (!existsSync(nodeClient)) copyClient(root, nodeClient, join(dir, 'dist-vercel', 'client'), 'local')
 	mkdirSync(join(dir, 'scripts'), { recursive: true, mode: 0o700 })
 	for (const script of ['node-adapter.mjs', 'serve-node.mjs']) {
 		copyRequired(join(root, 'scripts', script), join(dir, 'scripts', script), 'local')
@@ -172,13 +201,18 @@ function providerTempDir(slug: string, provider: string): string {
 	return mkdtempSync(join(parent, `${provider}-`))
 }
 
-function copyRequired(from: string, to: string, provider: string): void {
+function copyRequired(
+	from: string,
+	to: string,
+	provider: string,
+	filter?: (source: string) => boolean,
+): void {
 	if (!existsSync(from)) {
 		throw new Error(
 			`The bundled ${provider} app target is missing. Reinstall or update OwnMail, then retry this command.`,
 		)
 	}
-	cpSync(from, to, { recursive: true })
+	cpSync(from, to, filter ? { recursive: true, filter } : { recursive: true })
 }
 
 /**
