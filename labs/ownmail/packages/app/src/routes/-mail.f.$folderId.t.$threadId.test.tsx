@@ -1159,6 +1159,8 @@ describe('triage flow', () => {
 	it('opens the next conversation after archiving in split view so triage keeps its place', async () => {
 		splitView(true)
 		renderThread(loaderData(), {}, undefined, inboxWith([newest, opened, older]))
+		// Split layouts keep the back control for narrow screens only.
+		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
 		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith({
@@ -1180,6 +1182,29 @@ describe('triage flow', () => {
 				search: { baseFolderId: 'work' },
 			}),
 		)
+	})
+
+	it('returns to the list instead of advancing when the reader replaces the list (no split)', async () => {
+		splitView(true)
+		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPane: 'none' }))
+		try {
+			renderThread(loaderData(), {}, undefined, inboxWith([newest, opened, older]))
+			// Wide screens still need a way back when the list is hidden.
+			await waitFor(() =>
+				expect(screen.getByRole('button', { name: 'Back to list' })).not.toHaveClass('xl:hidden'),
+			)
+
+			await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+
+			await waitFor(() =>
+				expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
+			)
+			expect(navigate).not.toHaveBeenCalledWith(
+				expect.objectContaining({ to: '/mail/f/$folderId/t/$threadId' }),
+			)
+		} finally {
+			window.localStorage.clear()
+		}
 	})
 
 	it('uses the starred list when triaging from Starred', async () => {

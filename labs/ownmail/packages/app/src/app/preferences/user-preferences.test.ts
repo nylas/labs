@@ -33,6 +33,7 @@ describe('user preferences', () => {
 			emailLayoutMode: 'original',
 			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
+			readingPane: 'horizontal',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
@@ -44,12 +45,23 @@ describe('user preferences', () => {
 			emailLayoutMode: 'original',
 			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
+			readingPane: 'horizontal',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
 			hiddenCalendarsByAccount: { 'ada@example.com': ['cal-work', 'cal-home'] },
 		})
 		expect(readUserPreferences()).toEqual(saved)
 		expect(isSupportedTimezone('not/a-timezone')).toBe(false)
+	})
+
+	it('keeps the split reading pane for unknown stored layouts', () => {
+		// A layout name from a newer or tampered build must not hide the list.
+		for (const readingPane of ['diagonal', 42, null]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPane }))
+			expect(readUserPreferences().readingPane).toBe('vertical')
+		}
+		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPane: 'none' }))
+		expect(readUserPreferences().readingPane).toBe('none')
 	})
 
 	it('recovers safely from malformed storage and invalid preference shapes', () => {

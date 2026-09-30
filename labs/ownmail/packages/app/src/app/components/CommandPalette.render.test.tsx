@@ -140,6 +140,19 @@ describe('CommandPalette', () => {
 		expect(navigateSpy).toHaveBeenCalledWith({ to: '/contacts' })
 	})
 
+	it('switches the reading pane from the keyboard and marks the current layout', async () => {
+		const onClose = vi.fn()
+		const { rerender } = render(<CommandPalette open={true} onClose={onClose} />)
+		expect(await screen.findByRole('option', { name: /Reading pane: Vertical split.*Current/ })).toBeTruthy()
+
+		fireEvent.click(screen.getByRole('option', { name: /Reading pane: No split/ }))
+
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').readingPane).toBe('none')
+		expect(onClose).toHaveBeenCalled()
+		rerender(<CommandPalette open={true} onClose={onClose} />)
+		expect(await screen.findByRole('option', { name: /Reading pane: No split.*Current/ })).toBeTruthy()
+	})
+
 	it('toggles the theme both directions and persists the choice', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		// From light -> dark.

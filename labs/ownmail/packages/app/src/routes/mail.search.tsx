@@ -3,6 +3,8 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useUserPreferences } from '#app/preferences/user-preferences'
+import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
@@ -21,6 +23,7 @@ import {
 	threadRouteFolderId,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
+import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import {
 	markThreadReadOnOpen,
 	openThreadDetail,
@@ -139,6 +142,8 @@ function SearchResults() {
 	const folderId = initial.folderId
 	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
 	const [cursor, setCursor] = useState(-1)
+	const [preferences, savePreferences] = useUserPreferences()
+	const layout = readingPaneLayout(preferences.readingPane, Boolean(selected))
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
 	const sortedThreads = useMemo(
@@ -227,20 +232,21 @@ function SearchResults() {
 	}, [queryClient, selected])
 
 	return (
-		<>
-			<section
-				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 xl:flex xl:w-[22rem] xl:max-w-[22rem] xl:flex-none',
-					selected ? 'hidden' : 'flex',
-				)}
-			>
+		<div className={layout.container}>
+			<section className={layout.list}>
 				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
-					{unreadCount > 0 ? (
-						<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-							{unreadCount}
-						</span>
-					) : null}
+					<div className="flex items-center gap-1">
+						{unreadCount > 0 ? (
+							<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+								{unreadCount}
+							</span>
+						) : null}
+						<ReadingPaneMenu
+							value={preferences.readingPane}
+							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
+						/>
+					</div>
 				</div>
 
 				<div
@@ -321,7 +327,7 @@ function SearchResults() {
 					) : null}
 				</div>
 			</section>
-			<section className={cn('min-w-0 flex-1 flex-col bg-background', selected ? 'flex' : 'hidden xl:flex')}>
+			<section className={layout.reader}>
 				{selected ? (
 					<SearchThreadDetail
 						key={JSON.stringify([selected.thread.id, q, folderId ?? null])}
@@ -343,7 +349,7 @@ function SearchResults() {
 					</div>
 				)}
 			</section>
-		</>
+		</div>
 	)
 }
 
@@ -420,6 +426,7 @@ function SearchThreadDetail({
 	q: string
 	folderId?: string
 }) {
+	const [{ readingPane }] = useUserPreferences()
 	const router = useRouter()
 	const updateThread = useUpdateThreadMutation()
 	const routeFolderId = threadRouteFolderId(selected.thread)
@@ -532,7 +539,10 @@ function SearchThreadDetail({
 					to="/mail/search"
 					search={searchList}
 					aria-label="Back to list"
-					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
+					className={cn(
+						'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+						!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden',
+					)}
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</Link>

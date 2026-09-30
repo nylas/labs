@@ -2,6 +2,8 @@ import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useUserPreferences } from '#app/preferences/user-preferences'
+import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
@@ -15,6 +17,7 @@ import {
 	readableSnippet,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
+import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import {
 	draftsQueryOptions,
@@ -237,6 +240,8 @@ export function MailFolderRouteScreen({
 		select: (state) => (state.isLoading ? threadIdFromPath(state.location.pathname) : undefined),
 	})
 	const hasThread = hasThreadRoute || Boolean(children)
+	const [preferences, savePreferences] = useUserPreferences()
+	const layout = readingPaneLayout(preferences.readingPane, hasThreadRoute)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
 	const threads = useMemo(
@@ -298,6 +303,24 @@ export function MailFolderRouteScreen({
 			moveFocusToCursorRef.current = false
 		}
 	}, [cursor])
+
+	// Closing a conversation (back, Escape, or "Mark unread") returns the cursor
+	// and focus to its row, so keyboard reading resumes where it left off —
+	// essential when the list was hidden behind the reader.
+	const previousOpenThreadIdRef = useRef(openThreadId)
+	useEffect(() => {
+		const closedThreadId = previousOpenThreadIdRef.current
+		previousOpenThreadIdRef.current = openThreadId
+		if (!closedThreadId || openThreadId) return
+		const index = navItems.findIndex((item) => 'threadId' in item && item.threadId === closedThreadId)
+		if (index < 0) return
+		setCursor(index)
+		requestAnimationFrame(() => {
+			const row = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')[index]
+			row?.scrollIntoView({ block: 'nearest' })
+			row?.querySelector<HTMLElement>('.thread-row-link')?.focus()
+		})
+	}, [navItems, openThreadId])
 
 	// Global list navigation: j/k or arrows move the cursor, Enter/o opens it.
 	// Skip while typing, while a dialog (command palette, compose, event) is up,
@@ -442,13 +465,8 @@ export function MailFolderRouteScreen({
 	)
 
 	return (
-		<>
-			<section
-				className={cn(
-					'h-full min-w-0 flex-1 flex-col border-r border-border bg-card/50 xl:w-[22rem] xl:max-w-[22rem] xl:flex-none',
-					hasThreadRoute ? 'hidden xl:flex' : 'flex',
-				)}
-			>
+		<div className={layout.container}>
+			<section className={layout.list}>
 				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					<div className="flex items-center gap-1">
@@ -458,6 +476,10 @@ export function MailFolderRouteScreen({
 							</span>
 						) : null}
 						{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
+						<ReadingPaneMenu
+							value={preferences.readingPane}
+							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
+						/>
 					</div>
 				</div>
 
@@ -473,9 +495,7 @@ export function MailFolderRouteScreen({
 					threadList
 				)}
 			</section>
-			<section
-				className={cn('min-w-0 flex-1 flex-col bg-background', hasThreadRoute ? 'flex' : 'hidden xl:flex')}
-			>
+			<section className={layout.reader}>
 				{hasThread ? (
 					(children ?? <Outlet />)
 				) : (
@@ -492,7 +512,7 @@ export function MailFolderRouteScreen({
 					</div>
 				)}
 			</section>
-		</>
+		</div>
 	)
 }
 

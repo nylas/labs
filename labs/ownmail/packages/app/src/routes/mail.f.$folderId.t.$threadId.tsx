@@ -14,6 +14,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
@@ -23,6 +24,7 @@ import {
 	STAR_FILLED_CLASS,
 	threadNeighbours,
 } from '#features/mail/lib/mail-ui-model'
+import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import { findCachedThread } from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
@@ -191,6 +193,7 @@ function ThreadView() {
 	})
 	const { thread, messages, mailboxEmail } = detail
 	const updateThread = useUpdateThreadMutation()
+	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
 	const [starred, setStarred] = useState(thread.starred)
@@ -258,7 +261,10 @@ function ThreadView() {
 			let settleMutation!: () => void
 			const mutationSettled = new Promise<void>((resolve) => (settleMutation = resolve))
 			const nextThread =
-				leave && action !== 'unread' && window.matchMedia?.(SPLIT_VIEW_QUERY).matches
+				leave &&
+				action !== 'unread' &&
+				readingPane !== 'none' &&
+				window.matchMedia?.(SPLIT_VIEW_QUERY).matches
 					? nextConversationAfterTriage(queryClient, folderId, threadId, mutationSettled)
 					: undefined
 			try {
@@ -286,7 +292,17 @@ function ThreadView() {
 				setPendingAction(null)
 			}
 		},
-		[baseFolderId, folderId, navigate, pendingAction, queryClient, starred, threadId, updateThread],
+		[
+			baseFolderId,
+			folderId,
+			navigate,
+			pendingAction,
+			queryClient,
+			readingPane,
+			starred,
+			threadId,
+			updateThread,
+		],
 	)
 
 	useEffect(() => {
@@ -367,7 +383,10 @@ function ThreadView() {
 					type="button"
 					onClick={goBackToList}
 					aria-label="Back to list"
-					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
+					className={cn(
+						'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+						!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden',
+					)}
 				>
 					<ArrowLeft className="h-5 w-5" />
 				</button>

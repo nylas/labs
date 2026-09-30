@@ -2,6 +2,7 @@
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The route hooks and Link/Outlet are stubbed so we can exercise the loader and the
@@ -84,6 +85,7 @@ const loaderQueryClient = () =>
 afterEach(() => {
 	cleanup()
 	vi.clearAllMocks()
+	window.localStorage.clear()
 	routerState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
 })
 
@@ -973,6 +975,73 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		expect(threadLink).toHaveAttribute('data-active', 'true')
 		fireEvent.keyDown(window, { key: 'j' })
 		expect(threadLink.closest('[data-nav-row]')).toHaveAttribute('data-nav-cursor', 'true')
+	})
+})
+
+describe('MailFolderRouteScreen — reading pane', () => {
+	const threads = [
+		thread({ id: 't1', subject: 'First', latest_message_received_date: 300 }),
+		thread({ id: 't2', subject: 'Second', latest_message_received_date: 200 }),
+	]
+	const openOn = (threadId: string) =>
+		({
+			location: { pathname: `/mail/f/inbox/t/${threadId}` },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId } }],
+		}) as RouterState
+	const screenFor = () => (
+		<MailFolderRouteScreen
+			threads={threads}
+			drafts={[]}
+			folders={[]}
+			folderId="inbox"
+			nextCursor={undefined}
+		/>
+	)
+	const listSection = () => screen.getByRole('heading', { name: 'Inbox' }).closest('section') as HTMLElement
+
+	it('switches the open conversation to replace the list, and remembers the choice', async () => {
+		routerState = openOn('t1')
+		render(screenFor())
+		// Default vertical split keeps the list beside the reader on wide screens.
+		expect(listSection()).toHaveClass('xl:flex')
+
+		await userEvent.click(screen.getByRole('button', { name: 'Reading pane: Vertical split' }))
+		await userEvent.click(screen.getByRole('menuitemradio', { name: 'No split' }))
+
+		await waitFor(() => expect(listSection()).not.toHaveClass('xl:flex'))
+		expect(listSection()).toHaveClass('hidden')
+		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').readingPane).toBe(
+			'none',
+		)
+	})
+
+	it('stacks the list above the reader for a horizontal split', async () => {
+		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPane: 'horizontal' }))
+		routerState = openOn('t1')
+		render(screenFor())
+		await waitFor(() => expect(listSection().parentElement).toHaveClass('xl:flex-col'))
+		expect(listSection()).toHaveClass('xl:h-[40%]')
+	})
+
+	it('returns the cursor and focus to the conversation that was just closed', async () => {
+		routerState = openOn('t2')
+		const view = render(screenFor())
+
+		routerState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
+		view.rerender(screenFor())
+
+		const row = screen.getByRole('link', { name: /Open Second/ })
+		await waitFor(() => expect(row).toHaveFocus())
+		expect(row.closest('[data-nav-row]')).toHaveAttribute('data-nav-cursor', 'true')
+	})
+
+	it('leaves focus alone when the closed conversation left the list (archived)', async () => {
+		routerState = openOn('gone')
+		const view = render(screenFor())
+		routerState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
+		view.rerender(screenFor())
+		await new Promise((resolve) => requestAnimationFrame(resolve))
+		expect(document.querySelector('[data-nav-cursor="true"]')).toBeNull()
 	})
 })
 
