@@ -25,6 +25,7 @@ vi.mock('@clack/prompts', () => ({
 
 vi.mock('../deploy/materialize.js', () => ({
 	loadManifest: vi.fn(),
+	templateDurableObjects: vi.fn(),
 	templateRateLimits: vi.fn(),
 	templateRoot: vi.fn(() => ROOT),
 }))
@@ -52,7 +53,7 @@ vi.mock('./shared.js', () => ({
 
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import * as p from '@clack/prompts'
-import { loadManifest, templateRateLimits } from '../deploy/materialize.js'
+import { loadManifest, templateDurableObjects, templateRateLimits } from '../deploy/materialize.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { saveProject } from '../state/store.js'
 import { createContext, requireGateway } from '../steps/context.js'
@@ -113,6 +114,10 @@ beforeEach(() => {
 		migrations: [],
 	})
 	vi.mocked(templateRateLimits).mockReturnValue(TEMPLATE_RATE_LIMITS)
+	vi.mocked(templateDurableObjects).mockReturnValue({
+		durable_objects: { bindings: [{ name: 'INVITATION_LOCKS', class_name: 'InvitationLocks' }] },
+		migrations: [{ tag: 'v1', new_sqlite_classes: ['InvitationLocks'] }],
+	})
 	vi.mocked(deployedApiBaseUrl).mockReturnValue(undefined)
 	vi.mocked(p.confirm).mockResolvedValue(true as never)
 	createApiKey.mockResolvedValue({ apiKey: 'nyk_minted' })
@@ -200,6 +205,12 @@ describe('runEject — writes the project', () => {
 			{ pattern: 'inbox.acme.com', custom_domain: true },
 		])
 		expect(writtenFile('wrangler.jsonc')).not.toContain('NYLAS_API_BASE_URL')
+		// Without the worker entry and Durable Object, an ejected Cloudflare project
+		// can never offer "Add to calendar" for invitations.
+		const ejectedWrangler = JSON.parse(writtenFile('wrangler.jsonc') ?? '{}')
+		expect(ejectedWrangler.main).toBe('./src/worker.ts')
+		expect(ejectedWrangler.durable_objects).toEqual(templateDurableObjects().durable_objects)
+		expect(ejectedWrangler.migrations).toEqual(templateDurableObjects().migrations)
 		expect(writtenFile('README.md')).toContain('hi@acme.com')
 		expect(project.ejected).toBe(true)
 		expect(saveProject).toHaveBeenCalledWith(project)

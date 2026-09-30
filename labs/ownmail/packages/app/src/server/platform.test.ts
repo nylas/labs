@@ -107,6 +107,64 @@ describe('platform()', () => {
 		expect(await usingDevMocks()).toBe(false)
 	})
 
+	it('routes atomic invitation claims to the Durable Object when INVITATION_LOCKS is bound', async () => {
+		// Cloudflare KV has no compare-and-set, so without this routing the calendar
+		// invitation "Add to calendar" fallback is never offered on Cloudflare.
+		const sessions = {
+			get: vi.fn(async () => 'kv-value'),
+			put: vi.fn(async () => undefined),
+			delete: vi.fn(async () => undefined),
+			list: vi.fn(async () => ({ keys: [{ name: 'listed' }] })),
+		}
+		const stub = {
+			read: vi.fn(async () => '2'),
+			putIfAbsent: vi.fn(async () => true),
+			claimRevision: vi.fn(async () => false),
+			deleteIfValue: vi.fn(async () => undefined),
+		}
+		const locks = { idFromName: vi.fn((name: string) => `id:${name}`), get: vi.fn(() => stub) }
+		vi.doMock('cloudflare:workers', () => ({
+			env: { ...REQUIRED_ENV, SESSION_SECRET: 'cf', SESSIONS: sessions, INVITATION_LOCKS: locks },
+		}))
+		setEnv({})
+		const { platform } = await import('./platform.js')
+
+		const { kv } = await platform()
+		await expect(kv?.get('session')).resolves.toBe('kv-value')
+		await kv?.put('session', 'value', { expirationTtl: 60 })
+		await kv?.delete('session')
+		await expect(kv?.list?.({ prefix: 'p', limit: 1 })).resolves.toEqual({ keys: [{ name: 'listed' }] })
+		expect(sessions.put).toHaveBeenCalledWith('session', 'value', { expirationTtl: 60 })
+		expect(sessions.delete).toHaveBeenCalledWith('session')
+
+		await expect(kv?.getAtomic?.('claim')).resolves.toBe('2')
+		await expect(kv?.putIfAbsent?.('mutation', 'token', 120)).resolves.toBe(true)
+		await expect(kv?.claimRevision?.('claim', 1, 600)).resolves.toBe(false)
+		await kv?.releaseRevision?.('claim', 2)
+		await kv?.deleteIfValue?.('mutation', 'token')
+		expect(locks.idFromName).toHaveBeenCalledWith('claim')
+		expect(locks.idFromName).toHaveBeenCalledWith('mutation')
+		expect(stub.putIfAbsent).toHaveBeenCalledWith('token', 120)
+		expect(stub.claimRevision).toHaveBeenCalledWith(1, 600)
+		expect(stub.deleteIfValue).toHaveBeenCalledWith('2')
+		expect(stub.deleteIfValue).toHaveBeenCalledWith('token')
+		expect(sessions.get).toHaveBeenCalledTimes(1)
+	})
+
+	it('omits list when the Cloudflare KV binding has none', async () => {
+		const sessions = { get: vi.fn(), put: vi.fn(), delete: vi.fn() }
+		const locks = { idFromName: vi.fn(), get: vi.fn() }
+		vi.doMock('cloudflare:workers', () => ({
+			env: { ...REQUIRED_ENV, SESSION_SECRET: 'cf', SESSIONS: sessions, INVITATION_LOCKS: locks },
+		}))
+		setEnv({})
+		const { platform } = await import('./platform.js')
+
+		const { kv } = await platform()
+		expect(kv?.list).toBeUndefined()
+		expect(kv?.claimRevision).toBeTypeOf('function')
+	})
+
 	it('runs statelessly on Cloudflare when no SESSIONS KV namespace is bound', async () => {
 		// The default test stub for cloudflare:workers exports `env = {}` (no SESSIONS).
 		setEnv({})

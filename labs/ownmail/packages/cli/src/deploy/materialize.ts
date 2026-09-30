@@ -59,6 +59,33 @@ export function templateRateLimits(): RateLimitBinding[] {
 	return bindings
 }
 
+/** The template's Durable Object bindings and the migrations that create their classes. */
+export type TemplateDurableObjects = {
+	durable_objects: { bindings: { name: string; class_name: string }[] }
+	migrations: Record<string, unknown>[]
+}
+
+/**
+ * The template's Durable Objects (atomic invitation claims), read from the same
+ * build output as {@link templateRateLimits} so a wrangler config written for a
+ * user never restates them. Without them an ejected Cloudflare project can
+ * never offer "Add to calendar", so a missing declaration is a hard error.
+ */
+export function templateDurableObjects(): TemplateDurableObjects {
+	const path = join(templateRoot(), 'dist', 'server', 'wrangler.json')
+	const config = existsSync(path)
+		? (JSON.parse(readFileSync(path, 'utf8')) as Partial<TemplateDurableObjects>)
+		: {}
+	const bindings = config.durable_objects?.bindings ?? []
+	const migrations = config.migrations ?? []
+	if (bindings.length === 0 || migrations.length === 0) {
+		throw new Error(
+			'The bundled app build declares no Durable Objects, so calendar invitations could not be added. Reinstall or update OwnMail, then retry this command.',
+		)
+	}
+	return { durable_objects: { bindings }, migrations }
+}
+
 export type MaterializeInput = {
 	slug: string
 	workerName: string

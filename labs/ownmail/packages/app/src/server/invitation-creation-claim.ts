@@ -41,7 +41,8 @@ export async function invitationCreationClaimSequence(
 ): Promise<number | undefined> {
 	const { env, kv } = await platform()
 	if (!kv?.claimRevision) return undefined
-	return parseSequence(await kv.get(await claimKey(env.SESSION_SECRET, grantId, uid)))
+	const key = await claimKey(env.SESSION_SECRET, grantId, uid)
+	return parseSequence(await (kv.getAtomic ? kv.getAtomic(key) : kv.get(key)))
 }
 
 export async function acquireInvitationMutation(
