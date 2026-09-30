@@ -52,11 +52,11 @@
 	"devDependencies": {
 		"@ownmail/app": "workspace:*",
 		"@types/node": "^26.1.1",
-		"@vitest/coverage-v8": "4.1.10",
+		"@vitest/coverage-v8": "4.1.11",
 		"netlify-cli": "26.2.0",
 		"typescript": "^7.0.2",
 		"vercel": "56.5.0",
-		"vitest": "^4.1.10",
+		"vitest": "^4.1.11",
 		"wrangler": "4.114.0"
 	},
 	"engines": {
