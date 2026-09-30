@@ -18,6 +18,19 @@ const event = {
 	participants: [{ email: 'ada@example.com', status: 'noreply' }],
 } as Event
 
+// Two overlapping cached ranges (Unix seconds) that both contain `event`.
+const WEEK_A = [1_799_900_000, 1_800_100_000] as const
+const WEEK_B = [1_799_950_000, 1_800_150_000] as const
+// A later, prefetched range that does not contain `event` until it is moved there.
+const NEXT_WEEK = [1_800_500_000, 1_801_100_000] as const
+
+function rescheduled(startTime: number): Event {
+	return {
+		...event,
+		when: { object: 'timespan', start_time: startTime, end_time: startTime + 3600 },
+	} as Event
+}
+
 function data(events: Event[]): CalendarRouteData {
 	const calendar = { id: 'calendar-1', name: 'Primary' } as Calendar
 	return {
@@ -32,66 +45,70 @@ function data(events: Event[]): CalendarRouteData {
 describe('calendar cache effects', () => {
 	it('creates and updates calendar resources across cached ranges', () => {
 		const queryClient = new QueryClient()
-		queryClient.setQueryData(calendarKeys.range(1, 2), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event]))
 		const added = { id: 'calendar-2', name: 'Projects' } as Calendar
 
 		applyCalendarResourceEffect(queryClient, { type: 'created', calendar: added })
-		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.calendars).toEqual([
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.calendars).toEqual([
 			{ id: 'calendar-1', name: 'Primary' },
 			added,
 		])
 
 		const renamed = { ...added, name: 'Roadmap' }
 		applyCalendarResourceEffect(queryClient, { type: 'updated', calendar: renamed })
-		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))
+		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
 		expect(cached?.calendars[1]).toEqual(renamed)
 		expect(cached?.calendar.name).toBe('Primary')
 
 		const primary = { id: 'calendar-1', name: 'Personal', is_primary: true } as Calendar
 		applyCalendarResourceEffect(queryClient, { type: 'updated', calendar: primary })
-		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.calendar).toEqual(primary)
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.calendar).toEqual(
+			primary,
+		)
 	})
 
 	it('deletes calendars and their events while keeping a viable active calendar', () => {
 		const queryClient = new QueryClient()
 		const primary = { id: 'calendar-1', name: 'Primary', is_primary: true } as Calendar
 		const secondary = { id: 'calendar-2', name: 'Projects' } as Calendar
-		queryClient.setQueryData(calendarKeys.range(1, 2), {
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), {
 			...data([event, { ...event, id: 'event-2', calendar_id: secondary.id }]),
 			calendar: primary,
 			calendars: [primary, secondary],
 		})
 
 		applyCalendarResourceEffect(queryClient, { type: 'deleted', calendarId: secondary.id })
-		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))
+		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
 		expect(cached?.calendars).toEqual([primary])
 		expect(cached?.calendar).toEqual(primary)
 		expect(cached?.events.map((candidate) => candidate.id)).toEqual([event.id])
 
 		applyCalendarResourceEffect(queryClient, { type: 'deleted', calendarId: primary.id })
-		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))).toEqual(cached)
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))).toEqual(cached)
 	})
 
 	it('falls back to the first calendar and leaves empty cache slots untouched', () => {
 		const queryClient = new QueryClient()
 		const primary = { id: 'calendar-1', name: 'Primary', is_primary: true } as Calendar
 		const secondary = { id: 'calendar-2', name: 'Projects' } as Calendar
-		queryClient.setQueryData(calendarKeys.range(1, 2), {
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), {
 			...data([]),
 			calendar: primary,
 			calendars: [primary, secondary],
 		})
-		queryClient.getQueryCache().build(queryClient, { queryKey: calendarKeys.range(2, 3) })
+		queryClient.getQueryCache().build(queryClient, { queryKey: calendarKeys.range(...WEEK_B) })
 
 		applyCalendarResourceEffect(queryClient, { type: 'deleted', calendarId: primary.id })
-		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.calendar).toEqual(secondary)
-		expect(queryClient.getQueryData(calendarKeys.range(2, 3))).toBeUndefined()
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.calendar).toEqual(
+			secondary,
+		)
+		expect(queryClient.getQueryData(calendarKeys.range(...WEEK_B))).toBeUndefined()
 	})
 
 	it('updates the event in every cached visible range', () => {
 		const queryClient = new QueryClient()
-		queryClient.setQueryData(calendarKeys.range(1, 2), data([event]))
-		queryClient.setQueryData(calendarKeys.range(2, 3), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_B), data([event]))
 		const updated = { ...event, title: 'Launch planning' }
 
 		applyCalendarEffect(queryClient, { type: 'updated', event: updated })
@@ -106,13 +123,13 @@ describe('calendar cache effects', () => {
 	it('creates new events and replaces an existing optimistic copy', () => {
 		const queryClient = new QueryClient()
 		const other = { ...event, id: 'event-other' }
-		queryClient.setQueryData(calendarKeys.range(1, 2), data([other]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([other]))
 		applyCalendarEffect(queryClient, { type: 'created', event })
 		expect(calendarStateTestApi.findCachedEvent(queryClient, event.id)).toEqual(event)
 
 		const canonical = { ...event, title: 'Canonical planning' }
 		applyCalendarEffect(queryClient, { type: 'created', event: canonical })
-		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events).toEqual([
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events).toEqual([
 			other,
 			canonical,
 		])
@@ -121,15 +138,15 @@ describe('calendar cache effects', () => {
 
 	it('leaves an empty query-cache slot empty while applying effects', () => {
 		const queryClient = new QueryClient()
-		queryClient.getQueryCache().build(queryClient, { queryKey: calendarKeys.range(1, 2) })
+		queryClient.getQueryCache().build(queryClient, { queryKey: calendarKeys.range(...WEEK_A) })
 		applyCalendarEffect(queryClient, { type: 'updated', event })
-		expect(queryClient.getQueryData(calendarKeys.range(1, 2))).toBeUndefined()
+		expect(queryClient.getQueryData(calendarKeys.range(...WEEK_A))).toBeUndefined()
 	})
 
 	it('removes deleted events from all ranges', () => {
 		const queryClient = new QueryClient()
-		queryClient.setQueryData(calendarKeys.range(1, 2), data([event]))
-		queryClient.setQueryData(calendarKeys.range(2, 3), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_B), data([event]))
 
 		applyCalendarEffect(queryClient, { type: 'deleted', eventId: event.id })
 
@@ -143,16 +160,16 @@ describe('calendar cache effects', () => {
 	it('propagates RSVP state to every cached copy', () => {
 		const queryClient = new QueryClient()
 		const other = { ...event, id: 'event-2', participants: undefined }
-		queryClient.setQueryData(calendarKeys.range(1, 2), data([event, other]))
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event, other]))
 
 		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: event.id, status: 'yes' })
 
-		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))
+		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
 		expect(cached?.events[0]?.participants?.[0]?.status).toBe('yes')
 		expect(cached?.events[1]).toEqual(other)
 		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: other.id, status: 'no' })
 		expect(
-			queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events[1]?.participants,
+			queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events[1]?.participants,
 		).toBeUndefined()
 	})
 
@@ -163,7 +180,10 @@ describe('calendar cache effects', () => {
 			eventId: event.id,
 		})
 
-		const reconciled = calendarStateTestApi.reconcileCalendarData(queryClient, data([event]))
+		const reconciled = calendarStateTestApi.reconcileCalendarData(queryClient, data([event]), {
+			start: WEEK_A[0],
+			end: WEEK_A[1],
+		})
 
 		expect(reconciled.events).toEqual([])
 	})
@@ -178,5 +198,78 @@ describe('calendar cache effects', () => {
 		resetCalendarConfirmedEffects(queryClient)
 
 		expect(calendarStateTestApi.reconcileCalendarData(queryClient, data([event])).events).toEqual([event])
+	})
+
+	it('moves a rescheduled event into an already-cached range and out of the old one', () => {
+		// Prefetching Next means the destination week is often cached before the
+		// event is moved into it; replacing by id alone would leave it missing there.
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...NEXT_WEEK), data([]))
+		const moved = rescheduled(1_800_600_000)
+
+		applyCalendarEffect(queryClient, { type: 'updated', event: moved })
+
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events).toEqual([])
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...NEXT_WEEK))?.events).toEqual([
+			moved,
+		])
+	})
+
+	it('only adds a created event to ranges it overlaps', () => {
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([]))
+		queryClient.setQueryData(calendarKeys.range(...NEXT_WEEK), data([]))
+
+		applyCalendarEffect(queryClient, { type: 'created', event })
+
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events).toEqual([
+			event,
+		])
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...NEXT_WEEK))?.events).toEqual([])
+	})
+
+	it('keeps an event without parseable times where the provider placed it', () => {
+		// Without times there is no basis for moving it, so it is replaced in place
+		// but never copied into ranges that did not already contain it.
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event]))
+		queryClient.setQueryData(calendarKeys.range(...NEXT_WEEK), data([]))
+		const untimed = { ...event, title: 'Untimed', when: {} } as Event
+
+		applyCalendarEffect(queryClient, { type: 'updated', event: untimed })
+
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events).toEqual([
+			untimed,
+		])
+		expect(queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...NEXT_WEEK))?.events).toEqual([])
+	})
+
+	it('ignores calendar range entries whose key carries no numeric range', () => {
+		const queryClient = new QueryClient()
+		const malformed = ['calendar', 'range', 'start', 'end']
+		queryClient.setQueryData(malformed, data([event]))
+
+		applyCalendarEffect(queryClient, { type: 'updated', event: rescheduled(1_800_600_000) })
+
+		expect(queryClient.getQueryData<CalendarRouteData>(malformed)?.events).toEqual([event])
+	})
+
+	it('re-applies a confirmed reschedule to a stale provider read of either range', () => {
+		const queryClient = new QueryClient()
+		const moved = rescheduled(1_800_600_000)
+		calendarStateTestApi.rememberConfirmedCalendarEffect(queryClient, { type: 'updated', event: moved })
+
+		const oldWeek = calendarStateTestApi.reconcileCalendarData(queryClient, data([event]), {
+			start: WEEK_A[0],
+			end: WEEK_A[1],
+		})
+		const nextWeek = calendarStateTestApi.reconcileCalendarData(queryClient, data([]), {
+			start: NEXT_WEEK[0],
+			end: NEXT_WEEK[1],
+		})
+
+		expect(oldWeek.events).toEqual([])
+		expect(nextWeek.events).toEqual([moved])
 	})
 })

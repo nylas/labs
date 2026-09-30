@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 
 export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
+const MAX_HIDDEN_CALENDAR_IDS = 200
+const MAX_CALENDAR_ID_LENGTH = 1000
+const MAX_HIDDEN_CALENDAR_ACCOUNTS = 20
+const MAX_ACCOUNT_KEY_LENGTH = 320
 
 export type RemoteImagePolicy = 'ask' | 'always'
 
@@ -14,6 +18,12 @@ export type UserPreferences = {
 	remoteImagePolicy: RemoteImagePolicy
 	primaryTimezone: string
 	secondaryTimezone: string
+	/**
+	 * Calendars the person unchecked in the calendar sidebar, keyed by mailbox
+	 * email. Calendar ids are grant-scoped (every inbox has a `primary`), so a
+	 * choice made in one inbox must never hide a calendar in another.
+	 */
+	hiddenCalendarsByAccount: Record<string, string[]>
 }
 
 function browserTimezone(): string {
@@ -50,7 +60,57 @@ export function defaultUserPreferences(): UserPreferences {
 		remoteImagePolicy: 'ask',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
+		hiddenCalendarsByAccount: {},
 	}
+}
+
+/** Normalized preference key for a mailbox; `undefined` when the email is unusable. */
+export function hiddenCalendarAccountKey(email: string): string | undefined {
+	const key = email.trim().toLowerCase()
+	return key.length > 0 && key.length <= MAX_ACCOUNT_KEY_LENGTH && key.includes('@') && !/[\r\n]/.test(key)
+		? key
+		: undefined
+}
+
+function normalizeHiddenCalendarIds(value: unknown): string[] {
+	if (!Array.isArray(value)) return []
+	const ids = value.filter(
+		(id): id is string =>
+			typeof id === 'string' && id.length > 0 && id.length <= MAX_CALENDAR_ID_LENGTH && !/[\r\n]/.test(id),
+	)
+	// Keep the most recent choices when the stored list exceeds the cap.
+	return [...new Set(ids)].slice(-MAX_HIDDEN_CALENDAR_IDS)
+}
+
+function normalizeHiddenCalendarsByAccount(value: unknown): Record<string, string[]> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+	const entries: Array<[string, string[]]> = []
+	for (const [rawKey, rawIds] of Object.entries(value)) {
+		const key = hiddenCalendarAccountKey(rawKey)
+		const ids = normalizeHiddenCalendarIds(rawIds)
+		if (key && ids.length > 0) entries.push([key, ids])
+	}
+	// Keep the most recently written accounts when the stored map exceeds the cap.
+	return Object.fromEntries(entries.slice(-MAX_HIDDEN_CALENDAR_ACCOUNTS))
+}
+
+/** Hidden calendar ids for one mailbox. */
+export function hiddenCalendarIdsFor(preferences: UserPreferences, email: string): string[] {
+	const key = hiddenCalendarAccountKey(email)
+	return key ? (preferences.hiddenCalendarsByAccount[key] ?? []) : []
+}
+
+/** Replaces one mailbox's hidden calendars, leaving other mailboxes untouched. */
+export function withHiddenCalendarIds(
+	preferences: UserPreferences,
+	email: string,
+	ids: readonly string[],
+): UserPreferences {
+	const key = hiddenCalendarAccountKey(email)
+	if (!key) return preferences
+	const { [key]: _previous, ...others } = preferences.hiddenCalendarsByAccount
+	// Re-inserting last marks this account as most recent for the account cap.
+	return { ...preferences, hiddenCalendarsByAccount: { ...others, [key]: [...ids] } }
 }
 
 function normalizePreferences(value: unknown): UserPreferences {
@@ -78,6 +138,10 @@ function normalizePreferences(value: unknown): UserPreferences {
 		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
 		primaryTimezone,
 		secondaryTimezone,
+		// A flat `hiddenCalendarIds` list from before per-account storage cannot be
+		// attributed to an inbox, so it is deliberately dropped rather than applied
+		// to whichever inbox happens to be active.
+		hiddenCalendarsByAccount: normalizeHiddenCalendarsByAccount(input.hiddenCalendarsByAccount),
 	}
 }
 

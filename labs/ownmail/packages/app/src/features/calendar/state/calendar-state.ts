@@ -1,5 +1,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import {
 	createEvent,
 	deleteEvent,
@@ -13,10 +15,14 @@ import type {
 	RsvpEventInput,
 	UpdateEventInput,
 } from '#features/calendar/server/calendar-input'
-import { getMailboxInfo } from '#server/fns'
-import { addDays, type CalView, viewRange, ymd } from '../lib/calendar.js'
+import { addDays, type CalView, eventTimes, shiftAnchor, viewRange, ymd } from '../lib/calendar.js'
 
+/** One cached event range. Route-only values (mailbox info, anchor) stay out of the cache. */
+export type CalendarRangeData = Awaited<ReturnType<typeof getEvents>>
 export type CalendarRouteData = Awaited<ReturnType<typeof loadCalendarRouteData>>
+
+/** A fetched range in Unix seconds, as stored in the range query key. */
+export type CalendarRange = { start: number; end: number }
 
 export const calendarKeys = {
 	all: ['calendar'] as const,
@@ -39,12 +45,16 @@ function rememberConfirmedCalendarEffect(queryClient: QueryClient, effect: Calen
 	])
 }
 
-function reconcileCalendarData(queryClient: QueryClient, data: CalendarRouteData): CalendarRouteData {
+function reconcileCalendarData<T extends { events: Event[] }>(
+	queryClient: QueryClient,
+	data: T,
+	range: CalendarRange,
+): T {
 	const active = (confirmedEffects.get(queryClient) ?? []).filter((entry) => entry.expiresAt > Date.now())
 	confirmedEffects.set(queryClient, active)
 	return {
 		...data,
-		events: active.reduce((events, entry) => applyEventEffect(events, entry.effect), data.events),
+		events: active.reduce((events, entry) => applyEventEffect(events, entry.effect, range), data.events),
 	}
 }
 
@@ -57,10 +67,33 @@ export function calendarRouteRange(view: CalView, date?: string) {
 	return { anchor, start, end }
 }
 
-export async function loadCalendarRouteData(view: CalView, date?: string) {
+/** The shared cache entry for one fetched range, used by the loader, the view, and prefetching. */
+export function calendarRangeQueryOptions(queryClient: QueryClient, start: number, end: number) {
+	return queryOptions({
+		queryKey: calendarKeys.range(start, end),
+		queryFn: async (): Promise<CalendarRangeData> =>
+			reconcileCalendarData(queryClient, await getEvents({ data: { start, end } }), { start, end }),
+	})
+}
+
+/**
+ * Serves ranges already in the query cache immediately, so revisiting a week or
+ * month does not block navigation on the provider. Stale entries are refreshed in
+ * the background by the mounted view query.
+ */
+export async function loadCalendarRouteData(queryClient: QueryClient, view: CalView, date?: string) {
 	const { anchor, start, end } = calendarRouteRange(view, date)
-	const [info, res] = await Promise.all([getMailboxInfo(), getEvents({ data: { start, end } })])
-	return { ...res, info, anchorIso: ymd(anchor) }
+	const [info, range] = await Promise.all([
+		queryClient.ensureQueryData(mailboxInfoQueryOptions()),
+		queryClient.ensureQueryData(calendarRangeQueryOptions(queryClient, start, end)),
+	])
+	return {
+		calendar: range.calendar,
+		calendars: range.calendars,
+		events: reconcileCalendarData(queryClient, range, { start, end }).events,
+		info,
+		anchorIso: ymd(anchor),
+	}
 }
 
 /** Reuses loader data as the initial value while making the query cache the live owner. */
@@ -71,12 +104,39 @@ export function useCalendarRouteData(
 ) {
 	const queryClient = useQueryClient()
 	const { start, end } = calendarRouteRange(view, date)
-	return useQuery({
-		queryKey: calendarKeys.range(start, end),
-		queryFn: async () => reconcileCalendarData(queryClient, await loadCalendarRouteData(view, date)),
-		initialData,
-		select: (data) => reconcileCalendarData(queryClient, data),
+	const query = useQuery({
+		...calendarRangeQueryOptions(queryClient, start, end),
+		initialData: {
+			calendar: initialData.calendar,
+			calendars: initialData.calendars,
+			events: initialData.events,
+		},
+		select: (data) => reconcileCalendarData(queryClient, data, { start, end }),
 	})
+	const data: CalendarRouteData = {
+		...query.data,
+		info: initialData.info,
+		anchorIso: initialData.anchorIso,
+	}
+	return { data, refetch: query.refetch }
+}
+
+/** Ranges one step before and after the visible view, so Previous and Next are instant. */
+export function adjacentCalendarRanges(view: CalView, anchorIso: string) {
+	const anchor = new Date(`${anchorIso}T00:00:00`)
+	return ([-1, 1] as const).map((direction) =>
+		calendarRouteRange(view, ymd(shiftAnchor(view, anchor, direction))),
+	)
+}
+
+export function usePrefetchAdjacentCalendarRanges(view: CalView, anchorIso: string) {
+	const queryClient = useQueryClient()
+	useEffect(() => {
+		for (const { start, end } of adjacentCalendarRanges(view, anchorIso)) {
+			// prefetchQuery never throws and skips ranges that are already fresh.
+			void queryClient.prefetchQuery(calendarRangeQueryOptions(queryClient, start, end))
+		}
+	}, [anchorIso, queryClient, view])
 }
 
 export type CalendarEffect =
@@ -91,7 +151,7 @@ export type CalendarResourceEffect =
 	| { type: 'deleted'; calendarId: string }
 
 export function applyCalendarResourceEffect(queryClient: QueryClient, effect: CalendarResourceEffect) {
-	queryClient.setQueriesData<CalendarRouteData>({ queryKey: calendarKeys.all }, (data) => {
+	queryClient.setQueriesData<CalendarRangeData>({ queryKey: calendarKeys.all }, (data) => {
 		if (!data) return data
 		if (effect.type === 'deleted') {
 			const calendars = data.calendars.filter((calendar) => calendar.id !== effect.calendarId)
@@ -116,16 +176,34 @@ export function applyCalendarResourceEffect(queryClient: QueryClient, effect: Ca
 	})
 }
 
-function applyEventEffect(events: Event[], effect: CalendarEffect): Event[] {
+/**
+ * Whether an event belongs in a fetched range. Events without parseable times
+ * cannot be placed, so they are left wherever the provider returned them.
+ */
+function eventOverlapsRange(event: Event, range: CalendarRange): boolean | undefined {
+	const times = eventTimes(event)
+	if (!times) return undefined
+	return times.start.getTime() < range.end * 1000 && times.end.getTime() > range.start * 1000
+}
+
+/**
+ * Places a created or rescheduled event: it is upserted into a range it now
+ * overlaps and removed from one it no longer overlaps, so moving an event into an
+ * already-cached (e.g. prefetched) week shows it there immediately.
+ */
+function placeEvent(events: Event[], next: Event, range: CalendarRange): Event[] {
+	const existing = events.some((event) => event.id === next.id)
+	const overlaps = eventOverlapsRange(next, range)
+	if (overlaps === false) return existing ? events.filter((event) => event.id !== next.id) : events
+	if (existing) return events.map((event) => (event.id === next.id ? next : event))
+	return overlaps ? [...events, next] : events
+}
+
+function applyEventEffect(events: Event[], effect: CalendarEffect, range: CalendarRange): Event[] {
 	switch (effect.type) {
-		case 'created': {
-			const existing = events.some((event) => event.id === effect.event.id)
-			return existing
-				? events.map((event) => (event.id === effect.event.id ? effect.event : event))
-				: [...events, effect.event]
-		}
+		case 'created':
 		case 'updated':
-			return events.map((event) => (event.id === effect.event.id ? effect.event : event))
+			return placeEvent(events, effect.event, range)
 		case 'deleted':
 			return events.filter((event) => event.id !== effect.eventId)
 		case 'rsvped':
@@ -144,9 +222,16 @@ function applyEventEffect(events: Event[], effect: CalendarEffect): Event[] {
 
 /** Pure cache reducer applied to every loaded calendar range. */
 export function applyCalendarEffect(queryClient: QueryClient, effect: CalendarEffect) {
-	queryClient.setQueriesData<CalendarRouteData>({ queryKey: ['calendar', 'range'] }, (data) =>
-		data ? { ...data, events: applyEventEffect(data.events, effect) } : data,
-	)
+	for (const [queryKey, data] of queryClient.getQueriesData<CalendarRangeData>({
+		queryKey: ['calendar', 'range'],
+	})) {
+		const [, , start, end] = queryKey
+		if (!data || typeof start !== 'number' || typeof end !== 'number') continue
+		queryClient.setQueryData<CalendarRangeData>(queryKey, {
+			...data,
+			events: applyEventEffect(data.events, effect, { start, end }),
+		})
+	}
 }
 
 function eventFromCreate(eventId: string, input: CreateEventInput): Event {
@@ -208,7 +293,7 @@ function refreshCalendar(queryClient: QueryClient) {
 }
 
 function findCachedEvent(queryClient: QueryClient, eventId: string): Event | undefined {
-	for (const [, data] of queryClient.getQueriesData<CalendarRouteData>({ queryKey: calendarKeys.all })) {
+	for (const [, data] of queryClient.getQueriesData<CalendarRangeData>({ queryKey: calendarKeys.all })) {
 		const event = data?.events.find((candidate) => candidate.id === eventId)
 		if (event) return event
 	}

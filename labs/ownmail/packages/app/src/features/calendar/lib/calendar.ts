@@ -473,3 +473,39 @@ export function ymd(d: Date): string {
 	const pad = (n: number) => String(n).padStart(2, '0')
 	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
+
+export type AgendaEntry = { event: Event; start: Date; inProgress: boolean }
+
+/**
+ * Today's timed events that still matter at `now`, ordered by start time. Ended
+ * events are excluded so "Up next" never lists a meeting that is already over;
+ * an event that has started but not ended is flagged as in progress.
+ */
+export function upcomingAgenda(
+	events: Event[],
+	now: Date,
+	timeZone?: CalendarTimeZone,
+	limit = 5,
+): AgendaEntry[] {
+	const nowMs = now.getTime()
+	return timedEventsOnDay(events, calendarDateInTimeZone(now, timeZone), timeZone)
+		.filter((event) => !isNewEventPreview(event))
+		.flatMap((event) => {
+			// timedEventsOnDay only returns events with parsed, timed values.
+			const times = eventTimes(event) as EventTimes
+			if (times.end.getTime() <= nowMs) return []
+			return [{ event, start: times.start, inProgress: times.start.getTime() <= nowMs }]
+		})
+		.sort((a, b) => a.start.getTime() - b.start.getTime())
+		.slice(0, limit)
+}
+
+/** First visible hour of the time grid: an hour before now when today is shown, otherwise 8am. */
+export function initialTimeGridScrollHour(
+	columnIsos: readonly string[],
+	todayIso: string,
+	nowHour: number,
+): number {
+	if (!columnIsos.includes(todayIso)) return 8
+	return Math.min(Math.max(0, Math.floor(nowHour) - 1), 23)
+}

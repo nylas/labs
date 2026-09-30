@@ -93,7 +93,7 @@ const folders = [{ id: 'drafts', total_count: 1 }] as MailFolder[]
 beforeEach(() => {
 	vi.clearAllMocks()
 	client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
-	client.setQueryData(calendarKeys.range(1, 2), calendarData)
+	client.setQueryData(calendarKeys.range(0, 1000), calendarData)
 	client.setQueryData(contactsKeys.list(), contactPages)
 	client.setQueryData(contactsKeys.detail(contact.id), contact)
 	client.setQueryData(mailKeys.drafts(), [draft])
@@ -114,7 +114,7 @@ describe('calendar mutation hooks', () => {
 		api.rsvpEvent.mockResolvedValue({ eventId: event.id, status: 'yes' })
 		const create = renderHook(() => useCreateEventMutation(), { wrapper }).result
 		await act(() => create.current.mutateAsync({ title: 'Created', startTime: 300, endTime: 400 }))
-		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events).toContainEqual(
+		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events).toContainEqual(
 			expect.objectContaining({ id: 'event-2', title: 'Created' }),
 		)
 
@@ -127,7 +127,7 @@ describe('calendar mutation hooks', () => {
 				description: 'Notes',
 			}),
 		)
-		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events[0]).toMatchObject({
+		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]).toMatchObject({
 			title: 'Updated',
 			location: 'HQ',
 			description: 'Notes',
@@ -136,15 +136,19 @@ describe('calendar mutation hooks', () => {
 		const rsvp = renderHook(() => useRsvpEventMutation(event.id), { wrapper }).result
 		await act(() => rsvp.current.mutateAsync({ eventId: event.id, status: 'yes' }))
 		expect(
-			client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events[0]?.participants?.[0]?.status,
+			client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]?.participants?.[0]
+				?.status,
 		).toBe('yes')
 		expect(
-			client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events[0]?.participants?.[1]?.status,
+			client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]?.participants?.[1]
+				?.status,
 		).toBeUndefined()
 
 		const remove = renderHook(() => useDeleteEventMutation(event.id), { wrapper }).result
 		await act(() => remove.current.mutateAsync({ eventId: event.id }))
-		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events).not.toContainEqual(event)
+		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events).not.toContainEqual(
+			event,
+		)
 	})
 
 	it('uses canonical event receipts and rolls back a failed optimistic update', async () => {
@@ -158,7 +162,9 @@ describe('calendar mutation hooks', () => {
 				endTime: 400,
 			}),
 		)
-		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events).toContainEqual(canonical)
+		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events).toContainEqual(
+			canonical,
+		)
 		api.updateEvent.mockResolvedValue({
 			eventId: event.id,
 			event: { ...canonical, location: 'Canonical HQ' },
@@ -172,7 +178,7 @@ describe('calendar mutation hooks', () => {
 				endTime: 600,
 			}),
 		)
-		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events[0]?.location).toBe(
+		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]?.location).toBe(
 			'Canonical HQ',
 		)
 
@@ -181,7 +187,7 @@ describe('calendar mutation hooks', () => {
 		await expect(
 			act(() => update.current.mutateAsync({ eventId: event.id, title: 'Should roll back' })),
 		).rejects.toThrow('offline')
-		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(1, 2))?.events).toContainEqual({
+		expect(client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events).toContainEqual({
 			...canonical,
 			location: 'Canonical HQ',
 		})

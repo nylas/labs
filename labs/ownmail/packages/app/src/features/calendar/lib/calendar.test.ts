@@ -15,6 +15,7 @@ import {
 	filterEventsByCalendars,
 	fmtAgendaTime,
 	fmtTime,
+	initialTimeGridScrollHour,
 	isCalView,
 	isRenderableCalendarEvent,
 	moveCalendarDay,
@@ -22,6 +23,7 @@ import {
 	startOfWeek,
 	timedEventLayout,
 	timedEventsOnDay,
+	upcomingAgenda,
 	viewRange,
 	ymd,
 } from './calendar.js'
@@ -62,6 +64,68 @@ function allDaySpanEvent(id: string, calendarId: string, startDate: string, endD
 		busy: false,
 	}
 }
+
+describe('upcomingAgenda', () => {
+	const now = new Date('2024-06-15T10:30:00')
+
+	it('drops meetings that already ended so "Up next" only lists what is still ahead', () => {
+		const events = [
+			timedEvent('ended', 'cal', '2024-06-15T09:00:00', '2024-06-15T10:00:00'),
+			timedEvent('later', 'cal', '2024-06-15T14:00:00', '2024-06-15T15:00:00'),
+			timedEvent('endsNow', 'cal', '2024-06-15T10:00:00', '2024-06-15T10:30:00'),
+		]
+		expect(upcomingAgenda(events, now).map((entry) => entry.event.id)).toEqual(['later'])
+	})
+
+	it('keeps an in-progress meeting first and flags it so it can read as "Now"', () => {
+		const events = [
+			timedEvent('later', 'cal', '2024-06-15T14:00:00', '2024-06-15T15:00:00'),
+			timedEvent('current', 'cal', '2024-06-15T10:00:00', '2024-06-15T11:00:00'),
+		]
+		expect(upcomingAgenda(events, now).map(({ event, inProgress }) => [event.id, inProgress])).toEqual([
+			['current', true],
+			['later', false],
+		])
+	})
+
+	it('ignores all-day events, other days, the unsaved preview, and respects the limit', () => {
+		const events = [
+			allDayEvent('allday', 'cal', '2024-06-15'),
+			timedEvent('tomorrow', 'cal', '2024-06-16T09:00:00', '2024-06-16T10:00:00'),
+			{
+				...timedEvent('preview', 'cal', '2024-06-15T12:00:00', '2024-06-15T13:00:00'),
+				id: '__new-event-preview__',
+			},
+			timedEvent('a', 'cal', '2024-06-15T12:00:00', '2024-06-15T13:00:00'),
+			timedEvent('b', 'cal', '2024-06-15T13:00:00', '2024-06-15T14:00:00'),
+		]
+		expect(upcomingAgenda(events, now, undefined, 1).map((entry) => entry.event.id)).toEqual(['a'])
+	})
+
+	it('decides which day is "today" in the display timezone, not the device timezone', () => {
+		// 23:30 UTC on the 15th is already the 16th in Tokyo.
+		const lateUtc = new Date('2024-06-15T23:30:00Z')
+		const tokyoMorning = timedEvent('tokyo', 'cal', '2024-06-16T00:00:00Z', '2024-06-16T01:00:00Z')
+		expect(upcomingAgenda([tokyoMorning], lateUtc, 'Asia/Tokyo').map((entry) => entry.event.id)).toEqual([
+			'tokyo',
+		])
+	})
+})
+
+describe('initialTimeGridScrollHour', () => {
+	it('opens an hour before now when today is on screen so the current time is visible', () => {
+		expect(initialTimeGridScrollHour(['2024-06-14', '2024-06-15'], '2024-06-15', 15.5)).toBe(14)
+	})
+
+	it('clamps to the first and last hour of the grid', () => {
+		expect(initialTimeGridScrollHour(['2024-06-15'], '2024-06-15', 0.25)).toBe(0)
+		expect(initialTimeGridScrollHour(['2024-06-15'], '2024-06-15', 26)).toBe(23)
+	})
+
+	it('keeps the 8am working-day default for ranges that do not include today', () => {
+		expect(initialTimeGridScrollHour(['2024-06-20'], '2024-06-15', 15)).toBe(8)
+	})
+})
 
 describe('calendarKeyAction', () => {
 	it('maps m / w / d to view switches, case-insensitively', () => {
