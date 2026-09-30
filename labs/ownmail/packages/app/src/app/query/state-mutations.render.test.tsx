@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
 	deleteDraft: vi.fn(),
 	deleteEvent: vi.fn(),
 	getContacts: vi.fn(),
+	markThreadRead: vi.fn(),
 	rsvpEvent: vi.fn(),
 	saveDraft: vi.fn(),
 	sendDraft: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('#server/fns', () => ({
 	getContact: vi.fn(),
 	getContacts: api.getContacts,
 	getMailboxInfo: vi.fn(),
+	markThreadRead: api.markThreadRead,
 	saveDraft: api.saveDraft,
 	sendDraft: api.sendDraft,
 	updateContact: api.updateContact,
@@ -57,6 +59,8 @@ import {
 	useUpdateContactMutation,
 } from '#features/contacts/state/contacts-state'
 import {
+	markThreadReadOnOpen,
+	openThreadDetail,
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
 	useSendDraftMutation,
@@ -326,5 +330,113 @@ describe('mail mutation hooks', () => {
 			client.getQueryData<MailThreadListData>(mailKeys.threadList({ folderId: 'inbox' }))?.pages[0]
 				?.threads[0]?.starred,
 		).toBeUndefined()
+	})
+})
+
+describe('marking a thread read on open', () => {
+	const inboxKey = mailKeys.threadList({ folderId: 'inbox' })
+	const cachedRow = () => client.getQueryData<MailThreadListData>(inboxKey)?.pages[0]?.threads[0]
+	const inboxFolders = [{ id: 'inbox', unread_count: 1 }] as MailFolder[]
+
+	beforeEach(() => client.setQueryData(mailKeys.folders(), inboxFolders))
+
+	it('updates the row and folder badge before the provider answers, then keeps the canonical receipt', async () => {
+		let answer: (value: unknown) => void = () => {}
+		api.markThreadRead.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+
+		expect(markThreadReadOnOpen(client, 'thread-1')).toBe(true)
+		await vi.waitFor(() => expect(cachedRow()?.unread).toBe(false))
+		expect(client.getQueryData<MailFolder[]>(mailKeys.folders())?.[0]?.unread_count).toBe(0)
+		expect(client.isMutating()).toBe(1)
+
+		answer({ thread: { id: 'thread-1', grant_id: 'private', folders: ['inbox'], unread: false } })
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(api.markThreadRead).toHaveBeenCalledWith({ data: { threadId: 'thread-1' } })
+		expect(cachedRow()).toEqual({ id: 'thread-1', folders: ['inbox'], unread: false })
+	})
+
+	it('sends one read per open even when the loader and reader both ask', async () => {
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', unread: false } })
+		expect(markThreadReadOnOpen(client, 'thread-1')).toBe(true)
+		expect(markThreadReadOnOpen(client, 'thread-1')).toBe(true)
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(api.markThreadRead).toHaveBeenCalledTimes(1)
+	})
+
+	it('skips threads that are already read or not cached', () => {
+		expect(markThreadReadOnOpen(client, 'unknown-thread')).toBe(false)
+		expect(markThreadReadOnOpen(client, 'thread-1', { id: 'thread-1', unread: false })).toBe(false)
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+	})
+
+	it('restores the unread row and badge when the provider rejects the read', async () => {
+		api.markThreadRead.mockRejectedValue(new Error('offline'))
+		markThreadReadOnOpen(client, 'thread-1')
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(cachedRow()?.unread).toBe(true)
+		expect(client.getQueryData<MailFolder[]>(mailKeys.folders())?.[0]?.unread_count).toBe(1)
+	})
+
+	it('never writes read state during server rendering', () => {
+		vi.stubGlobal('window', undefined)
+		try {
+			expect(markThreadReadOnOpen(client, 'thread-1')).toBe(false)
+		} finally {
+			vi.unstubAllGlobals()
+		}
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+	})
+
+	it('does not cancel the detail request that is loading the opened thread', async () => {
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', unread: false } })
+		let deliver: (value: unknown) => void = () => {}
+		const detailKey = mailKeys.threadDetail('thread-1')
+		const loading = client.fetchQuery({
+			queryKey: detailKey,
+			queryFn: () => new Promise((resolve) => (deliver = resolve)),
+		})
+
+		const opened = openThreadDetail(client, 'thread-1', { preload: false, queryKey: detailKey }, async () => {
+			deliver({ thread: { id: 'thread-1', unread: true }, messages: [] })
+			return (await loading) as { thread: { id: string; unread: boolean } }
+		})
+
+		// The detail was read before the provider applied the read; it must not
+		// flip the reader back to unread.
+		await expect(opened).resolves.toEqual({ thread: { id: 'thread-1', unread: false }, messages: [] })
+		expect(client.getQueryData(detailKey)).toEqual({
+			thread: { id: 'thread-1', unread: false },
+			messages: [],
+		})
+	})
+
+	it('aligns an uncached search selection with the read already sent', async () => {
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', unread: false } })
+		await expect(
+			openThreadDetail(client, 'thread-1', { preload: false }, async () => ({
+				thread: { id: 'thread-1', unread: true },
+			})),
+		).resolves.toEqual({ thread: { id: 'thread-1', unread: false } })
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+	})
+
+	it('leaves read state untouched for hover preloads and read threads', async () => {
+		const detail = { thread: { id: 'thread-1', unread: true } }
+		await expect(openThreadDetail(client, 'thread-1', { preload: true }, async () => detail)).resolves.toBe(
+			detail,
+		)
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+		expect(cachedRow()?.unread).toBe(true)
+
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', unread: false } })
+		const read = { thread: { id: 'thread-1', unread: false } }
+		await expect(openThreadDetail(client, 'thread-1', { preload: false }, async () => read)).resolves.toBe(
+			read,
+		)
+		const unaligned = { thread: { id: 'thread-2', unread: true } }
+		await expect(
+			openThreadDetail(client, 'thread-2', { preload: false }, async () => unaligned),
+		).resolves.toBe(unaligned)
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
 	})
 })

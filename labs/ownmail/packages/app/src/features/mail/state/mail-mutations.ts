@@ -1,14 +1,28 @@
 import type { Folder, Thread } from '@nylas-labs/cli-kit/v3'
-import { type QueryClient, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+	MutationObserver,
+	type QueryClient,
+	type QueryKey,
+	useMutation,
+	useQueryClient,
+} from '@tanstack/react-query'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
-import { deleteDraft, saveDraft, sendDraft, updateThreadState } from '#server/fns'
+import { deleteDraft, markThreadRead, saveDraft, sendDraft, updateThreadState } from '#server/fns'
 import {
 	createMailOptimisticManager,
+	findCachedThread,
 	type MailCacheEffect,
 	type MailOptimisticOperation,
 	safeSentMessage,
 } from './mail-cache.js'
-import { type MailDraft, mailKeys, toMailDraft, toMailFolder, toMailThread } from './mail-queries.js'
+import {
+	type MailDraft,
+	type MailThread,
+	mailKeys,
+	toMailDraft,
+	toMailFolder,
+	toMailThread,
+} from './mail-queries.js'
 
 type UpdateThreadInput = {
 	threadId: string
@@ -114,6 +128,64 @@ export function useUpdateThreadMutation() {
 			reconcileInBackground(client)
 		},
 	})
+}
+
+const openingReads = new WeakMap<QueryClient, Set<string>>()
+
+/** Opening an unread thread marks it read at once in every cached list, folder
+ * badge, and detail, then confirms with the provider. It runs through the
+ * mutation cache so it counts as pending work, and it never cancels the detail
+ * fetch that is loading the same thread. Returns whether a read is in flight. */
+export function markThreadReadOnOpen(
+	client: QueryClient,
+	threadId: string,
+	knownThread?: MailThread,
+): boolean {
+	if (typeof window === 'undefined') return false
+	let pending = openingReads.get(client)
+	if (!pending) {
+		pending = new Set()
+		openingReads.set(client, pending)
+	}
+	if (pending.has(threadId)) return true
+	const thread = knownThread ?? findCachedThread(client, threadId)
+	if (!thread?.unread) return false
+	const inFlight = pending
+	inFlight.add(threadId)
+	const input = { threadId, unread: false }
+	const observer = new MutationObserver(client, {
+		mutationFn: () => markThreadRead({ data: { threadId } }),
+		onMutate: async (): Promise<OptimisticContext> => ({
+			operation: await managerFor(client).begin(updateThreadEffect(input), { preserveThreadDetails: true }),
+		}),
+		onError: (_error, _variables, context) => context?.operation.rollback(),
+		onSuccess: (receipt, _variables, context) => {
+			context?.operation.commit(updateThreadEffect(input, receipt))
+			reconcileInBackground(client)
+		},
+		onSettled: () => inFlight.delete(threadId),
+	})
+	// A failed read rolls back to unread; the row returning to bold is the signal.
+	void observer.mutate().catch(() => {})
+	return true
+}
+
+/** Loads a thread for a real (non-preload) open, starting the optimistic read
+ * from the cached row before the detail request so the list, folder badge, and
+ * reader agree immediately. A detail fetched before the read landed is aligned
+ * with it instead of briefly reporting the thread as unread again. */
+export async function openThreadDetail<T extends { thread: { unread?: boolean } }>(
+	client: QueryClient,
+	threadId: string,
+	{ preload, queryKey }: { preload: boolean; queryKey?: QueryKey },
+	load: () => Promise<T>,
+): Promise<T> {
+	const readOnOpen = !preload && markThreadReadOnOpen(client, threadId)
+	const detail = await load()
+	if (!readOnOpen || !detail.thread.unread) return detail
+	const read = { ...detail, thread: { ...detail.thread, unread: false } }
+	if (queryKey) client.setQueryData(queryKey, read)
+	return read
 }
 
 function optimisticDraft(input: DraftFields, draftId: string): MailDraft {

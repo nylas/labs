@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID } from '#app/components/MobileTabBar'
+import { mailKeys } from '#features/mail/state/mail-queries'
 
 // A single navigate/invalidate pair backs the mocked router hooks; `routerState`
 // supplies the router state consumed via useRouter().
@@ -20,8 +21,10 @@ vi.mock('@tanstack/react-router', () => ({
 
 const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
+const markThreadRead = vi.fn()
 vi.mock('#server/fns', () => ({
 	getThreadMessages: (input: any) => getThreadMessages(input),
+	markThreadRead: (input: any) => markThreadRead(input),
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
@@ -38,6 +41,9 @@ beforeEach(() => {
 			unread: data.unread ?? false,
 			folders: ['work'],
 		},
+	}))
+	markThreadRead.mockImplementation(async ({ data }: any) => ({
+		thread: { id: data.threadId, unread: false, folders: ['inbox'] },
 	}))
 	routerState = { location: { pathname: '/mail/f/inbox/t/t1' } }
 })
@@ -80,7 +86,6 @@ function loaderData(overrides: any = {}): any {
 		thread: { id: 't1', subject: 'Hello', starred: false, folders: ['work'] },
 		messages: richMessages(),
 		mailboxEmail: 'me@x.com',
-		markedRead: false,
 		...overrides,
 	}
 }
@@ -1052,16 +1057,76 @@ describe('keyboard shortcuts', () => {
 	})
 })
 
-// --- markedRead cache propagation --------------------------------------
+// --- read state on open ------------------------------------------------
 
-describe('auto mark-read', () => {
-	it('does not broadly invalidate the router when the loader reports the thread was marked read', () => {
-		renderThread(loaderData({ markedRead: true }))
-		expect(invalidate).not.toHaveBeenCalled()
+describe('read state on open', () => {
+	function unreadInbox(queryClient: QueryClient) {
+		queryClient.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), {
+			pages: [{ threads: [{ id: 't9', folders: ['inbox'], unread: true }] }],
+			pageParams: [undefined],
+		})
+		queryClient.setQueryData(mailKeys.folders(), [{ id: 'inbox', unread_count: 1 }])
+	}
+
+	it('shows the opened row as read in the list before the conversation finishes loading', async () => {
+		let deliver: (value: unknown) => void = () => {}
+		getThreadMessages.mockReturnValue(new Promise((resolve) => (deliver = resolve)))
+		const queryClient = new QueryClient()
+		unreadInbox(queryClient)
+
+		const loading = Route.options.loader({
+			context: { queryClient },
+			params: { folderId: 'inbox', threadId: 't9' },
+			preload: false,
+		})
+
+		await waitFor(() =>
+			expect(
+				(queryClient.getQueryData(mailKeys.threadList({ folderId: 'inbox' })) as any).pages[0].threads[0]
+					.unread,
+			).toBe(false),
+		)
+		expect((queryClient.getQueryData(mailKeys.folders()) as any)[0].unread_count).toBe(0)
+		deliver({ thread: { id: 't9', unread: true }, messages: [], mailboxEmail: 'me@x.com' })
+		await expect(loading).resolves.toMatchObject({ thread: { id: 't9', unread: false } })
+		expect(markThreadRead).toHaveBeenCalledTimes(1)
 	})
 
-	it('does not invalidate when the thread was already read', () => {
-		renderThread(loaderData({ markedRead: false }))
+	it('never marks mail read when a row is merely hovered (intent preload)', async () => {
+		getThreadMessages.mockResolvedValue({
+			thread: { id: 't9', unread: true },
+			messages: [],
+			mailboxEmail: 'me',
+		})
+		const queryClient = new QueryClient()
+		unreadInbox(queryClient)
+
+		await Route.options.loader({
+			context: { queryClient },
+			params: { folderId: 'inbox', threadId: 't9' },
+			preload: true,
+		})
+
+		expect(markThreadRead).not.toHaveBeenCalled()
+		expect(
+			(queryClient.getQueryData(mailKeys.threadList({ folderId: 'inbox' })) as any).pages[0].threads[0]
+				.unread,
+		).toBe(true)
+	})
+
+	it('marks a server-rendered unread thread read once and keeps a later "Mark unread"', async () => {
+		renderThread(loaderData({ thread: { id: 't1', subject: 'Hello', unread: true, folders: ['work'] } }))
+		await waitFor(() => expect(markThreadRead).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+
+		await userEvent.click(screen.getByRole('button', { name: 'Mark unread' }))
+
+		expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', unread: true } })
+		expect(markThreadRead).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not broadly invalidate the router when a thread opens', () => {
+		renderThread(loaderData())
 		expect(invalidate).not.toHaveBeenCalled()
+		expect(markThreadRead).not.toHaveBeenCalled()
 	})
 })

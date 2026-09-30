@@ -369,7 +369,8 @@ describe('getThreadMessages', () => {
 		expect(fns.getThreadMessages.validator({ threadId: 'thread-1' })).toEqual({ threadId: 'thread-1' })
 	})
 
-	it('marks an unread thread read and returns sorted messages', async () => {
+	it('reads an unread thread without changing its read state and returns sorted messages', async () => {
+		// Route preloads run this GET on hover; only an explicit open may mark mail read.
 		resolveMailbox()
 		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['m2', 'm1'], unread: true } })
 		mailbox.getMessage.mockImplementation((id: string) =>
@@ -377,9 +378,9 @@ describe('getThreadMessages', () => {
 		)
 		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
 
-		expect(mailbox.updateThread).toHaveBeenCalledWith('t1', { unread: false })
-		expect(res.markedRead).toBe(true)
-		expect(res.thread.unread).toBe(false)
+		expect(mailbox.updateThread).not.toHaveBeenCalled()
+		expect(res).not.toHaveProperty('markedRead')
+		expect(res.thread.unread).toBe(true)
 		expect(res.messages.map((m) => m.id)).toEqual(['m1', 'm2']) // sorted by date
 	})
 

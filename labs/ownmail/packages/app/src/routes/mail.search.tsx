@@ -21,8 +21,11 @@ import {
 	threadRouteFolderId,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
-import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
-import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
+import {
+	markThreadReadOnOpen,
+	openThreadDetail,
+	useUpdateThreadMutation,
+} from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
 	threadDetailQueryOptions,
@@ -44,7 +47,7 @@ export const Route = createFileRoute('/mail/search')({
 		...(typeof search.threadId === 'string' ? { threadId: search.threadId } : {}),
 	}),
 	loaderDeps: ({ search }) => ({ q: search.q, folderId: search.folderId, threadId: search.threadId }),
-	loader: async ({ deps }) => {
+	loader: async ({ context, deps, preload }) => {
 		const hasSearchQuery = deps.q.trim().length > 0
 		const emptyResults: Awaited<ReturnType<typeof getThreads>> = { threads: [] }
 		const [folders, res, selected] = await Promise.all([
@@ -61,7 +64,11 @@ export const Route = createFileRoute('/mail/search')({
 						},
 					})
 				: Promise.resolve(emptyResults),
-			hasSearchQuery && deps.threadId ? getThreadMessages({ data: { threadId: deps.threadId } }) : null,
+			hasSearchQuery && deps.threadId
+				? openThreadDetail(context.queryClient, deps.threadId, { preload }, () =>
+						getThreadMessages({ data: { threadId: deps.threadId as string } }),
+					)
+				: null,
 		])
 		return { ...res, folders, folderId: deps.folderId, selected }
 	},
@@ -205,15 +212,14 @@ function SearchResults() {
 	}, [cursor, folderId, q, router, sortedThreads])
 	/* v8 ignore stop -- @preserve */
 
+	// Server-rendered deep links skip the client loader; mark the selected
+	// result read once per selection without undoing a later unread choice.
+	const readRequestedFor = useRef<string | null>(null)
 	useEffect(() => {
-		if (selected?.markedRead) {
-			applyMailCacheEffect(queryClient, {
-				type: 'thread.read',
-				threadId: selected.thread.id,
-				unread: false,
-				thread: selected.thread,
-			})
-		}
+		if (!selected || readRequestedFor.current === selected.thread.id) return
+		readRequestedFor.current = selected.thread.id
+		if (selected.thread.unread)
+			markThreadReadOnOpen(queryClient, selected.thread.id, toMailThread(selected.thread))
 	}, [queryClient, selected])
 
 	return (

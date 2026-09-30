@@ -260,26 +260,17 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			thread: Thread
 			messages: Message[]
 			mailboxEmail: string
-			markedRead?: boolean
 			ownmailDraftMessageIds?: string[]
 		}> => {
-			const { mailbox, email, displayName, grantId } = await requireMailbox()
+			// Reading is side-effect free: route preloads fetch this on hover, and
+			// the client marks a thread read explicitly when it is actually opened.
+			const { mailbox, email, displayName } = await requireMailbox()
 			try {
 				const thread = await mailbox.getThread(data.threadId)
 				const messageIds = thread.data.message_ids ?? []
 				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
 				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
 				const protectedMessages = await Promise.all(messages.map(protectMessageImageSources))
-				if (thread.data.unread) {
-					const updated = await mailbox.updateThread(data.threadId, { unread: false })
-					await signalLocalChange(grantId, 'mail')
-					return {
-						thread: updated.data,
-						messages: protectedMessages,
-						mailboxEmail: email,
-						markedRead: true,
-					}
-				}
 				return { thread: thread.data, messages: protectedMessages, mailboxEmail: email }
 			} catch (err) {
 				if (!isNotFound(err)) throw err

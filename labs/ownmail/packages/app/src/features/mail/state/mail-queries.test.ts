@@ -81,17 +81,12 @@ describe('mail query cache boundaries', () => {
 				thread,
 				messages: [message],
 				mailboxEmail: 'me@example.com',
-				markedRead: false,
 			}),
 		).toEqual({
 			thread: toMailThread(thread),
 			messages: [toMailMessage(message)],
 			mailboxEmail: 'me@example.com',
-			markedRead: false,
 		})
-		expect(toMailThreadDetail({ thread, messages: [], mailboxEmail: 'me@example.com' })).not.toHaveProperty(
-			'markedRead',
-		)
 	})
 
 	it('strips provider-injected draft provenance and only accepts server-attested ids', () => {

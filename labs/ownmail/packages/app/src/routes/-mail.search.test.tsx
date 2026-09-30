@@ -42,6 +42,9 @@ const fns = vi.hoisted(() => ({
 	getFolders: vi.fn(),
 	getThreads: vi.fn(),
 	getThreadMessages: vi.fn(),
+	markThreadRead: vi.fn(async () => ({
+		thread: { id: 'thB', subject: '', starred: true, folders: ['finance'], unread: false },
+	})),
 	updateThreadState: vi.fn(),
 }))
 vi.mock('#server/fns', () => fns)
@@ -110,7 +113,9 @@ describe('/mail/search loader', () => {
 		fns.getThreadMessages.mockResolvedValue({ thread: { id: 't1' }, messages: [] })
 
 		const result = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
 			deps: { q: 'x', folderId: 'starred', threadId: 't1' },
+			preload: false,
 		})
 
 		expect(fns.getThreads).toHaveBeenCalledWith({ data: { q: 'x', starred: true } })
@@ -631,7 +636,6 @@ describe('/mail/search thread detail', () => {
 				thread: overrides.thread,
 				messages: overrides.messages,
 				mailboxEmail: overrides.mailboxEmail ?? 'me@x.com',
-				...(overrides.markedRead ? { markedRead: true } : {}),
 			},
 		}))
 	}
@@ -1141,7 +1145,7 @@ describe('/mail/search thread detail', () => {
 		expect(h.navigate.mock.calls.at(-1)?.[0].search.body).toContain('Forwarded message')
 	})
 
-	it('hides all reply actions and refreshes on a marked-read thread with no messages', async () => {
+	it('marks an unread selected result read once and hides reply actions without messages', async () => {
 		const user = userEvent.setup()
 		seedDetail({
 			thread: {
@@ -1150,14 +1154,17 @@ describe('/mail/search thread detail', () => {
 				starred: true,
 				has_attachments: true,
 				folders: ['finance'],
+				unread: true,
 			},
 			messages: [],
-			markedRead: true,
 		})
 
 		renderRoute()
 
-		// markedRead is applied directly to every relevant cached view.
+		// A server-rendered selection skips the client loader, so the reader
+		// marks it read itself — once — without broadly invalidating the router.
+		await waitFor(() => expect(fns.markThreadRead).toHaveBeenCalledWith({ data: { threadId: 'thB' } }))
+		expect(fns.markThreadRead).toHaveBeenCalledTimes(1)
 		expect(h.invalidate).not.toHaveBeenCalled()
 		// With no message to act on, none of the reply actions render.
 		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
