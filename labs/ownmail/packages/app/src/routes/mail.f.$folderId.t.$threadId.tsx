@@ -63,11 +63,14 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 
 /** The older conversation to open after triage. When the open thread is the
  * oldest loaded row but the folder has more pages, the next page is loaded
- * (and kept in the list cache) so triage continues across page boundaries. */
+ * (and kept in the list cache) so triage continues across page boundaries.
+ * The page is written only once the triage mutation has settled: its commit
+ * rebuilds the cache from an earlier snapshot and would discard the page. */
 async function nextConversationAfterTriage(
 	queryClient: QueryClient,
 	folderId: string,
 	threadId: string,
+	mutationSettled: Promise<void>,
 ): Promise<string | undefined> {
 	const filters = folderId === 'starred' ? { starred: true } : { folderId }
 	const queryKey = mailKeys.threadList(filters)
@@ -79,6 +82,7 @@ async function nextConversationAfterTriage(
 	try {
 		const page = await getThreads({ data: { ...filters, pageToken } })
 		const threads = page.threads.map(toMailThread)
+		await mutationSettled
 		queryClient.setQueryData<MailThreadListData>(queryKey, (current) =>
 			current && current.pages.at(-1)?.nextCursor === pageToken
 				? {
@@ -251,12 +255,14 @@ function ThreadView() {
 			// In split view, triage continues with the neighbouring conversation.
 			// The list is read synchronously, before the optimistic move removes
 			// this one; a next page is fetched alongside the mutation if needed.
+			let settleMutation!: () => void
+			const mutationSettled = new Promise<void>((resolve) => (settleMutation = resolve))
 			const nextThread =
 				leave && action !== 'unread' && window.matchMedia?.(SPLIT_VIEW_QUERY).matches
-					? nextConversationAfterTriage(queryClient, folderId, threadId)
+					? nextConversationAfterTriage(queryClient, folderId, threadId, mutationSettled)
 					: undefined
 			try {
-				await updateThread.mutateAsync({ threadId, ...input })
+				await updateThread.mutateAsync({ threadId, ...input }).finally(settleMutation)
 				const nextThreadId = await nextThread
 				if (nextThreadId) {
 					await navigate({

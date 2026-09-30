@@ -1257,6 +1257,36 @@ describe('triage flow', () => {
 		expect(list.pages[1]).toEqual({ threads: [nextPageThread], nextCursor: 'page-3' })
 	})
 
+	it('keeps a next page that arrives while the archive is still in flight', async () => {
+		splitView(true)
+		let confirmArchive: (value: unknown) => void = () => {}
+		updateThreadState.mockReturnValueOnce(new Promise((resolve) => (confirmArchive = resolve)))
+		let deliverPage: (value: unknown) => void = () => {}
+		getThreads.mockReturnValueOnce(new Promise((resolve) => (deliverPage = resolve)))
+		const queryClient = pagedInbox([newest, opened])
+		const key = mailKeys.threadList({ folderId: 'inbox' })
+		renderThread(loaderData(), {}, undefined, queryClient)
+
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		// The request only starts after the journal captured its snapshot.
+		await waitFor(() => expect(updateThreadState).toHaveBeenCalled())
+		deliverPage({ threads: [nextPageThread] })
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		// The archive commit then rebuilds from that earlier snapshot, which
+		// must not discard the page that arrived in between.
+		confirmArchive({ thread: { id: 't1', folders: ['archive'] } })
+
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't9' } }),
+			),
+		)
+		const ids = queryClient
+			.getQueryData<any>(key)
+			.pages.flatMap((page: any) => page.threads.map((thread: any) => thread.id))
+		expect(ids).toEqual(['t0', 't9'])
+	})
+
 	it('falls back to the newer neighbour when the next page cannot load or is empty', async () => {
 		splitView(true)
 		getThreads.mockRejectedValueOnce(new Error('offline'))
