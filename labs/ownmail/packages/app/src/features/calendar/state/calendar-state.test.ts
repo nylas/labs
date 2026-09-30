@@ -7,6 +7,7 @@ import {
 	type CalendarRouteData,
 	calendarKeys,
 	calendarStateTestApi,
+	resetCalendarConfirmedEffects,
 } from './calendar-state.js'
 
 const event = {
@@ -165,5 +166,17 @@ describe('calendar cache effects', () => {
 		const reconciled = calendarStateTestApi.reconcileCalendarData(queryClient, data([event]))
 
 		expect(reconciled.events).toEqual([])
+	})
+
+	it('forgets confirmed receipts once the cache is reset for another inbox', () => {
+		const queryClient = new QueryClient()
+		calendarStateTestApi.rememberConfirmedCalendarEffect(queryClient, {
+			type: 'deleted',
+			eventId: event.id,
+		})
+
+		resetCalendarConfirmedEffects(queryClient)
+
+		expect(calendarStateTestApi.reconcileCalendarData(queryClient, data([event])).events).toEqual([event])
 	})
 })

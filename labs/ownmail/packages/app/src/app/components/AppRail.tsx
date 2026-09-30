@@ -1,7 +1,7 @@
 /* Hallmark · component: mobile side navigation · genre: modern-minimal · theme: Quiet · pre-emit critique: P5 H5 E5 S5 R5 V5 */
 import { Link } from '@tanstack/react-router'
 import { Calendar, ChevronRight, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -13,6 +13,7 @@ import {
 	SETTINGS_PATH,
 } from '../config/route-paths.js'
 import { themeToggleLabel, toggleTheme } from '../config/theme.js'
+import { ACCOUNT_SWITCH_BLOCKED_MESSAGE, useAccountSwitch } from '../lib/account-switch.js'
 import { useThemeToggleState } from '../lib/use-theme-toggle-state.js'
 import { useUserPreferences } from '../preferences/user-preferences.js'
 
@@ -264,6 +265,8 @@ export function AppRailMobileNav({
 function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[] }) {
 	const active = accounts.find((account) => account.active)
 	const detailsRef = useRef<HTMLDetailsElement>(null)
+	const { blocked, switching, onSubmit } = useAccountSwitch(accounts)
+	const blockedMessageId = useId()
 
 	useEffect(() => {
 		function closeOnExternalInteraction(event: Event) {
@@ -297,19 +300,25 @@ function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[]
 			</RailTooltip>
 			<div className="absolute bottom-0 left-[calc(100%+0.5rem)] z-50 w-64 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
 				<p className="px-2 py-1 text-xs font-semibold text-muted-foreground">Switch inbox</p>
+				{blocked ? (
+					<p id={blockedMessageId} className="px-2 pb-1 text-xs text-muted-foreground">
+						{ACCOUNT_SWITCH_BLOCKED_MESSAGE}
+					</p>
+				) : null}
 				{accounts.map((account) => (
-					<form key={account.handle} action="/auth" method="post">
+					<form key={account.handle} action="/auth" method="post" onSubmit={onSubmit}>
+						<input type="hidden" name="account" value={account.handle} />
 						<button
 							type="submit"
-							name="account"
-							value={account.handle}
 							aria-current={account.active ? 'true' : undefined}
+							disabled={!account.active && (blocked || switching !== null)}
+							aria-describedby={blocked && !account.active ? blockedMessageId : undefined}
 							onClick={() => {
 								/* v8 ignore next -- mounted account action owns this ref -- @preserve */
 								if (detailsRef.current) detailsRef.current.open = false
 							}}
 							className={cn(
-								'flex min-h-11 min-w-0 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
+								'flex min-h-11 min-w-0 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
 								account.active && 'bg-muted font-medium',
 							)}
 						>
@@ -341,9 +350,11 @@ function AccountSwitcher({
 	onNavigate?: () => void
 }) {
 	const active = accounts.find((account) => account.active)
+	const { blocked, onSubmit } = useAccountSwitch(accounts)
+	const blockedMessageId = useId()
 	if (!active) return null
 	return (
-		<form action="/auth" method="post">
+		<form action="/auth" method="post" onSubmit={onSubmit}>
 			<label className="block text-xs font-medium text-muted-foreground">
 				<span className="px-3">Inbox</span>
 				<select
@@ -351,6 +362,8 @@ function AccountSwitcher({
 					aria-label="Switch inbox"
 					value={active.handle}
 					title={`Current inbox: ${active.email}`}
+					disabled={blocked}
+					aria-describedby={blocked ? blockedMessageId : undefined}
 					onChange={(event) => {
 						onNavigate?.()
 						event.currentTarget.form?.requestSubmit()
@@ -364,6 +377,11 @@ function AccountSwitcher({
 					))}
 				</select>
 			</label>
+			{blocked ? (
+				<p id={blockedMessageId} className="mt-1 px-3 text-xs text-muted-foreground">
+					{ACCOUNT_SWITCH_BLOCKED_MESSAGE}
+				</p>
+			) : null}
 		</form>
 	)
 }

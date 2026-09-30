@@ -10,6 +10,7 @@ import {
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { AccountSwitchOverlay } from '#app/components/AccountSwitchOverlay'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
@@ -123,6 +124,7 @@ function RootComponent() {
 				<NavigationProgress />
 				<RouteAnnouncer />
 				<Outlet />
+				<AccountSwitchOverlay />
 				<Scripts />
 			</body>
 		</html>

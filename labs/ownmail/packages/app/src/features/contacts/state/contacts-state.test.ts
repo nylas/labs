@@ -7,6 +7,7 @@ import {
 	contactsKeys,
 	contactsStateTestApi,
 	flattenContactPages,
+	resetContactConfirmedEffects,
 } from './contacts-state.js'
 
 const ada = { id: 'contact-1', given_name: 'Ada' } as Contact
@@ -75,6 +76,17 @@ describe('contact cache effects', () => {
 		)
 
 		expect(reconciled.contacts).toEqual([grace])
+	})
+
+	it('forgets confirmed receipts once the cache is reset for another inbox', () => {
+		const queryClient = new QueryClient()
+		contactsStateTestApi.rememberConfirmedContactEffect(queryClient, { type: 'deleted', contactId: ada.id })
+
+		resetContactConfirmedEffects(queryClient)
+
+		expect(
+			contactsStateTestApi.reconcileContactPage(queryClient, { contacts: [ada] }, true).contacts,
+		).toEqual([ada])
 	})
 
 	it('overlays confirmed creates and updates onto stale provider pages', () => {

@@ -55,6 +55,13 @@ function managerFor(client: QueryClient) {
 	return manager
 }
 
+/** Detach the optimistic journal from a cache that is being cleared for another
+ * inbox, so in-flight receipts cannot replay the previous inbox's snapshot. */
+export function resetMailOptimisticJournal(client: QueryClient): void {
+	managerByClient.get(client)?.reset()
+	managerByClient.delete(client)
+}
+
 function safeFolders(folders: Folder[] | undefined) {
 	return folders?.map(toMailFolder)
 }

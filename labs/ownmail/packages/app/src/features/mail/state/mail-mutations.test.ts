@@ -1,6 +1,7 @@
 import type { Folder, Thread } from '@nylas-labs/cli-kit/v3'
+import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import { mailMutationTestApi } from './mail-mutations.js'
+import { mailMutationTestApi, resetMailOptimisticJournal } from './mail-mutations.js'
 
 describe('mail mutation receipt effects', () => {
 	it('maps a server-side draft removal and canonical folder counts into one cache effect', () => {
@@ -61,5 +62,21 @@ describe('mail mutation receipt effects', () => {
 				{ removedDraftId: 'draft-1' },
 			),
 		).toEqual({ type: 'draft.deleted', draftId: 'draft-1' })
+	})
+})
+
+describe('mail optimistic journal reset', () => {
+	it('gives a cleared client a fresh journal so pending work from another inbox is forgotten', async () => {
+		const client = new QueryClient()
+		const previous = mailMutationTestApi.managerFor(client)
+		await previous.begin({ type: 'thread.read', threadId: 't1', unread: false })
+		expect(previous.pendingCount()).toBe(1)
+
+		resetMailOptimisticJournal(client)
+
+		expect(previous.pendingCount()).toBe(0)
+		expect(mailMutationTestApi.managerFor(client)).not.toBe(previous)
+		// Resetting a client without a journal is a harmless no-op.
+		resetMailOptimisticJournal(new QueryClient())
 	})
 })

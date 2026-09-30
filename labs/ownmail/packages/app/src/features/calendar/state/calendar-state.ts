@@ -26,6 +26,11 @@ export const calendarKeys = {
 const CONFIRMED_EFFECT_TTL_MS = 30_000
 const confirmedEffects = new WeakMap<QueryClient, Array<{ effect: CalendarEffect; expiresAt: number }>>()
 
+/** Drop replayed calendar receipts when the cache is cleared for another inbox. */
+export function resetCalendarConfirmedEffects(queryClient: QueryClient): void {
+	confirmedEffects.delete(queryClient)
+}
+
 function rememberConfirmedCalendarEffect(queryClient: QueryClient, effect: CalendarEffect) {
 	const current = confirmedEffects.get(queryClient) ?? []
 	confirmedEffects.set(queryClient, [

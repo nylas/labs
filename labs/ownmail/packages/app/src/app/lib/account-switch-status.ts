@@ -1,0 +1,26 @@
+import { useSyncExternalStore } from 'react'
+
+/* The switching state outlives the control that started it: the mobile
+ * switcher unmounts as its navigation sheet closes, while the status overlay
+ * rendered by the root route keeps the transition visible. */
+let switchingTo: string | null = null
+const listeners = new Set<() => void>()
+
+export function setSwitchingTo(email: string | null) {
+	switchingTo = email
+	for (const listener of listeners) listener()
+}
+
+function subscribe(listener: () => void) {
+	listeners.add(listener)
+	return () => listeners.delete(listener)
+}
+
+export function readSwitchingTo() {
+	return switchingTo
+}
+
+/** The email of the inbox currently being switched to, or null when idle. */
+export function useAccountSwitchStatus(): string | null {
+	return useSyncExternalStore(subscribe, readSwitchingTo, readSwitchingTo)
+}
