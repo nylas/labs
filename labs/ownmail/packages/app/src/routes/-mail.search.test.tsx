@@ -679,6 +679,23 @@ describe('/mail/search thread detail', () => {
 		}))
 	}
 
+	it('lets search results use the chosen reading pane, keeping a way back when the list is hidden', async () => {
+		seedDetail({ thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] }, messages })
+		renderRoute()
+		const resultsList = () => screen.getByRole('button', { name: /^Reading pane:/ }).closest('section')
+		expect(resultsList()).toHaveClass('xl:flex')
+
+		try {
+			await userEvent.click(screen.getByRole('button', { name: 'Reading pane: Vertical split' }))
+			await userEvent.click(screen.getByRole('menuitemradio', { name: 'No split' }))
+
+			await waitFor(() => expect(resultsList()).not.toHaveClass('xl:flex'))
+			expect(screen.getByRole('link', { name: 'Back to list' })).not.toHaveClass('xl:hidden')
+		} finally {
+			window.localStorage.clear()
+		}
+	})
+
 	it('renders the shared reader and routes reply actions + toolbar to the composer/list', async () => {
 		const user = userEvent.setup()
 		seedDetail({

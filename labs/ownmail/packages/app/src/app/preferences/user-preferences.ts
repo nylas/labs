@@ -9,6 +9,12 @@ const MAX_ACCOUNT_KEY_LENGTH = 320
 
 export type RemoteImagePolicy = 'ask' | 'always'
 
+/** How a conversation opens beside the mail list on wide screens. Narrow
+ * screens always replace the list with the conversation. */
+export type ReadingPane = 'none' | 'vertical' | 'horizontal'
+
+export const READING_PANES: readonly ReadingPane[] = ['none', 'vertical', 'horizontal']
+
 export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
@@ -16,6 +22,7 @@ export type UserPreferences = {
 	emailLayoutMode: 'readable' | 'original'
 	emailColorMode: 'automatic' | 'original'
 	remoteImagePolicy: RemoteImagePolicy
+	readingPane: ReadingPane
 	primaryTimezone: string
 	secondaryTimezone: string
 	/**
@@ -58,6 +65,7 @@ export function defaultUserPreferences(): UserPreferences {
 		emailLayoutMode: 'readable',
 		emailColorMode: 'automatic',
 		remoteImagePolicy: 'ask',
+		readingPane: 'vertical',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
 		hiddenCalendarsByAccount: {},
@@ -136,6 +144,9 @@ function normalizePreferences(value: unknown): UserPreferences {
 		emailLayoutMode: input.emailLayoutMode === 'original' ? 'original' : 'readable',
 		emailColorMode: input.emailColorMode === 'original' ? 'original' : 'automatic',
 		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
+		readingPane: READING_PANES.includes(input.readingPane as ReadingPane)
+			? (input.readingPane as ReadingPane)
+			: 'vertical',
 		primaryTimezone,
 		secondaryTimezone,
 		// A flat `hiddenCalendarIds` list from before per-account storage cannot be

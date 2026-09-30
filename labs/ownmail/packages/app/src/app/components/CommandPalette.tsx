@@ -1,12 +1,14 @@
 import { useNavigate } from '@tanstack/react-router'
 import { Calendar, Mail, Moon, Pencil, Search, Sun, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { READING_PANE_OPTIONS } from '#features/mail/components/ReadingPaneMenu'
 import { MAIL_FOLDERS } from '#features/mail/lib/mail-ui-model'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { cn } from '#shared/lib/utils'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH } from '../config/route-paths.js'
 import { themeToggleLabel, toggleTheme } from '../config/theme.js'
 import { useThemeToggleState } from '../lib/use-theme-toggle-state.js'
+import { useUserPreferences } from '../preferences/user-preferences.js'
 
 type Command = {
 	id: string
@@ -29,6 +31,7 @@ export function CommandPalette({
 	const [query, setQuery] = useState('')
 	const [activeIndex, setActiveIndex] = useState(0)
 	const { isDark, mounted } = useThemeToggleState()
+	const [preferences, savePreferences] = useUserPreferences()
 	const inputRef = useRef<HTMLInputElement>(null)
 	const listRef = useRef<HTMLDivElement>(null)
 	const listboxId = useId()
@@ -81,6 +84,13 @@ export function CommandPalette({
 						params: { folderId: folder.id },
 					}),
 			})),
+			...READING_PANE_OPTIONS.map(({ value, label, icon: Icon }) => ({
+				id: `reading-pane-${value}`,
+				label: `Reading pane: ${label}`,
+				...(preferences.readingPane === value ? { hint: 'Current' } : {}),
+				icon: <Icon className="h-4 w-4" />,
+				run: () => savePreferences({ ...preferences, readingPane: value }),
+			})),
 			{
 				id: 'theme',
 				label: themeToggleLabel(mounted, isDark),
@@ -89,7 +99,7 @@ export function CommandPalette({
 			},
 		]
 		return list
-	}, [isDark, mounted, navigate, onFocusSearch])
+	}, [isDark, mounted, navigate, onFocusSearch, preferences, savePreferences])
 
 	const filtered = useMemo(() => {
 		const needle = query.trim().toLowerCase()

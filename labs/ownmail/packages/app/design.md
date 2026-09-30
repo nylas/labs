@@ -56,6 +56,12 @@ mobile rows prefer 48 pixels.
   in the same surface instead of stacking a second bar above or below it.
 - Contextual folders, calendars, mailboxes, theme, and command tools live in
   sheets rather than competing with primary destinations.
+- Reading pane (wide screens only): no split (the conversation replaces the
+  list), vertical split (list beside the reader), or horizontal split (list
+  above the reader). The choice is a device preference, set from the list
+  toolbar or the command palette. Narrow screens always replace the list.
+  Closing a conversation returns focus to its row; triage auto-advances only
+  while the list is visible beside the reader.
 
 ## Icon controls
 
