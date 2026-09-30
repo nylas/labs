@@ -227,7 +227,6 @@ describe('stepRecover', () => {
 		const proj = project()
 		const { ctx } = accountCtx(proj, {
 			keys: [
-				{ id: 'key-new', name: 'ownmail acme 2026-09-29T03-04-05-678Z', status: 'active' },
 				{ id: 'key-deployed', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' },
 				{ id: 'key-revoked', name: 'ownmail acme (rotated 2025-06-01)', status: 'revoked' },
 				{ id: 'key-temp', name: 'ownmail doctor 2026-01-02T00:00:00.000Z', status: 'active' },
@@ -295,6 +294,33 @@ describe('stepRecover', () => {
 		expect(proj.pendingApiKeyRotation).toEqual(rotation)
 	})
 
+	it('still revokes the live key when a retry had to replace an interim key', async () => {
+		// First attempt identified key-deployed and minted key-1; key-1 was unreadable on resume,
+		// so stepApiKey minted key-2 and pointed its own rotation at the never-deployed key-1.
+		const proj = project({ apiKeyId: 'key-1', recoveredDeployedKeyId: 'key-deployed' })
+		const { ctx, gateway } = accountCtx(proj, {
+			redirects: ['https://acme-ownmail.me.workers.dev/auth/callback'],
+		})
+		vi.mocked(stepApiKey).mockImplementationOnce(async (c) => {
+			c.v3 = {
+				listGrants: vi.fn(async () => ({ data: [] })),
+				listRedirectUris: vi.fn(async () => ({
+					data: [{ url: 'https://acme-ownmail.me.workers.dev/auth/callback' }],
+				})),
+				listWebhooks: vi.fn(async () => ({ data: [] })),
+			} as never
+			c.project.pendingApiKeyRotation = { previousKeyId: 'key-1', replacementKeyId: 'key-2' }
+			c.project.apiKeyId = 'key-2'
+		})
+
+		await stepRecover(ctx)
+
+		expect(gateway.listApiKeys).not.toHaveBeenCalled()
+		expect(proj.pendingApiKeyRotation).toEqual({ previousKeyId: 'key-deployed', replacementKeyId: 'key-2' })
+		expect(proj.recoveredDeployedKeyId).toBeUndefined()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('key-1'))
+	})
+
 	it('leaves the previous key active when the live destination is unconfirmed', async () => {
 		const proj = project()
 		const { ctx, gateway } = accountCtx(proj, {
@@ -313,8 +339,9 @@ describe('stepRecover', () => {
 
 		expect(proj.appDomain).toBe('mail.acme.com')
 		expect(proj.recoveredAppUrl).toBeUndefined()
+		expect(gateway.listApiKeys).toHaveBeenCalled()
 		expect(proj.pendingApiKeyRotation).toBeUndefined()
-		expect(gateway.listApiKeys).not.toHaveBeenCalled()
+		expect(proj.recoveredDeployedKeyId).toBeUndefined()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('will not revoke'))
 	})
 
@@ -402,7 +429,7 @@ describe('stepRecover', () => {
 			redirects: ['https://acme-ownmail.me.workers.dev/auth/callback'],
 		})
 
-		await expect(stepRecover(ctx)).rejects.toThrow(/Nylas API key unavailable/)
+		await expect(stepRecover(ctx)).rejects.toThrow(/Nylas application unavailable/)
 	})
 
 	it('reads legacy callback_url webhooks and tolerates empty list responses', async () => {

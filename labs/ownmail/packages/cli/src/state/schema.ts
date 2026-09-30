@@ -106,6 +106,8 @@ export const ProjectStateSchema = z.object({
 	adoptedFromAccount: z.boolean().optional(),
 	/** App URL found during recovery; the first redeploy must land there before the old key is revoked. */
 	recoveredAppUrl: z.string().url().optional(),
+	/** Key the live app used, identified before recovery minted any key; revoked only once the app URL is confirmed. */
+	recoveredDeployedKeyId: z.string().min(1).optional(),
 	hostingProvider: z.enum(['cloudflare', 'vercel', 'netlify', 'local', 'manual']).optional(),
 
 	applicationId: z.string().optional(),

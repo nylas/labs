@@ -33,6 +33,8 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 	if (!ctx.project.adoptedFromAccount) return
 	p.log.info(`Rebuilding “${ctx.project.slug}” from your Nylas account…`)
 
+	// Identify the live key before minting one, so a retry cannot mistake an earlier replacement for it.
+	if (!ctx.project.apiKeyId) await identifyDeployedKey(ctx)
 	await stepApiKey(ctx)
 	const v3 = requireV3(ctx)
 
@@ -40,8 +42,9 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 	if (!ctx.project.domainId && !ctx.project.plannedDomainAddress) await recoverDomain(ctx)
 	if (!ctx.project.hostingProvider) await recoverHosting(ctx, v3)
 	if (ctx.project.recoveredAppUrl) {
-		if (!ctx.project.pendingApiKeyRotation) await scheduleDeployedKeyRevocation(ctx)
+		scheduleDeployedKeyRevocation(ctx.project)
 	} else {
+		delete ctx.project.recoveredDeployedKeyId
 		p.log.warn(
 			`OwnMail could not confirm where this app is deployed, so it will not revoke the app's previous API key. Once the app works, revoke the older “ownmail ${ctx.project.slug}” key in the Nylas dashboard.`,
 		)
@@ -54,20 +57,16 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 	)
 }
 
-/** Schedule the key the live app runs on for revocation once the verified redeploy installs its replacement. */
-async function scheduleDeployedKeyRevocation(ctx: StepContext): Promise<void> {
-	const { applicationId, apiKeyId: replacementKeyId } = ctx.project
-	if (!applicationId || !replacementKeyId) throw new Error('Nylas API key unavailable — rerun ownmail setup')
+/** Record the key the live app runs on. Runs before recovery mints its replacement. */
+async function identifyDeployedKey(ctx: StepContext): Promise<void> {
+	const applicationId = ctx.project.applicationId
+	if (!applicationId) throw new Error('Nylas application unavailable — rerun ownmail setup')
 	const keys = await requireGateway(ctx).listApiKeys(tokens(ctx), ctx.project.region, applicationId)
 	const deployed = keys.filter(
-		(key) =>
-			key.id !== replacementKeyId &&
-			key.status.trim().toLowerCase() === 'active' &&
-			isDeploymentKeyName(key.name, ctx.project.slug),
+		(key) => key.status.trim().toLowerCase() === 'active' && isDeploymentKeyName(key.name, ctx.project.slug),
 	)
 	if (deployed.length === 1) {
-		const previous = deployed[0] as (typeof deployed)[number]
-		ctx.project.pendingApiKeyRotation = { previousKeyId: previous.id, replacementKeyId }
+		ctx.project.recoveredDeployedKeyId = (deployed[0] as (typeof deployed)[number]).id
 		saveProject(ctx.project)
 		return
 	}
@@ -76,6 +75,22 @@ async function scheduleDeployedKeyRevocation(ctx: StepContext): Promise<void> {
 			'Found more than one active OwnMail API key for this app, so none will be revoked automatically. Revoke unused keys in the Nylas dashboard.',
 		)
 	}
+}
+
+/** Schedule the live key for revocation once the verified redeploy installs its replacement. */
+function scheduleDeployedKeyRevocation(project: ProjectState): void {
+	const previousKeyId = project.recoveredDeployedKeyId
+	const replacementKeyId = project.apiKeyId
+	if (!previousKeyId || !replacementKeyId) return
+	const interimKeyId = project.pendingApiKeyRotation?.previousKeyId
+	if (interimKeyId && interimKeyId !== previousKeyId) {
+		p.log.warn(
+			`An API key from an earlier interrupted attempt (${interimKeyId}) was never deployed. Revoke it in the Nylas dashboard if it is still active.`,
+		)
+	}
+	project.pendingApiKeyRotation = { previousKeyId, replacementKeyId }
+	delete project.recoveredDeployedKeyId
+	saveProject(project)
 }
 
 /** Names given to deployment keys by setup, `auth rotate-key`, and `project doctor`. */
