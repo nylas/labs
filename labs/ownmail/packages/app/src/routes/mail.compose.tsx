@@ -36,6 +36,7 @@ import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
 import { validateRecipientEmails } from '#features/mail/lib/recipients'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
 import {
+	markThreadReadOnOpen,
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
 	useSendDraftMutation,
@@ -302,6 +303,15 @@ function Compose() {
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
+	// Selecting a conversation behind the composer is a real open: mark it read
+	// once per selection without undoing a later unread choice.
+	const readRequestedFor = useRef<string | null>(null)
+	useEffect(() => {
+		if (!selected || readRequestedFor.current === selected.thread.id) return
+		readRequestedFor.current = selected.thread.id
+		if (selected.thread.unread) markThreadReadOnOpen(queryClient, selected.thread.id, selected.thread)
+	}, [queryClient, selected])
+
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
 	/* v8 ignore start -- command-key dispatch is covered by the component's button workflows -- @preserve */
