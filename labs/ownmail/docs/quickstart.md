@@ -126,16 +126,18 @@ OwnMail resumes the pending setup without creating duplicate routes or webhooks.
 
 ## Resume on another computer
 
-Run `npx ownmail` on the new computer and log in with the same Nylas account.
-OwnMail lists the projects on that account; pick yours to continue managing it.
-Nothing needs to be copied between computers. OwnMail finds the app, inbox,
-domain, and hosting provider from your Nylas account, installs a fresh API key,
-and revokes the previous key after the redeploy succeeds when it can identify
-it. Before redeploying, OwnMail checks the live app on Cloudflare, Vercel, or
-Netlify: it only adopts a URL that is serving this project, and reads the app's
-display name back from it. If the app can't be reached, confirm the display
-name when prompted. Sign in to your hosting provider's CLI if asked. Apps run
-with local or manual hosting are rebuilt on the new computer. Keep managing a project from one computer at a time: each
+Run `npx ownmail` on the new computer and choose **Resume an app deployed from
+another computer**. Pick the provider that hosts the app (Cloudflare, Vercel,
+or Netlify) and sign in to that account if asked. OwnMail lists the OwnMail
+apps it finds there; pick yours, then log in to the Nylas organization that
+owns it.
+
+Nothing needs to be copied between computers. OwnMail confirms the app is live,
+matches it to its Nylas app by the app's OwnMail API key, and rebuilds the inbox,
+domain, custom app domains, and display name from there. It installs a fresh
+API key and revokes the previous one once the redeploy lands on the same app.
+Apps run with local or manual hosting cannot be resumed this way; start a new
+project instead. Keep managing a project from one computer at a time: each
 computer installs its own key and retires the other's.
 
 ## Local UI development

@@ -7,28 +7,13 @@ import { saveProject } from '../state/store.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, tokens } from './context.js'
 import { CancelledError, isFullyVerified, planDomain, stepApiKey } from './provision.js'
 
-type HostedProvider = 'cloudflare' | 'vercel' | 'netlify'
-
-export type InferredHosting = {
-	provider?: HostedProvider
-	providerUrl?: string
-	appDomain?: string
-	appDomains: string[]
-}
-
-const PROVIDER_HOST_SUFFIXES: [HostedProvider, string][] = [
-	['cloudflare', '.workers.dev'],
-	['vercel', '.vercel.app'],
-	['netlify', '.netlify.app'],
-]
-
 /**
- * Rebuilds local state for a project adopted from the Nylas account (typically
- * on a new computer). Everything durable lives remotely: the app, inbox, and
- * domain on Nylas, and the app URLs in its redirect URIs and realtime webhook.
- * The deployment API key only ever lived in the old machine's keychain, so a
- * replacement is minted. The old key is revoked after the next deploy only when
- * the live app's URL was confirmed, so the deploy can be checked against it.
+ * Rebuilds local state for a project adopted from its live deployment
+ * (typically on a new computer). Everything durable lives remotely: the
+ * deployment on the hosting provider, the app, inbox, and domain on Nylas, and
+ * custom app domains in its redirect URIs and realtime webhook. The deployment
+ * API key only ever lived in the old machine's keychain, so a replacement is
+ * minted. The old key is revoked after the next deploy lands on the adopted URL.
  */
 export async function stepRecover(ctx: StepContext): Promise<void> {
 	if (!ctx.project.adoptedFromAccount) return
@@ -41,7 +26,14 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 
 	if (!ctx.project.grantId) await recoverInbox(ctx, v3)
 	if (!ctx.project.domainId && !ctx.project.plannedDomainAddress) await recoverDomain(ctx)
-	if (!ctx.project.hostingProvider) await recoverHosting(ctx, v3)
+	await recoverAppDomains(ctx, v3)
+	if (!ctx.project.siteName && ctx.project.recoveredAppUrl) {
+		const siteName = await fetchLiveSiteName(ctx.project.recoveredAppUrl)
+		if (siteName) {
+			ctx.project.siteName = siteName
+			p.log.info(`Found the display name “${siteName}” on your app.`)
+		}
+	}
 	if (ctx.project.recoveredAppUrl) {
 		scheduleDeployedKeyRevocation(ctx.project)
 	} else {
@@ -52,7 +44,6 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 	}
 
 	delete ctx.project.adoptedFromAccount
-	delete ctx.project.adoptedSharedTag
 	saveProject(ctx.project)
 	if (!ctx.project.siteName) {
 		p.log.info(
@@ -153,9 +144,14 @@ async function recoverDomain(ctx: StepContext): Promise<void> {
 	saveProject(ctx.project)
 }
 
-async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void> {
+/**
+ * Setup registers every app URL as a redirect URI and points the realtime
+ * webhook at the primary one, so their non-provider hosts are the app's custom
+ * domains. The next redeploy must keep serving them.
+ */
+async function recoverAppDomains(ctx: StepContext, v3: NylasV3Client): Promise<void> {
 	const [redirects, webhooks] = await Promise.all([v3.listRedirectUris(), v3.listWebhooks()])
-	const hosting = inferHosting(
+	const domains = inferAppDomains(
 		(redirects.data ?? []).map((uri) => uri.url),
 		(webhooks.data ?? [])
 			.filter(
@@ -166,59 +162,29 @@ async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void
 			.map((webhook) => webhook.webhook_url ?? webhook.callback_url)
 			.filter((url): url is string => Boolean(url)),
 	)
-	if (hosting.providerUrl) await confirmDeployment(ctx.project, hosting)
-	applyInferredHosting(ctx.project, hosting)
+	ctx.project.appDomains = domains.appDomains
+	if (domains.appDomain) ctx.project.appDomain = domains.appDomain
 	saveProject(ctx.project)
-	if (hosting.provider && hosting.providerUrl) {
-		p.log.info(`Found your app at ${hosting.providerUrl}.`)
-	} else {
-		p.log.info('Could not tell where this app was hosted. Choose the same provider you used before.')
-	}
 }
 
-/**
- * Checks the inferred URL against the live deployment. `/healthz` reports the
- * project slug, so a URL serving a different OwnMail project is dropped rather
- * than redeployed over (and its key revoked). The slug is only unique while no
- * other app shares the project's tag; otherwise the URL is left unconfirmed. A matching deployment also gives
- * back the display name. An unreachable app keeps the inferred URL, as before.
- */
-async function confirmDeployment(project: ProjectState, hosting: InferredHosting): Promise<void> {
-	const url = hosting.providerUrl as string
-	const liveSlug = await fetchLiveSlug(url)
-	if (liveSlug === undefined) return
-	if (liveSlug !== project.slug) {
-		p.log.warn(`${url} is running the OwnMail project “${liveSlug}”, not “${project.slug}”.`)
-		delete hosting.provider
-		delete hosting.providerUrl
-		return
-	}
-	if (project.adoptedSharedTag) {
-		// Another app carries the same tag, so a matching slug may still be the other app's deployment.
-		p.log.warn(`${url} runs an OwnMail project named “${liveSlug}”, but more than one app has that name.`)
-		delete hosting.provider
-		delete hosting.providerUrl
-		return
-	}
-	const siteName = await fetchLiveSiteName(url)
-	if (siteName && !project.siteName) {
-		project.siteName = siteName
-		p.log.info(`Found the display name “${siteName}” on your app.`)
+export function inferAppDomains(
+	redirectUrls: string[],
+	activeWebhookUrls: string[],
+): { appDomain?: string; appDomains: string[] } {
+	const webhookHosts = httpsOrigins(activeWebhookUrls).map((origin) => new URL(origin).hostname)
+	// Several destinations (e.g. one left behind after a domain change) cannot identify the primary.
+	const liveHost = webhookHosts.length === 1 ? webhookHosts[0] : undefined
+	const appDomains = httpsOrigins([...activeWebhookUrls, ...redirectUrls])
+		.map((origin) => new URL(origin).hostname)
+		.filter((host, index, hosts) => hosts.indexOf(host) === index)
+		.filter((host) => !isProviderHost(host) && isAppDomain(host))
+	return {
+		...(liveHost && appDomains.includes(liveHost) ? { appDomain: liveHost } : {}),
+		appDomains,
 	}
 }
 
 const PROBE_TIMEOUT_MS = 5000
-
-async function fetchLiveSlug(url: string): Promise<string | undefined> {
-	try {
-		const res = await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
-		if (!res.ok) return undefined
-		const body = (await res.json()) as { app?: unknown } | null
-		return typeof body?.app === 'string' && body.app ? body.app : undefined
-	} catch {
-		return undefined
-	}
-}
 
 /** The app renders its display name into the public login page's head. */
 async function fetchLiveSiteName(url: string): Promise<string | undefined> {
@@ -251,54 +217,10 @@ export function parseSiteName(html: string): string | undefined {
 	return normalizeSiteName(decoded)
 }
 
-/**
- * Setup registers every app URL as a redirect URI and points the realtime
- * webhook at the primary one, so their hosts identify the provider and any
- * custom app domains. Recovery redeploys to the chosen URL and then revokes
- * the old key, so an ambiguous result is left for the user to choose.
- */
-export function inferHosting(redirectUrls: string[], activeWebhookUrls: string[]): InferredHosting {
-	const webhookOrigins = httpsOrigins(activeWebhookUrls)
-	// Several destinations (e.g. one left behind after switching providers) cannot identify the live app.
-	const liveOrigin = webhookOrigins.length === 1 ? webhookOrigins[0] : undefined
-	const origins = httpsOrigins([...(liveOrigin ? [liveOrigin] : []), ...redirectUrls])
-	const providerOrigins = origins.flatMap((origin) => {
-		const provider = providerForHost(new URL(origin).hostname)
-		return provider ? [{ provider, origin }] : []
-	})
-	const appDomains = origins
-		.map((origin) => new URL(origin).hostname)
-		.filter((host) => !providerForHost(host) && isAppDomain(host))
+const PROVIDER_HOST_SUFFIXES = ['.workers.dev', '.vercel.app', '.netlify.app']
 
-	const liveProvider = providerOrigins.find((entry) => entry.origin === liveOrigin)
-	const chosen = liveProvider ?? (providerOrigins.length === 1 ? providerOrigins[0] : undefined)
-
-	const liveHost = liveOrigin ? new URL(liveOrigin).hostname : undefined
-	const appDomain = liveHost && appDomains.includes(liveHost) ? liveHost : undefined
-	return {
-		...(chosen ? { provider: chosen.provider, providerUrl: chosen.origin } : {}),
-		...(appDomain ? { appDomain } : {}),
-		appDomains,
-	}
-}
-
-function applyInferredHosting(project: ProjectState, hosting: InferredHosting): void {
-	project.appDomains = hosting.appDomains
-	if (hosting.appDomain) project.appDomain = hosting.appDomain
-	if (!hosting.provider || !hosting.providerUrl) return
-	project.hostingProvider = hosting.provider
-	project.recoveredAppUrl = hosting.providerUrl
-	if (hosting.provider === 'cloudflare') {
-		project.workersDevUrl = hosting.providerUrl
-		// <worker>.<account-subdomain>.workers.dev
-		project.workerName = new URL(hosting.providerUrl).hostname.split('.')[0]
-	} else {
-		project.providerAppUrl = hosting.providerUrl
-	}
-}
-
-function providerForHost(host: string): HostedProvider | undefined {
-	return PROVIDER_HOST_SUFFIXES.find(([, suffix]) => host.endsWith(suffix))?.[0]
+function isProviderHost(host: string): boolean {
+	return PROVIDER_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))
 }
 
 function httpsOrigins(urls: string[]): string[] {

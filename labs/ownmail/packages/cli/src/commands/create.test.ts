@@ -70,11 +70,16 @@ vi.mock('../steps/provision.js', () => {
 			ctx.project.plannedDomainBranded ??= true
 		}),
 		stepGrant: vi.fn(),
-		listAccountProjects: vi.fn(async () => []),
 	}
 })
 
 vi.mock('../steps/recover.js', () => ({ stepRecover: vi.fn() }))
+
+vi.mock('../steps/resume.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../steps/resume.js')>()),
+	findDeployments: vi.fn(async () => []),
+	findDeployedApp: vi.fn(),
+}))
 
 vi.mock('./misc.js', () => ({ LOGIN_PROJECT_SLUG: '__login__' }))
 
@@ -83,7 +88,6 @@ import { ownmailNylasEnvironment } from '../nylas-env.js'
 import { listProjects, loadProject, newProject, saveProject } from '../state/store.js'
 import {
 	CancelledError,
-	listAccountProjects,
 	stepApp,
 	stepDashboardAuth,
 	stepDomainPlan,
@@ -91,6 +95,7 @@ import {
 	stepOrg,
 } from '../steps/provision.js'
 import { stepRecover } from '../steps/recover.js'
+import { findDeployedApp, findDeployments } from '../steps/resume.js'
 import { stepSiteName } from '../steps/site-name.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
@@ -146,9 +151,7 @@ describe('runCreate — resolveProject', () => {
 	it('normalizes a setup app-name override and refuses to silently rename a deployment', async () => {
 		const fresh = makeProject({ slug: 'newco' })
 		vi.mocked(loadProject).mockReturnValueOnce(null)
-		vi.mocked(newProject)
-			.mockReturnValueOnce(makeProject({ slug: '__login__' }))
-			.mockReturnValueOnce(fresh)
+		vi.mocked(newProject).mockReturnValueOnce(fresh)
 
 		await runCreate({ name: 'newco', siteName: '  Newco   Inbox ' })
 
@@ -185,8 +188,8 @@ describe('runCreate — resolveProject', () => {
 				message: 'Project name',
 				options: [
 					expect.objectContaining({ value: 'solo' }),
-					expect.objectContaining({ value: '__account__' }),
 					expect.objectContaining({ value: '__new__' }),
+					expect.objectContaining({ value: '__deployed__' }),
 				],
 			}),
 		)
@@ -239,6 +242,7 @@ describe('runCreate — resolveProject', () => {
 
 	it('creates and saves a project from the text prompt when none exist', async () => {
 		vi.mocked(listProjects).mockReturnValue([])
+		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
 		vi.mocked(p.text).mockResolvedValue('typedname' as never)
 		const fresh = makeProject({ slug: 'typedname' })
 		vi.mocked(newProject).mockReturnValue(fresh)
@@ -252,6 +256,7 @@ describe('runCreate — resolveProject', () => {
 
 	it('exercises the name-prompt validate rule (accept + reject)', async () => {
 		vi.mocked(listProjects).mockReturnValue([])
+		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
 		let validate: ((v: string | undefined) => string | undefined) | undefined
 		vi.mocked(p.text).mockImplementation(async (opts: never) => {
 			validate = (opts as { validate: typeof validate }).validate
@@ -268,6 +273,7 @@ describe('runCreate — resolveProject', () => {
 
 	it('cancels when the new-project text prompt is cancelled', async () => {
 		vi.mocked(listProjects).mockReturnValue([])
+		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
 		vi.mocked(p.text).mockResolvedValue(CANCEL as never)
 
 		await expect(runCreate({})).rejects.toBeInstanceOf(CancelledError)
@@ -355,32 +361,49 @@ describe('runCreate — normalizeProjectRegion', () => {
 	})
 })
 
-describe('runCreate — projects set up on another computer', () => {
+describe('runCreate — apps deployed from another computer', () => {
+	const acme = {
+		provider: 'vercel' as const,
+		vercelProjectId: 'prj_acme',
+		vercelOrgId: 'team_acme',
+		slug: 'acme',
+		url: 'https://acme-ownmail.vercel.app',
+	}
+
 	beforeEach(() => {
 		vi.mocked(newProject).mockImplementation((slug, region) => makeProject({ slug, region }))
 		vi.mocked(stepOrg).mockImplementation(async (ctx) => {
 			ctx.project.orgPublicId = 'org1'
 		})
-		vi.mocked(listAccountProjects).mockResolvedValue([
-			{ slug: 'acme', applicationId: 'app-acme', region: 'eu' },
-			{ slug: 'local', applicationId: 'app-local', region: 'us' },
+		vi.mocked(findDeployments).mockResolvedValue([
+			acme,
+			{
+				provider: 'vercel',
+				vercelProjectId: 'prj_local',
+				vercelOrgId: 'team_acme',
+				slug: 'local',
+				url: 'https://local-ownmail.vercel.app',
+			},
 		])
+		vi.mocked(findDeployedApp).mockResolvedValue({ applicationId: 'app-acme', region: 'eu' } as never)
 	})
 
-	it('logs in first on a new computer and resumes a picked account project without a local file', async () => {
-		vi.mocked(p.select).mockResolvedValueOnce('app-acme' as never)
+	it('offers to resume a deployed app on a new computer and adopts it with the app its keys identify', async () => {
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('__deployed__' as never)
+			.mockResolvedValueOnce('vercel' as never)
+			.mockResolvedValueOnce(acme.url as never)
 
 		await runCreate({})
 
-		expect(p.select).toHaveBeenCalledWith(
-			expect.objectContaining({
-				options: [
-					expect.objectContaining({ value: 'app-acme', label: 'acme', hint: 'EU' }),
-					expect.objectContaining({ value: 'app-local' }),
-					expect.objectContaining({ value: '__new__' }),
-				],
-			}),
-		)
+		expect(vi.mocked(p.select).mock.calls[0]?.[0]).toMatchObject({
+			options: [
+				expect.objectContaining({ value: '__new__' }),
+				expect.objectContaining({ value: '__deployed__' }),
+			],
+		})
+		expect(findDeployments).toHaveBeenCalledWith('vercel')
+		expect(findDeployedApp).toHaveBeenCalledWith(expect.anything(), 'acme')
 		const adopted = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
 		expect(adopted).toMatchObject({
 			slug: 'acme',
@@ -388,8 +411,13 @@ describe('runCreate — projects set up on another computer', () => {
 			orgPublicId: 'org1',
 			applicationId: 'app-acme',
 			adoptedFromAccount: true,
+			hostingProvider: 'vercel',
+			vercelProjectId: 'prj_acme',
+			vercelOrgId: 'team_acme',
+			providerAppUrl: acme.url,
+			// The redeploy must land on the live app before its old key is revoked.
+			recoveredAppUrl: acme.url,
 		})
-		expect(adopted.adoptedSharedTag).toBeUndefined()
 		expect(adopted.completedSteps).toEqual(expect.arrayContaining(['dashboard-auth', 'org', 'app']))
 		expect(saveProject).toHaveBeenCalledWith(adopted)
 		// The login session is reused; the runner must not prompt for login or organization again.
@@ -398,80 +426,94 @@ describe('runCreate — projects set up on another computer', () => {
 		expect(p.text).not.toHaveBeenCalled()
 	})
 
-	it('adopts an account project named with --name when it is not on this computer', async () => {
-		vi.mocked(loadProject).mockReturnValue(null)
+	it.each([
+		{
+			provider: 'cloudflare' as const,
+			deployment: {
+				provider: 'cloudflare' as const,
+				workerName: 'acme-ownmail',
+				slug: 'acme',
+				url: 'https://acme-ownmail.me.workers.dev',
+			},
+			expected: { workerName: 'acme-ownmail', workersDevUrl: 'https://acme-ownmail.me.workers.dev' },
+		},
+		{
+			provider: 'netlify' as const,
+			deployment: {
+				provider: 'netlify' as const,
+				netlifySiteId: '0b7f0c1e-7a8b-4c2d-9e3f-1a2b3c4d5e6f',
+				slug: 'acme',
+				url: 'https://acme-ownmail.netlify.app',
+			},
+			expected: {
+				netlifySiteId: '0b7f0c1e-7a8b-4c2d-9e3f-1a2b3c4d5e6f',
+				providerAppUrl: 'https://acme-ownmail.netlify.app',
+			},
+		},
+	])(
+		'records the $provider resource so the redeploy reuses it instead of creating another',
+		async ({ provider, deployment, expected }) => {
+			vi.mocked(findDeployments).mockResolvedValue([deployment])
+			vi.mocked(p.select)
+				.mockResolvedValueOnce('__deployed__' as never)
+				.mockResolvedValueOnce(provider as never)
+				.mockResolvedValueOnce(deployment.url as never)
 
-		await runCreate({ name: 'acme' })
+			await runCreate({})
 
-		expect(p.select).not.toHaveBeenCalled()
-		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
-			slug: 'acme',
-			applicationId: 'app-acme',
-			adoptedFromAccount: true,
-		})
-	})
+			expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
+				hostingProvider: provider,
+				recoveredAppUrl: deployment.url,
+				...expected,
+			})
+		},
+	)
 
-	it('starts a fresh project on the connected session when the name is not on the account', async () => {
-		vi.mocked(listAccountProjects).mockResolvedValue([])
-		vi.mocked(p.text).mockResolvedValueOnce('brandnew' as never)
-
-		await runCreate({})
-
-		expect(p.select).not.toHaveBeenCalled()
-		const created = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
-		expect(created).toMatchObject({ slug: 'brandnew', orgPublicId: 'org1' })
-		expect(created.applicationId).toBeUndefined()
-		expect(created.adoptedFromAccount).toBeUndefined()
-		expect(stepDashboardAuth).toHaveBeenCalledTimes(1)
-	})
-
-	it('offers only account projects that are not already on this computer', async () => {
+	it('offers only deployed apps that are not already on this computer', async () => {
 		vi.mocked(listProjects).mockReturnValue([makeProject({ slug: 'local' })])
 		vi.mocked(p.select)
-			.mockResolvedValueOnce('__account__' as never)
-			.mockResolvedValueOnce('app-acme' as never)
+			.mockResolvedValueOnce('__deployed__' as never)
+			.mockResolvedValueOnce('vercel' as never)
+			.mockResolvedValueOnce(acme.url as never)
 
 		await runCreate({})
 
-		expect(vi.mocked(p.select).mock.calls[1]?.[0]).toMatchObject({
-			options: [
-				expect.objectContaining({ value: 'app-acme' }),
-				expect.objectContaining({ value: '__new__' }),
-			],
+		expect(vi.mocked(p.select).mock.calls[2]?.[0]).toMatchObject({
+			options: [{ value: acme.url, label: 'acme', hint: acme.url }],
 		})
-		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({ slug: 'acme' })
 	})
 
-	it('keeps an existing local project instead of overwriting it when its name is typed', async () => {
-		const local = makeProject({ slug: 'local', applicationId: 'app-local', grantId: 'grant-1' })
-		vi.mocked(listProjects).mockReturnValue([local])
-		vi.mocked(listAccountProjects).mockResolvedValue([])
-		vi.mocked(p.select).mockResolvedValueOnce('__account__' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('local' as never)
-		vi.mocked(loadProject).mockReturnValue(local)
+	it('explains how to continue when the hosting account has no OwnMail app', async () => {
+		vi.mocked(findDeployments).mockResolvedValue([])
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('__deployed__' as never)
+			.mockResolvedValueOnce('netlify' as never)
 
-		await runCreate({})
-
-		expect(p.log.info).toHaveBeenCalledWith('No other OwnMail projects were found on this Nylas account.')
-		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toBe(local)
-		expect(saveProject).not.toHaveBeenCalledWith(
-			expect.objectContaining({ slug: 'local', grantId: undefined }),
-		)
+		await expect(runCreate({})).rejects.toThrow(/Sign in to the account that hosts the app/)
+		// Nothing is adopted and no Nylas login happens for an app that cannot be found.
+		expect(stepDashboardAuth).not.toHaveBeenCalled()
+		expect(saveProject).not.toHaveBeenCalled()
 	})
 
-	it('resumes the account project when its old name is typed as a new project', async () => {
-		vi.mocked(listProjects).mockReturnValue([makeProject({ slug: 'local' })])
-		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('acme' as never)
-		vi.mocked(loadProject).mockReturnValue(null)
+	it('adopts nothing when the deployment cannot be matched to an app in the organization', async () => {
+		vi.mocked(findDeployedApp).mockRejectedValue(new Error('No Nylas app in this organization'))
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('__deployed__' as never)
+			.mockResolvedValueOnce('vercel' as never)
+			.mockResolvedValueOnce(acme.url as never)
 
-		await runCreate({})
+		await expect(runCreate({})).rejects.toThrow(/No Nylas app in this organization/)
+		expect(saveProject).not.toHaveBeenCalled()
+	})
 
-		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
-			slug: 'acme',
-			applicationId: 'app-acme',
-			adoptedFromAccount: true,
-		})
+	it.each([
+		['provider', ['__deployed__', CANCEL]],
+		['app', ['__deployed__', 'vercel', CANCEL]],
+	])('pauses when the %s choice is cancelled', async (_, answers) => {
+		for (const answer of answers) vi.mocked(p.select).mockResolvedValueOnce(answer as never)
+
+		await expect(runCreate({})).rejects.toBeInstanceOf(CancelledError)
+		expect(saveProject).not.toHaveBeenCalled()
 	})
 
 	it('opens the local project when a new-project name matches one on this computer', async () => {
@@ -483,78 +525,19 @@ describe('runCreate — projects set up on another computer', () => {
 
 		await runCreate({})
 
-		expect(listAccountProjects).not.toHaveBeenCalled()
 		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toBe(local)
+		expect(newProject).not.toHaveBeenCalled()
 	})
 
-	it('starts a new project from the account picker when asked', async () => {
-		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('fresh' as never)
+	it('starts a new project for a --name that is not on this computer', async () => {
 		vi.mocked(loadProject).mockReturnValue(null)
-
-		await runCreate({})
-
-		const created = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
-		expect(created).toMatchObject({ slug: 'fresh', orgPublicId: 'org1' })
-		expect(created.adoptedFromAccount).toBeUndefined()
-	})
-
-	it('adopts exactly the picked app when two apps share a project tag', async () => {
-		vi.mocked(listAccountProjects).mockResolvedValue([
-			{ slug: 'acme', applicationId: 'app-us', region: 'us' },
-			{ slug: 'acme', applicationId: 'app-eu', region: 'eu' },
-		])
-		vi.mocked(p.select).mockResolvedValueOnce('app-eu' as never)
-
-		await runCreate({})
-
-		expect(vi.mocked(p.select).mock.calls[0]?.[0]).toMatchObject({
-			options: [
-				expect.objectContaining({ value: 'app-us', hint: 'US · app-us' }),
-				expect.objectContaining({ value: 'app-eu', hint: 'EU · app-eu' }),
-				expect.objectContaining({ value: '__new__' }),
-			],
-		})
-		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
-			applicationId: 'app-eu',
-			region: 'eu',
-			// The live app's slug cannot tell these two apps apart during recovery.
-			adoptedSharedTag: true,
-		})
-	})
-
-	it('asks which app a --name refers to when several share its tag', async () => {
-		vi.mocked(loadProject).mockReturnValue(null)
-		vi.mocked(listAccountProjects).mockResolvedValue([
-			{ slug: 'acme', applicationId: 'app-us', region: 'us' },
-			{ slug: 'acme', applicationId: 'app-eu', region: 'eu' },
-		])
-		vi.mocked(p.select).mockResolvedValueOnce('app-eu' as never)
 
 		await runCreate({ name: 'acme' })
 
-		expect(p.select).toHaveBeenCalledWith(
-			expect.objectContaining({ message: expect.stringContaining('Several apps on your Nylas account') }),
-		)
-		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({ applicationId: 'app-eu' })
-	})
-
-	it('pauses when choosing between apps that share a tag is cancelled', async () => {
-		vi.mocked(loadProject).mockReturnValue(null)
-		vi.mocked(listAccountProjects).mockResolvedValue([
-			{ slug: 'acme', applicationId: 'app-us', region: 'us' },
-			{ slug: 'acme', applicationId: 'app-eu', region: 'eu' },
-		])
-		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
-
-		await expect(runCreate({ name: 'acme' })).rejects.toBeInstanceOf(CancelledError)
-		expect(saveProject).not.toHaveBeenCalled()
-	})
-
-	it('pauses when the account project picker is cancelled', async () => {
-		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
-
-		await expect(runCreate({})).rejects.toBeInstanceOf(CancelledError)
+		expect(findDeployments).not.toHaveBeenCalled()
+		const created = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
+		expect(created).toMatchObject({ slug: 'acme' })
+		expect(created.adoptedFromAccount).toBeUndefined()
 	})
 })
 

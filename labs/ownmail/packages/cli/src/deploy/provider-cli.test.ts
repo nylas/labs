@@ -58,6 +58,8 @@ import {
 	ensureNetlifySite,
 	ensureVercelProject,
 	ensureVercelRealtimeStore,
+	listNetlifySites,
+	listVercelProjects,
 	listVercelScopes,
 	netlifyHasEnvironmentVariable,
 	resolveVercelProductionUrl,
@@ -994,6 +996,109 @@ describe('deployment settings inventories', () => {
 		await expect(netlifyHasEnvironmentVariable('/tmp/app', siteId, 'SESSION_SECRET')).rejects.toThrow(
 			/invalid deployment settings inventory/,
 		)
+	})
+})
+
+describe('listing deployments to resume', () => {
+	const teams = JSON.stringify({
+		teams: [
+			{ id: 'user_1', slug: 'me', name: 'Me', current: true },
+			{ id: 'team_1', slug: 'acme', name: 'Acme', current: false },
+		],
+	})
+
+	it('lists matching Vercel projects in every account and team with their production URLs', async () => {
+		queueCli(
+			{ code: 0 },
+			{ code: 0, stdout: teams },
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					projects: [
+						{ id: 'prj_1', name: 'acme-ownmail', latestProductionUrl: 'https://acme-ownmail.vercel.app' },
+						// Unusable entries are skipped rather than offered.
+						{ id: 'prj_2', name: 'broken-ownmail', latestProductionUrl: 'http://insecure.example' },
+						{ id: 'prj_3', name: 'no-url-ownmail' },
+						{ id: 'prj_5', name: 'bad-url-ownmail', latestProductionUrl: 'https://bad host' },
+						'not a project',
+					],
+				}),
+			},
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					projects: [{ id: 'prj_4', name: 'team-ownmail', latestProductionUrl: 'team-ownmail.vercel.app' }],
+				}),
+			},
+		)
+
+		await expect(listVercelProjects('-ownmail')).resolves.toEqual([
+			{ projectId: 'prj_1', orgId: 'user_1', name: 'acme-ownmail', url: 'https://acme-ownmail.vercel.app' },
+			{ projectId: 'prj_4', orgId: 'team_1', name: 'team-ownmail', url: 'https://team-ownmail.vercel.app' },
+		])
+		expect(spawnedArgs(2)).toEqual(
+			expect.arrayContaining([
+				'project',
+				'ls',
+				'--filter=-ownmail',
+				'--scope',
+				'user_1',
+				'--non-interactive',
+			]),
+		)
+		expect(spawnedArgs(3)).toEqual(expect.arrayContaining(['--scope', 'team_1']))
+	})
+
+	it('treats an unreadable Vercel listing as no projects', async () => {
+		queueCli(
+			{ code: 0 },
+			{
+				code: 0,
+				stdout: JSON.stringify({ teams: [{ id: 'user_1', slug: 'me', name: 'Me', current: true }] }),
+			},
+			{ code: 0, stdout: 'null' },
+		)
+
+		await expect(listVercelProjects('-ownmail')).resolves.toEqual([])
+	})
+
+	it('reports a listing failure without raw provider output', async () => {
+		queueCli({ code: 0 }, { code: 0, stdout: teams }, { code: 1, stderr: 'private provider output' })
+		const vercelError = await listVercelProjects('-ownmail').catch((caught: unknown) => caught)
+		expect((vercelError as Error).message).not.toContain('private provider output')
+
+		queueCli({ code: 0 }, { code: 1, stderr: 'private provider output' })
+		const netlifyError = await listNetlifySites('-ownmail').catch((caught: unknown) => caught)
+		expect((netlifyError as Error).message).not.toContain('private provider output')
+	})
+
+	it('lists matching Netlify sites with their HTTPS URLs', async () => {
+		const siteId = '123e4567-e89b-42d3-a456-426614174000'
+		queueCli(
+			{ code: 0 },
+			{
+				code: 0,
+				stdout: JSON.stringify([
+					{ id: siteId, name: 'acme-ownmail', ssl_url: 'https://acme-ownmail.netlify.app' },
+					{ id: siteId, name: 'blog', ssl_url: 'https://blog.netlify.app' },
+					{ id: 'not-a-uuid', name: 'bad-ownmail', ssl_url: 'https://bad-ownmail.netlify.app' },
+					{ id: siteId, name: 'plain-ownmail', url: 'http://plain-ownmail.netlify.app' },
+					{ id: siteId, name: 'nourl-ownmail' },
+					'not a site',
+				]),
+			},
+		)
+
+		await expect(listNetlifySites('-ownmail')).resolves.toEqual([
+			{ siteId, name: 'acme-ownmail', url: 'https://acme-ownmail.netlify.app' },
+		])
+		expect(spawnedArgs(1)).toEqual(expect.arrayContaining(['sites:list', '--json']))
+	})
+
+	it('treats an unreadable Netlify listing as no sites', async () => {
+		queueCli({ code: 0 }, { code: 0, stdout: 'not json' })
+
+		await expect(listNetlifySites('-ownmail')).resolves.toEqual([])
 	})
 })
 
