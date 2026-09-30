@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
+import { MutationObserver, QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -32,7 +32,9 @@ vi.mock('#features/calendar/server/calendar-fns', () => ({
 
 import { mailMutationTestApi } from '#features/mail/state/mail-mutations'
 import { mailKeys } from '#features/mail/state/mail-queries'
+import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { AccountSwitchOverlay } from '../components/AccountSwitchOverlay.js'
+import { createOwnmailQueryClient } from '../query/query-provider.js'
 import {
 	ACCOUNT_SWITCH_BLOCKED_MESSAGE,
 	accountSwitchDestination,
@@ -40,7 +42,7 @@ import {
 	requestAccountSwitch,
 	useAccountSwitch,
 } from './account-switch.js'
-import { setSwitchingTo } from './account-switch-status.js'
+import { AccountSwitchInProgressError, setSwitchingTo } from './account-switch-status.js'
 
 const ada = { email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true }
 const grace = { email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false }
@@ -236,5 +238,42 @@ describe('useAccountSwitch', () => {
 
 		await waitFor(() => expect(assign).toHaveBeenCalledWith('/contacts'))
 		expect(screen.getByRole('status')).toHaveTextContent('grace@ownmail.com')
+	})
+})
+
+describe('inbox-switch write lock', () => {
+	it('refuses to switch when a tracked write starts in the same tick, before the blocked state renders', async () => {
+		const client = createOwnmailQueryClient()
+		renderSwitcher(client)
+		const pending = Promise.withResolvers<void>()
+		const write = runTrackedWrite(client, () => pending.promise)
+
+		// Settings saves and dialog edits bypass feature mutation hooks; the lock
+		// must still see them even though React has not re-rendered `blocked` yet.
+		fireEvent.click(screen.getByRole('button', { name: 'Switch to Grace' }))
+
+		expect(fetchMock).not.toHaveBeenCalled()
+		pending.resolve()
+		await write
+	})
+
+	it('rejects writes that start mid-switch, such as a compose autosave timer, before they reach the server', async () => {
+		const client = createOwnmailQueryClient()
+		let finishSwitch: (response: Response) => void = () => {}
+		fetchMock.mockReturnValue(new Promise<Response>((resolve) => (finishSwitch = resolve)))
+		renderSwitcher(client)
+		fireEvent.click(screen.getByRole('button', { name: 'Switch to Grace' }))
+		await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('ready:grace@ownmail.com'))
+
+		// The cookie is rotating: an inbox A draft saved now could land in inbox B.
+		const saveDraft = vi.fn(async () => 'saved')
+		await expect(runTrackedWrite(client, saveDraft)).rejects.toBeInstanceOf(AccountSwitchInProgressError)
+		const autosave = new MutationObserver(client, { mutationFn: saveDraft })
+		await expect(autosave.mutate()).rejects.toBeInstanceOf(AccountSwitchInProgressError)
+		expect(saveDraft).not.toHaveBeenCalled()
+
+		await act(async () => finishSwitch(new Response(null, { status: 204 })))
+		await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('ready:idle'))
+		await expect(runTrackedWrite(client, saveDraft)).resolves.toBe('saved')
 	})
 })

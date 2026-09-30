@@ -24,6 +24,7 @@ import {
 } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { Button } from '#shared/components/ui/button'
+import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { OWNMAIL_VERSION } from '#shared/lib/version'
 
@@ -32,7 +33,7 @@ export const Route = createFileRoute('/settings')({
 		const [info, capabilities] = await Promise.all([getMailboxInfo(), getAccountCapabilities()])
 		return { info, capabilities }
 	},
-	component: SettingsPage,
+	component: SettingsRoute,
 })
 
 type PasswordFeedback = { kind: 'success' | 'error'; message: string }
@@ -62,6 +63,13 @@ function normalizeSettingsPreferences(
 
 function preferencesMatch(left: UserPreferences, right: UserPreferences): boolean {
 	return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/** Form state (display name, password fields) belongs to one inbox; keying the
+ * page by the active mailbox resets it when an in-app inbox switch completes. */
+function SettingsRoute() {
+	const { info } = Route.useLoaderData()
+	return <SettingsPage key={info.email} />
 }
 
 function SettingsPage() {
@@ -137,7 +145,9 @@ function SettingsPage() {
 			const account =
 				snapshot.displayName === persistedDisplayName
 					? { displayName: persistedDisplayName }
-					: await updateMailboxDisplayName({ data: { displayName: snapshot.displayName } })
+					: await runTrackedWrite(queryClient, () =>
+							updateMailboxDisplayName({ data: { displayName: snapshot.displayName } }),
+						)
 			if (settingsRevisionRef.current !== revision) return
 			queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, {
 				...info,
@@ -175,7 +185,7 @@ function SettingsPage() {
 		const passwordSnapshot = password
 		setResettingPassword(true)
 		try {
-			await resetMailboxPassword({ data: { password: passwordSnapshot } })
+			await runTrackedWrite(queryClient, () => resetMailboxPassword({ data: { password: passwordSnapshot } }))
 			setPassword('')
 			setConfirmPassword('')
 			setPasswordStatus({ kind: 'success', message: 'Password updated.' })

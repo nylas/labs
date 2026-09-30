@@ -64,6 +64,7 @@ import {
 } from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
+import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { MailFolderRouteScreen } from './mail.f.$folderId.js'
 import { ErrorBanner } from './mail.f.$folderId.t.$threadId.js'
@@ -621,11 +622,13 @@ function Compose() {
 				...(replyToMessageId ? { replyToMessageId } : {}),
 			})
 			if (preferences.autoSaveContacts) {
-				void saveComposeRecipients({
-					data: {
-						emails: recipientValidation.emails,
-					},
-				})
+				void runTrackedWrite(queryClient, () =>
+					saveComposeRecipients({
+						data: {
+							emails: recipientValidation.emails,
+						},
+					}),
+				)
 					.then((receipt) => {
 						for (const contact of receipt.contacts) {
 							applyContactEffect(queryClient, { type: 'created', contact })

@@ -95,7 +95,10 @@ export function useAccountSwitch(accounts: readonly AccountSwitchTarget[]) {
 			event.preventDefault()
 			const handle = new FormData(event.currentTarget).get('account')
 			const target = accounts.find((account) => account.handle === handle)
-			if (!target || target.active || blocked || readSwitchingTo() !== null) return
+			// The rendered `blocked` value can trail a write started in this same tick.
+			if (!target || target.active || queryClient.isMutating() > 0 || readSwitchingTo() !== null) return
+			// From here the write lock rejects every tracked write (including a
+			// pending compose autosave timer) until the next inbox has loaded.
 			setSwitchingTo(target.email)
 			if (!(await requestAccountSwitch(target.handle))) {
 				submitAccountSwitchNatively(target.handle)
@@ -114,7 +117,7 @@ export function useAccountSwitch(accounts: readonly AccountSwitchTarget[]) {
 			}
 			setSwitchingTo(null)
 		},
-		[accounts, blocked, pathname, queryClient, router],
+		[accounts, pathname, queryClient, router],
 	)
 
 	return { blocked, switching, onSubmit }
