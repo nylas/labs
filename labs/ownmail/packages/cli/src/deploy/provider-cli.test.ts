@@ -739,6 +739,25 @@ describe('Netlify provider CLI', () => {
 		)
 	})
 
+	it('reuses a recovered site by its host even after a rename, without creating one', async () => {
+		queueCli(
+			{ code: 0 },
+			{ code: 0, stdout: '{"id":"123e4567-e89b-42d3-a456-426614174000","name":"renamed"}' },
+		)
+		await expect(ensureNetlifySite('/tmp/app', 'acme', undefined, 'acme.netlify.app')).resolves.toEqual({
+			siteId: '123e4567-e89b-42d3-a456-426614174000',
+		})
+		expect(hoisted.spawn).toHaveBeenCalledTimes(2)
+	})
+
+	it('refuses to create a site when a recovered site is missing from this account', async () => {
+		queueCli({ code: 0 }, { code: 1, stderr: 'Not Found' })
+		await expect(ensureNetlifySite('/tmp/app', 'acme', undefined, 'acme.netlify.app')).rejects.toThrow(
+			/Could not find the Netlify site at acme.netlify.app/,
+		)
+		expect(hoisted.spawn).toHaveBeenCalledTimes(2)
+	})
+
 	it('creates a site when the lookup returns a different or unusable site', async () => {
 		queueCli(
 			{ code: 0 },

@@ -105,7 +105,13 @@ function requireRecoveredAppUrl(
 			`This app runs at ${expected}, but the deploy went to ${deployedUrl}, which belongs to a different ${accountLabel}. Nothing was changed on your running app and its API key was not revoked. Sign in to the ${accountLabel} that hosts ${expected} with ${loginCommand}, then re-run \`npx ownmail\`. You can delete the extra deployment at ${deployedUrl}.`,
 		)
 	}
+}
+
+/** Only once the replacement key is installed on the verified app may the old key be revoked. */
+function clearRecoveredAppUrl(project: ProjectState): void {
+	if (!project.recoveredAppUrl) return
 	delete project.recoveredAppUrl
+	saveProject(project)
 }
 
 function originOf(url: string): string | null {
@@ -303,6 +309,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 		spinner.stop('Cloudflare could not finish secret setup; your project can be resumed.')
 		throw err
 	}
+	clearRecoveredAppUrl(ctx.project)
 	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }
@@ -353,6 +360,7 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 	} finally {
 		rmSync(dir, { recursive: true, force: true })
 	}
+	clearRecoveredAppUrl(ctx.project)
 	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }
@@ -385,7 +393,13 @@ async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
 	const spinner = p.spinner()
 	spinner.start('Deploying your mailbox app to Netlify…')
 	try {
-		const site = await ensureNetlifySite(dir, `${ctx.project.slug}-ownmail`, ctx.project.netlifySiteId)
+		const site = await ensureNetlifySite(
+			dir,
+			`${ctx.project.slug}-ownmail`,
+			ctx.project.netlifySiteId,
+			// A resumed project must reuse the site found on the account, never create one.
+			ctx.project.recoveredAppUrl ? new URL(ctx.project.recoveredAppUrl).hostname : undefined,
+		)
 		ctx.project.netlifySiteId = site.siteId
 		saveProject(ctx.project)
 		// Keep the session secret the site already runs on; replacing it would
@@ -410,6 +424,7 @@ async function stepNetlifyDeploy(ctx: StepContext): Promise<void> {
 	} finally {
 		rmSync(dir, { recursive: true, force: true })
 	}
+	clearRecoveredAppUrl(ctx.project)
 	await finalizePendingApiKeyRotation(ctx)
 	markStep(ctx.project, 'deploy')
 }

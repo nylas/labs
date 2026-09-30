@@ -586,6 +586,30 @@ describe('stepDeploy (cloudflare)', () => {
 		expect(putSecret).not.toHaveBeenCalled()
 	})
 
+	it('keeps the recovery guard when the secret install fails after reaching the recovered worker', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://acme-ownmail.me.workers.dev')
+		vi.mocked(putSecret).mockRejectedValueOnce(new Error('cloudflare unavailable'))
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				workerName: 'acme-ownmail',
+				recoveredAppUrl: 'https://acme-ownmail.me.workers.dev',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.gateway = { revokeApiKey } as never
+
+		await expect(stepDeploy(ctx)).rejects.toThrow('cloudflare unavailable')
+
+		// A retry signed in to another account must still be stopped.
+		expect(ctx.project.recoveredAppUrl).toBe('https://acme-ownmail.me.workers.dev')
+		expect(revokeApiKey).not.toHaveBeenCalled()
+	})
+
 	it('finishes a resumed project once the deploy reaches the recovered worker', async () => {
 		vi.mocked(deploy).mockResolvedValueOnce('https://acme-ownmail.me.workers.dev')
 		const revokeApiKey = vi.fn()
@@ -852,6 +876,33 @@ describe('stepDeploy (additional providers)', () => {
 
 		expect(saveProject).not.toHaveBeenCalledWith(expect.objectContaining({ vercelOrgId: 'team_attacker' }))
 		expect(ensureVercelProject).not.toHaveBeenCalled()
+	})
+
+	it('deploys a resumed Netlify project only to the site found on the account', async () => {
+		const ctx = makeCtx(
+			makeProject({ ...base, hostingProvider: 'netlify', recoveredAppUrl: 'https://my-inbox.netlify.app' }),
+		)
+
+		await stepDeploy(ctx)
+
+		expect(ensureNetlifySite).toHaveBeenCalledWith(
+			'/tmp/netlify',
+			'my-inbox-ownmail',
+			undefined,
+			'my-inbox.netlify.app',
+		)
+		expect(ctx.project.recoveredAppUrl).toBeUndefined()
+	})
+
+	it('keeps the recovery guard when a resumed Netlify site cannot be found', async () => {
+		vi.mocked(ensureNetlifySite).mockRejectedValueOnce(new Error('Could not find the Netlify site'))
+		const ctx = makeCtx(
+			makeProject({ ...base, hostingProvider: 'netlify', recoveredAppUrl: 'https://my-inbox.netlify.app' }),
+		)
+
+		await expect(stepDeploy(ctx)).rejects.toThrow('Could not find the Netlify site')
+		expect(ctx.project.recoveredAppUrl).toBe('https://my-inbox.netlify.app')
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
 	})
 
 	it('creates, configures, and deploys a Netlify project', async () => {
