@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 type RouterState = {
 	location: { pathname: string; maskedLocation?: { pathname: string } }
 	matches: Array<{ routeId: string }>
+	isLoading?: boolean
 }
 
 let routerState: RouterState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
@@ -997,6 +998,112 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 
 	const cursored = () =>
 		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
+
+	it('moves straight to the adjacent conversation with j/k while one is open', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t2' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't2' } }],
+		} as RouterState
+		renderInbox({ baseFolderId: 'work' })
+
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(navigate).toHaveBeenLastCalledWith({
+			to: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'inbox', threadId: 't3' },
+			search: { baseFolderId: 'work' },
+		})
+		fireEvent.keyDown(window, { key: 'k' })
+		expect(navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't1' } }),
+		)
+		// Arrow keys keep scrolling/cursor semantics rather than switching conversations.
+		navigate.mockClear()
+		fireEvent.keyDown(window, { key: 'ArrowDown' })
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('keeps advancing on repeated j/k while the previous conversation is still loading', () => {
+		const committed = {
+			routeId: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'inbox', threadId: 't1' },
+		}
+		routerState = { location: { pathname: '/mail/f/inbox/t/t1' }, matches: [committed] } as RouterState
+		// Like the router, a navigation moves the location at once while the
+		// committed match stays on t1 until the destination finishes loading.
+		navigate.mockImplementation(({ params }: any) => {
+			routerState = {
+				location: { pathname: `/mail/f/inbox/t/${params.threadId}` },
+				matches: [committed],
+				isLoading: true,
+			} as RouterState
+		})
+		const view = renderInbox()
+		const press = (key: string) => {
+			fireEvent.keyDown(window, { key })
+			view.rerender(
+				<MailFolderRouteScreen
+					threads={threads}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>,
+			)
+		}
+
+		try {
+			press('j')
+			press('j')
+			press('k')
+			expect(navigate.mock.calls.map(([options]) => options.params.threadId)).toEqual(['t2', 't3', 't2'])
+		} finally {
+			navigate.mockReset()
+		}
+	})
+
+	it('continues from a clicked or history destination that is still loading', () => {
+		// Committed on t3, but the user clicked t1 (or went back) and it is loading.
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t1' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't3' } }],
+			isLoading: true,
+		} as RouterState
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't2' } }),
+		)
+	})
+
+	it('falls back to the committed conversation when the loading location is not a thread', () => {
+		for (const pathname of ['/mail/f/inbox', '/mail/f/inbox/t/%E0%A4%A']) {
+			cleanup()
+			navigate.mockClear()
+			routerState = {
+				location: { pathname },
+				matches: [
+					{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't1' } },
+				],
+				isLoading: true,
+			} as RouterState
+			renderInbox()
+			fireEvent.keyDown(window, { key: 'j' })
+			expect(navigate).toHaveBeenLastCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't2' } }),
+			)
+		}
+	})
+
+	it('stays on the edge conversation instead of wrapping', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t3' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't3' } }],
+		} as RouterState
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(navigate).not.toHaveBeenCalled()
+		expect(cursored()?.textContent).toContain('Third')
+	})
 
 	it('moves a visible cursor down with j / ArrowDown and up with k / ArrowUp, clamping at the top', () => {
 		renderInbox()
