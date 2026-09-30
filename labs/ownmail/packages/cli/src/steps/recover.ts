@@ -131,7 +131,11 @@ async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void
 	const hosting = inferHosting(
 		(redirects.data ?? []).map((uri) => uri.url),
 		(webhooks.data ?? [])
-			.filter((webhook) => webhook.description === 'ownmail realtime')
+			.filter(
+				(webhook) =>
+					webhook.description === 'ownmail realtime' &&
+					(webhook.status === undefined || webhook.status === 'active'),
+			)
 			.map((webhook) => webhook.webhook_url ?? webhook.callback_url)
 			.filter((url): url is string => Boolean(url)),
 	)
@@ -147,11 +151,14 @@ async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void
 /**
  * Setup registers every app URL as a redirect URI and points the realtime
  * webhook at the primary one, so their hosts identify the provider and any
- * custom app domains.
+ * custom app domains. Recovery redeploys to the chosen URL and then revokes
+ * the old key, so an ambiguous result is left for the user to choose.
  */
-export function inferHosting(redirectUrls: string[], webhookUrls: string[]): InferredHosting {
-	const webhookOrigins = httpsOrigins(webhookUrls)
-	const origins = [...new Set([...webhookOrigins, ...httpsOrigins(redirectUrls)])]
+export function inferHosting(redirectUrls: string[], activeWebhookUrls: string[]): InferredHosting {
+	const webhookOrigins = httpsOrigins(activeWebhookUrls)
+	// Several destinations (e.g. one left behind after switching providers) cannot identify the live app.
+	const liveOrigin = webhookOrigins.length === 1 ? webhookOrigins[0] : undefined
+	const origins = httpsOrigins([...(liveOrigin ? [liveOrigin] : []), ...redirectUrls])
 	const providerOrigins = origins.flatMap((origin) => {
 		const provider = providerForHost(new URL(origin).hostname)
 		return provider ? [{ provider, origin }] : []
@@ -160,12 +167,11 @@ export function inferHosting(redirectUrls: string[], webhookUrls: string[]): Inf
 		.map((origin) => new URL(origin).hostname)
 		.filter((host) => !providerForHost(host) && isAppDomain(host))
 
-	const providers = new Set(providerOrigins.map((entry) => entry.provider))
-	const webhookProvider = providerOrigins.find((entry) => webhookOrigins.includes(entry.origin))
-	const chosen = providers.size === 1 ? providerOrigins[0] : webhookProvider
+	const liveProvider = providerOrigins.find((entry) => entry.origin === liveOrigin)
+	const chosen = liveProvider ?? (providerOrigins.length === 1 ? providerOrigins[0] : undefined)
 
-	const webhookHost = webhookOrigins[0] ? new URL(webhookOrigins[0]).hostname : undefined
-	const appDomain = webhookHost && appDomains.includes(webhookHost) ? webhookHost : undefined
+	const liveHost = liveOrigin ? new URL(liveOrigin).hostname : undefined
+	const appDomain = liveHost && appDomains.includes(liveHost) ? liveHost : undefined
 	return {
 		...(chosen ? { provider: chosen.provider, providerUrl: chosen.origin } : {}),
 		...(appDomain ? { appDomain } : {}),

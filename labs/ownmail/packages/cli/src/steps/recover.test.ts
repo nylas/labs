@@ -54,7 +54,7 @@ type AccountFixture = {
 	grants?: { id: string; provider: string; email?: string }[] | null
 	domains?: Record<string, unknown>[]
 	redirects?: string[]
-	webhooks?: { description?: string; webhook_url?: string }[]
+	webhooks?: { description?: string; webhook_url?: string; status?: string }[]
 }
 
 function accountCtx(proj: ProjectState, fixture: AccountFixture = {}) {
@@ -154,6 +154,40 @@ describe('inferHosting', () => {
 			],
 			webhooks: [],
 			expected: { appDomains: [] },
+		},
+		{
+			name: 'no provider or primary domain when several webhook destinations are active',
+			redirects: [
+				'https://acme-ownmail.me.workers.dev/auth/callback',
+				'https://acme-ownmail.vercel.app/auth/callback',
+			],
+			webhooks: [
+				'https://acme-ownmail.vercel.app/api/webhooks/nylas',
+				'https://mail.acme.com/api/webhooks/nylas',
+			],
+			expected: { appDomains: [] },
+		},
+		{
+			name: 'no provider when the same provider has several app URLs and no live webhook',
+			redirects: [
+				'https://old-ownmail.me.workers.dev/auth/callback',
+				'https://acme-ownmail.me.workers.dev/auth/callback',
+			],
+			webhooks: [],
+			expected: { appDomains: [] },
+		},
+		{
+			name: 'the live worker when the same provider has several app URLs',
+			redirects: [
+				'https://old-ownmail.me.workers.dev/auth/callback',
+				'https://acme-ownmail.me.workers.dev/auth/callback',
+			],
+			webhooks: ['https://acme-ownmail.me.workers.dev/api/webhooks/nylas'],
+			expected: {
+				provider: 'cloudflare',
+				providerUrl: 'https://acme-ownmail.me.workers.dev',
+				appDomains: [],
+			},
 		},
 		{
 			name: 'no provider for local-only hosting',
@@ -370,6 +404,32 @@ describe('stepRecover', () => {
 		await stepRecover(ctx)
 
 		expect(proj.hostingProvider).toBe('vercel')
+	})
+
+	it('ignores an inactive webhook left behind after switching providers', async () => {
+		const proj = project()
+		const { ctx } = accountCtx(proj, {
+			redirects: [
+				'https://acme-ownmail.vercel.app/auth/callback',
+				'https://acme-ownmail.me.workers.dev/auth/callback',
+			],
+			webhooks: [
+				{
+					description: 'ownmail realtime',
+					status: 'inactive',
+					webhook_url: 'https://acme-ownmail.vercel.app/api/webhooks/nylas',
+				},
+				{
+					description: 'ownmail realtime',
+					status: 'active',
+					webhook_url: 'https://acme-ownmail.me.workers.dev/api/webhooks/nylas',
+				},
+			],
+		})
+
+		await stepRecover(ctx)
+
+		expect(proj).toMatchObject({ hostingProvider: 'cloudflare', workerName: 'acme-ownmail' })
 	})
 
 	it('records Vercel URLs and custom domains so a redeploy keeps serving them', async () => {
