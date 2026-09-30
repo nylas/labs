@@ -94,12 +94,12 @@ function renderThread(
 	data: any = loaderData(),
 	search: any = {},
 	params = { folderId: 'inbox', threadId: 't1' },
+	queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }),
 ) {
 	Route.useLoaderData = vi.fn(() => data)
 	Route.useParams = vi.fn(() => params)
 	Route.useSearch = vi.fn(() => search)
 	const Component = Route.options.component
-	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
 	const screen = () => (
 		<QueryClientProvider client={queryClient}>
 			<Component />
@@ -1128,5 +1128,119 @@ describe('read state on open', () => {
 		renderThread(loaderData())
 		expect(invalidate).not.toHaveBeenCalled()
 		expect(markThreadRead).not.toHaveBeenCalled()
+	})
+})
+
+// --- triage flow ---------------------------------------------------------
+
+describe('triage flow', () => {
+	function splitView(matches: boolean) {
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn(() => ({ matches })),
+		)
+	}
+	function inboxWith(threads: any[]) {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		queryClient.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), {
+			pages: [{ threads }],
+			pageParams: [undefined],
+		})
+		return queryClient
+	}
+	const newest = { id: 't0', folders: ['inbox'], latest_message_received_date: 300 }
+	const opened = { id: 't1', folders: ['inbox'], latest_message_received_date: 200 }
+	const older = { id: 't2', folders: ['inbox'], latest_message_received_date: 100 }
+
+	afterEach(() => vi.unstubAllGlobals())
+
+	it('opens the next conversation after archiving in split view so triage keeps its place', async () => {
+		splitView(true)
+		renderThread(loaderData(), {}, undefined, inboxWith([newest, opened, older]))
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/f/$folderId/t/$threadId',
+				params: { folderId: 'inbox', threadId: 't2' },
+				search: {},
+			}),
+		)
+	})
+
+	it('falls back to the newer neighbour when deleting the last conversation', async () => {
+		splitView(true)
+		renderThread(loaderData(), { baseFolderId: 'work' }, undefined, inboxWith([newest, opened]))
+		await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/f/$folderId/t/$threadId',
+				params: { folderId: 'inbox', threadId: 't0' },
+				search: { baseFolderId: 'work' },
+			}),
+		)
+	})
+
+	it('uses the starred list when triaging from Starred', async () => {
+		splitView(true)
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(mailKeys.threadList({ starred: true }), {
+			pages: [{ threads: [opened, older] }],
+			pageParams: [undefined],
+		})
+		renderThread(loaderData(), {}, { folderId: 'starred', threadId: 't1' }, queryClient)
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(
+				expect.objectContaining({ params: { folderId: 'starred', threadId: 't2' } }),
+			),
+		)
+	})
+
+	it('returns to the list on phones, when nothing is cached, and after "Mark unread"', async () => {
+		splitView(false)
+		const first = renderThread(loaderData(), {}, undefined, inboxWith([opened, older]))
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
+		)
+		first.unmount()
+
+		splitView(true)
+		navigate.mockClear()
+		const second = renderThread(loaderData())
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
+		)
+		second.unmount()
+
+		navigate.mockClear()
+		renderThread(loaderData(), {}, undefined, inboxWith([opened, older]))
+		await userEvent.click(screen.getByRole('button', { name: 'Mark unread' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
+		)
+	})
+
+	it('shows the cached subject while a tapped conversation loads', () => {
+		const Pending = Route.options.pendingComponent
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox', threadId: 't1' }))
+		const queryClient = inboxWith([{ ...opened, subject: 'Quarterly plan' }])
+		const view = render(
+			<QueryClientProvider client={queryClient}>
+				<Pending />
+			</QueryClientProvider>,
+		)
+		expect(screen.getByRole('heading', { name: 'Quarterly plan' })).toBeTruthy()
+		expect(screen.getByTestId('thread-reader-pending').getAttribute('aria-busy')).toBe('true')
+		view.unmount()
+
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox', threadId: 'uncached' }))
+		render(
+			<QueryClientProvider client={queryClient}>
+				<Pending />
+			</QueryClientProvider>,
+		)
+		expect(screen.getByRole('heading', { name: 'Loading conversation…' })).toBeTruthy()
 	})
 })

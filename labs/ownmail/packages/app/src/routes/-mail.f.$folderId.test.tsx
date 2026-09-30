@@ -998,6 +998,40 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 	const cursored = () =>
 		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
 
+	it('moves straight to the adjacent conversation with j/k while one is open', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t2' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't2' } }],
+		} as RouterState
+		renderInbox({ baseFolderId: 'work' })
+
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(navigate).toHaveBeenLastCalledWith({
+			to: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'inbox', threadId: 't3' },
+			search: { baseFolderId: 'work' },
+		})
+		fireEvent.keyDown(window, { key: 'k' })
+		expect(navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't1' } }),
+		)
+		// Arrow keys keep scrolling/cursor semantics rather than switching conversations.
+		navigate.mockClear()
+		fireEvent.keyDown(window, { key: 'ArrowDown' })
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('stays on the edge conversation instead of wrapping', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t3' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't3' } }],
+		} as RouterState
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(navigate).not.toHaveBeenCalled()
+		expect(cursored()?.textContent).toContain('Third')
+	})
+
 	it('moves a visible cursor down with j / ArrowDown and up with k / ArrowUp, clamping at the top', () => {
 		renderInbox()
 		// No cursor until the first key press.
