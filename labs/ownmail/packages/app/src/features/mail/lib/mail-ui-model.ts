@@ -71,16 +71,25 @@ export function threadTimestamp(thread: MailThread): number | undefined {
 	return Math.max(received, sent) || undefined
 }
 
-/** The conversation to show once the open one leaves the list: the next row in
- * display order (newest first), or the previous row when it was the last. */
-export function adjacentThreadId(threads: readonly MailThread[], threadId: string): string | undefined {
-	// Overlapping pages can repeat a thread; the list renders each once.
+/** The rows on either side of a conversation in display order (newest first).
+ * Overlapping pages can repeat a thread; the list renders each once. */
+export function threadNeighbours(
+	threads: readonly MailThread[],
+	threadId: string,
+): { older?: string; newer?: string } | undefined {
 	const ordered = [...new Map(threads.map((thread) => [thread.id, thread])).values()].sort(
 		(a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0),
 	)
 	const index = ordered.findIndex((thread) => thread.id === threadId)
 	if (index < 0) return undefined
-	return (ordered[index + 1] ?? ordered[index - 1])?.id
+	return { older: ordered[index + 1]?.id, newer: ordered[index - 1]?.id }
+}
+
+/** The conversation to show once the open one leaves the list: the next row in
+ * display order, or the previous row when it was the last. */
+export function adjacentThreadId(threads: readonly MailThread[], threadId: string): string | undefined {
+	const neighbours = threadNeighbours(threads, threadId)
+	return neighbours?.older ?? neighbours?.newer
 }
 
 export function threadRouteFolderId(thread: MailThread): MailFolderId {

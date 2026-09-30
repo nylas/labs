@@ -1,5 +1,5 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
 	Archive,
@@ -17,11 +17,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
-	adjacentThreadId,
 	forwardDraftSearch,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
+	threadNeighbours,
 } from '#features/mail/lib/mail-ui-model'
 import { findCachedThread } from '#features/mail/state/mail-cache'
 import {
@@ -34,9 +34,10 @@ import {
 	type MailThreadListData,
 	mailKeys,
 	threadDetailQueryOptions,
+	toMailThread,
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
-import { getThreadMessages } from '#server/fns'
+import { getThreadMessages, getThreads } from '#server/fns'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
 import { cn } from '#shared/lib/utils'
@@ -59,6 +60,42 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	component: ThreadView,
 	pendingComponent: ThreadPending,
 })
+
+/** The older conversation to open after triage. When the open thread is the
+ * oldest loaded row but the folder has more pages, the next page is loaded
+ * (and kept in the list cache) so triage continues across page boundaries. */
+async function nextConversationAfterTriage(
+	queryClient: QueryClient,
+	folderId: string,
+	threadId: string,
+): Promise<string | undefined> {
+	const filters = folderId === 'starred' ? { starred: true } : { folderId }
+	const queryKey = mailKeys.threadList(filters)
+	const list = queryClient.getQueryData<MailThreadListData>(queryKey)
+	const loaded = (list?.pages ?? []).flatMap((page) => page.threads)
+	const neighbours = threadNeighbours(loaded, threadId)
+	const pageToken = list?.pages.at(-1)?.nextCursor
+	if (!neighbours || neighbours.older || !pageToken) return neighbours?.older ?? neighbours?.newer
+	try {
+		const page = await getThreads({ data: { ...filters, pageToken } })
+		const threads = page.threads.map(toMailThread)
+		queryClient.setQueryData<MailThreadListData>(queryKey, (current) =>
+			current && current.pages.at(-1)?.nextCursor === pageToken
+				? {
+						pages: [
+							...current.pages,
+							{ threads, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) },
+						],
+						pageParams: [...current.pageParams, pageToken],
+					}
+				: current,
+		)
+		return threadNeighbours([...loaded, ...threads], threadId)?.older ?? neighbours.newer
+	} catch {
+		// Pagination is best effort; the newer neighbour keeps triage moving.
+		return neighbours.newer
+	}
+}
 
 /** Split view keeps the list beside the reader from Tailwind's `xl` breakpoint. */
 const SPLIT_VIEW_QUERY = '(min-width: 80rem)'
@@ -211,21 +248,16 @@ function ThreadView() {
 			const previousStarred = starred
 			if (typeof input.starred === 'boolean') setStarred(input.starred)
 			setPendingAction(action)
-			// In split view, triage continues with the neighbouring conversation;
-			// it is read from the list before the optimistic move removes this one.
-			const nextThreadId =
+			// In split view, triage continues with the neighbouring conversation.
+			// The list is read synchronously, before the optimistic move removes
+			// this one; a next page is fetched alongside the mutation if needed.
+			const nextThread =
 				leave && action !== 'unread' && window.matchMedia?.(SPLIT_VIEW_QUERY).matches
-					? adjacentThreadId(
-							(
-								queryClient.getQueryData<MailThreadListData>(
-									mailKeys.threadList(folderId === 'starred' ? { starred: true } : { folderId }),
-								)?.pages ?? []
-							).flatMap((page) => page.threads),
-							threadId,
-						)
+					? nextConversationAfterTriage(queryClient, folderId, threadId)
 					: undefined
 			try {
 				await updateThread.mutateAsync({ threadId, ...input })
+				const nextThreadId = await nextThread
 				if (nextThreadId) {
 					await navigate({
 						to: '/mail/f/$folderId/t/$threadId',

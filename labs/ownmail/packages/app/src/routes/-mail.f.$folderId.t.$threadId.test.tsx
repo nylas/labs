@@ -22,7 +22,9 @@ vi.mock('@tanstack/react-router', () => ({
 const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
 const markThreadRead = vi.fn()
+const getThreads = vi.fn()
 vi.mock('#server/fns', () => ({
+	getThreads: (input: any) => getThreads(input),
 	getThreadMessages: (input: any) => getThreadMessages(input),
 	markThreadRead: (input: any) => markThreadRead(input),
 	updateThreadState: (input: any) => updateThreadState(input),
@@ -1220,6 +1222,85 @@ describe('triage flow', () => {
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
 		)
+	})
+
+	function pagedInbox(threads: any[], nextCursor = 'page-2') {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		queryClient.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), {
+			pages: [{ threads, nextCursor }],
+			pageParams: [undefined],
+		})
+		return queryClient
+	}
+	const nextPageThread = { id: 't9', folders: ['inbox'], latest_message_received_date: 50 }
+
+	it('loads the next page to keep triaging past the oldest loaded conversation', async () => {
+		splitView(true)
+		getThreads.mockResolvedValue({
+			threads: [{ ...nextPageThread, grant_id: 'private' }],
+			nextCursor: 'page-3',
+		})
+		const queryClient = pagedInbox([newest, opened])
+		renderThread(loaderData(), {}, undefined, queryClient)
+
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't9' } }),
+			),
+		)
+		expect(getThreads).toHaveBeenCalledWith({ data: { folderId: 'inbox', pageToken: 'page-2' } })
+		// The fetched page joins the list cache so the list shows the opened row.
+		const list = queryClient.getQueryData<any>(mailKeys.threadList({ folderId: 'inbox' }))
+		expect(list.pageParams).toEqual([undefined, 'page-2'])
+		expect(list.pages[1]).toEqual({ threads: [nextPageThread], nextCursor: 'page-3' })
+	})
+
+	it('falls back to the newer neighbour when the next page cannot load or is empty', async () => {
+		splitView(true)
+		getThreads.mockRejectedValueOnce(new Error('offline'))
+		const first = renderThread(loaderData(), {}, undefined, pagedInbox([newest, opened]))
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't0' } }),
+			),
+		)
+		first.unmount()
+
+		navigate.mockClear()
+		getThreads.mockResolvedValueOnce({ threads: [] })
+		const queryClient = pagedInbox([newest, opened])
+		renderThread(loaderData(), {}, undefined, queryClient)
+		await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't0' } }),
+			),
+		)
+		expect(queryClient.getQueryData<any>(mailKeys.threadList({ folderId: 'inbox' })).pages[1]).toEqual({
+			threads: [],
+		})
+	})
+
+	it('does not append a fetched page when the list changed while it loaded', async () => {
+		splitView(true)
+		const queryClient = pagedInbox([newest, opened])
+		const key = mailKeys.threadList({ folderId: 'inbox' })
+		const refreshed = { pages: [{ threads: [newest], nextCursor: 'fresh-cursor' }], pageParams: [undefined] }
+		getThreads.mockImplementationOnce(async () => {
+			queryClient.setQueryData(key, refreshed)
+			return { threads: [nextPageThread] }
+		})
+		renderThread(loaderData(), {}, undefined, queryClient)
+		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith(
+				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't9' } }),
+			),
+		)
+		expect(queryClient.getQueryData<any>(key).pages).toHaveLength(1)
 	})
 
 	it('shows the cached subject while a tapped conversation loads', () => {
