@@ -19,6 +19,18 @@ describe('adjacentThreadId', () => {
 		expect(adjacentThreadId(threads, 'older')).toBe('middle')
 	})
 
+	it('ignores a conversation repeated across overlapping pages', () => {
+		// Without de-duplication the duplicate sorts right after itself and
+		// archiving would "advance" to the conversation that was just moved.
+		const overlapping = [
+			thread('newest', 300),
+			thread('middle', 200),
+			thread('middle', 200),
+			thread('older', 100),
+		]
+		expect(adjacentThreadId(overlapping, 'middle')).toBe('older')
+	})
+
 	it('has nothing to open for an unknown or only conversation', () => {
 		expect(adjacentThreadId(threads, 'missing')).toBeUndefined()
 		expect(adjacentThreadId([thread('only', 1)], 'only')).toBeUndefined()

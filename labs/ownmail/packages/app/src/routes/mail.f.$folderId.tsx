@@ -221,6 +221,10 @@ export function MailFolderRouteScreen({
 			)?.threadId,
 	})
 	const openThreadId = activeThreadId ?? routedThreadId
+	// While a j/k navigation is still loading, the committed route lags behind;
+	// further presses continue from the requested conversation instead.
+	const navigationPending = useRouterState({ select: (state) => state.isLoading })
+	const requestedThreadIdRef = useRef<string | null>(null)
 	const hasThread = hasThreadRoute || Boolean(children)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
@@ -304,15 +308,20 @@ export function MailFolderRouteScreen({
 			if (!action) return
 			// With a conversation open, j/k move straight to the adjacent
 			// conversation instead of only moving the list cursor.
+			const fromThreadId = (navigationPending && requestedThreadIdRef.current) || openThreadId
 			const openIndex =
-				openThreadId && (event.key === 'j' || event.key === 'k')
-					? navItems.findIndex((item) => 'threadId' in item && item.threadId === openThreadId)
+				fromThreadId && (event.key === 'j' || event.key === 'k')
+					? navItems.findIndex((item) => 'threadId' in item && item.threadId === fromThreadId)
 					: -1
 			if (openIndex >= 0) {
 				event.preventDefault()
 				const nextIndex = moveCursor(openIndex, event.key === 'j' ? 1 : -1, navItems.length)
 				setCursor(nextIndex)
-				if (nextIndex !== openIndex) openItem(nextIndex)
+				const next = navItems[nextIndex]
+				if (nextIndex !== openIndex && next && 'threadId' in next) {
+					requestedThreadIdRef.current = next.threadId
+					openItem(nextIndex)
+				}
 				return
 			}
 			event.preventDefault()
@@ -333,7 +342,7 @@ export function MailFolderRouteScreen({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, navItems, openItem, openThreadId])
+	}, [cursor, navigationPending, navItems, openItem, openThreadId])
 
 	async function loadMore() {
 		if (!nextCursor || loadMorePendingRef.current || loadingMore || folderId === 'drafts') return

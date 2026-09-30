@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 type RouterState = {
 	location: { pathname: string; maskedLocation?: { pathname: string } }
 	matches: Array<{ routeId: string }>
+	isLoading?: boolean
 }
 
 let routerState: RouterState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
@@ -1019,6 +1020,23 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		navigate.mockClear()
 		fireEvent.keyDown(window, { key: 'ArrowDown' })
 		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('keeps advancing on repeated j/k while the previous conversation is still loading', () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t1' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't1' } }],
+			isLoading: true,
+		} as RouterState
+		renderInbox()
+		const opened = () => navigate.mock.calls.map(([options]) => options.params.threadId)
+
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'k' })
+
+		// The committed route is still t1; each press must build on the last request.
+		expect(opened()).toEqual(['t2', 't3', 't2'])
 	})
 
 	it('stays on the edge conversation instead of wrapping', () => {
