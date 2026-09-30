@@ -611,6 +611,26 @@ describe('stepRecover', () => {
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('will not revoke'))
 	})
 
+	it('does not trust a matching slug when another app shares the project tag', async () => {
+		const proj = project({ adoptedSharedTag: true })
+		const { ctx } = accountCtx(proj, {
+			keys: [{ id: 'key-deployed', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' }],
+			// May be the other same-named app's deployment.
+			redirects: ['https://acme-ownmail.me.workers.dev/auth/callback'],
+		})
+		stubLiveApp(liveAcme())
+
+		await stepRecover(ctx)
+
+		expect(proj.hostingProvider).toBeUndefined()
+		expect(proj.recoveredAppUrl).toBeUndefined()
+		expect(proj.pendingApiKeyRotation).toBeUndefined()
+		expect(proj.siteName).toBeUndefined()
+		expect(proj.adoptedSharedTag).toBeUndefined()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('more than one app has that name'))
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('will not revoke'))
+	})
+
 	it.each([
 		{ name: 'health check fails', app: { healthz: new Response('down', { status: 503 }) } },
 		{ name: 'health check has no project', app: { healthz: Response.json({ ok: true }) } },

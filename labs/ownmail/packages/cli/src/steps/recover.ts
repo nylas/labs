@@ -52,6 +52,7 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 	}
 
 	delete ctx.project.adoptedFromAccount
+	delete ctx.project.adoptedSharedTag
 	saveProject(ctx.project)
 	if (!ctx.project.siteName) {
 		p.log.info(
@@ -178,7 +179,8 @@ async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void
 /**
  * Checks the inferred URL against the live deployment. `/healthz` reports the
  * project slug, so a URL serving a different OwnMail project is dropped rather
- * than redeployed over (and its key revoked). A matching deployment also gives
+ * than redeployed over (and its key revoked). The slug is only unique while no
+ * other app shares the project's tag; otherwise the URL is left unconfirmed. A matching deployment also gives
  * back the display name. An unreachable app keeps the inferred URL, as before.
  */
 async function confirmDeployment(project: ProjectState, hosting: InferredHosting): Promise<void> {
@@ -187,6 +189,13 @@ async function confirmDeployment(project: ProjectState, hosting: InferredHosting
 	if (liveSlug === undefined) return
 	if (liveSlug !== project.slug) {
 		p.log.warn(`${url} is running the OwnMail project “${liveSlug}”, not “${project.slug}”.`)
+		delete hosting.provider
+		delete hosting.providerUrl
+		return
+	}
+	if (project.adoptedSharedTag) {
+		// Another app carries the same tag, so a matching slug may still be the other app's deployment.
+		p.log.warn(`${url} runs an OwnMail project named “${liveSlug}”, but more than one app has that name.`)
 		delete hosting.provider
 		delete hosting.providerUrl
 		return
