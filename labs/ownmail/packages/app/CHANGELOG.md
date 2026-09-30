@@ -1,5 +1,23 @@
 # @ownmail/app
 
+## 0.16.0
+
+### Minor Changes
+
+- 3fbd03b: Keep the calendar current and fast: the time grid opens at the current time, "Up next today" drops meetings that have ended and marks the one in progress, today's highlight follows your primary timezone and rolls over at midnight, previously viewed and adjacent weeks open instantly from cache, and hidden calendars stay hidden between visits for each inbox.
+- 6ab5495: Keep triage flowing: archiving or deleting a conversation on wide screens opens the next one, `j`/`k` move straight between conversations while one is open, and tapping a conversation shows its subject immediately while it loads.
+- 96b95ca: Choose how conversations open on wide screens: no split, vertical split, or horizontal split. Pick it from the mail list toolbar or the command palette; closing a conversation returns focus to its row.
+
+### Patch Changes
+
+- b90ed36: Refresh mail again when returning from Settings after a mail change, so an earlier stale refresh no longer lingers for up to a minute.
+- 51e9c4d: Switch between inboxes without a full page reload: the app shows a switching overlay, clears the previous inbox's cached mail, calendar, and contact state, and stays in the current section. Switching waits for in-flight saves, and plain form posts keep working as a fallback.
+- b9bc759: Offer "Add to calendar" for invitations on Cloudflare deployments by backing invitation creation claims with a Durable Object, and stop describing invitations OwnMail cannot add as "still syncing".
+- f5aeac1: Keep a search result's reader unread when marking it read fails while the search is still loading.
+- 49b72b3: Mark threads read the moment you open them: the list row, folder unread badge, and reader update instantly, hovering a row no longer marks it read, and a failed read quietly restores the unread state.
+- 352f2c3: Keep background sync stable while navigating, so opening threads no longer refetches every mailbox view, and check for new changes as soon as the tab becomes visible again.
+- 32ece5b: Keep read state consistent when marking a conversation read fails, and mark conversations read when you select them behind the composer.
+
 ## 0.15.5
 
 ### Patch Changes

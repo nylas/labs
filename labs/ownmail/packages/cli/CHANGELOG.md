@@ -1,5 +1,16 @@
 # ownmail
 
+## 0.16.0
+
+### Minor Changes
+
+- 2188c43: Resume projects on another computer: `npx ownmail` now lists the OwnMail projects on your Nylas account and rebuilds local setup from them, so nothing has to be copied between machines. Netlify setup reuses a site you already own under the project's name. New projects no longer reuse a sandbox app that belongs to a different OwnMail project.
+
+### Patch Changes
+
+- b9bc759: Offer "Add to calendar" for invitations on Cloudflare deployments by backing invitation creation claims with a Durable Object, and stop describing invitations OwnMail cannot add as "still syncing".
+- f7c1cf0: Shrink the published CLI by about 0.5 MB so `npx ownmail` starts faster: the prebuilt browser client ships once and is restored for Vercel, Netlify, and local targets, unused type declarations and source maps are no longer published, and bundled images are losslessly recompressed.
+
 ## 0.15.5
 
 ## 0.15.4
