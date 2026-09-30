@@ -368,15 +368,15 @@ describe('runCreate — projects set up on another computer', () => {
 	})
 
 	it('logs in first on a new computer and resumes a picked account project without a local file', async () => {
-		vi.mocked(p.select).mockResolvedValueOnce('acme' as never)
+		vi.mocked(p.select).mockResolvedValueOnce('app-acme' as never)
 
 		await runCreate({})
 
 		expect(p.select).toHaveBeenCalledWith(
 			expect.objectContaining({
 				options: [
-					expect.objectContaining({ value: 'acme', hint: 'EU' }),
-					expect.objectContaining({ value: 'local' }),
+					expect.objectContaining({ value: 'app-acme', label: 'acme', hint: 'EU' }),
+					expect.objectContaining({ value: 'app-local' }),
 					expect.objectContaining({ value: '__new__' }),
 				],
 			}),
@@ -428,12 +428,15 @@ describe('runCreate — projects set up on another computer', () => {
 		vi.mocked(listProjects).mockReturnValue([makeProject({ slug: 'local' })])
 		vi.mocked(p.select)
 			.mockResolvedValueOnce('__account__' as never)
-			.mockResolvedValueOnce('acme' as never)
+			.mockResolvedValueOnce('app-acme' as never)
 
 		await runCreate({})
 
 		expect(vi.mocked(p.select).mock.calls[1]?.[0]).toMatchObject({
-			options: [expect.objectContaining({ value: 'acme' }), expect.objectContaining({ value: '__new__' })],
+			options: [
+				expect.objectContaining({ value: 'app-acme' }),
+				expect.objectContaining({ value: '__new__' }),
+			],
 		})
 		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({ slug: 'acme' })
 	})
@@ -493,6 +496,56 @@ describe('runCreate — projects set up on another computer', () => {
 		const created = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
 		expect(created).toMatchObject({ slug: 'fresh', orgPublicId: 'org1' })
 		expect(created.adoptedFromAccount).toBeUndefined()
+	})
+
+	it('adopts exactly the picked app when two apps share a project tag', async () => {
+		vi.mocked(listAccountProjects).mockResolvedValue([
+			{ slug: 'acme', applicationId: 'app-us', region: 'us' },
+			{ slug: 'acme', applicationId: 'app-eu', region: 'eu' },
+		])
+		vi.mocked(p.select).mockResolvedValueOnce('app-eu' as never)
+
+		await runCreate({})
+
+		expect(vi.mocked(p.select).mock.calls[0]?.[0]).toMatchObject({
+			options: [
+				expect.objectContaining({ value: 'app-us', hint: 'US · app-us' }),
+				expect.objectContaining({ value: 'app-eu', hint: 'EU · app-eu' }),
+				expect.objectContaining({ value: '__new__' }),
+			],
+		})
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
+			applicationId: 'app-eu',
+			region: 'eu',
+		})
+	})
+
+	it('asks which app a --name refers to when several share its tag', async () => {
+		vi.mocked(loadProject).mockReturnValue(null)
+		vi.mocked(listAccountProjects).mockResolvedValue([
+			{ slug: 'acme', applicationId: 'app-us', region: 'us' },
+			{ slug: 'acme', applicationId: 'app-eu', region: 'eu' },
+		])
+		vi.mocked(p.select).mockResolvedValueOnce('app-eu' as never)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({ message: expect.stringContaining('Several apps on your Nylas account') }),
+		)
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({ applicationId: 'app-eu' })
+	})
+
+	it('pauses when choosing between apps that share a tag is cancelled', async () => {
+		vi.mocked(loadProject).mockReturnValue(null)
+		vi.mocked(listAccountProjects).mockResolvedValue([
+			{ slug: 'acme', applicationId: 'app-us', region: 'us' },
+			{ slug: 'acme', applicationId: 'app-eu', region: 'eu' },
+		])
+		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
+
+		await expect(runCreate({ name: 'acme' })).rejects.toBeInstanceOf(CancelledError)
+		expect(saveProject).not.toHaveBeenCalled()
 	})
 
 	it('pauses when the account project picker is cancelled', async () => {

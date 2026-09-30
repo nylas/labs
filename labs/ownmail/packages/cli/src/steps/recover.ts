@@ -1,7 +1,6 @@
 import * as p from '@clack/prompts'
 import type { Grant, NylasV3Client } from '@nylas-labs/cli-kit'
 import { isAppDomain } from '../state/app-domains.js'
-import { hasPendingSecret } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
 import { saveProject } from '../state/store.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, tokens } from './context.js'
@@ -27,21 +26,29 @@ const PROVIDER_HOST_SUFFIXES: [HostedProvider, string][] = [
  * on a new computer). Everything durable lives remotely: the app, inbox, and
  * domain on Nylas, and the app URLs in its redirect URIs and realtime webhook.
  * The deployment API key only ever lived in the old machine's keychain, so a
- * replacement is minted and the old key is revoked after the next deploy.
+ * replacement is minted. The old key is revoked after the next deploy only when
+ * the live app's URL was confirmed, so the deploy can be checked against it.
  */
 export async function stepRecover(ctx: StepContext): Promise<void> {
 	if (!ctx.project.adoptedFromAccount) return
 	p.log.info(`Rebuilding “${ctx.project.slug}” from your Nylas account…`)
 
-	if (!ctx.project.apiKeyId && !hasPendingSecret(ctx.project, 'apiKey')) {
-		await trackDeployedApiKey(ctx)
-	}
+	// Identify the live key before minting one, so a retry cannot mistake an earlier replacement for it.
+	if (!ctx.project.apiKeyId) await identifyDeployedKey(ctx)
 	await stepApiKey(ctx)
 	const v3 = requireV3(ctx)
 
 	if (!ctx.project.grantId) await recoverInbox(ctx, v3)
 	if (!ctx.project.domainId && !ctx.project.plannedDomainAddress) await recoverDomain(ctx)
 	if (!ctx.project.hostingProvider) await recoverHosting(ctx, v3)
+	if (ctx.project.recoveredAppUrl) {
+		scheduleDeployedKeyRevocation(ctx.project)
+	} else {
+		delete ctx.project.recoveredDeployedKeyId
+		p.log.warn(
+			`OwnMail could not confirm where this app is deployed, so it will not revoke the app's previous API key. Once the app works, revoke the older “ownmail ${ctx.project.slug}” key in the Nylas dashboard.`,
+		)
+	}
 
 	delete ctx.project.adoptedFromAccount
 	saveProject(ctx.project)
@@ -50,8 +57,8 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 	)
 }
 
-/** Record the key the deployed app runs on so the replacement flow revokes it after redeploying. */
-async function trackDeployedApiKey(ctx: StepContext): Promise<void> {
+/** Record the key the live app runs on. Runs before recovery mints its replacement. */
+async function identifyDeployedKey(ctx: StepContext): Promise<void> {
 	const applicationId = ctx.project.applicationId
 	if (!applicationId) throw new Error('Nylas application unavailable — rerun ownmail setup')
 	const keys = await requireGateway(ctx).listApiKeys(tokens(ctx), ctx.project.region, applicationId)
@@ -59,7 +66,7 @@ async function trackDeployedApiKey(ctx: StepContext): Promise<void> {
 		(key) => key.status.trim().toLowerCase() === 'active' && isDeploymentKeyName(key.name, ctx.project.slug),
 	)
 	if (deployed.length === 1) {
-		ctx.project.apiKeyId = (deployed[0] as (typeof deployed)[number]).id
+		ctx.project.recoveredDeployedKeyId = (deployed[0] as (typeof deployed)[number]).id
 		saveProject(ctx.project)
 		return
 	}
@@ -68,6 +75,22 @@ async function trackDeployedApiKey(ctx: StepContext): Promise<void> {
 			'Found more than one active OwnMail API key for this app, so none will be revoked automatically. Revoke unused keys in the Nylas dashboard.',
 		)
 	}
+}
+
+/** Schedule the live key for revocation once the verified redeploy installs its replacement. */
+function scheduleDeployedKeyRevocation(project: ProjectState): void {
+	const previousKeyId = project.recoveredDeployedKeyId
+	const replacementKeyId = project.apiKeyId
+	if (!previousKeyId || !replacementKeyId) return
+	const interimKeyId = project.pendingApiKeyRotation?.previousKeyId
+	if (interimKeyId && interimKeyId !== previousKeyId) {
+		p.log.warn(
+			`An API key from an earlier interrupted attempt (${interimKeyId}) was never deployed. Revoke it in the Nylas dashboard if it is still active.`,
+		)
+	}
+	project.pendingApiKeyRotation = { previousKeyId, replacementKeyId }
+	delete project.recoveredDeployedKeyId
+	saveProject(project)
 }
 
 /** Names given to deployment keys by setup, `auth rotate-key`, and `project doctor`. */
