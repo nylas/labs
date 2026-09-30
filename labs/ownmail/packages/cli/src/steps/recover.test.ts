@@ -1,8 +1,8 @@
 import * as p from '@clack/prompts'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectState } from '../state/schema.js'
 import type { StepContext } from './context.js'
-import { inferHosting, isDeploymentKeyName, stepRecover } from './recover.js'
+import { inferHosting, isDeploymentKeyName, parseSiteName, stepRecover } from './recover.js'
 
 const CANCEL = Symbol('cancel')
 
@@ -101,8 +101,37 @@ function accountCtx(proj: ProjectState, fixture: AccountFixture = {}) {
 	return { ctx, v3, gateway, dashboard }
 }
 
+type LiveApp = { healthz?: Response | Error; login?: Response | Error }
+
+/** Stubs the deployed app's public `/healthz` and `/login` responses. */
+function stubLiveApp(app: LiveApp = {}) {
+	const fetchMock = vi.fn(async (input: string | URL) => {
+		const path = new URL(String(input)).pathname
+		const response = path === '/healthz' ? app.healthz : path === '/login' ? app.login : undefined
+		if (!response || response instanceof Error) throw response ?? new Error(`unexpected fetch ${path}`)
+		return response
+	})
+	vi.stubGlobal('fetch', fetchMock)
+	return fetchMock
+}
+
+function loginPage(siteName: string): Response {
+	return new Response(`<head><meta name="apple-mobile-web-app-title" content="${siteName}"/></head>`)
+}
+
+const liveAcme = () => ({
+	healthz: Response.json({ ok: true, app: 'acme' }),
+	login: loginPage('Zo&#x27;s Acme &amp; Co'),
+})
+
 beforeEach(() => {
 	vi.clearAllMocks()
+	// Existing deployments are unreachable unless a test says otherwise.
+	stubLiveApp({ healthz: new Error('offline') })
+})
+
+afterEach(() => {
+	vi.unstubAllGlobals()
 })
 
 describe('inferHosting', () => {
@@ -194,6 +223,23 @@ describe('inferHosting', () => {
 		},
 	])('infers $name', ({ redirects, webhooks, expected }) => {
 		expect(inferHosting(redirects, webhooks)).toEqual(expected)
+	})
+})
+
+describe('parseSiteName', () => {
+	it.each([
+		{
+			name: 'decodes the escaped display name',
+			html: loginPage('Zo&#x27;s Acme &amp; Co (Mail)'),
+			expected: "Zo's Acme & Co (Mail)",
+		},
+		{ name: 'decodes decimal apostrophes', html: loginPage('Zo&#39;s Mail'), expected: "Zo's Mail" },
+		// The app shows the default for unset or rejected names, so it says nothing about the user's choice.
+		{ name: 'ignores the default name', html: loginPage('ownmail'), expected: undefined },
+		{ name: 'ignores a name setup would reject', html: loginPage(' '), expected: undefined },
+		{ name: 'ignores pages without the tag', html: new Response('<head></head>'), expected: undefined },
+	])('$name', async ({ html, expected }) => {
+		expect(parseSiteName(await html.text())).toBe(expected)
 	})
 })
 
@@ -508,5 +554,79 @@ describe('stepRecover', () => {
 			appDomains: ['mail.acme.com'],
 		})
 		expect(proj.workerName).toBeUndefined()
+	})
+
+	it('reads the display name back from the live app so the user does not retype it', async () => {
+		const proj = project()
+		const { ctx } = accountCtx(proj, {
+			keys: [{ id: 'key-deployed', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' }],
+			redirects: ['https://acme-ownmail.me.workers.dev/auth/callback'],
+		})
+		const fetchMock = stubLiveApp(liveAcme())
+
+		await stepRecover(ctx)
+
+		expect(fetchMock).toHaveBeenCalledWith('https://acme-ownmail.me.workers.dev/healthz', expect.anything())
+		expect(proj).toMatchObject({
+			siteName: "Zo's Acme & Co",
+			hostingProvider: 'cloudflare',
+			recoveredAppUrl: 'https://acme-ownmail.me.workers.dev',
+			pendingApiKeyRotation: { previousKeyId: 'key-deployed', replacementKeyId: 'key-new' },
+		})
+		expect(p.log.info).not.toHaveBeenCalledWith(expect.stringContaining('could not read the display name'))
+	})
+
+	it('keeps a display name the user already chose', async () => {
+		const proj = project({ siteName: 'Chosen Mail' })
+		const { ctx } = accountCtx(proj, { redirects: ['https://acme-ownmail.vercel.app/auth/callback'] })
+		stubLiveApp(liveAcme())
+
+		await stepRecover(ctx)
+
+		expect(proj.siteName).toBe('Chosen Mail')
+		expect(proj.hostingProvider).toBe('vercel')
+	})
+
+	it('never redeploys over, or revokes the key of, a URL serving a different project', async () => {
+		const proj = project()
+		const { ctx } = accountCtx(proj, {
+			keys: [{ id: 'key-deployed', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' }],
+			// A stale redirect URI left pointing at another OwnMail project's deployment.
+			redirects: ['https://other-ownmail.netlify.app/auth/callback'],
+		})
+		const fetchMock = stubLiveApp({
+			healthz: Response.json({ ok: true, app: 'other' }),
+			login: loginPage('Other'),
+		})
+
+		await stepRecover(ctx)
+
+		expect(proj.hostingProvider).toBeUndefined()
+		expect(proj.providerAppUrl).toBeUndefined()
+		expect(proj.recoveredAppUrl).toBeUndefined()
+		expect(proj.pendingApiKeyRotation).toBeUndefined()
+		expect(proj.siteName).toBeUndefined()
+		expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/login'), expect.anything())
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('running the OwnMail project “other”'))
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('will not revoke'))
+	})
+
+	it.each([
+		{ name: 'health check fails', app: { healthz: new Response('down', { status: 503 }) } },
+		{ name: 'health check has no project', app: { healthz: Response.json({ ok: true }) } },
+		{ name: 'health check is not JSON', app: { healthz: new Response('<html>') } },
+		{ name: 'login page fails', app: { ...liveAcme(), login: new Response('', { status: 500 }) } },
+		{ name: 'login page is unreachable', app: { ...liveAcme(), login: new Error('reset') } },
+	])('keeps the inferred app and asks for the name when the $name', async ({ app }) => {
+		const proj = project()
+		const { ctx } = accountCtx(proj, { redirects: ['https://acme-ownmail.netlify.app/auth/callback'] })
+		stubLiveApp(app)
+
+		await stepRecover(ctx)
+
+		expect(proj.hostingProvider).toBe('netlify')
+		expect(proj.recoveredAppUrl).toBe('https://acme-ownmail.netlify.app')
+		expect(proj.siteName).toBeUndefined()
+		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('could not read the display name'))
 	})
 })

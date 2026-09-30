@@ -1,7 +1,8 @@
 import * as p from '@clack/prompts'
 import type { Grant, NylasV3Client } from '@nylas-labs/cli-kit'
 import { isAppDomain } from '../state/app-domains.js'
-import type { ProjectState } from '../state/schema.js'
+import { DEFAULT_SITE_NAME, type ProjectState } from '../state/schema.js'
+import { normalizeSiteName, siteNameValidationError } from '../state/site-name.js'
 import { saveProject } from '../state/store.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, tokens } from './context.js'
 import { CancelledError, isFullyVerified, planDomain, stepApiKey } from './provision.js'
@@ -52,9 +53,11 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 
 	delete ctx.project.adoptedFromAccount
 	saveProject(ctx.project)
-	p.log.info(
-		'OwnMail could not read the display name from the deployed app. Confirm it next — the app will be redeployed with it.',
-	)
+	if (!ctx.project.siteName) {
+		p.log.info(
+			'OwnMail could not read the display name from the deployed app. Confirm it next — the app will be redeployed with it.',
+		)
+	}
 }
 
 /** Record the key the live app runs on. Runs before recovery mints its replacement. */
@@ -162,6 +165,7 @@ async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void
 			.map((webhook) => webhook.webhook_url ?? webhook.callback_url)
 			.filter((url): url is string => Boolean(url)),
 	)
+	if (hosting.providerUrl) await confirmDeployment(ctx.project, hosting)
 	applyInferredHosting(ctx.project, hosting)
 	saveProject(ctx.project)
 	if (hosting.provider && hosting.providerUrl) {
@@ -169,6 +173,73 @@ async function recoverHosting(ctx: StepContext, v3: NylasV3Client): Promise<void
 	} else {
 		p.log.info('Could not tell where this app was hosted. Choose the same provider you used before.')
 	}
+}
+
+/**
+ * Checks the inferred URL against the live deployment. `/healthz` reports the
+ * project slug, so a URL serving a different OwnMail project is dropped rather
+ * than redeployed over (and its key revoked). A matching deployment also gives
+ * back the display name. An unreachable app keeps the inferred URL, as before.
+ */
+async function confirmDeployment(project: ProjectState, hosting: InferredHosting): Promise<void> {
+	const url = hosting.providerUrl as string
+	const liveSlug = await fetchLiveSlug(url)
+	if (liveSlug === undefined) return
+	if (liveSlug !== project.slug) {
+		p.log.warn(`${url} is running the OwnMail project “${liveSlug}”, not “${project.slug}”.`)
+		delete hosting.provider
+		delete hosting.providerUrl
+		return
+	}
+	const siteName = await fetchLiveSiteName(url)
+	if (siteName && !project.siteName) {
+		project.siteName = siteName
+		p.log.info(`Found the display name “${siteName}” on your app.`)
+	}
+}
+
+const PROBE_TIMEOUT_MS = 5000
+
+async function fetchLiveSlug(url: string): Promise<string | undefined> {
+	try {
+		const res = await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+		if (!res.ok) return undefined
+		const body = (await res.json()) as { app?: unknown } | null
+		return typeof body?.app === 'string' && body.app ? body.app : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** The app renders its display name into the public login page's head. */
+async function fetchLiveSiteName(url: string): Promise<string | undefined> {
+	try {
+		const res = await fetch(`${url}/login`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+		if (!res.ok) return undefined
+		return parseSiteName(await res.text())
+	} catch {
+		return undefined
+	}
+}
+
+const HTML_ENTITIES: Record<string, string> = {
+	amp: '&',
+	lt: '<',
+	gt: '>',
+	quot: '"',
+	'#39': "'",
+	'#x27': "'",
+}
+
+export function parseSiteName(html: string): string | undefined {
+	const match = /<meta\s+name="apple-mobile-web-app-title"\s+content="([^"]*)"/i.exec(html)
+	if (!match) return undefined
+	const decoded = (match[1] as string).replace(/&(amp|lt|gt|quot|#39|#x27);/gi, (_, name: string) => {
+		return HTML_ENTITIES[name.toLowerCase()] as string
+	})
+	// The app falls back to the default for unset or invalid names, so the default is not a user choice.
+	if (decoded === DEFAULT_SITE_NAME || siteNameValidationError(decoded)) return undefined
+	return normalizeSiteName(decoded)
 }
 
 /**
