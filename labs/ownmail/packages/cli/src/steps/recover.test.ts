@@ -258,6 +258,8 @@ describe('stepRecover', () => {
 			hostingProvider: 'cloudflare',
 			workersDevUrl: 'https://hello-ownmail.me.workers.dev',
 			workerName: 'hello-ownmail',
+			// The first redeploy must land here before the old key is revoked.
+			recoveredAppUrl: 'https://hello-ownmail.me.workers.dev',
 		})
 		expect(proj.adoptedFromAccount).toBeUndefined()
 		expect(proj.providerAppUrl).toBeUndefined()

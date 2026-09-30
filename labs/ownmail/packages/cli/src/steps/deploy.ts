@@ -39,6 +39,7 @@ import {
 import { deployedApiBaseUrl, resourceNameSuffix } from '../nylas-env.js'
 import { projectAppDomains } from '../state/app-domains.js'
 import { clearPendingSecret, readPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
+import type { ProjectState } from '../state/schema.js'
 import { configuredSiteName } from '../state/site-name.js'
 import { configDir, markStep, saveProject } from '../state/store.js'
 import { requireGateway, requireV3, type StepContext, tokens } from './context.js'
@@ -84,6 +85,35 @@ export async function stepHostingProvider(ctx: StepContext): Promise<void> {
 	ctx.project.hostingProvider = provider
 	saveProject(ctx.project)
 	markStep(ctx.project, 'hosting')
+}
+
+/**
+ * A resumed project's first redeploy must reach the app found on the Nylas
+ * account. Landing anywhere else means the provider CLI is signed in to another
+ * account, and continuing would revoke the key the live app still uses.
+ */
+function requireRecoveredAppUrl(
+	project: ProjectState,
+	deployedUrl: string,
+	accountLabel: string,
+	loginCommand: string,
+): void {
+	const expected = project.recoveredAppUrl
+	if (!expected) return
+	if (originOf(deployedUrl) !== originOf(expected)) {
+		throw new Error(
+			`This app runs at ${expected}, but the deploy went to ${deployedUrl}, which belongs to a different ${accountLabel}. Nothing was changed on your running app and its API key was not revoked. Sign in to the ${accountLabel} that hosts ${expected} with ${loginCommand}, then re-run \`npx ownmail\`. You can delete the extra deployment at ${deployedUrl}.`,
+		)
+	}
+	delete project.recoveredAppUrl
+}
+
+function originOf(url: string): string | null {
+	try {
+		return new URL(url).origin
+	} catch {
+		return null
+	}
 }
 
 /** 07 — Cloudflare auth for wrangler deploys. */
@@ -248,6 +278,7 @@ export async function stepDeploy(ctx: StepContext): Promise<void> {
 	let url: string
 	try {
 		url = await deploy(configPath)
+		requireRecoveredAppUrl(ctx.project, url, 'Cloudflare account', '`npx wrangler login`')
 		ctx.project.workersDevUrl = url
 		ctx.project.templateVersion = manifest.templateVersion
 		saveProject(ctx.project)
@@ -304,6 +335,14 @@ async function stepVercelDeploy(ctx: StepContext): Promise<void> {
 			new Set(['NYLAS_API_KEY', 'SESSION_SECRET']),
 		)
 		const url = await deployVercel(dir, linked.orgId)
+		if (ctx.project.recoveredAppUrl) {
+			requireRecoveredAppUrl(
+				ctx.project,
+				await resolveVercelProductionUrl(url, linked.orgId),
+				'Vercel account or team',
+				'`npx vercel login`',
+			)
+		}
 		ctx.project.providerAppUrl = url
 		ctx.project.templateVersion = manifest.templateVersion
 		saveProject(ctx.project)

@@ -104,6 +104,8 @@ export const ProjectStateSchema = z.object({
 	orgPublicId: z.string().optional(),
 	/** Set when this machine adopted an existing project from the Nylas account; cleared once state is rebuilt. */
 	adoptedFromAccount: z.boolean().optional(),
+	/** App URL found during recovery; the first redeploy must land there before the old key is revoked. */
+	recoveredAppUrl: z.string().url().optional(),
 	hostingProvider: z.enum(['cloudflare', 'vercel', 'netlify', 'local', 'manual']).optional(),
 
 	applicationId: z.string().optional(),

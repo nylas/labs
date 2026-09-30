@@ -184,6 +184,7 @@ function applyInferredHosting(project: ProjectState, hosting: InferredHosting): 
 	if (hosting.appDomain) project.appDomain = hosting.appDomain
 	if (!hosting.provider || !hosting.providerUrl) return
 	project.hostingProvider = hosting.provider
+	project.recoveredAppUrl = hosting.providerUrl
 	if (hosting.provider === 'cloudflare') {
 		project.workersDevUrl = hosting.providerUrl
 		// <worker>.<account-subdomain>.workers.dev

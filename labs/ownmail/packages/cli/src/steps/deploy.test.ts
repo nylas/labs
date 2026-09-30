@@ -543,6 +543,72 @@ describe('stepDeploy (cloudflare)', () => {
 		expect(vi.mocked(putSecret).mock.calls.filter(([, name]) => name === 'NYLAS_API_KEY')).toHaveLength(2)
 	})
 
+	it('stops a resumed project deploying to another Cloudflare account before revoking the live key', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://acme-ownmail.other-account.workers.dev')
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				workerName: 'acme-ownmail',
+				workersDevUrl: 'https://acme-ownmail.me.workers.dev',
+				recoveredAppUrl: 'https://acme-ownmail.me.workers.dev',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.auth = { userToken: 'user-token', dpopPrivateJwk: {} }
+		ctx.gateway = { revokeApiKey } as never
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/different Cloudflare account/)
+
+		expect(putSecret).not.toHaveBeenCalled()
+		expect(revokeApiKey).not.toHaveBeenCalled()
+		expect(ctx.project.workersDevUrl).toBe('https://acme-ownmail.me.workers.dev')
+		expect(ctx.project.recoveredAppUrl).toBe('https://acme-ownmail.me.workers.dev')
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('treats an unreadable deploy URL as a different destination for a resumed project', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('not a url')
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				workerName: 'acme-ownmail',
+				recoveredAppUrl: 'https://acme-ownmail.me.workers.dev',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/different Cloudflare account/)
+		expect(putSecret).not.toHaveBeenCalled()
+	})
+
+	it('finishes a resumed project once the deploy reaches the recovered worker', async () => {
+		vi.mocked(deploy).mockResolvedValueOnce('https://acme-ownmail.me.workers.dev')
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				applicationId: 'client-id',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				workerName: 'acme-ownmail',
+				recoveredAppUrl: 'https://acme-ownmail.me.workers.dev',
+				kvNamespaceId: 'kv',
+				pendingSecrets: { apiKey: 'secret-key' },
+			}),
+		)
+		ctx.auth = { userToken: 'user-token', dpopPrivateJwk: {} }
+		ctx.gateway = { revokeApiKey } as never
+
+		await stepDeploy(ctx)
+
+		expect(revokeApiKey).toHaveBeenCalledWith({ userToken: 'user-token' }, 'us', 'client-id', 'old-key')
+		expect(ctx.project.recoveredAppUrl).toBeUndefined()
+	})
+
 	it('revokes the previous key only after the replacement is installed', async () => {
 		vi.mocked(deploy).mockResolvedValueOnce('https://plain.workers.dev')
 		const revokeApiKey = vi.fn()
@@ -669,6 +735,43 @@ describe('stepDeploy (additional providers)', () => {
 		inboxEmail: 'hello@example.com',
 		pendingSecrets: { apiKey: 'nyk_secret' },
 	}
+
+	it('stops a resumed Vercel project deployed under another scope before revoking the live key', async () => {
+		vi.mocked(resolveVercelProductionUrl).mockResolvedValueOnce('https://my-inbox-ownmail-x1.vercel.app')
+		const revokeApiKey = vi.fn()
+		const ctx = makeCtx(
+			makeProject({
+				...base,
+				hostingProvider: 'vercel',
+				apiKeyId: 'new-key',
+				pendingApiKeyRotation: { previousKeyId: 'old-key', replacementKeyId: 'new-key' },
+				recoveredAppUrl: 'https://my-inbox-ownmail.vercel.app',
+			}),
+		)
+		ctx.gateway = { revokeApiKey } as never
+
+		await expect(stepDeploy(ctx)).rejects.toThrow(/different Vercel account or team/)
+
+		expect(revokeApiKey).not.toHaveBeenCalled()
+		expect(ctx.project.providerAppUrl).toBeUndefined()
+		expect(markStep).not.toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
+
+	it('accepts a resumed Vercel deploy whose production URL matches the recovered app', async () => {
+		vi.mocked(resolveVercelProductionUrl).mockResolvedValueOnce('https://my-inbox-ownmail.vercel.app/')
+		const ctx = makeCtx(
+			makeProject({
+				...base,
+				hostingProvider: 'vercel',
+				recoveredAppUrl: 'https://my-inbox-ownmail.vercel.app',
+			}),
+		)
+
+		await stepDeploy(ctx)
+
+		expect(ctx.project.recoveredAppUrl).toBeUndefined()
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'deploy')
+	})
 
 	it('links, configures, and deploys a Vercel project', async () => {
 		const ctx = makeCtx(makeProject({ ...base, hostingProvider: 'vercel' }))
