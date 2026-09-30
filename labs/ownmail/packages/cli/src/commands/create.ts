@@ -312,15 +312,16 @@ async function pickAccountProject(
 			message: 'Resume a project from your Nylas account, or start a new one',
 			options: [
 				...resumable.map((found) => ({
-					value: found.slug,
+					value: found.applicationId,
 					label: found.slug,
-					hint: found.region.toUpperCase(),
+					hint: accountProjectHint(found, resumable),
 				})),
 				{ value: NEW_PROJECT, label: 'Start a new one' },
 			],
 		})
 		if (p.isCancel(picked)) throw new CancelledError()
-		if (picked !== NEW_PROJECT) return projectFromAccount(account, picked, region)
+		const found = resumable.find((candidate) => candidate.applicationId === picked)
+		if (found) return projectFromAccount(account, found.slug, region, found)
 	} else if (localSlugs.size > 0) {
 		p.log.info('No other OwnMail projects were found on this Nylas account.')
 	}
@@ -331,12 +332,13 @@ async function pickAccountProject(
 }
 
 /** Adopt the account's project with this name, or start a new one on the connected session. */
-function projectFromAccount(
+async function projectFromAccount(
 	account: ConnectedAccount,
 	slug: string,
 	region: ProjectState['region'],
-): ResolvedProject {
-	const found = account.projects.find((candidate) => candidate.slug === slug)
+	chosen?: AccountProject,
+): Promise<ResolvedProject> {
+	const found = chosen ?? (await chooseAccountProject(account.projects, slug))
 	const project = newProject(slug, found?.region ?? region)
 	project.orgPublicId = account.ctx.project.orgPublicId
 	project.completedSteps.push(...CONNECT_STEPS)
@@ -348,6 +350,31 @@ function projectFromAccount(
 	saveProject(project)
 	account.ctx.project = project
 	return { project, connected: account.ctx }
+}
+
+/** Several apps can carry the same tag; adopting the wrong one would rotate another app's keys. */
+async function chooseAccountProject(
+	projects: AccountProject[],
+	slug: string,
+): Promise<AccountProject | undefined> {
+	const matches = projects.filter((candidate) => candidate.slug === slug)
+	if (matches.length <= 1) return matches[0]
+	const picked = await p.select({
+		message: `Several apps on your Nylas account are tagged “${slug}”. Which one is this project?`,
+		options: matches.map((found) => ({
+			value: found.applicationId,
+			label: `${found.slug} (${found.region.toUpperCase()})`,
+			hint: found.applicationId,
+		})),
+	})
+	if (p.isCancel(picked)) throw new CancelledError()
+	return matches.find((candidate) => candidate.applicationId === picked)
+}
+
+function accountProjectHint(found: AccountProject, all: AccountProject[]): string {
+	const region = found.region.toUpperCase()
+	const duplicated = all.some((other) => other !== found && other.slug === found.slug)
+	return duplicated ? `${region} · ${found.applicationId}` : region
 }
 
 async function promptProjectName(): Promise<string> {

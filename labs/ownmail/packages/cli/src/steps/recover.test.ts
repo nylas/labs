@@ -14,8 +14,6 @@ vi.mock('@clack/prompts', () => ({
 
 vi.mock('../state/store.js', () => ({ saveProject: vi.fn() }))
 
-vi.mock('../state/pending-secrets.js', () => ({ hasPendingSecret: vi.fn(() => false) }))
-
 vi.mock('./provision.js', () => {
 	class CancelledError extends Error {}
 	return {
@@ -29,7 +27,6 @@ vi.mock('./provision.js', () => {
 	}
 })
 
-import { hasPendingSecret } from '../state/pending-secrets.js'
 import { CancelledError, planDomain, stepApiKey } from './provision.js'
 
 function project(over: Partial<ProjectState> = {}): ProjectState {
@@ -99,13 +96,13 @@ function accountCtx(proj: ProjectState, fixture: AccountFixture = {}) {
 	} as unknown as StepContext
 	vi.mocked(stepApiKey).mockImplementation(async (c) => {
 		c.v3 = v3 as never
+		c.project.apiKeyId ??= 'key-new'
 	})
 	return { ctx, v3, gateway, dashboard }
 }
 
 beforeEach(() => {
 	vi.clearAllMocks()
-	vi.mocked(hasPendingSecret).mockReturnValue(false)
 })
 
 describe('inferHosting', () => {
@@ -230,6 +227,7 @@ describe('stepRecover', () => {
 		const proj = project()
 		const { ctx } = accountCtx(proj, {
 			keys: [
+				{ id: 'key-new', name: 'ownmail acme 2026-09-29T03-04-05-678Z', status: 'active' },
 				{ id: 'key-deployed', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' },
 				{ id: 'key-revoked', name: 'ownmail acme (rotated 2025-06-01)', status: 'revoked' },
 				{ id: 'key-temp', name: 'ownmail doctor 2026-01-02T00:00:00.000Z', status: 'active' },
@@ -246,8 +244,6 @@ describe('stepRecover', () => {
 
 		await stepRecover(ctx)
 
-		// The old key is tracked so stepApiKey schedules it for revocation after redeploy.
-		expect(vi.mocked(stepApiKey).mock.calls[0]?.[0].project.apiKeyId).toBe('key-deployed')
 		expect(proj).toMatchObject({
 			grantId: 'grant-1',
 			inboxEmail: 'hello@acme.nylas.email',
@@ -260,6 +256,8 @@ describe('stepRecover', () => {
 			workerName: 'hello-ownmail',
 			// The first redeploy must land here before the old key is revoked.
 			recoveredAppUrl: 'https://hello-ownmail.me.workers.dev',
+			// Revoked only after the verified redeploy installs the replacement.
+			pendingApiKeyRotation: { previousKeyId: 'key-deployed', replacementKeyId: 'key-new' },
 		})
 		expect(proj.adoptedFromAccount).toBeUndefined()
 		expect(proj.providerAppUrl).toBeUndefined()
@@ -272,23 +270,52 @@ describe('stepRecover', () => {
 				{ id: 'k1', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' },
 				{ id: 'k2', name: 'ownmail acme (rotated 2026-02-02)', status: 'active' },
 			],
+			redirects: ['https://acme-ownmail.me.workers.dev/auth/callback'],
 		})
 
 		await stepRecover(ctx)
 
-		expect(vi.mocked(stepApiKey).mock.calls[0]?.[0].project.apiKeyId).toBeUndefined()
+		expect(proj.pendingApiKeyRotation).toBeUndefined()
 		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('none will be revoked'))
 	})
 
-	it('keeps the key already minted by an interrupted recovery', async () => {
-		vi.mocked(hasPendingSecret).mockReturnValue(true)
-		const proj = project({ apiKeyId: 'key-new' })
+	it('keeps the revocation already scheduled by an interrupted recovery', async () => {
+		const rotation = { previousKeyId: 'key-deployed', replacementKeyId: 'key-new' }
+		const proj = project({
+			apiKeyId: 'key-new',
+			pendingApiKeyRotation: rotation,
+			hostingProvider: 'cloudflare',
+			recoveredAppUrl: 'https://acme-ownmail.me.workers.dev',
+		})
 		const { ctx, gateway } = accountCtx(proj)
 
 		await stepRecover(ctx)
 
 		expect(gateway.listApiKeys).not.toHaveBeenCalled()
-		expect(stepApiKey).toHaveBeenCalled()
+		expect(proj.pendingApiKeyRotation).toEqual(rotation)
+	})
+
+	it('leaves the previous key active when the live destination is unconfirmed', async () => {
+		const proj = project()
+		const { ctx, gateway } = accountCtx(proj, {
+			keys: [{ id: 'key-deployed', name: 'ownmail acme 2026-01-02T03-04-05-678Z', status: 'active' }],
+			// One live custom domain but two providers: the user must choose, so nothing can be verified.
+			redirects: [
+				'https://acme-ownmail.me.workers.dev/auth/callback',
+				'https://acme-ownmail.vercel.app/auth/callback',
+			],
+			webhooks: [
+				{ description: 'ownmail realtime', webhook_url: 'https://mail.acme.com/api/webhooks/nylas' },
+			],
+		})
+
+		await stepRecover(ctx)
+
+		expect(proj.appDomain).toBe('mail.acme.com')
+		expect(proj.recoveredAppUrl).toBeUndefined()
+		expect(proj.pendingApiKeyRotation).toBeUndefined()
+		expect(gateway.listApiKeys).not.toHaveBeenCalled()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringContaining('will not revoke'))
 	})
 
 	it('asks which inbox the app opens when the app has several', async () => {
@@ -371,9 +398,11 @@ describe('stepRecover', () => {
 	})
 
 	it('requires the adopted application before looking up its keys', async () => {
-		const { ctx } = accountCtx(project({ applicationId: undefined }))
+		const { ctx } = accountCtx(project({ applicationId: undefined }), {
+			redirects: ['https://acme-ownmail.me.workers.dev/auth/callback'],
+		})
 
-		await expect(stepRecover(ctx)).rejects.toThrow(/Nylas application unavailable/)
+		await expect(stepRecover(ctx)).rejects.toThrow(/Nylas API key unavailable/)
 	})
 
 	it('reads legacy callback_url webhooks and tolerates empty list responses', async () => {
