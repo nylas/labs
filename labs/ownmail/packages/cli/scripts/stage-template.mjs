@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -43,4 +43,43 @@ for (const entry of entries) {
 		recursive: true,
 		filter: entry === 'src' ? includeProductionSource : undefined,
 	})
+}
+
+// Every build emits the same browser client. Ship it once, in the Cloudflare
+// build, and let the CLI restore the Node copies when it materializes a target
+// (see copyClient in src/deploy/materialize.ts). A copy that differs in any way
+// is kept, so a future build divergence costs size rather than correctness.
+const CLOUDFLARE_ONLY_CLIENT_FILES = new Set(['.assetsignore'])
+const sharedClient = join(targetRoot, 'dist', 'client')
+
+function clientFiles(root) {
+	return readdirSync(root, { recursive: true, withFileTypes: true })
+		.filter((entry) => entry.isFile())
+		.map((entry) => relative(root, join(entry.parentPath, entry.name)).split(sep).join('/'))
+		.filter((path) => !CLOUDFLARE_ONLY_CLIENT_FILES.has(path))
+		.sort()
+}
+
+function sameClient(copy) {
+	const expected = clientFiles(sharedClient)
+	const actual = clientFiles(copy)
+	return (
+		expected.length === actual.length &&
+		expected.every(
+			(path, index) =>
+				path === actual[index] &&
+				readFileSync(join(sharedClient, path)).equals(readFileSync(join(copy, path))),
+		)
+	)
+}
+
+for (const copy of [
+	join(targetRoot, 'dist-vercel', 'client'),
+	join(targetRoot, '.vercel', 'output', 'static'),
+]) {
+	if (sameClient(copy)) {
+		rmSync(copy, { recursive: true, force: true })
+	} else {
+		console.warn(`Keeping ${relative(targetRoot, copy)}: it differs from dist/client.`)
+	}
 }
