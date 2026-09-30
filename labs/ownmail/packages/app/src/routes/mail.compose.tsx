@@ -35,7 +35,6 @@ import {
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
 import { validateRecipientEmails } from '#features/mail/lib/recipients'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
-import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
 import {
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
@@ -303,17 +302,6 @@ function Compose() {
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
-	useEffect(() => {
-		if (selected?.markedRead) {
-			applyMailCacheEffect(queryClient, {
-				type: 'thread.read',
-				threadId: selected.thread.id,
-				unread: false,
-				thread: selected.thread,
-			})
-		}
-	}, [queryClient, selected])
-
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
 	/* v8 ignore start -- command-key dispatch is covered by the component's button workflows -- @preserve */

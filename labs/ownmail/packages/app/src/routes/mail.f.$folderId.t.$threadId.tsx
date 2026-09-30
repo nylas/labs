@@ -13,7 +13,7 @@ import {
 	Star,
 	Trash2,
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
@@ -22,8 +22,11 @@ import {
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
 } from '#features/mail/lib/mail-ui-model'
-import { applyMailCacheEffect } from '#features/mail/state/mail-cache'
-import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
+import {
+	markThreadReadOnOpen,
+	openThreadDetail,
+	useUpdateThreadMutation,
+} from '#features/mail/state/mail-mutations'
 import {
 	type MailThreadDetail,
 	threadDetailQueryOptions,
@@ -38,10 +41,17 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
 		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
 	}),
-	loader: async ({ context, params }) =>
-		context.queryClient.ensureQueryData(
-			threadDetailQueryOptions(params.threadId, (threadId) => getThreadMessages({ data: { threadId } })),
-		),
+	loader: async ({ context, params, preload }) => {
+		const options = threadDetailQueryOptions(params.threadId, (threadId) =>
+			getThreadMessages({ data: { threadId } }),
+		)
+		return openThreadDetail(
+			context.queryClient,
+			params.threadId,
+			{ preload, queryKey: options.queryKey },
+			() => context.queryClient.ensureQueryData(options),
+		)
+	},
 	component: ThreadView,
 })
 
@@ -54,7 +64,6 @@ function normalizeInitialThreadDetail(
 				thread: Thread
 				messages: Message[]
 				mailboxEmail: string
-				markedRead?: boolean
 				ownmailDraftMessageIds?: string[]
 		  },
 ): MailThreadDetail {
@@ -104,7 +113,7 @@ function ThreadView() {
 		),
 		initialData: normalizeInitialThreadDetail(initialDetail),
 	})
-	const { thread, messages, mailboxEmail, markedRead } = detail
+	const { thread, messages, mailboxEmail } = detail
 	const updateThread = useUpdateThreadMutation()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
@@ -234,11 +243,15 @@ function ThreadView() {
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [act, baseFolderId, folderId, isArchived, lastMessage, navigate, reply, starred])
 
+	// Server-rendered deep links skip the client loader, so the reader marks the
+	// thread read once per open. Later unread states (for example "Mark unread"
+	// before leaving) must not be reverted by this effect.
+	const readRequestedFor = useRef<string | null>(null)
 	useEffect(() => {
-		if (markedRead) {
-			applyMailCacheEffect(queryClient, { type: 'thread.read', threadId, unread: false, thread })
-		}
-	}, [markedRead, queryClient, thread, threadId])
+		if (readRequestedFor.current === threadId) return
+		readRequestedFor.current = threadId
+		if (thread.unread) markThreadReadOnOpen(queryClient, threadId, thread)
+	}, [queryClient, thread, threadId])
 
 	return (
 		<div

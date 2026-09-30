@@ -386,8 +386,17 @@ export function createMailOptimisticManager(client: QueryClient) {
 	}
 
 	return {
-		async begin(effect: MailCacheEffect): Promise<MailOptimisticOperation> {
-			await client.cancelQueries({ queryKey: mailKeys.all })
+		async begin(
+			effect: MailCacheEffect,
+			options: { preserveThreadDetails?: boolean } = {},
+		): Promise<MailOptimisticOperation> {
+			// Opening a thread marks it read while its detail is still loading;
+			// cancelling that fetch would fail the reader's own route load.
+			await client.cancelQueries(
+				options.preserveThreadDetails
+					? { queryKey: mailKeys.all, predicate: (query) => query.queryKey[1] !== 'thread' }
+					: { queryKey: mailKeys.all },
+			)
 			base ??= captureMailCacheSnapshot(client)
 			const entry: JournalEntry = { id: nextId++, effect, status: 'pending' }
 			entries.push(entry)

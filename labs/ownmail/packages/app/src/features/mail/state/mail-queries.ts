@@ -24,7 +24,6 @@ export type MailThreadDetail = {
 	thread: MailThread
 	messages: MailMessage[]
 	mailboxEmail: string
-	markedRead?: boolean
 }
 
 export type MailThreadFilters = {
@@ -132,7 +131,6 @@ export function toMailThreadDetail(detail: {
 	thread: Thread
 	messages: Message[]
 	mailboxEmail: string
-	markedRead?: boolean
 	ownmailDraftMessageIds?: string[]
 }): MailThreadDetail {
 	const draftMessageIds = new Set(detail.ownmailDraftMessageIds ?? [])
@@ -140,7 +138,6 @@ export function toMailThreadDetail(detail: {
 		thread: toMailThread(detail.thread),
 		messages: detail.messages.map((message) => toMailMessage(message, draftMessageIds.has(message.id))),
 		mailboxEmail: detail.mailboxEmail,
-		...(detail.markedRead !== undefined ? { markedRead: detail.markedRead } : {}),
 	}
 }
 
@@ -203,7 +200,6 @@ export function threadDetailQueryOptions(
 		thread: Thread
 		messages: Message[]
 		mailboxEmail: string
-		markedRead?: boolean
 		ownmailDraftMessageIds?: string[]
 	}>,
 ) {

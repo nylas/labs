@@ -377,6 +377,23 @@ describe('mail optimistic transaction journal', () => {
 		expect(cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]?.starred).toBe(false)
 	})
 
+	it('can leave thread detail fetches running while still cancelling stale list refetches', async () => {
+		const client = seedClient()
+		const listKey = mailKeys.threadList({ folderId: 'inbox' })
+		const detailKey = mailKeys.threadDetail('t1')
+		const never = () => new Promise<never>(() => {})
+		void client.fetchQuery({ queryKey: detailKey, queryFn: never }).catch(() => {})
+		void client.fetchQuery({ queryKey: listKey, queryFn: never, staleTime: 0 }).catch(() => {})
+
+		await createMailOptimisticManager(client).begin(
+			{ type: 'thread.read', threadId: 't1', unread: false },
+			{ preserveThreadDetails: true },
+		)
+
+		expect(client.getQueryState(detailKey)?.fetchStatus).toBe('fetching')
+		expect(client.getQueryState(listKey)?.fetchStatus).toBe('idle')
+	})
+
 	it('rolls back one failed operation without erasing a newer optimistic operation', async () => {
 		const client = seedClient()
 		const manager = createMailOptimisticManager(client)
