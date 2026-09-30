@@ -102,6 +102,8 @@ export const ProjectStateSchema = z.object({
 
 	region: z.enum(['us', 'eu']).default('us'),
 	orgPublicId: z.string().optional(),
+	/** Set when this machine adopted an existing project from the Nylas account; cleared once state is rebuilt. */
+	adoptedFromAccount: z.boolean().optional(),
 	hostingProvider: z.enum(['cloudflare', 'vercel', 'netlify', 'local', 'manual']).optional(),
 
 	applicationId: z.string().optional(),

@@ -70,13 +70,27 @@ vi.mock('../steps/provision.js', () => {
 			ctx.project.plannedDomainBranded ??= true
 		}),
 		stepGrant: vi.fn(),
+		listAccountProjects: vi.fn(async () => []),
 	}
 })
+
+vi.mock('../steps/recover.js', () => ({ stepRecover: vi.fn() }))
+
+vi.mock('./misc.js', () => ({ LOGIN_PROJECT_SLUG: '__login__' }))
 
 import * as p from '@clack/prompts'
 import { ownmailNylasEnvironment } from '../nylas-env.js'
 import { listProjects, loadProject, newProject, saveProject } from '../state/store.js'
-import { CancelledError, stepApp, stepDashboardAuth, stepDomainPlan, stepGrant } from '../steps/provision.js'
+import {
+	CancelledError,
+	listAccountProjects,
+	stepApp,
+	stepDashboardAuth,
+	stepDomainPlan,
+	stepGrant,
+	stepOrg,
+} from '../steps/provision.js'
+import { stepRecover } from '../steps/recover.js'
 import { stepSiteName } from '../steps/site-name.js'
 
 function makeProject(overrides: Partial<ProjectState> = {}): ProjectState {
@@ -132,7 +146,9 @@ describe('runCreate — resolveProject', () => {
 	it('normalizes a setup app-name override and refuses to silently rename a deployment', async () => {
 		const fresh = makeProject({ slug: 'newco' })
 		vi.mocked(loadProject).mockReturnValueOnce(null)
-		vi.mocked(newProject).mockReturnValueOnce(fresh)
+		vi.mocked(newProject)
+			.mockReturnValueOnce(makeProject({ slug: '__login__' }))
+			.mockReturnValueOnce(fresh)
 
 		await runCreate({ name: 'newco', siteName: '  Newco   Inbox ' })
 
@@ -167,7 +183,11 @@ describe('runCreate — resolveProject', () => {
 		expect(p.select).toHaveBeenCalledWith(
 			expect.objectContaining({
 				message: 'Project name',
-				options: [expect.objectContaining({ value: 'solo' }), expect.objectContaining({ value: '__new__' })],
+				options: [
+					expect.objectContaining({ value: 'solo' }),
+					expect.objectContaining({ value: '__account__' }),
+					expect.objectContaining({ value: '__new__' }),
+				],
 			}),
 		)
 		expect(loadProject).toHaveBeenCalledWith('solo')
@@ -332,6 +352,153 @@ describe('runCreate — normalizeProjectRegion', () => {
 		await runCreate({ name: 'acme' })
 
 		expect(proj.region).toBe('eu')
+	})
+})
+
+describe('runCreate — projects set up on another computer', () => {
+	beforeEach(() => {
+		vi.mocked(newProject).mockImplementation((slug, region) => makeProject({ slug, region }))
+		vi.mocked(stepOrg).mockImplementation(async (ctx) => {
+			ctx.project.orgPublicId = 'org1'
+		})
+		vi.mocked(listAccountProjects).mockResolvedValue([
+			{ slug: 'acme', applicationId: 'app-acme', region: 'eu' },
+			{ slug: 'local', applicationId: 'app-local', region: 'us' },
+		])
+	})
+
+	it('logs in first on a new computer and resumes a picked account project without a local file', async () => {
+		vi.mocked(p.select).mockResolvedValueOnce('acme' as never)
+
+		await runCreate({})
+
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({
+				options: [
+					expect.objectContaining({ value: 'acme', hint: 'EU' }),
+					expect.objectContaining({ value: 'local' }),
+					expect.objectContaining({ value: '__new__' }),
+				],
+			}),
+		)
+		const adopted = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
+		expect(adopted).toMatchObject({
+			slug: 'acme',
+			region: 'eu',
+			orgPublicId: 'org1',
+			applicationId: 'app-acme',
+			adoptedFromAccount: true,
+		})
+		expect(adopted.completedSteps).toEqual(expect.arrayContaining(['dashboard-auth', 'org', 'app']))
+		expect(saveProject).toHaveBeenCalledWith(adopted)
+		// The login session is reused; the runner must not prompt for login or organization again.
+		expect(stepDashboardAuth).toHaveBeenCalledTimes(1)
+		expect(stepOrg).toHaveBeenCalledTimes(1)
+		expect(p.text).not.toHaveBeenCalled()
+	})
+
+	it('adopts an account project named with --name when it is not on this computer', async () => {
+		vi.mocked(loadProject).mockReturnValue(null)
+
+		await runCreate({ name: 'acme' })
+
+		expect(p.select).not.toHaveBeenCalled()
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
+			slug: 'acme',
+			applicationId: 'app-acme',
+			adoptedFromAccount: true,
+		})
+	})
+
+	it('starts a fresh project on the connected session when the name is not on the account', async () => {
+		vi.mocked(listAccountProjects).mockResolvedValue([])
+		vi.mocked(p.text).mockResolvedValueOnce('brandnew' as never)
+
+		await runCreate({})
+
+		expect(p.select).not.toHaveBeenCalled()
+		const created = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
+		expect(created).toMatchObject({ slug: 'brandnew', orgPublicId: 'org1' })
+		expect(created.applicationId).toBeUndefined()
+		expect(created.adoptedFromAccount).toBeUndefined()
+		expect(stepDashboardAuth).toHaveBeenCalledTimes(1)
+	})
+
+	it('offers only account projects that are not already on this computer', async () => {
+		vi.mocked(listProjects).mockReturnValue([makeProject({ slug: 'local' })])
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('__account__' as never)
+			.mockResolvedValueOnce('acme' as never)
+
+		await runCreate({})
+
+		expect(vi.mocked(p.select).mock.calls[1]?.[0]).toMatchObject({
+			options: [expect.objectContaining({ value: 'acme' }), expect.objectContaining({ value: '__new__' })],
+		})
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({ slug: 'acme' })
+	})
+
+	it('keeps an existing local project instead of overwriting it when its name is typed', async () => {
+		const local = makeProject({ slug: 'local', applicationId: 'app-local', grantId: 'grant-1' })
+		vi.mocked(listProjects).mockReturnValue([local])
+		vi.mocked(listAccountProjects).mockResolvedValue([])
+		vi.mocked(p.select).mockResolvedValueOnce('__account__' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('local' as never)
+		vi.mocked(loadProject).mockReturnValue(local)
+
+		await runCreate({})
+
+		expect(p.log.info).toHaveBeenCalledWith('No other OwnMail projects were found on this Nylas account.')
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toBe(local)
+		expect(saveProject).not.toHaveBeenCalledWith(
+			expect.objectContaining({ slug: 'local', grantId: undefined }),
+		)
+	})
+
+	it('resumes the account project when its old name is typed as a new project', async () => {
+		vi.mocked(listProjects).mockReturnValue([makeProject({ slug: 'local' })])
+		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('acme' as never)
+		vi.mocked(loadProject).mockReturnValue(null)
+
+		await runCreate({})
+
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
+			slug: 'acme',
+			applicationId: 'app-acme',
+			adoptedFromAccount: true,
+		})
+	})
+
+	it('opens the local project when a new-project name matches one on this computer', async () => {
+		const local = makeProject({ slug: 'local', grantId: 'grant-1' })
+		vi.mocked(listProjects).mockReturnValue([local])
+		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('local' as never)
+		vi.mocked(loadProject).mockReturnValue(local)
+
+		await runCreate({})
+
+		expect(listAccountProjects).not.toHaveBeenCalled()
+		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toBe(local)
+	})
+
+	it('starts a new project from the account picker when asked', async () => {
+		vi.mocked(p.select).mockResolvedValueOnce('__new__' as never)
+		vi.mocked(p.text).mockResolvedValueOnce('fresh' as never)
+		vi.mocked(loadProject).mockReturnValue(null)
+
+		await runCreate({})
+
+		const created = vi.mocked(stepRecover).mock.calls[0]?.[0].project as ProjectState
+		expect(created).toMatchObject({ slug: 'fresh', orgPublicId: 'org1' })
+		expect(created.adoptedFromAccount).toBeUndefined()
+	})
+
+	it('pauses when the account project picker is cancelled', async () => {
+		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
+
+		await expect(runCreate({})).rejects.toBeInstanceOf(CancelledError)
 	})
 })
 

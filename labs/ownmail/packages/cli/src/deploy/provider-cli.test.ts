@@ -690,7 +690,11 @@ describe('Netlify provider CLI', () => {
 	})
 
 	it('creates and validates a new site after checking login', async () => {
-		queueCli({ code: 0, stdout: '[]' }, { code: 0, stdout: '{"id":"123e4567-e89b-42d3-a456-426614174000"}' })
+		queueCli(
+			{ code: 0, stdout: '[]' },
+			{ code: 1, stderr: 'Not Found' },
+			{ code: 0, stdout: '{"id":"123e4567-e89b-42d3-a456-426614174000"}' },
+		)
 		await expect(ensureNetlifySite('/tmp/app', 'acme')).resolves.toEqual({
 			siteId: '123e4567-e89b-42d3-a456-426614174000',
 		})
@@ -699,6 +703,7 @@ describe('Netlify provider CLI', () => {
 	it('accepts log-wrapped JSON and the alternate site_id field', async () => {
 		queueCli(
 			{ code: 0 },
+			{ code: 1, stderr: 'Not Found' },
 			{
 				code: 0,
 				stdout: 'Creating site…\n{"site_id":"123e4567-e89b-42d3-a456-426614174000"}\nDone',
@@ -710,17 +715,48 @@ describe('Netlify provider CLI', () => {
 	})
 
 	it('reports create failures and unverifiable site output', async () => {
-		queueCli({ code: 0 }, { code: 1, stderr: 'service unavailable' })
+		queueCli({ code: 0 }, { code: 1, stderr: 'Not Found' }, { code: 1, stderr: 'service unavailable' })
 		await expect(ensureNetlifySite('/tmp/app', 'acme')).rejects.toThrow(/could not create/)
 
-		queueCli({ code: 0 }, { code: 0, stdout: '[]' })
+		queueCli({ code: 0 }, { code: 1, stderr: 'Not Found' }, { code: 0, stdout: '[]' })
 		await expect(ensureNetlifySite('/tmp/app', 'acme')).rejects.toThrow(/could not verify its site ID/)
 
-		queueCli({ code: 0 }, { code: 0, stdout: 'prefix {bad json} suffix' })
+		queueCli({ code: 0 }, { code: 1, stderr: 'Not Found' }, { code: 0, stdout: 'prefix {bad json} suffix' })
 		await expect(ensureNetlifySite('/tmp/app', 'acme')).rejects.toThrow(/could not verify its site ID/)
 
-		queueCli({ code: 0 }, { code: 0, stdout: 'no json here' })
+		queueCli({ code: 0 }, { code: 1, stderr: 'Not Found' }, { code: 0, stdout: 'no json here' })
 		await expect(ensureNetlifySite('/tmp/app', 'acme')).rejects.toThrow(/could not verify its site ID/)
+	})
+
+	it('reuses the site this account already owns under the name instead of failing on a taken name', async () => {
+		queueCli({ code: 0 }, { code: 0, stdout: '{"id":"123e4567-e89b-42d3-a456-426614174000","name":"acme"}' })
+		await expect(ensureNetlifySite('/tmp/app', 'acme')).resolves.toEqual({
+			siteId: '123e4567-e89b-42d3-a456-426614174000',
+		})
+		expect(hoisted.spawn).toHaveBeenCalledTimes(2)
+		expect(hoisted.spawn.mock.calls[1]?.[1]).toEqual(
+			expect.arrayContaining(['api', 'getSite', JSON.stringify({ site_id: 'acme.netlify.app' })]),
+		)
+	})
+
+	it('creates a site when the lookup returns a different or unusable site', async () => {
+		queueCli(
+			{ code: 0 },
+			{ code: 0, stdout: '{"id":"123e4567-e89b-42d3-a456-426614174000","name":"someone-else"}' },
+			{ code: 0, stdout: '{"id":"223e4567-e89b-42d3-a456-426614174000"}' },
+		)
+		await expect(ensureNetlifySite('/tmp/app', 'acme')).resolves.toEqual({
+			siteId: '223e4567-e89b-42d3-a456-426614174000',
+		})
+
+		queueCli(
+			{ code: 0 },
+			{ code: 0, stdout: 'not json' },
+			{ code: 0, stdout: '{"id":"323e4567-e89b-42d3-a456-426614174000"}' },
+		)
+		await expect(ensureNetlifySite('/tmp/app', 'acme')).resolves.toEqual({
+			siteId: '323e4567-e89b-42d3-a456-426614174000',
+		})
 	})
 
 	it('imports settings through a protected temporary file and always removes it', async () => {

@@ -21,7 +21,7 @@ import {
 	storePendingSecret,
 } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
-import { markStep, saveProject } from '../state/store.js'
+import { isUserProjectSlug, markStep, saveProject } from '../state/store.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth, tokens } from './context.js'
@@ -332,7 +332,37 @@ async function findReusableSandboxApplication(
 		}
 	}
 
-	return apps.find((app) => app.branding?.name === brandName) ?? apps[0] ?? null
+	return (
+		apps.find((app) => app.branding?.name === brandName) ??
+		// An app tagged for another OwnMail project belongs to that project.
+		apps.find((app) => !app.branding?.name?.startsWith(APP_BRANDING_PREFIX)) ??
+		null
+	)
+}
+
+export type AccountProject = { slug: string; applicationId: string; region: Region }
+
+/** OwnMail projects recorded on the Nylas account, found by their app branding tag. */
+export async function listAccountProjects(ctx: StepContext): Promise<AccountProject[]> {
+	const gateway = requireGateway(ctx)
+	const orgPublicId = ctx.project.orgPublicId
+	if (!orgPublicId) throw new Error('Organization unavailable — rerun ownmail setup')
+	const projects: AccountProject[] = []
+	for (const region of APPLICATION_REGIONS) {
+		for (const app of await gateway.listApplications(tokens(ctx), region, orgPublicId)) {
+			const slug = ownmailProjectSlug(app)
+			if (!slug || !isSandboxApplication(app)) continue
+			projects.push({ slug, applicationId: app.applicationId, region: parseRegion(app.region) ?? region })
+		}
+	}
+	return projects
+}
+
+function ownmailProjectSlug(app: GatewayApplication): string | null {
+	const name = app.branding?.name
+	if (!name?.startsWith(APP_BRANDING_PREFIX)) return null
+	const slug = name.slice(APP_BRANDING_PREFIX.length)
+	return isUserProjectSlug(slug) ? slug : null
 }
 
 function prioritizedRegions(region: Region): Region[] {
@@ -445,7 +475,7 @@ export async function stepDomainPlan(ctx: StepContext): Promise<void> {
 	markStep(ctx.project, 'domain-plan')
 }
 
-async function planDomain(ctx: StepContext): Promise<void> {
+export async function planDomain(ctx: StepContext): Promise<void> {
 	const dashboard = requireDashboard(ctx)
 	const region = ctx.project.region
 
@@ -830,7 +860,7 @@ function adoptDomain(
 	saveProject(ctx.project)
 }
 
-function isFullyVerified(domain: unknown): boolean {
+export function isFullyVerified(domain: unknown): boolean {
 	return readVerifiedDomainFlag(domain, 'verifiedOwnership') && readVerifiedDomainFlag(domain, 'verifiedMx')
 }
 

@@ -11,6 +11,7 @@ import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import type { StepContext } from './context.js'
 import {
 	CancelledError,
+	listAccountProjects,
 	stepApiKey,
 	stepApp,
 	stepConnector,
@@ -76,6 +77,7 @@ vi.mock('../state/store.js', () => ({
 	saveAuth: vi.fn(),
 	loadAuth: vi.fn(),
 	hasStep: vi.fn(),
+	isUserProjectSlug: vi.fn((slug: string) => /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/.test(slug)),
 }))
 
 vi.mock('../state/pending-secrets.js', () => ({
@@ -769,6 +771,52 @@ describe('stepApp', () => {
 		expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('app-eu')) // name falls back to id
 	})
 
+	it("never reuses another OwnMail project's app, so a new or mistyped name cannot take over its inbox", async () => {
+		const otherProject = {
+			applicationId: 'app-other',
+			region: 'us',
+			environment: 'sandbox',
+			branding: { name: 'ownmail:other' },
+		}
+		const listApplications = vi.fn().mockResolvedValueOnce([otherProject]).mockResolvedValueOnce([])
+		const createApplication = vi.fn().mockResolvedValue({ applicationId: 'app-new', clientSecret: 's' })
+		const ctx = baseCtx({
+			project: baseProject({ orgPublicId: 'org1' }),
+			gateway: { listApplications, createApplication } as never,
+		})
+
+		await stepApp(ctx)
+
+		expect(ctx.project.applicationId).toBe('app-new')
+		expect(createApplication).toHaveBeenCalledWith(
+			expect.anything(),
+			'us',
+			'org1',
+			expect.objectContaining({ branding: expect.objectContaining({ name: 'ownmail:acme' }) }),
+		)
+	})
+
+	it('prefers an untagged sandbox app over one tagged for another OwnMail project', async () => {
+		const listApplications = vi.fn().mockResolvedValueOnce([
+			{
+				applicationId: 'app-other',
+				region: 'us',
+				environment: 'sandbox',
+				branding: { name: 'ownmail:other' },
+			},
+			{ applicationId: 'app-mine', region: 'us', environment: 'sandbox', branding: { name: 'My sandbox' } },
+		])
+		listApplications.mockResolvedValueOnce([])
+		const ctx = baseCtx({
+			project: baseProject({ orgPublicId: 'org1' }),
+			gateway: { listApplications } as never,
+		})
+
+		await stepApp(ctx)
+
+		expect(ctx.project.applicationId).toBe('app-mine')
+	})
+
 	it('creates a new sandbox app without retaining the unused client secret', async () => {
 		const listApplications = vi.fn().mockResolvedValue([])
 		const createApplication = vi
@@ -785,6 +833,49 @@ describe('stepApp', () => {
 		expect(ctx.project.applicationId).toBe('app-new')
 		expect(ctx.project.pendingSecrets.clientSecret).toBeUndefined()
 		expect(markStep).toHaveBeenCalledWith(ctx.project, 'app')
+	})
+})
+
+describe('listAccountProjects', () => {
+	it('lists OwnMail projects on the account across regions so another computer can resume them', async () => {
+		const listApplications = vi
+			.fn()
+			.mockResolvedValueOnce([
+				{ applicationId: 'app-1', region: 'us', environment: 'sandbox', branding: { name: 'ownmail:acme' } },
+				{ applicationId: 'app-2', region: 'us', environment: 'sandbox', branding: { name: 'My sandbox' } },
+				{
+					applicationId: 'app-3',
+					region: 'us',
+					environment: 'production',
+					branding: { name: 'ownmail:prod' },
+				},
+				{
+					applicationId: 'app-4',
+					region: 'us',
+					environment: 'sandbox',
+					branding: { name: 'ownmail:__login__' },
+				},
+			])
+			.mockResolvedValueOnce([
+				{ applicationId: 'app-5', region: 'zz', environment: 'Sandbox', branding: { name: 'ownmail:euro' } },
+			])
+		const ctx = baseCtx({
+			project: baseProject({ orgPublicId: 'org1' }),
+			gateway: { listApplications } as never,
+		})
+
+		await expect(listAccountProjects(ctx)).resolves.toEqual([
+			{ slug: 'acme', applicationId: 'app-1', region: 'us' },
+			{ slug: 'euro', applicationId: 'app-5', region: 'eu' },
+		])
+		expect(listApplications).toHaveBeenCalledWith(expect.anything(), 'us', 'org1')
+		expect(listApplications).toHaveBeenCalledWith(expect.anything(), 'eu', 'org1')
+	})
+
+	it('requires the organization chosen at login', async () => {
+		const ctx = baseCtx({ gateway: {} as never })
+
+		await expect(listAccountProjects(ctx)).rejects.toThrow(/Organization unavailable/)
 	})
 })
 

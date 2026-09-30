@@ -409,6 +409,19 @@ export async function ensureNetlifySite(
 ): Promise<NetlifySite> {
 	if (existingSiteId) return { siteId: requireUuid(existingSiteId, 'Netlify site ID') }
 	await ensureProviderLogin('netlify')
+	// A site this account already owns under the name (e.g. set up on another computer).
+	const found = await runProviderCli('netlify', [
+		'api',
+		'getSite',
+		'--data',
+		JSON.stringify({ site_id: `${siteName}.netlify.app` }),
+	])
+	if (found.code === 0) {
+		const site = parseJsonOutput(found.stdout)
+		if (isRecord(site) && typeof site.id === 'string' && site.name === siteName) {
+			return { siteId: requireUuid(site.id, 'Netlify site ID') }
+		}
+	}
 	const created = await runProviderCli('netlify', ['sites:create', '--name', siteName, '--json'], {
 		cwd: dir,
 	})
