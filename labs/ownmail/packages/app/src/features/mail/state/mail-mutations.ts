@@ -18,6 +18,7 @@ import {
 import {
 	type MailDraft,
 	type MailThread,
+	type MailThreadDetail,
 	mailKeys,
 	toMailDraft,
 	toMailFolder,
@@ -130,7 +131,9 @@ export function useUpdateThreadMutation() {
 	})
 }
 
-const openingReads = new WeakMap<QueryClient, Set<string>>()
+type ReadAttempt = { failed: boolean }
+
+const openingReads = new WeakMap<QueryClient, Map<string, ReadAttempt>>()
 
 /** Opening an unread thread marks it read at once in every cached list, folder
  * badge, and detail, then confirms with the provider. It runs through the
@@ -141,24 +144,42 @@ export function markThreadReadOnOpen(
 	threadId: string,
 	knownThread?: MailThread,
 ): boolean {
-	if (typeof window === 'undefined') return false
+	return startReadOnOpen(client, threadId, knownThread) !== undefined
+}
+
+function startReadOnOpen(
+	client: QueryClient,
+	threadId: string,
+	knownThread?: MailThread,
+): ReadAttempt | undefined {
+	if (typeof window === 'undefined') return undefined
 	let pending = openingReads.get(client)
 	if (!pending) {
-		pending = new Set()
+		pending = new Map()
 		openingReads.set(client, pending)
 	}
-	if (pending.has(threadId)) return true
+	const existing = pending.get(threadId)
+	if (existing) return existing
 	const thread = knownThread ?? findCachedThread(client, threadId)
-	if (!thread?.unread) return false
+	if (!thread?.unread) return undefined
 	const inFlight = pending
-	inFlight.add(threadId)
+	const attempt: ReadAttempt = { failed: false }
+	inFlight.set(threadId, attempt)
 	const input = { threadId, unread: false }
 	const observer = new MutationObserver(client, {
 		mutationFn: () => markThreadRead({ data: { threadId } }),
 		onMutate: async (): Promise<OptimisticContext> => ({
 			operation: await managerFor(client).begin(updateThreadEffect(input), { preserveThreadDetails: true }),
 		}),
-		onError: (_error, _variables, context) => context?.operation.rollback(),
+		onError: (_error, _variables, context) => {
+			attempt.failed = true
+			context?.operation.rollback()
+			// A detail loaded after the journal's snapshot was aligned outside it;
+			// return it to unread so the reader agrees with the restored row.
+			client.setQueryData<MailThreadDetail>(mailKeys.threadDetail(threadId), (detail) =>
+				detail && !detail.thread.unread ? { ...detail, thread: { ...detail.thread, unread: true } } : detail,
+			)
+		},
 		onSuccess: (receipt, _variables, context) => {
 			context?.operation.commit(updateThreadEffect(input, receipt))
 			reconcileInBackground(client)
@@ -167,22 +188,22 @@ export function markThreadReadOnOpen(
 	})
 	// A failed read rolls back to unread; the row returning to bold is the signal.
 	void observer.mutate().catch(() => {})
-	return true
+	return attempt
 }
 
 /** Loads a thread for a real (non-preload) open, starting the optimistic read
  * from the cached row before the detail request so the list, folder badge, and
  * reader agree immediately. A detail fetched before the read landed is aligned
- * with it instead of briefly reporting the thread as unread again. */
+ * with it, unless that read has already failed. */
 export async function openThreadDetail<T extends { thread: { unread?: boolean } }>(
 	client: QueryClient,
 	threadId: string,
 	{ preload, queryKey }: { preload: boolean; queryKey?: QueryKey },
 	load: () => Promise<T>,
 ): Promise<T> {
-	const readOnOpen = !preload && markThreadReadOnOpen(client, threadId)
+	const attempt = preload ? undefined : startReadOnOpen(client, threadId)
 	const detail = await load()
-	if (!readOnOpen || !detail.thread.unread) return detail
+	if (!attempt || attempt.failed || !detail.thread.unread) return detail
 	const read = { ...detail, thread: { ...detail.thread, unread: false } }
 	if (queryKey) client.setQueryData(queryKey, read)
 	return read

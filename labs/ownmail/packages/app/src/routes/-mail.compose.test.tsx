@@ -42,6 +42,7 @@ const saveComposeRecipients = vi.fn()
 const sendDraft = vi.fn()
 const sendMessage = vi.fn()
 const updateThreadState = vi.fn()
+const markThreadRead = vi.fn(async ({ data }: any) => ({ thread: { id: data.threadId, unread: false } }))
 const deleteDraft = vi.fn()
 const recipientInputMock = vi.hoisted(() => ({ keepDraftLocal: false }))
 vi.mock('#server/fns', () => ({
@@ -49,6 +50,7 @@ vi.mock('#server/fns', () => ({
 	getFolders: (a: any) => getFolders(a),
 	getThreads: (a: any) => getThreads(a),
 	getThreadMessages: (a: any) => getThreadMessages(a),
+	markThreadRead: (a: any) => markThreadRead(a),
 	listDrafts: () => listDrafts(),
 	saveDraft: (a: any) => saveDraft(a),
 	saveComposeRecipients: (a: any) => saveComposeRecipients(a),
@@ -755,15 +757,17 @@ describe('mail.compose selected backdrop', () => {
 		expect(screen.getAllByText('Finance').length).toBeGreaterThan(1)
 	})
 
-	it('propagates a loader-side mark-read into cached mail views', () => {
-		const loader = selectedLoader()
-		loader.selected.markedRead = true
-		renderCompose({
-			loader,
-			search: { threadId: 't1' },
-		})
+	it('marks an unread backdrop selection read once, since selecting it is a real open', async () => {
+		renderCompose({ loader: selectedLoader({ thread: { unread: true } }), search: { threadId: 't1' } })
 		expect(screen.getByRole('heading', { name: 'Hello there' })).toBeInTheDocument()
+		await waitFor(() => expect(markThreadRead).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+		expect(markThreadRead).toHaveBeenCalledTimes(1)
 		expect(invalidate).not.toHaveBeenCalled()
+	})
+
+	it('does not send a read for an already-read backdrop selection', () => {
+		renderCompose({ loader: selectedLoader({ thread: { unread: false } }), search: { threadId: 't1' } })
+		expect(markThreadRead).not.toHaveBeenCalled()
 	})
 
 	it('refetches a selected compose backdrop through its canonical detail query', async () => {

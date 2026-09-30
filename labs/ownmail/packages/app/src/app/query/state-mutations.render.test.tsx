@@ -420,6 +420,45 @@ describe('marking a thread read on open', () => {
 		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
 	})
 
+	it('returns an aligned reader to unread when the provider later rejects the read', async () => {
+		let reject: (reason: unknown) => void = () => {}
+		api.markThreadRead.mockReturnValue(new Promise((_resolve, fail) => (reject = fail)))
+		const detailKey = mailKeys.threadDetail('thread-1')
+
+		const opened = await openThreadDetail(
+			client,
+			'thread-1',
+			{ preload: false, queryKey: detailKey },
+			async () => ({
+				thread: { id: 'thread-1', unread: true },
+				messages: [],
+			}),
+		)
+		expect(opened.thread.unread).toBe(false)
+
+		reject(new Error('offline'))
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		// Row, badge, and reader must agree: the thread is still unread.
+		expect(cachedRow()?.unread).toBe(true)
+		expect(client.getQueryData<{ thread: { unread: boolean } }>(detailKey)?.thread.unread).toBe(true)
+	})
+
+	it('does not report a thread read when its read failed before the conversation loaded', async () => {
+		api.markThreadRead.mockRejectedValue(new Error('offline'))
+		let deliver: () => void = () => {}
+		const loaded = new Promise<void>((resolve) => (deliver = resolve))
+
+		const opening = openThreadDetail(client, 'thread-1', { preload: false }, async () => {
+			await loaded
+			return { thread: { id: 'thread-1', unread: true } }
+		})
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		deliver()
+
+		await expect(opening).resolves.toEqual({ thread: { id: 'thread-1', unread: true } })
+		expect(cachedRow()?.unread).toBe(true)
+	})
+
 	it('leaves read state untouched for hover preloads and read threads', async () => {
 		const detail = { thread: { id: 'thread-1', unread: true } }
 		await expect(openThreadDetail(client, 'thread-1', { preload: true }, async () => detail)).resolves.toBe(
