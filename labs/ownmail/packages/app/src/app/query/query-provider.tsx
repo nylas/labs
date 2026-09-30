@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { useRouterState } from '@tanstack/react-router'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 const VERSION_POLL_INTERVAL_MS = 10_000
 const FALLBACK_REFRESH_INTERVAL_MS = 60_000
@@ -46,14 +46,22 @@ function safeVersion(value: unknown): number | null {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
+const SYNCED_PATH_PATTERN = /^\/(mail|contacts|calendar)(?:\/|$)/
+
 function ServerStateSync() {
 	const queryClient = useQueryClient()
-	const pathname = useRouterState({ select: (state) => state.location.pathname })
+	// Only entering or leaving the synchronized sections restarts polling.
+	// Depending on the full pathname would restart it on every thread open and
+	// repeat the initial full refetch, racing optimistic cache updates.
+	const inApp = useRouterState({ select: (state) => SYNCED_PATH_PATTERN.test(state.location.pathname) })
+	// The watermark outlives polling restarts so returning to a synchronized
+	// section compares versions instead of refetching every active query.
+	const previousRef = useRef<DomainVersions | null>(null)
+	const lastFallbackRefreshRef = useRef(0)
 	useEffect(() => {
-		if (!/^\/(mail|contacts|calendar)(?:\/|$)/.test(pathname)) return
+		if (!inApp) return
 		let stopped = false
-		let previous: DomainVersions | null = null
-		let lastFallbackRefresh = 0
+		let syncing = false
 		let mailRevalidationTimers: number[] = []
 
 		function clearMailRevalidations() {
@@ -79,7 +87,8 @@ function ServerStateSync() {
 		}
 
 		async function sync() {
-			if (stopped || document.visibilityState !== 'visible') return
+			if (stopped || syncing || document.visibilityState !== 'visible') return
+			syncing = true
 			try {
 				const response = await fetch('/api/version', {
 					credentials: 'same-origin',
@@ -89,11 +98,12 @@ function ServerStateSync() {
 				const next = normalizeVersions(await response.json())
 				if (!next || stopped) return
 				const now = Date.now()
+				const previous = previousRef.current
 				if (!previous) {
 					// The initial refresh closes the window between route loading and
 					// establishing the first external-change watermark.
 					await queryClient.invalidateQueries({ refetchType: 'active' })
-					lastFallbackRefresh = now
+					lastFallbackRefreshRef.current = now
 				} else {
 					for (const domain of ['mail', 'contacts', 'calendar'] as const) {
 						if (next[domain] === previous[domain]) continue
@@ -108,24 +118,36 @@ function ServerStateSync() {
 						}
 					}
 				}
-				if (now - lastFallbackRefresh >= FALLBACK_REFRESH_INTERVAL_MS) {
+				if (now - lastFallbackRefreshRef.current >= FALLBACK_REFRESH_INTERVAL_MS) {
 					await queryClient.invalidateQueries({ refetchType: 'active' })
-					lastFallbackRefresh = now
+					lastFallbackRefreshRef.current = now
 				}
-				previous = next
+				previousRef.current = next
 			} catch {
 				// Transient network failures are retried on the next interval.
+			} finally {
+				syncing = false
 			}
+		}
+
+		function syncWhenVisible() {
+			if (document.visibilityState === 'visible') void sync()
 		}
 
 		void sync()
 		const timer = window.setInterval(() => void sync(), VERSION_POLL_INTERVAL_MS)
+		// A returning tab checks for external changes immediately instead of
+		// showing stale mail until the next poll interval.
+		document.addEventListener('visibilitychange', syncWhenVisible)
+		window.addEventListener('online', syncWhenVisible)
 		return () => {
 			stopped = true
 			window.clearInterval(timer)
+			document.removeEventListener('visibilitychange', syncWhenVisible)
+			window.removeEventListener('online', syncWhenVisible)
 			clearMailRevalidations()
 		}
-	}, [pathname, queryClient])
+	}, [inApp, queryClient])
 	return null
 }
 

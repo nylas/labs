@@ -185,4 +185,120 @@ describe('server state synchronization', () => {
 		await act(async () => vi.advanceTimersByTimeAsync(30_000))
 		expect(fetchMock).toHaveBeenCalledTimes(3)
 	})
+
+	it('keeps one baseline while navigating between synchronized routes', async () => {
+		// Opening a thread changes the pathname. That must not look like a new
+		// session: a full refetch would race the optimistic read-state update.
+		routerState.pathname = '/mail/f/inbox'
+		vi.useFakeTimers()
+		const fetchMock = vi
+			.spyOn(globalThis, 'fetch')
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })),
+			)
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+		const child = <div>mail</div>
+		const view = render(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		expect(invalidate).toHaveBeenCalledTimes(1)
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+
+		for (const pathname of ['/mail/f/inbox/t/thread-1', '/mail/f/inbox/t/thread-2', '/calendar/week']) {
+			routerState.pathname = pathname
+			view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+			await act(async () => {})
+		}
+
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+		expect(invalidate).toHaveBeenCalledTimes(1)
+		view.unmount()
+	})
+
+	it('compares versions instead of refetching everything when returning from an unsynchronized route', async () => {
+		routerState.pathname = '/mail/f/inbox'
+		vi.useFakeTimers()
+		const fetchMock = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 2, calendar: 1 } })))
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+		const child = <div>route</div>
+		const view = render(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+
+		routerState.pathname = '/settings'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		routerState.pathname = '/mail/f/inbox'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+
+		expect(fetchMock).toHaveBeenCalledTimes(2)
+		expect(invalidate).toHaveBeenCalledTimes(2)
+		const [, returning] = invalidate.mock.calls.map(([options]) => options)
+		expect(returning?.predicate?.({ queryKey: ['contacts'] } as never)).toBe(true)
+		expect(returning?.predicate?.({ queryKey: ['mail'] } as never)).toBe(false)
+		view.unmount()
+	})
+
+	it('checks for external changes as soon as a hidden tab becomes visible again', async () => {
+		routerState.pathname = '/mail/f/inbox'
+		vi.useFakeTimers()
+		const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+		const fetchMock = vi
+			.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 1 } })))
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+		const view = render(
+			<OwnmailQueryProvider>
+				<div>mail</div>
+			</OwnmailQueryProvider>,
+		)
+		await act(async () => {})
+
+		visibility.mockReturnValue('hidden')
+		await act(async () => {
+			document.dispatchEvent(new Event('visibilitychange'))
+		})
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+
+		visibility.mockReturnValue('visible')
+		await act(async () => {
+			document.dispatchEvent(new Event('visibilitychange'))
+		})
+		expect(fetchMock).toHaveBeenCalledTimes(2)
+		expect(invalidate.mock.calls.at(-1)?.[0]?.predicate?.({ queryKey: ['mail'] } as never)).toBe(true)
+		view.unmount()
+	})
+
+	it('does not overlap version checks when the network reconnects mid-request', async () => {
+		routerState.pathname = '/mail/f/inbox'
+		let resolveVersion: (response: Response) => void = () => {}
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+			() =>
+				new Promise<Response>((resolve) => {
+					resolveVersion = resolve
+				}),
+		)
+		vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+		const view = render(
+			<OwnmailQueryProvider>
+				<div>mail</div>
+			</OwnmailQueryProvider>,
+		)
+		await act(async () => {
+			window.dispatchEvent(new Event('online'))
+		})
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+
+		await act(async () => {
+			resolveVersion(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+		})
+		await act(async () => {
+			window.dispatchEvent(new Event('online'))
+		})
+		expect(fetchMock).toHaveBeenCalledTimes(2)
+		view.unmount()
+	})
 })
