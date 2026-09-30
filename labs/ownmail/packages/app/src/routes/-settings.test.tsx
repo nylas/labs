@@ -215,7 +215,7 @@ describe('/settings', () => {
 			remoteImagePolicy: 'ask',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',
-			hiddenCalendarIds: [],
+			hiddenCalendarsByAccount: {},
 		})
 		const invalidTimezone = new Option('Invalid', 'not/a-timezone')
 		primaryTimezone.append(invalidTimezone)

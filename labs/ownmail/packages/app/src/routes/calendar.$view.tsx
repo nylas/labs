@@ -11,7 +11,11 @@ import {
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
 } from '#app/config/layout'
-import { useUserPreferences } from '#app/preferences/user-preferences'
+import {
+	hiddenCalendarIdsFor,
+	useUserPreferences,
+	withHiddenCalendarIds,
+} from '#app/preferences/user-preferences'
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
 import { EventModal } from '#features/calendar/components/EventModal'
 import {
@@ -113,8 +117,8 @@ export function CalendarRouteScreen({
 	const now = useMinuteClock()
 	const todayIso = ymd(calendarDateInTimeZone(now, primaryTimezone))
 	const hiddenCalendarIds = useMemo(
-		() => new Set(preferences.hiddenCalendarIds),
-		[preferences.hiddenCalendarIds],
+		() => new Set(hiddenCalendarIdsFor(preferences, info.email)),
+		[preferences, info.email],
 	)
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
@@ -141,9 +145,9 @@ export function CalendarRouteScreen({
 			const next = new Set(hiddenCalendarIds)
 			if (hidden) next.add(calendarId)
 			else next.delete(calendarId)
-			savePreferences({ ...preferences, hiddenCalendarIds: [...next] })
+			savePreferences(withHiddenCalendarIds(preferences, info.email, [...next]))
 		},
-		[hiddenCalendarIds, preferences, savePreferences],
+		[hiddenCalendarIds, info.email, preferences, savePreferences],
 	)
 	const toggleCalendar = useCallback(
 		(calendarId: string) => setCalendarHidden(calendarId, !hiddenCalendarIds.has(calendarId)),

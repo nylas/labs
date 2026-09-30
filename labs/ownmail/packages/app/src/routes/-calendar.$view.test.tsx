@@ -1214,4 +1214,23 @@ describe('hidden calendars', () => {
 		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false')
 		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
 	})
+
+	it('keeps hidden calendars per inbox because calendar ids are only unique within one grant', () => {
+		const first = render(<CalendarRouteScreen view="week" data={richData()} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Work' }))
+		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
+		first.unmount()
+
+		// A different inbox with the same calendar id still shows that calendar.
+		const other = { ...richData(), info: { ...info, email: 'Other@OwnMail.local' } }
+		const second = render(<CalendarRouteScreen view="week" data={other} />)
+		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.getByRole('button', { name: /Standup/ })).toBeInTheDocument()
+		second.unmount()
+
+		// Returning to the first inbox (email case-insensitive) restores its choice.
+		const same = { ...richData(), info: { ...info, email: 'USER@ownmail.local' } }
+		render(<CalendarRouteScreen view="week" data={same} />)
+		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false')
+	})
 })
