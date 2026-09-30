@@ -15,6 +15,7 @@ import { useUserPreferences } from '#app/preferences/user-preferences'
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
 import { EventModal } from '#features/calendar/components/EventModal'
 import {
+	type AgendaEntry,
 	addDays,
 	allDayEventSegments,
 	type CalView,
@@ -27,6 +28,7 @@ import {
 	filterEventsByCalendars,
 	fmtAgendaTime,
 	fmtTime,
+	initialTimeGridScrollHour,
 	isCalendarDate,
 	isCalView,
 	isNewEventPreview,
@@ -34,7 +36,7 @@ import {
 	shiftAnchor,
 	startOfWeek,
 	timedEventLayout,
-	timedEventsOnDay,
+	upcomingAgenda,
 	viewRange,
 	ymd,
 } from '#features/calendar/lib/calendar'
@@ -43,6 +45,7 @@ import {
 	type CalendarRouteData,
 	loadCalendarRouteData,
 	useCalendarRouteData,
+	usePrefetchAdjacentCalendarRanges,
 } from '#features/calendar/state/calendar-state'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
@@ -61,7 +64,8 @@ export const Route = createFileRoute('/calendar/$view')({
 	},
 	validateSearch: (search): { date?: string } => (isCalendarDate(search.date) ? { date: search.date } : {}),
 	loaderDeps: ({ search }) => ({ date: search.date }),
-	loader: async ({ params, deps }) => loadCalendarRouteData(params.view, deps.date),
+	loader: async ({ context, params, deps }) =>
+		loadCalendarRouteData(context.queryClient, params.view, deps.date),
 	component: CalendarViewRoutePage,
 })
 
@@ -72,6 +76,7 @@ function CalendarViewRoutePage() {
 	const { date } = Route.useSearch()
 	const initialData = Route.useLoaderData()
 	const calendarQuery = useCalendarRouteData(view, date, initialData)
+	usePrefetchAdjacentCalendarRanges(view, calendarQuery.data.anchorIso)
 
 	return (
 		<CalendarRouteScreen
@@ -98,15 +103,19 @@ export function CalendarRouteScreen({
 	const [newStartIsSlot, setNewStartIsSlot] = useState(false)
 	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
 	const [eventPreview, setEventPreview] = useState<Event | null>(null)
-	const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set())
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [managingCalendars, setManagingCalendars] = useState(false)
-	const [preferences] = useUserPreferences()
+	const [preferences, savePreferences] = useUserPreferences()
 	const mobileCalendarLayout = useMobileCalendarLayout()
 	const primaryTimezone = preferences.primaryTimezone
 	const secondaryTimezone = preferences.secondaryTimezone
-	const today = useMemo(() => calendarDateInTimeZone(new Date(), primaryTimezone), [primaryTimezone])
+	const now = useMinuteClock()
+	const todayIso = ymd(calendarDateInTimeZone(now, primaryTimezone))
+	const hiddenCalendarIds = useMemo(
+		() => new Set(preferences.hiddenCalendarIds),
+		[preferences.hiddenCalendarIds],
+	)
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	useCommandPaletteShortcut(openPalette)
@@ -123,28 +132,23 @@ export function CalendarRouteScreen({
 	)
 	const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars])
 	const agenda = useMemo(
-		() =>
-			timedEventsOnDay(visibleEvents, today, primaryTimezone)
-				.filter((event) => !isNewEventPreview(event))
-				.sort((a, b) => {
-					const aTimes = eventTimes(a)
-					const bTimes = eventTimes(b)
-					/* v8 ignore next -- timedEventsOnDay only returns events with parsed times -- @preserve */
-					if (!aTimes || !bTimes) return 0
-					return aTimes.start.getTime() - bTimes.start.getTime()
-				})
-				.slice(0, 5),
-		[today, visibleEvents, primaryTimezone],
+		() => upcomingAgenda(visibleEvents, now, primaryTimezone),
+		[now, visibleEvents, primaryTimezone],
 	)
 
-	const toggleCalendar = useCallback((calendarId: string) => {
-		setHiddenCalendarIds((current) => {
-			const next = new Set(current)
-			if (next.has(calendarId)) next.delete(calendarId)
-			else next.add(calendarId)
-			return next
-		})
-	}, [])
+	const setCalendarHidden = useCallback(
+		(calendarId: string, hidden: boolean) => {
+			const next = new Set(hiddenCalendarIds)
+			if (hidden) next.add(calendarId)
+			else next.delete(calendarId)
+			savePreferences({ ...preferences, hiddenCalendarIds: [...next] })
+		},
+		[hiddenCalendarIds, preferences, savePreferences],
+	)
+	const toggleCalendar = useCallback(
+		(calendarId: string) => setCalendarHidden(calendarId, !hiddenCalendarIds.has(calendarId)),
+		[hiddenCalendarIds, setCalendarHidden],
+	)
 
 	const go = useCallback(
 		(nextView: CalView, nextAnchor: Date) => {
@@ -324,6 +328,7 @@ export function CalendarRouteScreen({
 						hiddenCalendarIds={hiddenCalendarIds}
 						agenda={agenda}
 						timeZone={primaryTimezone}
+						todayIso={todayIso}
 						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={setEditing}
@@ -411,6 +416,7 @@ export function CalendarRouteScreen({
 						hiddenCalendarIds={hiddenCalendarIds}
 						agenda={agenda}
 						timeZone={primaryTimezone}
+						todayIso={todayIso}
 						onPickDate={(date) => {
 							go(currentView === 'month' ? 'day' : currentView, date)
 							setSidebarOpen(false)
@@ -430,13 +436,7 @@ export function CalendarRouteScreen({
 				<CalendarManagerDialog
 					calendars={calendars}
 					onClose={() => setManagingCalendars(false)}
-					onDeleted={(calendarId) => {
-						setHiddenCalendarIds((current) => {
-							const next = new Set(current)
-							next.delete(calendarId)
-							return next
-						})
-					}}
+					onDeleted={(calendarId) => setCalendarHidden(calendarId, false)}
 				/>
 			) : null}
 		</div>
@@ -450,6 +450,7 @@ function CalendarSidebarPanel({
 	hiddenCalendarIds,
 	agenda,
 	timeZone,
+	todayIso,
 	onPickDate,
 	onToggleCalendar,
 	onPickEvent,
@@ -460,8 +461,9 @@ function CalendarSidebarPanel({
 	calendars: Calendar[]
 	calendarById: Map<string, Calendar>
 	hiddenCalendarIds: Set<string>
-	agenda: Event[]
+	agenda: AgendaEntry[]
 	timeZone: string
+	todayIso: string
 	onPickDate: (date: Date) => void
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
@@ -470,7 +472,7 @@ function CalendarSidebarPanel({
 }) {
 	return (
 		<div className="flex flex-col gap-5 px-1 py-2">
-			<MiniCalendar refDate={anchor} onPick={onPickDate} mobile={mobile} />
+			<MiniCalendar refDate={anchor} todayIso={todayIso} onPick={onPickDate} mobile={mobile} />
 			<div>
 				<div className="mb-2 flex items-center justify-between">
 					<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">My calendars</p>
@@ -517,32 +519,30 @@ function CalendarSidebarPanel({
 					{agenda.length === 0 ? (
 						<p className="text-sm text-muted-foreground">Nothing left today.</p>
 					) : (
-						agenda.slice(0, 4).map((event, index) => {
-							const times = eventTimes(event)
-							/* v8 ignore next -- visibleEvents only contains runtime-validated events -- @preserve */
-							if (!times) return null
-							return (
-								<button
-									key={event.id}
-									type="button"
-									onClick={() => onPickEvent(event)}
-									className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted"
-								>
-									<span
-										className={cn(
-											'mt-1 h-2 w-2 shrink-0 rounded-full',
-											eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
-										)}
-									/>
-									<span className="min-w-0">
-										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
-										<span className="text-xs text-muted-foreground">
-											{fmtAgendaTime(times.start, timeZone)}
-										</span>
+						agenda.slice(0, 4).map(({ event, start, inProgress }, index) => (
+							<button
+								key={event.id}
+								type="button"
+								onClick={() => onPickEvent(event)}
+								className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted"
+							>
+								<span
+									className={cn(
+										'mt-1 h-2 w-2 shrink-0 rounded-full',
+										eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
+									)}
+								/>
+								<span className="min-w-0">
+									<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
+									<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+										{inProgress ? (
+											<span className="rounded-sm bg-primary/10 px-1 font-semibold text-primary">Now</span>
+										) : null}
+										{fmtAgendaTime(start, timeZone)}
 									</span>
-								</button>
-							)
-						})
+								</span>
+							</button>
+						))
 					)}
 				</div>
 			</div>
@@ -570,6 +570,16 @@ function formatWeekTitle(anchor: Date): string {
 		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 	}
 	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+}
+
+/** Current time, refreshed each minute so "today" and "Up next" roll forward on their own. */
+function useMinuteClock(): Date {
+	const [now, setNow] = useState(() => new Date())
+	useEffect(() => {
+		const id = setInterval(() => setNow(new Date()), 60_000)
+		return () => clearInterval(id)
+	}, [])
+	return now
 }
 
 const MOBILE_CALENDAR_MEDIA_QUERY = '(max-width: 63.999rem)'
@@ -601,10 +611,12 @@ function useMobileCalendarLayout() {
 /* v8 ignore start -- grid movement is unit-tested in moveCalendarDay; pointer rendering is covered separately -- @preserve */
 function MiniCalendar({
 	refDate,
+	todayIso,
 	onPick,
 	mobile,
 }: {
 	refDate: Date
+	todayIso: string
 	onPick: (date: Date) => void
 	mobile: boolean
 }) {
@@ -614,7 +626,6 @@ function MiniCalendar({
 	const { start, end } = viewRange('month', cursor)
 	const days: Date[] = []
 	for (let day = new Date(start); day < end; day = addDays(day, 1)) days.push(new Date(day))
-	const todayIso = ymd(new Date())
 	const refIso = ymd(refDate)
 	if (mobile) {
 		return (
@@ -956,9 +967,18 @@ function TimeGrid({
 		return () => clearInterval(id)
 	}, [timeZone])
 
+	const startIso = ymd(start)
 	useEffect(() => {
-		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (8 - START_HOUR) * HOUR_PX - 12)
-	}, [])
+		const first = new Date(`${startIso}T00:00:00`)
+		const columnIsos = Array.from({ length: days }, (_, index) => ymd(addDays(first, index)))
+		const current = new Date()
+		const hour = initialTimeGridScrollHour(
+			columnIsos,
+			ymd(calendarDateInTimeZone(current, timeZone)),
+			calendarWallClockHour(current, timeZone),
+		)
+		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (hour - START_HOUR) * HOUR_PX - 12)
+	}, [days, startIso, timeZone])
 
 	function moveSlot(dayIndex: number, hour: number, key: string) {
 		let nextDay = dayIndex

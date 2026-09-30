@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, screen, render as testingRender, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, render as testingRender, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -290,7 +290,11 @@ describe('/calendar/$view route config', () => {
 
 	it('loads the requested view + date via the shared loader helper', async () => {
 		h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: richEvents() })
-		const result = await Route.options.loader({ params: { view: 'week' }, deps: { date: '2024-06-15' } })
+		const result = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
+			params: { view: 'week' },
+			deps: { date: '2024-06-15' },
+		})
 		expect(h.getMailboxInfo).toHaveBeenCalledOnce()
 		expect(h.getEvents).toHaveBeenCalledOnce()
 		expect(result.info).toEqual(info)
@@ -301,7 +305,7 @@ describe('/calendar/$view route config', () => {
 
 describe('loadCalendarRouteData', () => {
 	it('anchors on the requested date and buffers the fetched range for display timezone boundaries', async () => {
-		const data = await loadCalendarRouteData('week', '2024-06-15')
+		const data = await loadCalendarRouteData(new QueryClient(), 'week', '2024-06-15')
 		expect(data.anchorIso).toBe('2024-06-15')
 		const arg = h.getEvents.mock.calls[0][0]
 		expect(arg.data).toEqual({
@@ -311,13 +315,44 @@ describe('loadCalendarRouteData', () => {
 	})
 
 	it('falls back to today when no date is supplied', async () => {
-		const data = await loadCalendarRouteData('month')
+		const data = await loadCalendarRouteData(new QueryClient(), 'month')
 		expect(data.anchorIso).toBe(ymd(new Date()))
 		expect(h.getEvents).toHaveBeenCalledOnce()
+	})
+
+	it('serves a revisited week from the cache so navigating back does not wait on the provider', async () => {
+		const queryClient = new QueryClient()
+		h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: richEvents() })
+		await loadCalendarRouteData(queryClient, 'week', '2024-06-15')
+		await loadCalendarRouteData(queryClient, 'week', '2024-06-22')
+		const revisited = await loadCalendarRouteData(queryClient, 'week', '2024-06-12')
+		expect(h.getEvents).toHaveBeenCalledTimes(2)
+		expect(h.getMailboxInfo).toHaveBeenCalledOnce()
+		// A different day in a cached week still re-anchors the view.
+		expect(revisited.anchorIso).toBe('2024-06-12')
+		expect(revisited.events).toHaveLength(7)
 	})
 })
 
 describe('CalendarViewRoutePage wrapper', () => {
+	it('prefetches the previous and next weeks so Previous/Next open without a fetch wait', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		const Page = Route.options.component
+		render(<Page />)
+		const range = (from: string, to: string) => ({
+			data: {
+				start: Math.floor(new Date(`${from}T00:00:00`).getTime() / 1000),
+				end: Math.floor(new Date(`${to}T00:00:00`).getTime() / 1000),
+			},
+		})
+		await vi.waitFor(() => {
+			expect(h.getEvents).toHaveBeenCalledWith(range('2024-06-01', '2024-06-10'))
+			expect(h.getEvents).toHaveBeenCalledWith(range('2024-06-15', '2024-06-24'))
+		})
+	})
+
 	it('feeds the params view + loader data straight into the screen', () => {
 		Route.useParams = vi.fn(() => ({ view: 'week' }))
 		Route.useSearch = vi.fn(() => ({ date: '2026-06-15' }))
@@ -336,8 +371,9 @@ describe('CalendarViewRoutePage wrapper', () => {
 		const Page = Route.options.component
 		render(<Page />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(3))
 		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
-		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalled())
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(4))
 	})
 
 	it('announces a generic failure when the live calendar refresh rejects', async () => {
@@ -1083,7 +1119,7 @@ describe('mobile calendar sheet', () => {
 
 	it('opens an event editor from the sheet agenda and closes the sheet', () => {
 		vi.useFakeTimers()
-		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		vi.setSystemTime(new Date('2024-06-15T08:30:00'))
 		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		const sheet = screen.getByTestId('sheet')
@@ -1115,5 +1151,67 @@ describe('week title formatting', () => {
 	it('spells out both years for a week that crosses a year boundary', () => {
 		expect(titleFor('2024-12-31')).toMatch(/Dec 29, 2024 – Jan 4, 2025/)
 		cleanup()
+	})
+})
+
+// ---- current time awareness -----------------------------------------------
+
+describe('current-time aware sidebar and grid', () => {
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	const agendaPanel = () => screen.getByText('Up next today').parentElement as HTMLElement
+
+	it('leaves ended meetings out of "Up next" and marks the meeting in progress as Now', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T09:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		const panel = within(agendaPanel())
+		// Night (02:00–03:00) is over; Standup (09:00–10:00) is happening now.
+		expect(panel.queryByRole('button', { name: /Night/ })).toBeNull()
+		expect(panel.getByRole('button', { name: /Standup/ })).toHaveTextContent('Now')
+		expect(panel.getByRole('button', { name: /Sync/ })).not.toHaveTextContent('Now')
+	})
+
+	it('rolls the agenda forward as time passes without a reload', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T15:28:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		expect(within(agendaPanel()).getByRole('button', { name: /Solo/ })).toBeInTheDocument()
+		act(() => {
+			vi.advanceTimersByTime(3 * 60_000)
+		})
+		expect(within(agendaPanel()).queryByRole('button', { name: /Solo/ })).toBeNull()
+		expect(screen.getByText('Nothing left today.')).toBeInTheDocument()
+	})
+
+	it('opens the time grid just before now when today is visible', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T15:30:00'))
+		render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
+		const body = screen.getByRole('region', { name: 'Calendar time grid' })
+		expect(body.scrollTop).toBe(14 * 52 - 12)
+	})
+
+	it('keeps the 8am default when the visible range does not include today', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T15:30:00'))
+		render(<CalendarRouteScreen view="day" data={richData('2024-06-20')} />)
+		const body = screen.getByRole('region', { name: 'Calendar time grid' })
+		expect(body.scrollTop).toBe(8 * 52 - 12)
+	})
+})
+
+describe('hidden calendars', () => {
+	it('remembers unchecked calendars across visits so hidden events stay hidden', () => {
+		const first = render(<CalendarRouteScreen view="week" data={richData()} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Work' }))
+		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
+		first.unmount()
+
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
 	})
 })

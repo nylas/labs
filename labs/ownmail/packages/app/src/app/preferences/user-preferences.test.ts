@@ -33,6 +33,7 @@ describe('user preferences', () => {
 			remoteImagePolicy: 'always',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
+			hiddenCalendarIds: ['cal-work', 'cal-work', 'cal-home'],
 		})
 		expect(saved).toEqual({
 			displayName: 'Ada Lovelace',
@@ -43,6 +44,7 @@ describe('user preferences', () => {
 			remoteImagePolicy: 'always',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
+			hiddenCalendarIds: ['cal-work', 'cal-home'],
 		})
 		expect(readUserPreferences()).toEqual(saved)
 		expect(isSupportedTimezone('not/a-timezone')).toBe(false)
@@ -61,7 +63,9 @@ describe('user preferences', () => {
 			remoteImagePolicy: 'invalid' as never,
 			primaryTimezone: 'not/a-timezone',
 			secondaryTimezone: 'UTC',
+			hiddenCalendarIds: 'cal-work' as never,
 		})
+		expect(saved.hiddenCalendarIds).toEqual([])
 		expect(saved.displayName).toBe('')
 		expect(saved.remoteImagePolicy).toBe('ask')
 		expect(saved.emailLayoutMode).toBe('readable')
@@ -70,6 +74,22 @@ describe('user preferences', () => {
 		// CI commonly uses UTC as the browser timezone. In that case the
 		// normalizer correctly removes the duplicate secondary timezone.
 		expect(saved.secondaryTimezone).toBe(saved.primaryTimezone === 'UTC' ? '' : 'UTC')
+	})
+
+	it('keeps only well-formed hidden calendar ids so a tampered store cannot hide arbitrary data', () => {
+		const saved = writeUserPreferences({
+			...defaultUserPreferences(),
+			hiddenCalendarIds: ['ok', '', 'x'.repeat(1001), 'line\nbreak', 42 as never],
+		})
+		expect(saved.hiddenCalendarIds).toEqual(['ok'])
+	})
+
+	it('caps hidden calendar ids and keeps the most recent choices', () => {
+		const ids = Array.from({ length: 205 }, (_, index) => `cal-${index}`)
+		const saved = writeUserPreferences({ ...defaultUserPreferences(), hiddenCalendarIds: ids })
+		expect(saved.hiddenCalendarIds).toHaveLength(200)
+		expect(saved.hiddenCalendarIds[0]).toBe('cal-5')
+		expect(saved.hiddenCalendarIds.at(-1)).toBe('cal-204')
 	})
 
 	it('uses UTC when the runtime cannot provide a timezone list or browser timezone', () => {

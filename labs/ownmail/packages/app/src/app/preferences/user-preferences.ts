@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
+const MAX_HIDDEN_CALENDAR_IDS = 200
+const MAX_CALENDAR_ID_LENGTH = 1000
 
 export type RemoteImagePolicy = 'ask' | 'always'
 
@@ -14,6 +16,8 @@ export type UserPreferences = {
 	remoteImagePolicy: RemoteImagePolicy
 	primaryTimezone: string
 	secondaryTimezone: string
+	/** Calendars the person unchecked in the calendar sidebar. */
+	hiddenCalendarIds: string[]
 }
 
 function browserTimezone(): string {
@@ -50,7 +54,18 @@ export function defaultUserPreferences(): UserPreferences {
 		remoteImagePolicy: 'ask',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
+		hiddenCalendarIds: [],
 	}
+}
+
+function normalizeHiddenCalendarIds(value: unknown): string[] {
+	if (!Array.isArray(value)) return []
+	const ids = value.filter(
+		(id): id is string =>
+			typeof id === 'string' && id.length > 0 && id.length <= MAX_CALENDAR_ID_LENGTH && !/[\r\n]/.test(id),
+	)
+	// Keep the most recent choices when the stored list exceeds the cap.
+	return [...new Set(ids)].slice(-MAX_HIDDEN_CALENDAR_IDS)
 }
 
 function normalizePreferences(value: unknown): UserPreferences {
@@ -78,6 +93,7 @@ function normalizePreferences(value: unknown): UserPreferences {
 		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
 		primaryTimezone,
 		secondaryTimezone,
+		hiddenCalendarIds: normalizeHiddenCalendarIds(input.hiddenCalendarIds),
 	}
 }
 
