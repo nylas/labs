@@ -58,6 +58,10 @@ function ServerStateSync() {
 	// section compares versions instead of refetching every active query.
 	const previousRef = useRef<DomainVersions | null>(null)
 	const lastFallbackRefreshRef = useRef(0)
+	// Leaving the synchronized sections cancels delayed mail revalidations. The
+	// preserved watermark means re-entry sees no version change, so this flag
+	// re-arms them instead of leaving pre-change mail cached until the fallback.
+	const mailRevalidationCancelledRef = useRef(false)
 	useEffect(() => {
 		if (!inApp) return
 		let stopped = false
@@ -78,12 +82,20 @@ function ServerStateSync() {
 
 		function scheduleMailRevalidations() {
 			clearMailRevalidations()
-			mailRevalidationTimers = MAIL_REVALIDATION_DELAYS_MS.map((delay) =>
-				window.setTimeout(() => {
+			mailRevalidationTimers = MAIL_REVALIDATION_DELAYS_MS.map((delay) => {
+				const timer = window.setTimeout(() => {
+					mailRevalidationTimers = mailRevalidationTimers.filter((candidate) => candidate !== timer)
 					if (stopped || document.visibilityState !== 'visible') return
 					void invalidateMailQueries()
-				}, delay),
-			)
+				}, delay)
+				return timer
+			})
+		}
+
+		if (mailRevalidationCancelledRef.current) {
+			mailRevalidationCancelledRef.current = false
+			void invalidateMailQueries()
+			scheduleMailRevalidations()
 		}
 
 		async function sync() {
@@ -145,6 +157,7 @@ function ServerStateSync() {
 			window.clearInterval(timer)
 			document.removeEventListener('visibilitychange', syncWhenVisible)
 			window.removeEventListener('online', syncWhenVisible)
+			mailRevalidationCancelledRef.current = mailRevalidationTimers.length > 0
 			clearMailRevalidations()
 		}
 	}, [inApp, queryClient])

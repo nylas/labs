@@ -301,4 +301,49 @@ describe('server state synchronization', () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2)
 		view.unmount()
 	})
+
+	it('re-arms cancelled mail revalidation when returning to mail from an unsynchronized route', async () => {
+		// A mail bump's immediate refetch can still return pre-change data; the
+		// delayed revalidations cover that. Leaving mail cancels them, and the
+		// preserved watermark shows no change on return, so without re-arming,
+		// stale mail would persist until the 60s fallback refresh.
+		routerState.pathname = '/mail/f/inbox'
+		vi.useFakeTimers()
+		vi.spyOn(globalThis, 'fetch')
+			.mockResolvedValueOnce(new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })))
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 1 } })),
+			)
+		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
+		const mailInvalidations = () =>
+			invalidate.mock.calls.filter(
+				([options]) => options?.predicate?.({ queryKey: ['mail'] } as never) === true,
+			).length
+		const child = <div>route</div>
+		const view = render(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		await act(async () => vi.advanceTimersByTimeAsync(10_000))
+		expect(mailInvalidations()).toBe(1)
+
+		routerState.pathname = '/settings'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		routerState.pathname = '/mail/f/inbox'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		expect(mailInvalidations()).toBe(2)
+
+		await act(async () => vi.advanceTimersByTimeAsync(5_000))
+		expect(mailInvalidations()).toBe(4)
+
+		// Once the delayed revalidations have run, leaving and returning is quiet.
+		routerState.pathname = '/settings'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		routerState.pathname = '/mail/f/inbox'
+		view.rerender(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
+		await act(async () => {})
+		expect(mailInvalidations()).toBe(4)
+		view.unmount()
+	})
 })
