@@ -345,6 +345,9 @@ async function projectFromAccount(
 	if (found) {
 		project.applicationId = found.applicationId
 		project.adoptedFromAccount = true
+		if (account.projects.filter((candidate) => candidate.slug === found.slug).length > 1) {
+			project.adoptedSharedTag = true
+		}
 		project.completedSteps.push('app')
 	}
 	saveProject(project)

@@ -389,6 +389,7 @@ describe('runCreate — projects set up on another computer', () => {
 			applicationId: 'app-acme',
 			adoptedFromAccount: true,
 		})
+		expect(adopted.adoptedSharedTag).toBeUndefined()
 		expect(adopted.completedSteps).toEqual(expect.arrayContaining(['dashboard-auth', 'org', 'app']))
 		expect(saveProject).toHaveBeenCalledWith(adopted)
 		// The login session is reused; the runner must not prompt for login or organization again.
@@ -517,6 +518,8 @@ describe('runCreate — projects set up on another computer', () => {
 		expect(vi.mocked(stepRecover).mock.calls[0]?.[0].project).toMatchObject({
 			applicationId: 'app-eu',
 			region: 'eu',
+			// The live app's slug cannot tell these two apps apart during recovery.
+			adoptedSharedTag: true,
 		})
 	})
 

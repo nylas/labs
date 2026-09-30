@@ -131,9 +131,11 @@ OwnMail lists the projects on that account; pick yours to continue managing it.
 Nothing needs to be copied between computers. OwnMail finds the app, inbox,
 domain, and hosting provider from your Nylas account, installs a fresh API key,
 and revokes the previous key after the redeploy succeeds when it can identify
-it. Confirm the app's display name when prompted, and sign in to your hosting
-provider's CLI if asked. Apps run with local or manual hosting are rebuilt on
-the new computer. Keep managing a project from one computer at a time: each
+it. Before redeploying, OwnMail checks the live app on Cloudflare, Vercel, or
+Netlify: it only adopts a URL that is serving this project, and reads the app's
+display name back from it. If the app can't be reached, confirm the display
+name when prompted. Sign in to your hosting provider's CLI if asked. Apps run
+with local or manual hosting are rebuilt on the new computer. Keep managing a project from one computer at a time: each
 computer installs its own key and retires the other's.
 
 ## Local UI development
