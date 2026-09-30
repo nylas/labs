@@ -14,9 +14,7 @@ import {
 	stepWebhook,
 } from '../steps/deploy.js'
 import {
-	type AccountProject,
 	CancelledError,
-	listAccountProjects,
 	stepApiKey,
 	stepApp,
 	stepConnector,
@@ -27,6 +25,7 @@ import {
 	stepOrg,
 } from '../steps/provision.js'
 import { stepRecover } from '../steps/recover.js'
+import { adoptDeployment, type Deployment, findDeployedApp, findDeployments } from '../steps/resume.js'
 import { stepSiteName } from '../steps/site-name.js'
 import { LOGIN_PROJECT_SLUG } from './misc.js'
 
@@ -245,11 +244,9 @@ type ResolvedProject = {
 	connected?: StepContext
 }
 
-type ConnectedAccount = { ctx: StepContext; projects: AccountProject[] }
-
 const CONNECT_STEPS: ProjectState['completedSteps'] = ['dashboard-auth', 'org']
 const NEW_PROJECT = '__new__'
-const ACCOUNT_PROJECTS = '__account__'
+const DEPLOYED_PROJECT = '__deployed__'
 
 async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }): Promise<ResolvedProject> {
 	const requestedRegion = opts.region ? defaultProjectRegion(opts.region) : undefined
@@ -257,127 +254,93 @@ async function resolveProject(opts: { name?: string; region?: 'us' | 'eu' }): Pr
 	if (opts.name) {
 		const loaded = loadProject(opts.name)
 		if (loaded) return { project: normalizeProjectRegion(loaded, requestedRegion) }
-		// Not on this computer — it may have been set up on another one.
-		const account = await connectAccount(newProjectRegion)
-		return projectFromAccount(account, opts.name, newProjectRegion)
+		return { project: newNamedProject(opts.name, newProjectRegion) }
 	}
 	const existing = listProjects().filter((proj) => !proj.ejected)
-	if (existing.length > 0) {
-		const picked = await p.select({
-			message: 'Project name',
-			options: [
-				...existing.map((proj) => ({
-					value: proj.slug,
-					label: proj.inboxEmail ? `${proj.slug} (${proj.inboxEmail})` : proj.slug,
-				})),
-				{ value: ACCOUNT_PROJECTS, label: 'Resume a project from your Nylas account' },
-				{ value: NEW_PROJECT, label: 'Start a new one' },
-			],
-		})
-		if (p.isCancel(picked)) throw new CancelledError()
-		if (picked === ACCOUNT_PROJECTS) {
-			const localSlugs = new Set(listProjects().map((proj) => proj.slug))
-			return pickAccountProject(await connectAccount(newProjectRegion), newProjectRegion, localSlugs)
-		}
-		if (picked !== NEW_PROJECT) {
-			const project = loadProject(picked)
-			if (!project) throw new Error(`No project named "${picked}".`)
-			return { project: normalizeProjectRegion(project, requestedRegion) }
-		}
-		const name = await promptProjectName()
-		const local = loadProject(name)
-		if (local) return { project: normalizeProjectRegion(local, requestedRegion) }
-		return projectFromAccount(await connectAccount(newProjectRegion), name, newProjectRegion)
+	const picked = await p.select({
+		message: existing.length > 0 ? 'Project name' : 'Set up OwnMail',
+		options: [
+			...existing.map((proj) => ({
+				value: proj.slug,
+				label: proj.inboxEmail ? `${proj.slug} (${proj.inboxEmail})` : proj.slug,
+			})),
+			{ value: NEW_PROJECT, label: 'Start a new one' },
+			{
+				value: DEPLOYED_PROJECT,
+				label: 'Resume an app deployed from another computer',
+				hint: 'Cloudflare, Vercel, or Netlify',
+			},
+		],
+	})
+	if (p.isCancel(picked)) throw new CancelledError()
+	if (picked === DEPLOYED_PROJECT) {
+		const localSlugs = new Set(listProjects().map((proj) => proj.slug))
+		return resumeDeployedProject(newProjectRegion, localSlugs)
 	}
-
-	// Nothing on this computer: log in first so projects set up elsewhere can be resumed.
-	return pickAccountProject(await connectAccount(newProjectRegion), newProjectRegion, new Set())
-}
-
-async function connectAccount(region: ProjectState['region']): Promise<ConnectedAccount> {
-	const ctx = await createContext(newProject(LOGIN_PROJECT_SLUG, region))
-	await stepDashboardAuth(ctx)
-	await stepOrg(ctx)
-	return { ctx, projects: await listAccountProjects(ctx) }
-}
-
-async function pickAccountProject(
-	account: ConnectedAccount,
-	region: ProjectState['region'],
-	localSlugs: Set<string>,
-): Promise<ResolvedProject> {
-	const resumable = account.projects.filter((found) => !localSlugs.has(found.slug))
-	if (resumable.length > 0) {
-		const picked = await p.select({
-			message: 'Resume a project from your Nylas account, or start a new one',
-			options: [
-				...resumable.map((found) => ({
-					value: found.applicationId,
-					label: found.slug,
-					hint: accountProjectHint(found, resumable),
-				})),
-				{ value: NEW_PROJECT, label: 'Start a new one' },
-			],
-		})
-		if (p.isCancel(picked)) throw new CancelledError()
-		const found = resumable.find((candidate) => candidate.applicationId === picked)
-		if (found) return projectFromAccount(account, found.slug, region, found)
-	} else if (localSlugs.size > 0) {
-		p.log.info('No other OwnMail projects were found on this Nylas account.')
+	if (picked !== NEW_PROJECT) {
+		const project = loadProject(picked)
+		if (!project) throw new Error(`No project named "${picked}".`)
+		return { project: normalizeProjectRegion(project, requestedRegion) }
 	}
 	const name = await promptProjectName()
 	const local = loadProject(name)
-	if (local) return { project: local }
-	return projectFromAccount(account, name, region)
+	if (local) return { project: normalizeProjectRegion(local, requestedRegion) }
+	return { project: newNamedProject(name, newProjectRegion) }
 }
 
-/** Adopt the account's project with this name, or start a new one on the connected session. */
-async function projectFromAccount(
-	account: ConnectedAccount,
-	slug: string,
-	region: ProjectState['region'],
-	chosen?: AccountProject,
-): Promise<ResolvedProject> {
-	const found = chosen ?? (await chooseAccountProject(account.projects, slug))
-	const project = newProject(slug, found?.region ?? region)
-	project.orgPublicId = account.ctx.project.orgPublicId
-	project.completedSteps.push(...CONNECT_STEPS)
-	if (found) {
-		project.applicationId = found.applicationId
-		project.adoptedFromAccount = true
-		if (account.projects.filter((candidate) => candidate.slug === found.slug).length > 1) {
-			project.adoptedSharedTag = true
-		}
-		project.completedSteps.push('app')
-	}
+function newNamedProject(slug: string, region: ProjectState['region']): ProjectState {
+	const project = newProject(slug, region)
 	saveProject(project)
-	account.ctx.project = project
-	return { project, connected: account.ctx }
+	return project
 }
 
-/** Several apps can carry the same tag; adopting the wrong one would rotate another app's keys. */
-async function chooseAccountProject(
-	projects: AccountProject[],
-	slug: string,
-): Promise<AccountProject | undefined> {
-	const matches = projects.filter((candidate) => candidate.slug === slug)
-	if (matches.length <= 1) return matches[0]
-	const picked = await p.select({
-		message: `Several apps on your Nylas account are tagged “${slug}”. Which one is this project?`,
-		options: matches.map((found) => ({
-			value: found.applicationId,
-			label: `${found.slug} (${found.region.toUpperCase()})`,
-			hint: found.applicationId,
+/**
+ * Adopts an app deployed from another computer: the hosting account shows the
+ * deployment, and the Nylas organization's deployment keys identify its app.
+ */
+async function resumeDeployedProject(
+	region: ProjectState['region'],
+	localSlugs: Set<string>,
+): Promise<ResolvedProject> {
+	const provider = await p.select({
+		message: 'Where is the app deployed?',
+		options: [
+			{ value: 'cloudflare' as const, label: 'Cloudflare Workers' },
+			{ value: 'vercel' as const, label: 'Vercel' },
+			{ value: 'netlify' as const, label: 'Netlify' },
+		],
+	})
+	if (p.isCancel(provider)) throw new CancelledError()
+	const found = (await findDeployments(provider)).filter((deployment) => !localSlugs.has(deployment.slug))
+	if (found.length === 0) {
+		throw new Error(
+			'No OwnMail app was found on the hosting account you are signed in to. Sign in to the account that hosts the app, then re-run `npx ownmail`. Apps run locally or uploaded manually cannot be resumed; start a new project instead.',
+		)
+	}
+	const pickedUrl = await p.select({
+		message: 'Which app do you want to manage from this computer?',
+		options: found.map((deployment) => ({
+			value: deployment.url,
+			label: deployment.slug,
+			hint: deployment.url,
 		})),
 	})
-	if (p.isCancel(picked)) throw new CancelledError()
-	return matches.find((candidate) => candidate.applicationId === picked)
-}
+	if (p.isCancel(pickedUrl)) throw new CancelledError()
+	const deployment = found.find((candidate) => candidate.url === pickedUrl) as Deployment
 
-function accountProjectHint(found: AccountProject, all: AccountProject[]): string {
-	const region = found.region.toUpperCase()
-	const duplicated = all.some((other) => other !== found && other.slug === found.slug)
-	return duplicated ? `${region} · ${found.applicationId}` : region
+	const ctx = await createContext(newProject(LOGIN_PROJECT_SLUG, region))
+	await stepDashboardAuth(ctx)
+	await stepOrg(ctx)
+	const app = await findDeployedApp(ctx, deployment.slug)
+
+	const project = newProject(deployment.slug, app.region)
+	project.orgPublicId = ctx.project.orgPublicId
+	project.applicationId = app.applicationId
+	project.completedSteps.push(...CONNECT_STEPS, 'app')
+	adoptDeployment(project, deployment)
+	saveProject(project)
+	ctx.project = project
+	return { project, connected: ctx }
 }
 
 async function promptProjectName(): Promise<string> {

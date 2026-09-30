@@ -114,6 +114,70 @@ export async function listVercelScopes(): Promise<VercelScope[]> {
 	return scopes as VercelScope[]
 }
 
+/** Vercel projects whose name contains `nameIncludes`, across every account or team the user can reach. */
+export async function listVercelProjects(
+	nameIncludes: string,
+): Promise<(VercelProject & { name: string; url: string })[]> {
+	const found: (VercelProject & { name: string; url: string })[] = []
+	for (const scope of await listVercelScopes()) {
+		const result = await runProviderCli('vercel', [
+			'project',
+			'ls',
+			'--format',
+			'json',
+			`--filter=${nameIncludes}`,
+			'--limit',
+			'100',
+			'--scope',
+			requireVercelScope(scope.id),
+			'--no-color',
+			'--non-interactive',
+		])
+		if (result.code !== 0) throw providerFailure('vercel', 'list projects', result, false)
+		const raw = parseJsonOutput(result.stdout)
+		const projects = isRecord(raw) && Array.isArray(raw.projects) ? raw.projects : []
+		for (const project of projects) {
+			if (!isRecord(project)) continue
+			const { id, name, latestProductionUrl } = project
+			if (!validProviderId(id) || typeof name !== 'string' || typeof latestProductionUrl !== 'string')
+				continue
+			const url = httpsOrigin(latestProductionUrl)
+			if (url) found.push({ projectId: id, orgId: scope.id, name, url })
+		}
+	}
+	return found
+}
+
+/** Netlify sites whose name contains `nameIncludes` in the signed-in account. */
+export async function listNetlifySites(
+	nameIncludes: string,
+): Promise<(NetlifySite & { name: string; url: string })[]> {
+	await ensureProviderLogin('netlify')
+	const result = await runProviderCli('netlify', ['sites:list', '--json'])
+	if (result.code !== 0) throw providerFailure('netlify', 'list sites', result, false)
+	const raw = parseJsonOutput(result.stdout)
+	const found: (NetlifySite & { name: string; url: string })[] = []
+	for (const site of Array.isArray(raw) ? raw : []) {
+		if (!isRecord(site)) continue
+		const { id, name } = site
+		const rawUrl = site.ssl_url ?? site.url
+		if (typeof id !== 'string' || typeof name !== 'string' || typeof rawUrl !== 'string') continue
+		if (!name.includes(nameIncludes)) continue
+		const url = httpsOrigin(rawUrl)
+		if (url && /^[0-9a-f-]{36}$/i.test(id)) found.push({ siteId: id, name, url })
+	}
+	return found
+}
+
+function httpsOrigin(value: string): string | undefined {
+	try {
+		const url = new URL(value.startsWith('http') ? value : `https://${value}`)
+		return url.protocol === 'https:' ? url.origin : undefined
+	} catch {
+		return undefined
+	}
+}
+
 export async function ensureVercelProject(
 	dir: string,
 	projectName: string,

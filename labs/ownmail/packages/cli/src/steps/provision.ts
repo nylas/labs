@@ -21,7 +21,7 @@ import {
 	storePendingSecret,
 } from '../state/pending-secrets.js'
 import type { ProjectState } from '../state/schema.js'
-import { isUserProjectSlug, markStep, saveProject } from '../state/store.js'
+import { markStep, saveProject } from '../state/store.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth, tokens } from './context.js'
@@ -315,23 +315,15 @@ export async function stepApp(ctx: StepContext): Promise<void> {
 	markStep(ctx.project, 'app')
 }
 
-type ReusableApplication = GatewayApplication & { region: Region }
+export type SandboxApplication = GatewayApplication & { region: Region }
 
 async function findReusableSandboxApplication(
 	ctx: StepContext,
 	gateway: GatewayClient,
 	orgPublicId: string,
 	brandName: string,
-): Promise<ReusableApplication | null> {
-	const apps: ReusableApplication[] = []
-	for (const region of prioritizedRegions(ctx.project.region)) {
-		const listed = await gateway.listApplications(tokens(ctx), region, orgPublicId)
-		for (const app of listed) {
-			if (!isSandboxApplication(app)) continue
-			apps.push({ ...app, region: parseRegion(app.region) ?? region })
-		}
-	}
-
+): Promise<SandboxApplication | null> {
+	const apps = await listSandboxApplications(ctx, gateway, orgPublicId)
 	return (
 		apps.find((app) => app.branding?.name === brandName) ??
 		// An app tagged for another OwnMail project belongs to that project.
@@ -340,29 +332,21 @@ async function findReusableSandboxApplication(
 	)
 }
 
-export type AccountProject = { slug: string; applicationId: string; region: Region }
-
-/** OwnMail projects recorded on the Nylas account, found by their app branding tag. */
-export async function listAccountProjects(ctx: StepContext): Promise<AccountProject[]> {
-	const gateway = requireGateway(ctx)
-	const orgPublicId = ctx.project.orgPublicId
-	if (!orgPublicId) throw new Error('Organization unavailable — rerun ownmail setup')
-	const projects: AccountProject[] = []
-	for (const region of APPLICATION_REGIONS) {
-		for (const app of await gateway.listApplications(tokens(ctx), region, orgPublicId)) {
-			const slug = ownmailProjectSlug(app)
-			if (!slug || !isSandboxApplication(app)) continue
-			projects.push({ slug, applicationId: app.applicationId, region: parseRegion(app.region) ?? region })
+/** Sandbox apps in the organization, in both regions, the project's own region first. */
+export async function listSandboxApplications(
+	ctx: StepContext,
+	gateway: GatewayClient,
+	orgPublicId: string,
+): Promise<SandboxApplication[]> {
+	const apps: SandboxApplication[] = []
+	for (const region of prioritizedRegions(ctx.project.region)) {
+		const listed = await gateway.listApplications(tokens(ctx), region, orgPublicId)
+		for (const app of listed) {
+			if (!isSandboxApplication(app)) continue
+			apps.push({ ...app, region: parseRegion(app.region) ?? region })
 		}
 	}
-	return projects
-}
-
-function ownmailProjectSlug(app: GatewayApplication): string | null {
-	const name = app.branding?.name
-	if (!name?.startsWith(APP_BRANDING_PREFIX)) return null
-	const slug = name.slice(APP_BRANDING_PREFIX.length)
-	return isUserProjectSlug(slug) ? slug : null
+	return apps
 }
 
 function prioritizedRegions(region: Region): Region[] {

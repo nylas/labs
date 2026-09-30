@@ -102,10 +102,8 @@ export const ProjectStateSchema = z.object({
 
 	region: z.enum(['us', 'eu']).default('us'),
 	orgPublicId: z.string().optional(),
-	/** Set when this machine adopted an existing project from the Nylas account; cleared once state is rebuilt. */
+	/** Set when this machine adopted a project from its live deployment; cleared once state is rebuilt. */
 	adoptedFromAccount: z.boolean().optional(),
-	/** The adopted app shares its `ownmail:<slug>` tag with another app, so the live slug cannot identify it. */
-	adoptedSharedTag: z.boolean().optional(),
 	/** App URL found during recovery; the first redeploy must land there before the old key is revoked. */
 	recoveredAppUrl: z.string().url().optional(),
 	/** Key the live app used, identified before recovery minted any key; revoked only once the app URL is confirmed. */

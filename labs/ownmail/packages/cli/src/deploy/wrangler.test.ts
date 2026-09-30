@@ -104,6 +104,7 @@ import {
 	cloudflareApiTokenConfigured,
 	deploy,
 	ensureKvNamespace,
+	listCloudflareWorkers,
 	putSecret,
 	runWrangler,
 	workerHasSecret,
@@ -123,6 +124,8 @@ beforeEach(() => {
 
 afterEach(() => {
 	delete process.env.CLOUDFLARE_API_TOKEN
+	delete process.env.CLOUDFLARE_ACCOUNT_ID
+	vi.unstubAllGlobals()
 })
 
 describe('runWrangler', () => {
@@ -400,5 +403,167 @@ describe('Wrangler acquisition fallback', () => {
 		await runWrangler(['whoami'])
 		const args = spawnCtl.calls[0]?.args as string[]
 		expect(args).toEqual(expect.arrayContaining(['--package=wrangler@4.114.0', '--', 'wrangler', 'whoami']))
+	})
+})
+
+describe('listCloudflareWorkers', () => {
+	const ACCOUNT = 'b'.repeat(32)
+
+	/** Stubs the Cloudflare API per path; unknown paths fail the test. */
+	function stubCloudflare(routes: Record<string, Response>) {
+		const fetchMock = vi.fn(async (input: string | URL) => {
+			const path = String(input).replace('https://api.cloudflare.com/client/v4', '')
+			const response = routes[path]
+			if (!response) throw new Error(`unexpected ${path}`)
+			return response
+		})
+		vi.stubGlobal('fetch', fetchMock)
+		return fetchMock
+	}
+
+	it("lists matching Workers with their workers.dev URLs using Wrangler's own sign-in", async () => {
+		spawnCtl.queue.push(
+			{ code: 0, stdout: JSON.stringify({ type: 'oauth', token: 'tok-1' }) },
+			{ code: 0, stdout: JSON.stringify({ accounts: [{ id: ACCOUNT }, { id: 'not-an-account' }] }) },
+		)
+		const fetchMock = stubCloudflare({
+			[`/accounts/${ACCOUNT}/workers/subdomain`]: Response.json({
+				success: true,
+				result: { subdomain: 'me' },
+			}),
+			[`/accounts/${ACCOUNT}/workers/scripts`]: Response.json({
+				success: true,
+				result: [{ id: 'acme-ownmail' }, { id: 'unrelated' }, { id: 'bad name-ownmail' }],
+			}),
+		})
+
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([
+			{ name: 'acme-ownmail', url: 'https://acme-ownmail.me.workers.dev' },
+		])
+		expect(spawnCtl.calls.map((call) => call.args)).toEqual([
+			expect.arrayContaining(['auth', 'token', '--json']),
+			expect.arrayContaining(['whoami', '--json']),
+		])
+		expect(fetchMock).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ headers: { Authorization: 'Bearer tok-1' } }),
+		)
+	})
+
+	it('uses a configured API token and account without asking Wrangler', async () => {
+		process.env.CLOUDFLARE_API_TOKEN = 'env-token'
+		process.env.CLOUDFLARE_ACCOUNT_ID = ACCOUNT
+		stubCloudflare({
+			[`/accounts/${ACCOUNT}/workers/subdomain`]: Response.json({ success: true, result: {} }),
+		})
+
+		// An account without a workers.dev subdomain has no URL to resume from.
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([])
+		expect(spawnCtl.calls).toHaveLength(0)
+	})
+
+	it('never puts the token in an error when Cloudflare refuses the request', async () => {
+		process.env.CLOUDFLARE_API_TOKEN = 'secret-token'
+		process.env.CLOUDFLARE_ACCOUNT_ID = ACCOUNT
+		stubCloudflare({ [`/accounts/${ACCOUNT}/workers/subdomain`]: new Response('', { status: 403 }) })
+
+		const error = (await listCloudflareWorkers('-ownmail').catch((caught: unknown) => caught)) as Error
+		expect(error.message).toMatch(/did not allow OwnMail to list your Workers/)
+		expect(error.message).not.toContain('secret-token')
+	})
+
+	it.each([
+		{
+			name: 'an unreadable token',
+			spawns: [{ code: 0, stdout: 'nope' }],
+			error: /unreadable sign-in details/,
+		},
+		{
+			name: 'an empty token',
+			spawns: [{ code: 0, stdout: '{"token":""}' }],
+			error: /unreadable sign-in details/,
+		},
+		{
+			name: 'a failed account lookup',
+			spawns: [
+				{ code: 0, stdout: '{"token":"t"}' },
+				{ code: 1, stderr: 'Not authenticated' },
+			],
+			error: /credentials were rejected/,
+		},
+		{
+			name: 'an unreadable account list',
+			spawns: [
+				{ code: 0, stdout: '{"token":"t"}' },
+				{ code: 0, stdout: 'nope' },
+			],
+			error: /unreadable account list/,
+		},
+	])('fails closed on $name', async ({ spawns, error }) => {
+		spawnCtl.queue.push(...spawns)
+
+		await expect(listCloudflareWorkers('-ownmail')).rejects.toThrow(error)
+	})
+
+	it('finds nothing when Wrangler reports no accounts or the configured account is invalid', async () => {
+		spawnCtl.queue.push({ code: 0, stdout: '{"token":"t"}' }, { code: 0, stdout: '{}' })
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([])
+
+		process.env.CLOUDFLARE_API_TOKEN = 't'
+		process.env.CLOUDFLARE_ACCOUNT_ID = 'not-an-account'
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([])
+	})
+
+	it.each([
+		{ name: 'is unreachable', response: new Error('offline'), error: /Could not reach Cloudflare/ },
+		{ name: 'fails', response: new Response('', { status: 500 }), error: /HTTP 500/ },
+	])('reports when Cloudflare $name', async ({ response, error }) => {
+		process.env.CLOUDFLARE_API_TOKEN = 't'
+		process.env.CLOUDFLARE_ACCOUNT_ID = ACCOUNT
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				if (response instanceof Error) throw response
+				return response
+			}),
+		)
+
+		await expect(listCloudflareWorkers('-ownmail')).rejects.toThrow(error)
+	})
+
+	it('treats unreadable or unsuccessful listings as no Workers', async () => {
+		process.env.CLOUDFLARE_API_TOKEN = 't'
+		process.env.CLOUDFLARE_ACCOUNT_ID = ACCOUNT
+		stubCloudflare({
+			[`/accounts/${ACCOUNT}/workers/subdomain`]: Response.json({
+				success: true,
+				result: { subdomain: 'me' },
+			}),
+			[`/accounts/${ACCOUNT}/workers/scripts`]: new Response('not json'),
+		})
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([])
+
+		stubCloudflare({
+			[`/accounts/${ACCOUNT}/workers/subdomain`]: Response.json({
+				success: false,
+				result: { subdomain: 'me' },
+			}),
+		})
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([])
+
+		stubCloudflare({
+			[`/accounts/${ACCOUNT}/workers/subdomain`]: Response.json({
+				success: true,
+				result: { subdomain: 'me' },
+			}),
+			[`/accounts/${ACCOUNT}/workers/scripts`]: Response.json({ success: true, result: [{ id: 7 }] }),
+		})
+		await expect(listCloudflareWorkers('-ownmail')).resolves.toEqual([])
+	})
+
+	it('explains a failed Wrangler sign-in lookup', async () => {
+		spawnCtl.queue.push({ code: 1, stderr: 'Not authenticated' })
+
+		await expect(listCloudflareWorkers('-ownmail')).rejects.toThrow(/credentials were rejected/)
 	})
 })

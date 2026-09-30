@@ -11,7 +11,7 @@ import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import type { StepContext } from './context.js'
 import {
 	CancelledError,
-	listAccountProjects,
+	listSandboxApplications,
 	stepApiKey,
 	stepApp,
 	stepConnector,
@@ -836,46 +836,26 @@ describe('stepApp', () => {
 	})
 })
 
-describe('listAccountProjects', () => {
-	it('lists OwnMail projects on the account across regions so another computer can resume them', async () => {
+describe('listSandboxApplications', () => {
+	it('lists sandbox apps in both regions, the project region first, so a deployment can be matched to its app', async () => {
 		const listApplications = vi
 			.fn()
 			.mockResolvedValueOnce([
-				{ applicationId: 'app-1', region: 'us', environment: 'sandbox', branding: { name: 'ownmail:acme' } },
-				{ applicationId: 'app-2', region: 'us', environment: 'sandbox', branding: { name: 'My sandbox' } },
-				{
-					applicationId: 'app-3',
-					region: 'us',
-					environment: 'production',
-					branding: { name: 'ownmail:prod' },
-				},
-				{
-					applicationId: 'app-4',
-					region: 'us',
-					environment: 'sandbox',
-					branding: { name: 'ownmail:__login__' },
-				},
+				{ applicationId: 'app-eu', region: 'zz', environment: 'Sandbox', branding: { name: 'Mine' } },
 			])
 			.mockResolvedValueOnce([
-				{ applicationId: 'app-5', region: 'zz', environment: 'Sandbox', branding: { name: 'ownmail:euro' } },
+				{ applicationId: 'app-us', region: 'us', environment: 'sandbox', branding: { name: 'My sandbox' } },
+				// Production apps are never OwnMail's.
+				{ applicationId: 'app-prod', region: 'us', environment: 'production', branding: { name: 'Prod' } },
 			])
-		const ctx = baseCtx({
-			project: baseProject({ orgPublicId: 'org1' }),
-			gateway: { listApplications } as never,
-		})
+		const ctx = baseCtx({ project: baseProject({ region: 'eu' }) })
 
-		await expect(listAccountProjects(ctx)).resolves.toEqual([
-			{ slug: 'acme', applicationId: 'app-1', region: 'us' },
-			{ slug: 'euro', applicationId: 'app-5', region: 'eu' },
+		await expect(listSandboxApplications(ctx, { listApplications } as never, 'org1')).resolves.toEqual([
+			expect.objectContaining({ applicationId: 'app-eu', region: 'eu' }),
+			expect.objectContaining({ applicationId: 'app-us', region: 'us' }),
 		])
-		expect(listApplications).toHaveBeenCalledWith(expect.anything(), 'us', 'org1')
-		expect(listApplications).toHaveBeenCalledWith(expect.anything(), 'eu', 'org1')
-	})
-
-	it('requires the organization chosen at login', async () => {
-		const ctx = baseCtx({ gateway: {} as never })
-
-		await expect(listAccountProjects(ctx)).rejects.toThrow(/Organization unavailable/)
+		expect(listApplications).toHaveBeenNthCalledWith(1, expect.anything(), 'eu', 'org1')
+		expect(listApplications).toHaveBeenNthCalledWith(2, expect.anything(), 'us', 'org1')
 	})
 })
 

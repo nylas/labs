@@ -201,3 +201,81 @@ export async function deploy(configPath: string): Promise<string> {
 	}
 	return match[0]
 }
+
+export type CloudflareWorker = { name: string; url: string }
+
+type CloudflareEnvelope<T> = { success?: boolean; result?: T }
+
+/**
+ * Workers whose name contains `nameIncludes`, with their workers.dev URLs,
+ * across every account the current credentials reach. Wrangler has no command
+ * to list Workers, so the Cloudflare API is called with Wrangler's own
+ * credentials; the token is only ever sent in the Authorization header.
+ */
+export async function listCloudflareWorkers(nameIncludes: string): Promise<CloudflareWorker[]> {
+	const token = await cloudflareToken()
+	const workers: CloudflareWorker[] = []
+	for (const accountId of await cloudflareAccountIds()) {
+		const subdomain = await cloudflareApi<{ subdomain?: unknown }>(
+			token,
+			`/accounts/${accountId}/workers/subdomain`,
+		)
+		if (typeof subdomain?.subdomain !== 'string' || !/^[a-z0-9-]+$/i.test(subdomain.subdomain)) continue
+		const scripts = await cloudflareApi<{ id?: unknown }[]>(token, `/accounts/${accountId}/workers/scripts`)
+		for (const script of Array.isArray(scripts) ? scripts : []) {
+			if (typeof script.id !== 'string' || !/^[a-z0-9-]+$/i.test(script.id)) continue
+			if (!script.id.includes(nameIncludes)) continue
+			workers.push({ name: script.id, url: `https://${script.id}.${subdomain.subdomain}.workers.dev` })
+		}
+	}
+	return workers
+}
+
+async function cloudflareToken(): Promise<string> {
+	const configured = process.env.CLOUDFLARE_API_TOKEN?.trim()
+	if (configured) return configured
+	const res = await runWrangler(['auth', 'token', '--json'])
+	if (res.code !== 0) throw cloudflareFailure('read your Workers', res)
+	try {
+		const token = (JSON.parse(res.stdout) as { token?: unknown }).token
+		if (typeof token === 'string' && token) return token
+	} catch {
+		// Reported below.
+	}
+	throw new Error('Cloudflare returned unreadable sign-in details. Run `npx wrangler login`, then retry.')
+}
+
+async function cloudflareAccountIds(): Promise<string[]> {
+	const configured = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
+	if (configured) return /^[0-9a-f]{32}$/i.test(configured) ? [configured] : []
+	const res = await runWrangler(['whoami', '--json'])
+	if (res.code !== 0) throw cloudflareFailure('read your Cloudflare accounts', res)
+	try {
+		const accounts = (JSON.parse(res.stdout) as { accounts?: { id?: unknown }[] }).accounts ?? []
+		return accounts
+			.map((account) => account.id)
+			.filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{32}$/i.test(id))
+	} catch {
+		throw new Error('Cloudflare returned an unreadable account list. Run `npx wrangler whoami`, then retry.')
+	}
+}
+
+async function cloudflareApi<T>(token: string, path: string): Promise<T | undefined> {
+	let res: Response
+	try {
+		res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+			headers: { Authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(15_000),
+		})
+	} catch {
+		throw new Error('Could not reach Cloudflare to list your Workers. Check your connection, then retry.')
+	}
+	if (res.status === 401 || res.status === 403) {
+		throw new Error(
+			`Cloudflare did not allow OwnMail to list your Workers. Sign in with \`npx wrangler login\`, or use a \`CLOUDFLARE_API_TOKEN\` with ${TOKEN_PERMISSIONS}, then retry.`,
+		)
+	}
+	if (!res.ok) throw new Error(`Cloudflare could not list your Workers (HTTP ${res.status}). Retry shortly.`)
+	const body = (await res.json().catch(() => null)) as CloudflareEnvelope<T> | null
+	return body?.success ? body.result : undefined
+}
