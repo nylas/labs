@@ -212,6 +212,15 @@ export function MailFolderRouteScreen({
 				(match) => match.routeId === '/mail/f/$folderId/t/$threadId',
 			),
 	})
+	const routedThreadId = useRouterState({
+		select: (state) =>
+			(
+				state.matches.find((match) => match.routeId === '/mail/f/$folderId/t/$threadId')?.params as
+					| { threadId?: string }
+					| undefined
+			)?.threadId,
+	})
+	const openThreadId = activeThreadId ?? routedThreadId
 	const hasThread = hasThreadRoute || Boolean(children)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
@@ -293,6 +302,19 @@ export function MailFolderRouteScreen({
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return
+			// With a conversation open, j/k move straight to the adjacent
+			// conversation instead of only moving the list cursor.
+			const openIndex =
+				openThreadId && (event.key === 'j' || event.key === 'k')
+					? navItems.findIndex((item) => 'threadId' in item && item.threadId === openThreadId)
+					: -1
+			if (openIndex >= 0) {
+				event.preventDefault()
+				const nextIndex = moveCursor(openIndex, event.key === 'j' ? 1 : -1, navItems.length)
+				setCursor(nextIndex)
+				if (nextIndex !== openIndex) openItem(nextIndex)
+				return
+			}
 			event.preventDefault()
 			if (action === 'open') {
 				openItem(focusedRowIndex >= 0 ? focusedRowIndex : cursor)
@@ -311,7 +333,7 @@ export function MailFolderRouteScreen({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, navItems.length, openItem])
+	}, [cursor, navItems, openItem, openThreadId])
 
 	async function loadMore() {
 		if (!nextCursor || loadMorePendingRef.current || loadingMore || folderId === 'drafts') return

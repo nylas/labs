@@ -71,6 +71,15 @@ export function threadTimestamp(thread: MailThread): number | undefined {
 	return Math.max(received, sent) || undefined
 }
 
+/** The conversation to show once the open one leaves the list: the next row in
+ * display order (newest first), or the previous row when it was the last. */
+export function adjacentThreadId(threads: readonly MailThread[], threadId: string): string | undefined {
+	const ordered = [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0))
+	const index = ordered.findIndex((thread) => thread.id === threadId)
+	if (index < 0) return undefined
+	return (ordered[index + 1] ?? ordered[index - 1])?.id
+}
+
 export function threadRouteFolderId(thread: MailThread): MailFolderId {
 	return (
 		(thread.folders?.find((folder): folder is MailFolderId =>

@@ -17,11 +17,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
+	adjacentThreadId,
 	forwardDraftSearch,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
 } from '#features/mail/lib/mail-ui-model'
+import { findCachedThread } from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
 	openThreadDetail,
@@ -29,6 +31,8 @@ import {
 } from '#features/mail/state/mail-mutations'
 import {
 	type MailThreadDetail,
+	type MailThreadListData,
+	mailKeys,
 	threadDetailQueryOptions,
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
@@ -53,7 +57,38 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 		)
 	},
 	component: ThreadView,
+	pendingComponent: ThreadPending,
 })
+
+/** Split view keeps the list beside the reader from Tailwind's `xl` breakpoint. */
+const SPLIT_VIEW_QUERY = '(min-width: 80rem)'
+
+/** Taps have no hover preload, so show the cached subject at once instead of
+ * a blank reader while the conversation loads. */
+function ThreadPending() {
+	const { threadId } = Route.useParams()
+	const queryClient = useQueryClient()
+	const subject = findCachedThread(queryClient, threadId)?.subject
+	return (
+		<div
+			data-testid="thread-reader-pending"
+			aria-busy="true"
+			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+		>
+			<div className="h-14 shrink-0 border-b border-border" />
+			<div className="border-b border-border bg-muted px-4 py-3 dark:bg-background lg:px-8 xl:py-5">
+				<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
+					{subject || 'Loading conversation…'}
+				</h1>
+			</div>
+			<div className="flex flex-col gap-3 px-4 py-5 lg:px-8" aria-hidden="true">
+				<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+				<div className="h-4 w-5/6 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+				<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+			</div>
+		</div>
+	)
+}
 
 type PendingThreadAction = 'archive' | 'delete' | 'star' | 'unread'
 
@@ -176,9 +211,28 @@ function ThreadView() {
 			const previousStarred = starred
 			if (typeof input.starred === 'boolean') setStarred(input.starred)
 			setPendingAction(action)
+			// In split view, triage continues with the neighbouring conversation;
+			// it is read from the list before the optimistic move removes this one.
+			const nextThreadId =
+				leave && action !== 'unread' && window.matchMedia?.(SPLIT_VIEW_QUERY).matches
+					? adjacentThreadId(
+							(
+								queryClient.getQueryData<MailThreadListData>(
+									mailKeys.threadList(folderId === 'starred' ? { starred: true } : { folderId }),
+								)?.pages ?? []
+							).flatMap((page) => page.threads),
+							threadId,
+						)
+					: undefined
 			try {
 				await updateThread.mutateAsync({ threadId, ...input })
-				if (leave) {
+				if (nextThreadId) {
+					await navigate({
+						to: '/mail/f/$folderId/t/$threadId',
+						params: { folderId, threadId: nextThreadId },
+						search: baseFolderId ? { baseFolderId } : {},
+					})
+				} else if (leave) {
 					await navigate({
 						to: '/mail/f/$folderId',
 						params: { folderId },
@@ -194,7 +248,7 @@ function ThreadView() {
 				setPendingAction(null)
 			}
 		},
-		[baseFolderId, folderId, navigate, pendingAction, starred, threadId, updateThread],
+		[baseFolderId, folderId, navigate, pendingAction, queryClient, starred, threadId, updateThread],
 	)
 
 	useEffect(() => {
