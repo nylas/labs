@@ -3,3 +3,11 @@
 // platform.ts imports this dynamically inside a try/catch; exporting an empty `env` lets
 // the catch-free path resolve while the Node fallback still drives behaviour in tests.
 export const env: Record<string, unknown> = {}
+
+// Minimal base class so src/worker.ts can be imported in tests.
+export class DurableObject<Env = unknown> {
+	constructor(
+		protected readonly ctx: { storage: unknown },
+		protected readonly env: Env,
+	) {}
+}

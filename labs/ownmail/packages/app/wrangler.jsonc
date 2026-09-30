@@ -5,8 +5,13 @@
 	"name": "ownmail-template",
 	"compatibility_date": "2026-06-01",
 	"compatibility_flags": ["nodejs_compat"],
-	"main": "@tanstack/react-start/server-entry",
+	"main": "./src/worker.ts",
 	"kv_namespaces": [{ "binding": "SESSIONS", "id": "00000000000000000000000000000000" }],
+	// Atomic invitation claims. KV has no compare-and-set, so each claim key is
+	// owned by one Durable Object. Needs no account resource, so `ownmail
+	// deploy` carries the binding and migration through unchanged.
+	"durable_objects": { "bindings": [{ "name": "INVITATION_LOCKS", "class_name": "InvitationLocks" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["InvitationLocks"] }],
 	// Sign-in brute-force limits. KV cannot back these: it has no atomic
 	// increment and is eventually consistent, so a parallel burst would slip
 	// past. These bindings are atomic at the edge. `period` accepts only 10 or

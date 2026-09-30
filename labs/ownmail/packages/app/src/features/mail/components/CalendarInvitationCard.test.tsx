@@ -260,11 +260,15 @@ describe('CalendarInvitationCard', () => {
 		expect(respondCalendarInvitation).not.toHaveBeenCalled()
 	})
 
-	it('keeps unsupported manual imports on the Nylas sync and status-check path', async () => {
+	it('does not claim the event is syncing when OwnMail cannot add it', async () => {
+		// Some providers never create the event themselves, so "still syncing" would
+		// promise an outcome that never arrives. Say plainly that it can't be added here.
 		getCalendarInvitation.mockResolvedValue({ state: 'syncing', canAdd: false })
 		renderCard()
 
-		expect(await screen.findByText(/Nylas is still syncing this event/)).toBeInTheDocument()
+		expect(await screen.findByText('Invitation not in your calendar yet')).toBeInTheDocument()
+		expect(screen.getByText(/OwnMail can’t add it from this message/)).toBeInTheDocument()
+		expect(screen.queryByText(/still syncing/)).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Add to calendar' })).toBeNull()
 		expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
 	})

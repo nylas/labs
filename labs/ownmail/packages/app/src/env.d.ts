@@ -4,6 +4,8 @@
 declare namespace Cloudflare {
 	interface Env {
 		SESSIONS: KVNamespace
+		/** Atomic invitation claims (see src/worker.ts). */
+		INVITATION_LOCKS: DurableObjectNamespace<import('./worker').InvitationLocks>
 		NYLAS_API_KEY: string
 		SESSION_SECRET: string
 		/** Optional — realtime falls back to slow polling without it. */

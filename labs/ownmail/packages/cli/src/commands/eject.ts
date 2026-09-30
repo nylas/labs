@@ -2,7 +2,12 @@ import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:
 import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { DEPLOYMENT_API_KEY_LIFETIME_DAYS } from '../api-key-lifecycle.js'
-import { loadManifest, templateRateLimits, templateRoot } from '../deploy/materialize.js'
+import {
+	loadManifest,
+	templateDurableObjects,
+	templateRateLimits,
+	templateRoot,
+} from '../deploy/materialize.js'
 import { sourceImports } from '../deploy/source-imports.js'
 import { deployedApiBaseUrl } from '../nylas-env.js'
 import { projectAppDomains } from '../state/app-domains.js'
@@ -44,6 +49,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 	// without these has no brute-force protection on sign-in, so failing here is
 	// better than handing over a quietly weaker deployment.
 	const rateLimits = templateRateLimits()
+	const durableObjects = templateDurableObjects()
 
 	// Fresh API key for .dev.vars — the deployed key lives only in Cloudflare.
 	let apiKey = ''
@@ -133,8 +139,10 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 				name: project.workerName ?? `${project.slug}-ownmail`,
 				compatibility_date: '2026-06-01',
 				compatibility_flags: ['nodejs_compat'],
-				main: '@tanstack/react-start/server-entry',
+				main: './src/worker.ts',
 				kv_namespaces: [{ binding: 'SESSIONS', id: project.kvNamespaceId ?? '' }],
+				// Atomic invitation claims, carried through from the template like ratelimits.
+				...durableObjects,
 				// Carried through verbatim from the template, exactly as `ownmail
 				// deploy` does. These need no account resource, so the same
 				// declaration works in the user's own project.

@@ -80,6 +80,23 @@ describe('invitation creation claims', () => {
 		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 2)).resolves.toBe(true)
 	})
 
+	it('reads the active claim from atomic storage when it is separate from KV', async () => {
+		// On Cloudflare, claims live in a Durable Object while KV holds sessions. Reading
+		// the claim from KV would see nothing and make every add fail as "already being added".
+		const atomic = atomicStore()
+		const kv: KvLike = {
+			...atomic,
+			get: vi.fn(async () => null),
+			getAtomic: atomic.get,
+		}
+		platform.mockResolvedValue({ kv, env: { SESSION_SECRET: 'secret' } })
+
+		await expect(claimInvitationCreation('grant-1', 'uid@example.com', 3)).resolves.toBe(true)
+		await expect(invitationCreationClaimSequence('grant-1', 'uid@example.com')).resolves.toBe(3)
+		await expect(invitationCreationClaimActive('grant-1', 'uid@example.com', 3)).resolves.toBe(true)
+		expect(kv.get).not.toHaveBeenCalled()
+	})
+
 	it('fails closed when no atomic shared store is available', async () => {
 		platform.mockResolvedValue({ kv: null, env: { SESSION_SECRET: 'secret' } })
 

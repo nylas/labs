@@ -85,6 +85,21 @@ export type KvLike = {
 	releaseRevision?(key: string, revision: number): Promise<void>
 	/** Deletes a key only when its current value matches the caller's token. */
 	deleteIfValue?(key: string, value: string): Promise<void>
+	/** Reads a key written by the atomic operations above when they use separate storage. */
+	getAtomic?(key: string): Promise<string | null>
+}
+
+/** RPC surface of the `InvitationLocks` Durable Object exported by `src/worker.ts`. */
+type InvitationLockStub = {
+	read(): Promise<string | null>
+	putIfAbsent(value: string, expirationTtl: number): Promise<boolean>
+	claimRevision(revision: number, expirationTtl: number): Promise<boolean>
+	deleteIfValue(value: string): Promise<void>
+}
+
+type InvitationLockNamespace = {
+	idFromName(name: string): unknown
+	get(id: unknown): InvitationLockStub
 }
 
 export type Platform = { env: AppEnv; kv: KvLike | null; runtime: 'cloudflare' | 'node' }
@@ -104,9 +119,10 @@ export async function platform(): Promise<Platform> {
 	}
 	try {
 		const { env } = await import('cloudflare:workers')
+		const bindings = env as { SESSIONS?: KvLike; INVITATION_LOCKS?: InvitationLockNamespace }
 		cached = {
 			env: env as unknown as AppEnv,
-			kv: (env as { SESSIONS?: KvLike }).SESSIONS ?? null,
+			kv: bindings.SESSIONS ? cloudflareKv(bindings.SESSIONS, bindings.INVITATION_LOCKS) : null,
 			runtime: 'cloudflare',
 		}
 	} catch {
@@ -117,6 +133,27 @@ export async function platform(): Promise<Platform> {
 		cached = { env, kv: nodeKv(env), runtime: 'node' }
 	}
 	return cached
+}
+
+/**
+ * Cloudflare KV cannot compare-and-set, so when the `INVITATION_LOCKS` Durable
+ * Object is bound, atomic operations run on one object per key. Everything
+ * else stays on KV. Without the binding (older deploys), KV is returned as-is.
+ */
+function cloudflareKv(sessions: KvLike, locks: InvitationLockNamespace | undefined): KvLike {
+	if (!locks) return sessions
+	const lock = (key: string) => locks.get(locks.idFromName(key))
+	return {
+		get: (key) => sessions.get(key),
+		put: (key, value, options) => sessions.put(key, value, options),
+		delete: (key) => sessions.delete(key),
+		...(sessions.list ? { list: sessions.list.bind(sessions) } : {}),
+		getAtomic: (key) => lock(key).read(),
+		putIfAbsent: (key, value, expirationTtl) => lock(key).putIfAbsent(value, expirationTtl),
+		claimRevision: (key, revision, expirationTtl) => lock(key).claimRevision(revision, expirationTtl),
+		releaseRevision: (key, revision) => lock(key).deleteIfValue(String(revision)),
+		deleteIfValue: (key, value) => lock(key).deleteIfValue(value),
+	}
 }
 
 function nodeKv(env: AppEnv): KvLike | null {

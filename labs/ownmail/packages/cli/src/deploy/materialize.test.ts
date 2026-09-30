@@ -8,6 +8,7 @@ import {
 	materializeLocal,
 	materializeNetlify,
 	materializeVercel,
+	templateDurableObjects,
 	templateRateLimits,
 	templateRoot,
 } from './materialize.js'
@@ -69,6 +70,8 @@ beforeEach(() => {
 	vi.clearAllMocks()
 	existsMap.clear()
 	wranglerConfig.ratelimits = [...rateLimits]
+	delete wranglerConfig.durable_objects
+	delete wranglerConfig.migrations
 })
 
 describe('templateRoot / loadManifest', () => {
@@ -109,6 +112,40 @@ describe('templateRateLimits', () => {
 
 	it('refuses to proceed when the built config is missing entirely', () => {
 		expect(() => templateRateLimits()).toThrow(/no rate-limit bindings/)
+	})
+})
+
+describe('templateDurableObjects', () => {
+	const configPath = join('/fake/template', 'dist', 'server', 'wrangler.json')
+
+	it('reads the Durable Objects and migrations the template build declares', () => {
+		existsMap.set(configPath, true)
+		wranglerConfig.durable_objects = {
+			bindings: [{ name: 'INVITATION_LOCKS', class_name: 'InvitationLocks' }],
+		}
+		wranglerConfig.migrations = [{ tag: 'v1', new_sqlite_classes: ['InvitationLocks'] }]
+
+		expect(templateDurableObjects()).toEqual({
+			durable_objects: wranglerConfig.durable_objects,
+			migrations: wranglerConfig.migrations,
+		})
+	})
+
+	it('refuses to proceed when the build declares no Durable Objects or migrations', () => {
+		// Ejecting without them would leave invitations unable to be added on Cloudflare.
+		existsMap.set(configPath, true)
+		wranglerConfig.durable_objects = undefined
+		wranglerConfig.migrations = undefined
+		expect(() => templateDurableObjects()).toThrow(/no Durable Objects/)
+
+		wranglerConfig.durable_objects = {
+			bindings: [{ name: 'INVITATION_LOCKS', class_name: 'InvitationLocks' }],
+		}
+		expect(() => templateDurableObjects()).toThrow(/no Durable Objects/)
+	})
+
+	it('refuses to proceed when the built config is missing entirely', () => {
+		expect(() => templateDurableObjects()).toThrow(/no Durable Objects/)
 	})
 })
 

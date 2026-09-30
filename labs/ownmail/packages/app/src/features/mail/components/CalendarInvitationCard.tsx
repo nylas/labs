@@ -116,11 +116,11 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		const canAdd = details.canAdd !== false
 		return (
 			<InvitationNotice
-				title="Adding invitation to your calendar"
+				title={canAdd ? 'Adding invitation to your calendar' : 'Invitation not in your calendar yet'}
 				message={
 					canAdd
 						? 'Nylas is still syncing this event. You can check again or add it to your calendar now.'
-						: 'Nylas is still syncing this event. You can check again in a moment.'
+						: 'This event isn’t in your calendar yet, and OwnMail can’t add it from this message. Check again later, or add it from your calendar app.'
 				}
 				onRetry={() => void invitation.refetch()}
 				retrying={invitation.isFetching}
