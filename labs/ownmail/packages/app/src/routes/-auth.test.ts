@@ -85,6 +85,66 @@ describe('/auth', () => {
 		expect(response.headers.get('Set-Cookie')).toBe('ownmail_session=next')
 	})
 
+	it('lets an in-app switch rotate the session without a document redirect', async () => {
+		// In-app switching clears client caches itself; a 303 would force fetch to
+		// download the mail shell it is about to discard.
+		const handle = 'c'.repeat(43)
+		switchSessionAccount.mockResolvedValue('ownmail_session=next')
+		const request = new Request('https://ownmail.local/auth', {
+			method: 'POST',
+			headers: {
+				origin: 'https://ownmail.local',
+				accept: 'text/plain;q=0.5, Application/JSON; q=1',
+				'content-type': 'application/x-www-form-urlencoded',
+			},
+			body: new URLSearchParams({ account: handle }),
+		})
+
+		const response = await POST({ request })
+
+		expect(switchSessionAccount).toHaveBeenCalledWith(request, handle)
+		expect(response.status).toBe(204)
+		expect(response.headers.get('Location')).toBeNull()
+		expect(response.headers.get('Set-Cookie')).toBe('ownmail_session=next')
+		expect(response.headers.get('Cache-Control')).toBe('no-store')
+	})
+
+	it('keeps browser document navigations on the redirecting switch path', async () => {
+		switchSessionAccount.mockResolvedValue('ownmail_session=next')
+		const response = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: {
+					origin: 'https://ownmail.local',
+					accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+					'content-type': 'application/x-www-form-urlencoded',
+				},
+				body: new URLSearchParams({ account: 'd'.repeat(43) }),
+			}),
+		})
+
+		expect(response.status).toBe(303)
+		expect(response.headers.get('Location')).toBe('/')
+	})
+
+	it('still fails closed for an in-app switch to an unverified handle', async () => {
+		switchSessionAccount.mockResolvedValue(null)
+		const response = await POST({
+			request: new Request('https://ownmail.local/auth', {
+				method: 'POST',
+				headers: {
+					origin: 'https://ownmail.local',
+					accept: 'application/json',
+					'content-type': 'application/x-www-form-urlencoded',
+				},
+				body: new URLSearchParams({ account: 'z'.repeat(43) }),
+			}),
+		})
+
+		expect(response.status).toBe(403)
+		expect(response.headers.get('Set-Cookie')).toBeNull()
+	})
+
 	it('accepts a bounded streaming body when Content-Length is unavailable', async () => {
 		const handle = 'b'.repeat(43)
 		switchSessionAccount.mockResolvedValue('ownmail_session=next')

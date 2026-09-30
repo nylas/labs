@@ -459,6 +459,49 @@ describe('/settings', () => {
 		},
 	)
 
+	it('resets unsaved account form state when an in-app inbox switch loads the next inbox', () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const view = renderSettings(true, info, queryClient)
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Unsaved for Ada' } })
+		fireEvent.change(screen.getByLabelText('New password'), { target: { value: password } })
+
+		// The route stays mounted across the switch; only its loader data changes.
+		const grace = { email: 'grace@example.com', displayName: 'Grace', appName: 'OwnMail' }
+		Route.useLoaderData = vi.fn(() => ({ info: grace, capabilities: { passwordResetEnabled: true } }))
+		const Component = Route.options.component
+		view.rerender(
+			<QueryClientProvider client={queryClient}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		expect(screen.getByLabelText('Display name')).toHaveValue('Grace')
+		expect(screen.getByLabelText('New password')).toHaveValue('')
+	})
+
+	it('tracks account writes in the mutation cache so an inbox switch waits for them', async () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const nameSave = Promise.withResolvers<{ displayName: string }>()
+		const passwordSave = Promise.withResolvers<{ ok: true }>()
+		updateMailboxDisplayName.mockReturnValueOnce(nameSave.promise)
+		resetMailboxPassword.mockReturnValueOnce(passwordSave.promise)
+		renderSettings(true, info, queryClient)
+
+		fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Ada Lovelace' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+		fireEvent.change(screen.getByLabelText('New password'), { target: { value: password } })
+		fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: password } })
+		fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
+		await waitFor(() => expect(queryClient.isMutating()).toBe(2))
+
+		await act(async () => {
+			nameSave.resolve({ displayName: 'Ada Lovelace' })
+			passwordSave.resolve({ ok: true })
+		})
+		await waitFor(() => expect(queryClient.isMutating()).toBe(0))
+		expect(screen.getByText('Settings saved.')).toBeInTheDocument()
+	})
+
 	it('validates confirmation and submits an enabled password change', async () => {
 		renderSettings(true)
 		expect(screen.getByRole('button', { name: 'Update password' })).toHaveAttribute('aria-disabled', 'true')

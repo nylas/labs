@@ -431,6 +431,19 @@ describe('mail optimistic transaction journal', () => {
 		})
 	})
 
+	it('does not replay the previous inbox snapshot after a reset', async () => {
+		// Switching inboxes clears the cache; a late receipt for the old inbox
+		// must not rebuild the old base snapshot into the new inbox's cache.
+		const client = seedClient()
+		const manager = createMailOptimisticManager(client)
+		const star = await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		manager.reset()
+		client.clear()
+		expect(manager.pendingCount()).toBe(0)
+		expect(star.commit()).toBe(true)
+		expect(client.getQueriesData({ queryKey: mailKeys.all })).toEqual([])
+	})
+
 	it('sanitizes provider send receipts before caching', () => {
 		expect(safeSentMessage({ id: 'm1', grant_id: 'secret-grant', thread_id: 't1' })).toEqual({
 			id: 'm1',

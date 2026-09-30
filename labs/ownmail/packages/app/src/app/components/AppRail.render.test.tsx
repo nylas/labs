@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MutationObserver, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, fireEvent, render as renderUi, screen, waitFor } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THEME_CHANGE_EVENT, THEME_STORAGE_KEY } from '../config/theme.js'
+import { setSwitchingTo } from '../lib/account-switch-status.js'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from './AppRail.js'
 import { CommandPalette } from './CommandPalette.js'
 
@@ -12,10 +15,56 @@ vi.mock('@tanstack/react-router', () => ({
 		</a>
 	),
 	useNavigate: () => vi.fn(),
+	useRouter: () => ({ navigate: vi.fn(), invalidate: vi.fn() }),
+	useRouterState: (options: { select: (state: { location: { pathname: string } }) => unknown }) =>
+		options.select({ location: { pathname: '/' } }),
 }))
+vi.mock('#server/fns', () => ({
+	deleteDraft: vi.fn(),
+	getMailboxInfo: vi.fn(),
+	saveDraft: vi.fn(),
+	sendDraft: vi.fn(),
+	updateThreadState: vi.fn(),
+}))
+vi.mock('#features/calendar/server/calendar-fns', () => ({
+	createEvent: vi.fn(),
+	deleteEvent: vi.fn(),
+	getEvents: vi.fn(),
+	rsvpEvent: vi.fn(),
+	updateEvent: vi.fn(),
+}))
+
+let queryClient = new QueryClient()
+
+function render(ui: ReactElement) {
+	return renderUi(ui, {
+		wrapper: ({ children }: { children: ReactNode }) => (
+			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		),
+	})
+}
+
+/** Starts a write that never settles, as an in-flight optimistic save would. */
+function holdPendingWrite() {
+	const observer = new MutationObserver(queryClient, { mutationFn: () => new Promise(() => {}) })
+	act(() => {
+		void observer.mutate()
+	})
+}
+
+beforeEach(() => {
+	// Switcher submissions stay in flight so no test leaves the page.
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(() => new Promise(() => {})),
+	)
+})
 
 afterEach(() => {
 	cleanup()
+	act(() => setSwitchingTo(null))
+	vi.unstubAllGlobals()
+	queryClient = new QueryClient()
 	localStorage.clear()
 	document.documentElement.className = ''
 })
@@ -162,8 +211,10 @@ describe('AppRailNav', () => {
 		expect(switcher).not.toHaveAttribute('title')
 		expect(switcher).toHaveClass('min-h-11', 'w-11')
 		const target = screen.getByRole('button', { name: 'support-americas-long@ownmail.com' })
-		expect(target).toHaveAttribute('name', 'account')
-		expect(target).toHaveAttribute('value', 'b'.repeat(43))
+		// The opaque handle rides in the form so the no-script post still switches.
+		expect(new FormData(target.closest('form') as HTMLFormElement).getAll('account')).toEqual([
+			'b'.repeat(43),
+		])
 		expect(target).toHaveClass('min-h-11', 'min-w-0')
 		const avatar = target.querySelector('[data-slot="account-switcher-avatar"]')
 		expect(avatar).toHaveClass('app-rail-account', 'shrink-0')
@@ -231,6 +282,30 @@ describe('AppRailNav', () => {
 		target.closest('form')?.addEventListener('submit', (event) => event.preventDefault())
 		fireEvent.click(target)
 		expect(details).not.toHaveAttribute('open')
+	})
+
+	it('marks the current inbox and explains why switching waits for a pending save', async () => {
+		render(
+			<AppRailNav
+				email="ada@ownmail.com"
+				active="mail"
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+		const current = screen.getByRole('button', { name: 'ada@ownmail.com' })
+		const other = screen.getByRole('button', { name: 'grace@ownmail.com' })
+		expect(current).toHaveAttribute('aria-current', 'true')
+		expect(other).toBeEnabled()
+		expect(other).not.toHaveAttribute('aria-describedby')
+
+		holdPendingWrite()
+
+		await waitFor(() => expect(other).toBeDisabled())
+		expect(other).toHaveAccessibleDescription('Finish saving your changes before switching inboxes.')
+		expect(current).not.toHaveAttribute('aria-describedby')
 	})
 
 	it('offers the Nylas Connect proof flow for adding another inbox', () => {
@@ -462,6 +537,27 @@ describe('AppRailMobileNav', () => {
 		expect(onNavigate).toHaveBeenCalledOnce()
 		expect(requestSubmit).toHaveBeenCalledOnce()
 		requestSubmit.mockRestore()
+	})
+
+	it('disables the mobile switcher with a reason while a save is pending', async () => {
+		render(
+			<AppRailMobileNav
+				email="ada@ownmail.com"
+				active="mail"
+				onNavigate={vi.fn()}
+				accounts={[
+					{ email: 'ada@ownmail.com', handle: 'a'.repeat(43), active: true },
+					{ email: 'grace@ownmail.com', handle: 'b'.repeat(43), active: false },
+				]}
+			/>,
+		)
+		const switcher = screen.getByRole('combobox', { name: 'Switch inbox' })
+		expect(switcher).toBeEnabled()
+
+		holdPendingWrite()
+
+		await waitFor(() => expect(switcher).toBeDisabled())
+		expect(switcher).toHaveAccessibleDescription('Finish saving your changes before switching inboxes.')
 	})
 
 	it('hides the mobile switcher if session account data has no active account', () => {

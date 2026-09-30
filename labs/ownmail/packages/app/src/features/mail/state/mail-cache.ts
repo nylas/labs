@@ -373,7 +373,8 @@ export function createMailOptimisticManager(client: QueryClient) {
 	let entries: JournalEntry[] = []
 
 	function rebuild() {
-		/* v8 ignore next -- rebuild is private and is only called after begin captures the base -- @preserve */
+		// A reset (for example, after switching inboxes) discards the base; late
+		// receipts from the previous inbox must not restore its snapshot.
 		if (!base) return
 		restoreMailCacheSnapshot(client, base)
 		for (const entry of entries) applyMailCacheEffect(client, entry.effect)
@@ -425,6 +426,11 @@ export function createMailOptimisticManager(client: QueryClient) {
 		},
 		pendingCount() {
 			return entries.filter((entry) => entry.status === 'pending').length
+		},
+		/** Forget every journal entry and base snapshot without touching the cache. */
+		reset() {
+			entries = []
+			base = undefined
 		},
 	}
 }

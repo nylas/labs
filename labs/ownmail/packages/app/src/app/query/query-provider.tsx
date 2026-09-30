@@ -1,6 +1,7 @@
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { useRouterState } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { assertAccountWritable } from '../lib/account-switch-status.js'
 
 const VERSION_POLL_INTERVAL_MS = 10_000
 const FALLBACK_REFRESH_INTERVAL_MS = 60_000
@@ -14,6 +15,9 @@ type DomainVersions = {
 
 export function createOwnmailQueryClient(): QueryClient {
 	return new QueryClient({
+		// Runs before each mutation's own onMutate and mutationFn, so no tracked
+		// write can start against a session cookie that is being rotated.
+		mutationCache: new MutationCache({ onMutate: () => assertAccountWritable() }),
 		defaultOptions: {
 			queries: {
 				gcTime: 5 * 60_000,

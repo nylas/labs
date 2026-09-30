@@ -793,6 +793,10 @@
 	animation: fade-in 140ms ease;
 }
 
+.account-switch-overlay {
+	animation: fade-in var(--dur-medium) var(--ease-out);
+}
+
 .dialog-overlay[data-state="open"] {
 	animation: fade-in var(--dur-medium) var(--ease-out);
 }

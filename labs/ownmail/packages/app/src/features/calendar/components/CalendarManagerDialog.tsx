@@ -1,6 +1,7 @@
 import type { Calendar } from '@nylas-labs/cli-kit/v3'
 import { useQueryClient } from '@tanstack/react-query'
 import { ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
+import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { createCalendar, deleteCalendar, updateCalendar } from '../server/calendar-fns.js'
 import { applyCalendarResourceEffect } from '../state/calendar-state.js'
 
@@ -35,17 +36,19 @@ export function CalendarManagerDialog({
 			}))}
 			onClose={onClose}
 			onCreate={async (name) => {
-				const receipt = await createCalendar({ data: { name } })
+				const receipt = await runTrackedWrite(queryClient, () => createCalendar({ data: { name } }))
 				applyCalendarResourceEffect(queryClient, { type: 'created', calendar: receipt.calendar })
 				refresh()
 			}}
 			onUpdate={async (calendarId, name) => {
-				const receipt = await updateCalendar({ data: { calendarId, name } })
+				const receipt = await runTrackedWrite(queryClient, () =>
+					updateCalendar({ data: { calendarId, name } }),
+				)
 				applyCalendarResourceEffect(queryClient, { type: 'updated', calendar: receipt.calendar })
 				refresh()
 			}}
 			onDelete={async (calendarId) => {
-				const receipt = await deleteCalendar({ data: { calendarId } })
+				const receipt = await runTrackedWrite(queryClient, () => deleteCalendar({ data: { calendarId } }))
 				applyCalendarResourceEffect(queryClient, {
 					type: 'deleted',
 					calendarId: receipt.removedCalendarId,

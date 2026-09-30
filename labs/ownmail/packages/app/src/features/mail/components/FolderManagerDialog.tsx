@@ -1,6 +1,7 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { useQueryClient } from '@tanstack/react-query'
 import { ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
+import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { createFolder, deleteFolder, updateFolder } from '../server/mail-functions.js'
 import { type MailFolder, mailKeys, toMailFolder } from '../state/mail-queries.js'
 
@@ -50,10 +51,14 @@ export function FolderManagerDialog({
 				canDelete: true,
 			}))}
 			onClose={onClose}
-			onCreate={async (name) => reconcile(await createFolder({ data: { name } }))}
-			onUpdate={async (folderId, name) => reconcile(await updateFolder({ data: { folderId, name } }))}
+			onCreate={async (name) =>
+				reconcile(await runTrackedWrite(queryClient, () => createFolder({ data: { name } })))
+			}
+			onUpdate={async (folderId, name) =>
+				reconcile(await runTrackedWrite(queryClient, () => updateFolder({ data: { folderId, name } })))
+			}
 			onDelete={async (folderId) => {
-				reconcile(await deleteFolder({ data: { folderId } }))
+				reconcile(await runTrackedWrite(queryClient, () => deleteFolder({ data: { folderId } })))
 				onDeleted?.(folderId)
 			}}
 		/>

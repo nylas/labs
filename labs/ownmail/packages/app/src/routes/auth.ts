@@ -46,6 +46,14 @@ export const Route = createFileRoute('/auth')({
 				if (!handle) return new Response('Invalid request', { status: 400 })
 				const cookie = await switchSessionAccount(request, handle)
 				if (!cookie) return new Response('Forbidden', { status: 403 })
+				if (acceptsJson(request)) {
+					// Script-driven switches clear client caches in place, so they need
+					// only the rotated session cookie, not a document redirect.
+					return new Response(null, {
+						status: 204,
+						headers: { 'Set-Cookie': cookie, 'Cache-Control': 'no-store' },
+					})
+				}
 				return new Response(null, {
 					status: 303,
 					headers: { Location: MAIL_HOME_PATH, 'Set-Cookie': cookie },
@@ -54,6 +62,12 @@ export const Route = createFileRoute('/auth')({
 		},
 	},
 })
+
+function acceptsJson(request: Request): boolean {
+	return (request.headers.get('accept') ?? '')
+		.split(',')
+		.some((range) => range.replace(/;.*$/, '').trim().toLowerCase() === 'application/json')
+}
 
 function validContentLength(value: string): boolean {
 	if (!/^[1-9]\d{0,3}$/.test(value)) return false

@@ -32,6 +32,11 @@ const confirmedEffects = new WeakMap<
 	}>
 >()
 
+/** Drop replayed contact receipts when the cache is cleared for another inbox. */
+export function resetContactConfirmedEffects(queryClient: QueryClient): void {
+	confirmedEffects.delete(queryClient)
+}
+
 function rememberConfirmedContactEffect(
 	queryClient: QueryClient,
 	effect:
