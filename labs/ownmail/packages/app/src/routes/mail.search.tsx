@@ -28,6 +28,7 @@ import {
 } from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
+	mailKeys,
 	threadDetailQueryOptions,
 	threadListQueryOptions,
 	toMailFolder,
@@ -65,8 +66,11 @@ export const Route = createFileRoute('/mail/search')({
 					})
 				: Promise.resolve(emptyResults),
 			hasSearchQuery && deps.threadId
-				? openThreadDetail(context.queryClient, deps.threadId, { preload }, () =>
-						getThreadMessages({ data: { threadId: deps.threadId as string } }),
+				? openThreadDetail(
+						context.queryClient,
+						deps.threadId,
+						{ preload, queryKey: mailKeys.threadDetail(deps.threadId), cacheAs: toMailThreadDetail },
+						() => getThreadMessages({ data: { threadId: deps.threadId as string } }),
 					)
 				: null,
 		])

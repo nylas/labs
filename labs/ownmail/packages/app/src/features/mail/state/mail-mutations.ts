@@ -198,14 +198,20 @@ function startReadOnOpen(
 export async function openThreadDetail<T extends { thread: { unread?: boolean } }>(
 	client: QueryClient,
 	threadId: string,
-	{ preload, queryKey }: { preload: boolean; queryKey?: QueryKey },
+	{
+		preload,
+		queryKey,
+		cacheAs = (detail) => detail,
+	}: { preload: boolean; queryKey?: QueryKey; cacheAs?: (detail: T) => unknown },
 	load: () => Promise<T>,
 ): Promise<T> {
 	const attempt = preload ? undefined : startReadOnOpen(client, threadId)
 	const detail = await load()
 	if (!attempt || attempt.failed || !detail.thread.unread) return detail
 	const read = { ...detail, thread: { ...detail.thread, unread: false } }
-	if (queryKey) client.setQueryData(queryKey, read)
+	// Cache the aligned detail immediately so a later rejection can return it
+	// to unread before any route installs it as initial data.
+	if (queryKey) client.setQueryData(queryKey, cacheAs(read))
 	return read
 }
 
