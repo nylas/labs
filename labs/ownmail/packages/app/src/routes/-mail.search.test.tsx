@@ -128,6 +128,45 @@ describe('/mail/search loader', () => {
 		})
 	})
 
+	it('returns the cached search reader to unread when the read fails while the loader is still waiting', async () => {
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(mailKeys.threadList({ q: 'x' }), {
+			pages: [{ threads: [{ id: 't1', folders: ['inbox'], unread: true }] }],
+			pageParams: [undefined],
+		})
+		let releaseFolders: (value: unknown) => void = () => {}
+		fns.getFolders.mockReturnValue(new Promise((resolve) => (releaseFolders = resolve)))
+		fns.getThreads.mockResolvedValue({ threads: [] })
+		fns.getThreadMessages.mockResolvedValue({
+			thread: { id: 't1', grant_id: 'private-grant', unread: true },
+			messages: [],
+			mailboxEmail: 'me',
+		})
+		let rejectRead: (reason: unknown) => void = () => {}
+		fns.markThreadRead.mockReturnValueOnce(new Promise((_resolve, reject) => (rejectRead = reject)))
+
+		const loading = Route.options.loader({
+			context: { queryClient },
+			deps: { q: 'x', threadId: 't1' },
+			preload: false,
+		})
+		const detail = () => queryClient.getQueryData<any>(mailKeys.threadDetail('t1'))
+
+		await waitFor(() => expect(detail()?.thread.unread).toBe(false))
+		// The cache holds the browser-safe detail shape, never provider grant ids.
+		expect(detail()?.thread).not.toHaveProperty('grant_id')
+
+		// The read fails after the detail resolved but before the loader finished.
+		rejectRead(new Error('offline'))
+		await waitFor(() => expect(detail()?.thread.unread).toBe(true))
+		releaseFolders([])
+		await loading
+		expect(detail()?.thread.unread).toBe(true)
+		expect(
+			(queryClient.getQueryData(mailKeys.threadList({ q: 'x' })) as any).pages[0].threads[0].unread,
+		).toBe(true)
+	})
+
 	it('scopes a non-starred folder query by folderId and skips message load without a thread', async () => {
 		fns.getFolders.mockResolvedValue([])
 		fns.getThreads.mockResolvedValue({ threads: [] })
