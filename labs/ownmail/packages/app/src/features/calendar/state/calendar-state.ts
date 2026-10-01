@@ -464,6 +464,12 @@ type EventWrites = {
 	queued: QueuedSend | null
 	/** What the provider last confirmed underneath a newer change; a rollback returns to it. */
 	confirmed?: CalendarEffect
+	/**
+	 * How to put back the receipts each change set aside. They travel with the
+	 * event, not with the change that removed them: when several changes overlap
+	 * and all fail, whichever rolls back last restores every one of them.
+	 */
+	receipts: Array<() => void>
 }
 type EventWriteTicket = { key: string; sequence: number }
 
@@ -518,6 +524,7 @@ function issueEventWrite(queryClient: QueryClient, eventId: string): EventWriteT
 		pending: new Map(),
 		sending: false,
 		queued: null,
+		receipts: [],
 	}
 	byEvent.set(key, writes)
 	writes.issued += 1
@@ -525,8 +532,17 @@ function issueEventWrite(queryClient: QueryClient, eventId: string): EventWriteT
 	return { key, sequence: writes.issued }
 }
 
-function trackEventWrite(queryClient: QueryClient, ticket: EventWriteTicket, written: OptimisticWrite) {
-	eventWrites.get(queryClient)?.get(ticket.key)?.pending.set(ticket.sequence, written)
+function trackEventWrite(
+	queryClient: QueryClient,
+	ticket: EventWriteTicket,
+	written: OptimisticWrite,
+	restoreReceipts: () => void,
+) {
+	const writes = eventWrites.get(queryClient)?.get(ticket.key)
+	// The cache was cleared for another inbox while this change was starting.
+	if (!writes) return
+	writes.pending.set(ticket.sequence, written)
+	writes.receipts.push(restoreReceipts)
 }
 
 /**
@@ -567,16 +583,21 @@ function settleEventWrite(queryClient: QueryClient, ticket: EventWriteTicket, fa
  */
 function rollBackEventWrite(
 	queryClient: QueryClient,
-	context: { ticket: EventWriteTicket; written: OptimisticWrite; restoreReceipts: () => void },
+	context: { ticket: EventWriteTicket; written: OptimisticWrite },
 ) {
-	const confirmed = eventWrites.get(queryClient)?.get(context.ticket.key)?.confirmed
-	if (!settleEventWrite(queryClient, context.ticket, true)) return
-	context.restoreReceipts()
+	const writes = eventWrites.get(queryClient)?.get(context.ticket.key)
+	// Cleared for another inbox, or a newer change to this event is still standing.
+	if (!writes || !settleEventWrite(queryClient, context.ticket, true)) return
+	// Every receipt set aside since the event was last settled comes back, not
+	// only this change's: an earlier overlapping change that failed first never
+	// rolled back, so the receipt it removed is still owed.
+	for (const restoreReceipts of writes.receipts) restoreReceipts()
+	writes.receipts = []
 	undoOptimisticWrite(queryClient, context.written)
-	if (confirmed) {
+	if (writes.confirmed) {
 		// An earlier change was confirmed while this one waited: that is where the event is.
-		rememberConfirmedCalendarEffect(queryClient, confirmed)
-		applyCalendarEffect(queryClient, confirmed)
+		rememberConfirmedCalendarEffect(queryClient, writes.confirmed)
+		applyCalendarEffect(queryClient, writes.confirmed)
 	}
 	refreshCalendar(queryClient)
 }
@@ -615,8 +636,8 @@ export function useUpdateEventMutation(event: Event | null) {
 			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
 				applyCalendarEffect(queryClient, { type: 'updated', event: eventFromUpdate(event, input) }),
 			)
-			trackEventWrite(queryClient, ticket, written)
-			return { written, restoreReceipts, ticket }
+			trackEventWrite(queryClient, ticket, written, restoreReceipts)
+			return { written, ticket }
 		},
 		onError: (_error, _input, context) => {
 			// A newer save of this event still standing is not undone.
@@ -671,8 +692,8 @@ export function useRescheduleEventMutation() {
 					event: eventFromUpdate(input.event, updateInput(input)),
 				}),
 			)
-			trackEventWrite(queryClient, ticket, written)
-			return { written, restoreReceipts, ticket }
+			trackEventWrite(queryClient, ticket, written, restoreReceipts)
+			return { written, ticket }
 		},
 		onError: (_error, _input, context) => {
 			// The event was moved again since: that newer position is not undone.

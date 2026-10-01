@@ -619,6 +619,61 @@ describe('calendar mutation hooks', () => {
 		})
 	})
 
+	it('keeps an event earlier confirmation when two overlapping newer changes to it both fail', async () => {
+		const RANGE = { start: 0, end: 1000 }
+		const at = (start: number) =>
+			({ ...event, when: { object: 'timespan', start_time: start, end_time: start + 100 } }) as Event
+		const drawnAfterStaleRead = () => {
+			client.setQueryData(calendarKeys.range(RANGE.start, RANGE.end), calendarData)
+			const when = calendarStateTestApi.reconcileCalendarData(client, calendarData, RANGE).events[0]?.when
+			return (when as { start_time: number }).start_time
+		}
+		// The event was moved to 300 and the provider confirmed it a moment ago.
+		api.updateEvent.mockResolvedValueOnce({ event: at(300) })
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		await act(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+		expect(drawnAfterStaleRead()).toBe(300)
+		client.setQueryData(calendarKeys.range(RANGE.start, RANGE.end), {
+			events: [at(300)],
+		} as CalendarRouteData)
+
+		// Two more moves overlap: the first is with the provider, the second waits its turn.
+		const refusals: Array<(reason: unknown) => void> = []
+		api.updateEvent.mockImplementation(
+			() =>
+				new Promise((_resolve, reject) => {
+					refusals.push(reject)
+				}),
+		)
+		const settled: Promise<unknown>[] = []
+		for (const [from, to] of [
+			[300, 500],
+			[500, 700],
+		] as const) {
+			act(() => {
+				settled.push(
+					reschedule.current
+						.mutateAsync({ event: at(from), startTime: to, endTime: to + 100 })
+						.catch(() => {}),
+				)
+			})
+			await act(async () => {})
+		}
+		// Both are refused, one after the other.
+		await act(async () => {
+			refusals[0]?.(new Error('offline'))
+		})
+		await act(async () => {})
+		await act(async () => {
+			refusals[1]?.(new Error('offline'))
+			await Promise.all(settled)
+		})
+		// The confirmation of 300 is the only thing holding the event there while
+		// the provider's reads catch up. It was set aside by the first of the two
+		// changes; the second one's rollback must still put it back.
+		expect(drawnAfterStaleRead()).toBe(300)
+	})
+
 	it('fails closed when an update hook has no authorized event', async () => {
 		const update = renderHook(() => useUpdateEventMutation(null), { wrapper }).result
 		await expect(act(() => update.current.mutateAsync({ eventId: 'missing', title: 'No' }))).rejects.toThrow(
