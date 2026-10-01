@@ -1057,8 +1057,10 @@ describe('MailFolderRouteScreen — reading pane', () => {
 			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Condensed' }))
 
 			await waitFor(() => expect(listSection()).toHaveAttribute('data-density', 'condensed'))
-			// The single-line row gets a wider list beside the reader.
-			expect(listSection()).toHaveClass('xl:w-[26rem]')
+			// The choice only changes the attribute: the wider Condensed list is CSS keyed on it
+			// (fine pointers only), so touch layouts keep the 22rem list.
+			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[22rem]')
+			expect(listSection().className).not.toContain('26rem')
 			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
 				'condensed',
 			)

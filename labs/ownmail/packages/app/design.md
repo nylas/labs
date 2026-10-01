@@ -109,7 +109,9 @@ the list toolbar or the command palette.
 - Compact: two lines (sender and date, then subject and snippet on one line),
   about 62 pixels.
 - Condensed: one line (sender, subject and snippet, date), 34 pixels. The
-  vertical split widens the list from 22rem to 26rem for it.
+  vertical split widens the list from 22rem to 26rem for it, in the same media
+  query as the rows, so the preference changes no layout where it does not
+  apply.
 - Compact and Condensed apply only with a fine pointer (mouse or trackpad) on
   desktop layouts. Mobile layouts and any touch-capable device always get the
   Default row, never under 48 pixels, and the toolbar control is hidden there

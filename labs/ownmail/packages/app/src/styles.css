@@ -865,6 +865,18 @@
 		padding-block: 0;
 	}
 
+	/*
+	 * One line needs more room than the 22rem vertical-split list. The wider
+	 * list lives here, not in the layout classes, so a Condensed preference
+	 * changes nothing where Condensed rows do not apply.
+	 */
+	@media (min-width: 80rem) {
+		.mail-list-vertical[data-density="condensed"] {
+			width: 26rem;
+			max-width: 26rem;
+		}
+	}
+
 	[data-density="condensed"] .thread-row-sender {
 		font-size: 0.8125rem;
 	}

@@ -145,7 +145,7 @@ function SearchResults() {
 	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
 	const [cursor, setCursor] = useState(-1)
 	const [preferences, savePreferences] = useUserPreferences()
-	const layout = readingPaneLayout(preferences.readingPane, Boolean(selected), preferences.listDensity)
+	const layout = readingPaneLayout(preferences.readingPane, Boolean(selected))
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
 	const sortedThreads = useMemo(

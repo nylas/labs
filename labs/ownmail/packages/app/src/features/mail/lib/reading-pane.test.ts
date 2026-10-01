@@ -32,18 +32,18 @@ describe('readingPaneLayout', () => {
 		expect(layout.wideBackControl).toBe(false)
 	})
 
-	it('widens the vertical-split list only for the single-line Condensed density', () => {
-		// Condensed fits sender, subject, and date on one line, which 22rem squeezes.
-		const condensed = classes(readingPaneLayout('vertical', true, 'condensed').list)
-		expect(condensed).toEqual(expect.arrayContaining(['xl:w-[26rem]', 'xl:max-w-[26rem]']))
-		expect(condensed).not.toContain('xl:w-[22rem]')
-		for (const density of ['default', 'compact'] as const) {
-			const list = classes(readingPaneLayout('vertical', true, density).list)
-			expect(list).toEqual(expect.arrayContaining(['xl:w-[22rem]', 'xl:max-w-[22rem]']))
-			expect(list).not.toContain('xl:w-[26rem]')
+	it('marks only the vertical-split list for the Condensed width, leaving the width itself to CSS', () => {
+		// The 26rem Condensed width must follow the same pointer query as the rows, which script
+		// cannot evaluate, so the layout stays at 22rem and only carries the hook CSS widens.
+		const vertical = classes(readingPaneLayout('vertical', true).list)
+		expect(vertical).toEqual(
+			expect.arrayContaining(['mail-list-vertical', 'xl:w-[22rem]', 'xl:max-w-[22rem]']),
+		)
+		expect(readingPaneLayout('vertical', true).list).not.toContain('26rem')
+		// No split and the horizontal split already give the list the full width.
+		for (const pane of ['none', 'horizontal'] as const) {
+			expect(classes(readingPaneLayout(pane, true).list)).not.toContain('mail-list-vertical')
 		}
-		// A horizontal split already gives the list the full width.
-		expect(readingPaneLayout('horizontal', true, 'condensed').list).not.toContain('26rem')
 	})
 
 	it('stacks the list above the reader for a horizontal split', () => {

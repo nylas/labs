@@ -242,7 +242,7 @@ export function MailFolderRouteScreen({
 	})
 	const hasThread = hasThreadRoute || Boolean(children)
 	const [preferences, savePreferences] = useUserPreferences()
-	const layout = readingPaneLayout(preferences.readingPane, hasThreadRoute, preferences.listDensity)
+	const layout = readingPaneLayout(preferences.readingPane, hasThreadRoute)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
 	const threads = useMemo(
