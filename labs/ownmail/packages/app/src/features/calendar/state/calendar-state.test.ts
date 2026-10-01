@@ -190,15 +190,57 @@ describe('calendar cache effects', () => {
 		const other = { ...event, id: 'event-2', participants: undefined }
 		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event, other]))
 
-		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: event.id, status: 'yes' })
+		applyCalendarEffect(queryClient, {
+			type: 'rsvped',
+			eventId: event.id,
+			status: 'yes',
+			email: 'ada@example.com',
+		})
 
 		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
 		expect(cached?.events[0]?.participants?.[0]?.status).toBe('yes')
 		expect(cached?.events[1]).toEqual(other)
-		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: other.id, status: 'no' })
+		applyCalendarEffect(queryClient, {
+			type: 'rsvped',
+			eventId: other.id,
+			status: 'no',
+			email: 'ada@example.com',
+		})
 		expect(
 			queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events[1]?.participants,
 		).toBeUndefined()
+	})
+
+	it('records an RSVP on the signed-in user own entry, because they are rarely the first guest', () => {
+		// The grid styles an event from the user's own participant status. Updating the
+		// first guest instead would leave the chip unchanged and misreport someone else.
+		const invited = {
+			...event,
+			participants: [
+				{ email: 'organizer@example.com', status: 'yes' },
+				{ email: ' Ada@Example.com', status: 'noreply' },
+				{ email: 'grace@example.com', status: 'noreply' },
+			],
+		} as Event
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([invited]))
+
+		applyCalendarEffect(queryClient, {
+			type: 'rsvped',
+			eventId: invited.id,
+			status: 'no',
+			email: 'ada@example.com',
+		})
+
+		const statuses = () =>
+			queryClient
+				.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
+				?.events[0]?.participants?.map((participant) => participant.status)
+		expect(statuses()).toEqual(['yes', 'no', 'noreply'])
+
+		// An unknown mailbox changes nobody; the provider read settles the event instead.
+		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: invited.id, status: 'yes', email: '' })
+		expect(statuses()).toEqual(['yes', 'no', 'noreply'])
 	})
 
 	it('does not resurrect a confirmed deletion when a provider range read is stale', () => {

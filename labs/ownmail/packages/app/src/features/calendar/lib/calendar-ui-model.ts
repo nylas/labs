@@ -103,6 +103,12 @@ export function eventColorStyle(color: EventColor): CSSProperties {
 	return { '--event-c-light': color.light, '--event-c-dark': color.dark } as CSSProperties
 }
 
+/** True when a participant or organizer address is the given mailbox, ignoring case and stray space. */
+export function isSameEmail(candidate: unknown, email: string): boolean {
+	const mailbox = email.trim().toLowerCase()
+	return mailbox !== '' && typeof candidate === 'string' && candidate.trim().toLowerCase() === mailbox
+}
+
 /** How the signed-in user has answered an event. */
 export type EventRsvp = 'accepted' | 'tentative' | 'awaiting' | 'declined'
 
@@ -111,11 +117,8 @@ export type EventRsvp = 'accepted' | 'tentative' | 'awaiting' | 'declined'
  * and events the user is not invited to (their own) count as accepted.
  */
 export function eventRsvp(event: Pick<Event, 'participants' | 'organizer'>, email: string): EventRsvp {
-	const me = email.trim().toLowerCase()
-	const matches = (candidate: unknown) =>
-		typeof candidate === 'string' && candidate.trim().toLowerCase() === me
-	if (matches(event.organizer?.email)) return 'accepted'
-	const status = event.participants?.find((participant) => matches(participant.email))?.status
+	if (isSameEmail(event.organizer?.email, email)) return 'accepted'
+	const status = event.participants?.find((participant) => isSameEmail(participant.email, email))?.status
 	if (status === 'no') return 'declined'
 	if (status === 'maybe') return 'tentative'
 	if (status === 'noreply') return 'awaiting'
