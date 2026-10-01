@@ -258,7 +258,8 @@ describe('the transcript', () => {
 		openConversation()
 		const bubble = bubbles()[0] as HTMLElement
 		expect(bubble).toHaveAttribute('data-unsure', 'true')
-		expect(within(bubble).getByText('Quoted text')).toBeInTheDocument()
+		// The disclosure starts open: nothing the sender wrote is behind a closed fold.
+		expect(within(bubble).getByText('Quoted text').closest('details')).toHaveAttribute('open')
 		expect(bubble).toHaveTextContent('Door code 482913')
 	})
 

@@ -317,7 +317,7 @@ function Bubble({ bubble, mine }: { bubble: ConversationBubble; mine: boolean })
 				)}
 			>
 				{bubble.blocks.length > 0 ? (
-					<CleanBlocks blocks={bubble.blocks} />
+					<CleanBlocks blocks={bubble.blocks} historyOpen={bubble.unsure} />
 				) : hasAttachments ? null : (
 					<p className="text-sm text-muted-foreground">No message text</p>
 				)}

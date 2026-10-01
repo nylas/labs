@@ -81,6 +81,7 @@ describe('CleanBlocks', () => {
 		expect(summary.tagName).toBe('SUMMARY')
 		expect(summary).toHaveClass('min-h-11', 'focus-visible:ring-2')
 		expect(summary.closest('details')).toHaveTextContent('Earlier message')
+		expect(summary.closest('details')).not.toHaveAttribute('open')
 	})
 })
 
