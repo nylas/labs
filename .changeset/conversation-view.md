@@ -1,5 +1,0 @@
----
-"@ownmail/app": minor
----
-
-Read a thread as a conversation. A new, optional Conversation view turns a thread into a chat transcript: each email becomes a bubble with only what that person newly wrote, your messages sit on the right, group threads show names and initials, emails sent minutes apart are grouped, and days are separated. Attachments appear as chips, calendar invitations stay in the stream with their actions, and "Show original" on any message brings back the full email. Switch a single thread with the Messages / Conversation buttons in the thread toolbar, or make it your default with "Thread view" in the command palette. Nothing changes unless you turn it on: the standard reader remains the default. When the view cannot be sure what is new in a message (a forward, text written below a quote, or replies typed between quoted lines), it shows the whole message rather than hide anything. Replying from the view names everyone who will receive the message, defaults to reply-all in a group, and opens the usual composer.
