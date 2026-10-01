@@ -15,3 +15,7 @@ export const MAIL_HEADER_GRID_CLASS = 'grid grid-cols-[minmax(0,1fr)] md:grid-co
 export const CALENDAR_SIDEBAR_WIDTH_CLASS = 'w-64'
 
 export const CALENDAR_HEADER_GRID_CLASS = 'grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)]'
+
+/** The header grid while the desktop sidebar is collapsed: the column keeps only its 44px toggle. */
+export const CALENDAR_HEADER_COLLAPSED_GRID_CLASS =
+	'grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[2.75rem_minmax(0,1fr)]'

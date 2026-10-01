@@ -23,6 +23,13 @@ export type ListDensity = 'default' | 'compact' | 'condensed'
 
 export const LIST_DENSITIES: readonly ListDensity[] = ['default', 'compact', 'condensed']
 
+/** Pixel height of one hour in the calendar day and week grid: the grid's zoom steps. */
+export const CALENDAR_HOUR_HEIGHTS = [40, 52, 64, 80] as const
+
+export type CalendarHourHeight = (typeof CALENDAR_HOUR_HEIGHTS)[number]
+
+export const DEFAULT_CALENDAR_HOUR_HEIGHT: CalendarHourHeight = 52
+
 export type UserPreferences = {
 	/**
 	 * The name each mailbox signs with, keyed by mailbox email. A name saved in
@@ -39,6 +46,9 @@ export type UserPreferences = {
 	listDensity: ListDensity
 	primaryTimezone: string
 	secondaryTimezone: string
+	calendarHourHeight: CalendarHourHeight
+	/** Whether the desktop calendar sidebar is hidden on this device. */
+	calendarSidebarCollapsed: boolean
 	/**
 	 * Calendars the person unchecked in the calendar sidebar, keyed by mailbox
 	 * email. Calendar ids are grant-scoped (every inbox has a `primary`), so a
@@ -83,6 +93,8 @@ export function defaultUserPreferences(): UserPreferences {
 		listDensity: 'default',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
+		calendarHourHeight: DEFAULT_CALENDAR_HOUR_HEIGHT,
+		calendarSidebarCollapsed: false,
 		hiddenCalendarsByAccount: {},
 	}
 }
@@ -201,6 +213,10 @@ function normalizePreferences(value: unknown): UserPreferences {
 			: 'default',
 		primaryTimezone,
 		secondaryTimezone,
+		calendarHourHeight: CALENDAR_HOUR_HEIGHTS.includes(input.calendarHourHeight as CalendarHourHeight)
+			? (input.calendarHourHeight as CalendarHourHeight)
+			: DEFAULT_CALENDAR_HOUR_HEIGHT,
+		calendarSidebarCollapsed: input.calendarSidebarCollapsed === true,
 		// A flat `hiddenCalendarIds` list from before per-account storage cannot be
 		// attributed to an inbox, so it is deliberately dropped rather than applied
 		// to whichever inbox happens to be active.

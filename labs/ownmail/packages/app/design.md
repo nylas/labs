@@ -312,6 +312,21 @@ the smaller WCAG 2.2 AA minimum.
   mini-month marker, and the now line. `--primary` stays the action colour and
   `--destructive` stays reserved for errors, so neither is used for "today".
   The pair holds 4.5:1 text contrast in both themes.
+- The day and week grid has four zoom steps: an hour is 40, 52 (default), 64 or
+  80 pixels tall, a device preference. Every hour row, event box, and the now
+  line derive from that one value, and a zoom change keeps the hour at the top
+  of the viewport in place. The control sits at the right of the day header in
+  its own 44-pixel grid track, shared by the header and the body so their
+  columns stay aligned, and names the current step in text.
+- The time gutter's head is a button naming the zone or zones shown. It opens a
+  small non-modal popover to add, change, or remove the second time zone; the
+  value is validated before it is stored and can never equal the primary zone.
+- The desktop calendar sidebar collapses from a toggle at the start of the top
+  bar, remembered per device. The toggle's name and `aria-expanded` carry the
+  state; mobile keeps the sidebar in its sheet.
+- Calendar popovers are non-modal: they take focus on open, close on Escape
+  (returning focus to the trigger), on a click elsewhere, and when keyboard
+  focus leaves.
 - Email content may preserve sender styling inside the sanitizer-controlled
   message boundary; application chrome remains on this system.
 
