@@ -73,6 +73,7 @@ export function EventModal({
 	preserveDefaultStartTime = false,
 	defaultDurationMinutes = 60,
 	startInEdit = false,
+	startOnDeleteConfirmation = false,
 	events = [],
 	onDraftChange,
 	onClose,
@@ -89,6 +90,8 @@ export function EventModal({
 	defaultDurationMinutes?: number
 	/** Open an existing event straight in the editor; cancelling then closes it. */
 	startInEdit?: boolean
+	/** Open an existing event on its delete confirmation, from its context menu. */
+	startOnDeleteConfirmation?: boolean
 	events?: Event[]
 	onDraftChange?: (event: Event | null) => void
 	onClose: (changed: boolean) => void
@@ -429,6 +432,7 @@ export function EventModal({
 							calendars={calendars}
 							variant="dialog"
 							focusEditOnMount={returnedFromEdit.current}
+							startOnDeleteConfirmation={startOnDeleteConfirmation}
 							onEdit={beginEdit}
 							onClose={() => onClose(false)}
 							onRsvped={() => onClose(true)}

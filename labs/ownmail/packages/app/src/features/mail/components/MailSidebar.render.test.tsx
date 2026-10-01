@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHROME_ROW_CLASS } from '#app/config/layout'
 import { MailSidebar } from './MailSidebar.js'
 
+const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
+	useNavigate: () => navigate,
 	Link: ({ children, to, params, ...rest }: any) => {
 		const href =
 			typeof to === 'string' && params?.folderId ? to.replace('$folderId', params.folderId) : (to ?? '#')
@@ -20,8 +22,12 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 vi.mock('./FolderManagerDialog.js', () => ({
-	FolderManagerDialog: ({ onClose, onDeleted }: any) => (
-		<div role="dialog" aria-label="Folder manager">
+	FolderManagerDialog: ({ onClose, onDeleted, initialAction }: any) => (
+		<div
+			role="dialog"
+			aria-label="Folder manager"
+			data-initial-action={JSON.stringify(initialAction ?? null)}
+		>
 			<button type="button" onClick={onClose}>
 				close manager
 			</button>
@@ -32,7 +38,10 @@ vi.mock('./FolderManagerDialog.js', () => ({
 	),
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+	cleanup()
+	vi.clearAllMocks()
+})
 
 const folders = [
 	// System folder: excluded from the custom-label list.
@@ -127,10 +136,81 @@ describe('MailSidebar', () => {
 		const onFolderDeleted = vi.fn()
 		render(<MailSidebar folders={folders} composeSearch={{}} onFolderDeleted={onFolderDeleted} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Manage folders' }))
-		expect(screen.getByRole('dialog', { name: 'Folder manager' })).toBeInTheDocument()
+		expect(screen.getByRole('dialog', { name: 'Folder manager' })).toHaveAttribute(
+			'data-initial-action',
+			'null',
+		)
 		fireEvent.click(screen.getByRole('button', { name: 'delete work' }))
 		expect(onFolderDeleted).toHaveBeenCalledWith('work')
 		fireEvent.click(screen.getByRole('button', { name: 'close manager' }))
 		expect(screen.queryByRole('dialog', { name: 'Folder manager' })).toBeNull()
+	})
+
+	describe('label context menu', () => {
+		async function openLabelMenu(name: string) {
+			fireEvent.contextMenu(screen.getByRole('link', { name }), { clientX: 10, clientY: 10 })
+			return screen.findByRole('menu', { name: `Actions for ${name}` })
+		}
+
+		it('opens the folder manager on that label, where rename and delete are confirmed', async () => {
+			const onNavigate = vi.fn()
+			render(
+				<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" onNavigate={onNavigate} />,
+			)
+
+			await openLabelMenu('Work')
+			const remove = screen.getByRole('menuitem', { name: 'Delete…' })
+			expect(remove).toHaveAttribute('data-variant', 'destructive')
+			expect(remove.querySelector('svg')).not.toBeNull()
+			fireEvent.click(remove)
+			expect(await screen.findByRole('dialog', { name: 'Folder manager' })).toHaveAttribute(
+				'data-initial-action',
+				JSON.stringify({ kind: 'delete', id: 'work' }),
+			)
+			fireEvent.click(screen.getByRole('button', { name: 'close manager' }))
+
+			await openLabelMenu('zeta')
+			fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+			expect(await screen.findByRole('dialog', { name: 'Folder manager' })).toHaveAttribute(
+				'data-initial-action',
+				JSON.stringify({ kind: 'edit', id: 'zeta' }),
+			)
+			// Opening a manager form is not a navigation.
+			expect(navigate).not.toHaveBeenCalled()
+			expect(onNavigate).not.toHaveBeenCalled()
+		})
+
+		it('opens the label like its link does, and has nothing to open when it is already open', async () => {
+			const onNavigate = vi.fn()
+			const { unmount } = render(
+				<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" onNavigate={onNavigate} />,
+			)
+			await openLabelMenu('Work')
+			fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/f/$folderId',
+				params: { folderId: 'work' },
+				search: { baseFolderId: 'inbox' },
+			})
+			expect(onNavigate).toHaveBeenCalledTimes(1)
+			unmount()
+
+			navigate.mockClear()
+			render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="work" />)
+			await openLabelMenu('Work')
+			expect(screen.getByRole('menuitem', { name: 'Open' })).toHaveAttribute('aria-disabled', 'true')
+
+			cleanup()
+			render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="starred" />)
+			await openLabelMenu('Work')
+			fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
+			expect(navigate).toHaveBeenCalledTimes(1)
+		})
+
+		it('gives standard folders no menu: the folder manager cannot change them', () => {
+			render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" />)
+			expect(fireEvent.contextMenu(screen.getByRole('link', { name: /Inbox/ }))).toBe(true)
+			expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		})
 	})
 })

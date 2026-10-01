@@ -4,13 +4,17 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
 	ChevronLeft,
 	ChevronRight,
+	Eye,
+	EyeOff,
 	Menu,
 	PanelLeftClose,
 	PanelLeftOpen,
 	PanelRightClose,
 	PanelRightOpen,
+	Pencil,
 	Plus,
 	Settings2,
+	Trash2,
 } from 'lucide-react'
 import {
 	type CSSProperties,
@@ -43,6 +47,11 @@ import {
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { GridZoomControl, SecondaryTimezoneControl } from '#features/calendar/components/CalendarGridControls'
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
+import {
+	EventContextMenu,
+	type EventMenuActions,
+	SlotContextMenu,
+} from '#features/calendar/components/EventContextMenu'
 import { EventDetails, type EventDetailsHandle } from '#features/calendar/components/EventDetails'
 import { EventModal } from '#features/calendar/components/EventModal'
 import { MeetWith } from '#features/calendar/components/MeetWith'
@@ -117,7 +126,15 @@ import {
 } from '#features/calendar/state/calendar-state'
 import { useFreeBusy } from '#features/calendar/state/free-busy-state'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
+import type { ManagedResourceAction } from '#shared/components/ResourceManagerDialog'
 import { Sheet } from '#shared/components/Sheet'
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from '#shared/components/ui/context-menu'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
@@ -292,6 +309,9 @@ export function CalendarRouteScreen({
 	// The selection belongs to this inbox; the pane itself is a device preference.
 	const [selectedEventId, setSelectedEventId] = useIdentityState<string | null>([info.email], () => null)
 	const [editInEditor, setEditInEditor] = useState(false)
+	// Set by an event's context menu: that event is shown on its delete
+	// confirmation. It names the event, so it cannot apply to another one.
+	const [deleteRequest, setDeleteRequest] = useState<{ eventId: string; nonce: number } | null>(null)
 	// The outcome of a drop belongs to the range it happened in, so paging away drops it.
 	const [dragNotice, setDragNotice] = useIdentityState<{ kind: 'status' | 'error'; text: string } | null>(
 		[info.email, view, anchorIso],
@@ -302,7 +322,10 @@ export function CalendarRouteScreen({
 	const [eventPreview, setEventPreview] = useState<Event | null>(null)
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
-	const [managingCalendars, setManagingCalendars] = useState(false)
+	// null: closed. A calendar's context menu opens the manager on that calendar's own form.
+	const [calendarManager, setCalendarManager] = useState<{ initialAction?: ManagedResourceAction } | null>(
+		null,
+	)
 	const [preferences, savePreferences] = useUserPreferences()
 	const mobileCalendarLayout = useMobileCalendarLayout()
 	const primaryTimezone = preferences.primaryTimezone
@@ -414,6 +437,7 @@ export function CalendarRouteScreen({
 	/** Viewing an event: the detail pane on desktop, the dialog on mobile layouts. */
 	const openEvent = useCallback(
 		(event: Event) => {
+			setDeleteRequest(null)
 			if (mobileCalendarLayout) {
 				setEditInEditor(false)
 				setEditing(event)
@@ -431,7 +455,47 @@ export function CalendarRouteScreen({
 		chips.find((chip) => chip.dataset.eventChip === selectedEventId)?.focus()
 		setDetailPanelOpen(false)
 		setSelectedEventId(null)
+		setDeleteRequest(null)
 	}, [selectedEventId, setDetailPanelOpen, setSelectedEventId])
+	// What an event's context menu can ask of this screen. Opening the menu
+	// selects nothing; only the chosen item does what its button would.
+	const eventMenu = useMemo<EventMenuActions>(
+		() => ({
+			calendarId: calendar.id,
+			calendars,
+			onOpen: openEvent,
+			onEdit: (event) => {
+				setDeleteRequest(null)
+				setEditInEditor(true)
+				setEditing(event)
+			},
+			// The confirmation lives in the event's detail view: the pane on desktop, the dialog on mobile.
+			onRequestDelete: (event) => {
+				setDeleteRequest((current) => ({ eventId: event.id, nonce: (current?.nonce ?? 0) + 1 }))
+				if (mobileCalendarLayout) {
+					setEditInEditor(false)
+					setEditing(event)
+					return
+				}
+				setSelectedEventId(event.id)
+				setDetailPanelOpen(true)
+			},
+			onRsvpFailed: (event) =>
+				setDragNotice({
+					kind: 'error',
+					text: `Could not save your answer to “${event.title || '(untitled)'}”. It was put back.`,
+				}),
+		}),
+		[
+			calendar.id,
+			calendars,
+			mobileCalendarLayout,
+			openEvent,
+			setDetailPanelOpen,
+			setDragNotice,
+			setSelectedEventId,
+		],
+	)
 	const agenda = useMemo(
 		() => upcomingAgenda(visibleEvents, now, primaryTimezone),
 		[now, visibleEvents, primaryTimezone],
@@ -464,7 +528,7 @@ export function CalendarRouteScreen({
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
-			if (target?.closest?.('[role="dialog"], button, a, select, [role="grid"]')) return
+			if (target?.closest?.('[role="dialog"], [role="menu"], button, a, select, [role="grid"]')) return
 			const action = calendarKeyAction(event.key)
 			if (!action) return
 			event.preventDefault()
@@ -653,7 +717,7 @@ export function CalendarRouteScreen({
 						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={openEvent}
-						onManageCalendars={() => setManagingCalendars(true)}
+						onManageCalendars={(initialAction) => setCalendarManager({ initialAction })}
 						meetWith={meetWithPanel}
 					/>
 				</aside>
@@ -691,6 +755,7 @@ export function CalendarRouteScreen({
 							events={visibleEvents}
 							colors={colors}
 							selectedEventId={selectedEventId}
+							eventMenu={eventMenu}
 							onRefresh={onRefresh}
 							onPickDay={(d) => go('day', d)}
 							onPickEvent={openEvent}
@@ -706,6 +771,7 @@ export function CalendarRouteScreen({
 							calendars={calendars}
 							drag={drag}
 							selectedEventId={selectedEventId}
+							eventMenu={eventMenu}
 							email={info.email}
 							now={now}
 							onPickEvent={openEvent}
@@ -750,8 +816,12 @@ export function CalendarRouteScreen({
 					>
 						{selectedEvent ? (
 							<EventDetails
-								// Its confirmation and error belong to one event in one inbox.
-								key={`${info.email}:${selectedEvent.id}`}
+								// Its confirmation and error belong to one event in one inbox. A delete
+								// asked for from the event's menu starts that view again on its confirmation.
+								key={`${info.email}:${selectedEvent.id}:${
+									deleteRequest?.eventId === selectedEvent.id ? deleteRequest.nonce : 0
+								}`}
+								startOnDeleteConfirmation={deleteRequest?.eventId === selectedEvent.id}
 								ref={detailsRef}
 								event={selectedEvent}
 								calendarId={calendar.id}
@@ -767,7 +837,10 @@ export function CalendarRouteScreen({
 									setEditing(selectedEvent)
 								}}
 								onClose={closeDetailPanel}
-								onDeleted={() => setSelectedEventId(null)}
+								onDeleted={() => {
+									setDeleteRequest(null)
+									setSelectedEventId(null)
+								}}
 							/>
 						) : (
 							<p className="px-region py-region text-sm text-muted-foreground">
@@ -785,6 +858,9 @@ export function CalendarRouteScreen({
 					// dragged-out range starts a new draft.
 					key={`${info.email}:${editing === 'new' ? `new-${composerKey}` : editing.id}`}
 					startInEdit={editing !== 'new' && editInEditor}
+					startOnDeleteConfirmation={
+						editing !== 'new' && !editInEditor && deleteRequest?.eventId === editing.id
+					}
 					defaultDurationMinutes={newDurationMinutes}
 					event={editing === 'new' ? null : editing}
 					defaultStart={newStart ?? anchor}
@@ -803,6 +879,8 @@ export function CalendarRouteScreen({
 					onClose={() => {
 						setEventPreview(null)
 						setEditing(null)
+						// The pane keeps its own confirmation; the dialog's request ends with the dialog.
+						if (mobileCalendarLayout) setDeleteRequest(null)
 					}}
 				/>
 			) : null}
@@ -841,21 +919,23 @@ export function CalendarRouteScreen({
 						}}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={(event) => {
+							setDeleteRequest(null)
 							setEditInEditor(false)
 							setEditing(event)
 							setSidebarOpen(false)
 						}}
-						onManageCalendars={() => setManagingCalendars(true)}
+						onManageCalendars={(initialAction) => setCalendarManager({ initialAction })}
 						meetWith={meetWithPanel}
 					/>
 				</div>
 			</Sheet>
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} />
-			{managingCalendars ? (
+			{calendarManager ? (
 				<CalendarManagerDialog
 					calendars={calendars}
-					onClose={() => setManagingCalendars(false)}
+					initialAction={calendarManager.initialAction}
+					onClose={() => setCalendarManager(null)}
 					onDeleted={(calendarId) => setCalendarHidden(calendarId, false)}
 				/>
 			) : null}
@@ -892,7 +972,7 @@ function CalendarSidebarPanel({
 	onPickDate: (date: Date) => void
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
-	onManageCalendars: () => void
+	onManageCalendars: (initialAction?: ManagedResourceAction) => void
 	meetWith: ReactNode
 	mobile?: boolean
 }) {
@@ -912,7 +992,7 @@ function CalendarSidebarPanel({
 					</p>
 					<button
 						type="button"
-						onClick={onManageCalendars}
+						onClick={() => onManageCalendars()}
 						aria-label="Manage calendars"
 						className="touch-target-square flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
 					>
@@ -926,34 +1006,60 @@ function CalendarSidebarPanel({
 						// The tag is part of the name, so "hidden" is announced, not only drawn.
 						const tag = hidden ? 'hidden' : cal.is_primary ? 'Default' : null
 						return (
-							<button
-								key={cal.id}
-								type="button"
-								aria-label={tag ? `${name}, ${tag}` : name}
-								aria-pressed={!hidden}
-								onClick={() => onToggleCalendar(cal.id)}
-								style={eventColorProps(cal, colors)}
-								className="event-color touch-target flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
-							>
-								<span
-									aria-hidden="true"
-									className={cn(
-										'size-[11px] shrink-0 rounded-[3px] bg-[var(--event-c)]',
-										hidden && 'opacity-40',
-									)}
-								/>
-								<span
-									className={cn(
-										'min-w-0 truncate text-left',
-										hidden ? 'text-muted-foreground' : 'text-foreground',
-									)}
-								>
-									{name}
-								</span>
-								{tag ? (
-									<span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{tag}</span>
-								) : null}
-							</button>
+							// The menu holds the row's own toggle and what the calendar manager allows.
+							<ContextMenu key={cal.id}>
+								<ContextMenuTrigger asChild>
+									<button
+										type="button"
+										aria-label={tag ? `${name}, ${tag}` : name}
+										aria-pressed={!hidden}
+										onClick={() => onToggleCalendar(cal.id)}
+										style={eventColorProps(cal, colors)}
+										className="event-color touch-target flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
+									>
+										<span
+											aria-hidden="true"
+											className={cn(
+												'size-[11px] shrink-0 rounded-[3px] bg-[var(--event-c)]',
+												hidden && 'opacity-40',
+											)}
+										/>
+										<span
+											className={cn(
+												'min-w-0 truncate text-left',
+												hidden ? 'text-muted-foreground' : 'text-foreground',
+											)}
+										>
+											{name}
+										</span>
+										{tag ? (
+											<span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{tag}</span>
+										) : null}
+									</button>
+								</ContextMenuTrigger>
+								<ContextMenuContent aria-label={`Actions for ${name}`}>
+									<ContextMenuItem onSelect={() => onToggleCalendar(cal.id)}>
+										{hidden ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
+										{hidden ? 'Show calendar' : 'Hide calendar'}
+									</ContextMenuItem>
+									<ContextMenuSeparator />
+									<ContextMenuItem
+										disabled={Boolean(cal.read_only)}
+										onSelect={() => onManageCalendars({ kind: 'edit', id: cal.id })}
+									>
+										<Pencil aria-hidden="true" />
+										Rename…
+									</ContextMenuItem>
+									<ContextMenuItem
+										variant="destructive"
+										disabled={Boolean(cal.read_only || cal.is_primary)}
+										onSelect={() => onManageCalendars({ kind: 'delete', id: cal.id })}
+									>
+										<Trash2 aria-hidden="true" />
+										Delete…
+									</ContextMenuItem>
+								</ContextMenuContent>
+							</ContextMenu>
 						)
 					})}
 				</div>
@@ -1180,6 +1286,7 @@ function MonthGrid({
 	events,
 	colors,
 	selectedEventId,
+	eventMenu,
 	timeZone,
 	onPickDay,
 	onPickEvent,
@@ -1189,6 +1296,7 @@ function MonthGrid({
 	events: Event[]
 	colors: Map<string, EventColor>
 	selectedEventId: string | null
+	eventMenu: EventMenuActions
 	timeZone: string
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
@@ -1317,21 +1425,22 @@ function MonthGrid({
 													</div>
 												)
 											return (
-												<button
-													key={event.id}
-													type="button"
-													onClick={(clickEvent) => {
-														clickEvent.stopPropagation()
-														if (!preview) onPickEvent(event)
-													}}
-													disabled={preview}
-													data-event-chip={event.id}
-													aria-current={event.id === selectedEventId ? 'true' : undefined}
-													className={cn('pointer-events-auto hover:scale-[1.01]', chipClass)}
-													{...chipProps}
-												>
-													{content}
-												</button>
+												<EventContextMenu key={event.id} event={event} actions={eventMenu} disabled={preview}>
+													<button
+														type="button"
+														onClick={(clickEvent) => {
+															clickEvent.stopPropagation()
+															if (!preview) onPickEvent(event)
+														}}
+														disabled={preview}
+														data-event-chip={event.id}
+														aria-current={event.id === selectedEventId ? 'true' : undefined}
+														className={cn('pointer-events-auto hover:scale-[1.01]', chipClass)}
+														{...chipProps}
+													>
+														{content}
+													</button>
+												</EventContextMenu>
 											)
 										})}
 										{dayEvents.length > 3 ? (
@@ -1366,6 +1475,7 @@ function TimeGrid({
 	calendars,
 	drag,
 	selectedEventId,
+	eventMenu,
 	email,
 	now,
 	timeZone,
@@ -1386,6 +1496,7 @@ function TimeGrid({
 	calendars: Calendar[]
 	drag: ReturnType<typeof useCalendarDrag>
 	selectedEventId: string | null
+	eventMenu: EventMenuActions
 	email: string
 	now: Date
 	timeZone: string
@@ -1505,38 +1616,39 @@ function TimeGrid({
 							const ended = isPastEvent(event, now, timeZone)
 							const day = columns.find((column) => eventsOnDay([event], column, timeZone).length > 0)
 							return (
-								<button
-									key={event.id}
-									type="button"
-									onClick={() => onPickEvent(event)}
-									className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-muted"
-								>
-									<span
-										className={cn('h-2.5 w-2.5 shrink-0 rounded-full', EVENT_SWATCH_CLASS)}
-										style={eventColorProps(event, colors)}
-									/>
-									<span className="min-w-0 flex-1">
+								<EventContextMenu key={event.id} event={event} actions={eventMenu}>
+									<button
+										type="button"
+										onClick={() => onPickEvent(event)}
+										className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-muted"
+									>
 										<span
-											className={cn(
-												'block truncate text-sm font-medium',
-												rsvp === 'declined' && 'line-through',
-											)}
-										>
-											{event.title || '(untitled)'}
+											className={cn('h-2.5 w-2.5 shrink-0 rounded-full', EVENT_SWATCH_CLASS)}
+											style={eventColorProps(event, colors)}
+										/>
+										<span className="min-w-0 flex-1">
+											<span
+												className={cn(
+													'block truncate text-sm font-medium',
+													rsvp === 'declined' && 'line-through',
+												)}
+											>
+												{event.title || '(untitled)'}
+											</span>
+											<span className="block truncate text-xs text-muted-foreground">
+												{day?.toLocaleDateString(undefined, {
+													weekday: 'short',
+													month: 'short',
+													day: 'numeric',
+												})}
+												{' · '}
+												{times.allDay ? 'All day' : fmtTime(times.start, timeZone)}
+												{rsvpLabel ? ` · ${rsvpLabel}` : null}
+												{ended ? ` · ${EVENT_ENDED_LABEL}` : null}
+											</span>
 										</span>
-										<span className="block truncate text-xs text-muted-foreground">
-											{day?.toLocaleDateString(undefined, {
-												weekday: 'short',
-												month: 'short',
-												day: 'numeric',
-											})}
-											{' · '}
-											{times.allDay ? 'All day' : fmtTime(times.start, timeZone)}
-											{rsvpLabel ? ` · ${rsvpLabel}` : null}
-											{ended ? ` · ${EVENT_ENDED_LABEL}` : null}
-										</span>
-									</span>
-								</button>
+									</button>
+								</EventContextMenu>
 							)
 						})}
 					</div>
@@ -1642,25 +1754,26 @@ function TimeGrid({
 										</div>
 									)
 								return (
-									<button
-										key={event.id}
-										type="button"
-										onClick={() => {
-											if (!preview) onPickEvent(event)
-										}}
-										disabled={preview}
-										data-event-chip={event.id}
-										aria-current={event.id === selectedEventId ? 'true' : undefined}
-										aria-label={eventAccessibleName(title, 'All day', {
-											rsvp,
-											ended,
-											continuesBefore: segment.continuesBefore,
-											continuesAfter: segment.continuesAfter,
-										})}
-										{...chipProps}
-									>
-										{title}
-									</button>
+									<EventContextMenu key={event.id} event={event} actions={eventMenu} disabled={preview}>
+										<button
+											type="button"
+											onClick={() => {
+												if (!preview) onPickEvent(event)
+											}}
+											disabled={preview}
+											data-event-chip={event.id}
+											aria-current={event.id === selectedEventId ? 'true' : undefined}
+											aria-label={eventAccessibleName(title, 'All day', {
+												rsvp,
+												ended,
+												continuesBefore: segment.continuesBefore,
+												continuesAfter: segment.continuesAfter,
+											})}
+											{...chipProps}
+										>
+											{title}
+										</button>
+									</EventContextMenu>
 								)
 							})}
 							{allDayOverflow === 0 ? null : mobileLayout ? (
@@ -1748,172 +1861,185 @@ function TimeGrid({
 								timeZone,
 							})
 							return (
-								<div
+								<SlotContextMenu
 									key={day.toISOString()}
-									className="relative min-w-0 overflow-visible [clip-path:inset(-100vh_0_-100vh_0)]"
-									style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
-									data-calendar-day-column={dayIndex}
+									onNewEvent={(slot) =>
+										onPickSlot(
+											day,
+											Number((slot.dataset.calendarSlot as string).split('-')[1]),
+											slot.getBoundingClientRect(),
+										)
+									}
 								>
-									{HOURS.map((hour) => (
-										<button
-											key={hour}
-											type="button"
-											onPointerDown={(pointerEvent) => drag.beginPointerDrag(pointerEvent, 'create', null)}
-											onClick={(clickEvent) => {
-												// A drag that ended on this slot already opened the composer.
-												if (drag.consumeClick()) return
-												onPickSlot(day, hour, clickEvent.currentTarget.getBoundingClientRect())
-											}}
-											tabIndex={activeSlot.day === dayIndex && activeSlot.hour === hour ? 0 : -1}
-											onFocus={() => setActiveSlot({ day: dayIndex, hour })}
-											onKeyDown={(event) => {
-												if (
-													event.key === 'ArrowLeft' ||
-													event.key === 'ArrowRight' ||
-													event.key === 'ArrowUp' ||
-													event.key === 'ArrowDown' ||
-													event.key === 'Home' ||
-													event.key === 'End'
-												) {
-													event.preventDefault()
-													moveSlot(dayIndex, hour, event.key)
-												}
-											}}
-											data-calendar-slot={`${dayIndex}-${hour}`}
-											aria-label={`Create event at ${fmtHour(hour)} on ${day.toLocaleDateString(undefined, {
-												weekday: 'long',
-												month: 'long',
-												day: 'numeric',
-											})}`}
-											style={{ height: HOUR_PX }}
-											className="block w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
-										/>
-									))}
-									{boxes.map(({ event, top, height, left, width }) => {
-										const times = eventTimes(event)
-										/* v8 ignore next -- timedDayLayout only places events with parsed times -- @preserve */
-										if (!times) return null
-										if (isBusyBlock(event))
-											return (
-												// Decorative: it takes no pointer or focus, and the legend lists the same times in text.
-												<div
-													key={event.id}
-													aria-hidden="true"
-													data-busy-block={busyBlockPersonIndex(event)}
-													className="event-color busy-block pointer-events-none absolute z-[5] min-w-0 overflow-hidden rounded-[5px] px-control py-px text-[10px] leading-tight text-foreground"
-													style={{
-														...eventColorStyle(personColor(busyBlockPersonIndex(event))),
-														top,
-														height,
-														left: `calc(${left * 100}% + 2px)`,
-														width: `calc(${width * 100}% - 4px)`,
-													}}
-												>
-													<span className="block truncate">{event.title}</span>
-												</div>
-											)
-										const preview = isNewEventPreview(event)
-										const rsvp = eventRsvp(event, email)
-										const title = event.title || '(untitled)'
-										const range = `${fmtTime(times.start, timeZone)} – ${fmtTime(times.end, timeZone)}`
-										const ended = isPastEvent(event, now, timeZone)
-										// Concurrent events share the column side by side, each with a small gutter.
-										const chipProps = {
-											style: {
-												...eventColorProps(event, colors),
-												top,
-												height,
-												left: `calc(${left * 100}% + 2px)`,
-												width: `calc(${width * 100}% - 4px)`,
-											},
-											'data-rsvp': rsvp,
-											'data-past': ended ? '' : undefined,
-											'data-preview': preview ? '' : undefined,
-											'data-dragging': drag.preview?.eventId === event.id ? '' : undefined,
-										}
-										const hint = eventDragHint(event, calendars)
-										const movable = eventDragBlock(event, calendars) === null
-										// An event that runs past midnight is resized from the day each edge is drawn on.
-										const edges = eventEdgesOnDay(event, day, timeZone)
-										// A short chip is one centred line (title, then start time) so no glyph
-										// is clipped; a taller one stacks the title over the time range.
-										const twoLines = timedChipLines(height) === 2
-										const className = cn(
-											'event-color event-chip absolute z-10 flex min-w-0 overflow-hidden rounded-[5px] px-cluster text-left transition-shadow',
-											twoLines ? 'flex-col py-control' : 'items-center gap-control py-0',
-										)
-										const content = twoLines ? (
-											<>
-												<span className="truncate text-xs leading-[15px] font-medium">{title}</span>
-												<span className="truncate text-[11px] leading-[14px] opacity-75">{range}</span>
-											</>
-										) : (
-											<>
-												<span
-													data-chip-title=""
-													className="max-w-full shrink-0 truncate text-xs leading-4 font-medium"
-												>
-													{title}
-												</span>
-												<span className="min-w-0 truncate text-[11px] leading-4 opacity-75">
-													{fmtTime(times.start, timeZone)}
-												</span>
-											</>
-										)
-										if (mobileLayout)
-											return (
-												<div key={event.id} aria-hidden="true" className={className} {...chipProps}>
-													{content}
-												</div>
-											)
-										return (
+									<div
+										className="relative min-w-0 overflow-visible [clip-path:inset(-100vh_0_-100vh_0)]"
+										style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
+										data-calendar-day-column={dayIndex}
+									>
+										{HOURS.map((hour) => (
 											<button
-												key={event.id}
+												key={hour}
 												type="button"
-												onClick={() => {
-													// The click that ends a drag must not also open the event.
+												onPointerDown={(pointerEvent) => drag.beginPointerDrag(pointerEvent, 'create', null)}
+												onClick={(clickEvent) => {
+													// A drag that ended on this slot already opened the composer.
 													if (drag.consumeClick()) return
-													if (!preview) onPickEvent(event)
+													onPickSlot(day, hour, clickEvent.currentTarget.getBoundingClientRect())
 												}}
-												onPointerDown={(pointerEvent) => drag.beginPointerDrag(pointerEvent, 'move', event)}
-												onKeyDown={(keyEvent) => drag.onEventKeyDown(keyEvent, event)}
-												onBlur={(blurEvent) => drag.onEventBlur(blurEvent, event)}
-												disabled={preview}
-												data-event-chip={event.id}
-												aria-current={event.id === selectedEventId ? 'true' : undefined}
-												aria-describedby={hint ? dragHintId(hint) : undefined}
-												aria-label={eventAccessibleName(title, range, { rsvp, ended })}
-												className={cn('hover:shadow-md', className)}
-												{...chipProps}
-											>
-												{content}
-												{/* Resize edges are pointer-only areas with no fill; the keyboard path is Shift+Alt+Up/Down. */}
-												{movable && edges.start && height >= 32 ? (
-													<span
+												tabIndex={activeSlot.day === dayIndex && activeSlot.hour === hour ? 0 : -1}
+												onFocus={() => setActiveSlot({ day: dayIndex, hour })}
+												onKeyDown={(event) => {
+													if (
+														event.key === 'ArrowLeft' ||
+														event.key === 'ArrowRight' ||
+														event.key === 'ArrowUp' ||
+														event.key === 'ArrowDown' ||
+														event.key === 'Home' ||
+														event.key === 'End'
+													) {
+														event.preventDefault()
+														moveSlot(dayIndex, hour, event.key)
+													}
+												}}
+												data-calendar-slot={`${dayIndex}-${hour}`}
+												aria-label={`Create event at ${fmtHour(hour)} on ${day.toLocaleDateString(undefined, {
+													weekday: 'long',
+													month: 'long',
+													day: 'numeric',
+												})}`}
+												style={{ height: HOUR_PX }}
+												className="block w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
+											/>
+										))}
+										{boxes.map(({ event, top, height, left, width }) => {
+											const times = eventTimes(event)
+											/* v8 ignore next -- timedDayLayout only places events with parsed times -- @preserve */
+											if (!times) return null
+											if (isBusyBlock(event))
+												return (
+													// Decorative: it takes no pointer or focus, and the legend lists the same times in text.
+													<div
+														key={event.id}
 														aria-hidden="true"
-														data-drag-handle="start"
-														className="absolute inset-x-0 top-0 h-2 cursor-ns-resize"
-														onPointerDown={(pointerEvent) => {
-															pointerEvent.stopPropagation()
-															drag.beginPointerDrag(pointerEvent, 'resize-start', event)
+														data-busy-block={busyBlockPersonIndex(event)}
+														className="event-color busy-block pointer-events-none absolute z-[5] min-w-0 overflow-hidden rounded-[5px] px-control py-px text-[10px] leading-tight text-foreground"
+														style={{
+															...eventColorStyle(personColor(busyBlockPersonIndex(event))),
+															top,
+															height,
+															left: `calc(${left * 100}% + 2px)`,
+															width: `calc(${width * 100}% - 4px)`,
 														}}
-													/>
-												) : null}
-												{movable && edges.end ? (
+													>
+														<span className="block truncate">{event.title}</span>
+													</div>
+												)
+											const preview = isNewEventPreview(event)
+											const rsvp = eventRsvp(event, email)
+											const title = event.title || '(untitled)'
+											const range = `${fmtTime(times.start, timeZone)} – ${fmtTime(times.end, timeZone)}`
+											const ended = isPastEvent(event, now, timeZone)
+											// Concurrent events share the column side by side, each with a small gutter.
+											const chipProps = {
+												style: {
+													...eventColorProps(event, colors),
+													top,
+													height,
+													left: `calc(${left * 100}% + 2px)`,
+													width: `calc(${width * 100}% - 4px)`,
+												},
+												'data-rsvp': rsvp,
+												'data-past': ended ? '' : undefined,
+												'data-preview': preview ? '' : undefined,
+												'data-dragging': drag.preview?.eventId === event.id ? '' : undefined,
+											}
+											const hint = eventDragHint(event, calendars)
+											const movable = eventDragBlock(event, calendars) === null
+											// An event that runs past midnight is resized from the day each edge is drawn on.
+											const edges = eventEdgesOnDay(event, day, timeZone)
+											// A short chip is one centred line (title, then start time) so no glyph
+											// is clipped; a taller one stacks the title over the time range.
+											const twoLines = timedChipLines(height) === 2
+											const className = cn(
+												'event-color event-chip absolute z-10 flex min-w-0 overflow-hidden rounded-[5px] px-cluster text-left transition-shadow',
+												twoLines ? 'flex-col py-control' : 'items-center gap-control py-0',
+											)
+											const content = twoLines ? (
+												<>
+													<span className="truncate text-xs leading-[15px] font-medium">{title}</span>
+													<span className="truncate text-[11px] leading-[14px] opacity-75">{range}</span>
+												</>
+											) : (
+												<>
 													<span
-														aria-hidden="true"
-														data-drag-handle="end"
-														className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
-														onPointerDown={(pointerEvent) => {
-															pointerEvent.stopPropagation()
-															drag.beginPointerDrag(pointerEvent, 'resize-end', event)
+														data-chip-title=""
+														className="max-w-full shrink-0 truncate text-xs leading-4 font-medium"
+													>
+														{title}
+													</span>
+													<span className="min-w-0 truncate text-[11px] leading-4 opacity-75">
+														{fmtTime(times.start, timeZone)}
+													</span>
+												</>
+											)
+											if (mobileLayout)
+												return (
+													<div key={event.id} aria-hidden="true" className={className} {...chipProps}>
+														{content}
+													</div>
+												)
+											return (
+												<EventContextMenu key={event.id} event={event} actions={eventMenu} disabled={preview}>
+													<button
+														type="button"
+														onClick={() => {
+															// The click that ends a drag must not also open the event.
+															if (drag.consumeClick()) return
+															if (!preview) onPickEvent(event)
 														}}
-													/>
-												) : null}
-											</button>
-										)
-									})}
-								</div>
+														onPointerDown={(pointerEvent) =>
+															drag.beginPointerDrag(pointerEvent, 'move', event)
+														}
+														onKeyDown={(keyEvent) => drag.onEventKeyDown(keyEvent, event)}
+														onBlur={(blurEvent) => drag.onEventBlur(blurEvent, event)}
+														disabled={preview}
+														data-event-chip={event.id}
+														aria-current={event.id === selectedEventId ? 'true' : undefined}
+														aria-describedby={hint ? dragHintId(hint) : undefined}
+														aria-label={eventAccessibleName(title, range, { rsvp, ended })}
+														className={cn('hover:shadow-md', className)}
+														{...chipProps}
+													>
+														{content}
+														{/* Resize edges are pointer-only areas with no fill; the keyboard path is Shift+Alt+Up/Down. */}
+														{movable && edges.start && height >= 32 ? (
+															<span
+																aria-hidden="true"
+																data-drag-handle="start"
+																className="absolute inset-x-0 top-0 h-2 cursor-ns-resize"
+																onPointerDown={(pointerEvent) => {
+																	pointerEvent.stopPropagation()
+																	drag.beginPointerDrag(pointerEvent, 'resize-start', event)
+																}}
+															/>
+														) : null}
+														{movable && edges.end ? (
+															<span
+																aria-hidden="true"
+																data-drag-handle="end"
+																className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+																onPointerDown={(pointerEvent) => {
+																	pointerEvent.stopPropagation()
+																	drag.beginPointerDrag(pointerEvent, 'resize-end', event)
+																}}
+															/>
+														) : null}
+													</button>
+												</EventContextMenu>
+											)
+										})}
+									</div>
+								</SlotContextMenu>
 							)
 						})}
 					</div>

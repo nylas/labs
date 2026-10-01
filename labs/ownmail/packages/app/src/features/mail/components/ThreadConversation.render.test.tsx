@@ -581,6 +581,45 @@ describe('message header', () => {
 		expect(article).toHaveAttribute('data-state', 'open')
 	})
 
+	it('offers the overflow actions on right-click of the header, for that message only', async () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
+		const [first, second] = screen.getAllByRole('article', { name: 'sender@example.com' }) as HTMLElement[]
+		expect(first).toHaveAttribute('data-state', 'collapsed')
+		expect(second).toHaveAttribute('data-state', 'open')
+
+		const header = second.querySelector('[data-slot="message-header-row"]') as HTMLElement
+		expect(fireEvent.contextMenu(header, { clientX: 10, clientY: 10 })).toBe(false)
+		const menu = await screen.findByRole('menu', { name: 'Actions for message from sender@example.com' })
+		expect(menu).toHaveAttribute('data-slot', 'context-menu-content')
+		const items = screen.getAllByRole('menuitem')
+		expect(items.map((item) => item.textContent)).toEqual(['Collapse message', 'Download raw email'])
+		expect(items[1]).toHaveAttribute('href', '/messages/m2/download')
+		expect(items[1]).toHaveAttribute('download')
+
+		fireEvent.click(items[0] as HTMLElement)
+		expect(second).toHaveAttribute('data-state', 'collapsed')
+		expect(first).toHaveAttribute('data-state', 'collapsed')
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+		fireEvent.contextMenu(header, { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Expand message' }))
+		expect(second).toHaveAttribute('data-state', 'open')
+	})
+
+	it('offers no raw download for a draft that has not been sent', async () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[{ ...message('m1'), ownmailDraft: true }]} />)
+		fireEvent.contextMenu(document.querySelector('[data-slot="message-header-row"]') as HTMLElement)
+		await screen.findByRole('menu')
+		expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Collapse message'])
+	})
+
+	it('keeps the browser menu on the message body, where links, images and text live', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
+		const body = document.querySelector('[data-slot="expanded-message-content"]') as HTMLElement
+		expect(fireEvent.contextMenu(body.firstElementChild ?? body, { clientX: 10, clientY: 10 })).toBe(true)
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+	})
+
 	it('opens a collapsed message from its summary line', () => {
 		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
 		const article = screen.getAllByRole('article')[0] as HTMLElement

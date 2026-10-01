@@ -15,8 +15,10 @@ import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
 	ThreadRowContent,
+	ThreadRowError,
 	threadRowLinkLabel,
 } from '#features/mail/components/ThreadRow'
+import { ThreadRowMenu, type ThreadRowUpdate } from '#features/mail/components/ThreadRowMenu'
 import {
 	forwardDraftSearch,
 	mailFolderTitle,
@@ -45,10 +47,11 @@ import {
 	toMailThread,
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
+import { type ThreadResponseKind, threadResponseSearch } from '#features/mail/state/thread-response'
 import { getFolders, getThreadMessages, getThreads } from '#server/fns'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
-import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
 
 type PendingSearchThreadAction = 'archive' | 'restore' | 'delete' | 'star'
@@ -278,13 +281,18 @@ function SearchResults() {
 			const target = event.target instanceof HTMLElement ? event.target : null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
+			// An open menu owns its keys: arrows, typeahead letters, Enter and Escape.
+			if (isTyping || target?.closest?.('[role="menu"]')) return
+			if (event.metaKey || event.ctrlKey || event.altKey) return
 			const focusedRow = target?.closest?.('[data-nav-row]') as HTMLElement | null | undefined
-			const focusedRowIndex = focusedRow
-				? Array.from(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? []).indexOf(
-						focusedRow,
-					)
-				: -1
+			const rows = Array.from(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? [])
+			const focusedRowIndex = focusedRow ? rows.indexOf(focusedRow) : -1
+			// The browser opens a keyboard context menu on the focused element, so
+			// the cursored row takes focus first and its menu is the one that opens.
+			if (isContextMenuKey(event)) {
+				if (focusedRowIndex < 0) rows[cursor]?.querySelector<HTMLElement>('.thread-row-link')?.focus()
+				return
+			}
 			if (target?.closest?.('button, select') || (target?.closest?.('a') && focusedRowIndex < 0)) return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
@@ -471,6 +479,42 @@ function SearchThreadRow({
 }) {
 	const folderId = threadRouteFolderId(thread)
 	const updateThread = useUpdateThreadMutation()
+	const router = useRouter()
+	const queryClient = useQueryClient()
+	const resultSearch = { q, ...(searchFolderId ? { folderId: searchFolderId } : {}) }
+	// Menu actions and their failure belong to this row's thread: rows are keyed by thread id.
+	const [busy, setBusy] = useState(false)
+	const [actionError, setActionError] = useState<string | null>(null)
+
+	/** Runs one row action; a failure is reported on this row, as the reader toolbar reports its own. */
+	async function runRowAction(action: () => Promise<unknown>) {
+		setBusy(true)
+		setActionError(null)
+		try {
+			await action()
+		} catch {
+			// A mutation has already restored the cached thread.
+			setActionError('Action failed')
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	const updateFromMenu = (input: ThreadRowUpdate) =>
+		runRowAction(async () => {
+			await updateThread.mutateAsync({ threadId: thread.id, ...input })
+			// Like the reader toolbar: a result that was moved or marked unread
+			// while it is open closes. Any other open result stays.
+			if (active && (input.folder !== undefined || input.unread === true)) {
+				await router.navigate({ to: '/mail/search', search: resultSearch })
+			}
+		})
+	// The search reader's own path: the thread's last message, in the composer.
+	const respond = (kind: ThreadResponseKind) =>
+		runRowAction(async () => {
+			const response = await threadResponseSearch(queryClient, thread.id, kind)
+			await router.navigate({ to: '/mail/compose', search: { folderId, threadId: thread.id, ...response } })
+		})
 	// The star shown is the thread's own, except while a toggle is in flight.
 	const [requestedStar, setRequestedStar] = useState<boolean | null>(null)
 	const starPending = requestedStar !== null
@@ -481,10 +525,12 @@ function SearchThreadRow({
 		if (starPending) return
 		const nextStarred = !starred
 		setRequestedStar(nextStarred)
+		setActionError(null)
 		try {
 			await updateThread.mutateAsync({ threadId: thread.id, starred: nextStarred })
 		} catch {
 			// The mutation gateway has already restored the cached thread.
+			setActionError('Action failed')
 		} finally {
 			setRequestedStar(null)
 		}
@@ -492,28 +538,39 @@ function SearchThreadRow({
 	const optimisticThread = starred === Boolean(thread.starred) ? thread : { ...thread, starred }
 
 	return (
-		<div
-			data-nav-row=""
-			data-active={active ? 'true' : undefined}
-			data-nav-cursor={keyboardActive ? 'true' : undefined}
-			data-unread={optimisticThread.unread ? 'true' : undefined}
-			className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
-			tabIndex={-1}
+		<ThreadRowMenu
+			thread={optimisticThread}
+			folderId={searchFolderId ?? folderId}
+			busy={busy || starPending}
+			onOpen={() => router.navigate({ to: '/mail/search', search: { ...resultSearch, threadId: thread.id } })}
+			onRespond={respond}
+			onToggleStar={toggleStar}
+			onUpdate={updateFromMenu}
 		>
-			<Link
-				to="/mail/search"
-				search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
-				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
-				aria-current={active ? 'true' : undefined}
-				className={THREAD_ROW_LINK_CLASS}
-			/>
-			<ThreadRowContent
-				thread={optimisticThread}
-				folderId={folderId}
-				onToggleStar={toggleStar}
-				starPending={starPending}
-			/>
-		</div>
+			<div
+				data-nav-row=""
+				data-active={active ? 'true' : undefined}
+				data-nav-cursor={keyboardActive ? 'true' : undefined}
+				data-unread={optimisticThread.unread ? 'true' : undefined}
+				className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
+				tabIndex={-1}
+			>
+				<Link
+					to="/mail/search"
+					search={{ ...resultSearch, threadId: thread.id }}
+					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+					aria-current={active ? 'true' : undefined}
+					className={THREAD_ROW_LINK_CLASS}
+				/>
+				<ThreadRowContent
+					thread={optimisticThread}
+					folderId={folderId}
+					onToggleStar={toggleStar}
+					starPending={starPending}
+				/>
+				<ThreadRowError message={actionError} />
+			</div>
+		</ThreadRowMenu>
 	)
 }
 
@@ -591,6 +648,8 @@ function SearchThreadDetail({
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+			// Escape inside an open menu closes that menu, not the conversation.
+			if (target?.closest?.('[role="menu"]')) return
 			if (event.key === 'Escape') {
 				event.preventDefault()
 				router.navigate({

@@ -286,6 +286,57 @@ and renders exactly as before when the view is off.
 - Keep visible text for ambiguous actions, primary submission, destructive
   confirmation, dynamic destinations, and status or error communication.
 
+## Context menus
+
+Right-click menus use `src/shared/components/ui/context-menu.tsx`, the shadcn
+Context Menu on the Radix primitives the other shared components use.
+
+1. Where. Thread and draft rows in a folder and in search results; the header
+   row of a message in the reader; a message bubble or article card in the
+   Conversation view (not its reply bar or view switch); custom labels in the
+   mail sidebar; calendar event chips, mobile agenda rows, empty time slots
+   and the rows of the calendar list; contact rows and the header of a contact
+   page. Nothing else gets one without a change to this list.
+2. Mirror, never add. A menu holds only what its surface already does through
+   a toolbar, a button, a dialog or a shortcut, and calls the same mutation or
+   navigation. An action that exists but is unavailable is shown disabled, not
+   hidden. A shortcut is shown beside an item only when that shortcut performs
+   the item for the same row: the reader's R, E, #, S and U appear only on the
+   row of the conversation open in that reader.
+3. Destructive items. They use the destructive variant with an icon and go
+   through the confirmation the surface already has: the item opens that
+   confirmation and never deletes by itself. Where the surface has no
+   confirmation today (move a thread to Trash, discard a draft), neither does
+   the menu.
+4. The row it was opened on. A menu acts on its own row and leaves the
+   selection and the open conversation, event or contact alone, unless the
+   action removes the item that is open. With the keyboard, the ContextMenu key
+   or Shift+F10 opens the menu of the focused or cursored row. Menu state
+   lives under the row's identity (clause 6 of "Content-ready transitions").
+5. The browser's menu stays wherever people need it: inside rendered email
+   (`<ownmail-email>` and plain-text bodies), in inputs, textareas, selects and
+   editable content, on any text selection that reaches into the trigger, on
+   links and images inside a Conversation bubble or article card, and on every
+   surface not listed above. A trigger is the row, header or bubble itself and
+   never contains rendered sender HTML.
+6. Failures are said, on the item. A menu action that fails is reported the
+   way its surface reports failures, tied to the item it was for: "Action
+   failed" inside the mail row, the composer's wording inside the draft row,
+   and a grid notice that names the event for a calendar answer. It never
+   appears on another row.
+7. Calendar pointer rules. A right-click or Control-click never starts, ends
+   or cancels a drag, and opening an event's menu does not select the event or
+   open it in the detail pane; "Open" does what a click does. The rule that
+   makes an event read-only for dragging disables Edit and Delete. A
+   colleague's busy block has no menu: it takes no pointer events, so the slot
+   beneath it answers.
+8. Look and input. Menus share the popover surface, uniform 1px border and
+   radius of the other menus. Items are `menuitem`s with roving focus, 32px
+   high with a fine pointer and 44px on narrow and touch screens. Escape closes
+   the menu and returns focus to the row. A touch long press opens it. Keys,
+   clicks and touches inside a menu do not reach the page shortcuts or
+   gestures behind it. Menus do not animate.
+
 ## Borders and accents
 
 1. Banned. Any border whose width or colour differs from the other sides as an

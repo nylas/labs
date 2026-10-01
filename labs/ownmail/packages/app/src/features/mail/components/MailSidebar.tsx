@@ -1,8 +1,9 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
 	Archive,
 	FileText,
+	FolderOpen,
 	Inbox,
 	type LucideIcon,
 	Pencil,
@@ -13,6 +14,14 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { CHROME_ROW_CLASS } from '#app/config/layout'
+import type { ManagedResourceAction } from '#shared/components/ResourceManagerDialog'
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from '#shared/components/ui/context-menu'
 import { cn } from '#shared/lib/utils'
 import {
 	labelBaseFolderId,
@@ -52,7 +61,9 @@ export function MailSidebar({
 	mobile?: boolean
 }) {
 	const labels = folders.filter(isCustomFolder)
-	const [managingFolders, setManagingFolders] = useState(false)
+	const navigate = useNavigate()
+	// null: closed. The label menu opens the manager on that label's own form.
+	const [folderManager, setFolderManager] = useState<{ initialAction?: ManagedResourceAction } | null>(null)
 
 	return (
 		<aside
@@ -122,7 +133,7 @@ export function MailSidebar({
 					<p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Labels</p>
 					<button
 						type="button"
-						onClick={() => setManagingFolders(true)}
+						onClick={() => setFolderManager({})}
 						aria-label="Manage folders"
 						className={cn(
 							'touch-target-square flex items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:ring-[3px] focus-visible:ring-ring',
@@ -138,25 +149,61 @@ export function MailSidebar({
 							const active = currentFolderId === label.id
 							const nextFolderId = labelToggleFolderId(currentFolderId, label.id, baseFolderId)
 							const nextBaseFolderId = active ? undefined : labelBaseFolderId(currentFolderId, baseFolderId)
+							const labelSearch = nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}
+							const labelName = label.name || label.id
 							return (
-								<Link
-									key={label.id}
-									to="/mail/f/$folderId"
-									params={{ folderId: nextFolderId }}
-									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
-									onClick={onNavigate}
-									aria-current={active ? 'page' : undefined}
-									className={cn(
-										'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
-										mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
-										active
-											? 'nav-item-active'
-											: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-									)}
-								>
-									<span className={cn('h-2 w-2 shrink-0 rounded-full', labelDotClass(label.id, index))} />
-									<span className="min-w-0 flex-1 truncate text-left">{label.name || label.id}</span>
-								</Link>
+								// The menu holds what the folder manager can do with this label.
+								<ContextMenu key={label.id}>
+									<ContextMenuTrigger asChild>
+										<Link
+											to="/mail/f/$folderId"
+											params={{ folderId: nextFolderId }}
+											search={labelSearch}
+											onClick={onNavigate}
+											aria-current={active ? 'page' : undefined}
+											className={cn(
+												'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
+												mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
+												active
+													? 'nav-item-active'
+													: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+											)}
+										>
+											<span className={cn('h-2 w-2 shrink-0 rounded-full', labelDotClass(label.id, index))} />
+											<span className="min-w-0 flex-1 truncate text-left">{labelName}</span>
+										</Link>
+									</ContextMenuTrigger>
+									<ContextMenuContent aria-label={`Actions for ${labelName}`}>
+										<ContextMenuItem
+											disabled={active}
+											onSelect={() => {
+												onNavigate?.()
+												navigate({
+													to: '/mail/f/$folderId',
+													params: { folderId: nextFolderId },
+													search: labelSearch,
+												})
+											}}
+										>
+											<FolderOpen aria-hidden="true" />
+											Open
+										</ContextMenuItem>
+										<ContextMenuSeparator />
+										<ContextMenuItem
+											onSelect={() => setFolderManager({ initialAction: { kind: 'edit', id: label.id } })}
+										>
+											<Pencil aria-hidden="true" />
+											Rename…
+										</ContextMenuItem>
+										<ContextMenuItem
+											variant="destructive"
+											onSelect={() => setFolderManager({ initialAction: { kind: 'delete', id: label.id } })}
+										>
+											<Trash2 aria-hidden="true" />
+											Delete…
+										</ContextMenuItem>
+									</ContextMenuContent>
+								</ContextMenu>
 							)
 						})}
 					</div>
@@ -164,10 +211,11 @@ export function MailSidebar({
 					<p className={cn('py-2 text-xs text-muted-foreground', mobile ? 'px-3' : 'px-4')}>No labels yet.</p>
 				)}
 			</div>
-			{managingFolders ? (
+			{folderManager ? (
 				<FolderManagerDialog
 					folders={folders}
-					onClose={() => setManagingFolders(false)}
+					initialAction={folderManager.initialAction}
+					onClose={() => setFolderManager(null)}
 					onDeleted={onFolderDeleted}
 				/>
 			) : null}

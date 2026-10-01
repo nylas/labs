@@ -952,6 +952,22 @@ describe('compose navigation', () => {
 // --- keyboard shortcuts -------------------------------------------------
 
 describe('keyboard shortcuts', () => {
+	it('leaves keys pressed inside an open menu to that menu', async () => {
+		renderThread()
+		// Typeahead letters and Escape inside any menu must not archive, delete or close the reader.
+		const menu = document.createElement('div')
+		menu.setAttribute('role', 'menu')
+		const item = menu.appendChild(document.createElement('div'))
+		item.setAttribute('role', 'menuitem')
+		document.body.appendChild(menu)
+		await act(async () => {
+			for (const key of ['e', '#', 's', 'u', 'r', 'Escape']) fireEvent.keyDown(item, { key })
+		})
+		menu.remove()
+		expect(updateThreadState).not.toHaveBeenCalled()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
 	it('ignores keystrokes while typing, when repeating, or with a modifier held', async () => {
 		renderThread()
 		const input = document.createElement('input')

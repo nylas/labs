@@ -287,6 +287,8 @@ function ThreadView() {
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
+			// An open menu owns its keys: typeahead letters and Escape stay inside it.
+			if (event.target instanceof Element && event.target.closest('[role="menu"]')) return
 			const key = event.key.toLowerCase()
 			if (key === 'r') {
 				const isModified = event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey

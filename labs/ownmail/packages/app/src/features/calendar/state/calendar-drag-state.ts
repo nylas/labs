@@ -39,6 +39,7 @@ export type CalendarDragOptions = {
 type PointerStart = {
 	pointerType: string
 	button: number
+	ctrlKey: boolean
 	clientX: number
 	clientY: number
 	currentTarget: { getBoundingClientRect(): Rect }
@@ -136,7 +137,8 @@ export function useCalendarDrag(options: CalendarDragOptions) {
 	const beginPointerDrag = (start: PointerStart, kind: DragKind, drawn: Event | null) => {
 		{
 			// Touch and pen scroll the grid; they never start a drag.
-			if (start.pointerType !== 'mouse' || start.button !== 0) return
+			// Control-click is the context menu on macOS, so it never starts one either.
+			if (start.pointerType !== 'mouse' || start.button !== 0 || start.ctrlKey) return
 			// A box drawn at pending keyboard times stands for the stored event, which is what moves.
 			const event = drawn && keyboard.current?.event.id === drawn.id ? keyboard.current.event : drawn
 			if (event && eventDragBlock(event, latest.current.calendars)) return

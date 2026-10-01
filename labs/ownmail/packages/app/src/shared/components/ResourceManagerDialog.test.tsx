@@ -28,6 +28,36 @@ function setup(overrides: Partial<Parameters<typeof ResourceManagerDialog>[0]> =
 }
 
 describe('ResourceManagerDialog', () => {
+	it('opens straight on the requested item, still behind its own confirmation', async () => {
+		const user = userEvent.setup()
+		const props = setup({ initialAction: { kind: 'delete', id: 'work' } })
+		expect(screen.getByText('Delete Work?')).toBeInTheDocument()
+		// Nothing is deleted until the confirmation is answered.
+		expect(props.onDelete).not.toHaveBeenCalled()
+		await user.click(screen.getByRole('button', { name: 'Delete folder' }))
+		expect(props.onDelete).toHaveBeenCalledWith('work')
+
+		cleanup()
+		const renamed = setup({ initialAction: { kind: 'edit', id: 'work' } })
+		const name = screen.getByLabelText('Name')
+		expect(name).toHaveValue('Work')
+		await user.clear(name)
+		await user.type(name, 'Team')
+		await user.click(screen.getByRole('button', { name: 'Save' }))
+		expect(renamed.onUpdate).toHaveBeenCalledWith('work', 'Team')
+	})
+
+	it.each([
+		['a read-only item cannot be renamed', { kind: 'edit', id: 'shared' }],
+		['a read-only item cannot be deleted', { kind: 'delete', id: 'shared' }],
+		['an item that no longer exists', { kind: 'delete', id: 'gone' }],
+	] as const)('falls back to the list when %s', (_case, initialAction) => {
+		setup({ initialAction })
+		expect(screen.getByRole('button', { name: /Add folder/ })).toBeInTheDocument()
+		expect(screen.queryByText(/^Delete .*\?$/)).not.toBeInTheDocument()
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+	})
+
 	it('creates a resource after client validation and blocks dismissal while saving', async () => {
 		let finish: (() => void) | undefined
 		const onCreate = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)))

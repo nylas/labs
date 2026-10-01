@@ -14,6 +14,9 @@ export type ManagedResource = {
 	canDelete: boolean
 }
 
+/** Opens the dialog on one item's rename form or delete confirmation. */
+export type ManagedResourceAction = { kind: 'edit' | 'delete'; id: string }
+
 type Action =
 	| { kind: 'create' }
 	| { kind: 'edit'; resource: ManagedResource }
@@ -23,6 +26,7 @@ export function ResourceManagerDialog({
 	title,
 	noun,
 	items,
+	initialAction,
 	onClose,
 	onCreate,
 	onUpdate,
@@ -31,13 +35,20 @@ export function ResourceManagerDialog({
 	title: string
 	noun: string
 	items: ManagedResource[]
+	initialAction?: ManagedResourceAction
 	onClose: () => void
 	onCreate: (name: string) => Promise<void>
 	onUpdate: (id: string, name: string) => Promise<void>
 	onDelete: (id: string) => Promise<void>
 }) {
-	const [action, setAction] = useState<Action | null>(null)
-	const [name, setName] = useState('')
+	// A requested action starts only on an item that still exists and allows it.
+	const [action, setAction] = useState<Action | null>(() => {
+		const resource = initialAction && items.find((item) => item.id === initialAction.id)
+		if (!resource) return null
+		if (initialAction.kind === 'edit') return resource.canEdit ? { kind: 'edit', resource } : null
+		return resource.canDelete ? { kind: 'delete', resource } : null
+	})
+	const [name, setName] = useState(action?.kind === 'edit' ? action.resource.name : '')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [validation, setValidation] = useState<string | null>(null)

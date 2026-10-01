@@ -1,16 +1,18 @@
 import type { Calendar } from '@nylas-labs/cli-kit/v3'
 import { useQueryClient } from '@tanstack/react-query'
-import { ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
+import { type ManagedResourceAction, ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { createCalendar, deleteCalendar, updateCalendar } from '../server/calendar-fns.js'
 import { applyCalendarResourceEffect, calendarKeys } from '../state/calendar-state.js'
 
 export function CalendarManagerDialog({
 	calendars,
+	initialAction,
 	onClose,
 	onDeleted,
 }: {
 	calendars: Calendar[]
+	initialAction?: ManagedResourceAction
 	onClose: () => void
 	onDeleted?: (calendarId: string) => void
 }) {
@@ -27,6 +29,7 @@ export function CalendarManagerDialog({
 		<ResourceManagerDialog
 			title="Manage calendars"
 			noun="calendar"
+			initialAction={initialAction}
 			items={calendars.map((calendar) => ({
 				id: calendar.id,
 				name: calendar.name || 'Calendar',

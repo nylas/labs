@@ -85,6 +85,7 @@ export function EventDetails({
 	email,
 	variant,
 	focusEditOnMount = false,
+	startOnDeleteConfirmation = false,
 	onEdit,
 	onClose,
 	onRsvped,
@@ -100,6 +101,8 @@ export function EventDetails({
 	email?: string
 	variant: EventDetailsVariant
 	focusEditOnMount?: boolean
+	/** Asked for from the event's context menu: show the delete confirmation at once. */
+	startOnDeleteConfirmation?: boolean
 	onEdit: () => void
 	onClose: () => void
 	/** Called after an answer is saved; the pane stays open, the dialog closes. */
@@ -108,7 +111,7 @@ export function EventDetails({
 }) {
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	const [confirmingDelete, setConfirmingDelete] = useState(false)
+	const [confirmingDelete, setConfirmingDelete] = useState(startOnDeleteConfirmation && !event.read_only)
 	const editButtonRef = useRef<HTMLButtonElement>(null)
 	const deleteButtonRef = useRef<HTMLButtonElement>(null)
 	const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
@@ -139,6 +142,14 @@ export function EventDetails({
 	const focusEditOnMountRef = useRef(focusEditOnMount)
 	useEffect(() => {
 		if (focusEditOnMountRef.current) editButtonRef.current?.focus()
+	}, [])
+	// Asked for from a context menu: that menu is still closing when this view
+	// mounts, so the safe choice takes focus on the next frame, once it is gone.
+	const startOnDeleteRef = useRef(startOnDeleteConfirmation)
+	useEffect(() => {
+		if (!startOnDeleteRef.current) return
+		const frame = requestAnimationFrame(() => cancelDeleteButtonRef.current?.focus())
+		return () => cancelAnimationFrame(frame)
 	}, [])
 	useEffect(() => {
 		if (confirmingDelete) cancelDeleteButtonRef.current?.focus()

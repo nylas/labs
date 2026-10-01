@@ -48,6 +48,7 @@ const anchor = box(700, 568, 100, 52)
 const press = (x: number, yPosition: number, overrides: Record<string, unknown> = {}) => ({
 	pointerType: 'mouse',
 	button: 0,
+	ctrlKey: false,
 	clientX: x,
 	clientY: yPosition,
 	currentTarget: { getBoundingClientRect: () => anchor },

@@ -1,8 +1,22 @@
 import { useQuery } from '@tanstack/react-query'
-import { type ComponentProps, type ReactNode, useEffect, useLayoutEffect, useMemo } from 'react'
+import { Download, Mail } from 'lucide-react'
+import {
+	type ComponentProps,
+	type ReactElement,
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+} from 'react'
 import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { Button } from '#shared/components/ui/button'
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from '#shared/components/ui/context-menu'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -298,30 +312,36 @@ function TranscriptItem({
 			<article data-slot="conversation-article" aria-label={`Message from ${item.label}`}>
 				<ThreadColumn>
 					{/* In a chat the article is a card in the stream; on its own it is the page. */}
-					<div
-						className={cn(
-							'flex min-w-0 max-w-[72ch] flex-col gap-hairline',
-							chat && 'rounded-lg border border-border bg-card p-region',
-						)}
+					<MessageMenu
+						message={message}
+						label={item.label}
+						onShowOriginal={() => onSetOriginal([message.id], true)}
 					>
-						<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-cluster">
-							<p className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
-								<span className="font-semibold text-foreground">{item.label}</span>
-								{message.date ? (
-									<>
-										{' · '}
-										<MessageTime epochSeconds={message.date} />
-									</>
-								) : null}
-							</p>
-							<Button variant="ghost" size="sm" onClick={() => onSetOriginal([message.id], true)}>
-								Show original
-							</Button>
+						<div
+							className={cn(
+								'flex min-w-0 max-w-[72ch] flex-col gap-hairline',
+								chat && 'rounded-lg border border-border bg-card p-region',
+							)}
+						>
+							<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-cluster">
+								<p className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+									<span className="font-semibold text-foreground">{item.label}</span>
+									{message.date ? (
+										<>
+											{' · '}
+											<MessageTime epochSeconds={message.date} />
+										</>
+									) : null}
+								</p>
+								<Button variant="ghost" size="sm" onClick={() => onSetOriginal([message.id], true)}>
+									Show original
+								</Button>
+							</div>
+							<CalendarInvitationCard message={message} />
+							<CleanBlocks blocks={item.blocks} />
+							<BubbleAttachments message={message} />
 						</div>
-						<CalendarInvitationCard message={message} />
-						<CleanBlocks blocks={item.blocks} />
-						<BubbleAttachments message={message} />
-					</div>
+					</MessageMenu>
 				</ThreadColumn>
 			</article>
 		)
@@ -352,7 +372,13 @@ function TranscriptItem({
 				>
 					<h2 className={named ? 'text-xs font-semibold text-muted-foreground' : 'sr-only'}>{name}</h2>
 					{item.bubbles.map((bubble) => (
-						<Bubble key={bubble.message.id} bubble={bubble} mine={item.mine} />
+						<Bubble
+							key={bubble.message.id}
+							bubble={bubble}
+							mine={item.mine}
+							label={name}
+							onShowOriginal={() => onSetOriginal([bubble.message.id], true)}
+						/>
 					))}
 					<div className="flex min-w-0 flex-wrap items-center gap-x-cluster text-xs text-muted-foreground">
 						<span>
@@ -381,11 +407,61 @@ function TranscriptItem({
 	)
 }
 
+/**
+ * The right-click menu of one message in the transcript: what that message
+ * already offers here ("Show original") and in the reader's overflow menu
+ * (the raw download). Selected text, links and images inside the message keep
+ * the browser's menu, as rendered email does. Opening the menu changes nothing.
+ */
+function MessageMenu({
+	message,
+	label,
+	onShowOriginal,
+	children,
+}: {
+	message: MailMessage
+	label: string
+	onShowOriginal: () => void
+	/** The bubble or article card; it becomes the trigger. */
+	children: ReactElement
+}) {
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild keepNativeMenuOn="a[href], img">
+				{children}
+			</ContextMenuTrigger>
+			<ContextMenuContent aria-label={`Actions for message from ${label}`}>
+				<ContextMenuItem onSelect={() => onShowOriginal()}>
+					<Mail aria-hidden="true" />
+					Show original
+				</ContextMenuItem>
+				{/* An unsent draft is always shown by the standard reader, never here, so every message has a raw form. */}
+				<ContextMenuItem asChild>
+					<a href={`/messages/${encodeURIComponent(message.id)}/download`} download>
+						<Download aria-hidden="true" />
+						Download raw email
+					</a>
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
+	)
+}
+
 function emailCount(count: number): string {
 	return count === 1 ? '1 email' : `${count} emails`
 }
 
-function Bubble({ bubble, mine }: { bubble: ConversationBubble; mine: boolean }) {
+function Bubble({
+	bubble,
+	mine,
+	label,
+	onShowOriginal,
+}: {
+	bubble: ConversationBubble
+	mine: boolean
+	label: string
+	onShowOriginal: () => void
+}) {
 	const { message } = bubble
 	const hasAttachments = (message.attachments ?? []).some((attachment) => !attachment.is_inline)
 	return (
@@ -395,22 +471,24 @@ function Bubble({ bubble, mine }: { bubble: ConversationBubble; mine: boolean })
 			</div>
 			{/* A bubble is a fill: no border, no side rail. The side and the sender's
 			    name carry who wrote it, so the tint is never the only signal. */}
-			<div
-				data-slot="conversation-bubble"
-				data-unsure={bubble.unsure || undefined}
-				className={cn(
-					'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster',
-					// The reader's own bubbles are the quiet green tint; everyone else's are neutral.
-					mine ? 'bg-bubble-own text-bubble-own-foreground' : 'bg-muted text-foreground',
-				)}
-			>
-				{bubble.blocks.length > 0 ? (
-					<CleanBlocks blocks={bubble.blocks} historyOpen={bubble.unsure} />
-				) : hasAttachments ? null : (
-					<p className="text-sm text-muted-foreground">No message text</p>
-				)}
-				<BubbleAttachments message={message} />
-			</div>
+			<MessageMenu message={message} label={label} onShowOriginal={onShowOriginal}>
+				<div
+					data-slot="conversation-bubble"
+					data-unsure={bubble.unsure || undefined}
+					className={cn(
+						'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster',
+						// The reader's own bubbles are the quiet green tint; everyone else's are neutral.
+						mine ? 'bg-bubble-own text-bubble-own-foreground' : 'bg-muted text-foreground',
+					)}
+				>
+					{bubble.blocks.length > 0 ? (
+						<CleanBlocks blocks={bubble.blocks} historyOpen={bubble.unsure} />
+					) : hasAttachments ? null : (
+						<p className="text-sm text-muted-foreground">No message text</p>
+					)}
+					<BubbleAttachments message={message} />
+				</div>
+			</MessageMenu>
 		</>
 	)
 }

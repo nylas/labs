@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Draft, Thread } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -48,7 +48,11 @@ const getFolders = vi.fn()
 const getThreads = vi.fn()
 const listDrafts = vi.fn()
 const updateThreadState = vi.fn()
+const deleteDraft = vi.fn()
+const getThreadMessages = vi.fn()
 vi.mock('#server/fns', () => ({
+	getThreadMessages: (input: any) => getThreadMessages(input),
+	deleteDraft: (input: any) => deleteDraft(input),
 	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
 	getFolders: () => getFolders(),
 	getThreads: (input: any) => getThreads(input),
@@ -1369,6 +1373,447 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		expect(navigate).toHaveBeenCalledWith({
 			to: '/mail/compose',
 			search: { draft: 'd2', folderId: 'drafts' },
+		})
+	})
+})
+
+describe('MailFolderRouteScreen — context menus', () => {
+	const threads = [
+		thread({ id: 't1', subject: 'First', latest_message_received_date: 300, unread: true }),
+		thread({ id: 't2', subject: 'Second', latest_message_received_date: 200, starred: true }),
+		thread({ id: 't3', subject: 'Third', latest_message_received_date: 100 }),
+	]
+	const openT2 = () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t2' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't2' } }],
+		} as RouterState
+	}
+
+	function renderInbox(props: Partial<Parameters<typeof MailFolderRouteScreen>[0]> = {}) {
+		return render(
+			<MailFolderRouteScreen
+				threads={threads}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+				{...props}
+			/>,
+		)
+	}
+
+	const row = (subject: string) =>
+		screen.getByRole('link', { name: new RegExp(`Open ${subject}`) }).closest('[data-nav-row]') as HTMLElement
+
+	async function openMenu(subject: string) {
+		fireEvent.contextMenu(row(subject), { clientX: 10, clientY: 10 })
+		return screen.findByRole('menu', { name: `Actions for ${subject}` })
+	}
+
+	const choose = (name: string) => fireEvent.click(screen.getByRole('menuitem', { name }))
+	const menuClosed = () => waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+	it('acts on the row it was opened on and leaves the open conversation alone', async () => {
+		openT2()
+		updateThreadState.mockResolvedValue({ ok: true })
+		renderInbox()
+
+		await openMenu('First')
+		choose('Archive')
+
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'archive' } }),
+		)
+		await menuClosed()
+		// The reader still shows t2: nothing navigated.
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('closes the reader when the open conversation itself is moved or marked unread', async () => {
+		openT2()
+		const onUpdateThread = vi.fn().mockResolvedValue(undefined)
+		renderInbox({ baseFolderId: 'work', onUpdateThread })
+
+		await openMenu('Second')
+		choose('Delete')
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/f/$folderId',
+				params: { folderId: 'inbox' },
+				search: { baseFolderId: 'work' },
+			}),
+		)
+		expect(onUpdateThread).toHaveBeenCalledWith({ threadId: 't2', folder: 'trash' })
+
+		navigate.mockClear()
+		await menuClosed()
+		await openMenu('Second')
+		choose('Mark as unread')
+		await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1))
+		expect(onUpdateThread).toHaveBeenLastCalledWith({ threadId: 't2', unread: true })
+	})
+
+	it('does not pull the user out of the composer when the highlighted row behind it is archived', async () => {
+		const onUpdateThread = vi.fn().mockResolvedValue(undefined)
+		renderInbox({ activeThreadId: 't1', composeThreadSearch: (threadId) => ({ threadId }), onUpdateThread })
+
+		await openMenu('First')
+		choose('Archive')
+
+		await waitFor(() => expect(onUpdateThread).toHaveBeenCalledWith({ threadId: 't1', folder: 'archive' }))
+		await menuClosed()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('mirrors the read state, star and archive state of its own row', async () => {
+		openT2()
+		const onUpdateThread = vi.fn().mockResolvedValue(undefined)
+		renderInbox({ onUpdateThread })
+
+		await openMenu('First')
+		expect(screen.getByRole('menuitem', { name: 'Star' })).toBeInTheDocument()
+		choose('Mark as read')
+		await waitFor(() => expect(onUpdateThread).toHaveBeenLastCalledWith({ threadId: 't1', unread: false }))
+		await menuClosed()
+
+		await openMenu('Second')
+		choose('Unstar')
+		await waitFor(() => expect(onUpdateThread).toHaveBeenLastCalledWith({ threadId: 't2', starred: false }))
+		// Starring or marking read never closes the open conversation.
+		expect(navigate).not.toHaveBeenCalled()
+
+		cleanup()
+		renderInbox({ folderId: 'archive', onUpdateThread })
+		await openMenu('Third')
+		choose('Return to inbox')
+		await waitFor(() => expect(onUpdateThread).toHaveBeenLastCalledWith({ threadId: 't3', folder: 'inbox' }))
+	})
+
+	it('marks Delete as destructive with an icon, not colour alone', async () => {
+		renderInbox()
+		await openMenu('First')
+		const item = screen.getByRole('menuitem', { name: 'Delete' })
+		expect(item).toHaveAttribute('data-variant', 'destructive')
+		expect(item.querySelector('svg')).not.toBeNull()
+	})
+
+	it('opens the conversation, or the composer behind which the list sits', async () => {
+		renderInbox({ baseFolderId: 'work' })
+		const menu = await openMenu('Third')
+		expect(within(menu).getByText('Enter')).toHaveClass('kbd')
+		choose('Open')
+		expect(navigate).toHaveBeenCalledWith({
+			to: '/mail/f/$folderId/t/$threadId',
+			params: { folderId: 'inbox', threadId: 't3' },
+			search: { baseFolderId: 'work' },
+		})
+
+		cleanup()
+		renderInbox({ composeThreadSearch: (threadId) => ({ threadId }) })
+		await openMenu('First')
+		choose('Open')
+		expect(navigate).toHaveBeenLastCalledWith({ to: '/mail/compose', search: { threadId: 't1' } })
+	})
+
+	it('disables the row actions while one is in flight and recovers after a failure', async () => {
+		let fail!: (error: Error) => void
+		const onUpdateThread = vi.fn(() => new Promise<void>((_resolve, reject) => (fail = reject)))
+		renderInbox({ onUpdateThread })
+
+		await openMenu('First')
+		choose('Archive')
+		await menuClosed()
+		await openMenu('First')
+		// Unavailable, not hidden.
+		expect(screen.getByRole('menuitem', { name: 'Archive' })).toHaveAttribute('aria-disabled', 'true')
+		expect(screen.getByRole('menuitem', { name: 'Delete' })).toHaveAttribute('aria-disabled', 'true')
+		expect(screen.getByRole('menuitem', { name: 'Open' })).not.toHaveAttribute('aria-disabled')
+
+		await act(async () => fail(new Error('provider detail')))
+		await waitFor(() =>
+			expect(screen.getByRole('menuitem', { name: 'Archive' })).not.toHaveAttribute('aria-disabled'),
+		)
+		expect(screen.queryByText(/provider detail/)).not.toBeInTheDocument()
+	})
+
+	it('reports a failed action on the row it belongs to, and clears it on the next attempt', async () => {
+		const onUpdateThread = vi
+			.fn()
+			.mockRejectedValueOnce(new Error('provider detail'))
+			.mockResolvedValue(undefined)
+		renderInbox({ onUpdateThread })
+
+		await openMenu('Second')
+		choose('Archive')
+		const alert = await screen.findByRole('alert')
+		// The reader toolbar's own wording, inside the row that failed and nowhere else.
+		expect(alert).toHaveTextContent('Action failed')
+		expect(alert).not.toHaveTextContent('provider detail')
+		expect(row('Second')).toContainElement(alert)
+		expect(row('First')).not.toContainElement(alert)
+		expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+		await openMenu('Second')
+		choose('Archive')
+		await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+	})
+
+	it('reports a failed star on its row too, from the menu or the star button', async () => {
+		const onUpdateThread = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+		renderInbox({ onUpdateThread })
+
+		await openMenu('First')
+		choose('Star')
+		const alert = await screen.findByRole('alert')
+		expect(row('First')).toContainElement(alert)
+
+		fireEvent.click(within(row('First')).getByRole('button', { name: 'Star' }))
+		await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+	})
+
+	it('starts a reply, reply all or forward for the row through the route, and reports a failure on the row', async () => {
+		openT2()
+		const onRespondToThread = vi.fn().mockResolvedValue(undefined)
+		renderInbox({ onRespondToThread })
+
+		for (const [name, kind] of [
+			['Reply', 'reply'],
+			['Reply all', 'reply-all'],
+			['Forward', 'forward'],
+		] as const) {
+			await openMenu('First')
+			choose(name)
+			await waitFor(() => expect(onRespondToThread).toHaveBeenLastCalledWith({ threadId: 't1', kind }))
+			await menuClosed()
+		}
+
+		onRespondToThread.mockRejectedValue(new Error('no message'))
+		await openMenu('Third')
+		choose('Reply')
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Action failed')
+		expect(row('Third')).toContainElement(alert)
+	})
+
+	it('shows the reply items as unavailable where the list cannot start one', async () => {
+		renderInbox()
+		await openMenu('First')
+		for (const name of ['Reply', 'Reply all', 'Forward']) {
+			expect(screen.getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
+		}
+	})
+
+	it('shows the reader shortcuts only on the row of the open conversation, where they act', async () => {
+		openT2()
+		renderInbox({ onRespondToThread: vi.fn() })
+
+		const open = await openMenu('Second')
+		const shortcuts = (menu: HTMLElement) =>
+			[...menu.querySelectorAll('[role="menuitem"]')].map((element) => [
+				[...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)?.textContent,
+				element.getAttribute('aria-keyshortcuts'),
+			])
+		expect(shortcuts(open)).toEqual([
+			['Open', 'Enter'],
+			['Reply', 'R'],
+			['Reply all', null],
+			['Forward', null],
+			['Mark as unread', 'U'],
+			['Unstar', 'S'],
+			['Archive', 'E'],
+			['Delete', '#'],
+		])
+		fireEvent.keyDown(open, { key: 'Escape' })
+		await menuClosed()
+
+		// On another row those keys would act on the open conversation, so they are not shown.
+		const other = await openMenu('First')
+		expect(shortcuts(other).map(([, key]) => key)).toEqual([
+			'Enter',
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+		])
+	})
+
+	it('loads the thread and opens the composer on its last message in the live route', async () => {
+		Route.useLoaderData = vi.fn(() => ({
+			threads: [thread({ id: 't1', subject: 'First' })],
+			drafts: [],
+			folders: [],
+			nextCursor: undefined,
+		}))
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox' }))
+		Route.useSearch = vi.fn(() => ({}))
+		getThreads.mockResolvedValue({ threads: [thread({ id: 't1', subject: 'First' })], nextCursor: undefined })
+		getFolders.mockResolvedValue([])
+		getThreadMessages.mockResolvedValue({
+			thread: thread({ id: 't1', subject: 'First' }),
+			messages: [
+				{ id: 'm1', subject: 'First', from: [{ email: 'old@example.com' }] },
+				{ id: 'm2', subject: 'First', from: [{ email: 'ada@example.com' }] },
+			],
+			mailboxEmail: 'me@ownmail.com',
+		})
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+				<Component />
+			</QueryClientProvider>,
+		)
+
+		await openMenu('First')
+		choose('Reply')
+
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/compose',
+				search: {
+					folderId: 'inbox',
+					threadId: 't1',
+					to: 'ada@example.com',
+					subject: 'Re: First',
+					replyToMessageId: 'm2',
+				},
+			}),
+		)
+		expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } })
+	})
+
+	it('keeps list shortcuts out of an open menu', async () => {
+		renderInbox()
+		await openMenu('First')
+		const item = screen.getByRole('menuitem', { name: 'Archive' })
+		fireEvent.keyDown(item, { key: 'j' })
+		fireEvent.keyDown(item, { key: 'o' })
+		// The same holds for any other menu on the page.
+		const otherMenu = document.body.appendChild(document.createElement('div'))
+		otherMenu.setAttribute('role', 'menu')
+		fireEvent.keyDown(otherMenu, { key: 'j' })
+		fireEvent.keyDown(otherMenu, { key: 'o' })
+		otherMenu.remove()
+		expect(document.querySelector('[data-nav-cursor="true"]')).toBeNull()
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
+	it('puts focus on the cursored row for the ContextMenu key and Shift+F10', () => {
+		renderInbox()
+		// No cursor yet: there is no row to focus, and nothing breaks.
+		fireEvent.keyDown(window, { key: 'ContextMenu' })
+		expect(document.body).toHaveFocus()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'ContextMenu' })
+		expect(screen.getByRole('link', { name: /Open Second/ })).toHaveFocus()
+
+		// A row that already has focus keeps it: the browser opens its menu there.
+		const third = screen.getByRole('link', { name: /Open Third/ })
+		third.focus()
+		fireEvent.keyDown(third, { key: 'F10', shiftKey: true })
+		expect(third).toHaveFocus()
+		// Plain F10 is not a context-menu key.
+		fireEvent.keyDown(window, { key: 'F10' })
+		expect(third).toHaveFocus()
+	})
+
+	describe('drafts', () => {
+		const drafts = [
+			{ id: 'd1', to: [{ email: 'a@b.com' }], subject: 'One', snippet: 'x' },
+			{ id: 'd2', to: [{ email: 'c@d.com' }], subject: '', snippet: 'y' },
+		] as unknown as Draft[]
+
+		function renderDrafts(props: Partial<Parameters<typeof MailFolderRouteScreen>[0]> = {}) {
+			return render(
+				<MailFolderRouteScreen
+					threads={[]}
+					drafts={drafts}
+					folders={[]}
+					folderId="drafts"
+					nextCursor={undefined}
+					{...props}
+				/>,
+			)
+		}
+
+		it('opens and discards the draft the menu was opened on', async () => {
+			const onDiscardDraft = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+			renderDrafts({ onDiscardDraft })
+
+			fireEvent.contextMenu(screen.getByRole('link', { name: /a@b.com.*One/ }))
+			await screen.findByRole('menu', { name: 'Actions for draft One' })
+			choose('Open draft')
+			expect(navigate).toHaveBeenCalledWith({
+				to: '/mail/compose',
+				search: { draft: 'd1', folderId: 'drafts' },
+			})
+			await menuClosed()
+
+			// A failed discard is rolled back by the mutation; the menu stays usable.
+			for (const _attempt of [1, 2]) {
+				fireEvent.contextMenu(screen.getByRole('link', { name: /c@d.com/ }))
+				await screen.findByRole('menu', { name: 'Actions for draft (no subject)' })
+				expect(screen.getByRole('menuitem', { name: 'Discard draft' })).toHaveAttribute(
+					'data-variant',
+					'destructive',
+				)
+				choose('Discard draft')
+				await menuClosed()
+			}
+			expect(onDiscardDraft).toHaveBeenCalledTimes(2)
+			expect(onDiscardDraft).toHaveBeenLastCalledWith('d2')
+			// The second attempt succeeded, so the first one's message is gone.
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		})
+
+		it('puts focus on the cursored draft for the ContextMenu key', () => {
+			renderDrafts()
+			fireEvent.keyDown(window, { key: 'j' })
+			fireEvent.keyDown(window, { key: 'ContextMenu' })
+			// A draft row is its own link.
+			expect(screen.getByRole('link', { name: /a@b.com.*One/ })).toHaveFocus()
+		})
+
+		it('says on the draft row, in the composer wording, when it could not be discarded', async () => {
+			renderDrafts({ onDiscardDraft: vi.fn().mockRejectedValue(new Error('provider detail')) })
+			const draft = screen.getByRole('link', { name: /c@d.com/ })
+			fireEvent.contextMenu(draft)
+			await screen.findByRole('menu')
+			choose('Discard draft')
+			const alert = await screen.findByRole('alert')
+			expect(alert).toHaveTextContent('Could not discard the draft. Check your connection, then try again.')
+			expect(draft).toContainElement(alert)
+			expect(screen.getByRole('link', { name: /a@b.com.*One/ })).not.toContainElement(alert)
+		})
+
+		it('shows Discard as unavailable where the list cannot delete drafts', async () => {
+			renderDrafts()
+			fireEvent.contextMenu(screen.getByRole('link', { name: /a@b.com.*One/ }))
+			await screen.findByRole('menu')
+			expect(screen.getByRole('menuitem', { name: 'Discard draft' })).toHaveAttribute('aria-disabled', 'true')
+		})
+
+		it('discards through the optimistic draft mutation in the live route', async () => {
+			Route.useLoaderData = vi.fn(() => ({ threads: [], drafts, folders: [], nextCursor: undefined }))
+			Route.useParams = vi.fn(() => ({ folderId: 'drafts' }))
+			Route.useSearch = vi.fn(() => ({}))
+			listDrafts.mockResolvedValue(drafts)
+			getFolders.mockResolvedValue([])
+			deleteDraft.mockResolvedValue({})
+			const Component = Route.options.component
+			render(
+				<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })}>
+					<Component />
+				</QueryClientProvider>,
+			)
+			fireEvent.contextMenu(screen.getByRole('link', { name: /a@b.com.*One/ }))
+			await screen.findByRole('menu')
+			choose('Discard draft')
+			await waitFor(() => expect(deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd1' } }))
 		})
 	})
 })

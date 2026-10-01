@@ -534,6 +534,27 @@ describe('designed mail', () => {
 		expect(runs()).toHaveLength(1)
 	})
 
+	it('offers the message menu on an article card, and leaves its links and images to the browser', async () => {
+		renderThread([email('m1', INES, MONDAY, 'Did you see this?'), newsletter('news', MONDAY + 60)])
+		openConversation()
+		const article = articles()[0] as HTMLElement
+		const card = article.querySelector('[data-slot="clean-blocks"]')?.parentElement as HTMLElement
+
+		// A link keeps the browser menu, for "open in new tab" and "copy link".
+		const link = within(article).getByRole('link', { name: 'Read the issue' })
+		expect(fireEvent.contextMenu(link, { clientX: 5, clientY: 5 })).toBe(true)
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+		expect(fireEvent.contextMenu(card, { clientX: 5, clientY: 5 })).toBe(false)
+		await screen.findByRole('menu', { name: 'Actions for message from Fieldnotes Weekly' })
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Show original' }))
+		expect(articles()).toHaveLength(0)
+		expect(document.querySelector('[data-slot="conversation-card"]')).toHaveAttribute(
+			'aria-label',
+			'Message from Fieldnotes Weekly',
+		)
+	})
+
 	it('opens as an article, not a chat, when the thread is only designed mail', () => {
 		renderThread([newsletter('one', MONDAY), newsletter('two')], {
 			reply: { onReply: vi.fn(), onReplyAll: vi.fn() },
@@ -898,5 +919,79 @@ describe('replying', () => {
 		openConversation()
 		expect(screen.getByText('after the thread')).toBeInTheDocument()
 		expect(document.querySelector('[data-slot="conversation-reply"]')).toBeNull()
+	})
+})
+
+describe('message context menu in the transcript', () => {
+	const menu = () => screen.queryByRole('menu')
+	const rightClick = (target: Element) => fireEvent.contextMenu(target, { clientX: 5, clientY: 5 })
+
+	it('holds what the message already offers, for the bubble it was opened on', async () => {
+		renderThread()
+		openConversation()
+		// Tomas wrote two emails in one run; the menu is opened on the second.
+		const second = bubbles()[2] as HTMLElement
+		expect(second).toHaveTextContent(/Also, the retro fits better on/)
+
+		expect(rightClick(second)).toBe(false)
+		await screen.findByRole('menu', { name: 'Actions for message from Tomas Reyes' })
+		const items = screen.getAllByRole('menuitem')
+		expect(items.map((item) => item.textContent)).toEqual(['Show original', 'Download raw email'])
+		expect(items[1]).toHaveAttribute('href', '/messages/m3/download')
+		expect(items[1]).toHaveAttribute('download')
+
+		// Opening the menu changed nothing: still the transcript, with every bubble.
+		expect(bubbles()).toHaveLength(5)
+		expect(document.querySelector('[data-slot="conversation-card"]')).toBeNull()
+
+		fireEvent.click(items[0] as HTMLElement)
+		// Only that email goes to the standard reader; the run button would have taken both.
+		const cards = [...document.querySelectorAll<HTMLElement>('[data-slot="conversation-card"]')]
+		expect(cards).toHaveLength(1)
+		expect(await within(cards[0] as HTMLElement).findByTitle('Email content m3')).toBeInTheDocument()
+		expect(bubbles()).toHaveLength(4)
+	})
+
+	it('leaves the view and "Show original" choices alone when it is opened and dismissed', async () => {
+		renderThread()
+		openConversation()
+		fireEvent.click(
+			screen.getAllByRole('button', { name: 'Show original message from Ines Carvalho' })[0] as HTMLElement,
+		)
+		const before = document.querySelector('[data-slot="conversation-transcript"]')?.innerHTML
+
+		rightClick(bubbles()[0] as HTMLElement)
+		await screen.findByRole('menu')
+		fireEvent.keyDown(menu() as HTMLElement, { key: 'Escape' })
+		await waitFor(() => expect(menu()).not.toBeInTheDocument())
+
+		expect(document.querySelector('[data-slot="conversation-transcript"]')?.innerHTML).toBe(before)
+		expect(screen.getByRole('button', { name: 'Conversation view' })).toHaveAttribute('aria-pressed', 'true')
+	})
+
+	it('keeps the browser menu for selected text, links and attachment links inside a bubble', () => {
+		renderThread()
+		openConversation()
+		const [first, , third] = bubbles() as HTMLElement[]
+
+		expect(rightClick(within(third as HTMLElement).getByRole('link', { name: 'Friday' }))).toBe(true)
+		expect(
+			rightClick(within(first as HTMLElement).getByRole('link', { name: /offsite-agenda-v1\.pdf/ })),
+		).toBe(true)
+
+		const text = (third as HTMLElement).querySelector('p') as HTMLElement
+		window.getSelection()?.selectAllChildren(text)
+		expect(rightClick(text)).toBe(true)
+		window.getSelection()?.removeAllRanges()
+		expect(menu()).not.toBeInTheDocument()
+	})
+
+	it('gives the reply bar and the view switch no menu', () => {
+		renderThread(groupMessages, { reply: { onReply: vi.fn(), onReplyAll: vi.fn() } })
+		openConversation()
+		const reply = document.querySelector('[data-slot="conversation-reply"]') as HTMLElement
+		expect(rightClick(reply)).toBe(true)
+		expect(rightClick(screen.getByRole('button', { name: 'Messages view' }))).toBe(true)
+		expect(menu()).not.toBeInTheDocument()
 	})
 })

@@ -21,6 +21,12 @@ import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversat
  * the stack: from the stack top (account-partitioned state, dea6033) plus the
  * prose-detection fix that precedes this change (replies with quoted history
  * keep the 72ch measure). Nothing of the Conversation view was present.
+ *
+ * The context menus (a later change) make each message header row a Radix
+ * context-menu trigger. Radix adds exactly one attribute to that existing
+ * element, `data-state="closed"`, and no element, class or text. That
+ * attribute is left out of the comparison, the same way the view switch is;
+ * everything else about the header row is still compared.
  */
 
 const { originalColorSendersMock } = vi.hoisted(() => ({ originalColorSendersMock: vi.fn() }))
@@ -82,6 +88,9 @@ const messages: MailMessage[] = [
 function readerMarkup(root: HTMLElement): string {
 	const copy = root.cloneNode(true) as HTMLElement
 	for (const added of copy.querySelectorAll('[data-slot="thread-view-switch"]')) added.remove()
+	for (const trigger of copy.querySelectorAll('[data-slot="message-header-row"][data-state="closed"]')) {
+		trigger.removeAttribute('data-state')
+	}
 	const emails = [...root.querySelectorAll('ownmail-email')].map(
 		(email) => `<!-- shadow ${email.getAttribute('data-message-id')} -->${email.shadowRoot?.innerHTML ?? ''}`,
 	)

@@ -20,6 +20,12 @@ import {
 	useUserPreferencesReady,
 } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from '#shared/components/ui/context-menu'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { labelBadgeClass } from '#shared/lib/color-tone'
@@ -510,6 +516,8 @@ function MessageBlock({
 	const from = message.from?.[0]
 	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
+	const downloadHref =
+		message.ownmailDraft !== true ? `/messages/${encodeURIComponent(message.id)}/download` : undefined
 
 	return (
 		<article
@@ -521,64 +529,80 @@ function MessageBlock({
 				{/* The separator and its clearance sit outside the row, so the row's
 				    height is the same for the first message and every later one. */}
 				<div data-slot="message-header" className={cn(!first && 'border-t border-border pt-4')}>
-					<div
-						data-slot="message-header-row"
-						className="message-header-row flex min-w-0 flex-wrap items-center gap-x-3"
-					>
-						<div
-							data-slot="sender-avatar"
-							className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground"
-						>
-							{initials(fromLabel)}
-						</div>
-						<div className="relative min-w-0 flex-1">
-							<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-								<h2
-									id={senderHeadingId}
-									className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
+					{/* The header's right-click menu mirrors its overflow menu. The
+					    message body below keeps the browser's own menu. */}
+					<ContextMenu>
+						<ContextMenuTrigger asChild>
+							<div
+								data-slot="message-header-row"
+								className="message-header-row flex min-w-0 flex-wrap items-center gap-x-3"
+							>
+								<div
+									data-slot="sender-avatar"
+									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground"
 								>
-									{fromLabel}
-								</h2>
-								{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
+									{initials(fromLabel)}
+								</div>
+								<div className="relative min-w-0 flex-1">
+									<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+										<h2
+											id={senderHeadingId}
+											className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
+										>
+											{fromLabel}
+										</h2>
+										{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
+										{message.date ? (
+											<ClientMessageTime
+												epochSeconds={message.date}
+												className="order-3 ml-auto hidden shrink-0 text-[13px] text-muted-foreground tabular-nums sm:inline-block"
+											/>
+										) : null}
+									</div>
+									{!open ? (
+										// A collapsed message opens from its own summary; the stretched
+										// hit area covers the sender and preview lines.
+										<button
+											data-slot="message-expand"
+											type="button"
+											onClick={onToggle}
+											aria-label={`Expand message from ${fromLabel}`}
+											className="mt-1 block w-full truncate rounded-sm text-left text-sm text-muted-foreground before:absolute before:inset-0 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
+											{collapsedMessagePreview(message)}
+										</button>
+									) : null}
+								</div>
+								<MessageActionsMenu
+									fromLabel={fromLabel}
+									messageOpen={open}
+									contentId={contentId}
+									downloadHref={downloadHref}
+									onToggle={onToggle}
+								/>
 								{message.date ? (
 									<ClientMessageTime
 										epochSeconds={message.date}
-										className="order-3 ml-auto hidden shrink-0 text-[13px] text-muted-foreground tabular-nums sm:inline-block"
+										className="basis-full whitespace-nowrap pl-10 text-right text-[13px] leading-5 text-muted-foreground sm:hidden"
 									/>
 								) : null}
 							</div>
-							{!open ? (
-								// A collapsed message opens from its own summary; the stretched
-								// hit area covers the sender and preview lines.
-								<button
-									data-slot="message-expand"
-									type="button"
-									onClick={onToggle}
-									aria-label={`Expand message from ${fromLabel}`}
-									className="mt-1 block w-full truncate rounded-sm text-left text-sm text-muted-foreground before:absolute before:inset-0 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-								>
-									{collapsedMessagePreview(message)}
-								</button>
+						</ContextMenuTrigger>
+						<ContextMenuContent aria-label={`Actions for message from ${fromLabel}`}>
+							<ContextMenuItem onSelect={() => onToggle()}>
+								<ChevronDown className={cn(open && 'rotate-180')} aria-hidden="true" />
+								{open ? 'Collapse message' : 'Expand message'}
+							</ContextMenuItem>
+							{downloadHref ? (
+								<ContextMenuItem asChild>
+									<a href={downloadHref} download>
+										<Download aria-hidden="true" />
+										Download raw email
+									</a>
+								</ContextMenuItem>
 							) : null}
-						</div>
-						<MessageActionsMenu
-							fromLabel={fromLabel}
-							messageOpen={open}
-							contentId={contentId}
-							downloadHref={
-								message.ownmailDraft !== true
-									? `/messages/${encodeURIComponent(message.id)}/download`
-									: undefined
-							}
-							onToggle={onToggle}
-						/>
-						{message.date ? (
-							<ClientMessageTime
-								epochSeconds={message.date}
-								className="basis-full whitespace-nowrap pl-10 text-right text-[13px] leading-5 text-muted-foreground sm:hidden"
-							/>
-						) : null}
-					</div>
+						</ContextMenuContent>
+					</ContextMenu>
 				</div>
 			</ThreadColumn>
 

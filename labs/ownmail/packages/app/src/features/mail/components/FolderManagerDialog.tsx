@@ -1,6 +1,6 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { useQueryClient } from '@tanstack/react-query'
-import { ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
+import { type ManagedResourceAction, ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { createFolder, deleteFolder, updateFolder } from '../server/mail-functions.js'
 import { type MailFolder, mailKeys, toMailFolder } from '../state/mail-queries.js'
@@ -11,10 +11,12 @@ function isCustomFolder(folder: Folder): boolean {
 
 export function FolderManagerDialog({
 	folders,
+	initialAction,
 	onClose,
 	onDeleted,
 }: {
 	folders: Folder[]
+	initialAction?: ManagedResourceAction
 	onClose: () => void
 	onDeleted?: (folderId: string) => void
 }) {
@@ -44,6 +46,7 @@ export function FolderManagerDialog({
 		<ResourceManagerDialog
 			title="Manage folders"
 			noun="folder"
+			initialAction={initialAction}
 			items={folders.filter(isCustomFolder).map((folder) => ({
 				id: folder.id,
 				name: folder.name || folder.id,
