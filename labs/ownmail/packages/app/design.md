@@ -192,9 +192,13 @@ and renders exactly as before when the view is off.
   for screen readers only. Consecutive emails from one sender within five
   minutes form one run with one time line, and a day separator starts each
   local day.
-- Bubbles are fills (`--muted`, and a `--primary` tint for the reader's own
-  messages) with no border, side rail or shadow. Side and name carry the
-  sender, so the tint is never the only signal.
+- Bubbles are fills with no border, side rail or shadow: `--muted` for
+  everyone else, and the quiet green `--bubble-own` with `--bubble-own-fg` text
+  for the reader's own messages. In the dark theme that pair is the green
+  accent surface; the light accent is neutral, so the light theme has its own
+  tint. Message text, muted text and reply references inside an own bubble hold
+  4.5:1 or better in both themes (tested from the tokens). Side and name carry
+  the sender, so the tint is never the only signal.
 - Content. Bubbles render a block model (heading, paragraph, list, quote,
   image, code, rule, quoted history) as React elements in app type. No message
   markup is injected: content always passes the sanitizer first, links keep the
@@ -224,16 +228,33 @@ and renders exactly as before when the view is off.
   the stream: a uniform one-pixel border, the 72ch measure, app typography. A
   thread that is only designed mail opens as an article, with no card border,
   day separators, participants line or chat input.
-- Clean pipeline. Classify on body signals only (unsubscribe links, link
+- Clean pipeline. Classify on body signals (unsubscribe links, link
   density, images per text, table nesting and `role=presentation`); strip
   preheaders, hidden and zero-size content, tracking pixels and spacers, and a
   stylesheet-hidden copy only when the same text remains elsewhere; read layout
   tables in row order; normalise to the block model. Large styled lines become
   headings and filled links become call-to-action buttons in `--primary`.
+- Data tables. A table is data only if its author marked it (`th`, `thead`,
+  `caption`) or it is a regular grid of short text cells; it is then kept as a
+  table that scrolls sideways rather than squeezing. A table that holds other
+  tables, or is `role=presentation`, is layout and is read in row order.
+- Boilerplate. Navigation rows, social rows and footers fold into one
+  disclosure at the end of the article, labelled with what it holds ("Footer,
+  6 links including Unsubscribe"). Blocks are scored on legal wording, a short
+  row of links, and position; nothing is deleted, so unsubscribe stays
+  reachable. A call to action is never folded, and neither is a block that
+  holds a short numeric code.
 - Confidence gate. The clean result is used only when it retains the visible
-  text (score 0.85 or more). A data table (`th`, `thead`, `caption`) or content
-  that is mostly images drops the score, and the message keeps the standard
-  reader. Nothing is hidden silently.
+  text (score 0.85 or more). A marked data table that cannot be kept as a
+  table, or content that is mostly images, drops the score, and the message
+  keeps the standard reader. Nothing is hidden silently.
+- Headers. Only while this view shows a thread, the server reports which of its
+  messages carry a `List-Unsubscribe` header, as message ids. Header values are
+  untrusted and are never stored, logged or sent to the browser. The header
+  counts like an unsubscribe link in the body; if the lookup fails, bodies
+  alone decide. The standard reader never requests headers. The answer is a
+  query keyed by account and thread (`mailKeys.threadListUnsubscribe`) and kept
+  for the session, so a thread asks once.
 - Layout. In this view the thread display menu offers Clean or Original for
   designed mail; `emailLayoutMode: 'clean'` is stored for the former. The
   standard reader, and any older build, lays a stored `clean` out as Readable.
@@ -248,8 +269,10 @@ and renders exactly as before when the view is off.
 - First render and identity. The saved view is read synchronously, so a thread
   opens straight into it. While it is unknown (server render and hydration) the
   messages are the thread skeleton's placeholder block, never a guess. The
-  transcript is computed from the loaded thread with no request of its own, so
-  it has no pending state after the thread skeleton. The per-thread flip,
+  transcript shows that same block while its one request, the header lookup,
+  is pending for a thread it has not seen, so a message is never painted as a
+  bubble and then re-drawn as an article, and nothing shifts when it arrives.
+  The per-thread flip,
   "Show original" and the reply choice live under the thread's identity
   (`useIdentityState`), so nothing set on one thread shows on another.
 

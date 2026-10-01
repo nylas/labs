@@ -1,21 +1,25 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { accountScope } from '#app/lib/account-scope'
 import {
 	defaultUserPreferences,
 	USER_PREFERENCES_STORAGE_KEY,
 	writeUserPreferences,
 } from '#app/preferences/user-preferences'
 import { replyAllDraftSearch } from '../lib/mail-ui-model'
-import type { MailMessage, MailThread } from '../state/mail-queries'
+import { type MailMessage, type MailThread, mailKeys } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
-const { senderImagesTrustedMock, trustSenderImagesMock } = vi.hoisted(() => ({
+const { senderImagesTrustedMock, trustSenderImagesMock, getThreadListUnsubscribeMock } = vi.hoisted(() => ({
 	senderImagesTrustedMock: vi.fn(),
 	trustSenderImagesMock: vi.fn(),
+	getThreadListUnsubscribeMock: vi.fn(),
 }))
+vi.mock('../server/mail-functions', () => ({ getThreadListUnsubscribe: getThreadListUnsubscribeMock }))
 vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../lib/image-sender-trust')>()),
 	originalColorSenders: vi.fn().mockResolvedValue([]),
@@ -61,12 +65,27 @@ const groupMessages: MailMessage[] = [
 	email('m5', INES, TUESDAY, 'Updated and sent the invite. Retro is Friday at 9.'),
 ]
 
+/**
+ * Renders the reader inside a query client. By default the client already
+ * holds the header lookup for the test threads ("no bulk mail"), as it would
+ * on a second visit, so the transcript is there on the first render. Tests of
+ * the lookup itself pass `lookup: 'live'`.
+ */
 function renderThread(
 	messages: MailMessage[] = groupMessages,
 	props: Partial<Parameters<typeof ThreadConversation>[0]> = {},
+	{
+		lookup = 'cached',
+		queryClient = new QueryClient(),
+	}: { lookup?: 'cached' | 'live'; queryClient?: QueryClient } = {},
 ) {
+	if (lookup === 'cached') {
+		for (const id of ['thread-1', 'thread-2'])
+			queryClient.setQueryData(mailKeys.threadListUnsubscribe(id), [])
+	}
 	return render(
 		<ThreadConversation thread={thread} messages={messages} mailboxEmail="sam@example.com" {...props} />,
+		{ wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
 	)
 }
 
@@ -82,6 +101,8 @@ beforeEach(() => {
 	senderImagesTrustedMock.mockResolvedValue(false)
 	trustSenderImagesMock.mockReset()
 	trustSenderImagesMock.mockResolvedValue(true)
+	getThreadListUnsubscribeMock.mockReset()
+	getThreadListUnsubscribeMock.mockResolvedValue({ messageIds: [] })
 })
 
 afterEach(() => {
@@ -150,7 +171,9 @@ describe('first render and identity', () => {
 		// threads as messages or as a conversation. Painting either would be a guess
 		// that flips a frame later.
 		const html = renderToString(
-			<ThreadConversation thread={thread} messages={groupMessages} mailboxEmail="sam@example.com" />,
+			<QueryClientProvider client={new QueryClient()}>
+				<ThreadConversation thread={thread} messages={groupMessages} mailboxEmail="sam@example.com" />
+			</QueryClientProvider>,
 		)
 		expect(html).toContain('data-slot="thread-messages-pending"')
 		expect(html).toContain('Offsite agenda draft')
@@ -226,11 +249,28 @@ describe('the transcript', () => {
 		expect(link).toHaveAttribute('rel', 'noopener noreferrer nofollow')
 	})
 
+	it("tints the reader's own bubbles and keeps everyone else's neutral, with the side as a second signal", () => {
+		renderThread()
+		openConversation()
+		for (const run of runs()) {
+			const mine = run.dataset.side === 'me'
+			for (const bubble of run.querySelectorAll('[data-slot="conversation-bubble"]')) {
+				// Own: the quiet green surface and its own text colour, which links inherit.
+				if (mine) expect(bubble).toHaveClass('bg-bubble-own', 'text-bubble-own-foreground')
+				else expect(bubble).toHaveClass('bg-muted', 'text-foreground')
+				expect(bubble.classList.contains('bg-bubble-own')).toBe(mine)
+			}
+			// Colour is never the only signal: own runs also sit on the right.
+			expect(run.classList.contains('flex-row-reverse')).toBe(mine)
+		}
+		expect(runs().some((run) => run.dataset.side === 'me')).toBe(true)
+	})
+
 	it('draws bubbles as fills, never with a side rail', () => {
 		renderThread()
 		openConversation()
 		for (const bubble of bubbles()) {
-			expect(bubble.className).toMatch(/\bbg-(?:muted|primary\/15)\b/)
+			expect(bubble.className).toMatch(/\bbg-(?:muted|bubble-own)\b/)
 			expect(bubble.className).not.toMatch(/\bborder|shadow|before:|after:/)
 		}
 	})
@@ -404,7 +444,7 @@ describe('Show original', () => {
 			{
 				id: 'receipt',
 				from: [{ email: 'billing@shop.example' }],
-				body: '<table width="600"><tr><th>Item</th></tr><tr><td>Order 1042</td></tr></table>',
+				body: '<table width="600"><tr><td><img alt="Order 1042" width="600" height="400"></td></tr></table>',
 				attachments: [{ id: 'pdf', filename: 'receipt.pdf' }],
 			},
 		])
@@ -423,7 +463,7 @@ describe('a message shown by the standard reader inside the stream', () => {
 	const designed = (id: string, from?: { email: string }): MailMessage => ({
 		id,
 		...(from ? { from: [from] } : {}),
-		body: `<table width="600"><tr><th>${id}</th></tr></table>`,
+		body: `<table width="600"><tr><td><img alt="${id}" width="600" height="400"></td></tr></table>`,
 	})
 
 	it('keeps the colour choice the reader made for the thread or for that sender', async () => {
@@ -560,6 +600,83 @@ describe('designed mail', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		expect(await screen.findByRole('button', { name: 'Clean' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.queryByRole('button', { name: 'Show images in this thread' })).toBeNull()
+	})
+
+	it('uses the List-Unsubscribe header, looked up only for this view, as one more sign of bulk mail', async () => {
+		const letter: MailMessage = {
+			id: 'list-mail',
+			from: [{ name: 'Harbor Residents List', email: 'residents@lists.example' }],
+			to: [SAM],
+			body: '<p>Hello all, the residents meeting moved to Thursday at seven.</p>',
+		}
+		getThreadListUnsubscribeMock.mockResolvedValue({ messageIds: ['list-mail'] })
+		const queryClient = new QueryClient()
+		const first = renderThread(
+			[email('m1', INES, MONDAY, 'Did you see this?'), letter],
+			{},
+			{ lookup: 'live', queryClient },
+		)
+		// The standard reader never asks for headers.
+		expect(getThreadListUnsubscribeMock).not.toHaveBeenCalled()
+
+		openConversation()
+		// Until the answer is in, the transcript is the skeleton block: the letter is
+		// never painted as a bubble and then re-drawn as an article.
+		expect(document.querySelector('[data-slot="thread-messages-pending"]')).not.toBeNull()
+		expect(bubbles()).toHaveLength(0)
+		await waitFor(() => expect(articles()).toHaveLength(1))
+		expect(getThreadListUnsubscribeMock).toHaveBeenCalledWith({ data: { threadId: 'thread-1' } })
+		expect(articles()[0]).toHaveTextContent('the residents meeting moved to Thursday')
+		first.unmount()
+
+		// The answer is kept per account and thread: coming back asks nothing and shows no skeleton.
+		expect(queryClient.getQueryData(['mail', accountScope(), 'thread-list-unsubscribe', 'thread-1'])).toEqual(
+			['list-mail'],
+		)
+		renderThread(
+			[email('m1', INES, MONDAY, 'Did you see this?'), letter],
+			{},
+			{ lookup: 'live', queryClient },
+		)
+		openConversation()
+		expect(articles()).toHaveLength(1)
+		expect(getThreadListUnsubscribeMock).toHaveBeenCalledTimes(1)
+	})
+
+	it('classifies on the message bodies alone when the header lookup fails', async () => {
+		const letter: MailMessage = {
+			id: 'list-mail',
+			from: [INES],
+			body: '<p>Hello all, the meeting moved.</p>',
+		}
+		getThreadListUnsubscribeMock.mockRejectedValue(new Error('offline'))
+		renderThread([letter], {}, { lookup: 'live' })
+		openConversation()
+		await waitFor(() => expect(bubbles()).toHaveLength(1))
+		expect(articles()).toHaveLength(0)
+	})
+
+	it('folds navigation and the footer of an article into one disclosure, and keeps a receipt table', () => {
+		renderThread([
+			{
+				id: 'receipt',
+				from: [{ email: 'billing@shop.example' }],
+				body: `<table role="presentation" width="600"><tr><td>Thanks for your order, Sam. ${'It is on its way. '.repeat(10)}</td></tr>
+					<tr><td><table><tr><th>Item</th><th>Price</th></tr><tr><td>Notebook</td><td>$18.00</td></tr></table></td></tr>
+					<tr><td>Questions about this order are answered within a day.</td></tr>
+					<tr><td>© Harbor &amp; Pine · <a href="https://shop.example/unsubscribe">Unsubscribe</a></td></tr></table>`,
+			},
+		])
+		openConversation()
+		const article = articles()[0] as HTMLElement
+		expect(within(article).getByRole('columnheader', { name: 'Price' })).toBeInTheDocument()
+		expect(within(article).getByRole('cell', { name: '$18.00' })).toBeInTheDocument()
+		const footer = article.querySelector('[data-slot="clean-footer"]') as HTMLElement
+		expect(footer.querySelector('summary')).toHaveTextContent('Footer, 1 link including Unsubscribe')
+		expect(within(footer).getByRole('link', { name: 'Unsubscribe', hidden: true })).toHaveAttribute(
+			'href',
+			'https://shop.example/unsubscribe',
+		)
 	})
 
 	it('lays a stored clean layout out as readable in the standard reader', async () => {

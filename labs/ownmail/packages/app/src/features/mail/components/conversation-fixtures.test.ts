@@ -44,10 +44,11 @@ const SYNTHETIC: ReadonlyArray<readonly [name: string, expected: Expected]> = [
 	['clean-one-time-code', 'article'],
 	['light-matte-logo', 'article'],
 	['report-canvas-dark-band', 'article'],
+	['clean-receipt-data-table', 'article'],
+	['ci-notification-card', 'article'],
 	// Golden fallbacks: the clean view must leave these to the standard reader.
 	['clean-image-only-newsletter', 'original'],
-	['clean-receipt-data-table', 'original'],
-	['ci-notification-card', 'original'],
+	['clean-itinerary-nested-table', 'original'],
 ]
 
 const SCRUBBED_REAL = [
@@ -257,10 +258,48 @@ describe('what an article may drop', () => {
 		expect(text).toContain('photos.example')
 	})
 
-	it('keeps a one-time code that sits in the small print', () => {
+	it('never folds a one-time code that sits in the small print', () => {
 		const { blocks, mailClass } = article('clean-one-time-code')
 		expect(mailClass).toBe('transactional')
-		expect(blocksText(blocks)).toContain('Your code is 482913')
+		// The block looks like a footer (legal links, last in the message) but holds the code.
+		expect(blocks.some((block) => block.type === 'footer')).toBe(false)
+		expect(blocks.at(-1)).toMatchObject({ type: 'paragraph' })
+		expect(blocksText(blocks.slice(-1))).toContain('Your code is 482913')
+	})
+
+	it('folds navigation, the social row and the footer of a newsletter into one disclosure', () => {
+		const { blocks } = article('clean-newsletter-layout-tables')
+		const footer = blocks.at(-1)
+		if (footer?.type !== 'footer') throw new Error('the newsletter footer was not folded')
+		expect(blocks.filter((block) => block.type === 'footer')).toHaveLength(1)
+		expect(footer.unsubscribe).toBe(true)
+		expect(blocksText(footer.blocks)).toContain('Home · Archive · Shop · View in browser')
+		expect(blocksText(footer.blocks)).toContain('© Harbor & Pine')
+		// The message itself stays outside the fold.
+		const body = blocksText(blocks.slice(0, -1))
+		expect(body).toContain('Issue 112: the quiet tools issue')
+		expect(body).toContain('Read the issue')
+		expect(body).not.toContain('Unsubscribe')
+	})
+
+	it('keeps the line items of a receipt, and the rows of a report, as tables', () => {
+		const receipt = article('clean-receipt-data-table').blocks.find((block) => block.type === 'table')
+		expect(receipt).toMatchObject({ type: 'table', header: true })
+		expect(blocksText(receipt ? [receipt] : [])).toBe(
+			[
+				'Item | Qty | Price',
+				'Field notebook, dotted | 2 | $18.00',
+				'Brass pencil cap | 1 | $7.50',
+				'Shipping | | $4.00',
+				'Total | | $29.50',
+			].join('\n'),
+		)
+		// No header was marked here: the regular grid of short cells is what makes it data.
+		const report = article('report-canvas-dark-band').blocks.find((block) => block.type === 'table')
+		expect(report).toMatchObject({ type: 'table', header: false })
+		expect(blocksText(report ? [report] : [])).toContain(
+			'ERROR sync-worker | TimeoutError: upstream IMAP read timed out | 412',
+		)
 	})
 
 	it('keeps the button a transactional notice exists for, rescued from Outlook markup too', () => {

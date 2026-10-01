@@ -342,6 +342,10 @@ describe('dev mock Nylas client surface', () => {
 		const message = await mailbox.getMessage('msg-hiking-1')
 		expect(message.data.id).toBe('msg-hiking-1')
 
+		const listed = await mailbox.listMessages({ thread_id: 'thread-hiking' })
+		expect(listed.data.map((item) => item.id)).toContain('msg-hiking-1')
+		expect((await mailbox.listMessages()).data).toEqual([])
+
 		await expect(mailbox.getMessage('msg-does-not-exist')).rejects.toThrow('Not found')
 	})
 

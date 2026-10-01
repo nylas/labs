@@ -47,16 +47,23 @@
 			]
 		},
 		{
-			"type": "paragraph",
-			"spans": [
+			"type": "footer",
+			"blocks": [
 				{
-					"text": "Acme Observability · 1 Example Way\n"
-				},
-				{
-					"text": "Unsubscribe",
-					"href": "https://fixtures.invalid/unsubscribe"
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "Acme Observability · 1 Example Way\n"
+						},
+						{
+							"text": "Unsubscribe",
+							"href": "https://fixtures.invalid/unsubscribe"
+						}
+					]
 				}
-			]
+			],
+			"links": 1,
+			"unsubscribe": true
 		}
 	],
 	"hasRemoteImages": false,

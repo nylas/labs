@@ -7,36 +7,6 @@
 			"href": "https://fieldnotes.example/"
 		},
 		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "Home",
-					"href": "https://fieldnotes.example/home"
-				},
-				{
-					"text": " · "
-				},
-				{
-					"text": "Archive",
-					"href": "https://fieldnotes.example/archive"
-				},
-				{
-					"text": " · "
-				},
-				{
-					"text": "Shop",
-					"href": "https://fieldnotes.example/shop"
-				},
-				{
-					"text": " · "
-				},
-				{
-					"text": "View in browser",
-					"href": "https://fieldnotes.example/view/112"
-				}
-			]
-		},
-		{
 			"type": "image",
 			"alt": "A desk with three small tools"
 		},
@@ -100,64 +70,101 @@
 			]
 		},
 		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "Social",
-					"href": "https://social.example/fieldnotes"
-				},
-				{
-					"text": " "
-				},
-				{
-					"text": "Video",
-					"href": "https://video.example/fieldnotes"
-				},
-				{
-					"text": " "
-				},
-				{
-					"text": "photos.example",
-					"href": "https://photos.example/fieldnotes"
-				},
-				{
-					"text": " "
-				},
-				{
-					"text": "Feed",
-					"href": "https://feed.example/fieldnotes.xml"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "© Harbor & Pine · 12 Quay Street, Portside · "
-				},
-				{
-					"text": "Unsubscribe",
-					"href": "https://fieldnotes.example/unsubscribe?u=1"
-				},
-				{
-					"text": " · "
-				},
-				{
-					"text": "Preferences",
-					"href": "https://fieldnotes.example/preferences?u=1"
-				},
-				{
-					"text": " · "
-				},
-				{
-					"text": "View in browser",
-					"href": "https://fieldnotes.example/view/112?ref=footer"
-				}
-			]
-		},
-		{
 			"type": "image",
 			"alt": "Harbor & Pine"
+		},
+		{
+			"type": "footer",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "Home",
+							"href": "https://fieldnotes.example/home"
+						},
+						{
+							"text": " · "
+						},
+						{
+							"text": "Archive",
+							"href": "https://fieldnotes.example/archive"
+						},
+						{
+							"text": " · "
+						},
+						{
+							"text": "Shop",
+							"href": "https://fieldnotes.example/shop"
+						},
+						{
+							"text": " · "
+						},
+						{
+							"text": "View in browser",
+							"href": "https://fieldnotes.example/view/112"
+						}
+					]
+				},
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "Social",
+							"href": "https://social.example/fieldnotes"
+						},
+						{
+							"text": " "
+						},
+						{
+							"text": "Video",
+							"href": "https://video.example/fieldnotes"
+						},
+						{
+							"text": " "
+						},
+						{
+							"text": "photos.example",
+							"href": "https://photos.example/fieldnotes"
+						},
+						{
+							"text": " "
+						},
+						{
+							"text": "Feed",
+							"href": "https://feed.example/fieldnotes.xml"
+						}
+					]
+				},
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "© Harbor & Pine · 12 Quay Street, Portside · "
+						},
+						{
+							"text": "Unsubscribe",
+							"href": "https://fieldnotes.example/unsubscribe?u=1"
+						},
+						{
+							"text": " · "
+						},
+						{
+							"text": "Preferences",
+							"href": "https://fieldnotes.example/preferences?u=1"
+						},
+						{
+							"text": " · "
+						},
+						{
+							"text": "View in browser",
+							"href": "https://fieldnotes.example/view/112?ref=footer"
+						}
+					]
+				}
+			],
+			"links": 11,
+			"unsubscribe": true
 		}
 	],
 	"hasRemoteImages": true,

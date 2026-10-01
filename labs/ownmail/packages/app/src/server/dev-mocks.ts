@@ -92,6 +92,11 @@ class DevMailbox {
 		return itemResponse(mockThreadMessages(threadId).thread)
 	}
 
+	/** The messages of one thread. Mock messages carry no headers. */
+	async listMessages(query?: ListQuery): Promise<ListResponse<Message>> {
+		return listResponse([...messages.values()].filter((message) => message.thread_id === query?.thread_id))
+	}
+
 	async getMessage(messageId: string): Promise<ItemResponse<Message>> {
 		const message = messages.get(messageId)
 		if (!message) throw new Error('Not found - it may have been deleted.')

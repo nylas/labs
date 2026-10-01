@@ -81,6 +81,8 @@
 	--color-muted-foreground: var(--muted-foreground);
 	--color-accent: var(--accent);
 	--color-accent-foreground: var(--accent-foreground);
+	--color-bubble-own: var(--bubble-own);
+	--color-bubble-own-foreground: var(--bubble-own-fg);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-border: var(--border);
@@ -148,6 +150,11 @@
 	--muted-foreground: oklch(0.48 0.012 165);
 	--accent: oklch(0.965 0.003 145);
 	--accent-foreground: oklch(0.145 0.008 165);
+	/* The reader's own bubbles in the Conversation view: a quiet green surface.
+	 * The light accent is neutral (it equals --muted), so the tint has its own
+	 * token here; in the dark theme it is the green accent surface itself. */
+	--bubble-own: oklch(0.935 0.035 158);
+	--bubble-own-fg: oklch(0.2 0.035 160);
 	--destructive: oklch(0.55 0.2 25);
 	--destructive-foreground: oklch(1 0 0);
 	--border: oklch(0.91 0.003 145);
@@ -187,6 +194,8 @@
 	--muted-foreground: oklch(0.65 0.01 155);
 	--accent: oklch(0.26 0.04 160);
 	--accent-foreground: oklch(0.92 0.06 158);
+	--bubble-own: oklch(0.26 0.04 160);
+	--bubble-own-fg: oklch(0.92 0.06 158);
 	--destructive: oklch(0.66 0.19 25);
 	--destructive-foreground: oklch(0 0 0);
 	--border: oklch(1 0 0 / 9%);

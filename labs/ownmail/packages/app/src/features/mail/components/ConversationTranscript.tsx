@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { type ComponentProps, type ReactNode, useEffect, useLayoutEffect, useMemo } from 'react'
 import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { Button } from '#shared/components/ui/button'
@@ -14,12 +15,13 @@ import {
 } from '../lib/conversation-model.js'
 import { senderImagesTrusted } from '../lib/image-sender-trust.js'
 import { replyAllDraftSearch, replyDraftSearch } from '../lib/mail-ui-model.js'
-import type { MailMessage } from '../state/mail-queries.js'
+import { type MailMessage, threadListUnsubscribeQueryOptions } from '../state/mail-queries.js'
 import { AttachmentLink } from './AttachmentLink.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
 import { CleanBlocks, LinkPreviewRegion } from './CleanBlocks.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { ThreadColumn } from './ThreadColumn.js'
+import { ThreadMessagesPlaceholder } from './ThreadMessagesPlaceholder.js'
 
 /** The existing reply entry points; the Conversation view never sends on its own. */
 export interface ConversationReply {
@@ -49,18 +51,40 @@ function MessageTime({ epochSeconds }: { epochSeconds: number }) {
 	)
 }
 
+/** Loaded on demand, so the standard reader never asks for message headers. */
+async function fetchListUnsubscribeIds(threadId: string): Promise<string[]> {
+	const { getThreadListUnsubscribe } = await import('../server/mail-functions.js')
+	return (await getThreadListUnsubscribe({ data: { threadId } })).messageIds
+}
+
+const NO_MESSAGE_IDS: readonly string[] = []
+
+/**
+ * The Conversation view of one thread. Which messages are bulk mail is one of
+ * its classification signals, looked up once per account and thread and cached.
+ * Until that answer is in, the transcript is the thread skeleton's placeholder:
+ * a message is never painted as a bubble and then re-drawn as an article. If
+ * the lookup fails, messages are classified on their bodies alone.
+ */
+export function ConversationTranscript(props: Omit<ComponentProps<typeof Transcript>, 'listUnsubscribeIds'>) {
+	const lookup = useQuery(threadListUnsubscribeQueryOptions(props.threadId, fetchListUnsubscribeIds))
+	if (lookup.isPending) return <ThreadMessagesPlaceholder />
+	return <Transcript {...props} listUnsubscribeIds={lookup.data ?? NO_MESSAGE_IDS} />
+}
+
 /**
  * A thread as a chat transcript. Each email is a bubble holding only what its
  * sender newly wrote; mail that does not fit a bubble, and any message switched
  * to "Show original", is rendered by the standard reader in the same stream.
  */
-export function ConversationTranscript({
+function Transcript({
 	threadId,
 	messages,
 	mailboxEmail,
 	loadRemoteImagesForThread,
 	trustedDuringThisView,
 	cleanDesigned,
+	listUnsubscribeIds,
 	onDisplayStatus,
 	renderOriginal,
 	reply,
@@ -73,6 +97,8 @@ export function ConversationTranscript({
 	trustedDuringThisView: ReadonlySet<string>
 	/** Designed mail becomes a clean article; false keeps the standard reader for it. */
 	cleanDesigned: boolean
+	/** Messages that carry a List-Unsubscribe header. */
+	listUnsubscribeIds: readonly string[]
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 	/** The standard reader's body for one message, with the thread's display settings. */
 	renderOriginal: (message: MailMessage) => ReactNode
@@ -107,10 +133,13 @@ export function ConversationTranscript({
 		for (const message of messages) {
 			const sender = senderKey(message)
 			const allowed = allowAll || trustedDuringThisView.has(sender) || storedTrust.has(sender)
-			map.set(message.id, { content: messageContent(message, allowed, cleanDesigned), allowed })
+			map.set(message.id, {
+				content: messageContent(message, allowed, cleanDesigned, listUnsubscribeIds.includes(message.id)),
+				allowed,
+			})
 		}
 		return map
-	}, [allowAll, cleanDesigned, messages, storedTrust, trustedDuringThisView])
+	}, [allowAll, cleanDesigned, listUnsubscribeIds, messages, storedTrust, trustedDuringThisView])
 
 	const conversation = useMemo(
 		() =>
@@ -370,8 +399,9 @@ function Bubble({ bubble, mine }: { bubble: ConversationBubble; mine: boolean })
 				data-slot="conversation-bubble"
 				data-unsure={bubble.unsure || undefined}
 				className={cn(
-					'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster text-foreground',
-					mine ? 'bg-primary/15' : 'bg-muted',
+					'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster',
+					// The reader's own bubbles are the quiet green tint; everyone else's are neutral.
+					mine ? 'bg-bubble-own text-bubble-own-foreground' : 'bg-muted text-foreground',
 				)}
 			>
 				{bubble.blocks.length > 0 ? (

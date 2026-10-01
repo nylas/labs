@@ -23,6 +23,10 @@ const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
 const markThreadRead = vi.fn()
 const getThreads = vi.fn()
+// The Conversation view looks up bulk-mail headers on demand; the route tests never need a real lookup.
+vi.mock('#features/mail/server/mail-functions', () => ({
+	getThreadListUnsubscribe: () => Promise.resolve({ messageIds: [] }),
+}))
 vi.mock('#server/fns', () => ({
 	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
 	getThreads: (input: any) => getThreads(input),
@@ -848,7 +852,7 @@ describe('compose navigation', () => {
 		// The pinned input takes the place of the inline field; it never sends itself.
 		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
 
-		await user.click(screen.getByRole('button', { name: /^Reply to all…/ }))
+		await user.click(await screen.findByRole('button', { name: /^Reply to all…/ }))
 
 		// Everyone on the last message except the signed-in address.
 		expect(navigate).toHaveBeenLastCalledWith({

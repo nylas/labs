@@ -114,6 +114,67 @@ describe('CleanBlocks', () => {
 		expect(container.querySelector('[data-slot="clean-signature"]')).toHaveClass('text-muted-foreground')
 	})
 
+	it('keeps a data table as a table, with its header row and caption', () => {
+		const { container } = render(
+			<CleanBlocks
+				blocks={[
+					{
+						type: 'table',
+						header: true,
+						caption: 'Order 1042',
+						rows: [
+							[[{ text: 'Item' }], [{ text: 'Price' }]],
+							[[{ text: 'Notebook' }], [{ text: '$18.00', href: 'https://shop.example/n' }]],
+						],
+					},
+					{ type: 'table', header: false, rows: [[[{ text: 'Depart' }], [{ text: '8:40 AM' }]]] },
+				]}
+			/>,
+		)
+		const [first, second] = [...container.querySelectorAll('table')]
+		expect(first?.querySelector('caption')).toHaveTextContent('Order 1042')
+		expect([...(first?.querySelectorAll('th') ?? [])].map((cell) => cell.textContent)).toEqual([
+			'Item',
+			'Price',
+		])
+		expect(first?.querySelector('th')).toHaveAttribute('scope', 'col')
+		expect(first?.querySelectorAll('td')).toHaveLength(2)
+		expect(screen.getByRole('link', { name: '$18.00' })).toHaveAttribute('href', 'https://shop.example/n')
+		// No header row was marked, so none is invented; and a wide table scrolls instead of squeezing.
+		expect(second?.querySelector('th, caption')).toBeNull()
+		expect(first?.parentElement).toHaveClass('overflow-x-auto')
+		// Row separators are full-width hairlines, and cell text keeps 12px clear of them.
+		expect(first?.querySelector('tr')).toHaveClass('border-b', 'border-border')
+		expect(first?.querySelector('td')).toHaveClass('py-hairline')
+	})
+
+	it('folds the footer into one disclosure that says what is inside, and keeps every link in it', () => {
+		const footer = (links: number, unsubscribe: boolean): CleanBlock => ({
+			type: 'footer',
+			links,
+			unsubscribe,
+			blocks: [
+				{ type: 'paragraph', spans: [{ text: 'Unsubscribe', href: 'https://example.com/unsubscribe' }] },
+			],
+		})
+		const { container } = render(
+			<CleanBlocks blocks={[footer(6, true), footer(1, false), footer(2, false), footer(0, false)]} />,
+		)
+		const summaries = [...container.querySelectorAll('[data-slot="clean-footer"] > summary')]
+		expect(summaries.map((summary) => summary.textContent)).toEqual([
+			'Footer, 6 links including Unsubscribe',
+			'Footer, 1 link',
+			'Footer, 2 links',
+			'Footer',
+		])
+		expect(summaries[0]).toHaveClass('min-h-11', 'focus-visible:ring-2')
+		// Folded, not deleted: the link is in the document and reachable once opened.
+		expect(container.querySelector('[data-slot="clean-footer"] a')).toHaveAttribute(
+			'href',
+			'https://example.com/unsubscribe',
+		)
+	})
+
 	it('keeps quoted history behind a disclosure with a full-size touch target', () => {
 		render(
 			<CleanBlocks
