@@ -544,6 +544,32 @@ export function timedDayLayout(events: Event[], day: Date, options: TimedLayoutO
 }
 
 /**
+ * Shortest chip that still fits a title line above a time line: two borders
+ * (2px), block padding (8px), a 15px title line and a 14px time line. Anything
+ * shorter is drawn as one centred line, down to the 20px minimum chip, whose
+ * 18px inner height holds one 16px line with nothing clipped.
+ */
+export const TIMED_CHIP_TWO_LINE_MIN_HEIGHT = 40
+
+/** Whether a timed chip of this height shows the title over the time range, or one compact line. */
+export function timedChipLines(height: number): 1 | 2 {
+	return height >= TIMED_CHIP_TWO_LINE_MIN_HEIGHT ? 2 : 1
+}
+
+/** Height of the now-line time badge in the gutter, in pixels. */
+export const NOW_BADGE_HEIGHT = 16
+
+/**
+ * True when the now-line time badge would be drawn over a gutter label, so the
+ * label is hidden rather than leaving two half-readable times on top of each
+ * other. Offsets are pixels from the top of the grid; the badge is centred on
+ * the now line.
+ */
+export function nowBadgeCoversLabel(nowOffset: number, labelCentre: number, labelHeight: number): boolean {
+	return Math.abs(nowOffset - labelCentre) < (NOW_BADGE_HEIGHT + labelHeight) / 2
+}
+
+/**
  * True once an event has ended, so finished meetings can recede. Unparseable
  * events are never past. A timed event ends at an instant, which is the same
  * everywhere. An all-day event has no instant: it covers whole calendar dates,
