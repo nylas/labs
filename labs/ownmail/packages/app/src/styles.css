@@ -144,7 +144,7 @@
 }
 
 .mobile-tab-active .mobile-tab-icon {
-	background: color-mix(in oklch, var(--foreground), transparent 90%);
+	background: var(--muted);
 }
 
 .pull-to-refresh {

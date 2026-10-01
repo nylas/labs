@@ -132,9 +132,7 @@ describe('borders and accents', () => {
 
 	it('marks the active mobile tab with a filled pill behind the icon, not an edge bar', () => {
 		expect(styles).not.toMatch(/\.mobile-tab(-active)?::(before|after)/)
-		expect(rule('.mobile-tab-active .mobile-tab-icon')).toContain(
-			'background: color-mix(in oklch, var(--foreground), transparent 90%);',
-		)
+		expect(rule('.mobile-tab-active .mobile-tab-icon')).toContain('background: var(--muted);')
 		expect(rule('.mobile-tab-active')).toContain('color: var(--foreground);')
 		expect(rule('.mobile-tab')).toContain('min-height: var(--mobile-tab-bar-height);')
 	})
