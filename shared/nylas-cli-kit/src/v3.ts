@@ -207,6 +207,8 @@ export type Event = {
 	read_only?: boolean
 	conferencing?: { [key: string]: Json | undefined }
 	recurrence?: string[]
+	/** On an expanded occurrence of a repeating event: the id of the series it belongs to. */
+	master_event_id?: string
 	ical_uid?: string
 	metadata?: { [key: string]: Json | undefined }
 }

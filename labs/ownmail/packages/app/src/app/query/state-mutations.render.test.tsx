@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Contact, Event } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -42,11 +42,14 @@ vi.mock('#server/fns', () => ({
 	updateThreadState: api.updateThreadState,
 }))
 
+import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
 import {
 	type CalendarRouteData,
 	calendarKeys,
+	calendarStateTestApi,
 	useCreateEventMutation,
 	useDeleteEventMutation,
+	useRescheduleEventMutation,
 	useRsvpEventMutation,
 	useUpdateEventMutation,
 } from '#features/calendar/state/calendar-state'
@@ -197,6 +200,158 @@ describe('calendar mutation hooks', () => {
 			...canonical,
 			location: 'Canonical HQ',
 		})
+	})
+
+	const cachedEvent = () => client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]
+
+	it('moves a dragged event at once, sends only its new times, and keeps the provider copy', async () => {
+		let confirm: (value: unknown) => void = () => {}
+		api.updateEvent.mockReturnValueOnce(
+			new Promise((resolve) => {
+				confirm = resolve
+			}),
+		)
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		let saved: Promise<unknown> = Promise.resolve()
+		act(() => {
+			saved = reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 })
+		})
+		// The grid shows the new times before the provider answers.
+		await waitFor(() => expect(cachedEvent()?.when).toMatchObject({ start_time: 300, end_time: 400 }))
+		// A drag changes times only: title, guests and notes are never resent.
+		expect(api.updateEvent).toHaveBeenCalledExactlyOnceWith({
+			data: { eventId: event.id, calendarId: 'calendar-1', startTime: 300, endTime: 400 },
+		})
+		const canonical = { ...event, title: 'Canonical', when: { start_time: 300, end_time: 400 } }
+		await act(async () => {
+			confirm({ event: canonical })
+			await saved
+		})
+		expect(cachedEvent()).toEqual(canonical)
+	})
+
+	it('keeps the dropped times when the provider confirms without returning the event', async () => {
+		api.updateEvent.mockResolvedValue({ eventId: event.id })
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		// An event with no calendar of its own is sent without one; the server uses the primary.
+		const loose = { ...event, calendar_id: '' } as Event
+		await act(() => reschedule.current.mutateAsync({ event: loose, startTime: 500, endTime: 700 }))
+		expect(api.updateEvent).toHaveBeenCalledExactlyOnceWith({
+			data: { eventId: event.id, startTime: 500, endTime: 700 },
+		})
+		expect(cachedEvent()?.when).toMatchObject({ start_time: 500, end_time: 700 })
+
+		// An event that is no longer cached is still confirmed from the copy that was dragged.
+		client.setQueryData(calendarKeys.range(0, 1000), { events: [] } as unknown as CalendarRouteData)
+		await act(() => reschedule.current.mutateAsync({ event, startTime: 600, endTime: 800 }))
+		expect(cachedEvent()?.when).toMatchObject({ start_time: 600, end_time: 800 })
+	})
+
+	it('puts a dragged event back where it was when the provider refuses the move', async () => {
+		api.updateEvent.mockRejectedValue(new Error('offline'))
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		await expect(
+			act(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 })),
+		).rejects.toThrow('offline')
+		expect(cachedEvent()).toEqual(event)
+	})
+
+	it('shows a second drag of the same event at once, and restores the first if the second is refused', async () => {
+		// What a view draws: the cached range with remembered receipts replayed over it.
+		const drawn = () => {
+			const data = client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000)) as CalendarRouteData
+			return calendarStateTestApi.reconcileCalendarData(client, data, { start: 0, end: 1000 }).events[0]?.when
+		}
+		api.updateEvent.mockResolvedValueOnce({ eventId: event.id })
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		await act(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+		expect(drawn()).toMatchObject({ start_time: 300, end_time: 400 })
+
+		// Dragged again before the provider answers: the first receipt must not draw it back at 300.
+		let refuse: (reason: unknown) => void = () => {}
+		api.updateEvent.mockReturnValueOnce(
+			new Promise((_resolve, reject) => {
+				refuse = reject
+			}),
+		)
+		const moved = { ...event, when: { object: 'timespan', start_time: 300, end_time: 400 } } as Event
+		let saved: Promise<unknown> = Promise.resolve()
+		act(() => {
+			saved = reschedule.current.mutateAsync({ event: moved, startTime: 500, endTime: 600 }).catch(() => {})
+		})
+		await waitFor(() => expect(drawn()).toMatchObject({ start_time: 500, end_time: 600 }))
+
+		// Refused: the event returns to its last confirmed times, still guarded by that receipt.
+		await act(async () => {
+			refuse(new Error('offline'))
+			await saved
+		})
+		expect(drawn()).toMatchObject({ start_time: 300, end_time: 400 })
+		client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+		expect(drawn()).toMatchObject({ start_time: 300, end_time: 400 })
+	})
+
+	it('shows a second edit of the same event at once, like a second drag', async () => {
+		const drawnTitle = () => {
+			const data = client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000)) as CalendarRouteData
+			return calendarStateTestApi.reconcileCalendarData(client, data, { start: 0, end: 1000 }).events[0]
+				?.title
+		}
+		api.updateEvent.mockResolvedValueOnce({ eventId: event.id })
+		const update = renderHook(() => useUpdateEventMutation(event), { wrapper }).result
+		await act(() => update.current.mutateAsync({ eventId: event.id, title: 'First edit' }))
+		expect(drawnTitle()).toBe('First edit')
+
+		// Edited again before the provider answers: the first receipt must not draw the old title back.
+		let refuse: (reason: unknown) => void = () => {}
+		api.updateEvent.mockReturnValueOnce(
+			new Promise((_resolve, reject) => {
+				refuse = reject
+			}),
+		)
+		let saved: Promise<unknown> = Promise.resolve()
+		act(() => {
+			saved = update.current.mutateAsync({ eventId: event.id, title: 'Second edit' }).catch(() => {})
+		})
+		await waitFor(() => expect(drawnTitle()).toBe('Second edit'))
+		await act(async () => {
+			refuse(new Error('offline'))
+			await saved
+		})
+		// Refused: back to the last confirmed title, still guarded by its receipt.
+		expect(drawnTitle()).toBe('First edit')
+	})
+
+	it('keeps another inbox receipts when an event is changed here', async () => {
+		api.updateEvent.mockResolvedValue({ eventId: event.id })
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		// The same event id confirmed in another inbox a moment ago.
+		setAccountScope('other@example.com')
+		calendarStateTestApi.rememberConfirmedCalendarEffect(client, {
+			type: 'updated',
+			event: { ...event, title: 'Other inbox' } as Event,
+		})
+		resetAccountScope()
+		await act(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+		setAccountScope('other@example.com')
+		expect(
+			calendarStateTestApi.reconcileCalendarData(client, { events: [event] }, { start: 0, end: 1000 })
+				.events[0]?.title,
+		).toBe('Other inbox')
+		resetAccountScope()
+	})
+
+	it('draws a confirmed second drag from its own receipt, not the one before it', async () => {
+		api.updateEvent.mockResolvedValue({ eventId: event.id })
+		const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+		await act(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+		await act(() => reschedule.current.mutateAsync({ event, startTime: 500, endTime: 600 }))
+		// A stale provider read arriving now is corrected to the latest confirmed times only.
+		client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+		const data = client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000)) as CalendarRouteData
+		expect(
+			calendarStateTestApi.reconcileCalendarData(client, data, { start: 0, end: 1000 }).events[0]?.when,
+		).toMatchObject({ start_time: 500, end_time: 600 })
 	})
 
 	it('fails closed when an update hook has no authorized event', async () => {

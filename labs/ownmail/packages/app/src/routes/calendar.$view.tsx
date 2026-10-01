@@ -1,7 +1,17 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings2 } from 'lucide-react'
+import {
+	ChevronLeft,
+	ChevronRight,
+	Menu,
+	PanelLeftClose,
+	PanelLeftOpen,
+	PanelRightClose,
+	PanelRightOpen,
+	Plus,
+	Settings2,
+} from 'lucide-react'
 import {
 	type CSSProperties,
 	useCallback,
@@ -24,6 +34,7 @@ import {
 import {
 	type CalendarHourHeight,
 	hiddenCalendarIdsFor,
+	readUserPreferences,
 	useUserPreferences,
 	useUserPreferencesReady,
 	withHiddenCalendarIds,
@@ -31,6 +42,7 @@ import {
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { GridZoomControl, SecondaryTimezoneControl } from '#features/calendar/components/CalendarGridControls'
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
+import { EventDetails, type EventDetailsHandle } from '#features/calendar/components/EventDetails'
 import { EventModal } from '#features/calendar/components/EventModal'
 import {
 	type AgendaEntry,
@@ -63,6 +75,17 @@ import {
 	ymd,
 } from '#features/calendar/lib/calendar'
 import {
+	applyDragPreview,
+	DRAG_HINTS,
+	type DragHint,
+	dragHintId,
+	eventDragBlock,
+	eventDragHint,
+	eventEdgesOnDay,
+	isRecurringOccurrence,
+	type TimeRange,
+} from '#features/calendar/lib/calendar-drag'
+import {
 	calendarColors,
 	EVENT_ENDED_LABEL,
 	type EventColor,
@@ -73,6 +96,7 @@ import {
 	eventRsvpLabel,
 } from '#features/calendar/lib/calendar-ui-model'
 import { rescaledScrollTop } from '#features/calendar/lib/calendar-zoom'
+import { useCalendarDrag } from '#features/calendar/state/calendar-drag-state'
 import {
 	type CalendarRouteData,
 	calendarRouteRange,
@@ -80,6 +104,7 @@ import {
 	useCalendarRouteData,
 	useHiddenCalendarIdsForRequest,
 	usePrefetchAdjacentCalendarRanges,
+	useRescheduleEventMutation,
 } from '#features/calendar/state/calendar-state'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
@@ -111,6 +136,9 @@ export { loadCalendarRouteData }
 const CREATE_BUTTON_CLASS =
 	'touch-target-square col-start-1 row-start-1 flex size-11 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium sm:w-auto sm:justify-start sm:px-3'
 
+/** The details pane's width, shared with the pending view so the grid keeps its width while loading. */
+const DETAIL_PANE_WIDTH_CLASS = 'w-72 xl:w-80'
+
 /** Shown while another date range or view loads: the destination's title in
  * the same chrome, over an empty grid. The previous range's events and title
  * are never kept, and the header cells keep their loaded sizes so the title
@@ -120,7 +148,8 @@ function CalendarPending() {
 	const info = useQueryClient().getQueryData(mailboxInfoQueryOptions().queryKey)
 	// The sidebar column follows the same device preference as the loaded view,
 	// so the title and grid do not move sideways when the content arrives.
-	const [{ calendarSidebarCollapsed: sidebarCollapsed }] = useUserPreferences()
+	const [{ calendarSidebarCollapsed: sidebarCollapsed, calendarDetailPaneOpen: detailPaneOpen }] =
+		useUserPreferences()
 	return (
 		<div
 			data-testid="calendar-pending"
@@ -189,6 +218,16 @@ function CalendarPending() {
 					<div className="h-4 w-1/4 animate-pulse rounded bg-muted motion-reduce:animate-none" />
 					<div className="min-h-0 flex-1 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
 				</div>
+				{detailPaneOpen ? (
+					<div
+						data-testid="calendar-pending-detail-pane"
+						className={cn(
+							'hidden shrink-0 border-l border-border bg-background lg:block',
+							DETAIL_PANE_WIDTH_CLASS,
+						)}
+						aria-hidden="true"
+					/>
+				) : null}
 			</div>
 			<MobileTabBar active="calendar" />
 		</div>
@@ -236,6 +275,20 @@ export function CalendarRouteScreen({
 	const [newStart, setNewStart] = useState<Date | null>(null)
 	const [newStartIsSlot, setNewStartIsSlot] = useState(false)
 	const [composerAnchor, setComposerAnchor] = useState<Rect | null>(null)
+	const [newDurationMinutes, setNewDurationMinutes] = useState(60)
+	// Bumped when a dragged-out range must replace an already open composer's times.
+	const [composerKey, setComposerKey] = useState(0)
+	// On desktop an event opens in the detail pane; the editor is opened from there.
+	// The selection belongs to this inbox; the pane itself is a device preference.
+	const [selectedEventId, setSelectedEventId] = useIdentityState<string | null>([info.email], () => null)
+	const [editInEditor, setEditInEditor] = useState(false)
+	// The outcome of a drop belongs to the range it happened in, so paging away drops it.
+	const [dragNotice, setDragNotice] = useIdentityState<{ kind: 'status' | 'error'; text: string } | null>(
+		[info.email, view, anchorIso],
+		() => null,
+	)
+	const detailPanelRef = useRef<HTMLElement>(null)
+	const detailsRef = useRef<EventDetailsHandle>(null)
 	const [eventPreview, setEventPreview] = useState<Event | null>(null)
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
@@ -245,6 +298,12 @@ export function CalendarRouteScreen({
 	const primaryTimezone = preferences.primaryTimezone
 	const secondaryTimezone = preferences.secondaryTimezone
 	const sidebarCollapsed = preferences.calendarSidebarCollapsed
+	const detailPanelOpen = preferences.calendarDetailPaneOpen
+	const setDetailPanelOpen = useCallback(
+		// Read at call time, so a toggle never writes back a stale copy of another preference.
+		(open: boolean) => savePreferences({ ...readUserPreferences(), calendarDetailPaneOpen: open }),
+		[savePreferences],
+	)
 	const now = useMinuteClock()
 	const todayIso = ymd(calendarDateInTimeZone(now, primaryTimezone))
 	const hiddenCalendarIds = useMemo(
@@ -266,6 +325,72 @@ export function CalendarRouteScreen({
 		[calendars],
 	)
 	const colors = useMemo(() => calendarColors(calendars), [calendars])
+	const selectedEvent = useMemo(
+		() => visibleEvents.find((event) => event.id === selectedEventId && !isNewEventPreview(event)) ?? null,
+		[selectedEventId, visibleEvents],
+	)
+	const gridColumns = useMemo(() => {
+		if (currentView === 'month') return []
+		const first = currentView === 'week' ? startOfWeek(anchor) : anchor
+		return Array.from({ length: currentView === 'week' ? 7 : 1 }, (_, index) => addDays(first, index))
+	}, [anchor, currentView])
+	const rescheduleMutation = useRescheduleEventMutation()
+	const drag = useCalendarDrag({
+		identity: [info.email, currentView, currentAnchorIso],
+		columns: gridColumns,
+		hourHeight: preferences.calendarHourHeight,
+		timeZone: primaryTimezone,
+		calendars,
+		onReschedule: (event: Event, range: TimeRange) => {
+			setDragNotice(null)
+			rescheduleMutation.mutate(
+				{ event, startTime: range.start, endTime: range.end },
+				{
+					// A plain move is silent: the event is already where it was dropped.
+					onSuccess: () => {
+						if (isRecurringOccurrence(event))
+							setDragNotice({ kind: 'status', text: 'Only this occurrence was moved.' })
+					},
+					onError: () => setDragNotice({ kind: 'error', text: 'Could not move the event. It was put back.' }),
+				},
+			)
+		},
+		onCreate: (range: TimeRange, rect: Rect | null) => {
+			setNewStart(new Date(range.start * 1000))
+			setNewDurationMinutes((range.end - range.start) / 60)
+			setNewStartIsSlot(true)
+			setComposerAnchor(rect)
+			setComposerKey((key) => key + 1)
+			setEditInEditor(false)
+			setEditing('new')
+		},
+	})
+	const gridEvents = useMemo(
+		() => applyDragPreview(visibleEvents, drag.preview, calendar.id),
+		[calendar.id, drag.preview, visibleEvents],
+	)
+
+	/** Viewing an event: the detail pane on desktop, the dialog on mobile layouts. */
+	const openEvent = useCallback(
+		(event: Event) => {
+			if (mobileCalendarLayout) {
+				setEditInEditor(false)
+				setEditing(event)
+				return
+			}
+			setSelectedEventId(event.id)
+			setDetailPanelOpen(true)
+			// Activation moves focus into the pane; closing it hands focus back.
+			requestAnimationFrame(() => detailPanelRef.current?.focus())
+		},
+		[mobileCalendarLayout, setDetailPanelOpen, setSelectedEventId],
+	)
+	const closeDetailPanel = useCallback(() => {
+		const chips = [...document.querySelectorAll<HTMLElement>('[data-event-chip]')]
+		chips.find((chip) => chip.dataset.eventChip === selectedEventId)?.focus()
+		setDetailPanelOpen(false)
+		setSelectedEventId(null)
+	}, [selectedEventId, setDetailPanelOpen, setSelectedEventId])
 	const agenda = useMemo(
 		() => upcomingAgenda(visibleEvents, now, primaryTimezone),
 		[now, visibleEvents, primaryTimezone],
@@ -307,8 +432,10 @@ export function CalendarRouteScreen({
 			else if (action.kind === 'today') go(currentView, calendarDateInTimeZone(new Date(), primaryTimezone))
 			else {
 				setNewStart(null)
+				setNewDurationMinutes(60)
 				setNewStartIsSlot(false)
 				setComposerAnchor(null)
+				setEditInEditor(false)
 				setEditing('new')
 			}
 		}
@@ -372,8 +499,10 @@ export function CalendarRouteScreen({
 								type="button"
 								onClick={() => {
 									setNewStart(anchor)
+									setNewDurationMinutes(60)
 									setNewStartIsSlot(false)
 									setComposerAnchor(null)
+									setEditInEditor(false)
 									setEditing('new')
 								}}
 								className={cn(CREATE_BUTTON_CLASS, 'text-foreground transition-colors hover:bg-muted/60')}
@@ -424,7 +553,7 @@ export function CalendarRouteScreen({
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="touch-target-square col-start-4 row-start-1 flex size-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+										className="touch-target-square col-start-4 row-start-1 flex size-11 shrink-0 items-center justify-center border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:border-r"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
 										aria-label="Next"
 									>
@@ -433,6 +562,21 @@ export function CalendarRouteScreen({
 								</TooltipTrigger>
 								<TooltipContent>Next {currentView}</TooltipContent>
 							</Tooltip>
+							<button
+								type="button"
+								onClick={() => (detailPanelOpen ? closeDetailPanel() : setDetailPanelOpen(true))}
+								aria-label={detailPanelOpen ? 'Hide event details' : 'Show event details'}
+								title={detailPanelOpen ? 'Hide event details' : 'Show event details'}
+								aria-expanded={detailPanelOpen}
+								aria-controls="calendar-detail-panel"
+								className="touch-target-square hidden size-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset lg:flex"
+							>
+								{detailPanelOpen ? (
+									<PanelRightClose className="h-4 w-4" aria-hidden="true" />
+								) : (
+									<PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+								)}
+							</button>
 						</div>
 					</div>
 				</header>
@@ -467,7 +611,7 @@ export function CalendarRouteScreen({
 						todayIso={todayIso}
 						onPickDate={(date) => go(currentView === 'month' ? 'day' : currentView, date)}
 						onToggleCalendar={toggleCalendar}
-						onPickEvent={setEditing}
+						onPickEvent={openEvent}
 						onManageCalendars={() => setManagingCalendars(true)}
 					/>
 				</aside>
@@ -480,25 +624,48 @@ export function CalendarRouteScreen({
 							Some events could not be loaded
 						</p>
 					) : null}
+					{dragNotice ? (
+						<p
+							role={dragNotice.kind === 'error' ? 'alert' : 'status'}
+							className="shrink-0 border-b border-border bg-muted px-region py-hairline text-sm font-medium text-foreground"
+						>
+							{dragNotice.text}
+						</p>
+					) : null}
+					{/* Descriptions the event boxes point at, and the live result of a drag or key press. */}
+					<div hidden>
+						{(Object.keys(DRAG_HINTS) as DragHint[]).map((hint) => (
+							<p key={hint} id={dragHintId(hint)}>
+								{DRAG_HINTS[hint]}
+							</p>
+						))}
+					</div>
+					<p role="status" className="sr-only" data-testid="calendar-drag-status">
+						{drag.announcement}
+					</p>
 					{currentView === 'month' ? (
 						<MonthGrid
 							anchor={anchor}
 							events={visibleEvents}
 							colors={colors}
+							selectedEventId={selectedEventId}
 							onRefresh={onRefresh}
 							onPickDay={(d) => go('day', d)}
-							onPickEvent={setEditing}
+							onPickEvent={openEvent}
 							timeZone={primaryTimezone}
 						/>
 					) : (
 						<TimeGrid
 							days={currentView === 'week' ? 7 : 1}
 							start={currentView === 'week' ? startOfWeek(anchor) : anchor}
-							events={visibleEvents}
+							events={gridEvents}
 							colors={colors}
+							calendars={calendars}
+							drag={drag}
+							selectedEventId={selectedEventId}
 							email={info.email}
 							now={now}
-							onPickEvent={setEditing}
+							onPickEvent={openEvent}
 							timeZone={primaryTimezone}
 							secondaryTimezone={secondaryTimezone}
 							onSecondaryTimezoneChange={(zone) =>
@@ -511,20 +678,71 @@ export function CalendarRouteScreen({
 							onRefresh={onRefresh}
 							onPickSlot={(date, hour, rect) => {
 								setNewStart(calendarSlotTime(date, hour, primaryTimezone))
+								setNewDurationMinutes(60)
 								setNewStartIsSlot(true)
 								setComposerAnchor(rect)
+								setEditInEditor(false)
 								setEditing('new')
 							}}
 						/>
 					)}
 				</div>
+				{detailPanelOpen ? (
+					<aside
+						ref={detailPanelRef}
+						id="calendar-detail-panel"
+						aria-label="Event details"
+						tabIndex={-1}
+						onKeyDown={(event) => {
+							if (event.key !== 'Escape') return
+							event.stopPropagation()
+							// With an event shown, Escape first cancels a pending delete confirmation.
+							if (selectedEvent) detailsRef.current?.requestClose()
+							else closeDetailPanel()
+						}}
+						className={cn(
+							'hidden shrink-0 flex-col overflow-y-auto border-l border-border bg-background outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-inset lg:flex',
+							DETAIL_PANE_WIDTH_CLASS,
+						)}
+					>
+						{selectedEvent ? (
+							<EventDetails
+								// Its confirmation and error belong to one event in one inbox.
+								key={`${info.email}:${selectedEvent.id}`}
+								ref={detailsRef}
+								event={selectedEvent}
+								calendarId={calendar.id}
+								calendarName={
+									(selectedEvent.calendar_id && calendarNameById.get(selectedEvent.calendar_id)) ||
+									calendar.name
+								}
+								calendars={calendars}
+								email={info.email}
+								variant="panel"
+								onEdit={() => {
+									setEditInEditor(true)
+									setEditing(selectedEvent)
+								}}
+								onClose={closeDetailPanel}
+								onDeleted={() => setSelectedEventId(null)}
+							/>
+						) : (
+							<p className="px-region py-region text-sm text-muted-foreground">
+								Select an event to see its details.
+							</p>
+						)}
+					</aside>
+				) : null}
 			</div>
 			<MobileTabBar active="calendar" />
 
 			{editing ? (
 				<EventModal
-					// A draft and its chosen calendar belong to one event in one inbox.
-					key={`${info.email}:${editing === 'new' ? 'new' : editing.id}`}
+					// A draft and its chosen calendar belong to one event in one inbox; a
+					// dragged-out range starts a new draft.
+					key={`${info.email}:${editing === 'new' ? `new-${composerKey}` : editing.id}`}
+					startInEdit={editing !== 'new' && editInEditor}
+					defaultDurationMinutes={newDurationMinutes}
 					event={editing === 'new' ? null : editing}
 					defaultStart={newStart ?? anchor}
 					calendarId={calendar.id}
@@ -580,6 +798,7 @@ export function CalendarRouteScreen({
 						}}
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={(event) => {
+							setEditInEditor(false)
 							setEditing(event)
 							setSidebarOpen(false)
 						}}
@@ -913,6 +1132,7 @@ function MonthGrid({
 	anchor,
 	events,
 	colors,
+	selectedEventId,
 	timeZone,
 	onPickDay,
 	onPickEvent,
@@ -921,6 +1141,7 @@ function MonthGrid({
 	anchor: Date
 	events: Event[]
 	colors: Map<string, EventColor>
+	selectedEventId: string | null
 	timeZone: string
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
@@ -1057,6 +1278,8 @@ function MonthGrid({
 														if (!preview) onPickEvent(event)
 													}}
 													disabled={preview}
+													data-event-chip={event.id}
+													aria-current={event.id === selectedEventId ? 'true' : undefined}
 													className={cn('pointer-events-auto hover:scale-[1.01]', chipClass)}
 													{...chipProps}
 												>
@@ -1092,6 +1315,9 @@ function TimeGrid({
 	start,
 	events,
 	colors,
+	calendars,
+	drag,
+	selectedEventId,
 	email,
 	now,
 	timeZone,
@@ -1107,6 +1333,9 @@ function TimeGrid({
 	start: Date
 	events: Event[]
 	colors: Map<string, EventColor>
+	calendars: Calendar[]
+	drag: ReturnType<typeof useCalendarDrag>
+	selectedEventId: string | null
 	email: string
 	now: Date
 	timeZone: string
@@ -1370,6 +1599,8 @@ function TimeGrid({
 											if (!preview) onPickEvent(event)
 										}}
 										disabled={preview}
+										data-event-chip={event.id}
+										aria-current={event.id === selectedEventId ? 'true' : undefined}
 										aria-label={eventAccessibleName(title, 'All day', {
 											rsvp,
 											ended,
@@ -1431,7 +1662,7 @@ function TimeGrid({
 							/>
 						</div>
 					)}
-					<div className="grid" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
+					<div className="grid select-none" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
 						<div style={{ gridColumn: 1, gridRow: 1 }}>
 							{HOURS.map((hour) => (
 								<div key={hour} className="relative" style={{ height: HOUR_PX }}>
@@ -1471,14 +1702,18 @@ function TimeGrid({
 									key={day.toISOString()}
 									className="relative min-w-0 overflow-visible [clip-path:inset(-100vh_0_-100vh_0)]"
 									style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
+									data-calendar-day-column={dayIndex}
 								>
 									{HOURS.map((hour) => (
 										<button
 											key={hour}
 											type="button"
-											onClick={(clickEvent) =>
+											onPointerDown={(pointerEvent) => drag.beginPointerDrag(pointerEvent, 'create', null)}
+											onClick={(clickEvent) => {
+												// A drag that ended on this slot already opened the composer.
+												if (drag.consumeClick()) return
 												onPickSlot(day, hour, clickEvent.currentTarget.getBoundingClientRect())
-											}
+											}}
 											tabIndex={activeSlot.day === dayIndex && activeSlot.hour === hour ? 0 : -1}
 											onFocus={() => setActiveSlot({ day: dayIndex, hour })}
 											onKeyDown={(event) => {
@@ -1525,7 +1760,12 @@ function TimeGrid({
 											'data-rsvp': rsvp,
 											'data-past': ended ? '' : undefined,
 											'data-preview': preview ? '' : undefined,
+											'data-dragging': drag.preview?.eventId === event.id ? '' : undefined,
 										}
+										const hint = eventDragHint(event, calendars)
+										const movable = eventDragBlock(event, calendars) === null
+										// An event that runs past midnight is resized from the day each edge is drawn on.
+										const edges = eventEdgesOnDay(event, day, timeZone)
 										// A short chip is one centred line (title, then start time) so no glyph
 										// is clipped; a taller one stacks the title over the time range.
 										const twoLines = timedChipLines(height) === 2
@@ -1562,14 +1802,45 @@ function TimeGrid({
 												key={event.id}
 												type="button"
 												onClick={() => {
+													// The click that ends a drag must not also open the event.
+													if (drag.consumeClick()) return
 													if (!preview) onPickEvent(event)
 												}}
+												onPointerDown={(pointerEvent) => drag.beginPointerDrag(pointerEvent, 'move', event)}
+												onKeyDown={(keyEvent) => drag.onEventKeyDown(keyEvent, event)}
+												onBlur={(blurEvent) => drag.onEventBlur(blurEvent, event)}
 												disabled={preview}
+												data-event-chip={event.id}
+												aria-current={event.id === selectedEventId ? 'true' : undefined}
+												aria-describedby={hint ? dragHintId(hint) : undefined}
 												aria-label={eventAccessibleName(title, range, { rsvp, ended })}
 												className={cn('hover:shadow-md', className)}
 												{...chipProps}
 											>
 												{content}
+												{/* Resize edges are pointer-only areas with no fill; the keyboard path is Shift+Alt+Up/Down. */}
+												{movable && edges.start && height >= 32 ? (
+													<span
+														aria-hidden="true"
+														data-drag-handle="start"
+														className="absolute inset-x-0 top-0 h-2 cursor-ns-resize"
+														onPointerDown={(pointerEvent) => {
+															pointerEvent.stopPropagation()
+															drag.beginPointerDrag(pointerEvent, 'resize-start', event)
+														}}
+													/>
+												) : null}
+												{movable && edges.end ? (
+													<span
+														aria-hidden="true"
+														data-drag-handle="end"
+														className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+														onPointerDown={(pointerEvent) => {
+															pointerEvent.stopPropagation()
+															drag.beginPointerDrag(pointerEvent, 'resize-end', event)
+														}}
+													/>
+												) : null}
 											</button>
 										)
 									})}

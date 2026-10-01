@@ -1010,6 +1010,23 @@
 	opacity: 0.5;
 }
 
+/* The event shown in the detail pane: a uniform ring, alongside aria-current. */
+.event-chip[aria-current="true"] {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
+/*
+ * An event being dragged or adjusted from the keyboard follows the pointer
+ * with no animation of its own, so there is nothing to reduce for
+ * prefers-reduced-motion beyond the global transition rule below.
+ */
+.event-chip[data-dragging] {
+	z-index: 20;
+	opacity: 0.85;
+	box-shadow: var(--shadow-md, 0 4px 6px -1px rgb(0 0 0 / 0.1));
+}
+
 /* An all-day event that continues beyond the visible days runs flush to that edge. */
 .event-chip[data-continues-before] {
 	margin-left: 0;

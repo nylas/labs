@@ -1,16 +1,5 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
-import {
-	AlertTriangle,
-	AlignLeft,
-	CalendarDays,
-	Clock,
-	GripVertical,
-	MapPin,
-	Pencil,
-	Trash2,
-	Users,
-	X,
-} from 'lucide-react'
+import { AlertTriangle, CalendarDays, GripVertical, X } from 'lucide-react'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '#shared/components/RecipientInput'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
@@ -31,20 +20,17 @@ import {
 	calendarSlotTime,
 	calendarWallClockHour,
 	eventTimes,
-	fmtCompactTime,
 	formatFullDate,
 	ymd,
 } from '../lib/calendar.js'
 import { calendarColors, eventColor, eventColorStyle } from '../lib/calendar-ui-model.js'
-import {
-	useCreateEventMutation,
-	useDeleteEventMutation,
-	useRsvpEventMutation,
-	useUpdateEventMutation,
-} from '../state/calendar-state.js'
+import { useCreateEventMutation, useUpdateEventMutation } from '../state/calendar-state.js'
+import { EventDetails, type EventDetailsHandle, EventDetailsHeader } from './EventDetails.js'
 
-const START_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => i * 0.5)
-const END_TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => (i + 1) * 0.5)
+/** Times are offered in the grid's 15-minute steps, so a dragged event round-trips through the editor. */
+const TIME_STEP_HOURS = 0.25
+const START_TIME_OPTIONS = Array.from({ length: 24 / TIME_STEP_HOURS }, (_, i) => i * TIME_STEP_HOURS)
+const END_TIME_OPTIONS = Array.from({ length: 24 / TIME_STEP_HOURS }, (_, i) => (i + 1) * TIME_STEP_HOURS)
 const WEEKDAYS = [
 	['MO', 'Mon'],
 	['TU', 'Tue'],
@@ -85,6 +71,8 @@ export function EventModal({
 	anchorRect,
 	timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
 	preserveDefaultStartTime = false,
+	defaultDurationMinutes = 60,
+	startInEdit = false,
 	events = [],
 	onDraftChange,
 	onClose,
@@ -97,6 +85,10 @@ export function EventModal({
 	anchorRect?: Rect | null
 	timeZone?: string
 	preserveDefaultStartTime?: boolean
+	/** Length of a new event, e.g. the range dragged out on the grid. */
+	defaultDurationMinutes?: number
+	/** Open an existing event straight in the editor; cancelling then closes it. */
+	startInEdit?: boolean
 	events?: Event[]
 	onDraftChange?: (event: Event | null) => void
 	onClose: (changed: boolean) => void
@@ -104,7 +96,9 @@ export function EventModal({
 	const times = event ? eventTimes(event) : null
 	const initialStart = times?.start ?? new Date(defaultStart.getTime())
 	const initialDate = times?.allDay ? initialStart : calendarDateInTimeZone(initialStart, timeZone)
-	const initialHours = eventInitialHours(initialStart, Boolean(event) || preserveDefaultStartTime, timeZone)
+	const initialHours = times
+		? eventHours(times, timeZone)
+		: eventInitialHours(initialStart, preserveDefaultStartTime, timeZone, defaultDurationMinutes / 60)
 
 	const [title, setTitle] = useState(event?.title ?? '')
 	const [location, setLocation] = useState(event?.location ?? '')
@@ -118,21 +112,15 @@ export function EventModal({
 	const [weekdays, setWeekdays] = useState<Weekday[]>(() => [defaultWeekday(initialDate)])
 	const [weekdaysTouched, setWeekdaysTouched] = useState(false)
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
-	const [editing, setEditing] = useState(false)
+	const [editing, setEditing] = useState(startInEdit)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const titleInputRef = useRef<HTMLInputElement>(null)
-	const editButtonRef = useRef<HTMLButtonElement>(null)
-	const deleteButtonRef = useRef<HTMLButtonElement>(null)
-	const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
-	const deletePendingRef = useRef(false)
-	const wasEditing = useRef(false)
-	const wasConfirmingDelete = useRef(false)
+	const detailsRef = useRef<EventDetailsHandle>(null)
+	// Set when the editor hands back to the read-only view, so focus returns to Edit.
+	const returnedFromEdit = useRef(false)
 	const createMutation = useCreateEventMutation()
 	const updateMutation = useUpdateEventMutation(event)
-	const deleteMutation = useDeleteEventMutation(event?.id ?? '')
-	const rsvpMutation = useRsvpEventMutation(event?.id ?? '')
 
 	// The create composer floats over the calendar (no backdrop) so the grid
 	// stays visible; the user can drag it aside by its header to reference a day.
@@ -186,7 +174,6 @@ export function EventModal({
 		return () => window.removeEventListener('keydown', onKey)
 	}, [busy, event, onClose])
 
-	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
 	const colors = calendarColors(calendars)
 	const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId) ?? calendars[0]
 	// The detail view shows the event's own calendar; the composer shows the one being chosen.
@@ -208,7 +195,7 @@ export function EventModal({
 					end_time: Math.floor(
 						calendarSlotTime(
 							dateFromInput(eventDate),
-							Math.max(endHour, startHour + 0.5),
+							Math.max(endHour, startHour + TIME_STEP_HOURS),
 							timeZone,
 						).getTime() / 1000,
 					),
@@ -263,8 +250,11 @@ export function EventModal({
 				calendarSlotTime(dateFromInput(eventDate), startHour, timeZone).getTime() / 1000,
 			)
 			const endTime = Math.floor(
-				calendarSlotTime(dateFromInput(eventDate), Math.max(endHour, startHour + 0.5), timeZone).getTime() /
-					1000,
+				calendarSlotTime(
+					dateFromInput(eventDate),
+					Math.max(endHour, startHour + TIME_STEP_HOURS),
+					timeZone,
+				).getTime() / 1000,
 			)
 			const participants = valueToTokens(guests)
 			const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
@@ -287,13 +277,17 @@ export function EventModal({
 	async function saveEdit() {
 		/* v8 ignore next -- saveEdit() is only wired to the edit form, which renders only when event is present -- @preserve */
 		if (!event) return
+		if (!allDay && !isDateInput(eventDate)) {
+			setError('Choose a valid event date.')
+			return
+		}
 		setBusy(true)
 		setError(null)
 		try {
-			const eventDay = calendarDateInTimeZone(initialStart, timeZone)
+			const eventDay = dateFromInput(eventDate)
 			const startTime = Math.floor(calendarSlotTime(eventDay, startHour, timeZone).getTime() / 1000)
 			const endTime = Math.floor(
-				calendarSlotTime(eventDay, Math.max(endHour, startHour + 0.5), timeZone).getTime() / 1000,
+				calendarSlotTime(eventDay, Math.max(endHour, startHour + TIME_STEP_HOURS), timeZone).getTime() / 1000,
 			)
 			await updateMutation.mutateAsync({
 				eventId: event.id,
@@ -310,67 +304,9 @@ export function EventModal({
 		}
 	}
 
-	async function remove() {
-		/* v8 ignore next -- remove() is only wired to the delete button, which renders only when event is present -- @preserve */
-		if (!event) return
-		/* v8 ignore next -- @preserve the disabled confirmation button prevents repeat UI activation; this guard also closes same-tick re-entry */
-		if (deletePendingRef.current) return
-		deletePendingRef.current = true
-		setBusy(true)
-		setError(null)
-		try {
-			await deleteMutation.mutateAsync({
-				eventId: event.id,
-				calendarId: event.calendar_id ?? calendarId,
-			})
-			onClose(true)
-		} catch {
-			deletePendingRef.current = false
-			setError('Could not delete the event. Check your connection, then try again.')
-			setBusy(false)
-		}
-	}
-
-	async function rsvp(status: 'yes' | 'no' | 'maybe') {
-		/* v8 ignore next -- rsvp() is only wired to the RSVP buttons, which render only when event is present -- @preserve */
-		if (!event) return
-		setBusy(true)
-		try {
-			await rsvpMutation.mutateAsync({
-				eventId: event.id,
-				calendarId: event.calendar_id ?? calendarId,
-				status,
-			})
-			onClose(true)
-		} catch {
-			setError('RSVP failed')
-			setBusy(false)
-		}
-	}
-
 	useEffect(() => {
 		if (!event) titleInputRef.current?.focus({ preventScroll: true })
 	}, [event])
-	useEffect(() => {
-		if (!editing && wasEditing.current) editButtonRef.current?.focus()
-		wasEditing.current = editing
-	}, [editing])
-	useEffect(() => {
-		if (confirmingDelete) cancelDeleteButtonRef.current?.focus()
-		else if (wasConfirmingDelete.current) deleteButtonRef.current?.focus()
-		wasConfirmingDelete.current = confirmingDelete
-	}, [confirmingDelete])
-
-	function beginDelete() {
-		setError(null)
-		setConfirmingDelete(true)
-	}
-
-	function cancelDelete() {
-		setError(null)
-		setConfirmingDelete(false)
-	}
-
 	if (event && times) {
 		const persistedEvent = event
 		const persistedTimes = times
@@ -381,6 +317,7 @@ export function EventModal({
 			setDescription(persistedEvent.description ?? '')
 			setStartHour(initialHours.startHour)
 			setEndHour(initialHours.endHour)
+			setEventDate(ymd(initialDate))
 			setAllDay(persistedTimes.allDay)
 			setError(null)
 		}
@@ -391,56 +328,38 @@ export function EventModal({
 		}
 
 		function cancelEdit() {
+			// Opened straight in the editor (from the detail pane): cancelling returns there.
+			if (startInEdit) {
+				onClose(false)
+				return
+			}
 			resetEditDraft()
+			returnedFromEdit.current = true
 			setEditing(false)
 		}
-
-		const when = times.allDay ? 'All day' : `${fmtCompactTime(times.start)} – ${fmtCompactTime(times.end)}`
-		const attendeeText = event.participants
-			?.map((participant) => participant.name || participant.email)
-			.filter(Boolean)
-			.join(', ')
 		return (
 			<Dialog
 				open
 				onOpenChange={(next) => {
 					/* v8 ignore else -- @preserve the controlled open dialog only requests dismissal; busy or open requests are intentional no-ops */
 					if (!next && !busy) {
-						if (confirmingDelete) cancelDelete()
-						else onClose(false)
+						if (editing) onClose(false)
+						else detailsRef.current?.requestClose()
 					}
 				}}
 			>
 				<DialogContent presentation="bottom-sheet" className={EVENT_DIALOG_PANEL_CLASS}>
 					<DialogTitle className="sr-only">Event details</DialogTitle>
-					<div className="flex items-start justify-between gap-3 px-5 pt-4">
-						<div className="flex min-w-0 items-start gap-3">
-							<span
-								data-slot="calendar-swatch"
-								aria-hidden="true"
-								className={cn('mt-2 h-[11px] w-[11px] shrink-0 rounded-[3px]', EVENT_SWATCH_CLASS)}
-								style={colorStyle}
-							/>
-							<div className="min-w-0">
-								<h2 className="text-lg leading-snug font-semibold text-balance">
-									{event.title || '(untitled)'}
-								</h2>
-								<p className="text-sm text-muted-foreground">{calendarName}</p>
-							</div>
-						</div>
-						<button
-							type="button"
-							onClick={() => onClose(false)}
-							disabled={busy}
-							aria-label="Close"
-							className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
-						>
-							<X className="h-4 w-4" />
-						</button>
-					</div>
-
 					{editing ? (
 						<>
+							<EventDetailsHeader
+								event={event}
+								calendarName={calendarName}
+								colorStyle={colorStyle}
+								variant="dialog"
+								busy={busy}
+								onClose={() => onClose(false)}
+							/>
 							<div className="space-y-4 px-5 py-4">
 								<input
 									aria-label="Title"
@@ -449,10 +368,24 @@ export function EventModal({
 									placeholder="Add title"
 									className="event-dialog-field w-full border-b border-border bg-transparent pb-2 text-lg font-medium outline-none placeholder:text-muted-foreground focus:border-primary"
 								/>
-								<div className="flex items-center gap-3 text-sm">
-									<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-									<span>{formatFullDate(times.start)}</span>
-								</div>
+								{allDay ? (
+									<div className="flex items-center gap-3 text-sm">
+										<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+										<span>{formatFullDate(times.start)}</span>
+									</div>
+								) : (
+									<label className="block space-y-control" htmlFor="event-edit-date">
+										<span className="text-xs font-medium text-muted-foreground">Date</span>
+										<input
+											id="event-edit-date"
+											aria-label="Event date"
+											type="date"
+											value={eventDate}
+											onChange={(changeEvent) => setEventDate(changeEvent.target.value)}
+											className="h-11 w-full rounded-lg border border-input bg-background px-3 text-base outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
+										/>
+									</label>
+								)}
 								<EventFields
 									startHour={startHour}
 									endHour={endHour}
@@ -488,127 +421,19 @@ export function EventModal({
 							</div>
 						</>
 					) : (
-						<>
-							<div className="space-y-3 px-5 py-4 text-sm">
-								<div className="flex items-center gap-3">
-									<CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-									<span>{formatFullDate(times.start)}</span>
-								</div>
-								<div className="flex items-center gap-3">
-									<Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-									<span>{when}</span>
-								</div>
-								{event.location ? (
-									<div className="flex items-center gap-3">
-										<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-										<span>{event.location}</span>
-									</div>
-								) : null}
-								{attendeeText ? (
-									<div className="flex items-start gap-3">
-										<Users className="h-4 w-4 shrink-0 text-muted-foreground" />
-										<span>{attendeeText}</span>
-									</div>
-								) : null}
-								{event.description ? (
-									<div className="flex items-start gap-3">
-										<AlignLeft className="h-4 w-4 shrink-0 text-muted-foreground" />
-										<span className="text-foreground/80">{event.description}</span>
-									</div>
-								) : null}
-								{error ? (
-									<p
-										className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
-										role={confirmingDelete ? 'alert' : undefined}
-									>
-										{error}
-									</p>
-								) : null}
-							</div>
-
-							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))]">
-								{confirmingDelete ? (
-									<fieldset
-										className="flex w-full flex-wrap items-center justify-end gap-2"
-										aria-describedby="event-delete-confirm-description"
-									>
-										<legend className="mr-auto min-w-48">
-											<span className="block text-sm font-semibold text-foreground">Delete this event?</span>
-											<span
-												id="event-delete-confirm-description"
-												className="block text-xs text-muted-foreground"
-											>
-												This action cannot be undone.
-											</span>
-										</legend>
-										<button
-											ref={cancelDeleteButtonRef}
-											type="button"
-											onClick={cancelDelete}
-											disabled={busy}
-											className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
-										>
-											Cancel
-										</button>
-										<button
-											type="button"
-											onClick={remove}
-											disabled={busy}
-											aria-describedby="event-delete-confirm-description"
-											className="flex min-h-11 items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:opacity-50"
-										>
-											<Trash2 className="h-4 w-4" /> {busy ? 'Deleting…' : 'Delete event'}
-										</button>
-									</fieldset>
-								) : (
-									<>
-										{canRsvp
-											? (['yes', 'maybe', 'no'] as const).map((status) => (
-													<button
-														key={status}
-														type="button"
-														disabled={busy}
-														onClick={() => rsvp(status)}
-														className="min-h-11 rounded-lg border border-border px-3 py-1.5 text-xs capitalize hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
-													>
-														{status === 'yes' ? '✓ Yes' : status === 'no' ? '✗ No' : '? Maybe'}
-													</button>
-												))
-											: null}
-										{!event.read_only ? (
-											<>
-												<button
-													ref={editButtonRef}
-													type="button"
-													disabled={busy}
-													onClick={beginEdit}
-													className="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
-												>
-													<Pencil className="h-4 w-4" /> Edit
-												</button>
-												<button
-													ref={deleteButtonRef}
-													type="button"
-													disabled={busy}
-													onClick={beginDelete}
-													className="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
-												>
-													<Trash2 className="h-4 w-4" /> Delete
-												</button>
-											</>
-										) : null}
-										<button
-											type="button"
-											onClick={() => onClose(false)}
-											disabled={busy}
-											className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98]"
-										>
-											Done
-										</button>
-									</>
-								)}
-							</div>
-						</>
+						<EventDetails
+							ref={detailsRef}
+							event={event}
+							calendarId={calendarId}
+							calendarName={calendarName}
+							calendars={calendars}
+							variant="dialog"
+							focusEditOnMount={returnedFromEdit.current}
+							onEdit={beginEdit}
+							onClose={() => onClose(false)}
+							onRsvped={() => onClose(true)}
+							onDeleted={() => onClose(true)}
+						/>
 					)}
 				</DialogContent>
 			</Dialog>
@@ -1051,15 +876,30 @@ export function eventInitialHours(
 	start: Date,
 	preserveStartTime = false,
 	timeZone?: string,
+	durationHours = 1,
 ): { startHour: number; endHour: number } {
 	const startHour = decimalHour(start, timeZone)
 	const normalizedStartHour =
-		(preserveStartTime ? startHour >= 0 : startHour >= 7) && startHour < 24 ? nearestHalfHour(startHour) : 9
-	return { startHour: normalizedStartHour, endHour: Math.min(24, normalizedStartHour + 1) }
+		(preserveStartTime ? startHour >= 0 : startHour >= 7) && startHour < 24 ? nearestTimeStep(startHour) : 9
+	return { startHour: normalizedStartHour, endHour: Math.min(24, normalizedStartHour + durationHours) }
 }
 
-function nearestHalfHour(hour: number): number {
-	return Math.min(23.5, Math.round(hour * 2) / 2)
+/**
+ * The editor's start and end for an existing event, on the 15-minute options.
+ * An end past midnight is shown as the end of the start day.
+ */
+export function eventHours(
+	times: { start: Date; end: Date },
+	timeZone?: string,
+): { startHour: number; endHour: number } {
+	const startHour = nearestTimeStep(decimalHour(times.start, timeZone))
+	const durationHours = (times.end.getTime() - times.start.getTime()) / 3_600_000
+	const endHour = Math.round((startHour + durationHours) / TIME_STEP_HOURS) * TIME_STEP_HOURS
+	return { startHour, endHour: Math.min(24, Math.max(endHour, startHour + TIME_STEP_HOURS)) }
+}
+
+function nearestTimeStep(hour: number): number {
+	return Math.min(24 - TIME_STEP_HOURS, Math.round(hour / TIME_STEP_HOURS) * TIME_STEP_HOURS)
 }
 
 function formatDecimalHour(hour: number): string {
