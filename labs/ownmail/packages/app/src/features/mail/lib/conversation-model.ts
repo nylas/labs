@@ -204,18 +204,40 @@ function isRepeat(block: CleanBlock, shown: readonly ShownBlock[]): boolean {
 	return text.length >= MIN_REPEAT && wasShown(shown, text) !== undefined
 }
 
+const nameWords = (text: string): string[] => text.toLowerCase().match(/\p{L}+/gu) ?? []
+
 /**
- * A closing block that identifies a person: their name on the first line, then
- * at least two contact lines, one of them a phone number or an email address.
- * Contact lines alone are not enough. "Resources:" followed by two links is
- * content, and removing it would lose the links; when the shape is not clearly
- * a signature the block stays.
+ * Whether a line is the sender's own name: every word of it is a word of the
+ * From display name or of the address before the at sign (an initial counts for
+ * the word it starts), and at least one word matches in full. "Tomas Reyes",
+ * "T. Reyes" and "Reyes Tomas" are Tomas Reyes; "Project Contacts" is nobody.
  */
-function isContactBlock(block: CleanBlock): boolean {
+function isSenderName(line: string, sender: Person | undefined): boolean {
+	if (!sender) return false
+	const own = [...nameWords(sender.name ?? ''), ...nameWords(sender.email.split('@')[0] as string)]
+	const words = nameWords(line)
+	return (
+		words.some((word) => word.length > 1 && own.includes(word)) &&
+		words.every(
+			(word) => own.includes(word) || (word.length === 1 && own.some((part) => part.startsWith(word))),
+		)
+	)
+}
+
+/**
+ * A closing block that identifies the sender: their own name on the first
+ * line, then at least two contact lines, one of them a phone number or an email
+ * address. Contact lines alone are not enough ("Resources:" followed by two
+ * links is content), and neither is any capitalised title above them
+ * ("Project Contacts" over two addresses is a contact list, not a signature).
+ * When the shape is not clearly the sender signing off, the block stays.
+ */
+function isContactBlock(block: CleanBlock, sender: Person | undefined): boolean {
 	if (block.type !== 'paragraph') return false
 	const [name, ...rest] = blocksText([block]).split('\n') as [string, ...string[]]
 	return (
 		NAME_LINE.test(name) &&
+		isSenderName(name, sender) &&
 		rest.length >= 2 &&
 		rest.length < SIGNATURE_MAX_LINES &&
 		rest.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS) &&
@@ -227,9 +249,9 @@ function isContactBlock(block: CleanBlock): boolean {
 /**
  * Find the signature when the sender's client did not mark one: everything
  * from a `-- ` line to the quoted history, or else a closing block that names
- * a person and how to reach them.
+ * the sender and how to reach them.
  */
-function markSignatures(blocks: CleanBlock[]): CleanBlock[] {
+function markSignatures(blocks: CleanBlock[], sender: Person | undefined): CleanBlock[] {
 	if (blocks.some((block) => block.type === 'signature')) return blocks
 	const firstHistory = blocks.findIndex((block) => block.type === 'history')
 	const end = firstHistory === -1 ? blocks.length : firstHistory
@@ -237,7 +259,7 @@ function markSignatures(blocks: CleanBlock[]): CleanBlock[] {
 		(block, index) => index < end && block.type === 'paragraph' && SIGNATURE_DASHES.test(blocksText([block])),
 	)
 	// A lone contact block is the message, not a signature.
-	if (start === -1 && end > 1 && isContactBlock(blocks[end - 1] as CleanBlock)) start = end - 1
+	if (start === -1 && end > 1 && isContactBlock(blocks[end - 1] as CleanBlock, sender)) start = end - 1
 	if (start === -1) return blocks
 	return [
 		...blocks.slice(0, start),
@@ -293,11 +315,16 @@ const QUOTED_TYPES: ReadonlySet<CleanBlock['type']> = new Set(['history', 'signa
  * A forwarded message, or a message with nothing new left, is shown whole
  * (`unsure`) rather than risk hiding something that mattered.
  */
-export function bubbleContent(blocks: CleanBlock[], shown: readonly ShownBlock[] = []): BubbleContent {
+export function bubbleContent(
+	blocks: CleanBlock[],
+	shown: readonly ShownBlock[] = [],
+	/** Who sent the message; an unmarked signature is recognised by their name. */
+	sender?: Person,
+): BubbleContent {
 	const histories = blocks.filter((block) => block.type === 'history')
 	if (FORWARDED.test(blocksText(histories))) return { blocks, unsure: true }
 
-	const marked = markSignatures(blocks)
+	const marked = markSignatures(blocks, sender)
 	let end = marked.length
 	while (end > 0 && isRepeat(marked[end - 1] as CleanBlock, shown)) end -= 1
 	const kept = marked.slice(0, end).flatMap((block, index, all): CleanBlock[] => {
@@ -463,7 +490,7 @@ export function buildConversation(messages: MailMessage[], options: Conversation
 			continue
 		}
 		designedOnly = false
-		const bubble: ConversationBubble = { message, ...bubbleContent(blocks, shown) }
+		const bubble: ConversationBubble = { message, ...bubbleContent(blocks, shown, from) }
 		rememberBlocks(shown, blocks, author)
 		const previous = run?.bubbles.at(-1)?.message.date
 		if (

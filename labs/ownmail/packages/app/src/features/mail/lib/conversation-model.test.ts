@@ -109,7 +109,7 @@ describe('bubbleContent', () => {
 		expect(bubbleContent([text('Hi'), text('--')]).blocks).toEqual([text('Hi')])
 
 		const contact = [text('See you Thursday.'), text('Tomas Reyes\n+1 555 010 0199\ntomas@example.com')]
-		expect(bubbleContent(contact).blocks).toEqual([text('See you Thursday.')])
+		expect(bubbleContent(contact, [], TOMAS).blocks).toEqual([text('See you Thursday.')])
 	})
 
 	it('does not mistake ordinary closing lines for a signature', () => {
@@ -153,11 +153,46 @@ describe('bubbleContent', () => {
 		}
 		// A name with a link and a personal contact is still a signature.
 		expect(
-			bubbleContent([
-				text('See you Thursday.'),
-				text('Mara Lindqvist\nhttps://example.com\n+46 8 555 010 01'),
-			]).blocks,
+			bubbleContent(
+				[text('See you Thursday.'), text('Mara Lindqvist\nhttps://example.com\n+46 8 555 010 01')],
+				[],
+				{ email: 'mara.lindqvist@example.com' },
+			).blocks,
 		).toEqual([text('See you Thursday.')])
+	})
+
+	it("removes a closing contact block only when its first line is the sender's own name", () => {
+		// "Project Contacts" over two addresses has the shape of a signature, and a
+		// capitalised title looks like a name. It is a contact list the sender is
+		// sharing. Only the sender's name on that line makes it a sign-off.
+		const intro = text('Here they are.')
+		const list = text('Project Contacts\nalice@example.com\nbob@example.com')
+		expect(bubbleContent([intro, list], [], INES)).toEqual({ blocks: [intro, list], unsure: false })
+		// Someone else's card pasted at the end is content too.
+		const card = text('Tomas Reyes\n+1 555 010 0199\ntomas@example.com')
+		expect(bubbleContent([intro, card], [], INES).blocks).toEqual([intro, card])
+		// With no sender to compare against, nothing is assumed.
+		expect(bubbleContent([intro, card]).blocks).toEqual([intro, card])
+		expect(bubbleContent([intro, card], [], { email: 'tomas@example.com' }).blocks).toEqual([intro, card])
+
+		// Common ways people write their own name still count.
+		const contactLines = '\n+1 555 010 0199\ntomas@example.com'
+		for (const [line, sender] of [
+			['Tomas Reyes', TOMAS],
+			['Reyes Tomas', TOMAS],
+			['T. Reyes', TOMAS],
+			['Tomas R', TOMAS],
+			['Tomas Reyes', { email: 'tomas.reyes@example.com' }],
+			['Tomas Reyes', { name: 'Reyes, Tomas (Operations)', email: 'treyes@example.com' }],
+		] as const) {
+			expect(bubbleContent([intro, text(`${line}${contactLines}`)], [], sender).blocks).toEqual([intro])
+		}
+		// A shared word is not enough: every word has to be the sender's.
+		const team = text('Tomas Team\n+1 555 010 0199\nteam@example.com')
+		expect(bubbleContent([intro, team], [], TOMAS).blocks).toEqual([intro, team])
+		// Initials alone identify nobody.
+		const initials = text('T R\n+1 555 010 0199\ntomas@example.com')
+		expect(bubbleContent([intro, initials], [], TOMAS).blocks).toEqual([intro, initials])
 	})
 
 	it('keeps a signature in place when there is text below it', () => {

@@ -279,6 +279,15 @@ describe('nothing a person wrote is silently dropped', () => {
 		})
 	})
 
+	it('holds for a closing contact list under a title, which is not the sender signing off', () => {
+		const messages = thread(
+			[TOMAS, 'Who do I talk to about the venue?'],
+			[INES, 'Here they are.\n\nProject Contacts\nalice@example.com\nbob@example.com'],
+			[SAM, '<p>And for catering.</p><p>Catering Team<br>+1 555 010 0142<br>catering@example.com</p>'],
+		)
+		expectNothingDropped(messages)
+	})
+
 	it('would catch a dropped answer: the check itself is not vacuous', () => {
 		// The same check, run against a transcript that leaves a new line out.
 		const messages = thread([TOMAS, 'A question.'], [INES, 'An answer nobody has seen before.'])
