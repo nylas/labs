@@ -256,10 +256,76 @@ describe('messageContent', () => {
 				{ type: 'paragraph', spans: [{ text: 'I will check the room.' }] },
 				{
 					type: 'history',
-					blocks: [{ type: 'paragraph', spans: [{ text: 'On Mon, Tomas wrote:\n> Thursday?' }] }],
+					blocks: [
+						{ type: 'paragraph', spans: [{ text: 'On Mon, Tomas wrote:' }] },
+						{ type: 'quote', blocks: [{ type: 'paragraph', spans: [{ text: 'Thursday?' }] }] },
+					],
 				},
 			],
 		})
+	})
+
+	it('keeps what a plaintext reply says after the quote apart from the quote', () => {
+		// "Additional answer" is new text. Lumped into the quoted paragraph it would
+		// be folded away with the quote and the reader would never see it.
+		const content = messageContent(
+			message('New\nOn Monday, A wrote:\n> old text\nAdditional answer'),
+			false,
+		) as { blocks: CleanBlock[] }
+		expect(content.blocks).toEqual([
+			{ type: 'paragraph', spans: [{ text: 'New' }] },
+			{
+				type: 'history',
+				blocks: [
+					{ type: 'paragraph', spans: [{ text: 'On Monday, A wrote:' }] },
+					{ type: 'quote', blocks: [{ type: 'paragraph', spans: [{ text: 'old text' }] }] },
+					{ type: 'paragraph', spans: [{ text: 'Additional answer' }] },
+				],
+			},
+		])
+	})
+
+	it('keeps the line structure of interleaved plaintext answers and nested quotes', () => {
+		const content = messageContent(
+			message(
+				[
+					'Inline:',
+					'',
+					'On Monday, A wrote:',
+					'',
+					'> first question',
+					'>',
+					'',
+					'>> an older line',
+					'Yes to the first.',
+					'',
+					'And a second paragraph.',
+					'> second question',
+					'No to the second.',
+					'',
+				].join('\n'),
+			),
+			false,
+		) as { blocks: CleanBlock[] }
+		const quote = (text: string): CleanBlock => ({
+			type: 'quote',
+			blocks: [{ type: 'paragraph', spans: [{ text }] }],
+		})
+		const p = (text: string): CleanBlock => ({ type: 'paragraph', spans: [{ text }] })
+		expect(content.blocks).toEqual([
+			p('Inline:'),
+			{
+				type: 'history',
+				blocks: [
+					p('On Monday, A wrote:'),
+					quote('first question\n\n\nan older line'),
+					p('Yes to the first.'),
+					p('And a second paragraph.'),
+					quote('second question'),
+					p('No to the second.'),
+				],
+			},
+		])
 	})
 
 	it('falls back to the snippet, and to no blocks when a message has no text at all', () => {

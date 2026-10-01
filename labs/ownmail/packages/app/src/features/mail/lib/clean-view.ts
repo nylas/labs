@@ -506,7 +506,43 @@ function plainTextBlocks(text: string): CleanBlock[] {
 	const blocks = paragraphs(body as string)
 	const signed = paragraphs(signature.join('\n'))
 	if (signed.length > 0) blocks.push({ type: 'signature', blocks: signed })
-	if (content.quoted) blocks.push({ type: 'history', blocks: [paragraph([{ text: content.quoted }])] })
+	if (content.quoted) blocks.push({ type: 'history', blocks: plainHistoryBlocks(content.quoted) })
+	return blocks
+}
+
+/**
+ * The quoted part of a plaintext reply, with its line structure kept: the
+ * lead-in, each run of `>` lines as a quote, and every run of unquoted lines
+ * as its own paragraph. Unquoted lines after a quote are something the sender
+ * newly wrote (an answer between or below the quoted lines), so they must stay
+ * separate from the quote or they would be folded away with it.
+ */
+function plainHistoryBlocks(quoted: string): CleanBlock[] {
+	const blocks: CleanBlock[] = []
+	let quoting = false
+	let lines: string[] = []
+	const flush = () => {
+		const text = lines.join('\n').trim()
+		lines = []
+		if (!text) return
+		const block = paragraph([{ text }])
+		blocks.push(quoting ? { type: 'quote', blocks: [block] } : block)
+	}
+	for (const line of quoted.split('\n')) {
+		if (!line.trim()) {
+			// A blank line ends a paragraph of the sender's own text; inside a quote it is part of the quote.
+			if (quoting) lines.push('')
+			else flush()
+			continue
+		}
+		const quotedLine = /^\s*>/.test(line)
+		if (quotedLine !== quoting) {
+			flush()
+			quoting = quotedLine
+		}
+		lines.push(quotedLine ? line.replace(/^\s*(?:>\s?)+/, '') : line)
+	}
+	flush()
 	return blocks
 }
 

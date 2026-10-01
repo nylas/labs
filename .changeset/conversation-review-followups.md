@@ -1,0 +1,5 @@
+---
+"@ownmail/app": patch
+---
+
+The Conversation view no longer loses things people wrote. A plain-text reply that continues below a quoted line now shows that text; an answer that happens to begin with "From:", "Date:" or "Subject:" is no longer mistaken for a mail header; a closing list of links or addresses is kept unless it really is a signature; and a receipt or report table that uses merged cells is shown in its original layout so its numbers stay under the right columns.

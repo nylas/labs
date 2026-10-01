@@ -208,6 +208,43 @@ describe('bubbleContent', () => {
 	})
 })
 
+describe('a plaintext reply with text after the quote', () => {
+	it('shows the additional answer in the bubble instead of folding it away with the quote', () => {
+		const original = message('a', TOMAS, NOON)
+		const reply = message('b', INES, NOON + 3600)
+		const conversation = build([original, reply], {
+			a: { kind: 'blocks', blocks: [text('The old text of the first message.')], hasRemoteImages: false },
+			// What `messageContent` produces for:
+			//   New\nOn Monday, Tomas wrote:\n> The old text of the first message.\nAdditional answer
+			b: {
+				kind: 'blocks',
+				hasRemoteImages: false,
+				blocks: [
+					text('New'),
+					history(
+						text('On Monday, Tomas wrote:'),
+						quote('The old text of the first message.'),
+						text('Additional answer'),
+					),
+				],
+			},
+		})
+		expect(conversation.items.at(-1)).toMatchObject({
+			kind: 'run',
+			bubbles: [
+				{
+					unsure: false,
+					blocks: [
+						text('New'),
+						{ type: 'reference', text: 'The old text of the first message.', author: 'Tomas' },
+						text('Additional answer'),
+					],
+				},
+			],
+		})
+	})
+})
+
 describe('rememberBlocks', () => {
 	it('credits a message with its own words only, and skips lines too short to identify it', () => {
 		const memory: ShownBlock[] = []
