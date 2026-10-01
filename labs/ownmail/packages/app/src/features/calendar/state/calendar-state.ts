@@ -25,6 +25,7 @@ import {
 	viewRange,
 	ymd,
 } from '../lib/calendar.js'
+import { isSameEmail } from '../lib/calendar-ui-model.js'
 
 /** One cached event range. Route-only values (mailbox info, anchor) stay out of the cache. */
 export type CalendarRangeData = Awaited<ReturnType<typeof getEvents>>
@@ -220,7 +221,7 @@ export type CalendarEffect =
 	| { type: 'created'; event: Event }
 	| { type: 'updated'; event: Event }
 	| { type: 'deleted'; eventId: string }
-	| { type: 'rsvped'; eventId: string; status: RsvpEventInput['status'] }
+	| { type: 'rsvped'; eventId: string; status: RsvpEventInput['status']; email: string }
 
 export type CalendarResourceEffect =
 	| { type: 'created'; calendar: Calendar }
@@ -289,8 +290,12 @@ function applyEventEffect(events: Event[], effect: CalendarEffect, range: Calend
 					? event
 					: {
 							...event,
-							participants: event.participants?.map((participant, index) =>
-								index === 0 ? { ...participant, status: effect.status } : participant,
+							// Only the signed-in user's own entry changes: the grid styles an
+							// event from that entry, wherever it sits in the guest list.
+							participants: event.participants?.map((participant) =>
+								isSameEmail(participant.email, effect.email)
+									? { ...participant, status: effect.status }
+									: participant,
 							),
 						},
 			)
@@ -457,17 +462,25 @@ export function useDeleteEventMutation(eventId: string) {
 
 export function useRsvpEventMutation(eventId: string) {
 	const queryClient = useQueryClient()
+	// The answer belongs to the signed-in mailbox. Without a known mailbox no entry
+	// is changed optimistically and the provider read reconciles the event.
+	const signedInEmail = () => queryClient.getQueryData(mailboxInfoQueryOptions().queryKey)?.email ?? ''
 	return useMutation({
 		mutationFn: (input: RsvpEventInput) => rsvpEvent({ data: input }),
 		onMutate: async (input) => {
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
 			const snapshot = snapshotCalendar(queryClient)
-			applyCalendarEffect(queryClient, { type: 'rsvped', eventId, status: input.status })
+			applyCalendarEffect(queryClient, {
+				type: 'rsvped',
+				eventId,
+				status: input.status,
+				email: signedInEmail(),
+			})
 			return { snapshot }
 		},
 		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
 		onSuccess: (_receipt, input) => {
-			const effect = { type: 'rsvped', eventId, status: input.status } as const
+			const effect = { type: 'rsvped', eventId, status: input.status, email: signedInEmail() } as const
 			applyCalendarEffect(queryClient, effect)
 			rememberConfirmedCalendarEffect(queryClient, effect)
 			refreshCalendar(queryClient)
