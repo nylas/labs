@@ -130,6 +130,7 @@ function Block({ block, historyOpen }: { block: CleanBlock; historyOpen: boolean
 			return <hr className="border-border" />
 		case 'table':
 			// Cells keep their rows and columns; the table scrolls sideways before it squeezes.
+			// Cell text keeps the 12px clearance from the row separators.
 			return (
 				<div data-slot="clean-table" className="overflow-x-auto">
 					<table className="w-full border-collapse text-left text-sm">
@@ -146,7 +147,7 @@ function Block({ block, historyOpen }: { block: CleanBlock; historyOpen: boolean
 												key={cell.key}
 												{...(Cell === 'th' ? { scope: 'col' } : {})}
 												className={cn(
-													'whitespace-pre-line py-cluster pr-region',
+													'whitespace-pre-line py-hairline pr-region',
 													Cell === 'th' && 'font-semibold',
 												)}
 											>
