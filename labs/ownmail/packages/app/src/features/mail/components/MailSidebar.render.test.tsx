@@ -59,6 +59,9 @@ describe('MailSidebar', () => {
 		)
 		const inbox = screen.getByRole('link', { name: /Inbox/ })
 		expect(inbox).toHaveClass('nav-item-active')
+		// The current folder is a fill plus weight, so it is also exposed to assistive technology.
+		expect(inbox).toHaveAttribute('aria-current', 'page')
+		expect(screen.getByRole('link', { name: 'Sent' })).not.toHaveAttribute('aria-current')
 		// unread_count 3 is rendered; zero-count folders show no badge.
 		expect(within(inbox).getByText('3')).toBeInTheDocument()
 		const sent = screen.getByRole('link', { name: 'Sent' })
@@ -73,6 +76,7 @@ describe('MailSidebar', () => {
 		expect(screen.getByText('Labels')).toBeInTheDocument()
 		const work = screen.getByRole('link', { name: 'Work' })
 		expect(work).toHaveClass('nav-item-active')
+		expect(work).toHaveAttribute('aria-current', 'page')
 		// Empty-named custom folder renders its id.
 		expect(screen.getByRole('link', { name: 'zeta' })).toBeInTheDocument()
 	})
@@ -87,24 +91,16 @@ describe('MailSidebar', () => {
 	it('uses larger touch targets only in the mobile navigation sheet', () => {
 		const view = render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" mobile />)
 		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('min-h-12')
-		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass(
-			'min-h-12',
-			'nav-item-active',
-			'mobile-nav-item-active',
-		)
+		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('min-h-12', 'nav-item-active')
 		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('min-h-12')
 		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass('h-11', 'w-11')
 
 		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="work" mobile />)
-		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass(
-			'nav-item-active',
-			'mobile-nav-item-active',
-		)
+		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('nav-item-active')
 
 		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" />)
 		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('touch-target', 'h-9')
 		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('touch-target', 'h-9')
-		expect(screen.getByRole('link', { name: /Inbox/ })).not.toHaveClass('mobile-nav-item-active')
 		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass(
 			'touch-target-square',
 			'h-8',

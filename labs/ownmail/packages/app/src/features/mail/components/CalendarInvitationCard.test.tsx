@@ -76,6 +76,10 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByText('From Grace Hopper')).toBeInTheDocument()
 		expect(screen.getByText('Aurora room')).toBeInTheDocument()
 		expect(screen.getByRole('alert')).toHaveTextContent('overlaps with 2 events')
+		// The label and icon tile identify the app-inserted card; no side has an accent border.
+		expect(screen.getByText('Calendar invitation')).toBeInTheDocument()
+		const card = document.querySelector('[data-slot="calendar-invitation"]')
+		expect(card?.outerHTML).not.toMatch(/\bborder-[lrtbse]-/)
 		expect(screen.getByRole('button', { name: 'Accept' })).toHaveAttribute('aria-pressed', 'false')
 		expect(screen.getByRole('button', { name: 'Maybe' })).toBeEnabled()
 		expect(screen.getByRole('button', { name: 'Decline' })).toBeEnabled()

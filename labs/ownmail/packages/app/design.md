@@ -73,6 +73,25 @@ mobile rows prefer 48 pixels.
 - Keep visible text for ambiguous actions, primary submission, destructive
   confirmation, dynamic destinations, and status or error communication.
 
+## Borders and accents
+
+1. Banned. Any border whose width or colour differs from the other sides as an
+   accent: `border-l-4`, `border-l-primary`, CSS `border-left` of 2px or more,
+   on any side.
+2. Banned. Simulated rails: one-sided inset shadows, and `::before`, `::after`
+   or absolutely positioned bars 2 to 4px thick along an edge.
+3. Allowed. A uniform 1px border on all sides, full-length 1px separators in
+   `--border`, and uniform rings and outlines.
+4. Use instead. Severity: uniform border, tint and glyph. Selection: fill and
+   ARIA state. Keyboard cursor: uniform 2px ring. Category: dot, swatch or full
+   tint. Quotation: indent and muted text, or a disclosure. System card: icon
+   tile and label.
+5. Never colour alone. Pair every state with a glyph, text, weight or ARIA
+   attribute.
+
+`pnpm lint` enforces the border and inset-shadow patterns through
+`scripts/check-ownmail-accent-rails.mjs`.
+
 ## Mobile surface rules
 
 - Honor top, inline, and bottom safe areas without padding the global `body`.

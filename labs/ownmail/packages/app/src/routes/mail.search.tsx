@@ -405,6 +405,7 @@ function SearchThreadRow({
 				to="/mail/search"
 				search={{ q, ...(searchFolderId ? { folderId: searchFolderId } : {}), threadId: thread.id }}
 				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+				aria-current={active ? 'true' : undefined}
 				className={THREAD_ROW_LINK_CLASS}
 			/>
 			<ThreadRowContent

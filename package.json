@@ -8,9 +8,10 @@
 	"scripts": {
 		"build": "turbo build",
 		"dev": "turbo dev",
-		"lint": "biome check . && pnpm lint:boundaries",
+		"lint": "biome check . && pnpm lint:boundaries && pnpm lint:accents",
 		"lint:boundaries": "node --test scripts/check-ownmail-import-boundaries.test.mjs && node scripts/check-ownmail-import-boundaries.mjs",
-		"lint:fix": "biome check --write . && pnpm lint:boundaries",
+		"lint:accents": "node --test scripts/check-ownmail-accent-rails.test.mjs && node scripts/check-ownmail-accent-rails.mjs",
+		"lint:fix": "biome check --write . && pnpm lint:boundaries && pnpm lint:accents",
 		"test": "turbo test",
 		"typecheck": "turbo typecheck",
 		"smoke:ownmail-release": "node labs/ownmail/scripts/smoke-release.mjs",

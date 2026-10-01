@@ -619,6 +619,7 @@ function ThreadRow({
 					search={composeSearch}
 					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 					className={THREAD_ROW_LINK_CLASS}
+					aria-current={active ? 'true' : undefined}
 					data-active={active ? 'true' : undefined}
 					data-nav-cursor={navActive ? 'true' : undefined}
 					data-unread={optimisticThread.unread ? 'true' : undefined}
@@ -642,6 +643,7 @@ function ThreadRow({
 				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 				className={THREAD_ROW_LINK_CLASS}
 				activeProps={{ 'data-active': 'true' }}
+				aria-current={active ? 'true' : undefined}
 				data-active={active ? 'true' : undefined}
 				data-nav-cursor={navActive ? 'true' : undefined}
 				data-unread={optimisticThread.unread ? 'true' : undefined}
