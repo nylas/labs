@@ -1007,7 +1007,14 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		// The list title and the row text share one 16px left edge, under the one toolbar height.
 		const listToolbar = screen.getByRole('heading', { level: 1 }).closest('[data-slot="toolbar"]')
 		const row = threadLink.closest('[data-nav-row]')
-		expect(listToolbar).toHaveClass('h-14', 'md:h-11', 'px-4')
+		expect(listToolbar).toHaveClass('h-(--toolbar-height)', 'px-4')
+		// The toolbar is bar glass pinned over the pane, and the list scrolls beneath it and the tab bar:
+		// its padding keeps the first and last rows where a flat toolbar would put them.
+		expect(listToolbar).toHaveClass('glass-bar', 'absolute', 'top-0')
+		expect(listToolbar?.parentElement).toHaveClass('relative')
+		const listViewport = row?.closest('[data-slot="scroll-area-viewport"]')
+		expect(listViewport).toHaveClass('under-pinned-bar', 'under-mobile-bar')
+		expect(listViewport).not.toContainElement(listToolbar as HTMLElement)
 		expect(row).toHaveClass('px-4')
 		expect(row?.className).not.toMatch(/\bpl-/)
 		fireEvent.keyDown(window, { key: 'j' })

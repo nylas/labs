@@ -135,6 +135,12 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import {
+	GLASS_BAR_CLASS,
+	GLASS_PANEL_CLASS,
+	GlassPanelScope,
+	UNDER_MOBILE_BAR_CLASS,
+} from '#shared/components/ui/glass'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
@@ -220,7 +226,7 @@ function CalendarPending() {
 					</div>
 				</header>
 			</div>
-			<div className="flex min-h-0 flex-1 overflow-hidden">
+			<div className={cn('flex min-h-0 flex-1 overflow-hidden', UNDER_MOBILE_BAR_CLASS)}>
 				{info ? (
 					<AppRailNav
 						email={info.email}
@@ -687,7 +693,13 @@ export function CalendarRouteScreen({
 				</header>
 			</div>
 
-			<div className="flex min-h-0 flex-1 overflow-hidden">
+			<div
+				className={cn(
+					'flex min-h-0 flex-1 overflow-hidden',
+					// The month grid does not scroll, so it stays clear of the pinned tab bar.
+					currentView === 'month' && UNDER_MOBILE_BAR_CLASS,
+				)}
+			>
 				<AppRailNav
 					email={info.email}
 					displayName={info.displayName}
@@ -1657,15 +1669,17 @@ function TimeGrid({
 			<ScrollArea
 				aria-label="Calendar time grid"
 				viewportRef={scrollRef}
-				viewportClassName={days > 1 ? 'max-sm:overflow-x-auto' : undefined}
+				viewportClassName={cn(UNDER_MOBILE_BAR_CLASS, days > 1 && 'max-sm:overflow-x-auto')}
 				className="isolate min-h-0 flex-1"
 			>
 				<div
-					className={cn('sticky top-0 z-30 bg-background', days > 1 && 'max-sm:min-w-[54rem]')}
+					// Bar glass: the grid scrolls beneath the day header and its all-day band,
+					// and the recipe draws the one line, on the content edge.
+					className={cn('sticky top-0 z-30', GLASS_BAR_CLASS, days > 1 && 'max-sm:min-w-[54rem]')}
 					data-testid="calendar-time-grid-header"
 				>
 					<div
-						className="grid border-b border-border"
+						className={cn('grid', hasAllDay && 'border-b border-transparent')}
 						style={{ gridTemplateColumns: dayGridTemplateColumns }}
 					>
 						<section
@@ -1714,7 +1728,7 @@ function TimeGrid({
 					</div>
 					{hasAllDay ? (
 						<div
-							className="grid gap-y-control border-b border-border py-hairline"
+							className="grid gap-y-control py-hairline"
 							data-testid="calendar-all-day-band"
 							style={{
 								gridTemplateColumns: dayGridTemplateColumns,
@@ -1727,55 +1741,58 @@ function TimeGrid({
 							>
 								All day
 							</div>
-							{band.segments.map((segment) => {
-								const { event } = segment
-								const preview = isNewEventPreview(event)
-								const rsvp = eventRsvp(event, email)
-								const ended = isPastEvent(event, now, timeZone)
-								const title = event.title || '(untitled)'
-								const chipProps = {
-									style: {
-										...eventColorProps(event, colors),
-										gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
-										gridRow: segment.row + 1,
-									},
-									className:
-										'event-color event-chip z-10 mx-control min-w-0 self-center truncate rounded-[5px] px-cluster py-control text-left text-xs font-medium',
-									'data-rsvp': rsvp,
-									'data-past': ended ? '' : undefined,
-									'data-preview': preview ? '' : undefined,
-									'data-continues-before': segment.continuesBefore ? '' : undefined,
-									'data-continues-after': segment.continuesAfter ? '' : undefined,
-								}
-								if (mobileLayout)
+							{/* A menu opened on an event in the glass header is solid: glass never sits on glass. */}
+							<GlassPanelScope>
+								{band.segments.map((segment) => {
+									const { event } = segment
+									const preview = isNewEventPreview(event)
+									const rsvp = eventRsvp(event, email)
+									const ended = isPastEvent(event, now, timeZone)
+									const title = event.title || '(untitled)'
+									const chipProps = {
+										style: {
+											...eventColorProps(event, colors),
+											gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
+											gridRow: segment.row + 1,
+										},
+										className:
+											'event-color event-chip z-10 mx-control min-w-0 self-center truncate rounded-[5px] px-cluster py-control text-left text-xs font-medium',
+										'data-rsvp': rsvp,
+										'data-past': ended ? '' : undefined,
+										'data-preview': preview ? '' : undefined,
+										'data-continues-before': segment.continuesBefore ? '' : undefined,
+										'data-continues-after': segment.continuesAfter ? '' : undefined,
+									}
+									if (mobileLayout)
+										return (
+											<div key={event.id} aria-hidden="true" {...chipProps}>
+												{title}
+											</div>
+										)
 									return (
-										<div key={event.id} aria-hidden="true" {...chipProps}>
-											{title}
-										</div>
+										<EventContextMenu key={event.id} event={event} actions={eventMenu} disabled={preview}>
+											<button
+												type="button"
+												onClick={() => {
+													if (!preview) onPickEvent(event)
+												}}
+												disabled={preview}
+												data-event-chip={event.id}
+												aria-current={event.id === selectedEventId ? 'true' : undefined}
+												aria-label={eventAccessibleName(title, 'All day', {
+													rsvp,
+													ended,
+													continuesBefore: segment.continuesBefore,
+													continuesAfter: segment.continuesAfter,
+												})}
+												{...chipProps}
+											>
+												{title}
+											</button>
+										</EventContextMenu>
 									)
-								return (
-									<EventContextMenu key={event.id} event={event} actions={eventMenu} disabled={preview}>
-										<button
-											type="button"
-											onClick={() => {
-												if (!preview) onPickEvent(event)
-											}}
-											disabled={preview}
-											data-event-chip={event.id}
-											aria-current={event.id === selectedEventId ? 'true' : undefined}
-											aria-label={eventAccessibleName(title, 'All day', {
-												rsvp,
-												ended,
-												continuesBefore: segment.continuesBefore,
-												continuesAfter: segment.continuesAfter,
-											})}
-											{...chipProps}
-										>
-											{title}
-										</button>
-									</EventContextMenu>
-								)
-							})}
+								})}
+							</GlassPanelScope>
 							{allDayOverflow === 0 ? null : mobileLayout ? (
 								<div
 									aria-hidden="true"
@@ -1963,6 +1980,8 @@ function TimeGrid({
 											const className = cn(
 												'event-color event-chip absolute z-10 flex min-w-0 overflow-hidden rounded-[5px] px-cluster text-left transition-shadow',
 												twoLines ? 'flex-col py-control' : 'items-center gap-control py-0',
+												// While it is dragged the event floats over the grid: panel glass.
+												drag.preview?.eventId === event.id && GLASS_PANEL_CLASS,
 											)
 											const content = twoLines ? (
 												<>

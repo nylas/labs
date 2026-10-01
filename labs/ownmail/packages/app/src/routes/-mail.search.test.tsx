@@ -1031,11 +1031,19 @@ describe('/mail/search thread detail', () => {
 		renderRoute()
 
 		await user.click(screen.getByTitle('Archive'))
-		expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Action failed')
+		// The error sits below the pinned glass toolbar, and the conversation starts beneath the error.
+		expect(alert.parentElement).toHaveClass('under-pinned-bar')
+		const conversation = document.querySelector('[data-scroll-restoration-id^="thread:"]')
+		expect(conversation).not.toHaveClass('under-pinned-bar')
+		expect(conversation).toHaveClass('under-mobile-bar')
 		await user.click(screen.getByTitle('Archive'))
 
 		await waitFor(() => expect(fns.updateThreadState).toHaveBeenCalledTimes(2))
 		expect(screen.queryByRole('alert')).toBeNull()
+		// With the error gone the conversation runs beneath the bar again.
+		expect(document.querySelector('[data-scroll-restoration-id^="thread:"]')).toHaveClass('under-pinned-bar')
 		expect(h.navigate).toHaveBeenCalledWith({
 			to: '/mail/search',
 			search: { q: 'hello', folderId: 'work' },

@@ -100,6 +100,40 @@ describe('ScrollArea', () => {
 		expect(document.querySelector('[data-overflow-bottom]')).not.toBeInTheDocument()
 	})
 
+	it('keeps the scrollbar and overflow fades clear of the pinned bars its content scrolls under', async () => {
+		render(
+			<ScrollArea aria-label="Thread list" className="h-24">
+				<div>Thread content</div>
+			</ScrollArea>,
+		)
+		const viewport = screen.getByLabelText<HTMLElement>('Thread list')
+		// A viewport that runs beneath a toolbar and the mobile tab bar carries their heights as padding.
+		viewport.style.paddingTop = '44px'
+		viewport.style.paddingBottom = '61px'
+		Object.defineProperties(viewport, {
+			clientHeight: { configurable: true, value: 205 },
+			scrollHeight: { configurable: true, value: 405 },
+			scrollTop: { configurable: true, value: 100, writable: true },
+		})
+		act(() => viewport.dispatchEvent(new Event('scroll')))
+		await waitFor(() => expect(document.querySelector('[data-overflow-bottom]')).toBeInTheDocument())
+
+		// The track is the 100px between the bars (less its 4px margins), not the whole viewport,
+		// so the thumb and the fades never slide under the glass.
+		expect(document.querySelector('[data-slot="scroll-area-scrollbar"]')).toHaveStyle({
+			top: '48px',
+			bottom: '65px',
+		})
+		expect(document.querySelector('[data-slot="scroll-area-thumb"]')).toHaveStyle({
+			height: '47px',
+			transform: 'translateY(23px)',
+		})
+		expect(document.querySelector('[data-slot="scroll-area-overflow-top"]')).toHaveStyle({ top: '44px' })
+		expect(document.querySelector('[data-slot="scroll-area-overflow-bottom"]')).toHaveStyle({
+			bottom: '61px',
+		})
+	})
+
 	it('drags the overlay thumb without changing the viewport layout', async () => {
 		render(
 			<ScrollArea aria-label="Thread list" className="h-24">

@@ -6,6 +6,7 @@
 import { Check, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { EmailLayoutPreference } from '#app/preferences/user-preferences'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import type { EmailColorMode } from '../lib/email-render.js'
 import { messageHasHtml } from '../lib/mail-ui-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
@@ -151,7 +152,7 @@ export function ThreadDisplayMenu({
 					role="dialog"
 					tabIndex={-1}
 					aria-labelledby={headingId}
-					className="fixed inset-x-3 bottom-[calc(var(--mobile-tab-bar-height)+var(--safe-area-bottom)+0.75rem)] z-50 max-h-[calc(100dvh-var(--mobile-tab-bar-height)-var(--safe-area-bottom)-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-sm sm:absolute sm:inset-x-auto sm:right-0 sm:bottom-auto sm:mt-1 sm:w-[min(20rem,calc(100vw-3rem))] sm:max-h-[min(32rem,calc(100dvh-6rem))]"
+					className={`fixed inset-x-3 bottom-[calc(var(--mobile-tab-bar-height)+var(--safe-area-bottom)+0.75rem)] z-50 max-h-[calc(100dvh-var(--mobile-tab-bar-height)-var(--safe-area-bottom)-2rem)] overflow-y-auto overscroll-contain p-4 sm:absolute sm:inset-x-auto sm:right-0 sm:bottom-auto sm:mt-1 sm:w-[min(20rem,calc(100vw-3rem))] sm:max-h-[min(32rem,calc(100dvh-6rem))] ${GLASS_PANEL_CLASS}`}
 				>
 					<h2 id={headingId} className="font-display text-sm font-semibold text-foreground">
 						Thread display

@@ -57,6 +57,9 @@ describe('ThreadDisplayMenu', () => {
 		const panelQuery = vi.spyOn(HTMLElement.prototype, 'querySelector').mockReturnValueOnce(null)
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		expect(screen.getByRole('dialog')).toHaveFocus()
+		// The panel floats over the conversation: the one panel recipe, never its own fill and shadow.
+		expect(screen.getByRole('dialog')).toHaveClass('glass-panel')
+		expect(screen.getByRole('dialog').className).not.toMatch(/bg-popover|shadow-|rounded-/)
 		panelQuery.mockRestore()
 	})
 

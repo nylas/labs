@@ -17,8 +17,15 @@ const BAR_MAX_PX = 4
 const WIDTH_KEYWORDS = { thin: 1, medium: 3, thick: 5 }
 const VISIBLE_STYLES = new Set(['solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset'])
 const HIDDEN_STYLES = new Set(['none', 'hidden'])
-// The colours a one-pixel separator may use on one side.
-const SEPARATOR_VARIABLES = new Set(['--border', '--color-border', '--sidebar-border', '--input'])
+// The colours a one-pixel separator may use on one side. `--glass-line` is the
+// hairline on the content edge of a pinned glass bar.
+const SEPARATOR_VARIABLES = new Set([
+	'--border',
+	'--color-border',
+	'--sidebar-border',
+	'--input',
+	'--glass-line',
+])
 const SEPARATOR_KEYWORDS = new Set(['transparent', 'currentcolor', 'inherit'])
 /**
  * The only exception: a width the check cannot evaluate (`var()`, `calc()`) may

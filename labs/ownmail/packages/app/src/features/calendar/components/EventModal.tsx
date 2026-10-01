@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarDays, GripVertical, X } from 'lucide-react'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '#shared/components/RecipientInput'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
+import { GLASS_PANEL_FROM_SM_CLASS, GlassPanelScope } from '#shared/components/ui/glass'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#shared/components/ui/select'
 import { Textarea } from '#shared/components/ui/textarea'
 import { valueToTokens } from '#shared/lib/contact-token'
@@ -46,9 +47,9 @@ type RepeatOption = 'none' | 'weekly' | 'biweekly' | 'yearly'
 export const NEW_EVENT_HOURS = { startHour: 9, endHour: 10 } as const
 export const EVENT_DIALOG_PANEL_CLASS =
 	'w-full overflow-y-auto overscroll-contain bg-card sm:max-h-[85vh] sm:max-w-md'
-/** Floating, draggable composer panel — no backdrop, positioned beside the slot. */
-export const EVENT_COMPOSER_PANEL_CLASS =
-	'event-composer-panel fixed z-50 flex flex-col overflow-hidden border border-border bg-card shadow-2xl'
+/** Floating, draggable composer panel — no backdrop, positioned beside the slot.
+ * Panel glass where it floats (from `sm`); a flat full-screen editor on a phone. */
+export const EVENT_COMPOSER_PANEL_CLASS = `event-composer-panel fixed z-50 flex flex-col overflow-hidden border ${GLASS_PANEL_FROM_SM_CLASS}`
 
 export function eventComposerMaxHeight(top: number): string {
 	return `calc(100dvh - ${Math.max(0, top) + 8}px)`
@@ -445,196 +446,199 @@ export function EventModal({
 	}
 
 	return (
-		<div
-			role="dialog"
-			aria-label="New event"
-			className={EVENT_COMPOSER_PANEL_CLASS}
-			style={
-				{
-					'--event-composer-left': `${panelPos.x}px`,
-					'--event-composer-top': `${panelPos.y}px`,
-					'--event-composer-max-height': eventComposerMaxHeight(panelPos.y),
-				} as CSSProperties
-			}
-		>
+		// Lists opened from the composer are solid: glass never sits on glass.
+		<GlassPanelScope>
 			<div
-				onPointerDown={startPanelDrag}
-				className="flex touch-auto items-center justify-between gap-3 border-b border-border px-5 pt-[calc(1rem+var(--safe-area-top))] pb-4 select-none sm:touch-none sm:pt-4"
+				role="dialog"
+				aria-label="New event"
+				className={EVENT_COMPOSER_PANEL_CLASS}
+				style={
+					{
+						'--event-composer-left': `${panelPos.x}px`,
+						'--event-composer-top': `${panelPos.y}px`,
+						'--event-composer-max-height': eventComposerMaxHeight(panelPos.y),
+					} as CSSProperties
+				}
 			>
-				<div className="flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
-					<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-					<div>
-						<div className="flex items-center gap-2">
-							<span
-								data-slot="calendar-swatch"
-								aria-hidden="true"
-								className={cn('h-[11px] w-[11px] shrink-0 rounded-[3px]', EVENT_SWATCH_CLASS)}
-								style={selectedColorStyle}
-							/>
-							<h2 className="font-display text-lg font-semibold">New event</h2>
-							<span className="sr-only">{selectedCalendar?.name || calendarName} calendar</span>
-						</div>
-						<p className="text-xs text-muted-foreground">Add the essentials, then save.</p>
-					</div>
-				</div>
-				<button
-					type="button"
-					onClick={() => onClose(false)}
-					disabled={busy}
-					aria-label="Close"
-					className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
+				<div
+					onPointerDown={startPanelDrag}
+					className="flex touch-auto items-center justify-between gap-3 border-b border-border px-5 pt-[calc(1rem+var(--safe-area-top))] pb-4 select-none sm:touch-none sm:pt-4"
 				>
-					<X className="h-5 w-5" />
-				</button>
-			</div>
-
-			<div className="min-h-0 space-y-5 overflow-y-auto overscroll-contain px-5 py-5">
-				<label className="block space-y-1.5" htmlFor="event-title">
-					<span className="text-sm font-medium">Title</span>
-					<input
-						id="event-title"
-						ref={titleInputRef}
-						value={title}
-						onChange={(e) => setTitle(e.target.value)}
-						placeholder="Add title"
-						className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-base font-medium outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
-					/>
-				</label>
-
-				<section
-					aria-labelledby="event-when-heading"
-					className="space-y-4 rounded-xl border border-border bg-muted/20 p-4"
-				>
-					<div className="flex items-center justify-between gap-4">
+					<div className="flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
+						<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 						<div>
-							<h3 id="event-when-heading" className="text-sm font-semibold">
-								When
-							</h3>
-							<p className="text-xs text-muted-foreground">{formatFullDate(dateFromInput(eventDate))}</p>
+							<div className="flex items-center gap-2">
+								<span
+									data-slot="calendar-swatch"
+									aria-hidden="true"
+									className={cn('h-[11px] w-[11px] shrink-0 rounded-[3px]', EVENT_SWATCH_CLASS)}
+									style={selectedColorStyle}
+								/>
+								<h2 className="font-display text-lg font-semibold">New event</h2>
+								<span className="sr-only">{selectedCalendar?.name || calendarName} calendar</span>
+							</div>
+							<p className="text-xs text-muted-foreground">Add the essentials, then save.</p>
 						</div>
-						<label className="flex min-h-11 items-center gap-2 rounded-lg px-1 text-sm font-medium">
-							<span>All day</span>
-							<input
-								type="checkbox"
-								checked={allDay}
-								onChange={(changeEvent) => setAllDay(changeEvent.target.checked)}
-								className="peer sr-only"
-							/>
-							<span
-								aria-hidden="true"
-								className="relative h-6 w-10 rounded-full bg-muted-foreground/35 transition-colors before:absolute before:top-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-background before:shadow-sm before:transition-transform peer-checked:bg-primary peer-checked:before:translate-x-4 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring"
-							/>
-						</label>
 					</div>
-					<label className="block space-y-1.5" htmlFor="event-date">
-						<span className="text-xs font-medium text-muted-foreground">Date</span>
+					<button
+						type="button"
+						onClick={() => onClose(false)}
+						disabled={busy}
+						aria-label="Close"
+						className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						<X className="h-5 w-5" />
+					</button>
+				</div>
+
+				<div className="min-h-0 space-y-5 overflow-y-auto overscroll-contain px-5 py-5">
+					<label className="block space-y-1.5" htmlFor="event-title">
+						<span className="text-sm font-medium">Title</span>
 						<input
-							id="event-date"
-							aria-label="Event date"
-							type="date"
-							value={eventDate}
-							onChange={(changeEvent) => {
-								const nextDate = changeEvent.target.value
-								setEventDate(nextDate)
-								if (!weekdaysTouched && isDateInput(nextDate))
-									setWeekdays([defaultWeekday(dateFromInput(nextDate))])
-							}}
-							className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
+							id="event-title"
+							ref={titleInputRef}
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+							placeholder="Add title"
+							className="event-dialog-field h-11 w-full rounded-lg border border-input bg-background px-3 text-base font-medium outline-none placeholder:text-muted-foreground hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 						/>
 					</label>
-					<EventTimeFields
-						startHour={startHour}
-						endHour={endHour}
-						allDay={allDay}
-						onStartHour={setStartHour}
-						onEndHour={setEndHour}
-					/>
-				</section>
 
-				{conflictCount > 0 ? (
-					<p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-100">
-						<AlertTriangle className="h-4 w-4 shrink-0" />
-						May conflict with {conflictCount} existing {conflictCount === 1 ? 'event' : 'events'}.
-					</p>
-				) : null}
-
-				<EventDetailsFields
-					location={location}
-					onLocation={setLocation}
-					description={description}
-					onDescription={setDescription}
-				/>
-
-				<section className="space-y-1.5">
-					<h3 className="text-sm font-medium">Guests</h3>
-					<div className="rounded-lg border border-input bg-background px-3 py-1.5 transition-colors hover:bg-muted/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring">
-						<RecipientInput
-							id="event-guests"
-							label="Guests"
-							value={guests}
-							onChange={setGuests}
-							placeholder="Add people by name or email"
-							className="w-full"
+					<section
+						aria-labelledby="event-when-heading"
+						className="space-y-4 rounded-xl border border-border bg-muted/20 p-4"
+					>
+						<div className="flex items-center justify-between gap-4">
+							<div>
+								<h3 id="event-when-heading" className="text-sm font-semibold">
+									When
+								</h3>
+								<p className="text-xs text-muted-foreground">{formatFullDate(dateFromInput(eventDate))}</p>
+							</div>
+							<label className="flex min-h-11 items-center gap-2 rounded-lg px-1 text-sm font-medium">
+								<span>All day</span>
+								<input
+									type="checkbox"
+									checked={allDay}
+									onChange={(changeEvent) => setAllDay(changeEvent.target.checked)}
+									className="peer sr-only"
+								/>
+								<span
+									aria-hidden="true"
+									className="relative h-6 w-10 rounded-full bg-muted-foreground/35 transition-colors before:absolute before:top-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-background before:shadow-sm before:transition-transform peer-checked:bg-primary peer-checked:before:translate-x-4 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring"
+								/>
+							</label>
+						</div>
+						<label className="block space-y-1.5" htmlFor="event-date">
+							<span className="text-xs font-medium text-muted-foreground">Date</span>
+							<input
+								id="event-date"
+								aria-label="Event date"
+								type="date"
+								value={eventDate}
+								onChange={(changeEvent) => {
+									const nextDate = changeEvent.target.value
+									setEventDate(nextDate)
+									if (!weekdaysTouched && isDateInput(nextDate))
+										setWeekdays([defaultWeekday(dateFromInput(nextDate))])
+								}}
+								className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
+							/>
+						</label>
+						<EventTimeFields
+							startHour={startHour}
+							endHour={endHour}
+							allDay={allDay}
+							onStartHour={setStartHour}
+							onEndHour={setEndHour}
 						/>
-					</div>
-				</section>
+					</section>
 
-				<RecurrenceFields
-					repeat={repeat}
-					onRepeat={setRepeat}
-					weekdays={weekdays}
-					onWeekdays={(nextWeekdays) => {
-						setWeekdaysTouched(true)
-						setWeekdays(nextWeekdays)
-					}}
-				/>
+					{conflictCount > 0 ? (
+						<p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-100">
+							<AlertTriangle className="h-4 w-4 shrink-0" />
+							May conflict with {conflictCount} existing {conflictCount === 1 ? 'event' : 'events'}.
+						</p>
+					) : null}
 
-				<section className="space-y-2">
-					<h3 className="text-sm font-medium">Calendar</h3>
-					<div className="flex flex-wrap gap-2">
-						{calendars.map((calendar) => {
-							const active = calendar.id === selectedCalendarId
-							return (
-								<button
-									key={calendar.id}
-									type="button"
-									onClick={() => setSelectedCalendarId(calendar.id)}
-									className={eventCalendarChoiceClass(active)}
-									style={eventColorStyle(eventColor({ calendar_id: calendar.id }, colors))}
-								>
-									<span className="h-2 w-2 rounded-full bg-[var(--event-c)]" />
-									{calendar.name || 'Calendar'}
-								</button>
-							)
-						})}
-					</div>
-				</section>
-				{error ? (
-					<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-						{error}
-					</p>
-				) : null}
+					<EventDetailsFields
+						location={location}
+						onLocation={setLocation}
+						description={description}
+						onDescription={setDescription}
+					/>
+
+					<section className="space-y-1.5">
+						<h3 className="text-sm font-medium">Guests</h3>
+						<div className="rounded-lg border border-input bg-background px-3 py-1.5 transition-colors hover:bg-muted/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring">
+							<RecipientInput
+								id="event-guests"
+								label="Guests"
+								value={guests}
+								onChange={setGuests}
+								placeholder="Add people by name or email"
+								className="w-full"
+							/>
+						</div>
+					</section>
+
+					<RecurrenceFields
+						repeat={repeat}
+						onRepeat={setRepeat}
+						weekdays={weekdays}
+						onWeekdays={(nextWeekdays) => {
+							setWeekdaysTouched(true)
+							setWeekdays(nextWeekdays)
+						}}
+					/>
+
+					<section className="space-y-2">
+						<h3 className="text-sm font-medium">Calendar</h3>
+						<div className="flex flex-wrap gap-2">
+							{calendars.map((calendar) => {
+								const active = calendar.id === selectedCalendarId
+								return (
+									<button
+										key={calendar.id}
+										type="button"
+										onClick={() => setSelectedCalendarId(calendar.id)}
+										className={eventCalendarChoiceClass(active)}
+										style={eventColorStyle(eventColor({ calendar_id: calendar.id }, colors))}
+									>
+										<span className="h-2 w-2 rounded-full bg-[var(--event-c)]" />
+										{calendar.name || 'Calendar'}
+									</button>
+								)
+							})}
+						</div>
+					</section>
+					{error ? (
+						<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+							{error}
+						</p>
+					) : null}
+				</div>
+
+				<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))] sm:pb-3">
+					<button
+						type="button"
+						onClick={() => onClose(false)}
+						disabled={busy}
+						className="min-h-11 rounded-lg px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						disabled={busy}
+						onClick={save}
+						className="min-h-11 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{busy ? 'Saving...' : 'Save event'}
+					</button>
+				</div>
 			</div>
-
-			<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))] sm:pb-3">
-				<button
-					type="button"
-					onClick={() => onClose(false)}
-					disabled={busy}
-					className="min-h-11 rounded-lg px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
-				>
-					Cancel
-				</button>
-				<button
-					type="button"
-					disabled={busy}
-					onClick={save}
-					className="min-h-11 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-				>
-					{busy ? 'Saving...' : 'Save event'}
-				</button>
-			</div>
-		</div>
+		</GlassPanelScope>
 	)
 }
 

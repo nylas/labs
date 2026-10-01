@@ -214,8 +214,12 @@ describe('thread header', () => {
 		expect(viewport).toContainElement(header)
 		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
 		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
-		expect(toolbar).toHaveClass('h-14', 'md:h-11', 'shrink-0')
+		expect(toolbar).toHaveClass('h-(--toolbar-height)', 'shrink-0')
 		expect(viewport).not.toContainElement(toolbar)
+		// The toolbar is bar glass over the reader, and the conversation scrolls beneath it.
+		expect(toolbar).toHaveClass('glass-bar', 'absolute', 'top-0')
+		expect(screen.getByTestId('thread-reader')).toHaveClass('relative')
+		expect(viewport).toHaveClass('under-pinned-bar', 'under-mobile-bar')
 	})
 
 	it('falls back to "(no subject)" and shows no labels for an empty thread', () => {
@@ -348,7 +352,8 @@ describe('message list', () => {
 		expect(trigger).toHaveAttribute('aria-expanded', 'true')
 		const heading = screen.getByRole('heading', { name: 'Message details' })
 		const panel = heading.closest('section')
-		expect(panel).toHaveClass('sm:absolute', 'sm:top-full', 'bg-popover')
+		// In the flow on a phone, so flat there; it floats, as glass, from `sm` up.
+		expect(panel).toHaveClass('sm:absolute', 'sm:top-full', 'glass-panel', 'glass-panel-from-sm')
 		expect(screen.getByText('Alice <alice@x.com>')).toBeInTheDocument()
 		expect(screen.getByText('Bob <bob@x.com>')).toBeInTheDocument()
 		expect(screen.getByText('cc@x.com')).toBeInTheDocument()
@@ -750,6 +755,10 @@ describe('action errors', () => {
 		renderThread()
 		await user.click(screen.getByRole('button', { name: 'Archive' }))
 		expect(await screen.findByText('Action failed')).toBeInTheDocument()
+		// An error sits in the flow below the pinned bar, never hidden under it; the
+		// conversation then starts beneath the error instead of beneath the bar.
+		expect(screen.getByRole('alert').parentElement).toHaveClass('under-pinned-bar')
+		expect(screen.getByRole('region', { name: 'Thread conversation' })).not.toHaveClass('under-pinned-bar')
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
@@ -759,6 +768,10 @@ describe('action errors', () => {
 		renderThread()
 		await user.click(screen.getByRole('button', { name: 'Archive' }))
 		expect(await screen.findByText('Action failed')).toBeInTheDocument()
+		// An error sits in the flow below the pinned bar, never hidden under it; the
+		// conversation then starts beneath the error instead of beneath the bar.
+		expect(screen.getByRole('alert').parentElement).toHaveClass('under-pinned-bar')
+		expect(screen.getByRole('region', { name: 'Thread conversation' })).not.toHaveClass('under-pinned-bar')
 	})
 })
 
@@ -898,7 +911,7 @@ describe('compose navigation', () => {
 		expect(desktopReply.closest('[data-slot="thread-column"]')).not.toBeNull()
 		expect(desktopReply.className).not.toMatch(/\bmx-/)
 		const reader = screen.getByTestId('thread-reader')
-		expect(reader.firstElementChild).toHaveClass('h-14', 'md:h-11')
+		expect(reader.firstElementChild).toHaveClass('h-(--toolbar-height)')
 		// Nothing but the toolbar and the scrolling conversation remains in the pane.
 		expect([...reader.children].map((child) => child.getAttribute('data-slot'))).toEqual([
 			'toolbar',

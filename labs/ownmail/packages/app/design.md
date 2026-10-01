@@ -65,7 +65,10 @@ such as `gap-cluster`, `px-hairline`, and `mt-section`.
    allowed only inside shared primitives and safe-area sums. Never two separator
    lines closer than 16px.
 
-The desktop toolbar height is 44px, defined once in `src/app/config/layout.ts`.
+The toolbar height is 44px on desktop and 56px on a phone, defined once as
+`--toolbar-height` in `src/tokens.css`. `TOOLBAR_HEIGHT_CLASS` in
+`src/app/config/layout.ts` and the padding beneath a pinned toolbar both read
+that token.
 `pnpm lint` reports the number of half-step and arbitrary spacing values outside
 `src/shared/components/ui` through `scripts/check-ownmail-spacing.mjs`; it is a
 warning while existing screens are migrated.
@@ -338,8 +341,8 @@ Context Menu on the Radix primitives the other shared components use.
    makes an event read-only for dragging disables Edit and Delete. A
    colleague's busy block has no menu: it takes no pointer events, so the slot
    beneath it answers.
-8. Look and input. Menus share the popover surface, uniform 1px border and
-   radius of the other menus. Items are `menuitem`s with roving focus, 32px
+8. Look and input. Menus are panel glass ("Glass layer"), like the other
+   menus: one surface, uniform 1px border and radius. Items are `menuitem`s with roving focus, 32px
    high with a fine pointer and 44px on narrow and touch screens. Escape closes
    the menu and returns focus to the row. A touch long press opens it. Keys,
    clicks and touches inside a menu do not reach the page shortcuts or
@@ -353,7 +356,8 @@ Context Menu on the Radix primitives the other shared components use.
 2. Banned. Simulated rails: one-sided inset shadows, and `::before`, `::after`
    or absolutely positioned bars 2 to 4px thick along an edge.
 3. Allowed. A uniform 1px border on all sides, full-length 1px separators in
-   `--border`, and uniform rings and outlines.
+   `--border` (or `--glass-line` on the content edge of a pinned glass bar),
+   and uniform rings and outlines.
 4. Use instead. Severity: uniform border, tint and glyph. Selection: fill and
    ARIA state. Keyboard cursor: uniform 2px ring. Category: dot, swatch or full
    tint. Quotation: indent and muted text, or a disclosure. System card: icon
@@ -397,6 +401,115 @@ Known blind spots, which need review instead:
 - Gradients, images, outlines and `clip-path` used to draw an edge, and a
   uniform `border` whose sides are then recoloured by a separate
   `border-color` shorthand.
+
+## Glass layer
+
+The plane is flat. Glass is one extra layer with one meaning: this surface
+floats above the plane, and content passes beneath it. If nothing can ever be
+behind a surface, it is not glass.
+
+| Layer | What it is | Treatment |
+| --- | --- | --- |
+| Plane | Lists, panes, sidebars, the calendar grid, cards in the flow, email content | Opaque. 1px lines. No shadow. 6px radius |
+| Bar glass | Pinned bars that content scrolls under | Translucent with blur. One line on the content edge. No shadow. Square, edge to edge |
+| Panel glass | Things that open over the plane and close again | Translucent with blur. Uniform 1px border, one soft shadow, 12px radius |
+
+1. Glass means floating. Use it only on a surface that sits above the plane
+   with content beneath it. Content itself, and anything in the flow of a page,
+   is flat and opaque.
+2. One layer deep. Glass never sits on glass. A menu opened from a glass bar is
+   a panel over the plane, not a second sheet of glass stacked on the first. At
+   most three glass surfaces are visible at once.
+3. Neutral only. No tinted glass, gradients, glows, noise or highlights. Colour
+   stays where it has meaning: actions, events, status.
+4. Uniform edges. Panels get a uniform 1px border. No bright top edge, which
+   would be an accent rail by another name ("Borders and accents").
+5. Same identity beneath. Glass may only show content that belongs to the
+   current screen. It is never a cover during a transition ("Content-ready
+   transitions").
+6. Readable on anything. Text and icons on glass meet 4.5:1 against the worst
+   backdrop. Glass falls back to solid `--card` when the browser lacks
+   `backdrop-filter`, and when the person prefers reduced transparency or more
+   contrast, or uses forced colours.
+7. Still on the grid. Glass surfaces follow the spacing scale and align to the
+   same gutters as the plane ("Spacing"). Only opacity and position animate,
+   never the blur.
+
+### Tokens
+
+Subtle means high opacity. The surface is mostly solid, so text contrast holds
+whatever is behind it; the blur only lets colour and movement through.
+
+| Token | Light | Dark | Note |
+| --- | --- | --- | --- |
+| `--glass-bg` | `--card` at 85% | `--card` at 89% | The lowest values that meet clause 6, measured in the app: muted text is 4.59:1 over black (light) and 4.61:1 over white (dark). One step lower fails (4.46 and 4.43), as did the first proposal of 78% and 84% (3.83 and 3.86) |
+| `--glass-blur` | 14px | 14px | With saturation 1.15. One value everywhere |
+| `--glass-line` | `--foreground` at 10% | white at 12% | Uniform border on panels; single edge line on bars |
+| `--glass-shadow` | 0 8px 24px, 12% | 0 8px 24px, 40% | Panels only. The one shadow a floating surface uses |
+| `--glass-radius` | 12px | 12px | Panels only. The plane keeps 6px, so shape also tells the layers apart |
+
+Reduced-transparency detection is not supported in every browser, so the
+high-opacity floor is the real safeguard.
+
+The floor is set by muted text, the weakest neutral on glass. Red status text
+is weaker still, so inside a glass surface `--destructive` is one step stronger
+(`oklch(0.5 0.2 25)` light, `oklch(0.69 0.19 25)` dark), which keeps it at
+4.5:1 over the worst backdrop without raising the opacity for everything.
+
+### Where each surface lands
+
+| Layer | Surfaces |
+| --- | --- |
+| Bar glass | Reader toolbar and mail list toolbar (folder and search); calendar day header with the all-day band; mobile tab bar |
+| Panel glass | Menus and popovers (reading pane, list density, thread display, message actions, account menu in the app rail, message details, recipient suggestions, Meet with suggestions, select lists, context menus, the calendar's grid zoom and second time zone popovers); command palette; the anchored new-event composer; a calendar event while it is being dragged |
+| Stays flat | List rows, message bodies, the invitation card and every card in the flow, sidebars and the app rail, the calendar grid and events, the calendar detail pane, busy blocks, Conversation bubbles and article cards, settings, modal dialogs and the compose window (workspaces behind a dimmed scrim, which does not blur, with nothing to see through), mobile sheets, tooltips, and the reply bar in Conversation view (solid everywhere: with both toolbars glass, a glass reply bar would be a fourth surface whenever a menu opens, past the three-surface limit) |
+| Never glass | The account-switch loader and any other transition cover |
+
+Glass over designed email is accepted: the toolbar stays glass above every
+message, and the high opacity keeps a sender's colour faint.
+
+### The two recipes
+
+`.glass-bar` and `.glass-panel` in `src/styles.css` are the only places a
+blurred backdrop is declared; `src/shared/components/ui/glass.tsx` names them
+for components. A surface adopts glass by adding one class and positioning
+itself.
+
+- Bar glass. `Toolbar pinned` floats the toolbar over its pane, and the scroll
+  region beneath takes `under-pinned-bar`: padding equal to the bar keeps the
+  first line where a flat toolbar would put it, and scroll padding keeps
+  keyboard focus and `scrollIntoView` clear of the bar. Regions that run under
+  the mobile tab bar take `under-mobile-bar` the same way. A bar pinned to the
+  bottom sets `data-glass-edge="top"` so its one line is the top edge.
+- The blur of a bar sits on a layer behind the bar's content, not on the bar
+  element, so a menu that opens from a bar blurs the plane beneath it.
+- Panel glass. A panel that sits in the flow on a phone and floats from `sm` up
+  adds `glass-panel-from-sm`, which keeps it flat where it does not float.
+- A panel opened over glass is solid: a select list or suggestions in the
+  new-event composer, or a context menu on an all-day event in the glass day
+  header. `GlassPanelScope` marks the glass, and `useGlassPanelProps` gives
+  what opens from it `data-glass="solid"`. The shared select, recipient
+  suggestions and context menu use it, so they follow the rule wherever they
+  are placed.
+- A dragged calendar event takes `glass-panel` for as long as it is dragged. It
+  is neutral glass at full strength (no dimming, no calendar tint), so its text
+  stays legible over whatever it crosses; it is flat again when dropped.
+
+### Enforcement
+
+`pnpm lint` runs `scripts/check-ownmail-glass.mjs` over `src`, excluding tests,
+email fixtures and the dev mock emails. It rejects:
+
+- `backdrop-filter` (or `-webkit-backdrop-filter`) with any value but `none` in
+  a CSS rule whose selector is not one of the two recipes.
+- The Tailwind backdrop utilities (`backdrop-blur-*`, `backdrop-saturate-*` and
+  the rest), an arbitrary `[backdrop-filter:…]` property, and an inline
+  `backdropFilter` style in components.
+- A `transition`, `animation` or `will-change` that names `backdrop-filter`.
+
+Review covers what the check cannot see: that a glass surface really has
+content beneath it, that no more than three are visible at once, and that
+nothing tints or decorates the glass.
 
 ## Mobile surface rules
 
@@ -453,6 +566,8 @@ the smaller WCAG 2.2 AA minimum.
 ## Per-page allowances
 
 - App pages use no decorative enrichment; function carries the surface.
+- Glass is permitted only as a layer signal: it marks a surface that floats
+  over content. It is never decoration.
 - Calendar colours each event by its calendar. The hue comes from the
   calendar's own `hex_color`, accepted only as an exact `#rrggbb` value, with
   lightness and chroma clamped per theme (`EVENT_COLOR_LIMITS`) so foreground

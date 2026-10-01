@@ -14,9 +14,13 @@ describe('Toolbar', () => {
 		render(<Toolbar className="px-3">Inbox</Toolbar>)
 		const toolbar = screen.getByText('Inbox')
 		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
-		// Desktop shares the chrome row's 44px; mobile keeps its taller 56px row.
-		expect(TOOLBAR_HEIGHT_CLASS.split(' ')).toEqual(['h-14', `md:${CHROME_ROW_CLASS}`])
-		expect(toolbar).toHaveClass('h-14', 'md:h-11', 'border-b', 'px-3')
+		// One source: the height is the `--toolbar-height` token (44px on desktop, the
+		// chrome row's height; 56px on a phone), which pinned-bar padding reads too.
+		expect(TOOLBAR_HEIGHT_CLASS).toBe('h-(--toolbar-height)')
+		expect(CHROME_ROW_CLASS).toBe('h-11')
+		expect(toolbar).toHaveClass('h-(--toolbar-height)', 'border-b', 'px-3')
+		// Flat unless pinned: a toolbar with nothing scrolling beneath it is not glass.
+		expect(toolbar).not.toHaveClass('glass-bar')
 	})
 })
 

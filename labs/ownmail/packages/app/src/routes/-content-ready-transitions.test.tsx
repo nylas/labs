@@ -208,6 +208,8 @@ describe('account switch', () => {
 		expect(pageText()).not.toContain('Ada receipts')
 		expect(page().queryByRole('navigation', { name: 'Primary' })).toBeNull()
 		expect(document.querySelector('.backdrop-blur-sm')).toBeNull()
+		// Glass may only show the current screen's content, so a transition cover is never glass.
+		expect(document.querySelector('.glass-bar, .glass-panel')).toBeNull()
 
 		fns.getMailboxInfo.mockResolvedValue({ email: GRACE, appName: 'OwnMail', accounts: accounts(GRACE) })
 		fns.getFolders.mockResolvedValue([
@@ -782,5 +784,51 @@ describe('thread switch', () => {
 		const nextReader = page().getByRole('region', { name: 'Thread conversation' })
 		expect(nextReader).not.toBe(firstReader)
 		expect(nextReader.scrollTop).toBe(0)
+	})
+})
+
+describe('glass layer budget', () => {
+	it('shows at most three glass surfaces in the Conversation view with a menu open, and the reply bar is not one', async () => {
+		fns.getThreads.mockResolvedValue({ threads: [thread('inbox-1', 'Budget subject')] })
+		fns.getThreadMessages.mockResolvedValue({
+			...detail('inbox-1', 'Budget subject'),
+			messages: [
+				{ ...detail('inbox-1', 'Budget subject').messages[0], body: 'Plain first message' },
+				{
+					...detail('inbox-1', 'Budget subject').messages[0],
+					id: 'inbox-1-reply',
+					from: [{ name: 'Ada', email: ADA }],
+					to: [{ email: 'sender@example.com' }],
+					body: 'Plain reply',
+				},
+			],
+		})
+		fns.markThreadRead.mockResolvedValue({ ok: true })
+		await mountApp('/mail/f/inbox/t/inbox-1')
+		await waitFor(() => expect(page().getByTestId('thread-reader')).toBeInTheDocument())
+		fireEvent.click(page().getByRole('button', { name: 'Conversation view' }))
+		const replyBar = await waitFor(() => {
+			const bar = document.querySelector<HTMLElement>('[data-slot="conversation-reply"]')
+			expect(bar).not.toBeNull()
+			return bar as HTMLElement
+		})
+		// The pinned reply bar stays solid: with both toolbars glass, a glass reply
+		// bar would make a fourth surface as soon as any menu opens.
+		expect(replyBar).toHaveClass('bg-background', 'sticky', 'bottom-0')
+		expect(replyBar.className).not.toMatch(/glass-/)
+
+		fireEvent.click(page().getByRole('button', { name: /^Reading pane:/ }))
+		expect(page().getByRole('menu', { name: 'Reading pane' })).toHaveClass('glass-panel')
+
+		const glass = [...document.querySelectorAll('.glass-bar, .glass-panel:not([data-glass="solid"])')]
+		// List toolbar, reader toolbar and the open menu. The phone tab bar is hidden at this
+		// width by CSS, and the rail's inbox menu stays closed inside its <details>.
+		const visibleOnDesktop = glass.filter(
+			(surface) => !surface.classList.contains('md:hidden') && !surface.closest('details:not([open])'),
+		)
+		expect(
+			visibleOnDesktop.map((surface) => surface.getAttribute('data-slot') ?? surface.getAttribute('role')),
+		).toEqual(['toolbar', 'menu', 'toolbar'])
+		expect(visibleOnDesktop.length).toBeLessThanOrEqual(3)
 	})
 })

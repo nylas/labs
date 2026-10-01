@@ -46,6 +46,7 @@ import {
 	ContextMenuShortcut,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
@@ -107,7 +108,7 @@ function MailFolderPlaceholder({ folderId, folders }: { folderId: string; folder
 	return (
 		<div data-testid="folder-pending" aria-busy="true" className={layout.container}>
 			<section className={layout.list} data-density={listDensity}>
-				<Toolbar className="justify-between px-4">
+				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">
 						{mailFolderTitle(folderId, folders)}
 					</h1>
@@ -553,6 +554,7 @@ function LoadedMailFolderRouteScreen({
 			scrollRestorationId={`mail-list:${folderId}`}
 			aria-label={`${folderTitle} thread list`}
 			viewportRef={listScrollRef}
+			viewportClassName={cn(UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
 			className="min-h-0 flex-1"
 		>
 			{folderId === 'drafts' ? (
@@ -595,7 +597,7 @@ function LoadedMailFolderRouteScreen({
 	return (
 		<div className={layout.container}>
 			<section className={layout.list} data-density={preferences.listDensity}>
-				<Toolbar className="justify-between px-4">
+				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					<div className="flex items-center gap-1">
 						{unreadCount > 0 ? (
@@ -619,7 +621,7 @@ function LoadedMailFolderRouteScreen({
 					<PullToRefresh
 						onRefresh={onRefresh}
 						scrollRef={listScrollRef}
-						className="flex min-h-0 flex-1 flex-col"
+						className="pull-to-refresh-under-pinned-bar flex min-h-0 flex-1 flex-col"
 					>
 						{threadList}
 					</PullToRefresh>

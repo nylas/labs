@@ -51,8 +51,12 @@ describe('PullToRefresh', () => {
 	it('shows pull progress, caps resistance, and does not refresh below the threshold', () => {
 		const { root, onRefresh } = renderPull()
 		fireEvent.touchStart(root, { touches: [touch(10, 10)] })
+		// At rest the indicator is not marked as pulled, so it can stay hidden beneath a glass bar.
+		expect(screen.getByText('Pull to refresh')).not.toHaveAttribute('data-pulling')
 		fireEvent.touchMove(root, { touches: [touch(10, 14)], cancelable: true })
 		expect(screen.getByText('Pull to refresh')).toBeInTheDocument()
+		fireEvent.touchMove(root, { touches: [touch(10, 60)], cancelable: true })
+		expect(screen.getByText('Pull to refresh')).toHaveAttribute('data-pulling')
 		fireEvent.touchMove(root, { touches: [touch(10, 110)], cancelable: true })
 		expect(screen.getByText('Pull to refresh')).toHaveAttribute('aria-hidden', 'true')
 		fireEvent.touchMove(root, { touches: [touch(10, 500)], cancelable: true })

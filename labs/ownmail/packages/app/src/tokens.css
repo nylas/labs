@@ -136,6 +136,8 @@
 	--safe-area-left: env(safe-area-inset-left, 0px);
 	--touch-target-min: 2.75rem;
 	--mobile-tab-bar-height: 3.75rem;
+	/* The one pane toolbar height: 56px on a phone, 44px from `md` (set below). */
+	--toolbar-height: 3.5rem;
 	--background: oklch(0.995 0.001 145);
 	--foreground: oklch(0.145 0.008 165);
 	--card: oklch(1 0 0);
@@ -167,6 +169,12 @@
 	--event-rose: oklch(0.56 0.12 32);
 	--today: oklch(0.58 0.17 32);
 	--today-fg: oklch(0.99 0.005 145);
+	/* Glass layer (design.md "Glass layer"): the surface of anything that floats over content. */
+	--glass-bg: color-mix(in oklch, var(--card) 85%, transparent);
+	--glass-blur: 14px;
+	--glass-line: color-mix(in oklch, var(--foreground) 10%, transparent);
+	--glass-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
+	--glass-radius: 0.75rem;
 	--sidebar: oklch(1 0 0);
 	--sidebar-foreground: oklch(0.28 0.01 165);
 	--sidebar-primary: oklch(0.965 0.003 145);
@@ -176,6 +184,12 @@
 	--sidebar-border: oklch(0.91 0.003 145);
 	--sidebar-ring: oklch(0.44 0.085 158);
 	font-family: var(--font-sans);
+}
+
+@media (min-width: 48rem) {
+	:root {
+		--toolbar-height: 2.75rem;
+	}
 }
 
 .dark {
@@ -207,6 +221,9 @@
 	--event-rose: oklch(0.72 0.12 32);
 	--today: oklch(0.68 0.16 32);
 	--today-fg: oklch(0.14 0.01 32);
+	--glass-bg: color-mix(in oklch, var(--card) 89%, transparent);
+	--glass-line: oklch(1 0 0 / 12%);
+	--glass-shadow: 0 8px 24px oklch(0 0 0 / 40%);
 	--sidebar: oklch(0.1 0.006 165);
 	--sidebar-foreground: oklch(0.9 0.006 150);
 	--sidebar-primary: oklch(0.96 0.004 150);

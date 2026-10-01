@@ -250,6 +250,12 @@ describe('EventModal — new event', () => {
 		)
 		// Pick 11 PM as the start and midnight as the end via the Radix listboxes.
 		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
+		// The composer is glass, so a list opened from it is solid: glass never sits on glass.
+		const composerList = (await screen.findByRole('option', { name: '11 PM' })).closest(
+			'[data-slot="select-content"]',
+		)
+		expect(composerList).toHaveClass('glass-panel')
+		expect(composerList).toHaveAttribute('data-glass', 'solid')
 		await user.click(await screen.findByRole('option', { name: '11 PM' }))
 		await user.click(screen.getByRole('combobox', { name: 'End time' }))
 		await user.click(await screen.findByRole('option', { name: '12 AM' }))
@@ -689,6 +695,11 @@ describe('EventModal — new event', () => {
 		const dialog = screen.getByRole('dialog', { name: 'New event' })
 		// Desktop positioning is exported through custom properties; mobile CSS keeps the panel fullscreen.
 		expect(dialog.className).toContain('fixed')
+		// Glass where it floats beside the slot; a flat full-screen editor on a phone.
+		expect(dialog).toHaveClass('glass-panel', 'glass-panel-from-sm')
+		expect(dialog.className).not.toMatch(/bg-card|shadow-/)
+		// Nothing inside the panel paints an opaque band over the glass.
+		expect(screen.getByRole('button', { name: 'Cancel' }).parentElement?.className).not.toMatch(/\bbg-/)
 		expect(dialog.style.getPropertyValue('--event-composer-left')).not.toBe('')
 		expect(dialog.style.getPropertyValue('--event-composer-top')).not.toBe('')
 
@@ -1314,6 +1325,12 @@ describe('EventModal — editing an existing event', () => {
 		await user.click(screen.getByRole('button', { name: /Edit/ }))
 
 		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
+		// The edit dialog is a solid modal, so the list it opens is the one glass layer.
+		const dialogList = (await screen.findByRole('option', { name: '1 PM' })).closest(
+			'[data-slot="select-content"]',
+		)
+		expect(dialogList).toHaveClass('glass-panel')
+		expect(dialogList).not.toHaveAttribute('data-glass')
 		await user.click(await screen.findByRole('option', { name: '1 PM' }))
 		await user.click(screen.getByRole('combobox', { name: 'End time' }))
 		await user.click(await screen.findByRole('option', { name: '2 PM' }))

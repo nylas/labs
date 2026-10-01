@@ -27,6 +27,9 @@ describe('ReadingPaneMenu', () => {
 
 		expect(trigger).toHaveAttribute('aria-expanded', 'true')
 		expect(screen.getByRole('menu', { name: 'Reading pane' })).toBeInTheDocument()
+		// The menu floats over the list: the one panel recipe, not a popover fill with its own shadow.
+		expect(screen.getByRole('menu')).toHaveClass('glass-panel')
+		expect(screen.getByRole('menu').className).not.toMatch(/bg-popover|shadow-|rounded-/)
 		expect(screen.getByRole('menuitemradio', { name: 'Horizontal split' })).toHaveAttribute(
 			'aria-checked',
 			'true',

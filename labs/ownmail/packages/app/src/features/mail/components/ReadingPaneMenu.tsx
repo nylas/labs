@@ -1,6 +1,7 @@
 import { Check, Columns2, Rows2, Square } from 'lucide-react'
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import type { ReadingPane } from '#app/preferences/user-preferences'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { cn } from '#shared/lib/utils'
 
 type ReadingPaneOption = { value: ReadingPane; label: string; icon: typeof Square }
@@ -93,7 +94,7 @@ export function ReadingPaneMenu({
 					role="menu"
 					aria-label="Reading pane"
 					onKeyDown={onMenuKeyDown}
-					className="absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+					className={cn('absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 p-1', GLASS_PANEL_CLASS)}
 				>
 					{READING_PANE_OPTIONS.map((option, index) => {
 						const Icon = option.icon

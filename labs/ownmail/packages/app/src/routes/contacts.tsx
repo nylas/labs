@@ -20,6 +20,7 @@ import { flattenContactPages, useContactsPages } from '#features/contacts/state/
 import { getContacts } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
+import { UNDER_MOBILE_BAR_CLASS } from '#shared/components/ui/glass'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { initials } from '#shared/lib/presentation'
@@ -265,7 +266,14 @@ export function ContactsShell({
 			</ContactsEmptyState>
 		) : (
 			<>
-				<ul ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+				<ul
+					ref={listScrollRef}
+					className={cn(
+						'min-h-0 flex-1 overflow-y-auto py-1',
+						// The list runs beneath the tab bar unless the pagination row sits below it.
+						!paginationControls && [UNDER_MOBILE_BAR_CLASS, '[--under-mobile-bar-gap:0.25rem]'],
+					)}
+				>
 					{filtered.map((contact, index) => (
 						<li key={contact.id}>
 							<ContactListItem
@@ -332,6 +340,8 @@ export function ContactsShell({
 					className={cn(
 						'flex w-full shrink-0 flex-col overflow-hidden border-r border-border bg-background md:w-80',
 						selectedId && 'hidden md:flex',
+						// An empty list and the pagination row do not scroll: they stay clear of the tab bar.
+						(filtered.length === 0 || paginationControls) && UNDER_MOBILE_BAR_CLASS,
 					)}
 				>
 					{onRefresh ? (
@@ -347,7 +357,13 @@ export function ContactsShell({
 					)}
 				</div>
 
-				<div className={cn('min-w-0 flex-1 overflow-y-auto', !selectedId && 'hidden md:block')}>
+				<div
+					className={cn(
+						'min-w-0 flex-1 overflow-y-auto',
+						UNDER_MOBILE_BAR_CLASS,
+						!selectedId && 'hidden md:block',
+					)}
+				>
 					<ContentReadyOutlet parentRouteId="/contacts" />
 				</div>
 			</div>

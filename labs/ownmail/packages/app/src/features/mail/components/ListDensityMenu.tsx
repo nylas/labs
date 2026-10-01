@@ -1,6 +1,7 @@
 import { Check, Rows2, Rows3, Rows4 } from 'lucide-react'
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import type { ListDensity } from '#app/preferences/user-preferences'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { cn } from '#shared/lib/utils'
 
@@ -98,7 +99,7 @@ export function ListDensityMenu({
 					role="menu"
 					aria-label="List density"
 					onKeyDown={onMenuKeyDown}
-					className="absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+					className={cn('absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 p-1', GLASS_PANEL_CLASS)}
 				>
 					{LIST_DENSITY_OPTIONS.map((option, index) => {
 						const Icon = option.icon

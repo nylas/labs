@@ -4,6 +4,7 @@
  */
 import { Link } from '@tanstack/react-router'
 import { Calendar, Mail, Settings, Users } from 'lucide-react'
+import { GLASS_BAR_BOTTOM_EDGE, GLASS_BAR_CLASS } from '#shared/components/ui/glass'
 import { cn } from '#shared/lib/utils'
 import {
 	CALENDAR_HOME_PATH,
@@ -31,7 +32,12 @@ export function MobileTabBar({
 	context?: 'primary' | 'thread'
 }) {
 	return (
-		<div data-slot="mobile-bottom-bar" data-context={context} className="mobile-tab-bar md:hidden">
+		<div
+			data-slot="mobile-bottom-bar"
+			data-context={context}
+			{...GLASS_BAR_BOTTOM_EDGE}
+			className={cn('mobile-tab-bar md:hidden', GLASS_BAR_CLASS)}
+		>
 			{context === 'primary' ? (
 				<nav aria-label="Primary mobile" className="mobile-primary-tabs">
 					{TABS.map((tab) => {

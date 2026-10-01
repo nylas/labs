@@ -134,6 +134,8 @@ test('allows hairline separators, uniform borders and borders that are switched 
 		'border: 2px solid var(--ring)',
 		'border: 4px solid red',
 		'border-top: 1px solid var(--border)',
+		// The hairline on the content edge of a pinned glass bar.
+		'border-bottom: 1px solid var(--glass-line)',
 		'border-bottom: 1px solid var(--color-border)',
 		'border-right: 1px solid var(--sidebar-border)',
 		'border-left: 0.0625rem solid var(--border)',

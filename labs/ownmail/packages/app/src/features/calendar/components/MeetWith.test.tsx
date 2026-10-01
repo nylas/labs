@@ -88,6 +88,9 @@ describe('searching for people', () => {
 		type('mi')
 		await pause()
 		expect(screen.getByRole('listbox', { name: 'People suggestions' })).toBeInTheDocument()
+		// Suggestions float over the sidebar: panel glass.
+		expect(screen.getByRole('listbox')).toHaveClass('glass-panel')
+		expect(screen.getByRole('listbox').className).not.toMatch(/bg-popover|shadow-|rounded-/)
 		type('')
 		expect(screen.queryByRole('listbox')).toBeNull()
 		expect(field()).toHaveAttribute('aria-expanded', 'false')

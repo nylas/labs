@@ -49,6 +49,7 @@ import {
 } from '#features/mail/state/mail-queries'
 import { type ThreadResponseKind, threadResponseSearch } from '#features/mail/state/thread-response'
 import { getFolders, getThreadMessages, getThreads } from '#server/fns'
+import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
@@ -149,7 +150,7 @@ function SearchPending() {
 	return (
 		<div data-testid="search-pending" aria-busy="true" className={layout.container}>
 			<section className={layout.list} data-density={listDensity}>
-				<Toolbar className="justify-between px-4">
+				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">
 						{folderId
 							? mailFolderTitle(folderId, queryClient.getQueryData<MailFolder[]>(mailKeys.folders()))
@@ -157,7 +158,10 @@ function SearchPending() {
 					</h1>
 				</Toolbar>
 				{threads ? (
-					<div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
+					<div
+						ref={listRef}
+						className={cn('min-h-0 flex-1 overflow-y-auto', UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
+					>
 						{threads.map((thread) => (
 							<SearchThreadRow
 								key={thread.id}
@@ -337,7 +341,7 @@ function SearchResults() {
 	return (
 		<div className={layout.container}>
 			<section className={layout.list} data-density={preferences.listDensity}>
-				<Toolbar className="justify-between px-4">
+				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
 					<div className="flex items-center gap-1">
 						{unreadCount > 0 ? (
@@ -364,6 +368,8 @@ function SearchResults() {
 					}}
 					className={cn(
 						'min-h-0 flex-1 overflow-y-auto',
+						UNDER_PINNED_BAR_CLASS,
+						UNDER_MOBILE_BAR_CLASS,
 						sortedThreads.length === 0 && canLoadMore && 'flex flex-col',
 					)}
 				>
@@ -690,8 +696,8 @@ function SearchThreadDetail({
 	}
 
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-			<Toolbar className="gap-1 px-3">
+		<div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+			<Toolbar pinned className="gap-1 px-3">
 				<Link
 					to="/mail/search"
 					search={searchList}
@@ -768,16 +774,26 @@ function SearchThreadDetail({
 					</div>
 				) : null}
 			</Toolbar>
+			{/* An error sits in the flow below the bar, so the conversation starts under the error instead. */}
 			{error ? (
-				<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-					{error}
-				</p>
+				<div className={UNDER_PINNED_BAR_CLASS}>
+					<p
+						role="alert"
+						className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+					>
+						{error}
+					</p>
+				</div>
 			) : null}
 
 			<div
 				// The reading position belongs to one conversation.
 				data-scroll-restoration-id={`thread:${selected.thread.id}`}
-				className="min-h-0 flex-1 overflow-y-auto"
+				className={cn(
+					'min-h-0 flex-1 overflow-y-auto',
+					!error && UNDER_PINNED_BAR_CLASS,
+					UNDER_MOBILE_BAR_CLASS,
+				)}
 			>
 				<ThreadConversation
 					thread={selected.thread}

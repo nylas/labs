@@ -1,7 +1,8 @@
 /** The one desktop toolbar height: 44px. */
 export const CHROME_ROW_CLASS = 'h-11'
-/** Pane toolbars: the 44px desktop height (`CHROME_ROW_CLASS`) from `md`; mobile keeps its 56px row. */
-export const TOOLBAR_HEIGHT_CLASS = 'h-14 md:h-11'
+/** Pane toolbars: 44px from `md`, 56px on a phone. The value is `--toolbar-height` in
+ * `tokens.css`, which the padding beneath a pinned toolbar reads too. */
+export const TOOLBAR_HEIGHT_CLASS = 'h-(--toolbar-height)'
 export const CHROME_ROW_SHELL_CLASS = 'app-chrome-row flex shrink-0 items-stretch'
 export const APP_RAIL_WIDTH_CLASS = 'w-14'
 /** Nav link icon + label rows inside h-11 cells (not used in the chrome-row logo). */
