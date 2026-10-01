@@ -127,6 +127,7 @@ describe('nothing a person wrote is silently dropped', () => {
 				[INES, fixture('clean-newsletter-layout-tables')],
 				[SAM, fixture('conversation-text-below-quote')],
 				[INES, fixture('clean-receipt-data-table')],
+				[INES, fixture('clean-zero-font-columns')],
 				[TOMAS, fixture('conversation-outlook-reply')],
 				[INES, fixture('clean-image-only-newsletter')],
 				[INES, fixture('conversation-text-below-signature')],

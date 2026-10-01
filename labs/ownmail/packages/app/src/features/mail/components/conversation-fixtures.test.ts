@@ -42,6 +42,7 @@ const SYNTHETIC: ReadonlyArray<readonly [name: string, expected: Expected]> = [
 	['clean-newsletter-layout-tables', 'article'],
 	['clean-transactional-notice', 'article'],
 	['clean-one-time-code', 'article'],
+	['clean-zero-font-columns', 'article'],
 	['light-matte-logo', 'article'],
 	['report-canvas-dark-band', 'article'],
 	['clean-receipt-data-table', 'article'],
@@ -280,6 +281,15 @@ describe('what an article may drop', () => {
 		expect(body).toContain('Issue 112: the quiet tools issue')
 		expect(body).toContain('Read the issue')
 		expect(body).not.toContain('Unsubscribe')
+	})
+
+	it('keeps columns whose wrapper sets a zero font size only to close the gap between them', () => {
+		// The wrapper is "zero-sized", the columns inside it are not: they set their
+		// own font size. Treating the wrapper as hidden dropped both columns, and
+		// because the gate measured what was left, the article still scored full.
+		const text = blocksText(article('clean-zero-font-columns').blocks)
+		expect(text).toContain('Planning moved to Thursday afternoon, from one until five, in Room 4B.')
+		expect(text).toContain('The retro is now Friday at nine, before half the team flies out at two.')
 	})
 
 	it('keeps the line items of a receipt, and the rows of a report, as tables', () => {

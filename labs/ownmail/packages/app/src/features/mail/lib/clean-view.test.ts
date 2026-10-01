@@ -540,6 +540,36 @@ describe('stripHiddenContent', () => {
 		).toBe('Seen')
 	})
 
+	it('keeps a zero-sized wrapper whose content sets its own size, or might', () => {
+		// `font-size:0` on a wrapper closes the gap between inline-block columns;
+		// the columns restore their size and are plainly visible. Only zero-sized
+		// text that nothing inside can bring back is hidden.
+		const wrapper = (inner: string) => `<div style="font-size:0">${inner}</div><p>Seen</p>`
+		expect(stripped(wrapper('<div style="display:inline-block;font-size:16px">Left</div>'))).toBe('LeftSeen')
+		expect(stripped(wrapper('<div><span style="line-height: 1.4">Deep</span></div>'))).toBe('DeepSeen')
+		// A class or a font element may be sized by rules this cannot see: keep it.
+		expect(stripped('<div style="font-size:0"><span class="col">Styled</span></div><p>Seen</p>')).toBe(
+			'StyledSeen',
+		)
+		expect(stripped(wrapper('<font size="3">Legacy</font>'))).toBe('LegacySeen')
+		// Nothing restores a size here, so it really is hidden text.
+		expect(stripped(wrapper('<span>preheader</span>'))).toBe('Seen')
+		expect(stripped(wrapper('<span style="font-size:0px;color:red">still zero</span>'))).toBe('Seen')
+		// A zero max-height hides only what is also clipped.
+		expect(stripped('<div style="max-height:0">Not clipped</div><p>Seen</p>')).toBe('Not clippedSeen')
+		expect(stripped('<div style="max-height:0;overflow-y:hidden">Clipped</div><p>Seen</p>')).toBe('Seen')
+	})
+
+	it('reports the text it removed on the zero-size guess, so the gate can count it', () => {
+		const document = sanitized(
+			'<div style="display:none">certainly hidden</div><div style="font-size:0">guessed one</div>' +
+				'<div style="max-height:0;overflow:hidden">guessed two</div><p>Seen</p>',
+		)
+		// Only the guesses are reported: `display:none` is not a guess.
+		expect(stripHiddenContent(document)).toBe('guessedoneguessedtwo')
+		expect(stripHiddenContent(sanitized('<p>Seen</p>'))).toBe('')
+	})
+
 	it('removes tracking pixels and spacers but keeps real images', () => {
 		const document = sanitized(
 			'<img width="1" height="1" alt=""><img style="width:1px;height:20px" alt=""><img width="600" height="1" alt="">' +
@@ -602,6 +632,26 @@ describe('cleanConfidence', () => {
 			CONFIDENCE_THRESHOLD,
 		)
 		expect(score(`<img alt="Logo" width="600" height="80"><p>${PROSE_FILLER}</p>`)).toBe(1)
+	})
+
+	it('counts text stripped on a guess as text the article should have kept', () => {
+		// Measured only against what was left after stripping, an article that lost
+		// half its text to the zero-size guess would still score 1.
+		const body = bodyOf(`<table><tr><td>${PROSE_FILLER}</td></tr></table>`)
+		const blocks = normaliseBlocks(body)
+		expect(cleanConfidence(body, blocks)).toBe(1)
+		const guessed = PROSE_FILLER.replace(/\s+/g, '')
+		expect(cleanConfidence(body, blocks, guessed)).toBeCloseTo(0.5)
+		expect(cleanConfidence(body, blocks, guessed)).toBeLessThan(CONFIDENCE_THRESHOLD)
+	})
+
+	it('falls back when a large part of the message was stripped on the zero-size guess', () => {
+		const hidden = `<div style="font-size:0">${PROSE_FILLER}</div>`
+		const visible = `<table><tr><td>${PROSE_FILLER}</td></tr></table>`
+		expect(messageContent(message(`${hidden}${visible}`), false)).toEqual({ kind: 'original' })
+		// A short preheader stripped the same way costs little and the article stands.
+		const preheader = '<div style="font-size:0">Preview</div>'
+		expect(messageContent(message(`${preheader}${visible}`), false)).toMatchObject({ kind: 'article' })
 	})
 
 	it('counts text the blocks lost', () => {

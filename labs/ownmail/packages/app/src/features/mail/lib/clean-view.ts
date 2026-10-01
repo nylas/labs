@@ -134,7 +134,14 @@ const SIGNATURE_MAX_LINES = 6
 const SIGNATURE_MAX_LINE_CHARS = 60
 const UNSUBSCRIBE = /unsubscribe|opt[\s-]?out|(?:manage|update|email)\s+(?:your\s+)?(?:email\s+)?preferences/i
 const HIDDEN_STYLE =
-	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent|(?:font-size|max-height|line-height):0(?![.\d]))/
+	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent)/
+/** Text set to no size. Descendants can set their own size and be perfectly visible. */
+const ZERO_TEXT_STYLE = /(?:^|;)(?:font-size|line-height):0(?![.\d])/
+/** A box squashed to no height, which hides its content only together with `overflow:hidden`. */
+const ZERO_HEIGHT_STYLE = /(?:^|;)max-height:0(?![.\d])/
+const CLIPPED_STYLE = /(?:^|;)overflow(?:-y)?:hidden/
+/** An inline size that is not zero. */
+const SIZED_TEXT_STYLE = /(?:^|;)(?:font-size|line-height):(?!0(?![.\d]))/
 const HIDDEN_NAME = /(?:^|[\s_-])(?:preheader|preview-?text)(?:$|[\s_-])/i
 
 const squash = (text: string): string => text.replace(/\s+/g, '')
@@ -654,12 +661,32 @@ export function classifyMail(body: Element, isProse: boolean, listUnsubscribe = 
 	return isProse ? 'prose' : 'transactional'
 }
 
+const inlineStyle = (element: Element): string => squash(element.getAttribute('style') ?? '').toLowerCase()
+
 function isHidden(element: Element): boolean {
-	const style = squash(element.getAttribute('style') ?? '').toLowerCase()
 	return (
 		element.hasAttribute('hidden') ||
-		HIDDEN_STYLE.test(style) ||
+		HIDDEN_STYLE.test(inlineStyle(element)) ||
 		HIDDEN_NAME.test(`${element.getAttribute('class') ?? ''} ${element.id}`)
+	)
+}
+
+/**
+ * Whether an element is hidden by being given no size. This is a heuristic,
+ * and designed mail breaks it on purpose: a wrapper gets `font-size:0` to close
+ * the gap between inline-block columns, and each column sets its own size. So
+ * zero-sized text is discarded only when nothing inside can restore a size: no
+ * descendant with an inline size, and none whose size this cannot determine (a
+ * class a stylesheet may style, a `<font>` element). A zero `max-height` hides
+ * only what is also clipped.
+ */
+function isZeroSized(element: Element): boolean {
+	const style = inlineStyle(element)
+	if (ZERO_HEIGHT_STYLE.test(style) && CLIPPED_STYLE.test(style)) return true
+	if (!ZERO_TEXT_STYLE.test(style)) return false
+	return !Array.from(element.querySelectorAll('*')).some(
+		(inner) =>
+			inner.hasAttribute('class') || inner.tagName === 'FONT' || SIZED_TEXT_STYLE.test(inlineStyle(inner)),
 	)
 }
 
@@ -700,11 +727,21 @@ function hiddenSelectors(css: string): string[] {
  * block that a stylesheet hides by default is removed only when the same text
  * is still present elsewhere, which is how duplicated mobile and desktop copies
  * look; anything else stays, because hiding it could lose content.
+ *
+ * Returns the text removed on the zero-size heuristic alone. That removal is
+ * a guess, so the confidence gate counts the text as something the article
+ * should have kept: over-stripping lowers the score instead of hiding the loss.
  */
-export function stripHiddenContent(document: Element): void {
+export function stripHiddenContent(document: Element): string {
 	const body = document.querySelector('body') as HTMLElement
+	let guessed = ''
 	for (const element of Array.from(body.querySelectorAll('*'))) {
-		if (body.contains(element) && isHidden(element)) element.remove()
+		if (!body.contains(element)) continue
+		if (isHidden(element)) element.remove()
+		else if (isZeroSized(element)) {
+			guessed += squash(element.textContent)
+			element.remove()
+		}
 	}
 	for (const image of Array.from(body.querySelectorAll('img'))) {
 		if (imageSide(image, 'width') <= TRACKING_IMAGE_MAX || imageSide(image, 'height') <= TRACKING_IMAGE_MAX) {
@@ -729,6 +766,7 @@ export function stripHiddenContent(document: Element): void {
 			}
 		}
 	}
+	return guessed
 }
 
 /** The text a reader can see in a stripped body, without whitespace. */
@@ -752,14 +790,16 @@ function keptText(blocks: CleanBlock[]): string {
 }
 
 /**
- * Step 8, the confidence gate: the share of visible text the blocks retained,
+ * Step 8, the confidence gate: the share of visible text the blocks retained
+ * (text stripped on the zero-size guess counts as visible),
  * with a penalty for a marked data table that had to be flattened and for content that
  * is mostly images, where the text is likely baked into the pictures.
  */
-export function cleanConfidence(body: Element, blocks: CleanBlock[]): number {
+export function cleanConfidence(body: Element, blocks: CleanBlock[], guessedHidden = ''): number {
 	const visible = visibleText(body)
 	if (blocks.length === 0 || visible.length === 0) return 0
-	let score = Math.min(1, squash(keptText(blocks)).length / visible.length)
+	// Text removed on a guess counts as text that should have been retained.
+	let score = Math.min(1, squash(keptText(blocks)).length / (visible.length + guessedHidden.length))
 	// A table its author marked as data, but that could not be kept as one.
 	const marked = Array.from(body.querySelectorAll('th, thead, caption'))
 	if (marked.some((element) => !isDataTable(element.closest('table') as Element))) score -= 0.5
@@ -814,9 +854,9 @@ export function messageContent(
 		return blocks.length > 0 ? { kind: 'blocks', blocks, hasRemoteImages } : ORIGINAL
 	}
 	if (designed && !cleanDesigned) return ORIGINAL
-	stripHiddenContent(sanitized)
+	const guessedHidden = stripHiddenContent(sanitized)
 	const blocks = normaliseBlocks(body)
-	if (cleanConfidence(body, blocks) < CONFIDENCE_THRESHOLD) return ORIGINAL
+	if (cleanConfidence(body, blocks, guessedHidden) < CONFIDENCE_THRESHOLD) return ORIGINAL
 	return designed
 		? { kind: 'article', blocks: foldBoilerplate(blocks), hasRemoteImages, mailClass: designed }
 		: { kind: 'blocks', blocks, hasRemoteImages }
