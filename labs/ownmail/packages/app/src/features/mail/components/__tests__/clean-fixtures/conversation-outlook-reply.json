@@ -1,0 +1,87 @@
+{
+	"blocks": [
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Friday morning only, please. Half the team flies out at two."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Mara"
+				}
+			]
+		},
+		{
+			"type": "history",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "From:",
+							"bold": true
+						},
+						{
+							"text": " Tomas Reyes <tomas@example.com>\n"
+						},
+						{
+							"text": "Sent:",
+							"bold": true
+						},
+						{
+							"text": " Monday, September 28, 2026 9:40 AM\n"
+						},
+						{
+							"text": "To:",
+							"bold": true
+						},
+						{
+							"text": " Ines Carvalho <ines@example.com>\n"
+						},
+						{
+							"text": "Subject:",
+							"bold": true
+						},
+						{
+							"text": " Re: Offsite agenda draft"
+						}
+					]
+				},
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "Also, the retro probably fits better on Friday."
+						}
+					]
+				}
+			]
+		}
+	],
+	"bubble": {
+		"blocks": [
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Friday morning only, please. Half the team flies out at two."
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Mara"
+					}
+				]
+			}
+		],
+		"unsure": false
+	}
+}

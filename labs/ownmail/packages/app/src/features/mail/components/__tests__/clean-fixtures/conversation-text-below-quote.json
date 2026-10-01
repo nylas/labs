@@ -1,0 +1,131 @@
+{
+	"blocks": [
+		{
+			"type": "history",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "On Tue, Sep 29, 2026 at 8:30 AM Ines Carvalho <"
+						},
+						{
+							"text": "ines@example.com",
+							"href": "mailto:ines@example.com"
+						},
+						{
+							"text": "> wrote:"
+						}
+					]
+				},
+				{
+					"type": "quote",
+					"blocks": [
+						{
+							"type": "paragraph",
+							"spans": [
+								{
+									"text": "Updated and sent the invite. Retro is Friday at 9."
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Room 4B is booked for both days."
+				}
+			]
+		},
+		{
+			"type": "list",
+			"ordered": false,
+			"items": [
+				[
+					{
+						"text": "Projector is in the cabinet"
+					}
+				],
+				[
+					{
+						"text": "Catering arrives at "
+					},
+					{
+						"text": "noon",
+						"italic": true
+					}
+				]
+			]
+		}
+	],
+	"bubble": {
+		"blocks": [
+			{
+				"type": "history",
+				"blocks": [
+					{
+						"type": "paragraph",
+						"spans": [
+							{
+								"text": "On Tue, Sep 29, 2026 at 8:30 AM Ines Carvalho <"
+							},
+							{
+								"text": "ines@example.com",
+								"href": "mailto:ines@example.com"
+							},
+							{
+								"text": "> wrote:"
+							}
+						]
+					},
+					{
+						"type": "quote",
+						"blocks": [
+							{
+								"type": "paragraph",
+								"spans": [
+									{
+										"text": "Updated and sent the invite. Retro is Friday at 9."
+									}
+								]
+							}
+						]
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Room 4B is booked for both days."
+					}
+				]
+			},
+			{
+				"type": "list",
+				"ordered": false,
+				"items": [
+					[
+						{
+							"text": "Projector is in the cabinet"
+						}
+					],
+					[
+						{
+							"text": "Catering arrives at "
+						},
+						{
+							"text": "noon",
+							"italic": true
+						}
+					]
+				]
+			}
+		],
+		"unsure": true
+	}
+}

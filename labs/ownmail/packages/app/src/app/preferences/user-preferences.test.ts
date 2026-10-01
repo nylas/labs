@@ -54,6 +54,7 @@ describe('user preferences', () => {
 			remoteImagePolicy: 'always',
 			readingPane: 'horizontal',
 			listDensity: 'condensed',
+			threadView: 'conversation',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
 			calendarHourHeight: 64,
@@ -70,6 +71,7 @@ describe('user preferences', () => {
 			remoteImagePolicy: 'always',
 			readingPane: 'horizontal',
 			listDensity: 'condensed',
+			threadView: 'conversation',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
 			calendarHourHeight: 64,
@@ -79,6 +81,18 @@ describe('user preferences', () => {
 		})
 		expect(readUserPreferences()).toEqual(saved)
 		expect(isSupportedTimezone('not/a-timezone')).toBe(false)
+	})
+
+	it('keeps the standard reader unless the Conversation view was explicitly chosen', () => {
+		// The Conversation view is opt-in: a missing, mistyped or future value must
+		// never switch someone's mail to it.
+		expect(defaultUserPreferences().threadView).toBe('messages')
+		for (const threadView of ['timeline', 1, null, undefined]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ threadView }))
+			expect(readUserPreferences().threadView).toBe('messages')
+		}
+		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ threadView: 'conversation' }))
+		expect(readUserPreferences().threadView).toBe('conversation')
 	})
 
 	it('keeps the split reading pane for unknown stored layouts', () => {

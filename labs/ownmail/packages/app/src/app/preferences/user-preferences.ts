@@ -30,6 +30,12 @@ export type CalendarHourHeight = (typeof CALENDAR_HOUR_HEIGHTS)[number]
 
 export const DEFAULT_CALENDAR_HOUR_HEIGHT: CalendarHourHeight = 52
 
+/** How a thread is read: the standard message list, or the optional chat-style
+ * Conversation view. Unknown stored values fall back to the standard reader. */
+export type ThreadView = 'messages' | 'conversation'
+
+export const THREAD_VIEWS: readonly ThreadView[] = ['messages', 'conversation']
+
 export type UserPreferences = {
 	/**
 	 * The name each mailbox signs with, keyed by mailbox email. A name saved in
@@ -44,6 +50,7 @@ export type UserPreferences = {
 	remoteImagePolicy: RemoteImagePolicy
 	readingPane: ReadingPane
 	listDensity: ListDensity
+	threadView: ThreadView
 	primaryTimezone: string
 	secondaryTimezone: string
 	calendarHourHeight: CalendarHourHeight
@@ -93,6 +100,7 @@ export function defaultUserPreferences(): UserPreferences {
 		remoteImagePolicy: 'ask',
 		readingPane: 'vertical',
 		listDensity: 'default',
+		threadView: 'messages',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
 		calendarHourHeight: DEFAULT_CALENDAR_HOUR_HEIGHT,
@@ -214,6 +222,9 @@ function normalizePreferences(value: unknown): UserPreferences {
 		listDensity: LIST_DENSITIES.includes(input.listDensity as ListDensity)
 			? (input.listDensity as ListDensity)
 			: 'default',
+		threadView: THREAD_VIEWS.includes(input.threadView as ThreadView)
+			? (input.threadView as ThreadView)
+			: 'messages',
 		primaryTimezone,
 		secondaryTimezone,
 		calendarHourHeight: CALENDAR_HOUR_HEIGHTS.includes(input.calendarHourHeight as CalendarHourHeight)
