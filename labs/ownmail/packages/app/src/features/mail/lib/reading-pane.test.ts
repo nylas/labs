@@ -32,6 +32,20 @@ describe('readingPaneLayout', () => {
 		expect(layout.wideBackControl).toBe(false)
 	})
 
+	it('marks only the vertical-split list for the Condensed width, leaving the width itself to CSS', () => {
+		// The 26rem Condensed width must follow the same pointer query as the rows, which script
+		// cannot evaluate, so the layout stays at 22rem and only carries the hook CSS widens.
+		const vertical = classes(readingPaneLayout('vertical', true).list)
+		expect(vertical).toEqual(
+			expect.arrayContaining(['mail-list-vertical', 'xl:w-[22rem]', 'xl:max-w-[22rem]']),
+		)
+		expect(readingPaneLayout('vertical', true).list).not.toContain('26rem')
+		// No split and the horizontal split already give the list the full width.
+		for (const pane of ['none', 'horizontal'] as const) {
+			expect(classes(readingPaneLayout(pane, true).list)).not.toContain('mail-list-vertical')
+		}
+	})
+
 	it('stacks the list above the reader for a horizontal split', () => {
 		const layout = readingPaneLayout('horizontal', true)
 		expect(classes(layout.container)).toContain('xl:flex-col')

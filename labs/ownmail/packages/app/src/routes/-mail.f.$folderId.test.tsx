@@ -606,6 +606,29 @@ describe('MailFolderRouteScreen — drafts', () => {
 		expect(screen.queryByText(/data-ownmail-markdown/)).toBeNull()
 	})
 
+	it('gives draft rows the shared thread row so they follow the list density', () => {
+		const { container } = render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={
+					[{ id: 'd1', to: [{ name: 'Grace' }], subject: 'Plan', snippet: 'Notes' }] as unknown as Draft[]
+				}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		const row = screen.getByRole('link')
+		expect(row).toHaveClass('thread-row')
+		expect(row).toHaveAttribute('data-nav-row')
+		// Same cells as a conversation row: leading dot, then subject and snippet in one summary.
+		expect(row.firstElementChild).toHaveClass('thread-row-dot')
+		const summary = container.querySelector('.thread-row-summary') as HTMLElement
+		expect(Array.from(summary.children).map((cell) => cell.textContent)).toEqual(['Plan', 'Notes'])
+		// Drafts have no star action, only the static glyph.
+		expect(screen.queryByRole('button', { name: 'Star' })).toBeNull()
+	})
+
 	it('links drafts to the composer with the draft id', () => {
 		routerState = { location: { pathname: '/mail/f/drafts' }, matches: [] }
 		render(
@@ -1022,6 +1045,46 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').readingPane).toBe(
 			'none',
 		)
+	})
+
+	it('applies the chosen list density to the list and remembers it', async () => {
+		try {
+			render(screenFor())
+			expect(listSection()).toHaveAttribute('data-density', 'default')
+			expect(listSection()).toHaveClass('xl:w-[22rem]')
+
+			await userEvent.click(screen.getByRole('button', { name: 'List density: Default' }))
+			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Condensed' }))
+
+			await waitFor(() => expect(listSection()).toHaveAttribute('data-density', 'condensed'))
+			// The choice only changes the attribute: the wider Condensed list is CSS keyed on it
+			// (fine pointers only), so touch layouts keep the 22rem list.
+			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[22rem]')
+			expect(listSection().className).not.toContain('26rem')
+			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
+				'condensed',
+			)
+		} finally {
+			window.localStorage.clear()
+		}
+	})
+
+	it('keeps one row structure for every density: a leading unread dot, then subject and snippet together', () => {
+		const { container } = render(screenFor())
+		const row = container.querySelector('[data-nav-row]') as HTMLElement
+		// Density is pure CSS on these cells, so the markup must not vary by mode.
+		expect(Array.from(row.children).map((cell) => cell.className.split(' ')[0])).toEqual([
+			'thread-row-link',
+			'thread-row-dot',
+			'thread-row-lead',
+			'thread-row-sender',
+			'thread-row-when',
+			'thread-row-text',
+		])
+		expect(row.querySelector('.thread-row-dot')).toHaveAttribute('aria-hidden', 'true')
+		expect(row.querySelector('.thread-row-summary .thread-row-subject')).not.toBeNull()
+		expect(row.querySelector('.thread-row-summary .thread-row-snippet')).not.toBeNull()
+		expect(screen.getAllByRole('button', { name: /^(Star|Unstar)$/ })[0]).toHaveClass('thread-row-star')
 	})
 
 	it('stacks the list above the reader for a horizontal split', async () => {

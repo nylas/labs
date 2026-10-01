@@ -4,6 +4,7 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
@@ -234,7 +235,7 @@ function SearchResults() {
 
 	return (
 		<div className={layout.container}>
-			<section className={layout.list}>
+			<section className={layout.list} data-density={preferences.listDensity}>
 				<Toolbar className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
 					<div className="flex items-center gap-1">
@@ -243,6 +244,10 @@ function SearchResults() {
 								{unreadCount}
 							</span>
 						) : null}
+						<ListDensityMenu
+							value={preferences.listDensity}
+							onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
+						/>
 						<ReadingPaneMenu
 							value={preferences.readingPane}
 							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}

@@ -99,6 +99,29 @@ warning while existing screens are migrated.
   Closing a conversation returns focus to its row; triage auto-advances only
   while the list is visible beside the reader.
 
+## List density
+
+Mail lists (folders, drafts, and search results) share one row definition,
+`.thread-row`, with three densities. The choice is a device preference, set from
+the list toolbar or the command palette.
+
+- Default: three lines (sender and date, subject, snippet), about 89 pixels.
+- Compact: two lines (sender and date, then subject and snippet on one line),
+  about 62 pixels.
+- Condensed: one line (sender, subject and snippet, date), 34 pixels. The
+  vertical split widens the list from 22rem to 26rem for it, in the same media
+  query as the rows, so the preference changes no layout where it does not
+  apply.
+- Compact and Condensed apply only with a fine pointer (mouse or trackpad) on
+  desktop layouts. Mobile layouts and any touch-capable device always get the
+  Default row, never under 48 pixels, and the toolbar control is hidden there
+  because the choice has no effect. The gate is a CSS media query that is the
+  exact complement of the touch-floor query, not script detection.
+- The unread dot is an in-flow leading cell centred in the row's 16-pixel left
+  padding, so row text keeps the left edge it shares with the list title.
+  The star's hit target is sized per density so it never extends into a
+  neighbouring row.
+
 ## Icon controls
 
 - Compact navigation and familiar toolbar actions use icons without repeated

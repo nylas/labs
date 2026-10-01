@@ -15,6 +15,13 @@ export type ReadingPane = 'none' | 'vertical' | 'horizontal'
 
 export const READING_PANES: readonly ReadingPane[] = ['none', 'vertical', 'horizontal']
 
+/** How much of each conversation a mail-list row shows. Compact and Condensed
+ * apply only with a mouse or trackpad on desktop layouts; touch and mobile
+ * layouts always keep the Default row. */
+export type ListDensity = 'default' | 'compact' | 'condensed'
+
+export const LIST_DENSITIES: readonly ListDensity[] = ['default', 'compact', 'condensed']
+
 export type UserPreferences = {
 	displayName: string
 	autoSaveContacts: boolean
@@ -23,6 +30,7 @@ export type UserPreferences = {
 	emailColorMode: 'automatic' | 'original'
 	remoteImagePolicy: RemoteImagePolicy
 	readingPane: ReadingPane
+	listDensity: ListDensity
 	primaryTimezone: string
 	secondaryTimezone: string
 	/**
@@ -66,6 +74,7 @@ export function defaultUserPreferences(): UserPreferences {
 		emailColorMode: 'automatic',
 		remoteImagePolicy: 'ask',
 		readingPane: 'vertical',
+		listDensity: 'default',
 		primaryTimezone: browserTimezone(),
 		secondaryTimezone: '',
 		hiddenCalendarsByAccount: {},
@@ -147,6 +156,9 @@ function normalizePreferences(value: unknown): UserPreferences {
 		readingPane: READING_PANES.includes(input.readingPane as ReadingPane)
 			? (input.readingPane as ReadingPane)
 			: 'vertical',
+		listDensity: LIST_DENSITIES.includes(input.listDensity as ListDensity)
+			? (input.listDensity as ListDensity)
+			: 'default',
 		primaryTimezone,
 		secondaryTimezone,
 		// A flat `hiddenCalendarIds` list from before per-account storage cannot be

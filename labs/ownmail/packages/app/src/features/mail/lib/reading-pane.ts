@@ -14,6 +14,10 @@ export type ReadingPaneLayout = {
  * breakpoint every pane choice behaves as "no split": the conversation
  * replaces the list. From `xl` up, the list sits beside (vertical) or above
  * (horizontal) the reader, or is replaced by it (none).
+ *
+ * The layout never depends on the list density: `mail-list-vertical` only
+ * marks the vertical-split list so `styles.css` can widen it for Condensed
+ * rows inside the same fine-pointer query that enables those rows.
  */
 export function readingPaneLayout(pane: ReadingPane, threadOpen: boolean): ReadingPaneLayout {
 	const listBase = 'h-full min-w-0 flex-1 flex-col bg-card/50'
@@ -29,7 +33,7 @@ export function readingPaneLayout(pane: ReadingPane, threadOpen: boolean): Readi
 	const split =
 		pane === 'horizontal'
 			? 'xl:h-[40%] xl:w-full xl:flex-none xl:border-b xl:border-border'
-			: 'border-r border-border xl:w-[22rem] xl:max-w-[22rem] xl:flex-none'
+			: 'mail-list-vertical border-r border-border xl:w-[22rem] xl:max-w-[22rem] xl:flex-none'
 	return {
 		container: `flex min-h-0 min-w-0 flex-1${pane === 'horizontal' ? ' xl:flex-col' : ''}`,
 		list: `${listBase} ${split} ${threadOpen ? 'hidden xl:flex' : 'flex'}`,

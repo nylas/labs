@@ -34,6 +34,7 @@ describe('user preferences', () => {
 			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
 			readingPane: 'horizontal',
+			listDensity: 'condensed',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
@@ -46,6 +47,7 @@ describe('user preferences', () => {
 			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
 			readingPane: 'horizontal',
+			listDensity: 'condensed',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
 			hiddenCalendarsByAccount: { 'ada@example.com': ['cal-work', 'cal-home'] },
@@ -62,6 +64,19 @@ describe('user preferences', () => {
 		}
 		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPane: 'none' }))
 		expect(readUserPreferences().readingPane).toBe('none')
+	})
+
+	it('falls back to the Default list density for unknown stored densities', () => {
+		// New installs and density names from a newer or tampered build keep today's three-line row.
+		expect(defaultUserPreferences().listDensity).toBe('default')
+		for (const listDensity of ['micro', 42, null]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ listDensity }))
+			expect(readUserPreferences().listDensity).toBe('default')
+		}
+		for (const listDensity of ['compact', 'condensed']) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ listDensity }))
+			expect(readUserPreferences().listDensity).toBe(listDensity)
+		}
 	})
 
 	it('recovers safely from malformed storage and invalid preference shapes', () => {
