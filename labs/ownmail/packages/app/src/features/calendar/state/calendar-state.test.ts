@@ -1,5 +1,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { QueryClient } from '@tanstack/react-query'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
 	applyCalendarEffect,
@@ -8,6 +10,7 @@ import {
 	calendarKeys,
 	calendarStateTestApi,
 	resetCalendarConfirmedEffects,
+	useHiddenCalendarIdsForRequest,
 } from './calendar-state.js'
 
 const event = {
@@ -39,8 +42,33 @@ function data(events: Event[]): CalendarRouteData {
 		calendars: [calendar],
 		info: { email: 'ada@example.com', appName: 'OwnMail' },
 		anchorIso: '2027-01-15',
+		truncated: false,
+		hiddenCalendarIds: [],
 	}
 }
+
+describe('hidden calendars in the range cache', () => {
+	it('keys a range by its hidden calendars, because their events were never fetched into it', () => {
+		const everything = calendarKeys.range(...WEEK_A)
+		const withoutWork = calendarKeys.range(...WEEK_A, ['work'])
+		expect(everything).toEqual(['calendar', 'range', WEEK_A[0], WEEK_A[1], ''])
+		expect(withoutWork).not.toEqual(everything)
+		// Showing the calendar again must miss the entry that was fetched without it.
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(withoutWork, data([]))
+		expect(queryClient.getQueryData(everything)).toBeUndefined()
+		expect(calendarKeys.range(...WEEK_A, ['a', 'b'])).not.toEqual(calendarKeys.range(...WEEK_A, ['ab']))
+	})
+
+	it('repeats the loader hidden calendars while rendering on the server, where no preference is stored', () => {
+		const Probe = () =>
+			createElement('p', null, useHiddenCalendarIdsForRequest('ada@example.com', ['b', 'a']).join('|'))
+		expect(renderToString(createElement(Probe))).toBe('<p>b|a</p>')
+		const Empty = () =>
+			createElement('p', null, String(useHiddenCalendarIdsForRequest('ada@example.com', []).length))
+		expect(renderToString(createElement(Empty))).toBe('<p>0</p>')
+	})
+})
 
 describe('calendar cache effects', () => {
 	it('creates and updates calendar resources across cached ranges', () => {

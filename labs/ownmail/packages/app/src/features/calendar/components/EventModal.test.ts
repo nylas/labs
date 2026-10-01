@@ -47,11 +47,14 @@ describe('EventModal helpers', () => {
 		})
 	})
 
-	it('keeps the reference event-colored outline on the selected calendar choice', () => {
-		const className = eventCalendarChoiceClass(true, 'teal')
-
-		expect(className).toContain('border-[var(--event-teal)]')
-		expect(className).not.toContain('border-transparent')
+	it('marks the selected calendar choice with that calendar tinted chip, and leaves the others neutral', () => {
+		// `.event-chip` reads the calendar colour set inline, so the selection is the same
+		// tinted fill and uniform border the grid uses for that calendar's events.
+		expect(eventCalendarChoiceClass(true).split(' ')).toEqual(
+			expect.arrayContaining(['event-color', 'event-chip']),
+		)
+		expect(eventCalendarChoiceClass(false)).toContain('border-border')
+		expect(eventCalendarChoiceClass(false)).not.toContain('event-chip')
 	})
 
 	it('uses the adaptive, scrollable event detail shell', () => {

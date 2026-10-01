@@ -1,4 +1,5 @@
 import { requireNylasProviderId } from '#server/ids'
+import { MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST } from '../lib/calendar.js'
 
 const MAX_EVENT_RANGE_SECONDS = 60 * 60 * 24 * 62
 const MAX_TITLE_LENGTH = 500
@@ -19,6 +20,8 @@ export type EventRecurrence =
 export type EventRangeInput = {
 	start: number
 	end: number
+	/** Calendars the user has hidden; their events are not fetched. A filter only, never a fetch target. */
+	hiddenCalendarIds?: string[]
 }
 
 export type CreateEventInput = {
@@ -87,7 +90,16 @@ export function normalizeEventRangeInput(input: EventRangeInput): EventRangeInpu
 	const end = requireEpochSeconds(input.end, 'end')
 	requireValidRange(start, end)
 	if (end - start > MAX_EVENT_RANGE_SECONDS) throw new Error('Range too large')
-	return { start, end }
+	const hiddenCalendarIds = normalizeHiddenCalendarIds(input.hiddenCalendarIds)
+	return { start, end, ...(hiddenCalendarIds.length ? { hiddenCalendarIds } : {}) }
+}
+
+function normalizeHiddenCalendarIds(value: string[] | undefined): string[] {
+	if (value === undefined) return []
+	if (!Array.isArray(value) || value.length > MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST) {
+		throw new Error('Invalid hidden calendars')
+	}
+	return [...new Set(value.map((id) => requireNylasProviderId(id, 'hidden calendar')))]
 }
 
 export function normalizeCreateEventInput(input: CreateEventInput): CreateEventInput {
