@@ -175,7 +175,10 @@ describe('calendar server functions', () => {
 			{
 				listEvents: vi.fn(async (query: { calendar_id: string; page_token?: string }) =>
 					query.calendar_id === 'endless'
-						? { data: [pagedEvent('endless', Number(query.page_token ?? 0))], next_cursor: 'again' }
+						? {
+								data: [pagedEvent('endless', Number(query.page_token ?? 0))],
+								next_cursor: String(Number(query.page_token ?? 0) + 1),
+							}
 						: { data: [pagedEvent('small', 0)] },
 				),
 			},
@@ -190,6 +193,106 @@ describe('calendar server functions', () => {
 		expect(result.truncated).toBe(true)
 	})
 
+	it('stops when the provider repeats an event page token, instead of refetching that page to the ceiling', async () => {
+		const mailbox = resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], {
+			// Every response points back at the same token.
+			listEvents: vi.fn(async (query: { calendar_id: string; page_token?: string }) => ({
+				data: [pagedEvent(query.calendar_id, query.page_token ? 1 : 0)],
+				next_cursor: 'stuck',
+			})),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		// First page, then the page behind the token once: its repeat ends the sequence.
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(2)
+		expect(result.events.map((event) => event.id)).toEqual(['evt-primary-0', 'evt-primary-1'])
+		// The provider never said the range was complete, so the grid must say so.
+		expect(result.truncated).toBe(true)
+	})
+
+	it('stops when the provider cycles between event page tokens', async () => {
+		const mailbox = resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], {
+			listEvents: vi.fn(async (query: { calendar_id: string; page_token?: string }) => ({
+				data: [
+					pagedEvent(query.calendar_id, query.page_token === 'b' ? 2 : query.page_token === 'a' ? 1 : 0),
+				],
+				next_cursor: query.page_token === 'a' ? 'b' : 'a',
+			})),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(3)
+		expect(result.events.map((event) => event.id)).toEqual([
+			'evt-primary-0',
+			'evt-primary-1',
+			'evt-primary-2',
+		])
+		expect(result.truncated).toBe(true)
+	})
+
+	it('stops when the provider repeats a calendar page token, so a calendar is not listed or fetched twice', async () => {
+		const mailbox = resolveMailbox([], {
+			listCalendars: vi.fn(async () => ({
+				data: [{ id: 'primary', is_primary: true, name: 'Personal' }],
+				next_cursor: 'stuck',
+			})),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(mailbox.listCalendars).toHaveBeenCalledTimes(2)
+		expect(result.calendars.map((calendar) => calendar.id)).toEqual(['primary'])
+		// One calendar means one event request, not one per repeated copy.
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(1)
+		expect(result.events.map((event) => event.id)).toEqual(['evt-primary'])
+		expect(result.truncated).toBe(true)
+	})
+
+	it('returns each event and calendar id once even when pages or calendars overlap, since ids are render keys', async () => {
+		const mailbox = resolveMailbox([], {
+			listCalendars: vi.fn(async (query: { page_token?: string }) =>
+				query.page_token
+					? {
+							data: [
+								{ id: 'primary', is_primary: true, name: 'Personal' },
+								{ id: 'work', is_primary: false, name: 'Work' },
+							],
+						}
+					: { data: [{ id: 'primary', is_primary: true, name: 'Personal' }], next_cursor: 'page-2' },
+			),
+			listEvents: vi.fn(async (query: { calendar_id: string; page_token?: string }) => ({
+				data: [
+					{
+						id: 'shared',
+						calendar_id: query.calendar_id,
+						when: { start_time: 1_800_000_000, end_time: 1_800_003_600 },
+					},
+					pagedEvent(query.calendar_id, 0),
+					// Malformed records without an id are left to the validity filter, not the de-duplication.
+					null,
+					{ calendar_id: query.calendar_id, when: { date: '2027-01-01' } },
+				],
+				...(query.page_token ? {} : { next_cursor: 'overlap' }),
+			})),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(result.calendars.map((calendar) => calendar.id)).toEqual(['primary', 'work'])
+		expect(mailbox.listEvents.mock.calls.map(([query]) => query.calendar_id).sort()).toEqual([
+			'primary',
+			'primary',
+			'work',
+			'work',
+		])
+		const ids = result.events.map((event) => event.id)
+		expect(ids).toEqual(['shared', 'evt-primary-0', 'evt-work-0'])
+		expect(new Set(ids).size).toBe(ids.length)
+		expect(result.truncated).toBe(false)
+	})
+
 	it('stops at the calendar page ceiling and reports it', async () => {
 		let page = 0
 		const mailbox = resolveMailbox([], {
@@ -197,7 +300,7 @@ describe('calendar server functions', () => {
 				page += 1
 				return {
 					data: [{ id: `cal-${page}`, is_primary: page === 1, name: `Cal ${page}` }],
-					next_cursor: 'more',
+					next_cursor: `more-${page}`,
 				}
 			}),
 		})
