@@ -44,6 +44,31 @@ describe('calendar input validation', () => {
 		})
 	})
 
+	it('accepts hidden calendar ids as a de-duplicated filter and omits the field when there are none', () => {
+		const range = { start: 1_800_000_000, end: 1_800_003_600 }
+		expect(normalizeEventRangeInput({ ...range, hiddenCalendarIds: ['b', 'a', 'b'] })).toEqual({
+			...range,
+			hiddenCalendarIds: ['b', 'a'],
+		})
+		expect(normalizeEventRangeInput({ ...range, hiddenCalendarIds: [] })).toEqual(range)
+	})
+
+	it('rejects hidden calendar ids that are not a short list of provider ids, since they come from the browser', () => {
+		const range = { start: 1_800_000_000, end: 1_800_003_600 }
+		const attempt = (hiddenCalendarIds: unknown) => () =>
+			normalizeEventRangeInput({ ...range, hiddenCalendarIds: hiddenCalendarIds as string[] })
+		expect(attempt('cal-1')).toThrow('Invalid hidden calendars')
+		expect(attempt({ 0: 'cal-1' })).toThrow('Invalid hidden calendars')
+		expect(attempt(Array.from({ length: 26 }, (_, index) => `cal-${index}`))).toThrow(
+			'Invalid hidden calendars',
+		)
+		expect(attempt(Array.from({ length: 25 }, (_, index) => `cal-${index}`))).not.toThrow()
+		expect(attempt([''])).toThrow('Invalid hidden calendar')
+		expect(attempt([42])).toThrow('Invalid hidden calendar')
+		expect(attempt(['cal-1\nX-Injected: 1'])).toThrow('Invalid hidden calendar')
+		expect(attempt(['x'.repeat(1001)])).toThrow('Invalid hidden calendar')
+	})
+
 	it('rejects malformed event list ranges before calling Nylas', () => {
 		expect(() => normalizeEventRangeInput({ start: '1' as unknown as number, end: 1_800_003_600 })).toThrow(
 			'Invalid start',

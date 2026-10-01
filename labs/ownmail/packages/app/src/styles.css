@@ -952,9 +952,63 @@
 	padding: 0.125rem 0.5rem;
 }
 
+/*
+ * Calendar event colour. `--event-c-light` and `--event-c-dark` are set inline
+ * from the calendar's own hue (or a named event token); this picks the value
+ * for the active theme. Chips are a tinted fill with a uniform one-pixel border
+ * in that hue: never a one-sided accent.
+ */
+.event-color {
+	--event-c: var(--event-c-light, var(--event-blue));
+}
+
+.dark .event-color {
+	--event-c: var(--event-c-dark, var(--event-blue));
+}
+
+/* Mixed in oklab so the tint keeps the calendar's hue against a faintly tinted card. */
 .event-chip {
-	background-color: color-mix(in oklch, currentColor 10%, var(--background));
-	border-radius: var(--radius-sm);
+	color: var(--foreground);
+	background-color: color-mix(in oklab, var(--event-c) 30%, var(--card));
+	border: 1px solid color-mix(in oklab, var(--event-c) 55%, var(--card));
+}
+
+/* Tentative, unanswered, declined, and draft events: outline only. */
+.event-chip[data-rsvp="tentative"],
+.event-chip[data-rsvp="awaiting"],
+.event-chip[data-rsvp="declined"],
+.event-chip[data-preview] {
+	background-color: transparent;
+	border-style: dashed;
+	border-color: var(--event-c);
+}
+
+.event-chip[data-rsvp="declined"] {
+	opacity: 0.7;
+	text-decoration: line-through;
+}
+
+.event-chip[data-preview] {
+	opacity: 0.7;
+}
+
+.event-chip[data-past] {
+	opacity: 0.5;
+}
+
+/* An all-day event that continues beyond the visible days runs flush to that edge. */
+.event-chip[data-continues-before] {
+	margin-left: 0;
+	border-left-width: 0;
+	border-top-left-radius: 0;
+	border-bottom-left-radius: 0;
+}
+
+.event-chip[data-continues-after] {
+	margin-right: 0;
+	border-right-width: 0;
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
 }
 
 .command-palette {

@@ -44,6 +44,8 @@ const { platform } = vi.hoisted(() => ({ platform: vi.fn() }))
 vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 const {
+	MAX_CALENDAR_PAGES,
+	MAX_EVENT_PAGES_PER_CALENDAR,
 	createCalendar,
 	createEvent,
 	deleteCalendar,
@@ -107,6 +109,145 @@ describe('calendar server functions', () => {
 		expect(mailbox.listEvents).toHaveBeenCalledTimes(2)
 		expect(result.calendar.id).toBe('primary')
 		expect(result.events.map((event) => event.id)).toEqual(['evt-work', 'evt-primary'])
+	})
+
+	const pagedEvent = (calendarId: string, page: number) => ({
+		id: `evt-${calendarId}-${page}`,
+		calendar_id: calendarId,
+		when: { start_time: 1_800_000_000, end_time: 1_800_003_600 },
+	})
+
+	it('follows event page tokens until the range is complete, so a busy calendar is not cut at one page', async () => {
+		const mailbox = resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], {
+			listEvents: vi.fn(async (query: { calendar_id: string; page_token?: string }) => {
+				const page = query.page_token ? Number(query.page_token) : 0
+				return {
+					data: [pagedEvent(query.calendar_id, page)],
+					...(page < 2 ? { next_cursor: String(page + 1) } : {}),
+				}
+			}),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(3)
+		expect(mailbox.listEvents.mock.calls.map(([query]) => query.page_token)).toEqual([undefined, '1', '2'])
+		// Every page repeats the range and calendar: a token alone must not widen the query.
+		expect(mailbox.listEvents).toHaveBeenLastCalledWith({
+			calendar_id: 'primary',
+			start: RANGE.start,
+			end: RANGE.end,
+			limit: 200,
+			expand_recurring: true,
+			page_token: '2',
+		})
+		expect(result.events.map((event) => event.id)).toEqual([
+			'evt-primary-0',
+			'evt-primary-1',
+			'evt-primary-2',
+		])
+		expect(result.truncated).toBe(false)
+	})
+
+	it('follows calendar page tokens so an account with many calendars shows all of them', async () => {
+		const mailbox = resolveMailbox([], {
+			listCalendars: vi.fn(async (query: { page_token?: string }) =>
+				query.page_token
+					? { data: [{ id: 'late', is_primary: false, name: 'Late' }], next_cursor: '' }
+					: { data: [{ id: 'primary', is_primary: true, name: 'Personal' }], next_cursor: 'page-2' },
+			),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(mailbox.listCalendars.mock.calls.map(([query]) => query.page_token)).toEqual([undefined, 'page-2'])
+		expect(result.calendars.map((calendar) => calendar.id)).toEqual(['primary', 'late'])
+		expect(result.events.map((event) => event.id)).toEqual(['evt-primary', 'evt-late'])
+		expect(result.truncated).toBe(false)
+	})
+
+	it('stops at the event page ceiling and reports it instead of dropping events silently', async () => {
+		const mailbox = resolveMailbox(
+			[
+				{ id: 'endless', is_primary: true, name: 'Endless' },
+				{ id: 'small', is_primary: false, name: 'Small' },
+			],
+			{
+				listEvents: vi.fn(async (query: { calendar_id: string; page_token?: string }) =>
+					query.calendar_id === 'endless'
+						? { data: [pagedEvent('endless', Number(query.page_token ?? 0))], next_cursor: 'again' }
+						: { data: [pagedEvent('small', 0)] },
+				),
+			},
+		)
+
+		const result = await getEvents({ data: RANGE })
+
+		const endlessCalls = mailbox.listEvents.mock.calls.filter(([query]) => query.calendar_id === 'endless')
+		expect(endlessCalls).toHaveLength(MAX_EVENT_PAGES_PER_CALENDAR)
+		// What was loaded is still shown; the flag tells the grid it is incomplete.
+		expect(result.events).toHaveLength(MAX_EVENT_PAGES_PER_CALENDAR + 1)
+		expect(result.truncated).toBe(true)
+	})
+
+	it('stops at the calendar page ceiling and reports it', async () => {
+		let page = 0
+		const mailbox = resolveMailbox([], {
+			listCalendars: vi.fn(async () => {
+				page += 1
+				return {
+					data: [{ id: `cal-${page}`, is_primary: page === 1, name: `Cal ${page}` }],
+					next_cursor: 'more',
+				}
+			}),
+		})
+
+		const result = await getEvents({ data: RANGE })
+
+		expect(mailbox.listCalendars).toHaveBeenCalledTimes(MAX_CALENDAR_PAGES)
+		expect(result.calendars).toHaveLength(MAX_CALENDAR_PAGES)
+		expect(result.truncated).toBe(true)
+	})
+
+	it('does not fetch events for calendars the user has hidden, but still lists those calendars', async () => {
+		const mailbox = resolveMailbox([
+			{ id: 'work', is_primary: false, name: 'Work' },
+			{ id: 'primary', is_primary: true, name: 'Personal' },
+			{ id: 'holidays', is_primary: false, name: 'Holidays' },
+		])
+
+		const result = await getEvents({ data: { ...RANGE, hiddenCalendarIds: ['work', 'holidays'] } })
+
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(1)
+		expect(mailbox.listEvents).toHaveBeenCalledWith(expect.objectContaining({ calendar_id: 'primary' }))
+		expect(result.events.map((event) => event.id)).toEqual(['evt-primary'])
+		// The sidebar still needs every calendar so a hidden one can be shown again.
+		expect(result.calendars.map((calendar) => calendar.id)).toEqual(['work', 'primary', 'holidays'])
+		expect(result.truncated).toBe(false)
+	})
+
+	it('uses hidden ids only to narrow the grant own calendars, never as something to fetch', async () => {
+		const mailbox = resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }])
+
+		const result = await getEvents({ data: { ...RANGE, hiddenCalendarIds: ['someone-elses-calendar'] } })
+
+		expect(mailbox.listEvents).toHaveBeenCalledTimes(1)
+		expect(mailbox.listEvents).toHaveBeenCalledWith(expect.objectContaining({ calendar_id: 'primary' }))
+		expect(result.events.map((event) => event.id)).toEqual(['evt-primary'])
+	})
+
+	it('authorizes a write against a calendar that is only on a later page of the calendar list', async () => {
+		const mailbox = resolveMailbox([], {
+			listCalendars: vi.fn(async (query: { page_token?: string }) =>
+				query.page_token
+					? { data: [{ id: 'late', is_primary: false, name: 'Late' }] }
+					: { data: [{ id: 'primary', is_primary: true, name: 'Personal' }], next_cursor: 'page-2' },
+			),
+		})
+
+		await createEvent({ data: { ...CREATE, calendarId: 'late' } })
+
+		expect(mailbox.createEvent).toHaveBeenCalledWith(expect.objectContaining({ title: 'Planning' }), 'late')
 	})
 
 	it('drops malformed live event records without dropping valid events from another calendar', async () => {
