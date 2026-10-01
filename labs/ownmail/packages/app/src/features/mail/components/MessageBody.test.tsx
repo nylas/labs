@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EMAIL_ELEMENT_TAG } from '../lib/email-render.js'
+import { EMAIL_CANVAS_EVENT, EMAIL_ELEMENT_TAG } from '../lib/email-render.js'
 import { markdownToDraftBody } from '../lib/html-to-markdown.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { MessageBody } from './MessageBody.js'
@@ -349,5 +349,28 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		expect(root?.querySelector('strong')?.textContent).toBe('ready')
 		expect(root?.textContent).not.toContain('# Heading')
 		expect(root?.textContent).not.toContain('**ready**')
+	})
+})
+
+describe('MessageBody (canvas band)', () => {
+	it('extends a reported sender canvas across the pane and keeps designed mail on the column', () => {
+		render(
+			<MessageBody
+				message={message({ id: 'm-band', body: '<table width="600"><tr><td>Report</td></tr></table>' })}
+			/>,
+		)
+		const band = document.querySelector('[data-slot="email-canvas-band"]') as HTMLElement
+		expect(band.style.backgroundColor).toBe('')
+		expect(band.firstElementChild).toHaveClass('px-0')
+		act(() => {
+			document.querySelector(EMAIL_ELEMENT_TAG)?.dispatchEvent(
+				new CustomEvent(EMAIL_CANVAS_EVENT, {
+					detail: { strategy: 'paper', canvas: 'rgb(238, 240, 243)', height: 300 },
+				}),
+			)
+		})
+		expect(band.style.backgroundColor).toBe('rgb(238, 240, 243)')
+		expect(band).toHaveClass('py-6')
+		expect(band).toHaveAttribute('data-email-strategy', 'paper')
 	})
 })

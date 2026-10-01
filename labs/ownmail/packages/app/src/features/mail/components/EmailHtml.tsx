@@ -3,19 +3,21 @@
  * contrast: existing application tokens · pre-emit critique: P5 H5 E4 S5 R5 V5
  */
 
-import { type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type Ref, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import {
-	applyDarkInvert,
 	applyEmailColorMode,
 	applyEmailHtml,
 	applyEmailImageMode,
 	applyEmailLayoutMode,
 	applyEmailTheme,
 	applyRemoteImages,
+	EMAIL_CANVAS_EVENT,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
+	type EmailCanvasDetail,
 	type EmailColorMode,
 	type EmailElementLike,
 	type EmailImageMode,
@@ -28,8 +30,8 @@ import {
 	retryRemoteImages,
 	subscribeLinkPreview,
 } from '../lib/email-render.js'
+import { rememberEmail, rememberedEmail, renderedEmailKey } from '../lib/email-render-memory.js'
 import { senderImagesTrusted } from '../lib/image-sender-trust.js'
-import { sanitizedEmailSupportsDarkMode } from '../lib/sanitize-email.js'
 import { ensureEmailElementDefined } from './email-content-element.js'
 
 // The custom element is a host tag, not a React component; the cast just gives it
@@ -66,8 +68,10 @@ function useIsDark(): boolean {
  * live outside the shadow boundary: a hover/tap URL preview and account-controlled
  * automatic darkening.
  *
- * When enabled, a dark app theme inverts email that has no adaptive dark stylesheet
- * of its own so it does not become a blinding white rectangle.
+ * When enabled, a dark app theme lets the element adapt light-only email color by
+ * color (never with a filter). The element reports the presentation it chose and
+ * the sender canvas through `onCanvas`, so the thread can extend that canvas, and
+ * this wrapper reserves the last measured height so a reopened message never jumps.
  */
 export function EmailHtml({
 	html,
@@ -80,6 +84,7 @@ export function EmailHtml({
 	loadRemoteImagesForSender = false,
 	retryRevision = 0,
 	onDisplayStatus,
+	onCanvas,
 }: {
 	html: string
 	messageId: string
@@ -91,6 +96,7 @@ export function EmailHtml({
 	loadRemoteImagesForSender?: boolean
 	retryRevision?: number
 	onDisplayStatus?: (messageId: string, status: EmailDisplayStatus | null) => void
+	onCanvas?: (detail: EmailCanvasDetail) => void
 }) {
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
@@ -101,13 +107,16 @@ export function EmailHtml({
 	const lastRetryRevisionRef = useRef(retryRevision)
 	const displayStatusCallbackRef = useRef(onDisplayStatus)
 	displayStatusCallbackRef.current = onDisplayStatus
+	const canvasCallbackRef = useRef(onCanvas)
+	canvasCallbackRef.current = onCanvas
 
 	const isDark = useIsDark()
-	const supportsDark = useMemo(() => sanitizedEmailSupportsDarkMode(html), [html])
 	const automaticDarkColors = darken && isDark && colorMode === 'automatic'
 	const emailTheme = automaticDarkColors ? 'dark' : 'light'
 	const imageMode: EmailImageMode = colorMode
-	const invert = automaticDarkColors && !supportsDark
+	const memoryKey = renderedEmailKey(messageId, emailTheme, colorMode)
+	const remembered = rememberedEmail(memoryKey)
+	const [measured, setMeasured] = useState(false)
 
 	useLayoutEffect(() => {
 		ensureEmailElementDefined()
@@ -119,6 +128,7 @@ export function EmailHtml({
 		void messageId
 		setLayoutControlAvailable(false)
 		setRemoteImages(null)
+		setMeasured(false)
 	}, [html, messageId])
 
 	useLayoutEffect(() => {
@@ -131,13 +141,31 @@ export function EmailHtml({
 		const onRemoteImages = (event: Event) => {
 			setRemoteImages((event as CustomEvent<EmailRemoteImagesDetail>).detail)
 		}
+		const onCanvasStatus = (event: Event) => {
+			const detail = (event as CustomEvent<EmailCanvasDetail>).detail
+			if (detail.height > 0) rememberEmail(memoryKey, detail)
+			// The element measures inside an animation frame; commit the thread's
+			// canvas band in that same frame so it never paints a step behind.
+			flushSync(() => {
+				setMeasured(true)
+				canvasCallbackRef.current?.(detail)
+			})
+		}
 		element.addEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
 		element.addEventListener(EMAIL_REMOTE_IMAGES_EVENT, onRemoteImages)
+		element.addEventListener(EMAIL_CANVAS_EVENT, onCanvasStatus)
 		return () => {
 			element.removeEventListener(EMAIL_LAYOUT_STATUS_EVENT, onLayoutStatus)
 			element.removeEventListener(EMAIL_REMOTE_IMAGES_EVENT, onRemoteImages)
+			element.removeEventListener(EMAIL_CANVAS_EVENT, onCanvasStatus)
 		}
-	}, [ready])
+	}, [ready, memoryKey])
+
+	// A reopened message extends its last known canvas before the renderer measures.
+	useLayoutEffect(() => {
+		const known = rememberedEmail(memoryKey)
+		if (known) canvasCallbackRef.current?.(known)
+	}, [memoryKey])
 
 	useLayoutEffect(() => {
 		if (ready) applyEmailLayoutMode(ref.current, layoutMode)
@@ -160,10 +188,6 @@ export function EmailHtml({
 	useLayoutEffect(() => {
 		if (ready) applyEmailHtml(ref.current, html)
 	}, [ready, html])
-
-	useLayoutEffect(() => {
-		if (ready) applyDarkInvert(ref.current, invert)
-	}, [ready, invert])
 
 	useEffect(() => subscribeLinkPreview(ready ? ref.current : null, setPreview), [ready])
 
@@ -212,7 +236,11 @@ export function EmailHtml({
 	}, [ready, remoteImages, retryRevision])
 
 	return (
-		<div className="relative" aria-busy={ready ? undefined : true}>
+		<div
+			className="relative"
+			aria-busy={ready ? undefined : true}
+			style={!measured && remembered ? { minHeight: remembered.height } : undefined}
+		>
 			{ready ? (
 				<OwnmailEmail
 					ref={ref}
@@ -225,7 +253,7 @@ export function EmailHtml({
 					data-slot="html-email-placeholder"
 					role="status"
 					aria-label="Loading email content"
-					className="min-h-24 min-w-0 max-w-full rounded-xl border border-border bg-muted/40"
+					className={remembered ? 'min-w-0 max-w-full' : 'min-h-24 min-w-0 max-w-full'}
 				/>
 			)}
 

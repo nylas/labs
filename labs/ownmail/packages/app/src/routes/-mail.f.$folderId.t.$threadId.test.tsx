@@ -163,29 +163,29 @@ describe('thread route validateSearch', () => {
 // --- header, subject, labels, attachments -------------------------------
 
 describe('thread header', () => {
-	it('uses a neutral light-mode conversation surface while preserving the dark-mode background', () => {
+	it('reads the conversation on the app ground so sender canvases can extend across it', () => {
 		renderThread()
 		const conversation = document.querySelector('[data-slot="thread-conversation"]')
 		const overflowSlots = document.querySelectorAll('[data-slot^="scroll-area-overflow-"]')
 
-		expect(conversation).toHaveClass('min-h-full', 'bg-muted', 'dark:bg-background')
-		expect(conversation).not.toHaveClass('bg-background', 'bg-card')
+		expect(conversation).toHaveClass('min-h-full', 'bg-background')
+		expect(conversation).not.toHaveClass('bg-muted', 'bg-card')
 		expect(overflowSlots).toHaveLength(2)
 		for (const slot of overflowSlots) {
-			expect(slot).toHaveClass('from-muted/80', 'dark:from-background/80')
-			expect(slot).not.toHaveClass('from-background/80')
+			expect(slot).toHaveClass('from-background/80')
+			expect(slot).not.toHaveClass('from-muted/80')
 		}
 	})
 
-	it('keeps nested sender and attachment surfaces distinct from the muted conversation', () => {
+	it('keeps sender and attachment surfaces distinct from the conversation ground', () => {
 		renderThread()
 		const avatars = document.querySelectorAll('[data-slot="sender-avatar"]')
 		const attachmentLinks = document.querySelectorAll('[data-slot="thread-attachment"]')
 
 		expect(avatars).toHaveLength(richMessages().length)
 		for (const avatar of avatars) {
-			expect(avatar).toHaveClass('bg-card', 'dark:bg-muted')
-			expect(avatar).not.toHaveClass('bg-muted')
+			expect(avatar).toHaveClass('bg-muted')
+			expect(avatar).not.toHaveClass('bg-background')
 		}
 		// Only the expanded message owns download links; the header is count-only,
 		// so aggregate and per-message surfaces never duplicate a download.
@@ -201,7 +201,7 @@ describe('thread header', () => {
 		const heading = screen.getByRole('heading', { name: 'Hello' })
 		expect(heading).toBeInTheDocument()
 		expect(screen.getByText('Work')).toBeInTheDocument()
-		expect(heading.closest('header')).toHaveClass('xl:sticky', 'xl:top-0', 'bg-muted', 'dark:bg-background')
+		expect(heading.closest('header')).toHaveClass('xl:sticky', 'xl:top-0', 'bg-background')
 	})
 
 	it('falls back to "(no subject)" and shows no labels for an empty thread', () => {
@@ -425,7 +425,7 @@ describe('message list', () => {
 		renderThread()
 		const content = document.querySelector('[data-slot="expanded-message-content"]')
 
-		expect(content).toHaveClass('mt-5', 'w-full', 'min-w-0')
+		expect(content).toHaveClass('mt-3', 'w-full', 'min-w-0')
 		expect(content).not.toHaveClass('pl-12')
 	})
 

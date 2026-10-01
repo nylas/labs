@@ -1,4 +1,6 @@
 /* Hallmark · component: email reader · genre: modern-minimal · theme: Quiet · pre-emit critique: P5 H5 E5 S5 R5 V5 · contrast: pass · mobile: pass */
+import type { EmailColorStrategy } from './email-color-map.js'
+
 /**
  * Pure logic + thin DOM adapters for the HTML-email renderer. Everything here is
  * free of module-load-time DOM references so it can be imported on the server
@@ -19,10 +21,18 @@ export const EMAIL_LAYOUT_STATUS_EVENT = 'email-layout-status'
 /** Event emitted when remote image resources are blocked or explicitly loaded. */
 export const EMAIL_REMOTE_IMAGES_EVENT = 'email-remote-images'
 
+/** Event emitted when the message's color strategy, canvas, or rendered height changes. */
+export const EMAIL_CANVAS_EVENT = 'email-canvas'
+
+/** Smallest scale applied to a fixed-width layout; wider content pans instead of shrinking further. */
+export const MIN_EMAIL_SCALE = 0.8
+
 export type EmailLayoutMode = 'readable' | 'original'
 export type EmailTheme = 'light' | 'dark'
 export type EmailImageMode = 'automatic' | 'original'
 export type EmailColorMode = 'automatic' | 'original'
+
+export type { EmailColorStrategy }
 
 /** Measurements the React wrapper can use to offer an Original/Readable control. */
 export interface EmailLayoutStatusDetail {
@@ -32,6 +42,17 @@ export interface EmailLayoutStatusDetail {
 	scale: number
 	reflowed: boolean
 	needsFit: boolean
+}
+
+/**
+ * How the thread should present a message's surroundings. `canvas` is the
+ * sender's painted canvas as an `rgb()` value when the thread should extend it
+ * across the reading pane, or null when the message sits on the app ground.
+ */
+export interface EmailCanvasDetail {
+	strategy: EmailColorStrategy
+	canvas: string | null
+	height: number
 }
 
 export interface EmailRemoteImagesDetail {
@@ -103,12 +124,13 @@ export function emailSupportsDarkMode(html: string): boolean {
 /**
  * Downscale factor so content of `contentWidth` fits inside `containerWidth`.
  * Never upscales (emails are rarely narrower than the pane, and blowing them up
- * looks broken). Non-positive measurements — jsdom, or a not-yet-laid-out pane —
- * mean "don't scale".
+ * looks broken), and never goes below `minimum`: past that floor the reader pans
+ * horizontally instead of shrinking text out of legibility. Non-positive
+ * measurements — jsdom, or a not-yet-laid-out pane — mean "don't scale".
  */
-export function computeScale(contentWidth: number, containerWidth: number): number {
+export function computeScale(contentWidth: number, containerWidth: number, minimum = 0): number {
 	if (contentWidth <= 0 || containerWidth <= 0) return 1
-	return Math.min(1, containerWidth / contentWidth)
+	return Math.max(minimum, Math.min(1, containerWidth / contentWidth))
 }
 
 /**
@@ -226,58 +248,49 @@ export function linkPreviewText(href: string): string {
 /**
  * Stylesheet injected into the email's shadow root. The shadow boundary already
  * scopes these rules away from the app; zero-specificity resets provide stable
- * defaults without beating sender CSS, while the host rules enforce containment
- * and opt-in dark inversion. Inversion flips the whole document, then re-flips
- * media so photos and logos keep their real colors (the classic "smart invert").
+ * defaults without beating sender CSS, while the host rules enforce containment.
+ * Dark presentation is never a filter: the element remaps sender colors one by
+ * one (see `email-color-map.ts`) and reflects the chosen strategy as
+ * `data-email-strategy`, which these rules key off.
  */
 export function shadowStyleText(): string {
-	// Emails are authored for a white canvas, so we always render them on one — that
-	// keeps minimally-styled mail (plain <p> text) readable in either theme. Dark mode
-	// filters the custom-element host rather than `.email-root`, because provider
-	// styles live in this shadow tree and commonly use broad selectors such as `div`.
-	// The host is outside those selectors, so a hard-coded white newsletter cannot
-	// cancel the transform. Layout/paint containment also bounds positioned provider
-	// content to the message surface. Media is re-inverted so photos keep true colors.
+	// The host carries no padding or background of its own: the thread column owns
+	// the gutter and paints the sender canvas full bleed. Layout/paint containment
+	// bounds positioned provider content to the message surface. Paper and original
+	// presentations paint the sender canvas on the root as well, so the message
+	// stays light even before the thread band has updated.
 	return `
 :host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
 :host([data-email-theme="dark"]){--ownmail-email-theme:dark;--ownmail-email-link-color:#7dd3fc;color:#e5e7eb;color-scheme:dark;}
-.email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:transparent!important;color:inherit;padding:20px;overflow-wrap:anywhere;word-break:break-word;}
+:host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:#1a1a1a;color-scheme:light;}
+:host([data-email-pan]){overflow-x:auto!important;overflow-y:hidden!important;touch-action:pan-x pan-y pinch-zoom;overscroll-behavior-x:contain;}
+:host([data-email-direction="rtl"]){direction:rtl;}
+.email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:transparent!important;color:inherit;padding:0;overflow-wrap:anywhere;word-break:break-word;}
+:host([data-email-strategy="paper"]) .email-root,:host([data-email-strategy="original"][data-color-mode="original"]) .email-root{background:var(--ownmail-email-canvas,#fff)!important;}
 .email-root[data-ownmail-direction="rtl"]{transform-origin:top right!important;}
 :where(.email-root) :where(*, *::before, *::after){box-sizing:border-box;}
 :where(.email-root) :where(html, body){display:block;min-width:0;}
 :where(.email-root) :where(body){margin:0;}
 :where(.email-root) :where(body:not([bgcolor])){background-color:transparent;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
-:where(.email-root) :where(a[href]){color:var(--ownmail-email-link-color);text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
+:where(.email-root) :where(a[href]){color:var(--ownmail-email-link-color);}
+:where(.email-root) :where(a[href]:not([data-ownmail-cta])){text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}
 :where(.email-root) [data-ownmail-inherited-color="dark"]{color:#1a1a1a!important;}
 :where(.email-root) [data-ownmail-inherited-color="light"]{color:#f5f5f5!important;}
 :where(.email-root) :where(a[href]):focus-visible{outline:2px solid CanvasText!important;outline-offset:2px!important;border-radius:2px!important;box-shadow:0 0 0 4px Canvas!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(table){min-width:0!important;table-layout:auto;}
-:host(:not([data-layout-mode="original"])) .email-root :where(td, th){min-width:0!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
+:host(:not([data-layout-mode="original"])) .email-root :where(td, th){min-width:0!important;overflow-wrap:break-word!important;word-break:normal!important;}
 :host(:not([data-layout-mode="original"])) .email-root :where(img, video, svg, canvas){height:auto;}
+:host(:not([data-layout-mode="original"])) .email-root :where(img){max-width:100%;}
 :host(:not([data-layout-mode="original"])) .email-root :where(img:not([src]):not([srcset])){display:none!important;}
-:host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1) hue-rotate(180deg)!important;}
-:host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}
-:host([data-color-mode="original"][data-email-theme="light"]) .email-root{background:#fff!important;color:#1a1a1a!important;}
-:host([data-dark-invert]) .email-root :where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;}
-:host([data-dark-invert]) .email-root img[data-ownmail-image-backing]{background-color:#f3f4f6!important;}
-:host([data-dark-invert]) .email-root :where(svg, canvas){background-color:#f3f4f6!important;}
-:where(.email-root) [data-ownmail-background-media]{position:relative!important;isolation:isolate;}
-:host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]{background-image:none!important;}
-:host([data-dark-invert]) :where(.email-root) [data-ownmail-background-media]::before{content:""!important;position:absolute!important;inset:0!important;z-index:-1!important;pointer-events:none!important;background-image:var(--ownmail-background-image)!important;background-position:var(--ownmail-background-position)!important;background-size:var(--ownmail-background-size)!important;background-repeat:var(--ownmail-background-repeat)!important;background-origin:var(--ownmail-background-origin)!important;background-clip:var(--ownmail-background-clip)!important;filter:invert(1) hue-rotate(180deg)!important;}
+:host([data-email-strategy="remap"]) .email-root img[data-ownmail-image-backing]{background-color:#f3f4f6!important;border-radius:2px;}
+:host([data-email-strategy="remap"]) .email-root :where(svg, canvas){background-color:#f3f4f6!important;}
 `.trim()
 }
 
 /** Push `html` onto the element if it is mounted; a no-op before the ref attaches. */
 export function applyEmailHtml(element: EmailElementLike | null, html: string): void {
 	if (element) element.emailHtml = html
-}
-
-/** Reflect the dark-inversion decision as the attribute the shadow CSS keys off. */
-export function applyDarkInvert(element: Element | null, invert: boolean): void {
-	if (!element) return
-	if (invert) element.setAttribute('data-dark-invert', '')
-	else element.removeAttribute('data-dark-invert')
 }
 
 /** Reflect the app theme used by rewritten provider color-scheme queries. */

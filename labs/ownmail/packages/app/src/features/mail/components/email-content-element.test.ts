@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
+	EMAIL_CANVAS_EVENT,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
+	type EmailCanvasDetail,
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
@@ -11,9 +13,14 @@ import {
 import {
 	anchorHref,
 	applyControlledImageTreatment,
+	applyEmailColorRemap,
 	applyInheritedSurfaceContrast,
 	applyPictureSourceMedia,
+	ColorOverrides,
+	detectEmailCanvas,
 	ensureEmailElementDefined,
+	hasLightMatteArtwork,
+	isCallToActionAnchor,
 	rewriteAnchors,
 } from './email-content-element.js'
 
@@ -410,15 +417,14 @@ describe('<ownmail-email> rendering', () => {
 		const el = mount('<style>div { filter: none !important; background: white !important; }</style><p>Hi</p>')
 		const children = Array.from(el.shadowRoot?.children ?? [])
 		expect(children.at(-1)?.tagName).toBe('STYLE')
-		expect(children.at(-1)?.textContent).toContain(':host([data-dark-invert])')
+		expect(children.at(-1)?.textContent).toContain(':host([data-email-strategy="remap"])')
 	})
 
-	it('isolates a provider CSS background into the trusted dark-fidelity layer', () => {
+	it('leaves provider CSS backgrounds untouched instead of re-filtering them', () => {
 		const el = mount('<div class="hero" style="background-image:linear-gradient(red,blue)">Hero</div>')
 		const hero = el.shadowRoot?.querySelector<HTMLElement>('.hero')
-		expect(hero).toHaveAttribute('data-ownmail-background-media')
-		expect(hero?.style.getPropertyValue('--ownmail-background-image')).toContain('linear-gradient')
-		expect(hero?.style.getPropertyPriority('--ownmail-background-image')).toBe('important')
+		expect(hero).not.toHaveAttribute('data-ownmail-background-media')
+		expect(hero?.style.getPropertyValue('background-image')).toContain('linear-gradient')
 	})
 
 	it('applies html set after the element is already connected', () => {
@@ -594,7 +600,9 @@ describe('<ownmail-email> rendering', () => {
 
 describe('<ownmail-email> scaling', () => {
 	it('reclassifies inherited surface colors when host dark handling changes', () => {
-		const el = mount('<div class="surface" style="background:rgb(255,255,255)">Text</div>')
+		const el = mount(
+			'<style>@media (prefers-color-scheme: dark){p{color:white}}</style><div class="surface" style="background:rgb(255,255,255)">Text</div>',
+		)
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
 		const surface = content.querySelector('.surface') as HTMLElement
 		for (let ancestor = surface.parentElement; ancestor; ancestor = ancestor.parentElement) {
@@ -605,10 +613,13 @@ describe('<ownmail-email> scaling', () => {
 		stubSize(el, 'clientWidth', 320)
 
 		el.setAttribute('data-email-theme', 'dark')
-		expect(() => el.measure()).not.toThrow()
-
-		el.setAttribute('data-dark-invert', '')
 		el.measure()
+		expect(el).toHaveAttribute('data-email-strategy', 'native')
+		expect(surface).toHaveAttribute('data-ownmail-inherited-color', 'dark')
+
+		el.setAttribute('data-color-mode', 'original')
+		el.measure()
+		expect(el).toHaveAttribute('data-email-strategy', 'original')
 		expect(surface).not.toHaveAttribute('data-ownmail-inherited-color')
 	})
 
@@ -616,16 +627,56 @@ describe('<ownmail-email> scaling', () => {
 		const el = mount('<p>wide</p>')
 		el.setAttribute('data-layout-mode', 'original')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
-		stubSize(content, 'scrollWidth', 600)
+		stubSize(content, 'scrollWidth', 360)
 		stubSize(content, 'scrollHeight', 1000)
 		stubSize(el, 'clientWidth', 300)
 		el.measure()
 		expect(content.style.transform).toBe('scale(var(--ownmail-email-scale, 1))')
-		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('0.5')
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe(`${300 / 360}`)
 		expect(content.style.getPropertyPriority('--ownmail-email-scale')).toBe('important')
-		expect(content.style.width).toBe('600px')
+		expect(content.style.width).toBe('360px')
 		expect(content.style.getPropertyPriority('width')).toBe('important')
-		expect(el.style.height).toBe('500px')
+		expect(el.style.height).toBe('834px')
+		expect(el).not.toHaveAttribute('data-email-pan')
+	})
+
+	it('stops shrinking at the legibility floor and pans the remainder', () => {
+		const el = mount('<p>very wide</p>')
+		el.setAttribute('data-layout-mode', 'original')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		stubSize(content, 'scrollWidth', 600)
+		stubSize(content, 'scrollHeight', 1000)
+		stubSize(el, 'clientWidth', 300)
+		el.measure()
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('0.8')
+		expect(el.style.height).toBe('800px')
+		expect(el).toHaveAttribute('data-email-pan')
+
+		stubSize(content, 'scrollWidth', 300)
+		stubSize(el, 'clientWidth', 320)
+		el.measure()
+		expect(el).not.toHaveAttribute('data-email-pan')
+	})
+
+	it('pans RTL overflow from the inline start', () => {
+		const el = mount('<html><body dir="rtl"><p>واسع</p></body></html>')
+		el.setAttribute('data-layout-mode', 'original')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		stubSize(content, 'scrollWidth', 600)
+		stubSize(el, 'clientWidth', 300)
+		el.measure()
+		expect(el).toHaveAttribute('data-email-pan', '')
+		expect(el).toHaveAttribute('data-email-direction', 'rtl')
+	})
+
+	it('pans readable content that still cannot fit after reflow', () => {
+		const el = mount('<pre>unbreakable</pre>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		stubSize(content, 'scrollWidth', 500)
+		stubSize(el, 'clientWidth', 320)
+		el.measure()
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('1')
+		expect(el).toHaveAttribute('data-email-pan')
 	})
 
 	it('clears any scaling when content fits the pane', () => {
@@ -648,7 +699,8 @@ describe('<ownmail-email> scaling', () => {
 		el.measure()
 		expect(content).toHaveAttribute('data-ownmail-direction', 'rtl')
 		expect(content.style.transformOrigin).toBe('top right')
-		expect(content.style.left).toBe('-300px')
+		expect(content.style.left).toBe('0px')
+		expect(el).toHaveAttribute('data-email-direction', 'rtl')
 	})
 
 	it('emits a deduplicated composed layout status for the wrapper', () => {
@@ -756,6 +808,10 @@ describe('<ownmail-email> scaling', () => {
 		const table = content.querySelector('.wide') as HTMLTableElement
 		const visibleCell = table.querySelector('td') as HTMLTableCellElement
 		const hiddenRow = table.querySelector('.hidden') as HTMLTableRowElement
+		Object.defineProperty(table, 'scrollWidth', {
+			configurable: true,
+			get: () => (table.style.getPropertyValue('display') === 'block' ? 300 : 600),
+		})
 		content.getBoundingClientRect = () => ({ left: 0, right: 320, width: 320 }) as DOMRect
 		offset.getBoundingClientRect = () => ({ left: 60, right: 380, width: 320 }) as DOMRect
 		stubSize(content, 'scrollWidth', 600)
@@ -769,20 +825,55 @@ describe('<ownmail-email> scaling', () => {
 		}
 		expect(table.style.getPropertyValue('display')).toBe('block')
 		expect(visibleCell.style.getPropertyValue('display')).toBe('block')
+		expect(visibleCell.style.getPropertyValue('overflow-wrap')).toBe('')
 		expect(hiddenRow.style.getPropertyValue('display')).toBe('none')
 	})
 
-	it('keeps wide table semantics in a sufficiently large reading pane', () => {
-		const el = mount('<table class="wide" width="1200"><tbody><tr><td>Content</td></tr></tbody></table>')
+	it('splits words only inside a table that still overflows after stacking', () => {
+		const el = mount('<table class="narrow"><tr><td>Supercalifragilistic</td></tr></table>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const table = content.querySelector('.narrow') as HTMLTableElement
+		table.getBoundingClientRect = () => ({ left: 0, right: 200, width: 200 }) as DOMRect
+		content.getBoundingClientRect = () => ({ left: 0, right: 160, width: 160 }) as DOMRect
+		stubSize(el, 'clientWidth', 160)
+		el.measure()
+		expect(table.style.getPropertyValue('display')).toBe('block')
+		expect(table.querySelector('td')?.style.getPropertyValue('overflow-wrap')).toBe('anywhere')
+	})
+
+	it('stacks a table that drifts past the pane edge', () => {
+		const el = mount('<table class="drift"><tr><td>a</td><td>b</td></tr></table>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const table = content.querySelector('.drift') as HTMLTableElement
+		table.getBoundingClientRect = () =>
+			(table.style.getPropertyValue('display') === 'block'
+				? { left: 0, right: 150, width: 150 }
+				: { left: -10, right: 150, width: 160 }) as DOMRect
+		content.getBoundingClientRect = () => ({ left: 0, right: 160, width: 160 }) as DOMRect
+		stubSize(el, 'clientWidth', 160)
+		el.measure()
+		expect(table.style.getPropertyValue('display')).toBe('block')
+		expect(table.querySelector('td')?.style.getPropertyValue('overflow-wrap')).toBe('')
+	})
+
+	it('keeps table rows intact whenever clamping lets the cells fit, even in a narrow pane', () => {
+		const el = mount(
+			'<table class="wide" width="1200"><tbody><tr><td>Status</td><td>Job</td><td>Annotations</td></tr></tbody></table><table class="gone" style="display:none"><tr><td>x</td></tr></table>',
+		)
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
 		const table = content.querySelector('.wide') as HTMLTableElement
+		const hidden = content.querySelector('.gone') as HTMLTableElement
 		stubSize(content, 'scrollWidth', 1_200)
-		stubSize(el, 'clientWidth', 800)
+		stubSize(table, 'scrollWidth', 300)
+		stubSize(hidden, 'scrollWidth', 900)
+		stubSize(el, 'clientWidth', 320)
 
 		el.measure()
 
-		expect(table.style.getPropertyValue('table-layout')).toBe('fixed')
+		expect(table.style.getPropertyValue('table-layout')).toBe('')
+		expect(table.style.getPropertyValue('width')).toBe('100%')
 		expect(table.style.getPropertyValue('display')).toBe('')
+		expect(hidden.style.getPropertyValue('display')).toBe('none')
 	})
 
 	it('normalizes computed fixed widths and safely skips non-HTML elements', () => {
@@ -879,5 +970,230 @@ describe('<ownmail-email> disconnect', () => {
 			disconnectedCallback: () => void
 		}
 		expect(() => el.disconnectedCallback()).not.toThrow()
+	})
+})
+
+function stubBox(element: Element, width: number, height = 100) {
+	Object.defineProperty(element, 'offsetWidth', { configurable: true, get: () => width })
+	Object.defineProperty(element, 'offsetHeight', { configurable: true, get: () => height })
+}
+
+const REPORT_HTML = `<div class="canvas" style="background-color:rgb(238,240,243)">
+	<div class="card" style="background-color:rgb(255,255,255);color:rgb(34,34,34);border:1px solid rgb(209,217,224)">
+		<p class="muted" style="color:rgb(119,119,119)">Daily report</p>
+		<div class="band" style="background-color:rgb(38,38,38);color:rgb(255,255,255)">NEW ERRORS</div>
+		<a class="cta" href="https://report.test" style="background-color:rgb(60,91,214);color:rgb(255,255,255);padding:12px">Open</a>
+	</div>
+</div>`
+
+function mountReport(head = ''): { el: EmailEl; content: HTMLElement; events: EmailCanvasDetail[] } {
+	const el = mount(`${head}${REPORT_HTML}`)
+	const events: EmailCanvasDetail[] = []
+	el.addEventListener(EMAIL_CANVAS_EVENT, (event) =>
+		events.push((event as CustomEvent<EmailCanvasDetail>).detail),
+	)
+	const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+	stubSize(content, 'scrollWidth', 320)
+	stubSize(content, 'scrollHeight', 400)
+	stubSize(el, 'clientWidth', 320)
+	stubBox(content.querySelector('.canvas') as Element, 320, 400)
+	stubBox(content.querySelector('.card') as Element, 300, 380)
+	return { el, content, events }
+}
+
+describe('<ownmail-email> color strategy', () => {
+	it('remaps a light-only message for the dark reader and reports a transparent canvas', () => {
+		const { el, content, events } = mountReport()
+		el.setAttribute('data-email-theme', 'dark')
+		el.measure()
+
+		const canvas = content.querySelector('.canvas') as HTMLElement
+		const card = content.querySelector('.card') as HTMLElement
+		const band = content.querySelector('.band') as HTMLElement
+		const cta = content.querySelector('.cta') as HTMLElement
+		expect(el).toHaveAttribute('data-email-strategy', 'remap')
+		expect(canvas.style.getPropertyValue('background-color')).toBe('transparent')
+		expect(card.style.getPropertyValue('background-color')).not.toBe('rgb(255, 255, 255)')
+		expect(card.style.getPropertyPriority('color')).toBe('important')
+		expect(card.style.getPropertyValue('border-top-color')).not.toBe('rgb(209, 217, 224)')
+		expect(band.style.getPropertyValue('background-color')).toBe('rgb(38, 38, 38)')
+		expect(cta.style.getPropertyValue('background-color')).toBe('rgb(60, 91, 214)')
+		expect(cta).toHaveAttribute('data-ownmail-cta')
+		expect(events.at(-1)).toEqual({ strategy: 'remap', canvas: null, height: 400 })
+
+		const remappedCard = card.getAttribute('style')
+		el.measure()
+		expect(card.getAttribute('style')).toBe(remappedCard)
+		expect(events).toHaveLength(1)
+	})
+
+	it('restores sender colors and extends the canvas when the reader keeps original colors', () => {
+		const { el, content, events } = mountReport()
+		el.setAttribute('data-email-theme', 'dark')
+		el.measure()
+		el.setAttribute('data-color-mode', 'original')
+		el.measure()
+
+		const card = content.querySelector('.card') as HTMLElement
+		expect(el).toHaveAttribute('data-email-strategy', 'original')
+		expect(card.style.getPropertyValue('background-color')).toBe('rgb(255, 255, 255)')
+		expect(card.style.getPropertyPriority('background-color')).toBe('')
+		expect(el.style.getPropertyValue('--ownmail-email-canvas')).toBe('rgb(238, 240, 243)')
+		expect(events.at(-1)).toEqual({ strategy: 'original', canvas: 'rgb(238, 240, 243)', height: 400 })
+	})
+
+	it('trusts a sender dark stylesheet and reports its canvas', () => {
+		const { el, events } = mountReport('<style>@media (prefers-color-scheme: dark){p{color:white}}</style>')
+		el.setAttribute('data-email-theme', 'dark')
+		el.measure()
+		expect(el).toHaveAttribute('data-email-strategy', 'native')
+		expect(el.style.getPropertyValue('--ownmail-email-canvas')).toBe('')
+		expect(events.at(-1)?.canvas).toBe('rgb(238, 240, 243)')
+	})
+
+	it('keeps light-matte artwork on paper with light image treatment', () => {
+		const token = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+		const el = mount(
+			`<table><tr><td class="cell" style="background-color:rgb(255,255,255)"><img class="logo" alt="Logo" src="/email-images/${token}?mode=automatic&amp;theme=dark"></td></tr></table><img class="spacer" hidden alt=""><img class="pending" alt="Pending">`,
+		)
+		el.setAttribute('data-load-remote-images', '')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const logo = content.querySelector('.logo') as HTMLImageElement
+		for (const [property, value] of Object.entries({
+			complete: true,
+			naturalWidth: 300,
+			naturalHeight: 56,
+			offsetWidth: 300,
+			offsetHeight: 56,
+		})) {
+			Object.defineProperty(logo, property, { configurable: true, get: () => value })
+		}
+		Object.defineProperty(content.querySelector('.pending'), 'complete', {
+			configurable: true,
+			get: () => false,
+		})
+		const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+			drawImage() {},
+			getImageData: () => ({ data: new Uint8ClampedArray(32 * 16 * 4).fill(255) }),
+		} as unknown as CanvasRenderingContext2D)
+		stubSize(el, 'clientWidth', 320)
+		el.setAttribute('data-email-theme', 'dark')
+		el.measure()
+		getContext.mockRestore()
+
+		expect(el).toHaveAttribute('data-email-strategy', 'paper')
+		expect(el.style.getPropertyValue('--ownmail-email-canvas')).toBe('rgb(255, 255, 255)')
+		expect(logo.getAttribute('src')).toContain('theme=light')
+	})
+
+	it('does not sample artwork when the sender ships dark styles or the reader keeps originals', () => {
+		const el = mount('<style>@media (prefers-color-scheme: dark){p{color:white}}</style><img alt="Art">')
+		const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+		stubSize(el, 'clientWidth', 320)
+		el.setAttribute('data-email-theme', 'dark')
+		el.measure()
+		expect(getContext).not.toHaveBeenCalled()
+		getContext.mockRestore()
+	})
+})
+
+describe('detectEmailCanvas', () => {
+	it('finds no canvas before the pane has a width', () => {
+		expect(detectEmailCanvas(document.createElement('div'), 0)).toEqual({ color: null, elements: new Set() })
+	})
+
+	it('never treats a short full-width banner as the canvas, but joins full-width default-white rows', () => {
+		const root = document.createElement('div')
+		root.innerHTML = `<style>p{}</style><div class="hero" style="background-color:rgb(9,105,218)">Hero</div>
+			<div class="row" style="background-color:rgb(255,255,255)">Row</div>
+			<div class="ghost" style="background-color:rgba(255,255,255,0.2)">Ghost</div>
+			<svg class="art"></svg><div class="narrow" style="background-color:rgb(255,255,255)">Card</div>`
+		document.body.append(root)
+		stubSize(root, 'scrollHeight', 1000)
+		stubBox(root.querySelector('.hero') as Element, 320, 80)
+		stubBox(root.querySelector('.row') as Element, 320, 80)
+		stubBox(root.querySelector('.ghost') as Element, 320, 900)
+		stubBox(root.querySelector('.narrow') as Element, 200, 900)
+		stubBox(root.querySelector('style') as Element, 320, 900)
+		const canvas = detectEmailCanvas(root, 320)
+		expect(canvas.color).toBeNull()
+		expect([...canvas.elements].map((element) => element.className)).toEqual(['row'])
+	})
+})
+
+describe('applyEmailColorRemap', () => {
+	it('keeps authored colors over background images and skips media, SVG, and contents boxes', () => {
+		const root = document.createElement('div')
+		root.innerHTML = `<div class="art" style="background-image:linear-gradient(red,blue);color:rgb(20,20,20)"><span class="over" style="color:rgb(10,10,10)">Over art</span><span class="veil" style="background-color:rgba(255,255,255,0.4)">Veil</span><span class="chip" style="background-color:rgb(255,255,255);color:rgb(20,20,20)">Chip</span></div>
+			<p class="modern" style="color:oklch(0.5 0.1 120)">Modern color</p>
+			<div class="contents" style="display:contents;background-color:rgb(255,255,255);color:rgb(30,30,30)">Contents</div>
+			<div class="tint" style="background-color:rgba(255,255,255,0.5);border-top:2px solid rgb(20,20,20)">Tint</div>
+			<svg><text class="svg-text" fill="black">Chart</text></svg><img alt="">`
+		document.body.append(root)
+		const overrides = new ColorOverrides()
+		applyEmailColorRemap(root, { color: null, elements: new Set() }, overrides)
+
+		expect((root.querySelector('.over') as HTMLElement).style.getPropertyValue('color')).toBe(
+			'rgb(10, 10, 10)',
+		)
+		expect((root.querySelector('.over') as HTMLElement).style.getPropertyPriority('color')).toBe('')
+		expect((root.querySelector('.veil') as HTMLElement).style.getPropertyPriority('background-color')).toBe(
+			'',
+		)
+		expect((root.querySelector('.chip') as HTMLElement).style.getPropertyPriority('background-color')).toBe(
+			'important',
+		)
+		const contents = root.querySelector('.contents') as HTMLElement
+		expect(contents.style.getPropertyPriority('background-color')).toBe('')
+		expect(contents.style.getPropertyPriority('color')).toBe('important')
+		const tint = root.querySelector('.tint') as HTMLElement
+		expect(tint.style.getPropertyPriority('background-color')).toBe('important')
+		expect(tint.style.getPropertyValue('border-top-color')).toBe('rgb(20, 20, 20)')
+		expect(root.querySelector('.svg-text')?.getAttribute('style')).toBeNull()
+
+		overrides.restore()
+		expect(tint.style.getPropertyValue('background-color')).toBe('rgba(255, 255, 255, 0.5)')
+		expect(contents.style.getPropertyPriority('color')).toBe('')
+	})
+
+	it('removes a style attribute the remap created when restoring', () => {
+		const root = document.createElement('div')
+		root.innerHTML = '<p class="plain">Plain text</p>'
+		document.body.append(root)
+		const plain = root.querySelector('.plain') as HTMLElement
+		plain.style.color = 'rgb(0, 0, 0)'
+		plain.removeAttribute('style')
+		const overrides = new ColorOverrides()
+		overrides.set(plain, 'color', 'rgb(240, 240, 240)')
+		expect(plain).toHaveAttribute('style')
+		overrides.restore()
+		expect(plain).not.toHaveAttribute('style')
+	})
+})
+
+describe('hasLightMatteArtwork', () => {
+	it('ignores images that are hidden, unloaded, or unmeasured', () => {
+		const root = document.createElement('div')
+		root.innerHTML = '<img hidden alt=""><span><img alt="Pending"></span>'
+		document.body.append(root)
+		expect(hasLightMatteArtwork(root, { red: 255, green: 255, blue: 255, alpha: 1 })).toBe(false)
+	})
+})
+
+describe('isCallToActionAnchor', () => {
+	function anchor(style: string): HTMLAnchorElement {
+		const element = document.createElement('a')
+		element.href = 'https://example.test'
+		element.setAttribute('style', style)
+		document.body.append(element)
+		return element
+	}
+
+	it('recognizes filled, padded, and bordered button links but not text links', () => {
+		expect(isCallToActionAnchor(anchor('background-image:linear-gradient(red,blue)'))).toBe(true)
+		expect(isCallToActionAnchor(anchor('display:inline-block;padding:10px 20px'))).toBe(true)
+		expect(isCallToActionAnchor(anchor('display:block;border:1px solid rgb(0,0,0)'))).toBe(true)
+		expect(isCallToActionAnchor(anchor('display:inline-block'))).toBe(false)
+		expect(isCallToActionAnchor(anchor('padding:12px'))).toBe(false)
 	})
 })
