@@ -69,6 +69,31 @@ function rememberConfirmedCalendarEffect(queryClient: QueryClient, effect: Calen
 	])
 }
 
+/**
+ * Sets aside the receipts remembered for an event's earlier create or update.
+ * They hold its previous times, and replaying them over a newer local change
+ * would draw the event back where it was. Returns how to put them back if that
+ * newer change is rejected.
+ */
+function supersedeConfirmedEventEffects(queryClient: QueryClient, eventId: string): () => void {
+	const previous = confirmedEffects.get(queryClient) ?? []
+	const account = accountScope()
+	confirmedEffects.set(
+		queryClient,
+		previous.filter(
+			(entry) =>
+				!(
+					entry.account === account &&
+					(entry.effect.type === 'created' || entry.effect.type === 'updated') &&
+					entry.effect.event.id === eventId
+				),
+		),
+	)
+	return () => {
+		confirmedEffects.set(queryClient, previous)
+	}
+}
+
 function reconcileCalendarData<T extends { events: Event[] }>(
 	queryClient: QueryClient,
 	data: T,
@@ -417,12 +442,18 @@ export function useUpdateEventMutation(event: Event | null) {
 		onMutate: async (input) => {
 			if (!event) return undefined
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
+			// The receipt of an earlier save holds the event's previous fields; it
+			// must not be replayed over this newer change.
+			const restoreReceipts = supersedeConfirmedEventEffects(queryClient, event.id)
 			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
 				applyCalendarEffect(queryClient, { type: 'updated', event: eventFromUpdate(event, input) }),
 			)
-			return { written }
+			return { written, restoreReceipts }
 		},
-		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.written),
+		onError: (_error, _input, context) => {
+			context?.restoreReceipts()
+			restoreCalendar(queryClient, context?.written)
+		},
 		onSuccess: (receipt, input) => {
 			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over event is absent -- @preserve */
 			if (!event) return
@@ -432,8 +463,60 @@ export function useUpdateEventMutation(event: Event | null) {
 				type: 'updated',
 				event: canonical ?? eventFromUpdate(current, input),
 			} as const
-			applyCalendarEffect(queryClient, effect)
+			// Remembered before it is applied: the views re-read the receipts when the cache changes.
 			rememberConfirmedCalendarEffect(queryClient, effect)
+			applyCalendarEffect(queryClient, effect)
+			refreshCalendar(queryClient)
+		},
+	})
+}
+
+/** New times for one event, e.g. from a drag in the time grid. */
+export type RescheduleEventInput = { event: Event; startTime: number; endTime: number }
+
+/**
+ * Moves or resizes any event through the same `updateEvent` path the editor
+ * uses: the cache changes at once and is restored if the provider rejects it.
+ * The event travels with each call, so one hook serves every event in the grid.
+ */
+export function useRescheduleEventMutation() {
+	const queryClient = useQueryClient()
+	const updateInput = ({ event, startTime, endTime }: RescheduleEventInput): UpdateEventInput => ({
+		eventId: event.id,
+		...(event.calendar_id ? { calendarId: event.calendar_id } : {}),
+		startTime,
+		endTime,
+	})
+	return useMutation({
+		mutationFn: (input: RescheduleEventInput) => updateEvent({ data: updateInput(input) }),
+		onMutate: async (input) => {
+			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
+			// An event is often dragged again within moments; its last confirmed
+			// position must not be replayed over the new one.
+			const restoreReceipts = supersedeConfirmedEventEffects(queryClient, input.event.id)
+			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
+				applyCalendarEffect(queryClient, {
+					type: 'updated',
+					event: eventFromUpdate(input.event, updateInput(input)),
+				}),
+			)
+			return { written, restoreReceipts }
+		},
+		onError: (_error, _input, context) => {
+			context?.restoreReceipts()
+			// Only the ranges this drag changed are put back, then the server is asked.
+			restoreCalendar(queryClient, context?.written)
+		},
+		onSuccess: (receipt, input) => {
+			const current = findCachedEvent(queryClient, input.event.id) ?? input.event
+			const canonical = 'event' in receipt && receipt.event ? receipt.event : undefined
+			const effect = {
+				type: 'updated',
+				event: canonical ?? eventFromUpdate(current, updateInput(input)),
+			} as const
+			// Remembered before it is applied: the views re-read the receipts when the cache changes.
+			rememberConfirmedCalendarEffect(queryClient, effect)
+			applyCalendarEffect(queryClient, effect)
 			refreshCalendar(queryClient)
 		},
 	})

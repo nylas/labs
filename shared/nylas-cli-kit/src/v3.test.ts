@@ -755,6 +755,30 @@ describe('NylasV3Client', () => {
 		])
 	})
 
+	it('types the series id on an expanded occurrence, so callers can tell an occurrence from a series', async () => {
+		let requestUrl = ''
+		const fetchImpl: typeof fetch = async (input) => {
+			requestUrl = String(input)
+			return Response.json({
+				request_id: 'req',
+				data: [
+					{
+						id: 'series-1_20260105T140000Z',
+						calendar_id: 'primary',
+						master_event_id: 'series-1',
+						when: { start_time: 100, end_time: 200 },
+					},
+					{ id: 'single-1', calendar_id: 'primary', when: { start_time: 300, end_time: 400 } },
+				],
+			})
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+		const events = await mailbox.listEvents({ calendar_id: 'primary', expand_recurring: true })
+		expect(requestUrl).toContain('expand_recurring=true')
+		const seriesIds: Array<string | undefined> = events.data.map((event) => event.master_event_id)
+		expect(seriesIds).toEqual(['series-1', undefined])
+	})
+
 	it('can create an event without notifying participants', async () => {
 		let requestUrl = ''
 		let requestBody: unknown

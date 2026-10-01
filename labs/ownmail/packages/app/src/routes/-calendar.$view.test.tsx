@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
 	invalidate: vi.fn(),
 	getEvents: vi.fn(),
 	getMailboxInfo: vi.fn(),
+	updateEvent: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -37,6 +38,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('#features/calendar/server/calendar-fns', () => ({
 	getEvents: (args: any) => h.getEvents(args),
+	updateEvent: (args: any) => h.updateEvent(args),
 }))
 vi.mock('#server/fns', () => ({ getMailboxInfo: () => h.getMailboxInfo() }))
 
@@ -98,6 +100,8 @@ vi.mock('#features/calendar/components/EventModal', () => ({
 			data-calendar-name={props.calendarName}
 			data-default-start={props.defaultStart?.toISOString?.()}
 			data-preserve-default-start-time={String(props.preserveDefaultStartTime)}
+			data-default-duration-minutes={String(props.defaultDurationMinutes)}
+			data-start-in-edit={String(props.startInEdit)}
 		>
 			<button
 				type="button"
@@ -124,6 +128,37 @@ vi.mock('#features/calendar/components/EventModal', () => ({
 		</div>
 	),
 }))
+
+// The read-only view owns its render tests; here it is a marker that exposes what the
+// pane was given and lets a test drive its callbacks.
+vi.mock('#features/calendar/components/EventDetails', async () => {
+	const { useImperativeHandle } = await import('react')
+	return {
+		EventDetails: (props: any) => {
+			useImperativeHandle(props.ref, () => ({ requestClose: props.onClose }))
+			return (
+				<div
+					data-testid="event-details"
+					data-event={props.event.id}
+					data-variant={props.variant}
+					data-calendar-id={props.calendarId}
+					data-calendar-name={props.calendarName}
+					data-email={props.email}
+				>
+					<button type="button" onClick={props.onEdit}>
+						details-edit
+					</button>
+					<button type="button" onClick={props.onClose}>
+						details-close
+					</button>
+					<button type="button" onClick={props.onDeleted}>
+						details-deleted
+					</button>
+				</div>
+			)
+		},
+	}
+})
 
 vi.mock('#features/calendar/components/CalendarManagerDialog', () => ({
 	CalendarManagerDialog: (props: any) => (
@@ -365,6 +400,23 @@ describe('calendar pending view', () => {
 		render(<Pending />)
 		expect(screen.getByTestId('calendar-pending-header')).toHaveClass('lg:grid-cols-[2.75rem_minmax(0,1fr)]')
 		expect(screen.getByTestId('calendar-pending-sidebar')).not.toHaveClass('lg:block')
+	})
+
+	it('reserves the details pane while loading when this device keeps it open, at the loaded width', () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		const Pending = Route.options.pendingComponent
+		const first = render(<Pending />)
+		expect(screen.queryByTestId('calendar-pending-detail-pane')).toBeNull()
+		first.unmount()
+
+		localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarDetailPaneOpen: true }))
+		const pending = render(<Pending />)
+		const reserved = screen.getByTestId('calendar-pending-detail-pane')
+		expect(reserved).toHaveClass('w-72', 'xl:w-80', 'lg:block')
+		pending.unmount()
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		expect(screen.getByRole('complementary', { name: 'Event details' })).toHaveClass('w-72', 'xl:w-80')
 	})
 })
 
@@ -843,7 +895,7 @@ describe('week view time grid', () => {
 
 	it('says so in the grid when the provider held back events, rather than showing a partial week as complete', () => {
 		render(<CalendarRouteScreen view="week" data={{ ...richData(), truncated: true }} />)
-		expect(screen.getByRole('status')).toHaveTextContent('Some events could not be loaded')
+		expect(screen.getByText('Some events could not be loaded')).toHaveAttribute('role', 'status')
 		cleanup()
 		renderWeek()
 		expect(screen.queryByText('Some events could not be loaded')).toBeNull()
@@ -904,18 +956,20 @@ describe('week view time grid', () => {
 		expect(screen.queryByText('Malformed')).toBeNull()
 	})
 
-	it('opens the editor from a timed event with its calendar name resolved', () => {
+	it('shows a timed event in the detail pane with its calendar name resolved, not in a dialog', () => {
 		renderWeek()
 		fireEvent.click(screen.getByRole('button', { name: /Standup/ }))
-		const modal = screen.getByTestId('event-modal')
-		expect(modal.dataset.event).toBe('t1')
-		expect(modal.dataset.calendarName).toBe('Work')
+		const details = screen.getByTestId('event-details')
+		expect(details.dataset.event).toBe('t1')
+		expect(details.dataset.calendarName).toBe('Work')
+		// Viewing never covers the grid: no dialog opens.
+		expect(screen.queryByTestId('event-modal')).toBeNull()
 	})
 
-	it('opens the editor from an all-day event', () => {
+	it('shows an all-day event in the detail pane', () => {
 		renderWeek()
 		fireEvent.click(screen.getByRole('button', { name: /^Trip/ }))
-		expect(screen.getByTestId('event-modal').dataset.event).toBe('a2')
+		expect(screen.getByTestId('event-details').dataset.event).toBe('a2')
 	})
 
 	it('opens a new event editor when an empty hour slot is clicked', () => {
@@ -1005,7 +1059,7 @@ describe('month view', () => {
 	it('opening an event does not also trigger the day-cell drill-in', () => {
 		renderMonth()
 		fireEvent.click(screen.getByRole('button', { name: /Meeting/ }))
-		expect(screen.getByTestId('event-modal').dataset.event).toBe('m2')
+		expect(screen.getByTestId('event-details').dataset.event).toBe('m2')
 		expect(h.navigate).not.toHaveBeenCalled()
 	})
 
@@ -1042,7 +1096,7 @@ describe('month view', () => {
 		const event = screen.getByRole('button', { name: /Meeting/ })
 		fireEvent.keyDown(event, { key: 'Enter' })
 		fireEvent.click(event)
-		expect(screen.getByTestId('event-modal').dataset.event).toBe('m2')
+		expect(screen.getByTestId('event-details').dataset.event).toBe('m2')
 		expect(h.navigate).not.toHaveBeenCalled()
 	})
 
@@ -1408,13 +1462,13 @@ describe('event editor', () => {
 	it('falls back to the primary calendar name for an event on an unknown calendar', () => {
 		renderWeek()
 		fireEvent.click(screen.getByRole('button', { name: /Sync/ }))
-		expect(screen.getByTestId('event-modal').dataset.calendarName).toBe('Primary Cal')
+		expect(screen.getByTestId('event-details').dataset.calendarName).toBe('Primary Cal')
 	})
 
 	it('falls back to the primary calendar name for an event with no calendar id', () => {
 		renderWeek()
 		fireEvent.click(screen.getByRole('button', { name: /Solo/ }))
-		expect(screen.getByTestId('event-modal').dataset.calendarName).toBe('Primary Cal')
+		expect(screen.getByTestId('event-details').dataset.calendarName).toBe('Primary Cal')
 	})
 
 	it('closes after the editor reports a cached change', () => {
@@ -1708,3 +1762,337 @@ describe('calendar grid controls', () => {
 function renderControlsWeek() {
 	return render(<CalendarRouteScreen view="week" data={richData()} />)
 }
+
+describe('event detail pane', () => {
+	const pane = () => screen.queryByRole('complementary', { name: 'Event details' })
+	const standup = () => screen.getByRole('button', { name: /^Standup/ })
+
+	it('opens from the top-bar toggle with a prompt, and closes from it again', () => {
+		renderControlsWeek()
+		const toggle = screen.getByRole('button', { name: 'Show event details' })
+		expect(toggle).toHaveAttribute('aria-expanded', 'false')
+		expect(toggle).toHaveAttribute('aria-controls', 'calendar-detail-panel')
+		expect(pane()).toBeNull()
+
+		fireEvent.click(toggle)
+		expect(pane()).toHaveTextContent('Select an event to see its details.')
+		// A pane in the flow beside the grid, not a dialog over it.
+		expect(pane()).toHaveClass('shrink-0', 'border-l')
+		expect(pane()?.parentElement).toContainElement(screen.getByLabelText('Calendar time grid'))
+		const open = screen.getByRole('button', { name: 'Hide event details' })
+		expect(open).toHaveAttribute('aria-expanded', 'true')
+
+		fireEvent.click(open)
+		expect(pane()).toBeNull()
+	})
+
+	it('shows the clicked event in the pane, marks it in the grid, and moves focus to the pane', async () => {
+		renderControlsWeek()
+		fireEvent.click(standup())
+		const details = screen.getByTestId('event-details')
+		expect(details.dataset).toMatchObject({ event: 't1', variant: 'panel', email: info.email })
+		expect(pane()).toContainElement(details)
+		// The selection is an ARIA state on the event, not only a ring.
+		expect(standup()).toHaveAttribute('aria-current', 'true')
+		expect(screen.getByRole('button', { name: /^Sync/ })).not.toHaveAttribute('aria-current')
+		await vi.waitFor(() => expect(pane()).toHaveFocus())
+	})
+
+	it('hands focus back to the event when the pane is closed', () => {
+		renderControlsWeek()
+		fireEvent.click(standup())
+		fireEvent.click(screen.getByText('details-close'))
+		expect(pane()).toBeNull()
+		expect(standup()).toHaveFocus()
+		expect(standup()).not.toHaveAttribute('aria-current')
+	})
+
+	it('closes on Escape from inside the pane, and ignores other keys', () => {
+		renderControlsWeek()
+		fireEvent.click(standup())
+		fireEvent.keyDown(pane() as HTMLElement, { key: 'a' })
+		expect(pane()).not.toBeNull()
+		// With an event shown, the view decides: it may first cancel a delete confirmation.
+		fireEvent.keyDown(pane() as HTMLElement, { key: 'Escape' })
+		expect(pane()).toBeNull()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Show event details' }))
+		fireEvent.keyDown(pane() as HTMLElement, { key: 'Escape' })
+		expect(pane()).toBeNull()
+	})
+
+	it('opens the existing editor from the pane, straight in edit mode, and returns to the pane', () => {
+		renderControlsWeek()
+		fireEvent.click(standup())
+		fireEvent.click(screen.getByText('details-edit'))
+		const modal = screen.getByTestId('event-modal')
+		expect(modal.dataset).toMatchObject({ event: 't1', startInEdit: 'true', calendarName: 'Work' })
+		fireEvent.click(screen.getByText('close-changed'))
+		expect(screen.queryByTestId('event-modal')).toBeNull()
+		expect(screen.getByTestId('event-details').dataset.event).toBe('t1')
+	})
+
+	it('falls back to the prompt once the shown event is deleted or its calendar is hidden', () => {
+		renderControlsWeek()
+		fireEvent.click(standup())
+		fireEvent.click(screen.getByText('details-deleted'))
+		expect(pane()).toHaveTextContent('Select an event to see its details.')
+
+		fireEvent.click(standup())
+		expect(screen.getByTestId('event-details')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: /^Work/ }))
+		expect(screen.queryByTestId('event-details')).toBeNull()
+		expect(pane()).toHaveTextContent('Select an event to see its details.')
+	})
+
+	it('remembers on this device whether the pane is open, and shows it on the first render', () => {
+		const first = renderControlsWeek()
+		fireEvent.click(screen.getByRole('button', { name: 'Show event details' }))
+		expect(
+			JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').calendarDetailPaneOpen,
+		).toBe(true)
+		first.unmount()
+
+		renderControlsWeek()
+		// No default-then-flip: the pane is there without waiting for an effect.
+		expect(pane()).toHaveTextContent('Select an event to see its details.')
+		fireEvent.click(screen.getByRole('button', { name: 'Hide event details' }))
+		expect(
+			JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').calendarDetailPaneOpen,
+		).toBe(false)
+	})
+
+	it('does not carry the shown event into another inbox', () => {
+		const view = renderControlsWeek()
+		fireEvent.click(standup())
+		expect(screen.getByTestId('event-details').dataset.event).toBe('t1')
+		// Another inbox has its own events, even where ids coincide.
+		view.rerender(
+			<QueryClientProvider client={new QueryClient()}>
+				<CalendarRouteScreen
+					view="week"
+					data={{ ...richData(), info: { ...info, email: 'other@ownmail.local' } }}
+				/>
+			</QueryClientProvider>,
+		)
+		expect(screen.queryByTestId('event-details')).toBeNull()
+		expect(pane()).toHaveTextContent('Select an event to see its details.')
+	})
+
+	it('keeps the dialog on mobile layouts, where there is no room for a pane', () => {
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+		)
+		render(<CalendarRouteScreen view="day" data={richData()} />)
+		fireEvent.click(screen.getByRole('button', { name: /Standup/ }))
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({
+			event: 't1',
+			startInEdit: 'false',
+			calendarName: 'Work',
+		})
+		expect(screen.queryByTestId('event-details')).toBeNull()
+		// An event on a calendar this account does not list is named after the primary one.
+		fireEvent.click(screen.getByText('close-unchanged'))
+		fireEvent.click(screen.getByRole('button', { name: /Sync/ }))
+		expect(screen.getByTestId('event-modal').dataset.calendarName).toBe('Primary Cal')
+	})
+})
+
+describe('dragging events in the time grid', () => {
+	// The Saturday column of the rendered week; one hour is 52px and the grid starts at y=0.
+	const X = 750
+	const y = (hours: number) => hours * 52
+	const standup = () => screen.getByRole('button', { name: /^Standup/ })
+	const box = (left: number, top: number, width: number, height: number) =>
+		({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top }) as DOMRect
+	const mouse = { pointerType: 'mouse', button: 0 }
+	const move = (clientX: number, clientY: number) =>
+		fireEvent(window, new MouseEvent('pointermove', { clientX, clientY }))
+	const release = (clientX: number, clientY: number) =>
+		fireEvent(window, new MouseEvent('pointerup', { clientX, clientY }))
+
+	beforeEach(() => {
+		h.updateEvent.mockResolvedValue({})
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			const element = this as HTMLElement
+			const column = element.dataset.calendarDayColumn
+			if (column !== undefined) return box(100 + Number(column) * 100, 0, 100, 24 * 52)
+			if (element.dataset.testid === 'calendar-time-grid-header') return box(0, -40, 900, 40)
+			if (element.dataset.slot === 'scroll-area-viewport') return box(0, -40, 900, 2000)
+			return box(0, 0, 0, 0)
+		})
+	})
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it('moves an event by dragging: one optimistic update with 15-minute times, and the drop does not open it', async () => {
+		renderControlsWeek()
+		fireEvent.pointerDown(standup(), { ...mouse, clientX: X, clientY: y(9.5) })
+		move(X, y(10.1))
+		// While dragging, the box is drawn at the snapped time: 9:30, not 9:36.
+		expect(standup().style.top).toBe(`${y(9.5)}px`)
+		expect(standup()).toHaveAttribute('data-dragging')
+		release(X, y(10.1))
+		fireEvent.click(standup())
+
+		await vi.waitFor(() => expect(h.updateEvent).toHaveBeenCalledOnce())
+		expect(h.updateEvent.mock.calls[0][0].data).toEqual({
+			eventId: 't1',
+			calendarId: 'cal1',
+			startTime: e('2024-06-15T09:30:00'),
+			endTime: e('2024-06-15T10:30:00'),
+		})
+		expect(screen.queryByTestId('event-details')).toBeNull()
+		expect(screen.getByTestId('calendar-drag-status')).toHaveTextContent(/^Moved to .*9:30 AM – 10:30 AM\.$/)
+		// A plain move is silent: the event is already where it was dropped.
+		expect(screen.queryByText('Only this occurrence was moved.')).toBeNull()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('says so, visibly, when the provider refuses a move and the event is put back', async () => {
+		h.updateEvent.mockRejectedValue(new Error('provider detail that must not be shown'))
+		renderControlsWeek()
+		fireEvent.pointerDown(standup(), { ...mouse, clientX: X, clientY: y(9.5) })
+		move(X, y(11))
+		release(X, y(11))
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Could not move the event. It was put back.')
+		expect(alert).not.toHaveTextContent('provider detail')
+	})
+
+	it('a recurring occurrence moves alone and says so', async () => {
+		const data = richData()
+		Object.assign(data.events[0] as Event, { master_event_id: 'series-1' })
+		render(<CalendarRouteScreen view="week" data={data} />)
+		expect(standup()).toHaveAttribute('aria-describedby', 'calendar-drag-hint-occurrence')
+		expect(document.getElementById('calendar-drag-hint-occurrence')).toHaveTextContent(
+			'changes only this occurrence',
+		)
+		fireEvent.pointerDown(standup(), { ...mouse, clientX: X, clientY: y(9.5) })
+		move(X, y(11))
+		release(X, y(11))
+		expect(await screen.findByText('Only this occurrence was moved.')).toHaveAttribute('role', 'status')
+		// Only the occurrence's own id is updated, never the series.
+		expect(h.updateEvent.mock.calls[0][0].data.eventId).toBe('t1')
+
+		// The notice belongs to the last drop: the next one clears it.
+		h.updateEvent.mockReturnValue(new Promise(() => {}))
+		fireEvent.pointerDown(standup(), { ...mouse, clientX: X, clientY: y(9.5) })
+		move(X, y(12))
+		release(X, y(12))
+		expect(screen.queryByText('Only this occurrence was moved.')).toBeNull()
+	})
+
+	it('drops the outcome of a drag when the calendar moves to another range', async () => {
+		h.updateEvent.mockRejectedValue(new Error('offline'))
+		const view = renderControlsWeek()
+		fireEvent.pointerDown(standup(), { ...mouse, clientX: X, clientY: y(9.5) })
+		move(X, y(11))
+		release(X, y(11))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Could not move the event.')
+		view.rerender(
+			<QueryClientProvider client={new QueryClient()}>
+				<CalendarRouteScreen view="week" data={richData('2024-06-22')} />
+			</QueryClientProvider>,
+		)
+		// The message was about last week; this week starts without it.
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('a read-only event cannot be dragged or resized, and its description says so', () => {
+		const data = richData()
+		Object.assign(data.events[0] as Event, { read_only: true })
+		render(<CalendarRouteScreen view="week" data={data} />)
+		expect(standup()).toHaveAttribute('aria-describedby', 'calendar-drag-hint-read-only')
+		expect(document.getElementById('calendar-drag-hint-read-only')).toHaveTextContent(
+			'Read-only event. It cannot be moved or resized.',
+		)
+		expect(standup().querySelector('[data-drag-handle]')).toBeNull()
+		fireEvent.pointerDown(standup(), { ...mouse, clientX: X, clientY: y(9.5) })
+		move(X, y(11))
+		release(X, y(11))
+		expect(h.updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('resizes from an edge handle; an all-day event has no handles to resize by', async () => {
+		renderControlsWeek()
+		expect(screen.getByRole('button', { name: /^Holiday/ }).querySelector('[data-drag-handle]')).toBeNull()
+		const handle = standup().querySelector('[data-drag-handle="end"]') as HTMLElement
+		expect(handle).toHaveAttribute('aria-hidden', 'true')
+		fireEvent.pointerDown(handle, { ...mouse, clientX: X, clientY: y(10) })
+		move(X, y(11.5))
+		release(X, y(11.5))
+		await vi.waitFor(() => expect(h.updateEvent).toHaveBeenCalledOnce())
+		expect(h.updateEvent.mock.calls[0][0].data).toMatchObject({
+			startTime: e('2024-06-15T09:00:00'),
+			endTime: e('2024-06-15T11:30:00'),
+		})
+
+		const top = standup().querySelector('[data-drag-handle="start"]') as HTMLElement
+		fireEvent.pointerDown(top, { ...mouse, clientX: X, clientY: y(9) })
+		move(X, y(8.5))
+		release(X, y(8.5))
+		await vi.waitFor(() => expect(h.updateEvent).toHaveBeenCalledTimes(2))
+		expect(h.updateEvent.mock.calls[1][0].data).toMatchObject({
+			startTime: e('2024-06-15T08:30:00'),
+			endTime: e('2024-06-15T10:00:00'),
+		})
+	})
+
+	it('moves an event from the keyboard: Alt+arrows preview, Enter saves once', async () => {
+		renderControlsWeek()
+		fireEvent.keyDown(standup(), { key: 'ArrowDown', altKey: true })
+		fireEvent.keyDown(standup(), { key: 'ArrowDown', altKey: true })
+		expect(standup().style.top).toBe(`${y(9.5)}px`)
+		expect(h.updateEvent).not.toHaveBeenCalled()
+		fireEvent.keyDown(standup(), { key: 'Enter' })
+		await vi.waitFor(() => expect(h.updateEvent).toHaveBeenCalledOnce())
+		expect(h.updateEvent.mock.calls[0][0].data).toMatchObject({
+			startTime: e('2024-06-15T09:30:00'),
+			endTime: e('2024-06-15T10:30:00'),
+		})
+		expect(standup()).toHaveAttribute('aria-describedby', 'calendar-drag-hint-movable')
+	})
+
+	it('abandons a keyboard adjustment when focus leaves the event', () => {
+		renderControlsWeek()
+		fireEvent.keyDown(standup(), { key: 'ArrowDown', altKey: true })
+		expect(standup().style.top).toBe(`${y(9.25)}px`)
+		fireEvent.blur(standup(), { relatedTarget: screen.getByRole('button', { name: 'Today' }) })
+		expect(standup().style.top).toBe(`${y(9)}px`)
+	})
+
+	it('drags out a new event and opens the composer on that range', () => {
+		renderControlsWeek()
+		const slot = screen.getByRole('button', { name: /^Create event at 2 PM on Saturday/ })
+		fireEvent.pointerDown(slot, { ...mouse, clientX: X, clientY: y(14.1) })
+		move(X, y(15.4))
+		// The range being dragged out is drawn as a draft.
+		expect(screen.getByRole('button', { name: /^New event/ })).toBeDisabled()
+		release(X, y(15.4))
+		// The click that ends the drag on the slot must not replace the range with the slot's hour.
+		fireEvent.click(slot)
+		const modal = screen.getByTestId('event-modal')
+		expect(modal.dataset).toMatchObject({
+			event: 'new',
+			defaultStart: new Date('2024-06-15T14:00:00').toISOString(),
+			defaultDurationMinutes: '90',
+			preserveDefaultStartTime: 'true',
+			startInEdit: 'false',
+		})
+	})
+
+	it('a plain click on a slot still opens a one-hour composer', () => {
+		renderControlsWeek()
+		const slot = screen.getByRole('button', { name: /^Create event at 2 PM on Saturday/ })
+		fireEvent.pointerDown(slot, { ...mouse, clientX: X, clientY: y(14.1) })
+		release(X, y(14.1))
+		fireEvent.click(slot)
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({
+			defaultStart: new Date('2024-06-15T14:00:00').toISOString(),
+			defaultDurationMinutes: '60',
+		})
+	})
+})

@@ -226,6 +226,7 @@ describe('/settings', () => {
 			secondaryTimezone: 'America/Toronto',
 			calendarHourHeight: 52,
 			calendarSidebarCollapsed: false,
+			calendarDetailPaneOpen: false,
 			hiddenCalendarsByAccount: {},
 		})
 		const invalidTimezone = new Option('Invalid', 'not/a-timezone')

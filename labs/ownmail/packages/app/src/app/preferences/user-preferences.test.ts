@@ -58,6 +58,7 @@ describe('user preferences', () => {
 			secondaryTimezone: 'UTC',
 			calendarHourHeight: 64,
 			calendarSidebarCollapsed: true,
+			calendarDetailPaneOpen: true,
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
 		})
 		expect(saved).toEqual({
@@ -73,6 +74,7 @@ describe('user preferences', () => {
 			secondaryTimezone: '',
 			calendarHourHeight: 64,
 			calendarSidebarCollapsed: true,
+			calendarDetailPaneOpen: true,
 			hiddenCalendarsByAccount: { 'ada@example.com': ['cal-work', 'cal-home'] },
 		})
 		expect(readUserPreferences()).toEqual(saved)
@@ -128,6 +130,20 @@ describe('user preferences', () => {
 			JSON.stringify({ calendarSidebarCollapsed: true }),
 		)
 		expect(readUserPreferences().calendarSidebarCollapsed).toBe(true)
+	})
+
+	it('keeps the event details pane closed unless this device explicitly opened it', () => {
+		// The pane takes width from the grid, so only a stored `true` shows it.
+		expect(defaultUserPreferences().calendarDetailPaneOpen).toBe(false)
+		for (const calendarDetailPaneOpen of ['true', 1, null]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarDetailPaneOpen }))
+			expect(readUserPreferences().calendarDetailPaneOpen).toBe(false)
+		}
+		window.localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ calendarDetailPaneOpen: true }),
+		)
+		expect(readUserPreferences().calendarDetailPaneOpen).toBe(true)
 	})
 
 	it('recovers safely from malformed storage and invalid preference shapes', () => {
