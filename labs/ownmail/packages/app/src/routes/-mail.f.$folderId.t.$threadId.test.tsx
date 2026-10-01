@@ -852,7 +852,7 @@ describe('compose navigation', () => {
 		// The pinned input takes the place of the inline field; it never sends itself.
 		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
 
-		await user.click(screen.getByRole('button', { name: /^Reply to all…/ }))
+		await user.click(await screen.findByRole('button', { name: /^Reply to all…/ }))
 
 		// Everyone on the last message except the signed-in address.
 		expect(navigate).toHaveBeenLastCalledWith({

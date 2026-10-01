@@ -40,6 +40,7 @@ import type { EmailDisplayStatus } from './EmailHtml.js'
 import { MessageBody } from './MessageBody.js'
 import { ThreadColumn } from './ThreadColumn.js'
 import { CONVERSATION_LAYOUT_OPTIONS, ThreadDisplayMenu } from './ThreadDisplayMenu.js'
+import { ThreadMessagesPlaceholder } from './ThreadMessagesPlaceholder.js'
 import { ThreadViewSwitch } from './ThreadViewSwitch.js'
 
 /** A pane toolbar renders an element with this id to host the thread's display actions. */
@@ -475,25 +476,6 @@ function ThreadConversationContent({
 					{children}
 				</div>
 			)}
-		</div>
-	)
-}
-
-/**
- * The messages while the saved thread view is unknown (server render and
- * hydration). It is the same block the thread skeleton shows, so nothing moves
- * when the reader or the transcript takes its place.
- */
-function ThreadMessagesPlaceholder() {
-	return (
-		<div data-slot="thread-messages-pending" className="py-5" aria-hidden="true">
-			<ThreadColumn>
-				<div className="flex flex-col gap-3">
-					<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-					<div className="h-4 w-5/6 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-					<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-				</div>
-			</ThreadColumn>
 		</div>
 	)
 }

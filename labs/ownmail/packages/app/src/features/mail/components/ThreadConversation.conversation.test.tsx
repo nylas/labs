@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { accountScope } from '#app/lib/account-scope'
 import {
 	defaultUserPreferences,
 	USER_PREFERENCES_STORAGE_KEY,
 	writeUserPreferences,
 } from '#app/preferences/user-preferences'
 import { replyAllDraftSearch } from '../lib/mail-ui-model'
-import type { MailMessage, MailThread } from '../state/mail-queries'
+import { type MailMessage, type MailThread, mailKeys } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
 const { senderImagesTrustedMock, trustSenderImagesMock, getThreadListUnsubscribeMock } = vi.hoisted(() => ({
@@ -63,12 +65,27 @@ const groupMessages: MailMessage[] = [
 	email('m5', INES, TUESDAY, 'Updated and sent the invite. Retro is Friday at 9.'),
 ]
 
+/**
+ * Renders the reader inside a query client. By default the client already
+ * holds the header lookup for the test threads ("no bulk mail"), as it would
+ * on a second visit, so the transcript is there on the first render. Tests of
+ * the lookup itself pass `lookup: 'live'`.
+ */
 function renderThread(
 	messages: MailMessage[] = groupMessages,
 	props: Partial<Parameters<typeof ThreadConversation>[0]> = {},
+	{
+		lookup = 'cached',
+		queryClient = new QueryClient(),
+	}: { lookup?: 'cached' | 'live'; queryClient?: QueryClient } = {},
 ) {
+	if (lookup === 'cached') {
+		for (const id of ['thread-1', 'thread-2'])
+			queryClient.setQueryData(mailKeys.threadListUnsubscribe(id), [])
+	}
 	return render(
 		<ThreadConversation thread={thread} messages={messages} mailboxEmail="sam@example.com" {...props} />,
+		{ wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
 	)
 }
 
@@ -154,7 +171,9 @@ describe('first render and identity', () => {
 		// threads as messages or as a conversation. Painting either would be a guess
 		// that flips a frame later.
 		const html = renderToString(
-			<ThreadConversation thread={thread} messages={groupMessages} mailboxEmail="sam@example.com" />,
+			<QueryClientProvider client={new QueryClient()}>
+				<ThreadConversation thread={thread} messages={groupMessages} mailboxEmail="sam@example.com" />
+			</QueryClientProvider>,
 		)
 		expect(html).toContain('data-slot="thread-messages-pending"')
 		expect(html).toContain('Offsite agenda draft')
@@ -574,36 +593,49 @@ describe('designed mail', () => {
 			body: '<p>Hello all, the residents meeting moved to Thursday at seven.</p>',
 		}
 		getThreadListUnsubscribeMock.mockResolvedValue({ messageIds: ['list-mail'] })
-		renderThread([email('m1', INES, MONDAY, 'Did you see this?'), letter])
+		const queryClient = new QueryClient()
+		const first = renderThread(
+			[email('m1', INES, MONDAY, 'Did you see this?'), letter],
+			{},
+			{ lookup: 'live', queryClient },
+		)
 		// The standard reader never asks for headers.
 		expect(getThreadListUnsubscribeMock).not.toHaveBeenCalled()
 
 		openConversation()
+		// Until the answer is in, the transcript is the skeleton block: the letter is
+		// never painted as a bubble and then re-drawn as an article.
+		expect(document.querySelector('[data-slot="thread-messages-pending"]')).not.toBeNull()
+		expect(bubbles()).toHaveLength(0)
 		await waitFor(() => expect(articles()).toHaveLength(1))
 		expect(getThreadListUnsubscribeMock).toHaveBeenCalledWith({ data: { threadId: 'thread-1' } })
 		expect(articles()[0]).toHaveTextContent('the residents meeting moved to Thursday')
+		first.unmount()
+
+		// The answer is kept per account and thread: coming back asks nothing and shows no skeleton.
+		expect(queryClient.getQueryData(['mail', accountScope(), 'thread-list-unsubscribe', 'thread-1'])).toEqual(
+			['list-mail'],
+		)
+		renderThread(
+			[email('m1', INES, MONDAY, 'Did you see this?'), letter],
+			{},
+			{ lookup: 'live', queryClient },
+		)
+		openConversation()
+		expect(articles()).toHaveLength(1)
+		expect(getThreadListUnsubscribeMock).toHaveBeenCalledTimes(1)
 	})
 
-	it('classifies on the message bodies alone when the header lookup fails or answers late', async () => {
+	it('classifies on the message bodies alone when the header lookup fails', async () => {
 		const letter: MailMessage = {
 			id: 'list-mail',
 			from: [INES],
 			body: '<p>Hello all, the meeting moved.</p>',
 		}
 		getThreadListUnsubscribeMock.mockRejectedValue(new Error('offline'))
-		const failed = renderThread([letter])
+		renderThread([letter], {}, { lookup: 'live' })
 		openConversation()
-		await waitFor(() => expect(getThreadListUnsubscribeMock).toHaveBeenCalled())
-		expect(bubbles()).toHaveLength(1)
-		failed.unmount()
-
-		let answer: (value: { messageIds: string[] }) => void = () => {}
-		getThreadListUnsubscribeMock.mockReturnValue(new Promise((resolve) => (answer = resolve)))
-		const late = renderThread([letter])
-		openConversation()
-		await waitFor(() => expect(getThreadListUnsubscribeMock).toHaveBeenCalledTimes(2))
-		late.unmount()
-		await act(async () => answer({ messageIds: ['list-mail'] }))
+		await waitFor(() => expect(bubbles()).toHaveLength(1))
 		expect(articles()).toHaveLength(0)
 	})
 
