@@ -1,0 +1,49 @@
+{
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "heading",
+			"level": 2,
+			"spans": [
+				{
+					"text": "Offsite update"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Two things changed since the last agenda. Both are below; nothing else moved, and the room is the same."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Planning moved to Thursday afternoon, from one until five, in Room 4B."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "The retro is now Friday at nine, before half the team flies out at two."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "See the full agenda",
+					"href": "https://offsite.example/agenda"
+				}
+			]
+		}
+	],
+	"hasRemoteImages": false,
+	"mailClass": "transactional"
+}

@@ -73,10 +73,11 @@ describe('bubbleContent', () => {
 	})
 
 	it('matches hard-wrapped plaintext quotes, ignoring quote marks and attribution lines', () => {
-		const wrapped = text(
-			'On Mon, Ines wrote:\n> Here is the first draft of the offsite\n> agenda. Thursday afternoon is still open.\n> OK',
-		)
-		expect(bubbleContent([text('Works for me.'), history(wrapped)], shown())).toEqual({
+		const wrapped = [
+			text('On Mon, Ines wrote:'),
+			quote('Here is the first draft of the offsite\nagenda. Thursday afternoon is still open.\nOK'),
+		]
+		expect(bubbleContent([text('Works for me.'), history(...wrapped)], shown())).toEqual({
 			blocks: [text('Works for me.')],
 			unsure: false,
 		})
@@ -108,7 +109,7 @@ describe('bubbleContent', () => {
 		expect(bubbleContent([text('Hi'), text('--')]).blocks).toEqual([text('Hi')])
 
 		const contact = [text('See you Thursday.'), text('Tomas Reyes\n+1 555 010 0199\ntomas@example.com')]
-		expect(bubbleContent(contact).blocks).toEqual([text('See you Thursday.')])
+		expect(bubbleContent(contact, [], TOMAS).blocks).toEqual([text('See you Thursday.')])
 	})
 
 	it('does not mistake ordinary closing lines for a signature', () => {
@@ -121,6 +122,15 @@ describe('bubbleContent', () => {
 				'a@example.com\nb@example.com\nc@example.com\nd@example.com\ne@example.com\nf@example.com\ng@example.com',
 			),
 			quote('+1 555 010 0199\ntomas@example.com'),
+			// Contact details without a name line identify nobody.
+			text('+1 555 010 0199\ntomas@example.com'),
+			text('Tomas\n+1 555 010 0199\ntomas@example.com'),
+			// A name with a single contact line is too little to go on.
+			text('Tomas Reyes\ntomas@example.com'),
+			// Long lines are prose, not a signature.
+			text(
+				`Tomas Reyes\n${'reach me on +1 555 010 0199 during office hours only, '.repeat(2)}\ntomas@example.com`,
+			),
 		]) {
 			const blocks = [text('See you Thursday.'), closing]
 			expect(bubbleContent(blocks).blocks).toEqual(blocks)
@@ -128,6 +138,61 @@ describe('bubbleContent', () => {
 		// A message that is only contact details is the message.
 		const only = [text('+1 555 010 0199\ntomas@example.com')]
 		expect(bubbleContent(only)).toEqual({ blocks: only, unsure: false })
+	})
+
+	it('keeps a closing list of links: links alone are content, not a signature', () => {
+		// Two lines with URLs used to be enough to call a block a signature, which
+		// removed the very links the message was sent to share.
+		for (const closing of [
+			text('Resources:\nhttps://example.com/agenda\nhttps://example.com/venue'),
+			text('Further Reading\nhttps://example.com/agenda\nwww.example.com/venue'),
+			text('Contacts:\nines@example.com\ntomas@example.com'),
+		]) {
+			const blocks = [text('Here is what you asked for.'), closing]
+			expect(bubbleContent(blocks)).toEqual({ blocks, unsure: false })
+		}
+		// A name with a link and a personal contact is still a signature.
+		expect(
+			bubbleContent(
+				[text('See you Thursday.'), text('Mara Lindqvist\nhttps://example.com\n+46 8 555 010 01')],
+				[],
+				{ email: 'mara.lindqvist@example.com' },
+			).blocks,
+		).toEqual([text('See you Thursday.')])
+	})
+
+	it("removes a closing contact block only when its first line is the sender's own name", () => {
+		// "Project Contacts" over two addresses has the shape of a signature, and a
+		// capitalised title looks like a name. It is a contact list the sender is
+		// sharing. Only the sender's name on that line makes it a sign-off.
+		const intro = text('Here they are.')
+		const list = text('Project Contacts\nalice@example.com\nbob@example.com')
+		expect(bubbleContent([intro, list], [], INES)).toEqual({ blocks: [intro, list], unsure: false })
+		// Someone else's card pasted at the end is content too.
+		const card = text('Tomas Reyes\n+1 555 010 0199\ntomas@example.com')
+		expect(bubbleContent([intro, card], [], INES).blocks).toEqual([intro, card])
+		// With no sender to compare against, nothing is assumed.
+		expect(bubbleContent([intro, card]).blocks).toEqual([intro, card])
+		expect(bubbleContent([intro, card], [], { email: 'tomas@example.com' }).blocks).toEqual([intro, card])
+
+		// Common ways people write their own name still count.
+		const contactLines = '\n+1 555 010 0199\ntomas@example.com'
+		for (const [line, sender] of [
+			['Tomas Reyes', TOMAS],
+			['Reyes Tomas', TOMAS],
+			['T. Reyes', TOMAS],
+			['Tomas R', TOMAS],
+			['Tomas Reyes', { email: 'tomas.reyes@example.com' }],
+			['Tomas Reyes', { name: 'Reyes, Tomas (Operations)', email: 'treyes@example.com' }],
+		] as const) {
+			expect(bubbleContent([intro, text(`${line}${contactLines}`)], [], sender).blocks).toEqual([intro])
+		}
+		// A shared word is not enough: every word has to be the sender's.
+		const team = text('Tomas Team\n+1 555 010 0199\nteam@example.com')
+		expect(bubbleContent([intro, team], [], TOMAS).blocks).toEqual([intro, team])
+		// Initials alone identify nobody.
+		const initials = text('T R\n+1 555 010 0199\ntomas@example.com')
+		expect(bubbleContent([intro, initials], [], TOMAS).blocks).toEqual([intro, initials])
 	})
 
 	it('keeps a signature in place when there is text below it', () => {
@@ -187,10 +252,106 @@ describe('bubbleContent', () => {
 		})
 	})
 
-	it('leaves history without quote marks behind its disclosure, even with text below it', () => {
-		const outlook = history(text('From: Ines\nSent: Monday'), text('An unseen earlier message body.'))
-		const blocks = [outlook, text('Replying below.')]
+	it('keeps an answer that merely begins like a mail header', () => {
+		// "Date: Thursday works for me" is a sentence somebody wrote, not the Date
+		// header of a quoted message. Dropping it because of its first word would
+		// silently delete an answer.
+		const answer = text('Date: Thursday works for me')
+		const inline = bubbleContent(
+			[
+				text('Replying inline.'),
+				history(
+					attribution,
+					quote(EARLIER),
+					answer,
+					quote('Also, the retro probably fits better on Friday.'),
+					text('Subject: fine by me too'),
+				),
+			],
+			shown(),
+		)
+		expect(inline.unsure).toBe(false)
+		expect(inline.blocks).toContainEqual(answer)
+		expect(inline.blocks).toContainEqual(text('Subject: fine by me too'))
+
+		const below = bubbleContent([history(attribution, quote(EARLIER)), answer], shown())
+		expect(below.blocks.at(-1)).toEqual(answer)
+
+		// A real header still goes: a lead-in, or Outlook's From-first group of
+		// header lines, directly above a quote.
+		const nested = bubbleContent(
+			[
+				text('See both below.'),
+				history(
+					attribution,
+					quote(EARLIER),
+					text('Agreed.'),
+					text('On Tue, Tomas Reyes wrote:'),
+					quote('Also, the retro probably fits better on Friday.'),
+					text('Fine.'),
+					text('From: Ines\nSent: Monday'),
+					quote(EARLIER),
+					// Header-like lines that do not start a real group, or are not above a quote, are answers.
+					text('Date: Thursday works\nSubject: fine too'),
+					quote(EARLIER),
+					text('From: my side this is fine\nSent: with thanks'),
+				),
+			],
+			shown(),
+		)
+		expect(
+			nested.blocks.map((block) => (block.type === 'paragraph' ? block.spans[0]?.text : block.type)),
+		).toEqual([
+			'See both below.',
+			'reference',
+			'Agreed.',
+			'reference',
+			'Fine.',
+			'reference',
+			'Date: Thursday works\nSubject: fine too',
+			'reference',
+			'From: my side this is fine\nSent: with thanks',
+		])
+		// A lead-in that is not above a quote is just a sentence ending in "wrote:".
+		const sentence = text('This is what the venue wrote:')
+		expect(
+			bubbleContent([text('Hi'), history(attribution, quote(EARLIER), sentence)], shown()).blocks,
+		).toContainEqual(sentence)
+	})
+
+	it('does not fold quoted history whose unquoted lines the thread has never shown', () => {
+		// Outlook-style history has no quote marks. A body line that starts like a
+		// header is still body: if the thread has not shown it, the history stays.
+		const headers = text('From: Ines\nSent: Monday\nSubject: Re: Offsite')
+		const unseen = [
+			text('Thanks.'),
+			history(headers, text(EARLIER), text('Subject: budget is approved, by the way')),
+		]
+		expect(bubbleContent(unseen, shown())).toEqual({ blocks: unseen, unsure: true })
+		const seen = [text('Thanks.'), history(headers, text(EARLIER))]
+		expect(bubbleContent(seen, shown()).blocks).toEqual([text('Thanks.')])
+	})
+
+	it('counts unquoted text above a quote when deciding whether the history is a repeat', () => {
+		// The quote was shown before, but the sentence in front of it was not: the
+		// history as a whole is not a repeat, so it stays reachable in the bubble.
+		const preface = text('For context, this is what the venue desk sent over this morning, word for word.')
+		const blocks = [text('Hi.'), history(preface, quote(EARLIER))]
 		expect(bubbleContent(blocks, shown())).toEqual({ blocks, unsure: false })
+	})
+
+	it('shows the whole message when history without quote marks holds anything the thread has not shown', () => {
+		// An answer typed below an Outlook-style original sits inside the "history"
+		// with nothing to mark it. Three words against a long original would pass
+		// any share-of-text rule, and the answer would vanish.
+		const headers = text('From: Ines\nSent: Monday')
+		for (const blocks of [
+			[text('See below.'), history(headers, text(EARLIER), text('Yes, agreed.'))],
+			[text('See below.'), history(headers, text(EARLIER), text('OK'))],
+			[history(headers, text('An unseen earlier message body.')), text('Replying below.')],
+		]) {
+			expect(bubbleContent(blocks, shown())).toEqual({ blocks, unsure: true })
+		}
 	})
 
 	it('shows the whole message when nothing new would be left, or when it is a forward', () => {
@@ -205,6 +366,43 @@ describe('bubbleContent', () => {
 			[text('FYI'), history(text('Begin forwarded message:'), quote(EARLIER))],
 		]
 		for (const blocks of cases) expect(bubbleContent(blocks, shown())).toEqual({ blocks, unsure: true })
+	})
+})
+
+describe('a plaintext reply with text after the quote', () => {
+	it('shows the additional answer in the bubble instead of folding it away with the quote', () => {
+		const original = message('a', TOMAS, NOON)
+		const reply = message('b', INES, NOON + 3600)
+		const conversation = build([original, reply], {
+			a: { kind: 'blocks', blocks: [text('The old text of the first message.')], hasRemoteImages: false },
+			// What `messageContent` produces for:
+			//   New\nOn Monday, Tomas wrote:\n> The old text of the first message.\nAdditional answer
+			b: {
+				kind: 'blocks',
+				hasRemoteImages: false,
+				blocks: [
+					text('New'),
+					history(
+						text('On Monday, Tomas wrote:'),
+						quote('The old text of the first message.'),
+						text('Additional answer'),
+					),
+				],
+			},
+		})
+		expect(conversation.items.at(-1)).toMatchObject({
+			kind: 'run',
+			bubbles: [
+				{
+					unsure: false,
+					blocks: [
+						text('New'),
+						{ type: 'reference', text: 'The old text of the first message.', author: 'Tomas' },
+						text('Additional answer'),
+					],
+				},
+			],
+		})
 	})
 })
 

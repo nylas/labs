@@ -18,8 +18,10 @@ export const GROUP_WINDOW_SECONDS = 5 * 60
 
 /** A forwarded message is content, not history, so it is never hidden. */
 const FORWARDED = /(?:^|\n)\s*(?:-{2,}\s*forwarded message\s*-{2,}|begin forwarded message:)/i
-/** "On Mon, Ines wrote:" and the header lines Outlook puts above a quote. */
-const ATTRIBUTION = /(?:wrote|a écrit|schrieb|escribió)\s*:\s*$|^(?:from|sent|to|cc|date|subject)\s*:/i
+/** "On Mon, Ines wrote:", the lead-in a mail client puts above a quote. */
+const LEAD_IN = /(?:wrote|a écrit|schrieb|escribió)\s*:\s*$/i
+/** A header line of the block Outlook puts above a quote. */
+const HEADER_LINE = /^(?:from|sent|to|cc|date|subject)\s*:/i
 /** Lines shorter than this ("Thanks", "OK") are too common to identify a message. */
 const MIN_FINGERPRINT = 8
 /** A block outside a quote has to be this long before a repeat of it is folded. */
@@ -31,6 +33,10 @@ const SIGNATURE_DASHES = /^--\s*(?:\n|$)/
 const SIGNATURE_MAX_LINES = 6
 const SIGNATURE_MAX_LINE_CHARS = 60
 const CONTACT_LINE = /\+?\d[\d\s().-]{6,}\d|@|https?:\/\/|www\./i
+/** A way to reach a person: a phone number or an email address. A link alone is not. */
+const PERSONAL_CONTACT = /\+?\d[\d\s().-]{6,}\d|[^\s@]+@[^\s@]+\.[^\s@]+/
+/** A person's name on its own line: two to four words, capitalised, nothing else. */
+const NAME_LINE = /^\p{Lu}[\p{L}.'’-]*(?: [\p{L}.'’-]+){1,3}$/u
 const SUBJECT_PREFIX = /^(?:\s*(?:re|fwd?|aw|wg|tr|sv)\s*:\s*)+/i
 
 export interface BubbleContent {
@@ -105,14 +111,51 @@ export function rememberBlocks(shown: ShownBlock[], blocks: CleanBlock[], author
 	}
 }
 
-/** The fingerprints of quoted lines, without quote markers, attribution lines or lines too short to tell apart. */
-function quotedLines(blocks: CleanBlock[]): string[] {
+/**
+ * Whether a block of quoted history is the header a mail client put above a
+ * quote, rather than something a person wrote. Wording alone is not enough: an
+ * answer can begin "Date: Thursday works for me". So the block must also sit
+ * where a header sits: it opens the history, or it sits directly above a quote
+ * and is a lead-in or a From-first group of two or more header lines.
+ */
+function isHeaderBlock(blocks: CleanBlock[], index: number): boolean {
+	const block = blocks[index] as CleanBlock
+	if (block.type === 'quote') return false
+	const lines = blocksText([block]).split('\n')
+	const leadIn = LEAD_IN.test(lines.join(' '))
+	const headers = lines.every((line) => HEADER_LINE.test(line))
+	if (index === 0) return leadIn || headers
+	// Later in the history a header must sit directly above a quote, and a group
+	// of header lines must be a real one: two or more lines, starting with From.
+	const group = headers && lines.length >= 2 && /^from\s*:/i.test(lines[0] as string)
+	return blocks[index + 1]?.type === 'quote' && (leadIn || group)
+}
+
+/** Fingerprints of the lines of some blocks, without quote markers or lines too short to tell apart. */
+function lineFingerprints(blocks: CleanBlock[], skip: (line: string) => boolean = () => false): string[] {
 	return blocksText(blocks)
 		.split('\n')
 		.map((line) => line.replace(/^[>\s]+/, ''))
-		.filter((line) => !ATTRIBUTION.test(line))
+		.filter((line) => !skip(line))
 		.map(fingerprint)
 		.filter((line) => line.length >= MIN_FINGERPRINT)
+}
+
+/** The lines of a quote. Lead-ins and header lines inside it belong to older quoted mail. */
+function quotedLines(blocks: CleanBlock[]): string[] {
+	return lineFingerprints(blocks, (line) => LEAD_IN.test(line) || HEADER_LINE.test(line))
+}
+
+/**
+ * The lines of a whole quoted history that have to be found earlier in the
+ * thread before it may be folded: everything except its header blocks. A line
+ * outside a quote counts in full, whatever it starts with.
+ */
+function historyLines(blocks: CleanBlock[]): string[] {
+	return blocks.flatMap((block, index) => {
+		if (isHeaderBlock(blocks, index)) return []
+		return block.type === 'quote' ? quotedLines(block.blocks) : lineFingerprints([block])
+	})
 }
 
 const wasShown = (shown: readonly ShownBlock[], line: string): ShownBlock | undefined =>
@@ -132,33 +175,83 @@ function answeredInside(history: CleanBlock[]): boolean {
 	return firstQuote !== -1 && history.some((block, index) => index > firstQuote && block.type !== 'quote')
 }
 
+const hasQuoteMarks = (history: CleanBlock[]): boolean => history.some((block) => block.type === 'quote')
+
+/**
+ * Quoted history without quote marks: Outlook and other clients mark only where
+ * the earlier mail starts, so everything after that point is "history",
+ * including an answer the sender typed below the original. Nothing in the
+ * markup tells the two apart, and a share-of-text rule would fold a short
+ * answer away with a long original. Such history is a repeat only when every
+ * block of it, in full, was shown earlier in the thread.
+ */
+function unmarkedHistoryRepeats(history: CleanBlock[], shown: readonly ShownBlock[]): boolean {
+	return history.every((block, index) => {
+		if (isHeaderBlock(history, index)) return true
+		const text = fingerprint(blocksText([block]))
+		return text.length >= MIN_FINGERPRINT && wasShown(shown, text) !== undefined
+	})
+}
+
 /** A block the trailing fold may drop: a signature, or content the thread showed before. */
 function isRepeat(block: CleanBlock, shown: readonly ShownBlock[]): boolean {
 	if (block.type === 'signature') return true
 	if (block.type === 'history') {
-		return !answeredInside(block.blocks) && repeatsThread(quotedLines(block.blocks), shown)
+		if (!hasQuoteMarks(block.blocks)) return unmarkedHistoryRepeats(block.blocks, shown)
+		return !answeredInside(block.blocks) && repeatsThread(historyLines(block.blocks), shown)
 	}
 	const text = fingerprint(blocksText([block]))
 	return text.length >= MIN_REPEAT && wasShown(shown, text) !== undefined
 }
 
-/** A short closing block made mostly of phone numbers, addresses and links. */
-function isContactBlock(block: CleanBlock): boolean {
-	if (block.type !== 'paragraph') return false
-	const lines = blocksText([block]).split('\n')
+const nameWords = (text: string): string[] => text.toLowerCase().match(/\p{L}+/gu) ?? []
+
+/**
+ * Whether a line is the sender's own name: every word of it is a word of the
+ * From display name or of the address before the at sign (an initial counts for
+ * the word it starts), and at least one word matches in full. "Tomas Reyes",
+ * "T. Reyes" and "Reyes Tomas" are Tomas Reyes; "Project Contacts" is nobody.
+ */
+function isSenderName(line: string, sender: Person | undefined): boolean {
+	if (!sender) return false
+	const own = [...nameWords(sender.name ?? ''), ...nameWords(sender.email.split('@')[0] as string)]
+	const words = nameWords(line)
 	return (
-		lines.length >= 2 &&
-		lines.length <= SIGNATURE_MAX_LINES &&
-		lines.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS) &&
-		lines.filter((line) => CONTACT_LINE.test(line)).length >= 2
+		words.some((word) => word.length > 1 && own.includes(word)) &&
+		words.every(
+			(word) => own.includes(word) || (word.length === 1 && own.some((part) => part.startsWith(word))),
+		)
+	)
+}
+
+/**
+ * A closing block that identifies the sender: their own name on the first
+ * line, then at least two contact lines, one of them a phone number or an email
+ * address. Contact lines alone are not enough ("Resources:" followed by two
+ * links is content), and neither is any capitalised title above them
+ * ("Project Contacts" over two addresses is a contact list, not a signature).
+ * When the shape is not clearly the sender signing off, the block stays.
+ */
+function isContactBlock(block: CleanBlock, sender: Person | undefined): boolean {
+	if (block.type !== 'paragraph') return false
+	const [name, ...rest] = blocksText([block]).split('\n') as [string, ...string[]]
+	return (
+		NAME_LINE.test(name) &&
+		isSenderName(name, sender) &&
+		rest.length >= 2 &&
+		rest.length < SIGNATURE_MAX_LINES &&
+		rest.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS) &&
+		rest.filter((line) => CONTACT_LINE.test(line)).length >= 2 &&
+		rest.some((line) => PERSONAL_CONTACT.test(line))
 	)
 }
 
 /**
  * Find the signature when the sender's client did not mark one: everything
- * from a `-- ` line to the quoted history, or else a closing contact block.
+ * from a `-- ` line to the quoted history, or else a closing block that names
+ * the sender and how to reach them.
  */
-function markSignatures(blocks: CleanBlock[]): CleanBlock[] {
+function markSignatures(blocks: CleanBlock[], sender: Person | undefined): CleanBlock[] {
 	if (blocks.some((block) => block.type === 'signature')) return blocks
 	const firstHistory = blocks.findIndex((block) => block.type === 'history')
 	const end = firstHistory === -1 ? blocks.length : firstHistory
@@ -166,7 +259,7 @@ function markSignatures(blocks: CleanBlock[]): CleanBlock[] {
 		(block, index) => index < end && block.type === 'paragraph' && SIGNATURE_DASHES.test(blocksText([block])),
 	)
 	// A lone contact block is the message, not a signature.
-	if (start === -1 && end > 1 && isContactBlock(blocks[end - 1] as CleanBlock)) start = end - 1
+	if (start === -1 && end > 1 && isContactBlock(blocks[end - 1] as CleanBlock, sender)) start = end - 1
 	if (start === -1) return blocks
 	return [
 		...blocks.slice(0, start),
@@ -189,17 +282,16 @@ function reference(quote: CleanBlock[], lines: string[], shown: readonly ShownBl
  * Quoted history that is not simply a trailing repeat: answers written between
  * or below quoted lines. Each quote the thread already showed shrinks to a
  * small reply reference above its answer; a quote of something the thread has
- * not shown stays in full. The "On Mon, Ines wrote:" line goes.
+ * not shown stays in full. The "On Mon, Ines wrote:" line goes, but only where
+ * it is a header: anything else outside a quote is kept.
  */
 function expandHistory(
 	history: Extract<CleanBlock, { type: 'history' }>,
 	shown: readonly ShownBlock[],
 ): CleanBlock[] {
 	if (!history.blocks.some((block) => block.type === 'quote')) return [history]
-	return history.blocks.flatMap((block): CleanBlock[] => {
-		if (block.type !== 'quote') {
-			return ATTRIBUTION.test(blocksText([block]).replace(/\n/g, ' ')) ? [] : [block]
-		}
+	return history.blocks.flatMap((block, index): CleanBlock[] => {
+		if (block.type !== 'quote') return isHeaderBlock(history.blocks, index) ? [] : [block]
 		const lines = quotedLines(block.blocks)
 		return lines.length > 0 && repeatsThread(lines, shown) ? [reference(block.blocks, lines, shown)] : [block]
 	})
@@ -217,15 +309,22 @@ const QUOTED_TYPES: ReadonlySet<CleanBlock['type']> = new Set(['history', 'signa
  * - Quoted history that is followed by new text, or has answers inside it,
  *   becomes reply references and answers.
  * - A trailing quote the thread has not shown stays behind a disclosure.
+ * - History without quote marks is folded only when all of it was shown
+ *   before; otherwise the message is shown whole.
  *
  * A forwarded message, or a message with nothing new left, is shown whole
  * (`unsure`) rather than risk hiding something that mattered.
  */
-export function bubbleContent(blocks: CleanBlock[], shown: readonly ShownBlock[] = []): BubbleContent {
+export function bubbleContent(
+	blocks: CleanBlock[],
+	shown: readonly ShownBlock[] = [],
+	/** Who sent the message; an unmarked signature is recognised by their name. */
+	sender?: Person,
+): BubbleContent {
 	const histories = blocks.filter((block) => block.type === 'history')
 	if (FORWARDED.test(blocksText(histories))) return { blocks, unsure: true }
 
-	const marked = markSignatures(blocks)
+	const marked = markSignatures(blocks, sender)
 	let end = marked.length
 	while (end > 0 && isRepeat(marked[end - 1] as CleanBlock, shown)) end -= 1
 	const kept = marked.slice(0, end).flatMap((block, index, all): CleanBlock[] => {
@@ -233,6 +332,11 @@ export function bubbleContent(blocks: CleanBlock[], shown: readonly ShownBlock[]
 		const answered = index < all.length - 1 || answeredInside(block.blocks)
 		return answered ? expandHistory(block, shown) : [block]
 	})
+	// History without quote marks that could not be folded may hold new text the
+	// pass cannot point to. The message is shown whole, its quoted text open.
+	if (kept.some((block) => block.type === 'history' && !hasQuoteMarks(block.blocks))) {
+		return { blocks, unsure: true }
+	}
 	const lastNew = kept.findLastIndex((block) => !QUOTED_TYPES.has(block.type))
 	if (lastNew === -1) return { blocks, unsure: true }
 	return {
@@ -386,7 +490,7 @@ export function buildConversation(messages: MailMessage[], options: Conversation
 			continue
 		}
 		designedOnly = false
-		const bubble: ConversationBubble = { message, ...bubbleContent(blocks, shown) }
+		const bubble: ConversationBubble = { message, ...bubbleContent(blocks, shown, from) }
 		rememberBlocks(shown, blocks, author)
 		const previous = run?.bubbles.at(-1)?.message.date
 		if (

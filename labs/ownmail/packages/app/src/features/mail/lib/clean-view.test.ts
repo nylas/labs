@@ -217,6 +217,51 @@ describe('signatures', () => {
 		})
 	})
 
+	it('ends the plaintext signature where the message continues, so a postscript is never swallowed', () => {
+		// Everything after "-- " used to be one signature block. The thread pass
+		// removes signatures, so the door code in the postscript vanished with it.
+		const p = (text: string): CleanBlock => ({ type: 'paragraph', spans: [{ text }] })
+		expect(messageContent(message('Main point\n\n-- \nName\n\nPS: door code 482913'), false)).toMatchObject({
+			blocks: [p('Main point'), { type: 'signature', blocks: [p('Name')] }, p('PS: door code 482913')],
+		})
+		// Identity paragraphs stay in the signature; the first paragraph of prose ends it for good.
+		expect(
+			messageContent(
+				message(
+					'Main point\n\n--\nMara Lindqvist\nOperations\n\nExample Co\n+46 8 555 010 01\n\nOne more thing, bring the projector.\n\nExample Co',
+				),
+				false,
+			),
+		).toMatchObject({
+			blocks: [
+				p('Main point'),
+				{ type: 'signature', blocks: [p('Mara Lindqvist\nOperations'), p('Example Co\n+46 8 555 010 01')] },
+				p('One more thing, bring the projector.'),
+				p('Example Co'),
+			],
+		})
+		// A postscript straight under the delimiter, however it is written, is not a signature at all.
+		for (const postscript of ['PS: bring cash', 'P.S. bring cash', 'PPS - bring cash', 'p.s bring cash']) {
+			expect(messageContent(message(`Hi\n\n-- \n${postscript}`), false)).toMatchObject({
+				blocks: [p('Hi'), p(postscript)],
+			})
+		}
+		// Long lines, or many of them, are prose rather than identity lines.
+		const long =
+			`${'A closing remark that runs on well past what any signature line would. '.repeat(1)}`.trim()
+		expect(messageContent(message(`Hi\n\n-- \nName\n\n${long.slice(0, 61)}`), false)).toMatchObject({
+			blocks: [p('Hi'), { type: 'signature', blocks: [p('Name')] }, p(long.slice(0, 61))],
+		})
+		const many = 'a\nb\nc\nd\ne\nf\ng'
+		expect(messageContent(message(`Hi\n\n-- \nName\n\n${many}`), false)).toMatchObject({
+			blocks: [p('Hi'), { type: 'signature', blocks: [p('Name')] }, p(many)],
+		})
+		// A word that merely starts with "ps" is not a postscript marker.
+		expect(messageContent(message('Hi\n\n-- \nPsmith & Sons'), false)).toMatchObject({
+			blocks: [p('Hi'), { type: 'signature', blocks: [p('Psmith & Sons')] }],
+		})
+	})
+
 	it('counts a signature in the text, links and confidence like any other content', () => {
 		const html =
 			'<table><tr><td>Body copy that is long enough to matter.</td></tr></table><div class="gmail_signature"><a href="https://example.com/me">Tomas</a></div>'
@@ -256,10 +301,76 @@ describe('messageContent', () => {
 				{ type: 'paragraph', spans: [{ text: 'I will check the room.' }] },
 				{
 					type: 'history',
-					blocks: [{ type: 'paragraph', spans: [{ text: 'On Mon, Tomas wrote:\n> Thursday?' }] }],
+					blocks: [
+						{ type: 'paragraph', spans: [{ text: 'On Mon, Tomas wrote:' }] },
+						{ type: 'quote', blocks: [{ type: 'paragraph', spans: [{ text: 'Thursday?' }] }] },
+					],
 				},
 			],
 		})
+	})
+
+	it('keeps what a plaintext reply says after the quote apart from the quote', () => {
+		// "Additional answer" is new text. Lumped into the quoted paragraph it would
+		// be folded away with the quote and the reader would never see it.
+		const content = messageContent(
+			message('New\nOn Monday, A wrote:\n> old text\nAdditional answer'),
+			false,
+		) as { blocks: CleanBlock[] }
+		expect(content.blocks).toEqual([
+			{ type: 'paragraph', spans: [{ text: 'New' }] },
+			{
+				type: 'history',
+				blocks: [
+					{ type: 'paragraph', spans: [{ text: 'On Monday, A wrote:' }] },
+					{ type: 'quote', blocks: [{ type: 'paragraph', spans: [{ text: 'old text' }] }] },
+					{ type: 'paragraph', spans: [{ text: 'Additional answer' }] },
+				],
+			},
+		])
+	})
+
+	it('keeps the line structure of interleaved plaintext answers and nested quotes', () => {
+		const content = messageContent(
+			message(
+				[
+					'Inline:',
+					'',
+					'On Monday, A wrote:',
+					'',
+					'> first question',
+					'>',
+					'',
+					'>> an older line',
+					'Yes to the first.',
+					'',
+					'And a second paragraph.',
+					'> second question',
+					'No to the second.',
+					'',
+				].join('\n'),
+			),
+			false,
+		) as { blocks: CleanBlock[] }
+		const quote = (text: string): CleanBlock => ({
+			type: 'quote',
+			blocks: [{ type: 'paragraph', spans: [{ text }] }],
+		})
+		const p = (text: string): CleanBlock => ({ type: 'paragraph', spans: [{ text }] })
+		expect(content.blocks).toEqual([
+			p('Inline:'),
+			{
+				type: 'history',
+				blocks: [
+					p('On Monday, A wrote:'),
+					quote('first question\n\n\nan older line'),
+					p('Yes to the first.'),
+					p('And a second paragraph.'),
+					quote('second question'),
+					p('No to the second.'),
+				],
+			},
+		])
 	})
 
 	it('falls back to the snippet, and to no blocks when a message has no text at all', () => {
@@ -429,6 +540,36 @@ describe('stripHiddenContent', () => {
 		).toBe('Seen')
 	})
 
+	it('keeps a zero-sized wrapper whose content sets its own size, or might', () => {
+		// `font-size:0` on a wrapper closes the gap between inline-block columns;
+		// the columns restore their size and are plainly visible. Only zero-sized
+		// text that nothing inside can bring back is hidden.
+		const wrapper = (inner: string) => `<div style="font-size:0">${inner}</div><p>Seen</p>`
+		expect(stripped(wrapper('<div style="display:inline-block;font-size:16px">Left</div>'))).toBe('LeftSeen')
+		expect(stripped(wrapper('<div><span style="line-height: 1.4">Deep</span></div>'))).toBe('DeepSeen')
+		// A class or a font element may be sized by rules this cannot see: keep it.
+		expect(stripped('<div style="font-size:0"><span class="col">Styled</span></div><p>Seen</p>')).toBe(
+			'StyledSeen',
+		)
+		expect(stripped(wrapper('<font size="3">Legacy</font>'))).toBe('LegacySeen')
+		// Nothing restores a size here, so it really is hidden text.
+		expect(stripped(wrapper('<span>preheader</span>'))).toBe('Seen')
+		expect(stripped(wrapper('<span style="font-size:0px;color:red">still zero</span>'))).toBe('Seen')
+		// A zero max-height hides only what is also clipped.
+		expect(stripped('<div style="max-height:0">Not clipped</div><p>Seen</p>')).toBe('Not clippedSeen')
+		expect(stripped('<div style="max-height:0;overflow-y:hidden">Clipped</div><p>Seen</p>')).toBe('Seen')
+	})
+
+	it('reports the text it removed on the zero-size guess, so the gate can count it', () => {
+		const document = sanitized(
+			'<div style="display:none">certainly hidden</div><div style="font-size:0">guessed one</div>' +
+				'<div style="max-height:0;overflow:hidden">guessed two</div><p>Seen</p>',
+		)
+		// Only the guesses are reported: `display:none` is not a guess.
+		expect(stripHiddenContent(document)).toBe('guessedoneguessedtwo')
+		expect(stripHiddenContent(sanitized('<p>Seen</p>'))).toBe('')
+	})
+
 	it('removes tracking pixels and spacers but keeps real images', () => {
 		const document = sanitized(
 			'<img width="1" height="1" alt=""><img style="width:1px;height:20px" alt=""><img width="600" height="1" alt="">' +
@@ -491,6 +632,26 @@ describe('cleanConfidence', () => {
 			CONFIDENCE_THRESHOLD,
 		)
 		expect(score(`<img alt="Logo" width="600" height="80"><p>${PROSE_FILLER}</p>`)).toBe(1)
+	})
+
+	it('counts text stripped on a guess as text the article should have kept', () => {
+		// Measured only against what was left after stripping, an article that lost
+		// half its text to the zero-size guess would still score 1.
+		const body = bodyOf(`<table><tr><td>${PROSE_FILLER}</td></tr></table>`)
+		const blocks = normaliseBlocks(body)
+		expect(cleanConfidence(body, blocks)).toBe(1)
+		const guessed = PROSE_FILLER.replace(/\s+/g, '')
+		expect(cleanConfidence(body, blocks, guessed)).toBeCloseTo(0.5)
+		expect(cleanConfidence(body, blocks, guessed)).toBeLessThan(CONFIDENCE_THRESHOLD)
+	})
+
+	it('falls back when a large part of the message was stripped on the zero-size guess', () => {
+		const hidden = `<div style="font-size:0">${PROSE_FILLER}</div>`
+		const visible = `<table><tr><td>${PROSE_FILLER}</td></tr></table>`
+		expect(messageContent(message(`${hidden}${visible}`), false)).toEqual({ kind: 'original' })
+		// A short preheader stripped the same way costs little and the article stands.
+		const preheader = '<div style="font-size:0">Preview</div>'
+		expect(messageContent(message(`${preheader}${visible}`), false)).toMatchObject({ kind: 'article' })
 	})
 
 	it('counts text the blocks lost', () => {
@@ -650,6 +811,29 @@ describe('data tables', () => {
 		}
 	})
 
+	it('leaves a marked table with merged cells to the original reader', () => {
+		// The total row of a receipt spans the first two columns. Without the span
+		// its amount would slide under "Qty", which is worse than not cleaning at all.
+		const receipt = (span: string) =>
+			`<table role="presentation" width="600"><tr><td>${PROSE_FILLER}</td></tr><tr><td>` +
+			'<table><tr><th>Item</th><th>Qty</th><th>Price</th></tr>' +
+			'<tr><td>Notebook</td><td>2</td><td>$18.00</td></tr>' +
+			`<tr><td ${span}>Total</td><td>$18.00</td></tr></table></td></tr></table>`
+		for (const span of ['colspan="2"', 'rowspan="2"']) {
+			const body = bodyOf(receipt(span))
+			expect(normaliseBlocks(body).some((block) => block.type === 'table')).toBe(false)
+			expect(cleanConfidence(body, normaliseBlocks(body))).toBeLessThan(CONFIDENCE_THRESHOLD)
+			expect(messageContent(message(receipt(span)), false)).toEqual({ kind: 'original' })
+		}
+		// The same receipt without merged cells is kept as a table.
+		const plain = messageContent(
+			message(receipt('').replace('<td >Total</td>', '<td>Total</td><td></td>')),
+			false,
+		)
+		expect(plain).toMatchObject({ kind: 'article' })
+		expect((plain as { blocks: CleanBlock[] }).blocks.some((block) => block.type === 'table')).toBe(true)
+	})
+
 	it('counts a kept table in the text, the links and the confidence', () => {
 		const html =
 			'<table><caption>Order</caption><tr><th>Item</th><th>Price</th></tr><tr><td>Notebook</td><td><a href="https://shop.example/n">$18.00</a></td></tr></table>'
@@ -738,6 +922,41 @@ describe('foldBoilerplate', () => {
 			'© 2026 Harbor & Pine, 12 Quay Street, Portside 94107 · +1 555 0100 · from $1,299.00 · Unsubscribe',
 		)
 		expect(foldBoilerplate([...BODY, footer]).at(-1)).toMatchObject({ type: 'footer' })
+	})
+
+	it('never folds a block that holds a code written in groups', () => {
+		// "123-456" is a six-digit code with a separator. Read digit by digit it
+		// matched no code pattern, and the block that held it was folded away.
+		for (const text of [
+			'Verification code: 123-456 · Privacy · Unsubscribe',
+			'Your code is 123 456 · Privacy · Unsubscribe',
+			'123\u00a0456 · Privacy · Unsubscribe',
+			'123\u2009456 · Privacy · Unsubscribe',
+			'123\u202f456 · Privacy · Unsubscribe',
+			'© Lanternpost · 482-913 · Unsubscribe',
+			// Beside a word that says "code", other groupings count too.
+			'Your PIN: 12 34 · Unsubscribe',
+			'One-time passcode 1234-5678 · Privacy',
+			'Security code 12-34-56 · Privacy · Unsubscribe',
+		]) {
+			expect(foldBoilerplate([...BODY, p(text)])).toEqual([...BODY, p(text)])
+		}
+	})
+
+	it('still folds footers whose digits are a phone number, a date, a range of years or an amount', () => {
+		for (const text of [
+			'© 2024-2026 Harbor & Pine · Unsubscribe',
+			'© Harbor & Pine · +1 555 010 0199 · Unsubscribe',
+			'© Harbor & Pine · 020 123 456 789 · Unsubscribe',
+			'© Harbor & Pine · 555-0100 · Unsubscribe',
+			'© Harbor & Pine · since 2026-09-28 · Unsubscribe',
+			'© Harbor & Pine · 12 Quay Street, Portside 941 07 · Unsubscribe',
+			'© Harbor & Pine · over 10 000 000 readers · Unsubscribe',
+			'© Harbor & Pine · from $1,299.00 or 123.456,00 · Unsubscribe',
+			'© Harbor & Pine · ref 100-200/3 · Unsubscribe',
+		]) {
+			expect(foldBoilerplate([...BODY, p(text)]).at(-1)).toMatchObject({ type: 'footer' })
+		}
 	})
 
 	it('never folds the call to action, headings, images or ordinary copy', () => {

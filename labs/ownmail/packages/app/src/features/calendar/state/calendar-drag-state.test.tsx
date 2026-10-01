@@ -472,6 +472,23 @@ describe('moving and resizing from the keyboard', () => {
 		expect(onReschedule).not.toHaveBeenCalled()
 	})
 
+	it('an adjustment abandoned by leaving does not come back, or save, when the same week is shown again', () => {
+		const { result, rerender, onReschedule } = setup()
+		act(() => result.current.onEventKeyDown(alt('ArrowDown'), standup))
+		expect(result.current.preview).not.toBeNull()
+		// Away to another week, and back, without touching the keyboard in between.
+		rerender({ identity: ['ada@example.com', 'week', '2024-06-16'] })
+		rerender({ identity: WEEK })
+		// The box is drawn where the event really is, not at the abandoned times.
+		expect(result.current.preview).toBeNull()
+		expect(result.current.announcement).toBe('')
+		// Enter opens the event. Saving here would move it without the person asking.
+		const enter = key('Enter')
+		act(() => result.current.onEventKeyDown(enter, standup))
+		expect(enter.preventDefault).not.toHaveBeenCalled()
+		expect(onReschedule).not.toHaveBeenCalled()
+	})
+
 	it('a mouse press on the grid abandons an unconfirmed keyboard adjustment', () => {
 		const { result, onReschedule } = setup()
 		act(() => result.current.onEventKeyDown(alt('ArrowDown'), standup))

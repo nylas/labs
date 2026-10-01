@@ -117,9 +117,31 @@ const FOLD_SCORE = 3
 const LONG_CODE = /(?<![\d/-])(?<!\d[.,])\d{6,8}(?![\d/-]|[.,]\d)/
 const SHORT_CODE = /(?<![\d/-])(?<!\d[.,])\d{4,8}(?![\d/-]|[.,]\d)/
 const CODE_WORD = /\b(?:code|pin|otp|passcode|password|verification|one[\s-]time)\b/i
+/**
+ * Codes are often written in groups: "123-456", "123 456", with a hyphen, a
+ * space, a non-breaking space or a thin space between them. Two groups of three
+ * digits standing alone are a code on sight. A longer run of digit groups on
+ * either side is a phone number or a large amount, so that is excluded.
+ */
+const GROUPED_CODE =
+	/(?<![\d/.,+-])(?<!\d[ \u00a0\u2009\u202f])\d{3}[ \u00a0\u2009\u202f-]\d{3}(?![\d/-]|[.,]\d|[ \u00a0\u2009\u202f]\d)/
+/** Next to a word that says "code", any two to four groups of two to four digits count. */
+const GROUPED_DIGITS = /(?<![\d/.,+-])\d{2,4}(?:[ \u00a0\u2009\u202f-]\d{2,4}){1,3}(?![\d/]|[.,]\d)/
+/** "PS:", "P.S.", "PPS": a postscript is message content, wherever it sits. */
+const POSTSCRIPT = /^\s*p\.?\s?p?\.?\s?s\b[.:,\s-]/i
+/** A signature paragraph is a few short lines of name and contact details. */
+const SIGNATURE_MAX_LINES = 6
+const SIGNATURE_MAX_LINE_CHARS = 60
 const UNSUBSCRIBE = /unsubscribe|opt[\s-]?out|(?:manage|update|email)\s+(?:your\s+)?(?:email\s+)?preferences/i
 const HIDDEN_STYLE =
-	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent|(?:font-size|max-height|line-height):0(?![.\d]))/
+	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent)/
+/** Text set to no size. Descendants can set their own size and be perfectly visible. */
+const ZERO_TEXT_STYLE = /(?:^|;)(?:font-size|line-height):0(?![.\d])/
+/** A box squashed to no height, which hides its content only together with `overflow:hidden`. */
+const ZERO_HEIGHT_STYLE = /(?:^|;)max-height:0(?![.\d])/
+const CLIPPED_STYLE = /(?:^|;)overflow(?:-y)?:hidden/
+/** An inline size that is not zero. */
+const SIZED_TEXT_STYLE = /(?:^|;)(?:font-size|line-height):(?!0(?![.\d]))/
 const HIDDEN_NAME = /(?:^|[\s_-])(?:preheader|preview-?text)(?:$|[\s_-])/i
 
 const squash = (text: string): string => text.replace(/\s+/g, '')
@@ -369,10 +391,14 @@ const ownCells = (row: Element): Element[] =>
 /**
  * Step 3: a table is data only if its author said so (`th`, `thead` or
  * `caption`), or it is a regular grid of short text cells. A table that holds
- * other tables, or is marked `role=presentation`, is layout.
+ * other tables, merges cells, or is marked `role=presentation`, is not.
  */
 function isDataTable(table: Element): boolean {
 	if (table.querySelector('table')) return false
+	// The block model has plain rows of cells. A merged cell would put every
+	// cell after it under the wrong column, so a table with spans is never kept
+	// as a table: marked ones fail the confidence gate and keep the original.
+	if (table.querySelector('[colspan], [rowspan]')) return false
 	if (table.querySelector('th, thead, caption')) return true
 	if (table.getAttribute('role') === 'presentation') return false
 	const rows = ownRows(table).map(ownCells)
@@ -385,9 +411,7 @@ function isDataTable(table: Element): boolean {
 				cells.length === columns &&
 				cells.every(
 					(cell) =>
-						!cell.hasAttribute('colspan') &&
-						!cell.querySelector(BLOCK_SELECTOR) &&
-						cell.textContent.trim().length <= DATA_CELL_MAX_CHARS,
+						!cell.querySelector(BLOCK_SELECTOR) && cell.textContent.trim().length <= DATA_CELL_MAX_CHARS,
 				),
 		) &&
 		rows.some((cells) => cells.some((cell) => cell.textContent.trim() !== ''))
@@ -505,8 +529,67 @@ function plainTextBlocks(text: string): CleanBlock[] {
 	const [body, ...signature] = `\n${content.visible}`.split(/\n-- ?(?=\n|$)/)
 	const blocks = paragraphs(body as string)
 	const signed = paragraphs(signature.join('\n'))
-	if (signed.length > 0) blocks.push({ type: 'signature', blocks: signed })
-	if (content.quoted) blocks.push({ type: 'history', blocks: [paragraph([{ text: content.quoted }])] })
+	// The signature is the paragraph under the delimiter and any further
+	// paragraphs of name and contact lines. It ends at the first paragraph that
+	// reads as message content, a postscript above all: that text and everything
+	// after it stay ordinary blocks, so removing the signature cannot take them.
+	const end = signed.findIndex((block, index) => !isSignatureParagraph(blocksText([block]), index === 0))
+	const signatureBlocks = end === -1 ? signed : signed.slice(0, end)
+	if (signatureBlocks.length > 0) blocks.push({ type: 'signature', blocks: signatureBlocks })
+	blocks.push(...signed.slice(signatureBlocks.length))
+	if (content.quoted) blocks.push({ type: 'history', blocks: plainHistoryBlocks(content.quoted) })
+	return blocks
+}
+
+/**
+ * Whether a paragraph below the `-- ` delimiter still belongs to the signature.
+ * A postscript never does. The paragraph directly under the delimiter otherwise
+ * does; a later one only if it looks like identity lines (a few short lines,
+ * none of them a sentence). When in doubt it is message content and stays.
+ */
+function isSignatureParagraph(text: string, first: boolean): boolean {
+	if (POSTSCRIPT.test(text)) return false
+	if (first) return true
+	const lines = text.split('\n')
+	return (
+		lines.length <= SIGNATURE_MAX_LINES &&
+		lines.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS && !/[.!?]$/.test(line.trim()))
+	)
+}
+
+/**
+ * The quoted part of a plaintext reply, with its line structure kept: the
+ * lead-in, each run of `>` lines as a quote, and every run of unquoted lines
+ * as its own paragraph. Unquoted lines after a quote are something the sender
+ * newly wrote (an answer between or below the quoted lines), so they must stay
+ * separate from the quote or they would be folded away with it.
+ */
+function plainHistoryBlocks(quoted: string): CleanBlock[] {
+	const blocks: CleanBlock[] = []
+	let quoting = false
+	let lines: string[] = []
+	const flush = () => {
+		const text = lines.join('\n').trim()
+		lines = []
+		if (!text) return
+		const block = paragraph([{ text }])
+		blocks.push(quoting ? { type: 'quote', blocks: [block] } : block)
+	}
+	for (const line of quoted.split('\n')) {
+		if (!line.trim()) {
+			// A blank line ends a paragraph of the sender's own text; inside a quote it is part of the quote.
+			if (quoting) lines.push('')
+			else flush()
+			continue
+		}
+		const quotedLine = /^\s*>/.test(line)
+		if (quotedLine !== quoting) {
+			flush()
+			quoting = quotedLine
+		}
+		lines.push(quotedLine ? line.replace(/^\s*(?:>\s?)+/, '') : line)
+	}
+	flush()
 	return blocks
 }
 
@@ -578,12 +661,32 @@ export function classifyMail(body: Element, isProse: boolean, listUnsubscribe = 
 	return isProse ? 'prose' : 'transactional'
 }
 
+const inlineStyle = (element: Element): string => squash(element.getAttribute('style') ?? '').toLowerCase()
+
 function isHidden(element: Element): boolean {
-	const style = squash(element.getAttribute('style') ?? '').toLowerCase()
 	return (
 		element.hasAttribute('hidden') ||
-		HIDDEN_STYLE.test(style) ||
+		HIDDEN_STYLE.test(inlineStyle(element)) ||
 		HIDDEN_NAME.test(`${element.getAttribute('class') ?? ''} ${element.id}`)
+	)
+}
+
+/**
+ * Whether an element is hidden by being given no size. This is a heuristic,
+ * and designed mail breaks it on purpose: a wrapper gets `font-size:0` to close
+ * the gap between inline-block columns, and each column sets its own size. So
+ * zero-sized text is discarded only when nothing inside can restore a size: no
+ * descendant with an inline size, and none whose size this cannot determine (a
+ * class a stylesheet may style, a `<font>` element). A zero `max-height` hides
+ * only what is also clipped.
+ */
+function isZeroSized(element: Element): boolean {
+	const style = inlineStyle(element)
+	if (ZERO_HEIGHT_STYLE.test(style) && CLIPPED_STYLE.test(style)) return true
+	if (!ZERO_TEXT_STYLE.test(style)) return false
+	return !Array.from(element.querySelectorAll('*')).some(
+		(inner) =>
+			inner.hasAttribute('class') || inner.tagName === 'FONT' || SIZED_TEXT_STYLE.test(inlineStyle(inner)),
 	)
 }
 
@@ -624,11 +727,21 @@ function hiddenSelectors(css: string): string[] {
  * block that a stylesheet hides by default is removed only when the same text
  * is still present elsewhere, which is how duplicated mobile and desktop copies
  * look; anything else stays, because hiding it could lose content.
+ *
+ * Returns the text removed on the zero-size heuristic alone. That removal is
+ * a guess, so the confidence gate counts the text as something the article
+ * should have kept: over-stripping lowers the score instead of hiding the loss.
  */
-export function stripHiddenContent(document: Element): void {
+export function stripHiddenContent(document: Element): string {
 	const body = document.querySelector('body') as HTMLElement
+	let guessed = ''
 	for (const element of Array.from(body.querySelectorAll('*'))) {
-		if (body.contains(element) && isHidden(element)) element.remove()
+		if (!body.contains(element)) continue
+		if (isHidden(element)) element.remove()
+		else if (isZeroSized(element)) {
+			guessed += squash(element.textContent)
+			element.remove()
+		}
 	}
 	for (const image of Array.from(body.querySelectorAll('img'))) {
 		if (imageSide(image, 'width') <= TRACKING_IMAGE_MAX || imageSide(image, 'height') <= TRACKING_IMAGE_MAX) {
@@ -653,6 +766,7 @@ export function stripHiddenContent(document: Element): void {
 			}
 		}
 	}
+	return guessed
 }
 
 /** The text a reader can see in a stripped body, without whitespace. */
@@ -676,14 +790,16 @@ function keptText(blocks: CleanBlock[]): string {
 }
 
 /**
- * Step 8, the confidence gate: the share of visible text the blocks retained,
+ * Step 8, the confidence gate: the share of visible text the blocks retained
+ * (text stripped on the zero-size guess counts as visible),
  * with a penalty for a marked data table that had to be flattened and for content that
  * is mostly images, where the text is likely baked into the pictures.
  */
-export function cleanConfidence(body: Element, blocks: CleanBlock[]): number {
+export function cleanConfidence(body: Element, blocks: CleanBlock[], guessedHidden = ''): number {
 	const visible = visibleText(body)
 	if (blocks.length === 0 || visible.length === 0) return 0
-	let score = Math.min(1, squash(keptText(blocks)).length / visible.length)
+	// Text removed on a guess counts as text that should have been retained.
+	let score = Math.min(1, squash(keptText(blocks)).length / (visible.length + guessedHidden.length))
 	// A table its author marked as data, but that could not be kept as one.
 	const marked = Array.from(body.querySelectorAll('th, thead, caption'))
 	if (marked.some((element) => !isDataTable(element.closest('table') as Element))) score -= 0.5
@@ -738,9 +854,9 @@ export function messageContent(
 		return blocks.length > 0 ? { kind: 'blocks', blocks, hasRemoteImages } : ORIGINAL
 	}
 	if (designed && !cleanDesigned) return ORIGINAL
-	stripHiddenContent(sanitized)
+	const guessedHidden = stripHiddenContent(sanitized)
 	const blocks = normaliseBlocks(body)
-	if (cleanConfidence(body, blocks) < CONFIDENCE_THRESHOLD) return ORIGINAL
+	if (cleanConfidence(body, blocks, guessedHidden) < CONFIDENCE_THRESHOLD) return ORIGINAL
 	return designed
 		? { kind: 'article', blocks: foldBoilerplate(blocks), hasRemoteImages, mailClass: designed }
 		: { kind: 'blocks', blocks, hasRemoteImages }
@@ -761,9 +877,16 @@ function blockSpans(block: CleanBlock): CleanSpan[] {
 	return block.type === 'list' ? block.items.flat() : []
 }
 
-/** A code someone has to type in must stay in plain sight, whatever else the block looks like. */
+/**
+ * A code someone has to type in must stay in plain sight, whatever else the
+ * block looks like: six to eight digits, two groups of three, or any short or
+ * grouped number beside a word such as "code" or "PIN".
+ */
 function holdsCode(text: string): boolean {
-	return LONG_CODE.test(text) || (CODE_WORD.test(text) && SHORT_CODE.test(text))
+	if (LONG_CODE.test(text) || GROUPED_CODE.test(text)) return true
+	// With a word that says so, be generous: wrongly keeping a block visible only
+	// makes an article a little longer; folding a code away hides what it was sent for.
+	return CODE_WORD.test(text) && (SHORT_CODE.test(text) || GROUPED_DIGITS.test(text))
 }
 
 /**
