@@ -39,6 +39,7 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getFolders, getThreadMessages, getThreads } from '#server/fns'
+import { Toolbar } from '#shared/components/ui/toolbar'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
 
@@ -234,7 +235,7 @@ function SearchResults() {
 	return (
 		<div className={layout.container}>
 			<section className={layout.list}>
-				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+				<Toolbar className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
 					<div className="flex items-center gap-1">
 						{unreadCount > 0 ? (
@@ -247,7 +248,7 @@ function SearchResults() {
 							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
 						/>
 					</div>
-				</div>
+				</Toolbar>
 
 				<div
 					ref={listScrollRef}
@@ -535,7 +536,7 @@ function SearchThreadDetail({
 
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
+			<Toolbar className="gap-1 px-3">
 				<Link
 					to="/mail/search"
 					search={searchList}
@@ -611,7 +612,7 @@ function SearchThreadDetail({
 						</ActionButton>
 					</div>
 				) : null}
-			</div>
+			</Toolbar>
 			{error ? (
 				<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 					{error}

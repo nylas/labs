@@ -31,6 +31,7 @@ import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/f
 import { ClientListDate } from '#shared/components/ClientTime'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
+import { Toolbar } from '#shared/components/ui/toolbar'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
 
@@ -467,7 +468,7 @@ export function MailFolderRouteScreen({
 	return (
 		<div className={layout.container}>
 			<section className={layout.list}>
-				<div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+				<Toolbar className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					<div className="flex items-center gap-1">
 						{unreadCount > 0 ? (
@@ -481,7 +482,7 @@ export function MailFolderRouteScreen({
 							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
 						/>
 					</div>
-				</div>
+				</Toolbar>
 
 				{onRefresh ? (
 					<PullToRefresh
@@ -538,7 +539,7 @@ function DraftRow({ draft, navActive }: { draft: MailDraft; navActive: boolean }
 			search={{ draft: draft.id, folderId: 'drafts' }}
 			data-nav-row=""
 			data-nav-cursor={navActive ? 'true' : undefined}
-			className="thread-row group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent"
+			className="thread-row group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none focus-visible:bg-accent"
 		>
 			<div className="flex items-center gap-2">
 				<span className="shrink-0 text-muted-foreground">

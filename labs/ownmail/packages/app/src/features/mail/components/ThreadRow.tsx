@@ -14,7 +14,7 @@ import type { MailThread } from '../state/mail-queries.js'
 
 /** Shared class for a thread-list row; active/unread/hover come from `.thread-row` CSS. */
 export const THREAD_ROW_CLASS =
-	'thread-row group isolate flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 pl-5 text-left outline-none focus-visible:bg-accent'
+	'thread-row group isolate flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none focus-visible:bg-accent'
 
 /** A route-specific link can stretch across the row while remaining a sibling of row actions. */
 export const THREAD_ROW_LINK_CLASS =

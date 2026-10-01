@@ -305,6 +305,8 @@ describe('ThreadConversation rendering', () => {
 		expect(summary?.firstElementChild).toHaveAttribute('data-slot', 'thread-column')
 		expect(attachmentSummary).toHaveTextContent('1 thread attachment')
 		expect(attachmentSummary).toHaveClass('min-h-11', 'max-w-full')
+		// No inline padding of its own, so it starts on the same edge as the subject above it.
+		expect(attachmentSummary?.className).not.toMatch(/\bp[xlrse]-/)
 		expect(container.querySelectorAll('[data-slot="thread-attachment"]')).toHaveLength(0)
 	})
 
@@ -385,6 +387,26 @@ describe('ThreadConversation rendering', () => {
 		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-slot', 'thread-messages')
 		expect(screen.getAllByRole('heading', { level: 2, name: 'sender@example.com' })).toHaveLength(2)
 		expect(screen.getAllByRole('article', { name: 'sender@example.com' })).toHaveLength(2)
+	})
+
+	it('keeps the same clearance above the next separator whether a message is open or collapsed', () => {
+		const withAttachment = {
+			...message('m2'),
+			attachments: [{ id: 'a1', filename: 'agenda.pdf', size: 2048, is_inline: false }],
+		}
+		const { container } = render(
+			<ThreadConversation thread={thread('t1')} messages={[message('m1'), withAttachment]} />,
+		)
+		const collapsedEnd = container.querySelector('[data-slot="collapsed-message-end"]')
+		const openEnd = container.querySelector('[data-slot="expanded-message-content"]')
+		const bottomPadding = (element: Element | null) =>
+			[...(element?.classList ?? [])].filter((name) => name.startsWith('pb-'))
+
+		// The attachment pills are the last thing in an open message; they must not sit on the line.
+		expect(openEnd?.querySelector('[data-slot="thread-attachment"]')).not.toBeNull()
+		expect(openEnd).toBe(openEnd?.closest('[data-slot="thread-message"]')?.lastElementChild)
+		expect(bottomPadding(openEnd)).toEqual(['pb-4'])
+		expect(bottomPadding(collapsedEnd)).toEqual(bottomPadding(openEnd))
 	})
 
 	it('names an anonymous message and attributes its attachments without duplicating them', () => {

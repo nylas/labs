@@ -30,9 +30,45 @@ tokens.
 
 ## Spacing
 
-Use Tailwind's four-point scale and the named safe-area/touch tokens in
+Use the six-step scale below and the named safe-area/touch tokens in
 `src/tokens.css`. Touch-reachable controls are at least 44 CSS pixels; primary
 mobile rows prefer 48 pixels.
+
+| Token | Value | Role |
+| --- | --- | --- |
+| `control` | 4px | Inside a control; between icon buttons in a group |
+| `cluster` | 8px | Between related items: pills, chips, buttons in a row |
+| `hairline` | 12px | Minimum between any content and a separator line; compact toolbar gutter |
+| `region` | 16px | Inner padding and gutter of a region; clearance where a line separates messages |
+| `section` | 24px | Between sections in a page or form |
+| `page` | 32px | Top and bottom of a page; wide reading gutter |
+
+The tokens are exported as `--spacing-<token>` and used as Tailwind utilities
+such as `gap-cluster`, `px-hairline`, and `mt-section`.
+
+1. Six steps, each with a role. Spacing between elements uses 4, 8, 12, 16, 24
+   or 32px, chosen by role from the table above, through named tokens in
+   `tokens.css`. 20px is kept for one job only: the dialog gutter.
+2. Clearance to a line. Nothing sits closer than 12px to a separator. A bordered
+   pill, chip or button next to a line that divides messages or sections gets
+   16px.
+3. Symmetry. A separator has the same space on both sides, and that space does
+   not change with state (open or collapsed, loading or loaded, empty or
+   filled).
+4. One gutter per pane. A toolbar, the content beneath it, its loading skeleton
+   and its footer share the same left and right edge at every breakpoint.
+5. One recipe per kind of thing. One toolbar height, one pill, one chip row gap,
+   one dialog header and footer. They live in shared components (`Toolbar`,
+   `Section`, `PillRow` and `Chip`, `IconButton`) so screens stop hand-writing
+   padding.
+6. No improvised values. Half steps, arbitrary values and negative margins are
+   allowed only inside shared primitives and safe-area sums. Never two separator
+   lines closer than 16px.
+
+The desktop toolbar height is 44px, defined once in `src/app/config/layout.ts`.
+`pnpm lint` reports the number of half-step and arbitrary spacing values outside
+`src/shared/components/ui` through `scripts/check-ownmail-spacing.mjs`; it is a
+warning while existing screens are migrated.
 
 ## Motion
 

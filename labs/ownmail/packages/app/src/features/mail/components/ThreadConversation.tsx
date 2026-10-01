@@ -266,7 +266,7 @@ function ThreadConversationContent({
 					{messages.length > 1 && threadAttachments.length > 0 ? (
 						<div
 							data-slot="thread-attachment-summary"
-							className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-muted-foreground xl:mt-4"
+							className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md text-sm font-medium text-muted-foreground xl:mt-4"
 						>
 							<Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
 							<span>
@@ -415,7 +415,7 @@ function MessageBlock({
 			</ThreadColumn>
 
 			{open ? (
-				<div id={contentId} data-slot="expanded-message-content" className="mt-3 w-full min-w-0">
+				<div id={contentId} data-slot="expanded-message-content" className="mt-3 w-full min-w-0 pb-4">
 					<ThreadColumn>
 						<CalendarInvitationCard message={message} />
 					</ThreadColumn>
@@ -434,7 +434,7 @@ function MessageBlock({
 					</ThreadColumn>
 				</div>
 			) : (
-				<div className="pb-3" />
+				<div data-slot="collapsed-message-end" className="pb-4" />
 			)}
 		</article>
 	)

@@ -41,6 +41,16 @@ describe('native mobile shell styles', () => {
 		expect(tokens).toContain('--mobile-tab-bar-height: 3.75rem;')
 	})
 
+	it('exports one named spacing token per role so screens choose spacing by job', () => {
+		const theme = tokens.slice(tokens.indexOf('@theme inline {'), tokens.indexOf(':root {'))
+		const roles = { control: 0.25, cluster: 0.5, hairline: 0.75, region: 1, section: 1.5, page: 2 }
+		for (const [role, rem] of Object.entries(roles)) {
+			expect(theme).toContain(`--spacing-${role}: ${rem}rem;`)
+		}
+		// Six steps only: a seventh named step would reintroduce per-screen choices.
+		expect(theme.match(/--spacing-[a-z]+:/g)).toHaveLength(6)
+	})
+
 	it('enforces the shared 44px touch floor on mobile and touch-capable hybrid devices', () => {
 		expect(styles).toMatch(
 			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.touch-target\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);\s*\}\s*\.touch-target-square\s*\{\s*min-width: var\(--touch-target-min\);\s*min-height: var\(--touch-target-min\);/,

@@ -6,6 +6,7 @@ import { ContactModal } from '#features/contacts/components/ContactModal'
 import { contactDisplayName, contactSubtitle } from '#features/contacts/lib/contacts-model'
 import { useContact, useDeleteContactMutation } from '#features/contacts/state/contacts-state'
 import { getContact } from '#server/fns'
+import { Section } from '#shared/components/ui/section'
 import { ContactAvatar } from './contacts.js'
 
 export const Route = createFileRoute('/contacts/$contactId')({
@@ -163,7 +164,7 @@ export function ContactDetailScreen({
 				</p>
 			) : null}
 
-			<div className="mt-6 flex flex-col items-stretch gap-2 border-t border-border pt-4 min-[400px]:flex-row min-[400px]:flex-wrap min-[400px]:items-center">
+			<Section className="flex flex-col items-stretch gap-2 min-[400px]:flex-row min-[400px]:flex-wrap min-[400px]:items-center">
 				<button
 					type="button"
 					onClick={onEdit}
@@ -201,7 +202,7 @@ export function ContactDetailScreen({
 						<Trash2 className="h-4 w-4" /> Delete
 					</button>
 				)}
-			</div>
+			</Section>
 		</div>
 	)
 }

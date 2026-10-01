@@ -106,6 +106,14 @@
 	--radius-2xl: calc(var(--radius) * 2.25);
 	--radius-3xl: calc(var(--radius) * 2.75);
 	--radius-4xl: calc(var(--radius) * 3.25);
+
+	/* Spacing roles (design.md "Spacing"): p-region, gap-cluster, mt-section, … */
+	--spacing-control: 0.25rem;
+	--spacing-cluster: 0.5rem;
+	--spacing-hairline: 0.75rem;
+	--spacing-region: 1rem;
+	--spacing-section: 1.5rem;
+	--spacing-page: 2rem;
 }
 
 :root {
