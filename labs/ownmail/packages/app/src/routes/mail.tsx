@@ -25,6 +25,7 @@ import {
 import { foldersQueryOptions } from '#features/mail/state/mail-queries'
 import { getFolders } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail')({
@@ -95,7 +96,11 @@ export function MailRouteScreen({
 		[activeSearchFolderId, pathname, selectedSearchThreadId],
 	)
 	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
-	const [query, setQuery] = useState('')
+	// What the search box shows belongs to the route's query: another search or
+	// folder shows its own text on its first render, and typing edits only that.
+	const [query, setQuery] = useIdentityState([searchAwarePathname, routeSearchQuery], () =>
+		mailSearchInputValue(searchAwarePathname, routeSearchQuery),
+	)
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
@@ -105,10 +110,6 @@ export function MailRouteScreen({
 		document.getElementById('mail-search')?.focus()
 	}, [closePalette])
 	useCommandPaletteShortcut(openPalette)
-
-	useEffect(() => {
-		setQuery(mailSearchInputValue(searchAwarePathname, routeSearchQuery))
-	}, [routeSearchQuery, searchAwarePathname])
 
 	async function navigateSearch(nextQuery: string) {
 		const target = liveSearchTarget(

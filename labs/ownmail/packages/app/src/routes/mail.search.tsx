@@ -47,6 +47,7 @@ import {
 } from '#features/mail/state/mail-queries'
 import { getFolders, getThreadMessages, getThreads } from '#server/fns'
 import { Toolbar } from '#shared/components/ui/toolbar'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
 
@@ -237,7 +238,6 @@ function SearchResults() {
 	const folders = foldersQuery.data
 	const folderId = initial.folderId
 	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
-	const [cursor, setCursor] = useState(-1)
 	const [preferences, savePreferences] = useUserPreferences()
 	const layout = readingPaneLayout(preferences.readingPane, Boolean(selected))
 	const listScrollRef = useRef<HTMLDivElement>(null)
@@ -255,11 +255,13 @@ function SearchResults() {
 		}
 	}
 
-	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
-	useEffect(() => {
-		setCursor(threadId ? sortedThreads.findIndex((thread) => thread.id === threadId) : -1)
-	}, [sortedThreads, threadId])
+	// The keyboard cursor starts on the open result and belongs to that selection
+	// and result list: another selection or search starts from its own row.
+	const [cursor, setCursor] = useIdentityState([sortedThreads, threadId], () =>
+		threadId ? sortedThreads.findIndex((thread) => thread.id === threadId) : -1,
+	)
 
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
 	useEffect(() => {
 		if (cursor < 0) return
 		const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
@@ -311,7 +313,7 @@ function SearchResults() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, folderId, q, router, sortedThreads])
+	}, [cursor, folderId, q, router, setCursor, sortedThreads])
 	/* v8 ignore stop -- @preserve */
 
 	// Server-rendered deep links skip the client loader; mark the selected

@@ -22,6 +22,7 @@ import { getAccountCapabilities, resetMailboxPassword, updateMailboxDisplayName 
 import { Sheet } from '#shared/components/Sheet'
 import { Button } from '#shared/components/ui/button'
 import { Section } from '#shared/components/ui/section'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { OWNMAIL_VERSION } from '#shared/lib/version'
@@ -79,7 +80,10 @@ function SettingsPage() {
 	const { info, capabilities } = Route.useLoaderData()
 	const queryClient = useQueryClient()
 	const [preferences, savePreferences] = useUserPreferences()
-	const [draft, setDraft] = useState<UserPreferences>(preferences)
+	// The draft edits one saved snapshot of the preferences. When that snapshot
+	// changes (a save here, or an edit in another tab) the draft starts again
+	// from it on the same render.
+	const [draft, setDraft] = useIdentityState<UserPreferences>([preferences], () => preferences)
 	const [displayName, setDisplayName] = useState(info.displayName ?? '')
 	const [persistedDisplayName, setPersistedDisplayName] = useState(info.displayName ?? '')
 	const [saveStatus, setSaveStatus] = useState<SettingsFeedback | null>(null)
@@ -95,9 +99,9 @@ function SettingsPage() {
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const timezones = useMemo(availableTimezones, [])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new preferences snapshot invalidates a save that is in flight
 	useEffect(() => {
 		settingsRevisionRef.current += 1
-		setDraft(preferences)
 	}, [preferences])
 
 	useEffect(() => {

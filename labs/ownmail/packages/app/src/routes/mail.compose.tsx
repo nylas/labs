@@ -1032,7 +1032,9 @@ function ComposeThreadBackdrop({
 	onForward: () => void
 }) {
 	const [error, setError] = useState<string | null>(null)
-	const [starred, setStarred] = useState(thread.starred)
+	// The star shown is the thread's own, except while a toggle is in flight.
+	const [requestedStar, setRequestedStar] = useState<boolean | null>(null)
+	const starred = requestedStar ?? Boolean(thread.starred)
 	const [pendingAction, setPendingAction] = useState<PendingComposeBackdropAction | null>(null)
 	const pendingActionRef = useRef<PendingComposeBackdropAction | null>(null)
 	const currentReaderRef = useRef(true)
@@ -1044,8 +1046,6 @@ function ComposeThreadBackdrop({
 		}
 	}, [])
 
-	useEffect(() => setStarred(thread.starred), [thread.starred])
-
 	async function act(
 		action: PendingComposeBackdropAction,
 		input: { starred?: boolean; folder?: string },
@@ -1054,8 +1054,7 @@ function ComposeThreadBackdrop({
 		if (pendingActionRef.current) return
 		pendingActionRef.current = action
 		setError(null)
-		const previousStarred = starred
-		if (typeof input.starred === 'boolean') setStarred(input.starred)
+		if (typeof input.starred === 'boolean') setRequestedStar(input.starred)
 		setPendingAction(action)
 		try {
 			await onUpdate(input)
@@ -1063,11 +1062,13 @@ function ComposeThreadBackdrop({
 			if (leave) await onLeave()
 		} catch {
 			if (!currentReaderRef.current) return
-			if (typeof input.starred === 'boolean') setStarred(previousStarred)
 			setError('Action failed')
 		} finally {
 			pendingActionRef.current = null
-			if (currentReaderRef.current) setPendingAction(null)
+			if (currentReaderRef.current) {
+				setRequestedStar(null)
+				setPendingAction(null)
+			}
 		}
 	}
 
