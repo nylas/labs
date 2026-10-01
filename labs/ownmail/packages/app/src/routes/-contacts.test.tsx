@@ -16,7 +16,7 @@ const h = vi.hoisted(() => ({
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 	useNavigate: () => h.navigate,
-	useRouterState: (opts: any) => opts.select({ location: { pathname: h.pathname } }),
+	useRouterState: (opts: any) => opts.select({ location: { pathname: h.pathname }, matches: [] }),
 	Link: ({ children, to, params, search, ...rest }: any) => (
 		<a
 			href={typeof to === 'string' ? to : '#'}

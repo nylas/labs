@@ -1,4 +1,5 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
+import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-react'
 import {
@@ -24,6 +25,7 @@ import {
 	useUserPreferences,
 	withHiddenCalendarIds,
 } from '#app/preferences/user-preferences'
+import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
 import { EventModal } from '#features/calendar/components/EventModal'
 import {
@@ -69,6 +71,7 @@ import {
 } from '#features/calendar/lib/calendar-ui-model'
 import {
 	type CalendarRouteData,
+	calendarRouteRange,
 	loadCalendarRouteData,
 	useCalendarRouteData,
 	useHiddenCalendarIdsForRequest,
@@ -93,9 +96,88 @@ export const Route = createFileRoute('/calendar/$view')({
 	loader: async ({ context, params, deps }) =>
 		loadCalendarRouteData(context.queryClient, params.view, deps.date),
 	component: CalendarViewRoutePage,
+	pendingComponent: CalendarPending,
 })
 
 export { loadCalendarRouteData }
+
+/** The header's Create control. The pending view draws the same box, disabled,
+ * so the title beside it sits where it will when the grid arrives. */
+const CREATE_BUTTON_CLASS =
+	'touch-target-square col-start-1 row-start-1 flex size-11 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium sm:w-auto sm:justify-start sm:px-3'
+
+/** Shown while another date range or view loads: the destination's title in
+ * the same chrome, over an empty grid. The previous range's events and title
+ * are never kept, and the header cells keep their loaded sizes so the title
+ * does not move when the grid arrives. */
+function CalendarPending() {
+	const { date, view } = { ...Route.useSearch(), ...Route.useParams() }
+	const info = useQueryClient().getQueryData(mailboxInfoQueryOptions().queryKey)
+	return (
+		<div
+			data-testid="calendar-pending"
+			aria-busy="true"
+			className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground"
+		>
+			<div className={cn(CHROME_ROW_SHELL_CLASS, 'calendar-chrome-row')}>
+				{info ? <AppRailLogo appName={info.appName} className="hidden md:flex" /> : null}
+				<header
+					className={cn(
+						'flex min-w-0 flex-1 items-stretch border-b border-border bg-background',
+						CHROME_ROW_CLASS,
+						'h-[5.5rem] sm:h-11',
+					)}
+				>
+					<div className="h-11 w-11 shrink-0 border-r border-border lg:hidden" aria-hidden="true" />
+					<div className={cn('min-w-0 flex-1', CALENDAR_HEADER_GRID_CLASS)}>
+						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
+						<div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem_2.75rem] grid-rows-[2.75rem_2.75rem] items-stretch sm:flex">
+							<button
+								type="button"
+								disabled
+								className={cn(CREATE_BUTTON_CLASS, 'text-muted-foreground')}
+								aria-label="Create"
+							>
+								<Plus className="h-4 w-4" strokeWidth={2} />
+								<span className="hidden md:inline">Create</span>
+							</button>
+							<div className="col-start-2 row-start-1 flex min-w-0 items-center border-r border-border px-3 sm:flex-1">
+								<h1 className="truncate font-display text-base font-bold tracking-[-0.02em] sm:text-xl">
+									{calendarTitle(calendarRouteRange(view, date).anchor)}
+								</h1>
+							</div>
+						</div>
+					</div>
+				</header>
+			</div>
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				{info ? (
+					<AppRailNav
+						email={info.email}
+						displayName={info.displayName}
+						accounts={info.accounts}
+						active="calendar"
+					/>
+				) : null}
+				<div
+					className={cn(
+						'hidden shrink-0 border-r border-border bg-background lg:block',
+						CALENDAR_SIDEBAR_WIDTH_CLASS,
+					)}
+					aria-hidden="true"
+				/>
+				<div
+					className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden bg-background p-4"
+					aria-hidden="true"
+				>
+					<div className="h-4 w-1/4 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+					<div className="min-h-0 flex-1 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+				</div>
+			</div>
+			<MobileTabBar active="calendar" />
+		</div>
+	)
+}
 
 function CalendarViewRoutePage() {
 	const { view } = Route.useParams()
@@ -212,7 +294,7 @@ export function CalendarRouteScreen({
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [anchor, currentView, go, primaryTimezone])
 
-	const title = anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+	const title = calendarTitle(anchor)
 
 	return (
 		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
@@ -249,7 +331,7 @@ export function CalendarRouteScreen({
 									setComposerAnchor(null)
 									setEditing('new')
 								}}
-								className="touch-target-square col-start-1 row-start-1 flex size-11 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:justify-start sm:px-3"
+								className={cn(CREATE_BUTTON_CLASS, 'text-foreground transition-colors hover:bg-muted/60')}
 								aria-label="Create"
 							>
 								<Plus className="h-4 w-4" strokeWidth={2} />
@@ -387,6 +469,8 @@ export function CalendarRouteScreen({
 
 			{editing ? (
 				<EventModal
+					// A draft and its chosen calendar belong to one event in one inbox.
+					key={`${info.email}:${editing === 'new' ? 'new' : editing.id}`}
 					event={editing === 'new' ? null : editing}
 					defaultStart={newStart ?? anchor}
 					calendarId={calendar.id}
@@ -600,6 +684,12 @@ function eventColorProps(
 ): CSSProperties {
 	const calendarId = 'calendar_id' in source ? source.calendar_id : source.id
 	return eventColorStyle(eventColor({ calendar_id: calendarId }, colors))
+}
+
+/** The header title for an anchor date; the loaded screen and its pending view
+ * share it so the title always names the range beside it. */
+function calendarTitle(anchor: Date): string {
+	return anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 }
 
 /** Current time, refreshed each minute so "today" and "Up next" roll forward on their own. */

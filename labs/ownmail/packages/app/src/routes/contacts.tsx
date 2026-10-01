@@ -1,9 +1,10 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
-import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Menu, Plus, Search } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { MobileTabBar } from '#app/components/MobileTabBar'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import {
@@ -328,7 +329,7 @@ export function ContactsShell({
 				</div>
 
 				<div className={cn('min-w-0 flex-1 overflow-y-auto', !selectedId && 'hidden md:block')}>
-					<Outlet />
+					<ContentReadyOutlet parentRouteId="/contacts" />
 				</div>
 			</div>
 			<MobileTabBar active="contacts" />

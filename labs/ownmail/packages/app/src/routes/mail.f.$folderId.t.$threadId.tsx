@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
 import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
 	forwardDraftSearch,
@@ -62,7 +63,7 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 			() => context.queryClient.ensureQueryData(options),
 		)
 	},
-	component: ThreadView,
+	component: KeyedThreadView,
 	pendingComponent: ThreadPending,
 })
 
@@ -114,32 +115,7 @@ const SPLIT_VIEW_QUERY = '(min-width: 80rem)'
 function ThreadPending() {
 	const { threadId } = Route.useParams()
 	const queryClient = useQueryClient()
-	const subject = findCachedThread(queryClient, threadId)?.subject
-	return (
-		<div
-			data-testid="thread-reader-pending"
-			aria-busy="true"
-			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
-		>
-			<Toolbar />
-			<div className="pt-3">
-				<ThreadColumn>
-					<h1 className="min-w-0 font-sans text-base leading-6 font-semibold tracking-normal [overflow-wrap:anywhere]">
-						{subject || 'Loading conversation…'}
-					</h1>
-				</ThreadColumn>
-			</div>
-			<div className="py-5" aria-hidden="true">
-				<ThreadColumn>
-					<div className="flex flex-col gap-3">
-						<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-						<div className="h-4 w-5/6 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-						<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-					</div>
-				</ThreadColumn>
-			</div>
-		</div>
-	)
+	return <ThreadReaderSkeleton subject={findCachedThread(queryClient, threadId)?.subject} />
 }
 
 type PendingThreadAction = 'archive' | 'delete' | 'star' | 'unread'
@@ -187,6 +163,13 @@ function shouldIgnoreReplyShortcut(event: KeyboardEvent): boolean {
 	)
 }
 
+/** Action errors and in-flight actions belong to one conversation, so the view
+ * lives under a key equal to the thread id instead of resetting in an effect. */
+function KeyedThreadView() {
+	const { threadId } = Route.useParams()
+	return <ThreadView key={threadId} />
+}
+
 function ThreadView() {
 	const initialDetail = Route.useLoaderData()
 	const { folderId, threadId } = Route.useParams()
@@ -205,7 +188,9 @@ function ThreadView() {
 	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()
 	const [error, setError] = useState<string | null>(null)
-	const [starred, setStarred] = useState(thread.starred)
+	// The optimistic mutation writes the star into the cached thread, so the
+	// control reads the same source as the conversation beside it.
+	const starred = Boolean(thread.starred)
 	const [pendingAction, setPendingAction] = useState<PendingThreadAction | null>(null)
 	const goBackToList = useCallback(
 		() =>
@@ -249,10 +234,6 @@ function ThreadView() {
 		})
 	}, [folderId, lastMessage, navigate, threadId])
 
-	useEffect(() => {
-		setStarred(thread.starred)
-	}, [thread.starred])
-
 	const act = useCallback(
 		async (
 			action: PendingThreadAction,
@@ -262,8 +243,6 @@ function ThreadView() {
 			/* v8 ignore next -- every toolbar action is disabled while the request is pending -- @preserve */
 			if (pendingAction) return
 			setError(null)
-			const previousStarred = starred
-			if (typeof input.starred === 'boolean') setStarred(input.starred)
 			setPendingAction(action)
 			// In split view, triage continues with the neighbouring conversation.
 			// The list is read synchronously, before the optimistic move removes
@@ -294,25 +273,13 @@ function ThreadView() {
 					})
 				}
 			} catch {
-				/* v8 ignore start -- a failed optimistic star action restores the previous state before surfacing its error -- @preserve */
-				if (typeof input.starred === 'boolean') setStarred(previousStarred)
+				// The optimistic mutation has already rolled the cached thread back.
 				setError('Action failed')
-				/* v8 ignore stop -- @preserve */
 			} finally {
 				setPendingAction(null)
 			}
 		},
-		[
-			baseFolderId,
-			folderId,
-			navigate,
-			pendingAction,
-			queryClient,
-			readingPane,
-			starred,
-			threadId,
-			updateThread,
-		],
+		[baseFolderId, folderId, navigate, pendingAction, queryClient, readingPane, threadId, updateThread],
 	)
 
 	useEffect(() => {
@@ -479,7 +446,13 @@ function ThreadView() {
 			</Toolbar>
 			{error ? <ErrorBanner message={error} /> : null}
 
-			<ScrollArea key={threadId} aria-label="Thread conversation" className="min-h-0 flex-1">
+			<ScrollArea
+				key={threadId}
+				// The reading position belongs to one conversation.
+				scrollRestorationId={`thread:${threadId}`}
+				aria-label="Thread conversation"
+				className="min-h-0 flex-1"
+			>
 				<ThreadConversation thread={thread} messages={messages}>
 					{lastMessage ? (
 						<ThreadColumn>

@@ -1,12 +1,14 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { ThreadListSkeleton } from '#features/mail/components/ThreadListSkeleton'
+import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
 	THREAD_ROW_CLASS,
@@ -25,6 +27,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import { findCachedThread } from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
 	openThreadDetail,
@@ -32,6 +35,8 @@ import {
 } from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
+	type MailFolder,
+	type MailThreadListData,
 	mailKeys,
 	threadDetailQueryOptions,
 	threadListQueryOptions,
@@ -82,7 +87,93 @@ export const Route = createFileRoute('/mail/search')({
 		return { ...res, folders, folderId: deps.folderId, selected }
 	},
 	component: SearchResults,
+	pendingComponent: SearchPending,
 })
+
+function searchFilters(q: string, folderId: string | undefined) {
+	return { q, ...(folderId === 'starred' ? { starred: true } : folderId ? { folderId } : {}) }
+}
+
+function newestFirst(threads: Thread[]): Thread[] {
+	return [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0))
+}
+
+/** Selecting a result reloads this route, but the list's identity (query and
+ * folder) has not changed. The router carries the offset to the reloaded list;
+ * this carries it to the pending view in between. A different query or folder
+ * starts at the top. */
+const searchListScroll = { identity: '', top: 0 }
+
+function searchListIdentity(q: string, folderId: string | undefined) {
+	return JSON.stringify([q, folderId ?? null])
+}
+
+/** Rows already cached for the destination search, or nothing when that search
+ * has not been loaded (or its query is one the loader will reject). */
+function cachedSearchThreads(queryClient: QueryClient, q: string, folderId?: string): Thread[] | undefined {
+	try {
+		const list = queryClient.getQueryData<MailThreadListData>(mailKeys.threadList(searchFilters(q, folderId)))
+		if (!list) return undefined
+		const threads = list.pages.flatMap((page) => page.threads) as Thread[]
+		return newestFirst([...new Map(threads.map((thread) => [thread.id, thread])).values()])
+	} catch {
+		return undefined
+	}
+}
+
+/** Shown while a search loads. A new query or folder gets a skeleton; picking a
+ * result keeps the rows of the same search and puts a skeleton in the reader.
+ * Results of a previous query are never kept under the new query. */
+function SearchPending() {
+	const { q, folderId, threadId } = Route.useSearch()
+	const queryClient = useQueryClient()
+	const [{ readingPane, listDensity }] = useUserPreferences()
+	const listRef = useRef<HTMLDivElement>(null)
+	const listIdentity = searchListIdentity(q, folderId)
+	useLayoutEffect(() => {
+		if (listRef.current && searchListScroll.identity === listIdentity) {
+			listRef.current.scrollTop = searchListScroll.top
+		}
+	}, [listIdentity])
+	const hasSearchQuery = q.trim().length > 0
+	const selectedThreadId = hasSearchQuery ? threadId : undefined
+	const layout = readingPaneLayout(readingPane, Boolean(selectedThreadId))
+	const threads = hasSearchQuery ? cachedSearchThreads(queryClient, q, folderId) : undefined
+	return (
+		<div data-testid="search-pending" aria-busy="true" className={layout.container}>
+			<section className={layout.list} data-density={listDensity}>
+				<Toolbar className="justify-between px-4">
+					<h1 className="font-display text-base font-semibold capitalize">
+						{folderId
+							? mailFolderTitle(folderId, queryClient.getQueryData<MailFolder[]>(mailKeys.folders()))
+							: 'Search results'}
+					</h1>
+				</Toolbar>
+				{threads ? (
+					<div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
+						{threads.map((thread) => (
+							<SearchThreadRow
+								key={thread.id}
+								thread={thread}
+								q={q}
+								searchFolderId={folderId}
+								active={thread.id === selectedThreadId}
+								keyboardActive={false}
+							/>
+						))}
+					</div>
+				) : (
+					<ThreadListSkeleton />
+				)}
+			</section>
+			<section className={layout.reader}>
+				{selectedThreadId ? (
+					<ThreadReaderSkeleton subject={findCachedThread(queryClient, selectedThreadId)?.subject} />
+				) : null}
+			</section>
+		</div>
+	)
+}
 
 function SearchResults() {
 	const initial = Route.useLoaderData()
@@ -90,14 +181,7 @@ function SearchResults() {
 	const hasSearchQuery = q.trim().length > 0
 	const router = useRouter()
 	const queryClient = useQueryClient()
-	const filters = {
-		q,
-		...(initial.folderId === 'starred'
-			? { starred: true }
-			: initial.folderId
-				? { folderId: initial.folderId }
-				: {}),
-	}
+	const filters = searchFilters(q, initial.folderId)
 	const foldersQuery = useQuery({
 		...foldersQueryOptions(
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated search screen and query-option tests */
@@ -148,10 +232,7 @@ function SearchResults() {
 	const layout = readingPaneLayout(preferences.readingPane, Boolean(selected))
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
-	const sortedThreads = useMemo(
-		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
-		[threads],
-	)
+	const sortedThreads = useMemo(() => newestFirst(threads), [threads])
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const title = folderId ? mailFolderTitle(folderId, folders) : 'Search results'
 	const canLoadMore = hasSearchQuery && threadsQuery.hasNextPage
@@ -257,6 +338,10 @@ function SearchResults() {
 
 				<div
 					ref={listScrollRef}
+					onScroll={(event) => {
+						searchListScroll.identity = searchListIdentity(q, folderId)
+						searchListScroll.top = event.currentTarget.scrollTop
+					}}
 					className={cn(
 						'min-h-0 flex-1 overflow-y-auto',
 						sortedThreads.length === 0 && canLoadMore && 'flex flex-col',
@@ -374,29 +459,25 @@ function SearchThreadRow({
 }) {
 	const folderId = threadRouteFolderId(thread)
 	const updateThread = useUpdateThreadMutation()
-	const [starred, setStarred] = useState(thread.starred)
-	const [starPending, setStarPending] = useState(false)
-
-	useEffect(() => {
-		setStarred(thread.starred)
-	}, [thread.starred])
+	// The star shown is the thread's own, except while a toggle is in flight.
+	const [requestedStar, setRequestedStar] = useState<boolean | null>(null)
+	const starPending = requestedStar !== null
+	const starred = requestedStar ?? Boolean(thread.starred)
 
 	async function toggleStar() {
 		/* v8 ignore next -- the star control is disabled while its request is pending -- @preserve */
 		if (starPending) return
 		const nextStarred = !starred
-		setStarred(nextStarred)
-		setStarPending(true)
+		setRequestedStar(nextStarred)
 		try {
 			await updateThread.mutateAsync({ threadId: thread.id, starred: nextStarred })
 		} catch {
-			/* v8 ignore next -- @preserve a failed optimistic mutation restores the rendered value before re-enabling the control */
-			setStarred(!nextStarred)
+			// The mutation gateway has already restored the cached thread.
 		} finally {
-			setStarPending(false)
+			setRequestedStar(null)
 		}
 	}
-	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
+	const optimisticThread = starred === Boolean(thread.starred) ? thread : { ...thread, starred }
 
 	return (
 		<div
@@ -441,7 +522,9 @@ function SearchThreadDetail({
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
 	const [error, setError] = useState<string | null>(null)
-	const [starred, setStarred] = useState(selected.thread.starred)
+	// The optimistic mutation writes the star into the cached thread, so the
+	// control reads the same source as the conversation beside it.
+	const starred = Boolean(selected.thread.starred)
 	const [pendingAction, setPendingAction] = useState<PendingSearchThreadAction | null>(null)
 	const pendingActionRef = useRef<PendingSearchThreadAction | null>(null)
 	const currentReaderRef = useRef(true)
@@ -453,7 +536,6 @@ function SearchThreadDetail({
 		}
 	}, [])
 
-	useEffect(() => setStarred(selected.thread.starred), [selected.thread.starred])
 	const reply = () => {
 		/* v8 ignore next -- every exposed search reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
@@ -517,8 +599,6 @@ function SearchThreadDetail({
 		if (pendingActionRef.current) return
 		pendingActionRef.current = action
 		setError(null)
-		const previousStarred = starred
-		if (typeof input.starred === 'boolean') setStarred(input.starred)
 		setPendingAction(action)
 		try {
 			await updateThread.mutateAsync({ threadId: selected.thread.id, ...input })
@@ -531,7 +611,6 @@ function SearchThreadDetail({
 			}
 		} catch {
 			if (!currentReaderRef.current) return
-			if (typeof input.starred === 'boolean') setStarred(previousStarred)
 			setError('Action failed')
 		} finally {
 			pendingActionRef.current = null
@@ -624,7 +703,11 @@ function SearchThreadDetail({
 				</p>
 			) : null}
 
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			<div
+				// The reading position belongs to one conversation.
+				data-scroll-restoration-id={`thread:${selected.thread.id}`}
+				className="min-h-0 flex-1 overflow-y-auto"
+			>
 				<ThreadConversation thread={selected.thread} messages={selected.messages} />
 			</div>
 
