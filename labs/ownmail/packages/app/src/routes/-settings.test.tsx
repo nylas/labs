@@ -218,6 +218,7 @@ describe('/settings', () => {
 			emailColorMode: 'automatic',
 			remoteImagePolicy: 'ask',
 			readingPane: 'vertical',
+			listDensity: 'default',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',
 			hiddenCalendarsByAccount: {},

@@ -709,8 +709,23 @@
 	letter-spacing: -0.02em;
 }
 
+/*
+ * One row definition for every mail list (folders, drafts, search). Default is
+ * three lines: sender and date, subject, snippet. Density variants live in the
+ * fine-pointer block below, so touch and mobile layouts always keep this row.
+ * The row's own 16px inline padding (`px-4`) is the left edge shared with the
+ * list title, so the unread dot's track has no width and the dot sits in that
+ * padding; cells are spaced by their own margins instead of a column gap.
+ */
 .thread-row {
 	position: relative;
+	display: grid;
+	grid-template-columns: 0 auto minmax(0, 1fr) auto;
+	grid-template-areas:
+		"dot lead who when"
+		". text text text";
+	align-items: center;
+	row-gap: 0.25rem;
 	transition:
 		background-color 120ms ease,
 		box-shadow 120ms ease;
@@ -745,17 +760,167 @@
 	}
 }
 
-.thread-row[data-unread="true"]:not([data-active="true"]):not(:has([data-active="true"]))::before,
-.thread-row:has([data-unread="true"]):not([data-active="true"]):not(:has([data-active="true"]))::before {
-	content: "";
-	position: absolute;
-	top: 50%;
-	left: 2.75rem;
+/* The unread dot is an in-flow leading cell, so it lines up with the sender at every density. */
+.thread-row-dot {
+	grid-area: dot;
+	justify-self: end;
+	margin-right: 0.5rem;
 	width: 5px;
 	height: 5px;
 	border-radius: 50%;
-	transform: translateY(-50%);
+}
+
+.thread-row[data-unread="true"]:not([data-active="true"]):not(:has([data-active="true"])) .thread-row-dot,
+.thread-row:has([data-unread="true"]):not([data-active="true"]):not(:has([data-active="true"]))
+	.thread-row-dot {
 	background: color-mix(in oklch, var(--foreground), transparent 25%);
+}
+
+.thread-row-lead {
+	grid-area: lead;
+	display: flex;
+	align-items: center;
+}
+
+.thread-row-sender {
+	grid-area: who;
+	margin-left: 0.5rem;
+}
+
+.thread-row-when {
+	grid-area: when;
+	margin-left: 0.5rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.thread-row-text {
+	grid-area: text;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 0.5rem;
+	row-gap: 0.25rem;
+	min-width: 0;
+}
+
+.thread-row-summary {
+	display: contents;
+}
+
+.thread-row-subject,
+.thread-row-snippet {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.thread-row-subject {
+	grid-column: 1 / -1;
+}
+
+.thread-row-labels {
+	grid-row: 2;
+	grid-column: 2;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.list-density-menu {
+	display: none;
+}
+
+/* Mobile layouts and touch-capable devices keep the 48px primary-row floor. */
+@media (max-width: 48rem), (any-pointer: coarse) {
+	.thread-row {
+		min-height: 3rem;
+	}
+}
+
+/*
+ * List density. Compact and Condensed rows are shorter than the touch floor
+ * allows, so they exist only for a fine pointer on desktop layouts: this query
+ * is the exact complement of the touch-floor query above. Everywhere else the
+ * preference has no effect and its toolbar control stays hidden.
+ */
+@media (width > 48rem) and (pointer: fine) and (not (any-pointer: coarse)) {
+	.list-density-menu {
+		display: block;
+	}
+
+	/* Compact, about 62px: sender and date, then subject and snippet on one line. */
+	[data-density="compact"] .thread-row {
+		row-gap: 1px;
+		padding-block: 0.625rem;
+	}
+
+	/* Condensed, 34px: sender, subject and snippet, date on a single line. */
+	[data-density="condensed"] .thread-row {
+		grid-template-columns: 0 auto minmax(4.5rem, 9rem) minmax(0, 1fr) auto;
+		grid-template-areas: "dot lead who text when";
+		min-height: 2.125rem;
+		padding-block: 0;
+	}
+
+	[data-density="condensed"] .thread-row-sender {
+		font-size: 0.8125rem;
+	}
+
+	[data-density="compact"] .thread-row-text,
+	[data-density="condensed"] .thread-row-text {
+		display: flex;
+	}
+
+	[data-density="condensed"] .thread-row-text {
+		margin-left: 0.5rem;
+	}
+
+	[data-density="compact"] .thread-row-summary,
+	[data-density="condensed"] .thread-row-summary {
+		display: block;
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.8125rem;
+		line-height: 1.25rem;
+	}
+
+	[data-density="compact"] .thread-row-subject,
+	[data-density="compact"] .thread-row-snippet,
+	[data-density="condensed"] .thread-row-subject,
+	[data-density="condensed"] .thread-row-snippet {
+		display: inline;
+		font-size: inherit;
+		line-height: inherit;
+	}
+
+	[data-density="compact"] .thread-row-snippet:not(:empty)::before,
+	[data-density="condensed"] .thread-row-snippet:not(:empty)::before {
+		content: "  ·  ";
+		white-space: pre;
+	}
+
+	/*
+	 * The star keeps a hit target larger than its glyph through negative
+	 * margins. Each density sizes it to stay inside its own row, so targets in
+	 * neighbouring rows never overlap.
+	 */
+	[data-density="compact"] .thread-row-star {
+		width: 2rem;
+		height: 2rem;
+		margin: -0.5rem;
+	}
+
+	[data-density="condensed"] .thread-row-star {
+		width: 1.75rem;
+		height: 1.75rem;
+		margin: -0.375rem;
+	}
 }
 
 .label-badge {

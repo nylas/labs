@@ -32,6 +32,20 @@ describe('readingPaneLayout', () => {
 		expect(layout.wideBackControl).toBe(false)
 	})
 
+	it('widens the vertical-split list only for the single-line Condensed density', () => {
+		// Condensed fits sender, subject, and date on one line, which 22rem squeezes.
+		const condensed = classes(readingPaneLayout('vertical', true, 'condensed').list)
+		expect(condensed).toEqual(expect.arrayContaining(['xl:w-[26rem]', 'xl:max-w-[26rem]']))
+		expect(condensed).not.toContain('xl:w-[22rem]')
+		for (const density of ['default', 'compact'] as const) {
+			const list = classes(readingPaneLayout('vertical', true, density).list)
+			expect(list).toEqual(expect.arrayContaining(['xl:w-[22rem]', 'xl:max-w-[22rem]']))
+			expect(list).not.toContain('xl:w-[26rem]')
+		}
+		// A horizontal split already gives the list the full width.
+		expect(readingPaneLayout('horizontal', true, 'condensed').list).not.toContain('26rem')
+	})
+
 	it('stacks the list above the reader for a horizontal split', () => {
 		const layout = readingPaneLayout('horizontal', true)
 		expect(classes(layout.container)).toContain('xl:flex-col')

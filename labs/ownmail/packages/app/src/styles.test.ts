@@ -162,3 +162,74 @@ describe('borders and accents', () => {
 		expect(rule('.mobile-tab')).toContain('min-height: var(--mobile-tab-bar-height);')
 	})
 })
+
+describe('mail list density styles', () => {
+	const densityQuery = '@media (width > 48rem) and (pointer: fine) and (not (any-pointer: coarse)) {'
+	const densityStart = styles.indexOf(densityQuery)
+	// The density block is the only place Compact and Condensed are defined; it ends at the next top-level rule.
+	const densityBlock = styles.slice(densityStart, styles.indexOf('\n}\n', densityStart))
+	const outsideDensityBlock = styles.replace(densityBlock, '')
+
+	it('defines the Default three-line row once, with the unread dot as an in-flow leading cell', () => {
+		expect(outsideDensityBlock).toMatch(
+			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"dot lead who when"\s*"\. text text text";/,
+		)
+		expect(styles).toMatch(/\.thread-row-dot\s*\{\s*grid-area: dot;/)
+		// The dot's track has no width: it sits in the row's 16px padding, so row text keeps the title's left edge.
+		expect(outsideDensityBlock).toMatch(
+			/\.thread-row\s*\{[^}]*grid-template-columns: 0 auto minmax\(0, 1fr\) auto;/,
+		)
+		expect(outsideDensityBlock).not.toMatch(/\.thread-row\s*\{[^}]*padding/)
+		// The dot used to be absolutely positioned for a three-line row; no pseudo-element may bring that back.
+		expect(styles).not.toMatch(/\.thread-row[^{]*::before\s*\{[^}]*position: absolute/)
+		// It still only fills on unread rows that are not the open conversation.
+		expect(styles).toMatch(
+			/\.thread-row\[data-unread="true"\]:not\(\[data-active="true"\]\):not\(:has\(\[data-active="true"\]\)\)\s+\.thread-row-dot,/,
+		)
+	})
+
+	it('never lets touch or mobile layouts have mail rows under 48px', () => {
+		expect(densityStart).toBeGreaterThan(-1)
+		// Mobile layouts and any touch-capable device keep the primary-row floor...
+		expect(styles).toMatch(
+			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.thread-row\s*\{\s*min-height: 3rem;/,
+		)
+		// ...and no density rule exists outside the fine-pointer desktop query that complements it.
+		expect(densityBlock).toContain('[data-density="compact"] .thread-row {')
+		expect(densityBlock).toContain('[data-density="condensed"] .thread-row {')
+		expect(outsideDensityBlock).not.toContain('data-density')
+	})
+
+	it('puts subject and snippet on one line for Compact, about 62px tall', () => {
+		expect(densityBlock).toMatch(
+			/\[data-density="compact"\] \.thread-row\s*\{\s*row-gap: 1px;\s*padding-block: 0\.625rem;/,
+		)
+		expect(densityBlock).toMatch(
+			/\[data-density="compact"\] \.thread-row-subject,\s*\[data-density="compact"\] \.thread-row-snippet,[^{]*\{\s*display: inline;/,
+		)
+		expect(densityBlock).toMatch(
+			/\[data-density="compact"\] \.thread-row-snippet:not\(:empty\)::before,[^{]*\{\s*content: " {2}· {2}";/,
+		)
+	})
+
+	it('puts sender, subject and snippet, and date on a single 34px line for Condensed', () => {
+		expect(densityBlock).toMatch(
+			/\[data-density="condensed"\] \.thread-row\s*\{\s*grid-template-columns: 0 auto minmax\(4\.5rem, 9rem\) minmax\(0, 1fr\) auto;\s*grid-template-areas: "dot lead who text when";\s*min-height: 2\.125rem;\s*padding-block: 0;/,
+		)
+	})
+
+	it('sizes the star target to fit inside each dense row so neighbouring targets never overlap', () => {
+		// Compact rows are 62px and Condensed rows 34px; the target must be no taller than its row.
+		expect(densityBlock).toMatch(
+			/\[data-density="compact"\] \.thread-row-star\s*\{\s*width: 2rem;\s*height: 2rem;\s*margin: -0\.5rem;/,
+		)
+		expect(densityBlock).toMatch(
+			/\[data-density="condensed"\] \.thread-row-star\s*\{\s*width: 1\.75rem;\s*height: 1\.75rem;\s*margin: -0\.375rem;/,
+		)
+	})
+
+	it('shows the density control only where the choice takes effect', () => {
+		expect(outsideDensityBlock).toMatch(/\.list-density-menu\s*\{\s*display: none;/)
+		expect(densityBlock).toMatch(/\.list-density-menu\s*\{\s*display: block;/)
+	})
+})

@@ -153,6 +153,23 @@ describe('CommandPalette', () => {
 		expect(await screen.findByRole('option', { name: /Reading pane: No split.*Current/ })).toBeTruthy()
 	})
 
+	it('switches the list density and marks the current density', async () => {
+		const onClose = vi.fn()
+		const { rerender } = render(<CommandPalette open={true} onClose={onClose} />)
+		expect(await screen.findByRole('option', { name: /List density: Default.*Current/ })).toBeTruthy()
+		expect(screen.getByRole('option', { name: /List density: Compact/ })).toBeTruthy()
+
+		fireEvent.click(screen.getByRole('option', { name: /List density: Condensed/ }))
+
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
+			'condensed',
+		)
+		expect(onClose).toHaveBeenCalled()
+		rerender(<CommandPalette open={true} onClose={onClose} />)
+		expect(await screen.findByRole('option', { name: /List density: Condensed.*Current/ })).toBeTruthy()
+		expect(screen.queryByRole('option', { name: /List density: Default.*Current/ })).toBeNull()
+	})
+
 	it('toggles the theme both directions and persists the choice', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		// From light -> dark.

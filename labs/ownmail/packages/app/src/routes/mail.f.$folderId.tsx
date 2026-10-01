@@ -3,18 +3,19 @@ import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tan
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
 	ThreadRowContent,
+	ThreadRowLayout,
 	threadRowLinkLabel,
 } from '#features/mail/components/ThreadRow'
 import {
 	draftRecipientName,
 	folderCount,
 	mailFolderTitle,
-	readableSnippet,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
@@ -28,7 +29,6 @@ import {
 	threadListQueryOptions,
 } from '#features/mail/state/mail-queries'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
-import { ClientListDate } from '#shared/components/ClientTime'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
@@ -242,7 +242,7 @@ export function MailFolderRouteScreen({
 	})
 	const hasThread = hasThreadRoute || Boolean(children)
 	const [preferences, savePreferences] = useUserPreferences()
-	const layout = readingPaneLayout(preferences.readingPane, hasThreadRoute)
+	const layout = readingPaneLayout(preferences.readingPane, hasThreadRoute, preferences.listDensity)
 	const loadingMore = Boolean(managedLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(managedLoadMoreError || localLoadMoreError)
 	const threads = useMemo(
@@ -467,7 +467,7 @@ export function MailFolderRouteScreen({
 
 	return (
 		<div className={layout.container}>
-			<section className={layout.list}>
+			<section className={layout.list} data-density={preferences.listDensity}>
 				<Toolbar className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					<div className="flex items-center gap-1">
@@ -477,6 +477,10 @@ export function MailFolderRouteScreen({
 							</span>
 						) : null}
 						{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
+						<ListDensityMenu
+							value={preferences.listDensity}
+							onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
+						/>
 						<ReadingPaneMenu
 							value={preferences.readingPane}
 							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
@@ -532,29 +536,21 @@ function EmptyState({ moreAvailable = false, children }: { moreAvailable?: boole
 }
 
 function DraftRow({ draft, navActive }: { draft: MailDraft; navActive: boolean }) {
-	const recipient = draftRecipientName(draft)
 	return (
 		<Link
 			to="/mail/compose"
 			search={{ draft: draft.id, folderId: 'drafts' }}
 			data-nav-row=""
 			data-nav-cursor={navActive ? 'true' : undefined}
-			className="thread-row group relative flex w-full cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 text-left outline-none focus-visible:bg-accent"
+			className={THREAD_ROW_CLASS}
 		>
-			<div className="flex items-center gap-2">
-				<span className="shrink-0 text-muted-foreground">
-					<Star className="h-4 w-4" />
-				</span>
-				<span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{recipient}</span>
-				{draft.date ? (
-					<ClientListDate
-						epochSeconds={draft.date}
-						className="shrink-0 text-xs tabular-nums text-muted-foreground"
-					/>
-				) : null}
-			</div>
-			<p className="truncate text-sm text-foreground/80">{draft.subject || '(no subject)'}</p>
-			<p className="min-w-0 truncate text-xs text-muted-foreground">{readableSnippet(draft.snippet)}</p>
+			<ThreadRowLayout
+				leading={<Star className="h-4 w-4 text-muted-foreground" />}
+				sender={draftRecipientName(draft)}
+				epochSeconds={draft.date}
+				subject={draft.subject}
+				snippet={draft.snippet}
+			/>
 		</Link>
 	)
 }

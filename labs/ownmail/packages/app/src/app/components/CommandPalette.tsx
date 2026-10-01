@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { Calendar, Mail, Moon, Pencil, Search, Sun, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { LIST_DENSITY_OPTIONS } from '#features/mail/components/ListDensityMenu'
 import { READING_PANE_OPTIONS } from '#features/mail/components/ReadingPaneMenu'
 import { MAIL_FOLDERS } from '#features/mail/lib/mail-ui-model'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
@@ -90,6 +91,13 @@ export function CommandPalette({
 				...(preferences.readingPane === value ? { hint: 'Current' } : {}),
 				icon: <Icon className="h-4 w-4" />,
 				run: () => savePreferences({ ...preferences, readingPane: value }),
+			})),
+			...LIST_DENSITY_OPTIONS.map(({ value, label, icon: Icon }) => ({
+				id: `list-density-${value}`,
+				label: `List density: ${label}`,
+				...(preferences.listDensity === value ? { hint: 'Current' } : {}),
+				icon: <Icon className="h-4 w-4" />,
+				run: () => savePreferences({ ...preferences, listDensity: value }),
 			})),
 			{
 				id: 'theme',

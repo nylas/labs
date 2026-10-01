@@ -699,6 +699,25 @@ describe('/mail/search thread detail', () => {
 		}
 	})
 
+	it('lets search results follow the chosen list density', async () => {
+		seedDetail({ thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] }, messages })
+		renderRoute()
+		const resultsList = () => screen.getByRole('button', { name: /^List density:/ }).closest('section')
+		expect(resultsList()).toHaveAttribute('data-density', 'default')
+
+		try {
+			await userEvent.click(screen.getByRole('button', { name: 'List density: Default' }))
+			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Compact' }))
+
+			await waitFor(() => expect(resultsList()).toHaveAttribute('data-density', 'compact'))
+			// Result rows are the shared thread row, so the density applies to them too.
+			expect(resultsList()?.querySelector('[data-nav-row]')).toHaveClass('thread-row')
+			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-dot')).not.toBeNull()
+		} finally {
+			window.localStorage.clear()
+		}
+	})
+
 	it('renders the shared reader and routes reply actions + toolbar to the composer/list', async () => {
 		const user = userEvent.setup()
 		seedDetail({
