@@ -456,7 +456,12 @@ function ThreadView() {
 				aria-label="Thread conversation"
 				className="min-h-0 flex-1"
 			>
-				<ThreadConversation thread={thread} messages={messages}>
+				<ThreadConversation
+					thread={thread}
+					messages={messages}
+					mailboxEmail={mailboxEmail}
+					{...(lastMessage ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
+				>
 					{lastMessage ? (
 						<ThreadColumn>
 							<button

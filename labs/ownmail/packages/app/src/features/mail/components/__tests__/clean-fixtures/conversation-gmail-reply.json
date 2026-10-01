@@ -1,0 +1,118 @@
+{
+	"blocks": [
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Could we use Thursday afternoon for the "
+				},
+				{
+					"text": "planning session",
+					"bold": true
+				},
+				{
+					"text": "?"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Also, the retro probably fits better on Friday. The room list is at "
+				},
+				{
+					"text": "rooms.example.com",
+					"href": "https://rooms.example.com/offsite"
+				},
+				{
+					"text": "."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Tomas Reyes\nOperations, Example Co\n+1 555 0100"
+				}
+			]
+		},
+		{
+			"type": "history",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "On Mon, Sep 28, 2026 at 9:12 AM Ines Carvalho <"
+						},
+						{
+							"text": "ines@example.com",
+							"href": "mailto:ines@example.com"
+						},
+						{
+							"text": "> wrote:"
+						}
+					]
+				},
+				{
+					"type": "quote",
+					"blocks": [
+						{
+							"type": "paragraph",
+							"spans": [
+								{
+									"text": "Here is the first draft of the offsite agenda. Thursday afternoon is still open."
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	],
+	"bubble": {
+		"blocks": [
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Could we use Thursday afternoon for the "
+					},
+					{
+						"text": "planning session",
+						"bold": true
+					},
+					{
+						"text": "?"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Also, the retro probably fits better on Friday. The room list is at "
+					},
+					{
+						"text": "rooms.example.com",
+						"href": "https://rooms.example.com/offsite"
+					},
+					{
+						"text": "."
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Tomas Reyes\nOperations, Example Co\n+1 555 0100"
+					}
+				]
+			}
+		],
+		"unsure": false
+	}
+}

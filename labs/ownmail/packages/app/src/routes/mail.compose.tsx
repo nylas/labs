@@ -804,6 +804,7 @@ function Compose() {
 								key={JSON.stringify([selected.thread.id, composeListSearch()])}
 								thread={selected.thread}
 								messages={selected.messages}
+								mailboxEmail={selected.mailboxEmail}
 								isArchived={selectedThreadIsArchived}
 								onUpdate={(input) => updateThread.mutateAsync({ threadId: selected.thread.id, ...input })}
 								onLeave={() => navigate({ to: '/mail/compose', search: composeListSearch() })}
@@ -1015,6 +1016,7 @@ function Compose() {
 function ComposeThreadBackdrop({
 	thread,
 	messages,
+	mailboxEmail,
 	isArchived,
 	onUpdate,
 	onLeave,
@@ -1024,6 +1026,7 @@ function ComposeThreadBackdrop({
 }: {
 	thread: MailThread
 	messages: MailMessage[]
+	mailboxEmail: string
 	isArchived: boolean
 	onUpdate: (input: { starred?: boolean; folder?: string }) => Promise<unknown>
 	onLeave: () => void | Promise<void>
@@ -1144,7 +1147,7 @@ function ComposeThreadBackdrop({
 			) : null}
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				<ThreadConversation thread={thread} messages={messages} />
+				<ThreadConversation thread={thread} messages={messages} mailboxEmail={mailboxEmail} />
 			</div>
 		</div>
 	)

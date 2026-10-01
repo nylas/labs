@@ -222,6 +222,7 @@ describe('/settings', () => {
 			remoteImagePolicy: 'ask',
 			readingPane: 'vertical',
 			listDensity: 'default',
+			threadView: 'messages',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',
 			calendarHourHeight: 52,

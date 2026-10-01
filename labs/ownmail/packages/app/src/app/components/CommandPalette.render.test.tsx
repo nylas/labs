@@ -170,6 +170,23 @@ describe('CommandPalette', () => {
 		expect(screen.queryByRole('option', { name: /List density: Default.*Current/ })).toBeNull()
 	})
 
+	it('sets the default thread view and marks the current one', async () => {
+		const onClose = vi.fn()
+		const { rerender } = render(<CommandPalette open={true} onClose={onClose} />)
+		// The standard reader is the default until someone chooses otherwise.
+		expect(await screen.findByRole('option', { name: /Thread view: Messages.*Current/ })).toBeTruthy()
+
+		fireEvent.click(screen.getByRole('option', { name: /Thread view: Conversation/ }))
+
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').threadView).toBe(
+			'conversation',
+		)
+		expect(onClose).toHaveBeenCalled()
+		rerender(<CommandPalette open={true} onClose={onClose} />)
+		expect(await screen.findByRole('option', { name: /Thread view: Conversation.*Current/ })).toBeTruthy()
+		expect(screen.queryByRole('option', { name: /Thread view: Messages.*Current/ })).toBeNull()
+	})
+
 	it('toggles the theme both directions and persists the choice', () => {
 		render(<CommandPalette open={true} onClose={vi.fn()} />)
 		// From light -> dark.

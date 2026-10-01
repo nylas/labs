@@ -269,6 +269,28 @@ describe('prose classification', () => {
 		expect(prepareEmailMessageContent(html, 'm1').isProse).toBe(true)
 	})
 
+	it("keeps a reply prose after its quoted history is folded behind the reader's own disclosure", () => {
+		// The disclosure the reader inserts is styled inline (a border, padding).
+		// Those are the reader's styles, not the sender's: a plain reply must keep
+		// the 72ch reading measure whether or not it quotes the message it answers.
+		for (const reply of [
+			'<div>Sounds good.</div><div class="gmail_quote">On Mon, Ines wrote:<blockquote>Draft</blockquote></div>',
+			'<p>Friday only.</p><div id="divRplyFwdMsg"><b>From:</b> Tomas</div><p>Earlier message</p>',
+			'<p>Yes.</p><p>On Mon, Tomas wrote:</p><blockquote type="cite">Thursday?</blockquote>',
+		]) {
+			const prepared = prepareEmailMessageContent(reply, 'm1')
+			expect(prepared.html).toContain('ownmail-quoted-history')
+			expect(prepared.isProse).toBe(true)
+		}
+		// A designed message that also quotes is still designed.
+		expect(
+			prepareEmailMessageContent(
+				'<table width="600"><tr><td>Newsletter</td></tr></table><div class="gmail_quote">On Mon, Ines wrote:<blockquote>Draft</blockquote></div>',
+				'm1',
+			).isProse,
+		).toBe(false)
+	})
+
 	it.each([
 		['empty markup', '<p> </p>'],
 		['fixed table design', '<table width="600"><tr><td>Newsletter</td></tr></table>'],

@@ -509,6 +509,8 @@ describe('toolbar actions', () => {
 			'Delete',
 			'Star',
 			'Mark unread',
+			'Messages view',
+			'Conversation view',
 			'Thread display',
 			'Expand all 3 messages',
 			'Collapse all 3 messages',
@@ -837,6 +839,28 @@ describe('compose navigation', () => {
 				search: expect.objectContaining({ replyToMessageId: 'mL' }),
 			}),
 		)
+	})
+
+	it('replies from the Conversation view through the same compose flow, to everyone by default', async () => {
+		const user = userEvent.setup()
+		renderThread(composeData())
+		await user.click(screen.getByRole('button', { name: 'Conversation view' }))
+		// The pinned input takes the place of the inline field; it never sends itself.
+		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+
+		await user.click(screen.getByRole('button', { name: /^Reply to all…/ }))
+
+		// Everyone on the last message except the signed-in address.
+		expect(navigate).toHaveBeenLastCalledWith({
+			to: '/mail/compose',
+			search: {
+				folderId: 'inbox',
+				threadId: 't1',
+				to: 'reply@x.com, sender@x.com, other@x.com, cc@x.com',
+				subject: 'Re: ',
+				replyToMessageId: 'mL',
+			},
+		})
 	})
 
 	it('offers complete mobile response actions with the same compose payloads', async () => {

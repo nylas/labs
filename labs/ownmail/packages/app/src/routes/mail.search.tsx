@@ -720,7 +720,11 @@ function SearchThreadDetail({
 				data-scroll-restoration-id={`thread:${selected.thread.id}`}
 				className="min-h-0 flex-1 overflow-y-auto"
 			>
-				<ThreadConversation thread={selected.thread} messages={selected.messages} />
+				<ThreadConversation
+					thread={selected.thread}
+					messages={selected.messages}
+					mailboxEmail={selected.mailboxEmail}
+				/>
 			</div>
 
 			{lastMessage ? (

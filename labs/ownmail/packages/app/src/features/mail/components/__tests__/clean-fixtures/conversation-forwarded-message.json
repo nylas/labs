@@ -1,0 +1,109 @@
+{
+	"blocks": [
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "FYI, see the venue note below."
+				}
+			]
+		},
+		{
+			"type": "history",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "---------- Forwarded message ---------\nFrom: "
+						},
+						{
+							"text": "Harbor Venue Desk",
+							"bold": true
+						},
+						{
+							"text": " <"
+						},
+						{
+							"text": "desk@venue.example",
+							"href": "mailto:desk@venue.example"
+						},
+						{
+							"text": ">\nDate: Mon, Sep 28, 2026 at 8:02 AM\nSubject: Room 4B is confirmed\nTo: Ines Carvalho <"
+						},
+						{
+							"text": "ines@example.com",
+							"href": "mailto:ines@example.com"
+						},
+						{
+							"text": ">"
+						}
+					]
+				},
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "Room 4B is held for Thursday and Friday. Door code 482913 works from 8 AM."
+						}
+					]
+				}
+			]
+		}
+	],
+	"bubble": {
+		"blocks": [
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "FYI, see the venue note below."
+					}
+				]
+			},
+			{
+				"type": "history",
+				"blocks": [
+					{
+						"type": "paragraph",
+						"spans": [
+							{
+								"text": "---------- Forwarded message ---------\nFrom: "
+							},
+							{
+								"text": "Harbor Venue Desk",
+								"bold": true
+							},
+							{
+								"text": " <"
+							},
+							{
+								"text": "desk@venue.example",
+								"href": "mailto:desk@venue.example"
+							},
+							{
+								"text": ">\nDate: Mon, Sep 28, 2026 at 8:02 AM\nSubject: Room 4B is confirmed\nTo: Ines Carvalho <"
+							},
+							{
+								"text": "ines@example.com",
+								"href": "mailto:ines@example.com"
+							},
+							{
+								"text": ">"
+							}
+						]
+					},
+					{
+						"type": "paragraph",
+						"spans": [
+							{
+								"text": "Room 4B is held for Thursday and Friday. Door code 482913 works from 8 AM."
+							}
+						]
+					}
+				]
+			}
+		],
+		"unsure": true
+	}
+}

@@ -175,6 +175,54 @@ last message. Message bodies default to 16px with a 1.6 line-height, which a
 sender's own styles override, and prose is held to a 72ch measure. Designed
 (table or layout) mail keeps the full column.
 
+## Conversation view
+
+An optional second way to read a thread. The standard reader stays the default
+and renders exactly as before when the view is off.
+
+- Choosing it. `threadView` is a device preference (`messages` by default,
+  `conversation` opt-in) set from the command palette. The thread toolbar's
+  Messages / Conversation switch flips the open thread only, in memory, and a
+  newly chosen default replaces that flip. The switch is two shared icon
+  buttons so the toolbar keeps one button size; the current view is a fill plus
+  `aria-pressed`.
+- Transcript. Each email is a bubble holding only what its sender newly wrote.
+  The signed-in address sits on the right, everyone else on the left. With three
+  or more participants each run carries a name and initials; with two, names are
+  for screen readers only. Consecutive emails from one sender within five
+  minutes form one run with one time line, and a day separator starts each
+  local day.
+- Bubbles are fills (`--muted`, and a `--primary` tint for the reader's own
+  messages) with no border, side rail or shadow. Side and name carry the
+  sender, so the tint is never the only signal.
+- Content. Bubbles render a block model (heading, paragraph, list, quote,
+  image, code, rule, quoted history) as React elements in app type. No message
+  markup is injected: content always passes the sanitizer first, links keep the
+  reader's new-tab, no-opener, no-referrer handling and the target preview, and
+  images stay behind the same consent and signed proxy as the standard reader.
+- Never hide silently. Trailing quoted history is left out of a bubble because
+  earlier bubbles show it. A forwarded message, text below a quote, answers
+  between quoted lines, or a message that is only a quote is shown in full with
+  a "Quoted text" disclosure that starts open. "Show original" on every run opens those emails
+  in the standard reader inside the stream; it is held in memory only.
+- Attachments are chips in the bubble; calendar invitations are cards in the
+  stream. Designed mail (tables, layout) keeps the standard reader, full width.
+- Replying. A pinned input after the transcript names every recipient, taken
+  from the same functions the composer is opened with, so the two can never
+  disagree. The reply-all flow addresses everyone in To and sends no Cc, and the
+  bar says so; a long list shows three names and a count that expands. It
+  defaults to reply-all, offers "Reply only to …" as an explicit choice in a
+  group, and opens the existing composer, where Cc and Bcc are edited and the
+  message is sent. Narrow screens keep their one bottom surface: the input is
+  hidden there and the bottom bar's Reply, Reply all and Forward remain.
+- First render and identity. The saved view is read synchronously, so a thread
+  opens straight into it. While it is unknown (server render and hydration) the
+  messages are the thread skeleton's placeholder block, never a guess. The
+  transcript is computed from the loaded thread with no request of its own, so
+  it has no pending state after the thread skeleton. The per-thread flip,
+  "Show original" and the reply choice live under the thread's identity
+  (`useIdentityState`), so nothing set on one thread shows on another.
+
 ## Icon controls
 
 - Compact navigation and familiar toolbar actions use icons without repeated
