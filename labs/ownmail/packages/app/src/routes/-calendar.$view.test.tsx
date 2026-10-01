@@ -631,6 +631,8 @@ describe('mobile event access', () => {
 		expect(screen.getByRole('heading', { name: 'Events this day' })).toBeInTheDocument()
 		const standup = screen.getByRole('button', { name: /Standup/ })
 		expect(standup).toHaveClass('min-h-12')
+		// The agenda is the accessible list on mobile, so it states in words that a 2024 event is over.
+		expect(standup).toHaveTextContent(/· Ended$/)
 		const standupCopies = screen.getAllByText('Standup')
 		expect(standupCopies).toHaveLength(2)
 		expect(standupCopies.filter((node) => node.closest('button'))).toHaveLength(1)
@@ -699,19 +701,29 @@ describe('week view calendar list', () => {
 })
 
 describe('week view time grid', () => {
+	// The fixtures are dated June 2024. Pin the date before them so chips are named
+	// as upcoming; only the clock is faked, so async queries keep working.
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] })
+		vi.setSystemTime(new Date('2024-06-09T08:00:00'))
+	})
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
 	const renderWeek = () => render(<CalendarRouteScreen view="week" data={richData()} />)
 
 	it('renders an all-day band with single-day and multi-day segments', () => {
 		renderWeek()
 		expect(screen.getByText('All day')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Holiday, All day' })).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Trip, All day' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Trip, All day, Continues later' })).toBeInTheDocument()
 	})
 
 	it('marks an all-day event that runs past the visible week instead of ending it at the edge', () => {
 		renderWeek()
-		// Trip covers Jun 14-16; the week ends on Jun 15.
-		const trip = screen.getByRole('button', { name: 'Trip, All day' })
+		// Trip covers Jun 14-16; the week ends on Jun 15. The cut-off edge is also put into words.
+		const trip = screen.getByRole('button', { name: 'Trip, All day, Continues later' })
 		expect(trip).toHaveAttribute('data-continues-after')
 		expect(trip).not.toHaveAttribute('data-continues-before')
 		expect(screen.getByRole('button', { name: 'Holiday, All day' })).not.toHaveAttribute(
@@ -728,15 +740,15 @@ describe('week view time grid', () => {
 		})) as Event[]
 		render(<CalendarRouteScreen view="week" data={{ ...richData(), events: allDay }} />)
 		const band = within(screen.getByTestId('calendar-all-day-band'))
-		expect(band.getAllByRole('button', { name: /All day$/ })).toHaveLength(3)
+		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(3)
 		const more = band.getByRole('button', { name: '2 more' })
 		expect(more).toHaveAttribute('aria-expanded', 'false')
 		fireEvent.click(more)
-		expect(band.getAllByRole('button', { name: /All day$/ })).toHaveLength(5)
+		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(5)
 		const fewer = band.getByRole('button', { name: 'Show fewer' })
 		expect(fewer).toHaveAttribute('aria-expanded', 'true')
 		fireEvent.click(fewer)
-		expect(band.getAllByRole('button', { name: /All day$/ })).toHaveLength(3)
+		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(3)
 	})
 
 	it('places concurrent events side by side so neither covers the other', () => {
@@ -1163,6 +1175,41 @@ describe('current-time indicator', () => {
 		const grid = within(screen.getByTestId('calendar-time-grid-body'))
 		expect(grid.getByRole('button', { name: /^Standup/ })).toHaveAttribute('data-past')
 		expect(grid.getByRole('button', { name: /^Sync/ })).not.toHaveAttribute('data-past')
+	})
+
+	it('says an ended event has ended in its name, because fading alone tells a screen reader nothing', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		const grid = within(screen.getByTestId('calendar-time-grid-body'))
+		expect(grid.getByRole('button', { name: /^Standup/ })).toHaveAccessibleName(
+			'Standup, 9 AM – 10 AM, Ended',
+		)
+		expect(grid.getByRole('button', { name: /^Sync/ })).toHaveAccessibleName('Sync, 1 PM – 2 PM')
+		// All-day events end with their date: today's holiday is still current.
+		expect(screen.getByRole('button', { name: /^Holiday/ })).toHaveAccessibleName('Holiday, All day')
+		cleanup()
+		vi.setSystemTime(new Date('2024-06-16T09:00:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		expect(screen.getByRole('button', { name: /^Holiday/ })).toHaveAccessibleName('Holiday, All day, Ended')
+	})
+
+	it('marks today for assistive technology in the mini-month and the month grid, not only by its fill', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		render(<CalendarRouteScreen view="month" data={monthData()} />)
+		const mini = screen.getByRole('grid', { name: 'Date picker' })
+		expect(mini.querySelectorAll('[aria-current="date"]')).toHaveLength(1)
+		expect(mini.querySelector('[data-mini-calendar-day="2024-06-15"]')).toHaveAttribute(
+			'aria-current',
+			'date',
+		)
+		const month = screen.getByRole('grid', { name: 'Month calendar' })
+		expect(month.querySelectorAll('[aria-current="date"]')).toHaveLength(1)
+		expect(month.querySelector('[data-month-calendar-day="2024-06-15"]')).toHaveAttribute(
+			'aria-current',
+			'date',
+		)
 	})
 })
 
