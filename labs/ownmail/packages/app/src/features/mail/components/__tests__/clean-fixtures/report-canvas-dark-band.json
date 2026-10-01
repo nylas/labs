@@ -37,87 +37,72 @@
 			]
 		},
 		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "ERROR",
-					"bold": true
-				},
-				{
-					"text": " sync-worker"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "TimeoutError: upstream IMAP read timed out"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "412"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "ERROR",
-					"bold": true
-				},
-				{
-					"text": " api-gateway"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "429 Too Many Requests from provider"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "97"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "WARN",
-					"bold": true
-				},
-				{
-					"text": " webhooks"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "Retry scheduled after 5xx"
-				}
-			]
-		},
-		{
-			"type": "paragraph",
-			"spans": [
-				{
-					"text": "38"
-				}
+			"type": "table",
+			"header": false,
+			"rows": [
+				[
+					[
+						{
+							"text": "ERROR",
+							"bold": true
+						},
+						{
+							"text": " sync-worker"
+						}
+					],
+					[
+						{
+							"text": "TimeoutError: upstream IMAP read timed out"
+						}
+					],
+					[
+						{
+							"text": "412"
+						}
+					]
+				],
+				[
+					[
+						{
+							"text": "ERROR",
+							"bold": true
+						},
+						{
+							"text": " api-gateway"
+						}
+					],
+					[
+						{
+							"text": "429 Too Many Requests from provider"
+						}
+					],
+					[
+						{
+							"text": "97"
+						}
+					]
+				],
+				[
+					[
+						{
+							"text": "WARN",
+							"bold": true
+						},
+						{
+							"text": " webhooks"
+						}
+					],
+					[
+						{
+							"text": "Retry scheduled after 5xx"
+						}
+					],
+					[
+						{
+							"text": "38"
+						}
+					]
+				]
 			]
 		},
 		{

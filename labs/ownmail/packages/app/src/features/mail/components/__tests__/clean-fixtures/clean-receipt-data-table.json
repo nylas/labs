@@ -1,3 +1,126 @@
 {
-	"kind": "original"
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "heading",
+			"level": 2,
+			"spans": [
+				{
+					"text": "Receipt for order 1042"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Thanks for your order, Sam. It was paid with the card ending 4242 on 28 September 2026."
+				}
+			]
+		},
+		{
+			"type": "table",
+			"header": true,
+			"rows": [
+				[
+					[
+						{
+							"text": "Item"
+						}
+					],
+					[
+						{
+							"text": "Qty"
+						}
+					],
+					[
+						{
+							"text": "Price"
+						}
+					]
+				],
+				[
+					[
+						{
+							"text": "Field notebook, dotted"
+						}
+					],
+					[
+						{
+							"text": "2"
+						}
+					],
+					[
+						{
+							"text": "$18.00"
+						}
+					]
+				],
+				[
+					[
+						{
+							"text": "Brass pencil cap"
+						}
+					],
+					[
+						{
+							"text": "1"
+						}
+					],
+					[
+						{
+							"text": "$7.50"
+						}
+					]
+				],
+				[
+					[
+						{
+							"text": "Shipping"
+						}
+					],
+					[],
+					[
+						{
+							"text": "$4.00"
+						}
+					]
+				],
+				[
+					[
+						{
+							"text": "Total",
+							"bold": true
+						}
+					],
+					[],
+					[
+						{
+							"text": "$29.50",
+							"bold": true
+						}
+					]
+				]
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "View your order",
+					"href": "https://shop.example/orders/1042"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Harbor & Pine Supply, 12 Quay Street, Portside. This receipt is your proof of purchase."
+				}
+			]
+		}
+	],
+	"hasRemoteImages": false,
+	"mailClass": "transactional"
 }

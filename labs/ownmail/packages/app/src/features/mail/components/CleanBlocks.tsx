@@ -55,6 +55,12 @@ function Spans({ spans }: { spans: CleanSpan[] }) {
 
 const HEADING_TAGS = ['h2', 'h3', 'h4'] as const
 
+/** "Footer, 6 links including Unsubscribe": says what is folded before it is opened. */
+function footerSummary(links: number, unsubscribe: boolean): string {
+	if (links === 0) return 'Footer'
+	return `Footer, ${links === 1 ? '1 link' : `${links} links`}${unsubscribe ? ' including Unsubscribe' : ''}`
+}
+
 function Image({ image }: { image: CleanImage }) {
 	// Without a source the image is blocked, or was never safe to load: say so
 	// in words instead of painting a broken image.
@@ -122,6 +128,47 @@ function Block({ block, historyOpen }: { block: CleanBlock; historyOpen: boolean
 			)
 		case 'rule':
 			return <hr className="border-border" />
+		case 'table':
+			// Cells keep their rows and columns; the table scrolls sideways before it squeezes.
+			return (
+				<div data-slot="clean-table" className="overflow-x-auto">
+					<table className="w-full border-collapse text-left text-sm">
+						{block.caption ? (
+							<caption className="pb-cluster text-left font-semibold">{block.caption}</caption>
+						) : null}
+						<tbody>
+							{keyed(block.rows).map(({ key, item }, row) => (
+								<tr key={key} className="border-b border-border align-top">
+									{keyed(item).map((cell) => {
+										const Cell = block.header && row === 0 ? 'th' : 'td'
+										return (
+											<Cell
+												key={cell.key}
+												{...(Cell === 'th' ? { scope: 'col' } : {})}
+												className={cn(
+													'whitespace-pre-line py-cluster pr-region',
+													Cell === 'th' && 'font-semibold',
+												)}
+											>
+												<Spans spans={cell.item} />
+											</Cell>
+										)
+									})}
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)
+		case 'footer':
+			return (
+				<details data-slot="clean-footer" className="text-sm text-muted-foreground">
+					<summary className="flex min-h-11 cursor-pointer items-center rounded-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+						{footerSummary(block.links, block.unsubscribe)}
+					</summary>
+					<CleanBlocks blocks={block.blocks} historyOpen={historyOpen} />
+				</details>
+			)
 		case 'signature':
 			return (
 				<div data-slot="clean-signature" className="text-sm text-muted-foreground">

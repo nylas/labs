@@ -12,10 +12,12 @@ import { replyAllDraftSearch } from '../lib/mail-ui-model'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
-const { senderImagesTrustedMock, trustSenderImagesMock } = vi.hoisted(() => ({
+const { senderImagesTrustedMock, trustSenderImagesMock, getThreadListUnsubscribeMock } = vi.hoisted(() => ({
 	senderImagesTrustedMock: vi.fn(),
 	trustSenderImagesMock: vi.fn(),
+	getThreadListUnsubscribeMock: vi.fn(),
 }))
+vi.mock('../server/mail-functions', () => ({ getThreadListUnsubscribe: getThreadListUnsubscribeMock }))
 vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../lib/image-sender-trust')>()),
 	originalColorSenders: vi.fn().mockResolvedValue([]),
@@ -82,6 +84,8 @@ beforeEach(() => {
 	senderImagesTrustedMock.mockResolvedValue(false)
 	trustSenderImagesMock.mockReset()
 	trustSenderImagesMock.mockResolvedValue(true)
+	getThreadListUnsubscribeMock.mockReset()
+	getThreadListUnsubscribeMock.mockResolvedValue({ messageIds: [] })
 })
 
 afterEach(() => {
@@ -404,7 +408,7 @@ describe('Show original', () => {
 			{
 				id: 'receipt',
 				from: [{ email: 'billing@shop.example' }],
-				body: '<table width="600"><tr><th>Item</th></tr><tr><td>Order 1042</td></tr></table>',
+				body: '<table width="600"><tr><td><img alt="Order 1042" width="600" height="400"></td></tr></table>',
 				attachments: [{ id: 'pdf', filename: 'receipt.pdf' }],
 			},
 		])
@@ -423,7 +427,7 @@ describe('a message shown by the standard reader inside the stream', () => {
 	const designed = (id: string, from?: { email: string }): MailMessage => ({
 		id,
 		...(from ? { from: [from] } : {}),
-		body: `<table width="600"><tr><th>${id}</th></tr></table>`,
+		body: `<table width="600"><tr><td><img alt="${id}" width="600" height="400"></td></tr></table>`,
 	})
 
 	it('keeps the colour choice the reader made for the thread or for that sender', async () => {
@@ -560,6 +564,70 @@ describe('designed mail', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		expect(await screen.findByRole('button', { name: 'Clean' })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.queryByRole('button', { name: 'Show images in this thread' })).toBeNull()
+	})
+
+	it('uses the List-Unsubscribe header, looked up only for this view, as one more sign of bulk mail', async () => {
+		const letter: MailMessage = {
+			id: 'list-mail',
+			from: [{ name: 'Harbor Residents List', email: 'residents@lists.example' }],
+			to: [SAM],
+			body: '<p>Hello all, the residents meeting moved to Thursday at seven.</p>',
+		}
+		getThreadListUnsubscribeMock.mockResolvedValue({ messageIds: ['list-mail'] })
+		renderThread([email('m1', INES, MONDAY, 'Did you see this?'), letter])
+		// The standard reader never asks for headers.
+		expect(getThreadListUnsubscribeMock).not.toHaveBeenCalled()
+
+		openConversation()
+		await waitFor(() => expect(articles()).toHaveLength(1))
+		expect(getThreadListUnsubscribeMock).toHaveBeenCalledWith({ data: { threadId: 'thread-1' } })
+		expect(articles()[0]).toHaveTextContent('the residents meeting moved to Thursday')
+	})
+
+	it('classifies on the message bodies alone when the header lookup fails or answers late', async () => {
+		const letter: MailMessage = {
+			id: 'list-mail',
+			from: [INES],
+			body: '<p>Hello all, the meeting moved.</p>',
+		}
+		getThreadListUnsubscribeMock.mockRejectedValue(new Error('offline'))
+		const failed = renderThread([letter])
+		openConversation()
+		await waitFor(() => expect(getThreadListUnsubscribeMock).toHaveBeenCalled())
+		expect(bubbles()).toHaveLength(1)
+		failed.unmount()
+
+		let answer: (value: { messageIds: string[] }) => void = () => {}
+		getThreadListUnsubscribeMock.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+		const late = renderThread([letter])
+		openConversation()
+		await waitFor(() => expect(getThreadListUnsubscribeMock).toHaveBeenCalledTimes(2))
+		late.unmount()
+		await act(async () => answer({ messageIds: ['list-mail'] }))
+		expect(articles()).toHaveLength(0)
+	})
+
+	it('folds navigation and the footer of an article into one disclosure, and keeps a receipt table', () => {
+		renderThread([
+			{
+				id: 'receipt',
+				from: [{ email: 'billing@shop.example' }],
+				body: `<table role="presentation" width="600"><tr><td>Thanks for your order, Sam. ${'It is on its way. '.repeat(10)}</td></tr>
+					<tr><td><table><tr><th>Item</th><th>Price</th></tr><tr><td>Notebook</td><td>$18.00</td></tr></table></td></tr>
+					<tr><td>Questions about this order are answered within a day.</td></tr>
+					<tr><td>© Harbor &amp; Pine · <a href="https://shop.example/unsubscribe">Unsubscribe</a></td></tr></table>`,
+			},
+		])
+		openConversation()
+		const article = articles()[0] as HTMLElement
+		expect(within(article).getByRole('columnheader', { name: 'Price' })).toBeInTheDocument()
+		expect(within(article).getByRole('cell', { name: '$18.00' })).toBeInTheDocument()
+		const footer = article.querySelector('[data-slot="clean-footer"]') as HTMLElement
+		expect(footer.querySelector('summary')).toHaveTextContent('Footer, 1 link including Unsubscribe')
+		expect(within(footer).getByRole('link', { name: 'Unsubscribe', hidden: true })).toHaveAttribute(
+			'href',
+			'https://shop.example/unsubscribe',
+		)
 	})
 
 	it('lays a stored clean layout out as readable in the standard reader', async () => {

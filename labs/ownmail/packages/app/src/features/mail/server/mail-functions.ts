@@ -287,6 +287,56 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 		},
 	)
 
+/** Messages in one thread looked up for their List-Unsubscribe header. */
+const LIST_UNSUBSCRIBE_LOOKUP_LIMIT = 50
+
+/** Whether untrusted provider headers include a non-empty List-Unsubscribe. Only the name is compared. */
+function hasListUnsubscribe(headers: unknown): boolean {
+	return (
+		Array.isArray(headers) &&
+		headers.some(
+			(header: { name?: unknown; value?: unknown } | null) =>
+				typeof header?.name === 'string' &&
+				header.name.trim().toLowerCase() === 'list-unsubscribe' &&
+				typeof header.value === 'string' &&
+				header.value.trim() !== '',
+		)
+	)
+}
+
+/**
+ * Which messages of a thread declare themselves bulk mail with a
+ * List-Unsubscribe header. The Conversation view uses this as one more
+ * classification signal. Headers are requested only here, only when that view
+ * asks; their values are untrusted, are never stored, logged or returned, and
+ * only the ids of matching messages leave the server. Any failure answers
+ * "none", and classification falls back to the message bodies.
+ */
+export const getThreadListUnsubscribe = createServerFn({ method: 'GET' })
+	.validator((input: { threadId: string }) => ({
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+	}))
+	.handler(async ({ data }): Promise<{ messageIds: string[] }> => {
+		const { mailbox } = await requireMailbox()
+		try {
+			const response = await mailbox.listMessages({
+				thread_id: data.threadId,
+				fields: 'include_headers',
+				limit: LIST_UNSUBSCRIBE_LOOKUP_LIMIT,
+			})
+			const messages = (Array.isArray(response.data) ? response.data : []) as Array<
+				Message & { headers?: unknown }
+			>
+			return {
+				messageIds: messages
+					.filter((message) => typeof message?.id === 'string' && hasListUnsubscribe(message.headers))
+					.map((message) => message.id),
+			}
+		} catch {
+			return { messageIds: [] }
+		}
+	})
+
 /** Explicit read-state mutation for callers that keep data loading side-effect free. */
 export const markThreadRead = createServerFn({ method: 'POST' })
 	.validator((input: { threadId: string }) => ({
