@@ -224,6 +224,8 @@ describe('/settings', () => {
 			listDensity: 'default',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'America/Toronto',
+			calendarHourHeight: 52,
+			calendarSidebarCollapsed: false,
 			hiddenCalendarsByAccount: {},
 		})
 		const invalidTimezone = new Option('Invalid', 'not/a-timezone')
