@@ -79,7 +79,7 @@ function reconcileContactPage(
 	return { ...page, contacts: dedupeContacts(contacts) }
 }
 
-function contactsInitialData(page: ContactsPage): ContactsPages {
+export function contactsInitialData(page: ContactsPage): ContactsPages {
 	return { pages: [page], pageParams: [undefined] }
 }
 
