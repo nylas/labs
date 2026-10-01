@@ -240,7 +240,25 @@ the smaller WCAG 2.2 AA minimum.
 ## Per-page allowances
 
 - App pages use no decorative enrichment; function carries the surface.
-- Calendar may use event hues only through the named event tokens.
+- Calendar colours each event by its calendar. The hue comes from the
+  calendar's own `hex_color`, accepted only as an exact `#rrggbb` value, with
+  lightness and chroma clamped per theme (`EVENT_COLOR_LIMITS`) so foreground
+  text on the tint stays at 4.5:1 or better. The four named event tokens
+  (`--event-blue`, `--event-teal`, `--event-amber`, `--event-rose`) are the
+  fallback for a calendar with no valid colour. No other hue source is allowed:
+  an event's title never changes its colour.
+- Calendar events are a tinted fill (30% of the hue over `--card`) with a
+  uniform one-pixel border in the same hue (`.event-chip`). One-sided accent
+  bars, single-edge borders, and inset rail shadows are not used. The sidebar
+  swatch carries the colour key.
+- RSVP state, hidden calendars, and past events never rely on colour alone:
+  tentative and unanswered events use a dashed outline, declined events add a
+  strikethrough, each state is part of the accessible name, and a hidden
+  calendar is labelled "hidden".
+- `--today` and `--today-fg` mark the current day: the date pill, the
+  mini-month marker, and the now line. `--primary` stays the action colour and
+  `--destructive` stays reserved for errors, so neither is used for "today".
+  The pair holds 4.5:1 text contrast in both themes.
 - Email content may preserve sender styling inside the sanitizer-controlled
   message boundary; application chrome remains on this system.
 

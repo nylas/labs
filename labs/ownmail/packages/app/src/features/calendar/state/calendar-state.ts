@@ -1,6 +1,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { hiddenCalendarIdsFor, readUserPreferences } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import {
 	createEvent,
@@ -15,7 +16,16 @@ import type {
 	RsvpEventInput,
 	UpdateEventInput,
 } from '#features/calendar/server/calendar-input'
-import { addDays, type CalView, eventTimes, shiftAnchor, viewRange, ymd } from '../lib/calendar.js'
+import {
+	addDays,
+	type CalView,
+	eventTimes,
+	hiddenCalendarIdsForRequest,
+	shiftAnchor,
+	viewRange,
+	ymd,
+} from '../lib/calendar.js'
+import { isSameEmail } from '../lib/calendar-ui-model.js'
 
 /** One cached event range. Route-only values (mailbox info, anchor) stay out of the cache. */
 export type CalendarRangeData = Awaited<ReturnType<typeof getEvents>>
@@ -26,7 +36,17 @@ export type CalendarRange = { start: number; end: number }
 
 export const calendarKeys = {
 	all: ['calendar'] as const,
-	range: (start: number, end: number) => ['calendar', 'range', start, end] as const,
+	/**
+	 * Hidden calendars are not fetched, so they are part of what a range entry
+	 * holds: un-hiding one must miss the cache and load its events.
+	 */
+	range: (start: number, end: number, hiddenCalendarIds: readonly string[] = []) =>
+		['calendar', 'range', start, end, hiddenKey(hiddenCalendarIds)] as const,
+}
+
+/** Provider ids never contain a line break, so the joined list is unambiguous. */
+function hiddenKey(hiddenCalendarIds: readonly string[]): string {
+	return hiddenCalendarIds.join('\n')
 }
 
 const CONFIRMED_EFFECT_TTL_MS = 30_000
@@ -68,11 +88,26 @@ export function calendarRouteRange(view: CalView, date?: string) {
 }
 
 /** The shared cache entry for one fetched range, used by the loader, the view, and prefetching. */
-export function calendarRangeQueryOptions(queryClient: QueryClient, start: number, end: number) {
+export function calendarRangeQueryOptions(
+	queryClient: QueryClient,
+	start: number,
+	end: number,
+	hiddenCalendarIds: readonly string[] = [],
+) {
 	return queryOptions({
-		queryKey: calendarKeys.range(start, end),
+		queryKey: calendarKeys.range(start, end, hiddenCalendarIds),
 		queryFn: async (): Promise<CalendarRangeData> =>
-			reconcileCalendarData(queryClient, await getEvents({ data: { start, end } }), { start, end }),
+			reconcileCalendarData(
+				queryClient,
+				await getEvents({
+					data: {
+						start,
+						end,
+						...(hiddenCalendarIds.length ? { hiddenCalendarIds: [...hiddenCalendarIds] } : {}),
+					},
+				}),
+				{ start, end },
+			),
 	})
 }
 
@@ -83,14 +118,22 @@ export function calendarRangeQueryOptions(queryClient: QueryClient, start: numbe
  */
 export async function loadCalendarRouteData(queryClient: QueryClient, view: CalView, date?: string) {
 	const { anchor, start, end } = calendarRouteRange(view, date)
-	const [info, range] = await Promise.all([
-		queryClient.ensureQueryData(mailboxInfoQueryOptions()),
-		queryClient.ensureQueryData(calendarRangeQueryOptions(queryClient, start, end)),
-	])
+	// Hidden calendars are a per-mailbox device preference, so the mailbox must be
+	// known before the range is requested. On the server there are no stored
+	// preferences and every calendar is fetched.
+	const info = await queryClient.ensureQueryData(mailboxInfoQueryOptions())
+	const hiddenCalendarIds = hiddenCalendarIdsForRequest(
+		hiddenCalendarIdsFor(readUserPreferences(), info.email),
+	)
+	const range = await queryClient.ensureQueryData(
+		calendarRangeQueryOptions(queryClient, start, end, hiddenCalendarIds),
+	)
 	return {
 		calendar: range.calendar,
 		calendars: range.calendars,
 		events: reconcileCalendarData(queryClient, range, { start, end }).events,
+		truncated: range.truncated,
+		hiddenCalendarIds,
 		info,
 		anchorIso: ymd(anchor),
 	}
@@ -101,24 +144,55 @@ export function useCalendarRouteData(
 	view: CalView,
 	date: string | undefined,
 	initialData: CalendarRouteData,
+	hiddenCalendarIds: readonly string[] = initialData.hiddenCalendarIds,
 ) {
 	const queryClient = useQueryClient()
 	const { start, end } = calendarRouteRange(view, date)
+	const loadedForTheseCalendars = hiddenKey(hiddenCalendarIds) === hiddenKey(initialData.hiddenCalendarIds)
 	const query = useQuery({
-		...calendarRangeQueryOptions(queryClient, start, end),
+		...calendarRangeQueryOptions(queryClient, start, end, hiddenCalendarIds),
 		initialData: {
 			calendar: initialData.calendar,
 			calendars: initialData.calendars,
 			events: initialData.events,
+			truncated: initialData.truncated,
 		},
+		// Loader data fetched for a different set of hidden calendars is only a
+		// stand-in: mark it stale so the right set loads straight away.
+		...(loadedForTheseCalendars ? {} : { initialDataUpdatedAt: 0 }),
 		select: (data) => reconcileCalendarData(queryClient, data, { start, end }),
 	})
 	const data: CalendarRouteData = {
 		...query.data,
+		hiddenCalendarIds: initialData.hiddenCalendarIds,
 		info: initialData.info,
 		anchorIso: initialData.anchorIso,
 	}
 	return { data, refetch: query.refetch }
+}
+
+function subscribeToPreferences(onChange: () => void) {
+	window.addEventListener('storage', onChange)
+	window.addEventListener('ownmail:user-preferences', onChange)
+	return () => {
+		window.removeEventListener('storage', onChange)
+		window.removeEventListener('ownmail:user-preferences', onChange)
+	}
+}
+
+/**
+ * The hidden calendars to leave out of event requests for one mailbox. It reads
+ * the stored preference synchronously, so the first client render already asks
+ * for the right calendars, and follows later changes. While hydrating it
+ * repeats the ids the loader used, which keeps server and client output equal.
+ */
+export function useHiddenCalendarIdsForRequest(email: string, loaderIds: readonly string[]): string[] {
+	const key = useSyncExternalStore(
+		subscribeToPreferences,
+		() => hiddenKey(hiddenCalendarIdsForRequest(hiddenCalendarIdsFor(readUserPreferences(), email))),
+		() => hiddenKey(loaderIds),
+	)
+	return useMemo(() => (key ? key.split('\n') : []), [key])
 }
 
 /** Ranges one step before and after the visible view, so Previous and Next are instant. */
@@ -129,21 +203,25 @@ export function adjacentCalendarRanges(view: CalView, anchorIso: string) {
 	)
 }
 
-export function usePrefetchAdjacentCalendarRanges(view: CalView, anchorIso: string) {
+export function usePrefetchAdjacentCalendarRanges(
+	view: CalView,
+	anchorIso: string,
+	hiddenCalendarIds: readonly string[] = [],
+) {
 	const queryClient = useQueryClient()
 	useEffect(() => {
 		for (const { start, end } of adjacentCalendarRanges(view, anchorIso)) {
 			// prefetchQuery never throws and skips ranges that are already fresh.
-			void queryClient.prefetchQuery(calendarRangeQueryOptions(queryClient, start, end))
+			void queryClient.prefetchQuery(calendarRangeQueryOptions(queryClient, start, end, hiddenCalendarIds))
 		}
-	}, [anchorIso, queryClient, view])
+	}, [anchorIso, hiddenCalendarIds, queryClient, view])
 }
 
 export type CalendarEffect =
 	| { type: 'created'; event: Event }
 	| { type: 'updated'; event: Event }
 	| { type: 'deleted'; eventId: string }
-	| { type: 'rsvped'; eventId: string; status: RsvpEventInput['status'] }
+	| { type: 'rsvped'; eventId: string; status: RsvpEventInput['status']; email: string }
 
 export type CalendarResourceEffect =
 	| { type: 'created'; calendar: Calendar }
@@ -212,8 +290,12 @@ function applyEventEffect(events: Event[], effect: CalendarEffect, range: Calend
 					? event
 					: {
 							...event,
-							participants: event.participants?.map((participant, index) =>
-								index === 0 ? { ...participant, status: effect.status } : participant,
+							// Only the signed-in user's own entry changes: the grid styles an
+							// event from that entry, wherever it sits in the guest list.
+							participants: event.participants?.map((participant) =>
+								isSameEmail(participant.email, effect.email)
+									? { ...participant, status: effect.status }
+									: participant,
 							),
 						},
 			)
@@ -380,17 +462,25 @@ export function useDeleteEventMutation(eventId: string) {
 
 export function useRsvpEventMutation(eventId: string) {
 	const queryClient = useQueryClient()
+	// The answer belongs to the signed-in mailbox. Without a known mailbox no entry
+	// is changed optimistically and the provider read reconciles the event.
+	const signedInEmail = () => queryClient.getQueryData(mailboxInfoQueryOptions().queryKey)?.email ?? ''
 	return useMutation({
 		mutationFn: (input: RsvpEventInput) => rsvpEvent({ data: input }),
 		onMutate: async (input) => {
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
 			const snapshot = snapshotCalendar(queryClient)
-			applyCalendarEffect(queryClient, { type: 'rsvped', eventId, status: input.status })
+			applyCalendarEffect(queryClient, {
+				type: 'rsvped',
+				eventId,
+				status: input.status,
+				email: signedInEmail(),
+			})
 			return { snapshot }
 		},
 		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
 		onSuccess: (_receipt, input) => {
-			const effect = { type: 'rsvped', eventId, status: input.status } as const
+			const effect = { type: 'rsvped', eventId, status: input.status, email: signedInEmail() } as const
 			applyCalendarEffect(queryClient, effect)
 			rememberConfirmedCalendarEffect(queryClient, effect)
 			refreshCalendar(queryClient)

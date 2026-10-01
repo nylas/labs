@@ -15,7 +15,6 @@ import {
 	eventChipClass,
 	eventColorClass,
 	eventHour,
-	eventTone,
 	folderCount,
 	formatListDate,
 	forwardDraftSearch,
@@ -43,7 +42,6 @@ import {
 	threadRouteFolderId,
 	threadSender,
 	threadTimestamp,
-	toneFromHex,
 	totalUnread,
 } from './ui-model.js'
 
@@ -430,58 +428,6 @@ describe('ui-model calendar helpers', () => {
 		expect(fmtCompactTime(new Date('2026-07-08T15:45:00'))).toBe('3:45 PM')
 	})
 
-	it('assigns stable event tones from event context', () => {
-		expect(eventTone({ title: 'Morning focus block' } as Event)).toBe('amber')
-		expect(eventTone({ title: 'Dentist' } as Event)).toBe('teal')
-		expect(eventTone({ title: 'Flight to Lisbon' } as Event)).toBe('rose')
-		expect(eventTone({ title: 'Roadmap review with Grace', calendar_id: 'work' } as Event)).toBe('blue')
-		expect(eventTone({ title: 'Review PRs', calendar_id: 'focus' } as Event)).toBe('amber')
-		expect(eventTone({ title: 'Pay rent' } as Event)).toBe('amber')
-		expect(eventTone({ title: 'Dipsea trail hike', calendar_id: 'social' } as Event)).toBe('teal')
-	})
-
-	it('maps real Nylas calendar colors onto the reference event palette', () => {
-		expect(toneFromHex('#2563eb')).toBe('blue')
-		// Three-digit shorthand hex (#14b -> 1144bb) must expand before mapping to a tone.
-		expect(toneFromHex('#1a6')).toBe(toneFromHex('#11aa66'))
-		expect(toneFromHex('#14b8a6')).toBe('teal')
-		expect(toneFromHex('#f59e0b')).toBe('amber')
-		expect(toneFromHex('#f43f5e')).toBe('rose')
-		expect(calendarTone({ id: 'primary', name: 'Personal', hex_color: '#14b8a6' } as Calendar)).toBe('teal')
-		expect(calendarTone({ id: 'social', name: 'Social' } as Calendar)).toBe('rose')
-		expect(
-			eventTone({ title: 'Design system sync', calendar_id: 'custom-work-calendar' } as Event, 0, {
-				id: 'custom-work-calendar',
-				name: 'Team',
-				hex_color: '#2563eb',
-			} as Calendar),
-		).toBe('blue')
-	})
-
-	it('keeps reference event-specific tones ahead of calendar colors', () => {
-		expect(
-			eventTone({ title: 'Flight to Lisbon', calendar_id: 'primary' } as Event, 0, {
-				id: 'primary',
-				name: 'Personal',
-				hex_color: '#14b8a6',
-			} as Calendar),
-		).toBe('rose')
-		expect(
-			eventTone({ title: 'Pay rent', calendar_id: 'primary' } as Event, 0, {
-				id: 'primary',
-				name: 'Personal',
-				hex_color: '#14b8a6',
-			} as Calendar),
-		).toBe('amber')
-		expect(
-			eventTone({ title: 'Dipsea trail hike', calendar_id: 'social' } as Event, 0, {
-				id: 'social',
-				name: 'Social',
-				hex_color: '#f43f5e',
-			} as Calendar),
-		).toBe('teal')
-	})
-
 	it('converts Nylas event times to decimal hours', () => {
 		const event = {
 			when: {
@@ -691,8 +637,8 @@ describe('ui-model compose default fallbacks', () => {
 })
 
 describe('ui-model tone resolution fallbacks', () => {
-	it('resolves calendar tones by name when no color maps, then by index', () => {
-		// Name/id keyword tones when there is no hex color.
+	it('resolves fallback calendar tones by name, then by index', () => {
+		// Name/id keyword tones for a calendar without a usable colour.
 		expect(calendarTone({ id: 'team-work', name: 'Work' } as Calendar)).toBe('blue')
 		expect(calendarTone({ id: 'focus-cal', name: 'Focus' } as Calendar)).toBe('amber')
 		expect(calendarTone({ id: 'primary', name: 'My Cal' } as Calendar)).toBe('teal')
@@ -700,18 +646,5 @@ describe('ui-model tone resolution fallbacks', () => {
 		expect(calendarTone({ id: 'zzz', name: 'Zzz' } as Calendar, 2)).toBe('amber')
 		// A calendar with neither name nor id still resolves via the index fallback.
 		expect(calendarTone({} as Calendar, 0)).toBe('blue')
-	})
-
-	it('falls back through title, calendar name and context tones for untitled events', () => {
-		// Untitled event with an unmatched calendar id lands on the index fallback.
-		expect(eventTone({ calendar_id: 'random' } as Event, 1)).toBe('teal')
-		// Contextual title tones apply when nothing more specific matches.
-		expect(eventTone({ title: 'Beach travel day' } as Event)).toBe('rose')
-		expect(eventTone({ title: 'Roadmap sync', calendar_id: 'xyz' } as Event)).toBe('blue')
-	})
-
-	it('returns no tone for an unparseable or missing hex color', () => {
-		expect(toneFromHex('not-a-hex')).toBeUndefined()
-		expect(toneFromHex(undefined)).toBeUndefined()
 	})
 })

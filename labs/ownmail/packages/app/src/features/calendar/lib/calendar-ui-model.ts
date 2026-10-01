@@ -1,69 +1,11 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
+import type { CSSProperties } from 'react'
 import type { EventTone } from '#shared/lib/color-tone'
 import { eventTimes } from './calendar.js'
 
-const TONE_RGB: Record<EventTone, [number, number, number]> = {
-	blue: [37, 99, 235],
-	teal: [20, 184, 166],
-	amber: [245, 158, 11],
-	rose: [244, 63, 94],
-}
-
-export function toneFromHex(hex?: string): EventTone | undefined {
-	const rgb = parseHexColor(hex)
-	if (!rgb) return undefined
-	let closest: EventTone = 'blue'
-	let closestDistance = Number.POSITIVE_INFINITY
-	for (const tone of Object.keys(TONE_RGB) as EventTone[]) {
-		const color = TONE_RGB[tone]
-		const distance = (rgb[0] - color[0]) ** 2 + (rgb[1] - color[1]) ** 2 + (rgb[2] - color[2]) ** 2
-		if (distance < closestDistance) {
-			closest = tone
-			closestDistance = distance
-		}
-	}
-	return closest
-}
-
-export function calendarTone(calendar: Pick<Calendar, 'id' | 'name' | 'hex_color'>, index = 0): EventTone {
-	return (
-		toneFromHex(calendar.hex_color) ??
-		namedCalendarTone(`${calendar.name ?? ''} ${calendar.id ?? ''}`) ??
-		fallbackTone(index)
-	)
-}
-
-export function eventTone(
-	event: Event,
-	index = 0,
-	calendar?: Pick<Calendar, 'id' | 'name' | 'hex_color'>,
-): EventTone {
-	const titleTone = eventTitleTone(event.title ?? '')
-	if (titleTone) return titleTone
-	if (calendar) return calendarTone(calendar, index)
-	const calendarIdTone = namedCalendarTone(event.calendar_id ?? '')
-	if (calendarIdTone) return calendarIdTone
-	const contextualTone = eventTitleContextTone(event.title ?? '')
-	if (contextualTone) return contextualTone
-	return fallbackTone(index)
-}
-
-function parseHexColor(hex?: string): [number, number, number] | undefined {
-	const value = hex?.trim().replace(/^#/, '')
-	if (!value) return undefined
-	const normalized =
-		value.length === 3
-			? value
-					.split('')
-					.map((char) => `${char}${char}`)
-					.join('')
-			: value
-	if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return undefined
-	return [
-		Number.parseInt(normalized.slice(0, 2), 16),
-		Number.parseInt(normalized.slice(2, 4), 16),
-		Number.parseInt(normalized.slice(4, 6), 16),
-	]
+/** Token tone used when a calendar has no usable colour of its own. */
+export function calendarTone(calendar: Pick<Calendar, 'id' | 'name'>, index = 0): EventTone {
+	return namedCalendarTone(`${calendar.name ?? ''} ${calendar.id ?? ''}`) ?? fallbackTone(index)
 }
 
 function namedCalendarTone(value: string): EventTone | undefined {
@@ -75,24 +17,151 @@ function namedCalendarTone(value: string): EventTone | undefined {
 	return undefined
 }
 
-function eventTitleTone(title: string): EventTone | undefined {
-	const normalized = title.toLowerCase()
-	if (/flight|dinner|coffee|lunch/.test(normalized)) return 'rose'
-	if (/dentist|home|gym|hike|dipsea/.test(normalized)) return 'teal'
-	if (/pay rent|rent|focus|writing|sprint|prs|deep/.test(normalized)) return 'amber'
-	return undefined
-}
-
-function eventTitleContextTone(title: string): EventTone | undefined {
-	const normalized = title.toLowerCase()
-	if (/roadmap|manager|standup|design system|planning|team|work/.test(normalized)) return 'blue'
-	if (/travel|social/.test(normalized)) return 'rose'
-	return undefined
-}
-
 function fallbackTone(index: number): EventTone {
 	/* v8 ignore next -- `index % 4` is always 0-3 and the tuple has four entries, so the indexed access is never undefined and the `?? 'blue'` fallback is unreachable -- @preserve */
 	return (['blue', 'teal', 'amber', 'rose'] as const)[index % 4] ?? 'blue'
+}
+
+export type Oklch = { l: number; c: number; h: number }
+
+/**
+ * Converts a provider colour to OKLCH. The value is untrusted, so only an exact
+ * `#rrggbb` string is accepted; anything else yields null and never reaches CSS.
+ */
+export function hexToOklch(hex: unknown): Oklch | null {
+	if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) return null
+	const [r, g, b] = [1, 3, 5].map((offset) => {
+		const channel = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255
+		return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+	}) as [number, number, number]
+	const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+	const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+	const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+	const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s
+	const bAxis = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
+	return {
+		l: 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+		c: Math.hypot(a, bAxis),
+		h: ((Math.atan2(bAxis, a) * 180) / Math.PI + 360) % 360,
+	}
+}
+
+/**
+ * Lightness and chroma limits per theme. They bracket the named event tokens,
+ * so any provider hue yields a tint that keeps foreground text readable and a
+ * swatch that stays visible against the card.
+ */
+export const EVENT_COLOR_LIMITS = {
+	light: { minL: 0.5, maxL: 0.62, maxC: 0.13 },
+	dark: { minL: 0.68, maxL: 0.8, maxC: 0.12 },
+} as const
+
+/** A calendar's hue for each theme, as CSS colour values. */
+export type EventColor = { light: string; dark: string }
+
+function clampedColor(color: Oklch, limits: { minL: number; maxL: number; maxC: number }): string {
+	const l = Math.min(Math.max(color.l, limits.minL), limits.maxL)
+	const c = Math.min(color.c, limits.maxC)
+	return `oklch(${l.toFixed(3)} ${c.toFixed(3)} ${color.h.toFixed(1)})`
+}
+
+function toneColor(tone: EventTone): EventColor {
+	const token = `var(--event-${tone})`
+	return { light: token, dark: token }
+}
+
+/**
+ * The colour every event on a calendar is drawn in: the calendar's own hue,
+ * clamped per theme, or a named event token when it has no valid colour.
+ */
+export function calendarColor(calendar: Pick<Calendar, 'id' | 'name' | 'hex_color'>, index = 0): EventColor {
+	const color = hexToOklch(calendar.hex_color)
+	if (!color) return toneColor(calendarTone(calendar, index))
+	return {
+		light: clampedColor(color, EVENT_COLOR_LIMITS.light),
+		dark: clampedColor(color, EVENT_COLOR_LIMITS.dark),
+	}
+}
+
+/** Colours keyed by calendar id; the fallback token follows the calendar's position, not the event's. */
+export function calendarColors(
+	calendars: readonly Pick<Calendar, 'id' | 'name' | 'hex_color'>[],
+): Map<string, EventColor> {
+	return new Map(calendars.map((calendar, index) => [calendar.id, calendarColor(calendar, index)]))
+}
+
+/** An event is always its calendar's colour; one on an unknown calendar uses the first event token. */
+export function eventColor(
+	event: Pick<Event, 'calendar_id'>,
+	colors: ReadonlyMap<string, EventColor>,
+): EventColor {
+	return colors.get(event.calendar_id) ?? toneColor('blue')
+}
+
+/** Inline custom properties read by the `.event-color` class, which picks the value for the active theme. */
+export function eventColorStyle(color: EventColor): CSSProperties {
+	return { '--event-c-light': color.light, '--event-c-dark': color.dark } as CSSProperties
+}
+
+/** True when a participant or organizer address is the given mailbox, ignoring case and stray space. */
+export function isSameEmail(candidate: unknown, email: string): boolean {
+	const mailbox = email.trim().toLowerCase()
+	return mailbox !== '' && typeof candidate === 'string' && candidate.trim().toLowerCase() === mailbox
+}
+
+/** How the signed-in user has answered an event. */
+export type EventRsvp = 'accepted' | 'tentative' | 'awaiting' | 'declined'
+
+/**
+ * The signed-in user's answer, from their own participant entry. The organizer
+ * and events the user is not invited to (their own) count as accepted.
+ */
+export function eventRsvp(event: Pick<Event, 'participants' | 'organizer'>, email: string): EventRsvp {
+	if (isSameEmail(event.organizer?.email, email)) return 'accepted'
+	const status = event.participants?.find((participant) => isSameEmail(participant.email, email))?.status
+	if (status === 'no') return 'declined'
+	if (status === 'maybe') return 'tentative'
+	if (status === 'noreply') return 'awaiting'
+	return 'accepted'
+}
+
+/** Words for an answer that is otherwise shown only by outline and strikethrough; null when accepted. */
+export function eventRsvpLabel(rsvp: EventRsvp): string | null {
+	if (rsvp === 'declined') return 'Declined'
+	if (rsvp === 'tentative') return 'Tentative'
+	if (rsvp === 'awaiting') return 'Not yet answered'
+	return null
+}
+
+/** Word for an event that has finished; the grid otherwise shows this only by fading the chip. */
+export const EVENT_ENDED_LABEL = 'Ended'
+
+/** What the grid shows about an event without words: outline, strikethrough, fading, a cut-off edge. */
+export type EventChipState = {
+	rsvp: EventRsvp
+	/** The event has finished. */
+	ended?: boolean
+	/** An all-day event began before the first visible day. */
+	continuesBefore?: boolean
+	/** An all-day event runs past the last visible day. */
+	continuesAfter?: boolean
+}
+
+/**
+ * Accessible name for an event chip: title, when, then every state the chip
+ * shows only visually, so none of them depends on colour, opacity or shape.
+ */
+export function eventAccessibleName(title: string, when: string, state: EventChipState): string {
+	return [
+		title,
+		when,
+		state.continuesBefore ? 'Started earlier' : null,
+		state.continuesAfter ? 'Continues later' : null,
+		eventRsvpLabel(state.rsvp),
+		state.ended ? EVENT_ENDED_LABEL : null,
+	]
+		.filter(Boolean)
+		.join(', ')
 }
 
 export function eventHour(event: Event): { startHour: number; endHour: number; allDay: boolean } {

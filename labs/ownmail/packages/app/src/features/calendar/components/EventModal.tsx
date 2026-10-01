@@ -16,7 +16,6 @@ import { RecipientInput } from '#shared/components/RecipientInput'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#shared/components/ui/select'
 import { Textarea } from '#shared/components/ui/textarea'
-import { type EventTone, eventColorClass, labelBadgeClass } from '#shared/lib/color-tone'
 import { valueToTokens } from '#shared/lib/contact-token'
 import {
 	clampPointToViewport,
@@ -36,7 +35,7 @@ import {
 	formatFullDate,
 	ymd,
 } from '../lib/calendar.js'
-import { calendarTone, eventTone } from '../lib/calendar-ui-model.js'
+import { calendarColors, eventColor, eventColorStyle } from '../lib/calendar-ui-model.js'
 import {
 	useCreateEventMutation,
 	useDeleteEventMutation,
@@ -73,9 +72,8 @@ function currentViewportSize(): Size {
 	return { width: window.innerWidth, height: window.innerHeight }
 }
 
-function eventDotClass(tone: EventTone): string {
-	return eventColorClass(tone, 'bg')
-}
+/** Solid swatch in the calendar's colour; pair with `eventColorStyle`. */
+const EVENT_SWATCH_CLASS = 'event-color bg-[var(--event-c)]'
 
 /** Create/edit/RSVP dialog for a single event on the primary calendar. */
 export function EventModal({
@@ -189,10 +187,13 @@ export function EventModal({
 	}, [busy, event, onClose])
 
 	const canRsvp = Boolean(event?.participants?.length && event?.organizer)
-	const eventCalendar = event ? calendars.find((calendar) => calendar.id === event.calendar_id) : undefined
-	const tone = event ? eventTone(event, 0, eventCalendar) : 'blue'
+	const colors = calendarColors(calendars)
 	const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId) ?? calendars[0]
-	const selectedCalendarTone = selectedCalendar ? calendarTone(selectedCalendar) : 'blue'
+	// The detail view shows the event's own calendar; the composer shows the one being chosen.
+	const selectedColorStyle = eventColorStyle(
+		eventColor({ calendar_id: selectedCalendar?.id ?? calendarId }, colors),
+	)
+	const colorStyle = event ? eventColorStyle(eventColor(event, colors)) : selectedColorStyle
 	const previewEvent = useMemo(() => {
 		if (event || !isDateInput(eventDate)) return null
 		const selectedId = selectedCalendar?.id ?? calendarId
@@ -417,7 +418,8 @@ export function EventModal({
 							<span
 								data-slot="calendar-swatch"
 								aria-hidden="true"
-								className={cn('mt-2 h-[11px] w-[11px] shrink-0 rounded-[3px]', eventDotClass(tone))}
+								className={cn('mt-2 h-[11px] w-[11px] shrink-0 rounded-[3px]', EVENT_SWATCH_CLASS)}
+								style={colorStyle}
 							/>
 							<div className="min-w-0">
 								<h2 className="text-lg leading-snug font-semibold text-balance">
@@ -637,10 +639,8 @@ export function EventModal({
 							<span
 								data-slot="calendar-swatch"
 								aria-hidden="true"
-								className={cn(
-									'h-[11px] w-[11px] shrink-0 rounded-[3px]',
-									eventDotClass(selectedCalendarTone),
-								)}
+								className={cn('h-[11px] w-[11px] shrink-0 rounded-[3px]', EVENT_SWATCH_CLASS)}
+								style={selectedColorStyle}
 							/>
 							<h2 className="font-display text-lg font-semibold">New event</h2>
 							<span className="sr-only">{selectedCalendar?.name || calendarName} calendar</span>
@@ -763,17 +763,17 @@ export function EventModal({
 				<section className="space-y-2">
 					<h3 className="text-sm font-medium">Calendar</h3>
 					<div className="flex flex-wrap gap-2">
-						{calendars.map((calendar, index) => {
+						{calendars.map((calendar) => {
 							const active = calendar.id === selectedCalendarId
-							const tone = calendarTone(calendar, index)
 							return (
 								<button
 									key={calendar.id}
 									type="button"
 									onClick={() => setSelectedCalendarId(calendar.id)}
-									className={eventCalendarChoiceClass(active, tone)}
+									className={eventCalendarChoiceClass(active)}
+									style={eventColorStyle(eventColor({ calendar_id: calendar.id }, colors))}
 								>
-									<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />
+									<span className="h-2 w-2 rounded-full bg-[var(--event-c)]" />
 									{calendar.name || 'Calendar'}
 								</button>
 							)
@@ -1036,10 +1036,10 @@ function countConflicts(candidate: Event, events: Event[]): number {
 	}).length
 }
 
-export function eventCalendarChoiceClass(active: boolean, tone: EventTone): string {
+export function eventCalendarChoiceClass(active: boolean): string {
 	return cn(
-		'flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
-		active ? labelBadgeClass(tone) : 'border-border text-muted-foreground hover:bg-muted',
+		'event-color flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid',
+		active ? 'event-chip' : 'border-border text-muted-foreground hover:bg-muted',
 	)
 }
 

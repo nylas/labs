@@ -1,5 +1,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { QueryClient } from '@tanstack/react-query'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
 	applyCalendarEffect,
@@ -8,6 +10,7 @@ import {
 	calendarKeys,
 	calendarStateTestApi,
 	resetCalendarConfirmedEffects,
+	useHiddenCalendarIdsForRequest,
 } from './calendar-state.js'
 
 const event = {
@@ -39,8 +42,33 @@ function data(events: Event[]): CalendarRouteData {
 		calendars: [calendar],
 		info: { email: 'ada@example.com', appName: 'OwnMail' },
 		anchorIso: '2027-01-15',
+		truncated: false,
+		hiddenCalendarIds: [],
 	}
 }
+
+describe('hidden calendars in the range cache', () => {
+	it('keys a range by its hidden calendars, because their events were never fetched into it', () => {
+		const everything = calendarKeys.range(...WEEK_A)
+		const withoutWork = calendarKeys.range(...WEEK_A, ['work'])
+		expect(everything).toEqual(['calendar', 'range', WEEK_A[0], WEEK_A[1], ''])
+		expect(withoutWork).not.toEqual(everything)
+		// Showing the calendar again must miss the entry that was fetched without it.
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(withoutWork, data([]))
+		expect(queryClient.getQueryData(everything)).toBeUndefined()
+		expect(calendarKeys.range(...WEEK_A, ['a', 'b'])).not.toEqual(calendarKeys.range(...WEEK_A, ['ab']))
+	})
+
+	it('repeats the loader hidden calendars while rendering on the server, where no preference is stored', () => {
+		const Probe = () =>
+			createElement('p', null, useHiddenCalendarIdsForRequest('ada@example.com', ['b', 'a']).join('|'))
+		expect(renderToString(createElement(Probe))).toBe('<p>b|a</p>')
+		const Empty = () =>
+			createElement('p', null, String(useHiddenCalendarIdsForRequest('ada@example.com', []).length))
+		expect(renderToString(createElement(Empty))).toBe('<p>0</p>')
+	})
+})
 
 describe('calendar cache effects', () => {
 	it('creates and updates calendar resources across cached ranges', () => {
@@ -162,15 +190,57 @@ describe('calendar cache effects', () => {
 		const other = { ...event, id: 'event-2', participants: undefined }
 		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([event, other]))
 
-		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: event.id, status: 'yes' })
+		applyCalendarEffect(queryClient, {
+			type: 'rsvped',
+			eventId: event.id,
+			status: 'yes',
+			email: 'ada@example.com',
+		})
 
 		const cached = queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
 		expect(cached?.events[0]?.participants?.[0]?.status).toBe('yes')
 		expect(cached?.events[1]).toEqual(other)
-		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: other.id, status: 'no' })
+		applyCalendarEffect(queryClient, {
+			type: 'rsvped',
+			eventId: other.id,
+			status: 'no',
+			email: 'ada@example.com',
+		})
 		expect(
 			queryClient.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))?.events[1]?.participants,
 		).toBeUndefined()
+	})
+
+	it('records an RSVP on the signed-in user own entry, because they are rarely the first guest', () => {
+		// The grid styles an event from the user's own participant status. Updating the
+		// first guest instead would leave the chip unchanged and misreport someone else.
+		const invited = {
+			...event,
+			participants: [
+				{ email: 'organizer@example.com', status: 'yes' },
+				{ email: ' Ada@Example.com', status: 'noreply' },
+				{ email: 'grace@example.com', status: 'noreply' },
+			],
+		} as Event
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.range(...WEEK_A), data([invited]))
+
+		applyCalendarEffect(queryClient, {
+			type: 'rsvped',
+			eventId: invited.id,
+			status: 'no',
+			email: 'ada@example.com',
+		})
+
+		const statuses = () =>
+			queryClient
+				.getQueryData<CalendarRouteData>(calendarKeys.range(...WEEK_A))
+				?.events[0]?.participants?.map((participant) => participant.status)
+		expect(statuses()).toEqual(['yes', 'no', 'noreply'])
+
+		// An unknown mailbox changes nobody; the provider read settles the event instead.
+		applyCalendarEffect(queryClient, { type: 'rsvped', eventId: invited.id, status: 'yes', email: '' })
+		expect(statuses()).toEqual(['yes', 'no', 'noreply'])
 	})
 
 	it('does not resurrect a confirmed deletion when a provider range read is stale', () => {

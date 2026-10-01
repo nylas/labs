@@ -325,12 +325,19 @@ export type AllDayEventSegment = {
 	row: number
 	startColumn: number
 	span: number
+	/** The event began before the first visible column. */
+	continuesBefore: boolean
+	/** The event runs past the last visible column. */
+	continuesAfter: boolean
 }
 
 export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEventSegment[] {
+	const firstColumn = columns[0]
+	const lastColumn = columns[columns.length - 1]
 	const segments = events
 		.map((event, index) => {
-			if (!eventTimes(event)?.allDay) return null
+			const times = eventTimes(event)
+			if (!times?.allDay) return null
 
 			let firstDay = -1
 			let lastDay = -1
@@ -340,13 +347,16 @@ export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEve
 				if (firstDay === -1) firstDay = dayIndex
 				lastDay = dayIndex
 			}
-			if (firstDay === -1) return null
+			// A matched column proves `columns` is non-empty, so both edges exist.
+			if (firstDay === -1 || !firstColumn || !lastColumn) return null
 
 			return {
 				event,
 				index,
 				startColumn: firstDay + 1,
 				span: lastDay - firstDay + 1,
+				continuesBefore: times.start.getTime() < startOfDay(firstColumn).getTime(),
+				continuesAfter: times.end.getTime() > addDays(startOfDay(lastColumn), 1).getTime(),
 			}
 		})
 		.filter((segment): segment is Omit<AllDayEventSegment, 'row'> => segment !== null)
@@ -373,6 +383,33 @@ export function allDayEventSegments(events: Event[], columns: Date[]): AllDayEve
 	})
 }
 
+/** Rows of all-day events shown before the band offers an expand control. */
+export const ALL_DAY_COLLAPSED_ROWS = 3
+
+/**
+ * The all-day band as drawn: every row when expanded, otherwise only the first
+ * rows plus a count of the events left out, so a busy week cannot push the
+ * time grid off screen and nothing disappears without a visible "N more".
+ */
+export function allDayBand(
+	segments: AllDayEventSegment[],
+	expanded: boolean,
+	maxRows = ALL_DAY_COLLAPSED_ROWS,
+): { segments: AllDayEventSegment[]; rowCount: number; hiddenCount: number } {
+	const totalRows = segments.reduce((rows, segment) => Math.max(rows, segment.row + 1), 0)
+	if (expanded || totalRows <= maxRows) return { segments, rowCount: totalRows, hiddenCount: 0 }
+	const visible = segments.filter((segment) => segment.row < maxRows)
+	return { segments: visible, rowCount: maxRows, hiddenCount: segments.length - visible.length }
+}
+
+/** Most hidden calendar ids one event request carries; the rest are still filtered on the client. */
+export const MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST = 25
+
+/** Canonical (unique, sorted, capped) hidden-calendar list, so equal choices share one cache entry. */
+export function hiddenCalendarIdsForRequest(ids: readonly string[]): string[] {
+	return [...new Set(ids)].sort().slice(0, MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST)
+}
+
 export function filterEventsByCalendars(events: Event[], hiddenCalendarIds: ReadonlySet<string>): Event[] {
 	if (hiddenCalendarIds.size === 0 && events.every(isRenderableCalendarEvent)) return events
 	return events.filter(
@@ -386,11 +423,19 @@ export function timedEventsOnDay(events: Event[], day: Date, timeZone?: Calendar
 	return eventsOnDay(events, day, timeZone).filter((event) => eventTimes(event)?.allDay === false)
 }
 
-export function timedEventLayout(
+type TimedLayoutOptions = {
+	startHour: number
+	endHour: number
+	hourHeight: number
+	timeZone?: CalendarTimeZone
+}
+
+/** Wall-clock hours an event occupies on `day`, clipped to the visible hours; null when it is not drawn. */
+function timedEventHours(
 	event: Event,
 	day: Date,
-	options: { startHour: number; endHour: number; hourHeight: number; timeZone?: CalendarTimeZone },
-): { top: number; height: number } | null {
+	options: TimedLayoutOptions,
+): { start: number; end: number } | null {
 	const times = eventTimes(event)
 	if (!times || times.allDay) return null
 	if (options.timeZone) {
@@ -405,10 +450,7 @@ export function timedEventLayout(
 		const startDecimal = Math.max(relativeDecimalHour(times.start), options.startHour)
 		const endDecimal = Math.min(relativeDecimalHour(times.end), options.endHour)
 		if (endDecimal <= startDecimal) return null
-		return {
-			top: (startDecimal - options.startHour) * options.hourHeight,
-			height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),
-		}
+		return { start: startDecimal, end: endDecimal }
 	}
 
 	const visibleStart = dateWithHour(startOfDay(day), options.startHour)
@@ -426,12 +468,131 @@ export function timedEventLayout(
 		)
 		return calendarDayOffset * 24 + date.getHours() + date.getMinutes() / 60
 	}
-	const startDecimal = relativeDecimalHour(start)
-	const endDecimal = relativeDecimalHour(end)
+	return { start: relativeDecimalHour(start), end: relativeDecimalHour(end) }
+}
+
+function verticalBox(hours: { start: number; end: number }, options: TimedLayoutOptions) {
 	return {
-		top: (startDecimal - options.startHour) * options.hourHeight,
-		height: Math.max((endDecimal - startDecimal) * options.hourHeight - 2, 20),
+		top: (hours.start - options.startHour) * options.hourHeight,
+		height: Math.max((hours.end - hours.start) * options.hourHeight - 2, 20),
 	}
+}
+
+export function timedEventLayout(
+	event: Event,
+	day: Date,
+	options: TimedLayoutOptions,
+): { top: number; height: number } | null {
+	const hours = timedEventHours(event, day, options)
+	return hours ? verticalBox(hours, options) : null
+}
+
+/** One timed event as drawn in a day column. `left` and `width` are fractions of the column. */
+export type TimedEventBox = { event: Event; top: number; height: number; left: number; width: number }
+
+/**
+ * Lays out a day's timed events so concurrent ones sit side by side instead of
+ * covering each other. Events that overlap, directly or through a chain of
+ * others, form a cluster; each takes the first column free at its start, the
+ * cluster's column count sets the width, and an event widens into columns to
+ * its right that stay empty for its whole duration. Overlap is judged on the
+ * wall-clock position that is drawn, so both passes of a repeated daylight
+ * saving hour are separated, and back-to-back events never share a cluster.
+ */
+export function timedDayLayout(events: Event[], day: Date, options: TimedLayoutOptions): TimedEventBox[] {
+	type Placed = { event: Event; start: number; end: number; column: number }
+	const placed = events
+		.flatMap((event) => {
+			const hours = timedEventHours(event, day, options)
+			return hours ? [{ event, ...hours, column: 0 }] : []
+		})
+		.sort((a, b) => a.start - b.start || b.end - a.end)
+
+	const boxes: TimedEventBox[] = []
+	let cluster: Placed[] = []
+	let columnEnds: number[] = []
+	const flush = () => {
+		const columns = columnEnds.length
+		for (const item of cluster) {
+			let span = 1
+			while (
+				item.column + span < columns &&
+				!cluster.some(
+					(other) => other.column === item.column + span && other.start < item.end && other.end > item.start,
+				)
+			)
+				span += 1
+			boxes.push({
+				event: item.event,
+				...verticalBox(item, options),
+				left: item.column / columns,
+				width: span / columns,
+			})
+		}
+		cluster = []
+		columnEnds = []
+	}
+	for (const item of placed) {
+		if (columnEnds.every((columnEnd) => columnEnd <= item.start)) flush()
+		const free = columnEnds.findIndex((columnEnd) => columnEnd <= item.start)
+		item.column = free === -1 ? columnEnds.length : free
+		columnEnds[item.column] = item.end
+		cluster.push(item)
+	}
+	flush()
+	return boxes
+}
+
+/**
+ * Shortest chip that still fits a title line above a time line: two borders
+ * (2px), block padding (8px), a 15px title line and a 14px time line. Anything
+ * shorter is drawn as one centred line, down to the 20px minimum chip, whose
+ * 18px inner height holds one 16px line with nothing clipped.
+ */
+export const TIMED_CHIP_TWO_LINE_MIN_HEIGHT = 40
+
+/** Whether a timed chip of this height shows the title over the time range, or one compact line. */
+export function timedChipLines(height: number): 1 | 2 {
+	return height >= TIMED_CHIP_TWO_LINE_MIN_HEIGHT ? 2 : 1
+}
+
+/** Height of the now-line time badge in the gutter, in pixels. */
+export const NOW_BADGE_HEIGHT = 16
+
+/**
+ * True when the now-line time badge would be drawn over a gutter label, so the
+ * label is hidden rather than leaving two half-readable times on top of each
+ * other. Offsets are pixels from the top of the grid; the badge is centred on
+ * the now line.
+ */
+export function nowBadgeCoversLabel(nowOffset: number, labelCentre: number, labelHeight: number): boolean {
+	return Math.abs(nowOffset - labelCentre) < (NOW_BADGE_HEIGHT + labelHeight) / 2
+}
+
+/**
+ * True once an event has ended, so finished meetings can recede. Unparseable
+ * events are never past. A timed event ends at an instant, which is the same
+ * everywhere. An all-day event has no instant: it covers whole calendar dates,
+ * so it ends when the date in the display timezone reaches its (exclusive) end
+ * date, whatever timezone the browser itself is in.
+ */
+export function isPastEvent(event: Event, now: Date, timeZone?: CalendarTimeZone): boolean {
+	const times = eventTimes(event)
+	if (!times) return false
+	if (!times.allDay) return times.end.getTime() <= now.getTime()
+	return compareYmd(ymd(times.end), ymd(calendarDateInTimeZone(now, timeZone))) <= 0
+}
+
+/**
+ * The short zone name for the time gutter, e.g. "EDT". It follows the instant,
+ * so the label switches with daylight saving time.
+ */
+export function timeZoneShortName(timeZone: string, at: Date, locale?: string): string {
+	return new Intl.DateTimeFormat(locale, { timeZone, hour: 'numeric', timeZoneName: 'short' })
+		.formatToParts(at)
+		.filter((part) => part.type === 'timeZoneName')
+		.map((part) => part.value)
+		.join('')
 }
 
 export function fmtTime(d: Date, timeZone?: CalendarTimeZone): string {

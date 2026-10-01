@@ -98,6 +98,8 @@
 	--color-event-teal: var(--event-teal);
 	--color-event-amber: var(--event-amber);
 	--color-event-rose: var(--event-rose);
+	--color-today: var(--today);
+	--color-today-foreground: var(--today-fg);
 
 	--radius-sm: calc(var(--radius) * 0.75);
 	--radius-md: var(--radius);
@@ -156,6 +158,8 @@
 	--event-teal: oklch(0.56 0.09 195);
 	--event-amber: oklch(0.64 0.11 75);
 	--event-rose: oklch(0.56 0.12 32);
+	--today: oklch(0.58 0.17 32);
+	--today-fg: oklch(0.99 0.005 145);
 	--sidebar: oklch(1 0 0);
 	--sidebar-foreground: oklch(0.28 0.01 165);
 	--sidebar-primary: oklch(0.965 0.003 145);
@@ -192,6 +196,8 @@
 	--event-teal: oklch(0.74 0.08 195);
 	--event-amber: oklch(0.78 0.11 75);
 	--event-rose: oklch(0.72 0.12 32);
+	--today: oklch(0.68 0.16 32);
+	--today-fg: oklch(0.14 0.01 32);
 	--sidebar: oklch(0.1 0.006 165);
 	--sidebar-foreground: oklch(0.9 0.006 150);
 	--sidebar-primary: oklch(0.96 0.004 150);

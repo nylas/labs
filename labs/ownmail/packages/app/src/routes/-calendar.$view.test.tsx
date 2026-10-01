@@ -146,7 +146,7 @@ const e = (iso: string) => Math.floor(new Date(iso).getTime() / 1000)
 
 const info = { appName: 'OwnMail', email: 'user@ownmail.local', displayName: 'Test User' }
 const calendars: Calendar[] = [
-	{ id: 'cal1', name: 'Work', hex_color: '#3b82f6' },
+	{ id: 'cal1', name: 'Work', hex_color: '#3b82f6', is_primary: true },
 	{ id: 'cal2', name: '' },
 ]
 // Primary calendar deliberately carries a different display name than the cal1 entry in the
@@ -200,6 +200,8 @@ const richData = (anchorIso = '2024-06-15') => ({
 	calendars,
 	info,
 	anchorIso,
+	truncated: false,
+	hiddenCalendarIds: [] as string[],
 })
 
 const timedOnlyData = () => ({
@@ -215,6 +217,8 @@ const timedOnlyData = () => ({
 	calendars,
 	info,
 	anchorIso: '2024-06-16',
+	truncated: false,
+	hiddenCalendarIds: [] as string[],
 })
 
 const monthData = () => ({
@@ -243,6 +247,8 @@ const monthData = () => ({
 	calendars,
 	info,
 	anchorIso: '2024-06-20',
+	truncated: false,
+	hiddenCalendarIds: [] as string[],
 })
 
 afterEach(() => {
@@ -253,7 +259,7 @@ afterEach(() => {
 })
 beforeEach(() => {
 	vi.clearAllMocks()
-	h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: [] })
+	h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: [], truncated: false })
 	h.getMailboxInfo.mockResolvedValue(info)
 })
 
@@ -289,7 +295,12 @@ describe('/calendar/$view route config', () => {
 	})
 
 	it('loads the requested view + date via the shared loader helper', async () => {
-		h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: richEvents() })
+		h.getEvents.mockResolvedValue({
+			calendar: primaryCalendar,
+			calendars,
+			events: richEvents(),
+			truncated: false,
+		})
 		const result = await Route.options.loader({
 			context: { queryClient: new QueryClient() },
 			params: { view: 'week' },
@@ -322,7 +333,12 @@ describe('loadCalendarRouteData', () => {
 
 	it('serves a revisited week from the cache so navigating back does not wait on the provider', async () => {
 		const queryClient = new QueryClient()
-		h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: richEvents() })
+		h.getEvents.mockResolvedValue({
+			calendar: primaryCalendar,
+			calendars,
+			events: richEvents(),
+			truncated: false,
+		})
 		await loadCalendarRouteData(queryClient, 'week', '2024-06-15')
 		await loadCalendarRouteData(queryClient, 'week', '2024-06-22')
 		const revisited = await loadCalendarRouteData(queryClient, 'week', '2024-06-12')
@@ -361,7 +377,65 @@ describe('CalendarViewRoutePage wrapper', () => {
 		render(<Page />)
 		expect(screen.getByTestId('app-rail-logo').textContent).toBe('OwnMail')
 		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'calendar')
-		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.getByRole('combobox', { name: 'Calendar view' })).toHaveValue('week')
+	})
+
+	it('stops requesting calendars the user has hidden, in the visible and the adjacent weeks', async () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ hiddenCalendarsByAccount: { [info.email]: ['cal2', 'cal1', 'cal2'] } }),
+		)
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		// The loader ran before the preference was known (as on the server), so its
+		// data is only a stand-in and the hidden-aware request must still be made.
+		Route.useLoaderData = vi.fn(() => richData())
+		const Page = Route.options.component
+		render(<Page />)
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(3))
+		for (const [args] of h.getEvents.mock.calls) {
+			expect(args.data.hiddenCalendarIds).toEqual(['cal1', 'cal2'])
+		}
+	})
+
+	it('loads a calendar events when it is shown again, since they were not fetched while it was hidden', async () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		Route.useLoaderData = vi.fn(() => richData())
+		const Page = Route.options.component
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const settled = () => vi.waitFor(() => expect(queryClient.isFetching()).toBe(0))
+		testingRender(
+			<QueryClientProvider client={queryClient}>
+				<Page />
+			</QueryClientProvider>,
+		)
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(3))
+		await settled()
+
+		h.getEvents.mockClear()
+		fireEvent.click(screen.getByRole('button', { name: /^Work/ }))
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(3))
+		for (const [args] of h.getEvents.mock.calls) expect(args.data.hiddenCalendarIds).toEqual(['cal1'])
+		await settled()
+
+		h.getEvents.mockClear()
+		fireEvent.click(screen.getByRole('button', { name: /^Work/ }))
+		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalled())
+		for (const [args] of h.getEvents.mock.calls) expect(args.data.hiddenCalendarIds).toBeUndefined()
+	})
+
+	it('passes the stored hidden calendars from the loader and reports what it loaded with', async () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ hiddenCalendarsByAccount: { [info.email]: ['cal2'] } }),
+		)
+		h.getEvents.mockResolvedValue({ calendar: primaryCalendar, calendars, events: [], truncated: true })
+		const data = await loadCalendarRouteData(new QueryClient(), 'week', '2024-06-15')
+		expect(h.getEvents.mock.calls[0][0].data.hiddenCalendarIds).toEqual(['cal2'])
+		expect(data.hiddenCalendarIds).toEqual(['cal2'])
+		// The ceiling flag survives the loader so the grid can show its notice.
+		expect(data.truncated).toBe(true)
 	})
 
 	it('connects refresh interactions to the live calendar query', async () => {
@@ -403,11 +477,10 @@ describe('CalendarViewRoutePage wrapper', () => {
 describe('week view + header navigation', () => {
 	const renderWeek = (data = richData()) => render(<CalendarRouteScreen view="week" data={data} />)
 
-	it('renders the week title and marks the week view as active', () => {
+	it('titles the week by its month and shows the active view in the dropdown', () => {
 		renderWeek()
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Jun')
-		expect(screen.getByRole('button', { name: 'week' })).toHaveAttribute('aria-pressed', 'true')
-		expect(screen.getByRole('button', { name: 'day' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('June 2024')
+		expect(screen.getByRole('combobox', { name: 'Calendar view' })).toHaveValue('week')
 		expect(screen.getByRole('region', { name: 'Calendar time grid' })).toHaveClass('max-sm:overflow-x-auto')
 		expect(screen.getByTestId('calendar-time-grid-header')).toHaveClass('max-sm:min-w-[54rem]')
 		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('max-sm:min-w-[54rem]')
@@ -428,22 +501,17 @@ describe('week view + header navigation', () => {
 		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('size-11', 'sm:w-auto', 'touch-target')
 		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('size-11', 'touch-target-square')
 		expect(screen.getByRole('button', { name: 'Next' })).toHaveClass('size-11', 'touch-target-square')
+		// One dropdown serves every width: full-width on the second mobile row, compact on desktop.
 		expect(screen.getByRole('combobox', { name: 'Calendar view' })).toHaveClass(
+			'h-11',
 			'w-full',
-			'sm:hidden',
+			'sm:w-auto',
 			'touch-target',
 		)
-		for (const view of ['day', 'week', 'month']) {
-			expect(screen.getByRole('button', { name: view })).toHaveClass(
-				'min-w-11',
-				'whitespace-nowrap',
-				'sm:w-auto',
-				'touch-target',
-			)
-		}
+		expect(screen.queryByRole('button', { name: 'week' })).toBeNull()
 	})
 
-	it('switches view from the allow-listed compact mobile picker', () => {
+	it('switches view from the allow-listed view dropdown', () => {
 		renderWeek()
 		const picker = screen.getByRole('combobox', { name: 'Calendar view' })
 		fireEvent.change(picker, { target: { value: 'day' } })
@@ -491,22 +559,6 @@ describe('week view + header navigation', () => {
 		})
 	})
 
-	it('switches to the month and day views from the view toggle', () => {
-		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'month' }))
-		expect(h.navigate).toHaveBeenCalledWith({
-			to: '/calendar/$view',
-			params: { view: 'month' },
-			search: { date: '2024-06-15' },
-		})
-		fireEvent.click(screen.getByRole('button', { name: 'day' }))
-		expect(h.navigate).toHaveBeenCalledWith({
-			to: '/calendar/$view',
-			params: { view: 'day' },
-			search: { date: '2024-06-15' },
-		})
-	})
-
 	it('shows an empty agenda note when nothing is left today', () => {
 		renderWeek()
 		expect(screen.getByText('Nothing left today.')).toBeInTheDocument()
@@ -528,13 +580,34 @@ describe('week view mini-calendar', () => {
 
 	it('pages the mini calendar between months without navigating the grid', () => {
 		renderWeek()
-		expect(screen.getByText('June 2024')).toBeInTheDocument()
+		const mini = within(screen.getByRole('grid', { name: 'Date picker' }).parentElement as HTMLElement)
+		expect(mini.getByText('June 2024')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Previous month' }))
-		expect(screen.getByText('May 2024')).toBeInTheDocument()
+		expect(mini.getByText('May 2024')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Next month' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Next month' }))
-		expect(screen.getByText('July 2024')).toBeInTheDocument()
+		expect(mini.getByText('July 2024')).toBeInTheDocument()
+		// The grid title still names the anchored month.
+		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('June 2024')
 		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('marks the whole visible week in week view so the grid and the month stay in step', () => {
+		renderWeek()
+		const grid = screen.getByRole('grid', { name: 'Date picker' })
+		const marked = [...grid.querySelectorAll('[data-current-week]')].map((cell) => cell.textContent)
+		expect(marked).toEqual(['9', '10', '11', '12', '13', '14', '15'])
+		// The band is continuous: only its two ends are rounded.
+		expect(grid.querySelector('[data-mini-calendar-day="2024-06-09"]')).toHaveClass('rounded-l-md')
+		expect(grid.querySelector('[data-mini-calendar-day="2024-06-15"]')).toHaveClass('rounded-r-md')
+		expect(grid.querySelector('[data-mini-calendar-day="2024-06-12"]')).not.toHaveClass('rounded-sm')
+	})
+
+	it('marks only the chosen day outside week view', () => {
+		render(<CalendarRouteScreen view="day" data={richData()} />)
+		const grid = screen.getByRole('grid', { name: 'Date picker' })
+		expect(grid.querySelectorAll('[data-current-week]')).toHaveLength(0)
+		expect(grid.querySelector('[data-mini-calendar-day="2024-06-15"]')).toHaveClass('bg-accent')
 	})
 
 	it('picking a mini-calendar day keeps the week view and re-anchors it', () => {
@@ -558,6 +631,8 @@ describe('mobile event access', () => {
 		expect(screen.getByRole('heading', { name: 'Events this day' })).toBeInTheDocument()
 		const standup = screen.getByRole('button', { name: /Standup/ })
 		expect(standup).toHaveClass('min-h-12')
+		// The agenda is the accessible list on mobile, so it states in words that a 2024 event is over.
+		expect(standup).toHaveTextContent(/· Ended$/)
 		const standupCopies = screen.getAllByText('Standup')
 		expect(standupCopies).toHaveLength(2)
 		expect(standupCopies.filter((node) => node.closest('button'))).toHaveLength(1)
@@ -567,30 +642,55 @@ describe('mobile event access', () => {
 describe('week view calendar list', () => {
 	it('toggles a calendar off and back on, hiding its events in between', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
-		const workToggle = screen.getByRole('button', { name: 'Work' })
+		const workToggle = screen.getByRole('button', { name: /^Work/ })
 		expect(workToggle).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: /Standup/ })).toBeInTheDocument()
 		fireEvent.click(workToggle)
-		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'false')
 		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
-		fireEvent.click(screen.getByRole('button', { name: 'Work' }))
-		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true')
+		fireEvent.click(screen.getByRole('button', { name: /^Work/ }))
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: /Standup/ })).toBeInTheDocument()
+	})
+
+	it('groups calendars under the signed-in account and tags the default one', () => {
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		const group = within(screen.getByRole('region', { name: `Calendars for ${info.email}` }))
+		expect(group.getByText(info.email)).toBeInTheDocument()
+		expect(group.getByRole('button', { name: /^Work/ })).toHaveTextContent('Default')
+		expect(group.getByRole('button', { name: /^Calendar/ })).not.toHaveTextContent('Default')
+	})
+
+	it('says a hidden calendar is hidden in words, not only by dimming its swatch', () => {
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		const toggle = screen.getByRole('button', { name: /^Work/ })
+		expect(toggle).not.toHaveTextContent('hidden')
+		fireEvent.click(toggle)
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveTextContent('hidden')
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAccessibleName('Work, hidden')
+	})
+
+	it('draws the swatch in the calendar own colour and falls back to an event token without one', () => {
+		render(<CalendarRouteScreen view="week" data={richData()} />)
+		const own = screen.getByRole('button', { name: /^Work/ })
+		expect(own.style.getPropertyValue('--event-c-light')).toMatch(/^oklch\(/)
+		const fallback = screen.getByRole('button', { name: /^Calendar/ })
+		expect(fallback.style.getPropertyValue('--event-c-light')).toBe('var(--event-teal)')
 	})
 
 	it('labels an unnamed calendar as "Calendar"', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
-		expect(screen.getByRole('button', { name: 'Calendar' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /^Calendar/ })).toBeInTheDocument()
 	})
 
 	it('opens calendar management and clears deleted calendars from hidden state', () => {
 		render(<CalendarRouteScreen view="week" data={richData()} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Calendar' }))
-		expect(screen.getByRole('button', { name: 'Calendar' })).toHaveAttribute('aria-pressed', 'false')
+		fireEvent.click(screen.getByRole('button', { name: /^Calendar/ }))
+		expect(screen.getByRole('button', { name: /^Calendar/ })).toHaveAttribute('aria-pressed', 'false')
 		fireEvent.click(screen.getByRole('button', { name: 'Manage calendars' }))
 		expect(screen.getByRole('dialog', { name: 'Calendar manager' })).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'delete-cal2' }))
-		expect(screen.getByRole('button', { name: 'Calendar' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.getByRole('button', { name: /^Calendar/ })).toHaveAttribute('aria-pressed', 'true')
 		fireEvent.click(screen.getByRole('button', { name: 'close-calendar-manager' }))
 		expect(screen.queryByRole('dialog', { name: 'Calendar manager' })).toBeNull()
 
@@ -601,13 +701,134 @@ describe('week view calendar list', () => {
 })
 
 describe('week view time grid', () => {
+	// The fixtures are dated June 2024. Pin the date before them so chips are named
+	// as upcoming; only the clock is faked, so async queries keep working.
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] })
+		vi.setSystemTime(new Date('2024-06-09T08:00:00'))
+	})
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
 	const renderWeek = () => render(<CalendarRouteScreen view="week" data={richData()} />)
 
 	it('renders an all-day band with single-day and multi-day segments', () => {
 		renderWeek()
 		expect(screen.getByText('All day')).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Holiday' })).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Trip' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Holiday, All day' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Trip, All day, Continues later' })).toBeInTheDocument()
+	})
+
+	it('marks an all-day event that runs past the visible week instead of ending it at the edge', () => {
+		renderWeek()
+		// Trip covers Jun 14-16; the week ends on Jun 15. The cut-off edge is also put into words.
+		const trip = screen.getByRole('button', { name: 'Trip, All day, Continues later' })
+		expect(trip).toHaveAttribute('data-continues-after')
+		expect(trip).not.toHaveAttribute('data-continues-before')
+		expect(screen.getByRole('button', { name: 'Holiday, All day' })).not.toHaveAttribute(
+			'data-continues-after',
+		)
+	})
+
+	it('caps the all-day band at three rows and expands on request so no event is silently dropped', () => {
+		const allDay = ['One', 'Two', 'Three', 'Four', 'Five'].map((title) => ({
+			id: title,
+			calendar_id: 'cal1',
+			title,
+			when: { date: '2024-06-12' },
+		})) as Event[]
+		render(<CalendarRouteScreen view="week" data={{ ...richData(), events: allDay }} />)
+		const band = within(screen.getByTestId('calendar-all-day-band'))
+		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(3)
+		const more = band.getByRole('button', { name: '2 more' })
+		expect(more).toHaveAttribute('aria-expanded', 'false')
+		fireEvent.click(more)
+		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(5)
+		const fewer = band.getByRole('button', { name: 'Show fewer' })
+		expect(fewer).toHaveAttribute('aria-expanded', 'true')
+		fireEvent.click(fewer)
+		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(3)
+	})
+
+	it('places concurrent events side by side so neither covers the other', () => {
+		const overlapping = [
+			{
+				id: 'o1',
+				calendar_id: 'cal1',
+				title: 'Offsite',
+				when: { start_time: e('2024-06-12T12:00:00'), end_time: e('2024-06-12T14:00:00') },
+			},
+			{
+				id: 'o2',
+				calendar_id: 'cal1',
+				title: 'Review',
+				when: { start_time: e('2024-06-12T13:00:00'), end_time: e('2024-06-12T14:00:00') },
+			},
+		] as Event[]
+		render(<CalendarRouteScreen view="week" data={{ ...richData(), events: overlapping }} />)
+		const offsite = screen.getByRole('button', { name: /^Offsite/ })
+		const review = screen.getByRole('button', { name: /^Review/ })
+		expect(offsite.style.left).toBe('calc(0% + 2px)')
+		expect(review.style.left).toBe('calc(50% + 2px)')
+		expect(offsite.style.width).toBe('calc(50% - 4px)')
+		expect(review.style.width).toBe('calc(50% - 4px)')
+	})
+
+	it('names the signed-in user answer on each event so RSVP state never depends on colour', () => {
+		const invited = (id: string, title: string, hour: number, status: string) => ({
+			id,
+			calendar_id: 'cal1',
+			title,
+			organizer: { email: 'boss@ownmail.local' },
+			participants: [
+				{ email: 'someone@ownmail.local', status: 'yes' },
+				{ email: info.email, status },
+			],
+			when: {
+				start_time: e(`2024-06-12T${String(hour).padStart(2, '0')}:00:00`),
+				end_time: e(`2024-06-12T${String(hour + 1).padStart(2, '0')}:00:00`),
+			},
+		})
+		const events = [
+			invited('r1', 'Accepted', 9, 'yes'),
+			invited('r2', 'Maybe', 11, 'maybe'),
+			invited('r3', 'Unanswered', 13, 'noreply'),
+			invited('r4', 'Skipped', 15, 'no'),
+		] as Event[]
+		render(<CalendarRouteScreen view="week" data={{ ...richData(), events }} />)
+		expect(screen.getByRole('button', { name: 'Accepted, 9 AM – 10 AM' })).toHaveAttribute(
+			'data-rsvp',
+			'accepted',
+		)
+		expect(screen.getByRole('button', { name: 'Maybe, 11 AM – 12 PM, Tentative' })).toHaveAttribute(
+			'data-rsvp',
+			'tentative',
+		)
+		expect(screen.getByRole('button', { name: 'Unanswered, 1 PM – 2 PM, Not yet answered' })).toHaveAttribute(
+			'data-rsvp',
+			'awaiting',
+		)
+		expect(screen.getByRole('button', { name: 'Skipped, 3 PM – 4 PM, Declined' })).toHaveAttribute(
+			'data-rsvp',
+			'declined',
+		)
+	})
+
+	it('never draws a one-sided accent on an event: the chip is a tinted fill with a uniform border', () => {
+		renderWeek()
+		const standup = screen.getByRole('button', { name: /^Standup/ })
+		expect(standup).toHaveClass('event-chip', 'event-color')
+		expect(standup.className).not.toMatch(/border-l|border-s-|shadow-\[inset/)
+		expect(standup.style.getPropertyValue('--event-c-light')).toMatch(/^oklch\(/)
+	})
+
+	it('says so in the grid when the provider held back events, rather than showing a partial week as complete', () => {
+		render(<CalendarRouteScreen view="week" data={{ ...richData(), truncated: true }} />)
+		expect(screen.getByRole('status')).toHaveTextContent('Some events could not be loaded')
+		cleanup()
+		renderWeek()
+		expect(screen.queryByText('Some events could not be loaded')).toBeNull()
 	})
 
 	it('shows a tall timed event with its time range but drops the range for a short one', () => {
@@ -616,8 +837,15 @@ describe('week view time grid', () => {
 		expect(standup.textContent).toContain('9 AM')
 		expect(standup.textContent).toContain('10 AM')
 		// The 5-minute event is too short to show a time range and has no title.
-		const untitled = screen.getByRole('button', { name: '(untitled)' })
+		const untitled = screen.getByRole('button', { name: /^\(untitled\)/ })
 		expect(untitled.textContent).not.toContain('–')
+		// A chip too short for two lines is one centred line with no block padding, so the
+		// title is never cut off: title first, then the start time.
+		expect(untitled).toHaveClass('items-center', 'py-0')
+		expect(untitled).not.toHaveClass('flex-col')
+		expect(untitled).toHaveTextContent(/^\(untitled\)11 AM$/)
+		expect(untitled.querySelector('[data-chip-title]')).toHaveClass('leading-4', 'truncate')
+		expect(standup).toHaveClass('flex-col', 'py-control')
 	})
 
 	it('labels the primary and secondary time scales directly in the time ruler', async () => {
@@ -632,8 +860,10 @@ describe('week view time grid', () => {
 		)
 		renderWeek()
 		const ruler = await screen.findByLabelText('Time ruler: Toronto primary time, London secondary time')
-		expect(ruler).toHaveTextContent('Toronto')
-		expect(ruler).toHaveTextContent('London')
+		// Short zone names, not the first word of the city ("New" for New York).
+		expect(ruler).toHaveTextContent(/E[SD]T/)
+		expect(ruler).toHaveTextContent(/GMT|BST/)
+		expect(ruler).not.toHaveTextContent('Toronto')
 	})
 
 	it('hides an event that falls outside the selected calendar day', () => {
@@ -666,7 +896,7 @@ describe('week view time grid', () => {
 
 	it('opens the editor from an all-day event', () => {
 		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'Trip' }))
+		fireEvent.click(screen.getByRole('button', { name: /^Trip/ }))
 		expect(screen.getByTestId('event-modal').dataset.event).toBe('a2')
 	})
 
@@ -700,7 +930,7 @@ describe('week view time grid', () => {
 			events: [{ id: 'ad', calendar_id: 'cal1', title: '', when: { date: '2024-06-15' } }] as Event[],
 		}
 		render(<CalendarRouteScreen view="day" data={data} />)
-		expect(screen.getByRole('button', { name: '(untitled)' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: '(untitled), All day' })).toBeInTheDocument()
 	})
 })
 
@@ -739,7 +969,9 @@ describe('month view', () => {
 		renderMonth()
 		const fifteens = screen.getAllByText('15')
 		const monthTodayCell = fifteens.find((el) => el.tagName === 'SPAN')
-		expect(monthTodayCell?.className).toContain('bg-primary')
+		// Today uses its own token, not the primary action colour.
+		expect(monthTodayCell?.className).toContain('bg-today')
+		expect(monthTodayCell?.className).not.toContain('bg-primary')
 		// May 27 belongs to the leading week and is styled as out-of-month.
 		const outOfMonth = screen.getAllByText('27').find((el) => el.tagName === 'SPAN')
 		expect(outOfMonth?.className).toContain('text-muted-foreground')
@@ -876,7 +1108,7 @@ describe('month view', () => {
 	it('marks today and the anchor date distinctly in the mini calendar', () => {
 		renderMonth()
 		const miniToday = screen.getAllByText('15').find((el) => el.tagName === 'BUTTON')
-		expect(miniToday?.className).toContain('bg-primary')
+		expect(miniToday?.className).toContain('bg-today')
 		const miniRef = screen.getAllByText('20').find((el) => el.tagName === 'BUTTON')
 		expect(miniRef?.className).toContain('bg-accent')
 	})
@@ -900,18 +1132,139 @@ describe('current-time indicator', () => {
 		vi.useRealTimers()
 	})
 
-	it('draws the now line on the current day when the hour is in view', () => {
+	it('draws the now line across the whole week, strongest on today, with the time in the gutter', () => {
 		vi.useFakeTimers()
-		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
-		const { container } = render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
-		expect(container.querySelector('.bg-destructive')).not.toBeNull()
+		vi.setSystemTime(new Date('2024-06-12T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		const line = screen.getByTestId('calendar-now-line')
+		expect(line.style.top).toBe(`${10.5 * 52}px`)
+		expect(line).toHaveTextContent('10:30 AM')
+		// Wednesday is the fourth day column, after the time gutter.
+		expect(screen.getByTestId('calendar-now-line-today').style.gridColumn).toBe('5')
+		// The line is the today token, never the error colour.
+		expect(line.querySelector('.bg-destructive')).toBeNull()
+		expect(line.querySelector('.bg-today')).not.toBeNull()
 	})
 
-	it('draws the now line for an early-morning hour', () => {
+	it('moves the now line as the minute changes', () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2024-06-15T05:00:00'))
-		const { container } = render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
-		expect(container.querySelector('.bg-destructive')).not.toBeNull()
+		render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
+		expect(screen.getByTestId('calendar-now-line').style.top).toBe(`${5 * 52}px`)
+		act(() => {
+			vi.advanceTimersByTime(60 * 60_000)
+		})
+		expect(screen.getByTestId('calendar-now-line').style.top).toBe(`${6 * 52}px`)
+	})
+
+	it('hides the hour label under the now badge instead of drawing two times on top of each other', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-12T05:46:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		const label = (hour: number) => document.querySelector(`[data-hour-label="${hour}"]`) as HTMLElement
+		expect(screen.getByTestId('calendar-now-badge')).toHaveTextContent('5:46 AM')
+		// `invisible` keeps the label's box, so nothing in the gutter moves.
+		expect(label(6)).toHaveClass('invisible')
+		expect(label(6)).toHaveTextContent('6 AM')
+		expect(label(5)).not.toHaveClass('invisible')
+		expect(label(7)).not.toHaveClass('invisible')
+		act(() => {
+			vi.advanceTimersByTime(44 * 60_000)
+		})
+		// 6:30 AM: the badge has moved clear of both neighbours.
+		expect(label(6)).not.toHaveClass('invisible')
+		expect(label(7)).not.toHaveClass('invisible')
+	})
+
+	it('hides a second-timezone label under the badge too, and no label when today is not shown', () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ primaryTimezone: 'America/Toronto', secondaryTimezone: 'Europe/London' }),
+		)
+		vi.useFakeTimers()
+		// 6:17 AM in Toronto: the badge is over the secondary label that sits just below the 6 AM line.
+		vi.setSystemTime(new Date('2024-06-12T10:17:00Z'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		act(() => {
+			vi.advanceTimersByTime(0)
+		})
+		expect(document.querySelector('[data-hour-label="6-secondary"]')).toHaveClass('invisible')
+		expect(document.querySelector('[data-hour-label="7-secondary"]')).not.toHaveClass('invisible')
+		cleanup()
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-25')} />)
+		act(() => {
+			vi.advanceTimersByTime(0)
+		})
+		expect(document.querySelectorAll('[data-hour-label].invisible')).toHaveLength(0)
+	})
+
+	it('centres the now line on the current time rather than hanging the badge below it', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-12T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		expect(screen.getByTestId('calendar-now-line')).toHaveClass('-translate-y-1/2')
+	})
+
+	it('draws no now line on a week that does not contain today', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-25')} />)
+		expect(screen.queryByTestId('calendar-now-line')).toBeNull()
+	})
+
+	it('writes today inline with a pill on the date and leaves other days plain', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-12T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		const header = screen.getByTestId('calendar-time-grid-header')
+		const today = header.querySelector('[aria-current="date"]') as HTMLElement
+		expect(today).toHaveTextContent(/^Wed\s*12$/)
+		expect(within(today).getByText('12')).toHaveClass('bg-today', 'text-today-foreground')
+		expect(within(header).getByText('13')).not.toHaveClass('bg-today')
+	})
+
+	it('dims events that have already ended and leaves upcoming ones at full strength', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		const grid = within(screen.getByTestId('calendar-time-grid-body'))
+		expect(grid.getByRole('button', { name: /^Standup/ })).toHaveAttribute('data-past')
+		expect(grid.getByRole('button', { name: /^Sync/ })).not.toHaveAttribute('data-past')
+	})
+
+	it('says an ended event has ended in its name, because fading alone tells a screen reader nothing', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		const grid = within(screen.getByTestId('calendar-time-grid-body'))
+		expect(grid.getByRole('button', { name: /^Standup/ })).toHaveAccessibleName(
+			'Standup, 9 AM – 10 AM, Ended',
+		)
+		expect(grid.getByRole('button', { name: /^Sync/ })).toHaveAccessibleName('Sync, 1 PM – 2 PM')
+		// All-day events end with their date: today's holiday is still current.
+		expect(screen.getByRole('button', { name: /^Holiday/ })).toHaveAccessibleName('Holiday, All day')
+		cleanup()
+		vi.setSystemTime(new Date('2024-06-16T09:00:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		expect(screen.getByRole('button', { name: /^Holiday/ })).toHaveAccessibleName('Holiday, All day, Ended')
+	})
+
+	it('marks today for assistive technology in the mini-month and the month grid, not only by its fill', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		render(<CalendarRouteScreen view="month" data={monthData()} />)
+		const mini = screen.getByRole('grid', { name: 'Date picker' })
+		expect(mini.querySelectorAll('[aria-current="date"]')).toHaveLength(1)
+		expect(mini.querySelector('[data-mini-calendar-day="2024-06-15"]')).toHaveAttribute(
+			'aria-current',
+			'date',
+		)
+		const month = screen.getByRole('grid', { name: 'Month calendar' })
+		expect(month.querySelectorAll('[aria-current="date"]')).toHaveLength(1)
+		expect(month.querySelector('[data-month-calendar-day="2024-06-15"]')).toHaveAttribute(
+			'aria-current',
+			'date',
+		)
 	})
 })
 
@@ -1027,9 +1380,9 @@ describe('event editor', () => {
 
 		const preview = screen.getByRole('button', { name: /Live draft/ })
 		const saved = screen.getByRole('button', { name: /Standup/ })
-		expect(preview).toHaveClass('border-dashed')
+		expect(preview).toHaveAttribute('data-preview')
 		expect(preview).toBeDisabled()
-		expect(saved).not.toHaveClass('border-dashed')
+		expect(saved).not.toHaveAttribute('data-preview')
 		fireEvent.click(preview)
 		expect(screen.getByTestId('event-modal').dataset.event).toBe('new')
 	})
@@ -1137,24 +1490,25 @@ describe('mobile calendar sheet', () => {
 
 // ---- week title formatting ------------------------------------------------
 
-describe('week title formatting', () => {
-	const titleFor = (anchorIso: string) => {
-		render(<CalendarRouteScreen view="week" data={richData(anchorIso)} />)
+describe('grid title', () => {
+	const titleFor = (view: 'day' | 'week' | 'month', anchorIso: string) => {
+		render(<CalendarRouteScreen view={view} data={richData(anchorIso)} />)
 		return screen.getByRole('heading', { level: 1 }).textContent ?? ''
 	}
 
-	it('collapses a same-month week to a single month label', () => {
-		expect(titleFor('2024-06-15')).toMatch(/Jun 9 – 15, 2024/)
+	it('names the month and year in every view', () => {
+		expect(titleFor('week', '2024-06-15')).toBe('June 2024')
+		cleanup()
+		expect(titleFor('day', '2024-06-15')).toBe('June 2024')
+		cleanup()
+		expect(titleFor('month', '2024-06-15')).toBe('June 2024')
 		cleanup()
 	})
 
-	it('spells out both months for a week that crosses a month boundary', () => {
-		expect(titleFor('2024-05-30')).toMatch(/May 26 – Jun 1, 2024/)
+	it('follows the anchored day when a week crosses a month or year boundary', () => {
+		expect(titleFor('week', '2024-05-30')).toBe('May 2024')
 		cleanup()
-	})
-
-	it('spells out both years for a week that crosses a year boundary', () => {
-		expect(titleFor('2024-12-31')).toMatch(/Dec 29, 2024 – Jan 4, 2025/)
+		expect(titleFor('week', '2024-12-31')).toBe('December 2024')
 		cleanup()
 	})
 })
@@ -1211,31 +1565,31 @@ describe('current-time aware sidebar and grid', () => {
 describe('hidden calendars', () => {
 	it('remembers unchecked calendars across visits so hidden events stay hidden', () => {
 		const first = render(<CalendarRouteScreen view="week" data={richData()} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Work' }))
+		fireEvent.click(screen.getByRole('button', { name: /^Work/ }))
 		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
 		first.unmount()
 
 		render(<CalendarRouteScreen view="week" data={richData()} />)
-		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'false')
 		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
 	})
 
 	it('keeps hidden calendars per inbox because calendar ids are only unique within one grant', () => {
 		const first = render(<CalendarRouteScreen view="week" data={richData()} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Work' }))
+		fireEvent.click(screen.getByRole('button', { name: /^Work/ }))
 		expect(screen.queryByRole('button', { name: /Standup/ })).toBeNull()
 		first.unmount()
 
 		// A different inbox with the same calendar id still shows that calendar.
 		const other = { ...richData(), info: { ...info, email: 'Other@OwnMail.local' } }
 		const second = render(<CalendarRouteScreen view="week" data={other} />)
-		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'true')
 		expect(screen.getByRole('button', { name: /Standup/ })).toBeInTheDocument()
 		second.unmount()
 
 		// Returning to the first inbox (email case-insensitive) restores its choice.
 		const same = { ...richData(), info: { ...info, email: 'USER@ownmail.local' } }
 		render(<CalendarRouteScreen view="week" data={same} />)
-		expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'false')
 	})
 })

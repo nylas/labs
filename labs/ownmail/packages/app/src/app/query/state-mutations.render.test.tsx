@@ -133,16 +133,22 @@ describe('calendar mutation hooks', () => {
 			description: 'Notes',
 		})
 
+		const rsvpStatuses = () =>
+			client
+				.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))
+				?.events[0]?.participants?.map((participant) => participant.status)
 		const rsvp = renderHook(() => useRsvpEventMutation(event.id), { wrapper }).result
+		// Before the mailbox is known nobody's answer is guessed.
 		await act(() => rsvp.current.mutateAsync({ eventId: event.id, status: 'yes' }))
-		expect(
-			client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]?.participants?.[0]
-				?.status,
-		).toBe('yes')
-		expect(
-			client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events[0]?.participants?.[1]
-				?.status,
-		).toBeUndefined()
+		expect(rsvpStatuses()).toEqual([undefined, undefined])
+		// The signed-in user is the second guest: only their entry takes the answer.
+		client.setQueryData(['account', 'mailbox-info'], { email: 'Two@example.com' })
+		await act(() => rsvp.current.mutateAsync({ eventId: event.id, status: 'yes' }))
+		expect(rsvpStatuses()).toEqual([undefined, 'yes'])
+		// A rejected RSVP restores the previous answer.
+		api.rsvpEvent.mockRejectedValueOnce(new Error('offline'))
+		await act(() => rsvp.current.mutateAsync({ eventId: event.id, status: 'no' }).catch(() => undefined))
+		expect(rsvpStatuses()).toEqual([undefined, 'yes'])
 
 		const remove = renderHook(() => useDeleteEventMutation(event.id), { wrapper }).result
 		await act(() => remove.current.mutateAsync({ eventId: event.id }))

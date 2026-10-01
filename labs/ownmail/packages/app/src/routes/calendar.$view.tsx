@@ -1,7 +1,15 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-react'
+import {
+	type CSSProperties,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import { MobileTabBar } from '#app/components/MobileTabBar'
@@ -21,6 +29,7 @@ import { EventModal } from '#features/calendar/components/EventModal'
 import {
 	type AgendaEntry,
 	addDays,
+	allDayBand,
 	allDayEventSegments,
 	type CalView,
 	calendarDateInTimeZone,
@@ -36,26 +45,39 @@ import {
 	isCalendarDate,
 	isCalView,
 	isNewEventPreview,
+	isPastEvent,
 	moveCalendarDay,
+	nowBadgeCoversLabel,
 	shiftAnchor,
 	startOfWeek,
-	timedEventLayout,
+	timedChipLines,
+	timedDayLayout,
+	timeZoneShortName,
 	upcomingAgenda,
 	viewRange,
 	ymd,
 } from '#features/calendar/lib/calendar'
-import { calendarTone, eventTone } from '#features/calendar/lib/calendar-ui-model'
+import {
+	calendarColors,
+	EVENT_ENDED_LABEL,
+	type EventColor,
+	eventAccessibleName,
+	eventColor,
+	eventColorStyle,
+	eventRsvp,
+	eventRsvpLabel,
+} from '#features/calendar/lib/calendar-ui-model'
 import {
 	type CalendarRouteData,
 	loadCalendarRouteData,
 	useCalendarRouteData,
+	useHiddenCalendarIdsForRequest,
 	usePrefetchAdjacentCalendarRanges,
 } from '#features/calendar/state/calendar-state'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
-import { type EventTone, eventChipClass, eventColorClass } from '#shared/lib/color-tone'
 import type { Rect } from '#shared/lib/modal-position'
 import { cn } from '#shared/lib/utils'
 
@@ -79,8 +101,13 @@ function CalendarViewRoutePage() {
 	const { view } = Route.useParams()
 	const { date } = Route.useSearch()
 	const initialData = Route.useLoaderData()
-	const calendarQuery = useCalendarRouteData(view, date, initialData)
-	usePrefetchAdjacentCalendarRanges(view, calendarQuery.data.anchorIso)
+	// Hidden calendars are not fetched at all, so the request follows the preference.
+	const hiddenCalendarIds = useHiddenCalendarIdsForRequest(
+		initialData.info.email,
+		initialData.hiddenCalendarIds,
+	)
+	const calendarQuery = useCalendarRouteData(view, date, initialData, hiddenCalendarIds)
+	usePrefetchAdjacentCalendarRanges(view, calendarQuery.data.anchorIso, hiddenCalendarIds)
 
 	return (
 		<CalendarRouteScreen
@@ -100,7 +127,7 @@ export function CalendarRouteScreen({
 	data: CalendarRouteData
 	onRefresh?: () => Promise<unknown>
 }) {
-	const { events, calendar, calendars, info, anchorIso } = data
+	const { events, calendar, calendars, info, anchorIso, truncated } = data
 	const navigate = useNavigate()
 	const [editing, setEditing] = useState<Event | 'new' | null>(null)
 	const [newStart, setNewStart] = useState<Date | null>(null)
@@ -134,7 +161,7 @@ export function CalendarRouteScreen({
 		() => new Map(calendars.map((cal) => [cal.id, cal.name || 'Calendar'])),
 		[calendars],
 	)
-	const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars])
+	const colors = useMemo(() => calendarColors(calendars), [calendars])
 	const agenda = useMemo(
 		() => upcomingAgenda(visibleEvents, now, primaryTimezone),
 		[now, visibleEvents, primaryTimezone],
@@ -185,12 +212,7 @@ export function CalendarRouteScreen({
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [anchor, currentView, go, primaryTimezone])
 
-	const title =
-		currentView === 'month'
-			? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-			: currentView === 'week'
-				? formatWeekTitle(anchor)
-				: anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+	const title = anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 
 	return (
 		<div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
@@ -233,6 +255,24 @@ export function CalendarRouteScreen({
 								<Plus className="h-4 w-4" strokeWidth={2} />
 								<span className="hidden md:inline">Create</span>
 							</button>
+							<div className="col-start-2 row-start-1 flex min-w-0 items-center border-r border-border px-3 sm:flex-1">
+								<h1 className="truncate font-display text-base font-bold tracking-[-0.02em] sm:text-xl">
+									{title}
+								</h1>
+							</div>
+							<select
+								aria-label="Calendar view"
+								value={currentView}
+								onChange={(event) => {
+									const nextView = event.currentTarget.value
+									if (nextView === 'day' || nextView === 'week' || nextView === 'month') go(nextView, anchor)
+								}}
+								className="touch-target col-start-2 col-end-5 row-start-2 h-11 w-full shrink-0 cursor-pointer border-0 border-t border-border bg-background px-3 text-sm font-medium text-foreground outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring sm:w-auto sm:border-t-0 sm:border-r"
+							>
+								<option value="day">Day</option>
+								<option value="week">Week</option>
+								<option value="month">Month</option>
+							</select>
 							<button
 								type="button"
 								className="touch-target col-start-1 row-start-2 flex size-11 shrink-0 items-center justify-center border-r border-t border-border text-xs font-medium text-foreground transition-colors hover:bg-muted/60 sm:w-auto sm:border-t-0 sm:px-3 sm:text-sm"
@@ -257,7 +297,7 @@ export function CalendarRouteScreen({
 								<TooltipTrigger asChild>
 									<button
 										type="button"
-										className="touch-target-square col-start-4 row-start-1 flex size-11 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+										className="touch-target-square col-start-4 row-start-1 flex size-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 										onClick={() => go(currentView, shiftAnchor(currentView, anchor, 1))}
 										aria-label="Next"
 									>
@@ -266,45 +306,6 @@ export function CalendarRouteScreen({
 								</TooltipTrigger>
 								<TooltipContent>Next {currentView}</TooltipContent>
 							</Tooltip>
-							<div className="col-start-2 row-start-1 flex min-w-0 items-center border-r border-border px-3 sm:flex-1">
-								<h1 className="truncate font-display text-sm font-semibold text-balance sm:text-base">
-									{title}
-								</h1>
-							</div>
-							<select
-								aria-label="Calendar view"
-								value={currentView}
-								onChange={(event) => {
-									const nextView = event.currentTarget.value
-									if (nextView === 'day' || nextView === 'week' || nextView === 'month') go(nextView, anchor)
-								}}
-								className="touch-target col-start-2 col-end-5 row-start-2 h-11 w-full shrink-0 border-0 border-t border-border bg-background px-3 text-sm font-medium text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring sm:hidden"
-							>
-								<option value="day">Day</option>
-								<option value="week">Week</option>
-								<option value="month">Month</option>
-							</select>
-							<fieldset
-								className="m-0 hidden min-w-0 shrink-0 items-stretch border-0 p-0 sm:flex"
-								aria-label="Calendar view"
-							>
-								{(['day', 'week', 'month'] as const).map((v) => (
-									<button
-										key={v}
-										type="button"
-										onClick={() => go(v, anchor)}
-										aria-pressed={v === currentView}
-										className={cn(
-											'touch-target flex h-11 min-w-11 items-center justify-center whitespace-nowrap border-r border-border px-2 text-xs font-medium capitalize transition-colors last:border-r-0 sm:w-auto sm:px-3 sm:text-sm',
-											v === currentView
-												? 'bg-muted text-foreground'
-												: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-										)}
-									>
-										{v}
-									</button>
-								))}
-							</fieldset>
 						</div>
 					</div>
 				</header>
@@ -327,8 +328,10 @@ export function CalendarRouteScreen({
 					<CalendarSidebarPanel
 						mobile={mobileCalendarLayout}
 						anchor={anchor}
+						view={currentView}
+						email={info.email}
 						calendars={calendars}
-						calendarById={calendarById}
+						colors={colors}
 						hiddenCalendarIds={hiddenCalendarIds}
 						agenda={agenda}
 						timeZone={primaryTimezone}
@@ -340,11 +343,19 @@ export function CalendarRouteScreen({
 					/>
 				</aside>
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+					{truncated ? (
+						<p
+							role="status"
+							className="shrink-0 border-b border-border bg-muted px-region py-hairline text-sm font-medium text-foreground"
+						>
+							Some events could not be loaded
+						</p>
+					) : null}
 					{currentView === 'month' ? (
 						<MonthGrid
 							anchor={anchor}
 							events={visibleEvents}
-							calendarById={calendarById}
+							colors={colors}
 							onRefresh={onRefresh}
 							onPickDay={(d) => go('day', d)}
 							onPickEvent={setEditing}
@@ -355,7 +366,9 @@ export function CalendarRouteScreen({
 							days={currentView === 'week' ? 7 : 1}
 							start={currentView === 'week' ? startOfWeek(anchor) : anchor}
 							events={visibleEvents}
-							calendarById={calendarById}
+							colors={colors}
+							email={info.email}
+							now={now}
 							onPickEvent={setEditing}
 							timeZone={primaryTimezone}
 							secondaryTimezone={secondaryTimezone}
@@ -415,8 +428,10 @@ export function CalendarRouteScreen({
 					<CalendarSidebarPanel
 						mobile
 						anchor={anchor}
+						view={currentView}
+						email={info.email}
 						calendars={calendars}
-						calendarById={calendarById}
+						colors={colors}
 						hiddenCalendarIds={hiddenCalendarIds}
 						agenda={agenda}
 						timeZone={primaryTimezone}
@@ -449,8 +464,10 @@ export function CalendarRouteScreen({
 
 function CalendarSidebarPanel({
 	anchor,
+	view,
+	email,
 	calendars,
-	calendarById,
+	colors,
 	hiddenCalendarIds,
 	agenda,
 	timeZone,
@@ -462,8 +479,10 @@ function CalendarSidebarPanel({
 	mobile = false,
 }: {
 	anchor: Date
+	view: CalView
+	email: string
 	calendars: Calendar[]
-	calendarById: Map<string, Calendar>
+	colors: Map<string, EventColor>
 	hiddenCalendarIds: Set<string>
 	agenda: AgendaEntry[]
 	timeZone: string
@@ -476,54 +495,73 @@ function CalendarSidebarPanel({
 }) {
 	return (
 		<div className="flex flex-col gap-5 px-1 py-2">
-			<MiniCalendar refDate={anchor} todayIso={todayIso} onPick={onPickDate} mobile={mobile} />
-			<div>
-				<div className="mb-2 flex items-center justify-between">
-					<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">My calendars</p>
+			<MiniCalendar
+				refDate={anchor}
+				todayIso={todayIso}
+				onPick={onPickDate}
+				mobile={mobile}
+				highlightWeek={view === 'week'}
+			/>
+			<section aria-label={`Calendars for ${email}`}>
+				<div className="mb-1 flex items-center justify-between gap-2">
+					<p className="min-w-0 truncate text-xs text-muted-foreground" title={email}>
+						{email}
+					</p>
 					<button
 						type="button"
 						onClick={onManageCalendars}
 						aria-label="Manage calendars"
-						className="touch-target-square flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
+						className="touch-target-square flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
 					>
 						<Settings2 className="h-4 w-4" />
 					</button>
 				</div>
 				<div className="flex flex-col gap-0.5">
-					{calendars.map((cal, index) => {
+					{calendars.map((cal) => {
 						const hidden = hiddenCalendarIds.has(cal.id)
-						const tone = calendarTone(cal, index)
+						const name = cal.name || 'Calendar'
+						// The tag is part of the name, so "hidden" is announced, not only drawn.
+						const tag = hidden ? 'hidden' : cal.is_primary ? 'Default' : null
 						return (
 							<button
 								key={cal.id}
 								type="button"
+								aria-label={tag ? `${name}, ${tag}` : name}
 								aria-pressed={!hidden}
 								onClick={() => onToggleCalendar(cal.id)}
-								className="touch-target flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
+								style={eventColorProps(cal, colors)}
+								className="event-color touch-target flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
 							>
 								<span
+									aria-hidden="true"
 									className={cn(
-										'flex h-4 w-4 items-center justify-center rounded border-2 transition-colors',
-										hidden ? 'border-border' : cn(eventBarClass(tone), 'border-transparent'),
+										'size-[11px] shrink-0 rounded-[3px] bg-[var(--event-c)]',
+										hidden && 'opacity-40',
+									)}
+								/>
+								<span
+									className={cn(
+										'min-w-0 truncate text-left',
+										hidden ? 'text-muted-foreground' : 'text-foreground',
 									)}
 								>
-									{hidden ? null : <Check className="h-3 w-3 text-primary-foreground" />}
+									{name}
 								</span>
-								<span className={cn('truncate', hidden ? 'text-muted-foreground' : 'text-foreground')}>
-									{cal.name || 'Calendar'}
-								</span>
+								{tag ? (
+									<span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{tag}</span>
+								) : null}
 							</button>
 						)
 					})}
 				</div>
-			</div>
+			</section>
 			<div className="rounded-lg border border-border bg-card p-3">
 				<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Up next today</p>
 				<div className="mt-2 flex flex-col gap-2">
 					{agenda.length === 0 ? (
 						<p className="text-sm text-muted-foreground">Nothing left today.</p>
 					) : (
-						agenda.slice(0, 4).map(({ event, start, inProgress }, index) => (
+						agenda.slice(0, 4).map(({ event, start, inProgress }) => (
 							<button
 								key={event.id}
 								type="button"
@@ -531,10 +569,8 @@ function CalendarSidebarPanel({
 								className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted"
 							>
 								<span
-									className={cn(
-										'mt-1 h-2 w-2 shrink-0 rounded-full',
-										eventDotClass(eventTone(event, index, calendarById.get(event.calendar_id))),
-									)}
+									className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', EVENT_SWATCH_CLASS)}
+									style={eventColorProps(event, colors)}
 								/>
 								<span className="min-w-0">
 									<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
@@ -554,26 +590,16 @@ function CalendarSidebarPanel({
 	)
 }
 
-function eventBarClass(tone: EventTone): string {
-	return eventColorClass(tone, 'bg')
-}
+/** Solid swatch in the calendar's colour; pair with `eventColorProps`. */
+const EVENT_SWATCH_CLASS = 'event-color bg-[var(--event-c)]'
 
-function eventDotClass(tone: EventTone): string {
-	return eventColorClass(tone, 'bg')
-}
-
-function formatWeekTitle(anchor: Date): string {
-	const start = startOfWeek(anchor)
-	const end = addDays(start, 6)
-	const sameMonth = start.getMonth() === end.getMonth()
-	const sameYear = start.getFullYear() === end.getFullYear()
-	if (sameMonth && sameYear) {
-		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.getDate()}, ${end.getFullYear()}`
-	}
-	if (sameYear) {
-		return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
-	}
-	return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+/** Inline colour variables for an event, or for a calendar (whose id is its own key). */
+function eventColorProps(
+	source: Pick<Event, 'calendar_id'> | Pick<Calendar, 'id'>,
+	colors: Map<string, EventColor>,
+): CSSProperties {
+	const calendarId = 'calendar_id' in source ? source.calendar_id : source.id
+	return eventColorStyle(eventColor({ calendar_id: calendarId }, colors))
 }
 
 /** Current time, refreshed each minute so "today" and "Up next" roll forward on their own. */
@@ -618,11 +644,13 @@ function MiniCalendar({
 	todayIso,
 	onPick,
 	mobile,
+	highlightWeek,
 }: {
 	refDate: Date
 	todayIso: string
 	onPick: (date: Date) => void
 	mobile: boolean
+	highlightWeek: boolean
 }) {
 	const [cursor, setCursor] = useState(() => new Date(refDate.getFullYear(), refDate.getMonth(), 1))
 	const [activeDay, setActiveDay] = useState(() => new Date(refDate))
@@ -631,6 +659,7 @@ function MiniCalendar({
 	const days: Date[] = []
 	for (let day = new Date(start); day < end; day = addDays(day, 1)) days.push(new Date(day))
 	const refIso = ymd(refDate)
+	const refWeekIso = ymd(startOfWeek(refDate))
 	if (mobile) {
 		return (
 			<label className="block text-sm font-medium" htmlFor="mobile-calendar-date">
@@ -675,7 +704,7 @@ function MiniCalendar({
 				</div>
 			</div>
 			{/* biome-ignore lint/a11y/useSemanticElements: The date picker uses ARIA grid keyboard navigation with roving tab stops. */}
-			<div className="grid grid-cols-7 gap-0.5 text-center" role="grid" aria-label="Date picker">
+			<div className="grid grid-cols-7 gap-y-0.5 text-center" role="grid" aria-label="Date picker">
 				{[
 					['sun', 'S'],
 					['mon', 'M'],
@@ -692,11 +721,16 @@ function MiniCalendar({
 				{days.map((day) => {
 					const inMonth = day.getMonth() === cursor.getMonth()
 					const iso = ymd(day)
+					const isToday = iso === todayIso
+					// In week view the whole visible week is marked, as one continuous band.
+					const inWeek = highlightWeek && ymd(startOfWeek(day)) === refWeekIso
 					return (
 						<button
 							key={iso}
 							type="button"
 							onClick={() => onPick(day)}
+							data-current-week={inWeek ? '' : undefined}
+							aria-current={isToday ? 'date' : undefined}
 							tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
 							onKeyDown={(event) => {
 								const next = moveCalendarDay(day, event.key)
@@ -712,11 +746,14 @@ function MiniCalendar({
 							}}
 							data-mini-calendar-day={iso}
 							className={cn(
-								'flex h-7 items-center justify-center rounded-sm text-xs tabular-nums transition-colors',
-								iso === todayIso && 'bg-primary text-primary-foreground',
-								iso !== todayIso && iso === refIso && 'bg-accent font-semibold text-accent-foreground',
-								iso !== todayIso && iso !== refIso && inMonth && 'text-foreground hover:bg-muted',
-								iso !== todayIso && iso !== refIso && !inMonth && 'text-muted-foreground/50 hover:bg-muted',
+								'flex h-7 items-center justify-center text-xs tabular-nums transition-colors',
+								inMonth ? 'text-foreground' : 'text-muted-foreground/60',
+								inWeek
+									? cn('bg-muted', day.getDay() === 0 && 'rounded-l-md', day.getDay() === 6 && 'rounded-r-md')
+									: 'rounded-sm hover:bg-muted',
+								!isToday && iso === refIso && 'font-semibold',
+								!isToday && !highlightWeek && iso === refIso && 'bg-accent text-accent-foreground',
+								isToday && 'rounded-[5px] bg-today font-semibold text-today-foreground',
 							)}
 						>
 							{day.getDate()}
@@ -731,7 +768,7 @@ function MiniCalendar({
 function MonthGrid({
 	anchor,
 	events,
-	calendarById,
+	colors,
 	timeZone,
 	onPickDay,
 	onPickEvent,
@@ -739,7 +776,7 @@ function MonthGrid({
 }: {
 	anchor: Date
 	events: Event[]
-	calendarById: Map<string, Calendar>
+	colors: Map<string, EventColor>
 	timeZone: string
 	onPickDay: (d: Date) => void
 	onPickEvent: (e: Event) => void
@@ -810,6 +847,7 @@ function MonthGrid({
 										year: 'numeric',
 									})}; ${dayEvents.length} ${dayEvents.length === 1 ? 'event' : 'events'}`}
 									aria-selected={ymd(day) === ymd(activeDay)}
+									aria-current={iso === todayIso ? 'date' : undefined}
 									tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
 									data-month-calendar-day={iso}
 									className={cn(
@@ -821,7 +859,7 @@ function MonthGrid({
 										<span
 											className={cn(
 												'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
-												iso === todayIso && 'bg-primary text-primary-foreground',
+												iso === todayIso && 'rounded-[5px] bg-today text-today-foreground',
 												iso !== todayIso && !inMonth && 'text-muted-foreground/60',
 												iso !== todayIso && inMonth && 'text-foreground',
 											)}
@@ -830,41 +868,39 @@ function MonthGrid({
 										</span>
 									</div>
 									<div className="pointer-events-none relative z-10 flex min-h-0 flex-col gap-1 overflow-hidden">
-										{dayEvents.slice(0, 3).map((event, index) => {
+										{dayEvents.slice(0, 3).map((event) => {
 											const times = eventTimes(event)
 											/* v8 ignore next -- eventsOnDay excludes records without parsed times -- @preserve */
 											if (!times) return null
-											const tone = eventTone(event, index, calendarById.get(event.calendar_id))
 											const allDay = times.allDay
 											const preview = isNewEventPreview(event)
 											const content = (
 												<>
 													{!allDay ? (
-														<span className={cn('h-2 w-2 shrink-0 rounded-full', eventDotClass(tone))} />
+														<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--event-c)]" />
 													) : null}
 													{!allDay ? (
 														<span className="shrink-0 tabular-nums text-muted-foreground">
 															{fmtTime(times.start, timeZone)}
 														</span>
 													) : null}
-													<span
-														className={cn(
-															'truncate font-medium',
-															allDay ? 'text-primary-foreground' : 'text-foreground',
-														)}
-													>
+													<span className="truncate font-medium text-foreground">
 														{event.title || '(untitled)'}
 													</span>
 												</>
 											)
 											const chipClass = cn(
-												'flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform',
-												allDay ? cn(eventBarClass(tone), 'text-primary-foreground') : 'hover:bg-muted',
-												preview && 'border border-dashed border-primary/70 opacity-70',
+												'event-color flex items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-left text-xs transition-transform',
+												allDay ? 'event-chip' : 'hover:bg-muted',
+												preview && !allDay && 'border border-dashed border-primary/70 opacity-70',
 											)
+											const chipProps = {
+												style: eventColorProps(event, colors),
+												'data-preview': preview && allDay ? '' : undefined,
+											}
 											if (mobileLayout)
 												return (
-													<div key={event.id} aria-hidden="true" className={chipClass}>
+													<div key={event.id} aria-hidden="true" className={chipClass} {...chipProps}>
 														{content}
 													</div>
 												)
@@ -878,6 +914,7 @@ function MonthGrid({
 													}}
 													disabled={preview}
 													className={cn('pointer-events-auto hover:scale-[1.01]', chipClass)}
+													{...chipProps}
 												>
 													{content}
 												</button>
@@ -910,7 +947,9 @@ function TimeGrid({
 	days,
 	start,
 	events,
-	calendarById,
+	colors,
+	email,
+	now,
 	timeZone,
 	secondaryTimezone,
 	onPickEvent,
@@ -920,7 +959,9 @@ function TimeGrid({
 	days: number
 	start: Date
 	events: Event[]
-	calendarById: Map<string, Calendar>
+	colors: Map<string, EventColor>
+	email: string
+	now: Date
 	timeZone: string
 	secondaryTimezone: string
 	onPickEvent: (e: Event) => void
@@ -938,13 +979,20 @@ function TimeGrid({
 	const GRID_END_HOUR = END_HOUR
 	const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
 	const columns: Date[] = Array.from({ length: days }, (_, i) => addDays(start, i))
-	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
+	const todayIso = ymd(calendarDateInTimeZone(now, timeZone))
+	const todayIndex = columns.findIndex((day) => ymd(day) === todayIso)
+	const nowOffset = (calendarWallClockHour(now, timeZone) - START_HOUR) * HOUR_PX
+	const coveredByNowBadge = (labelCentre: number, labelHeight: number) =>
+		todayIndex !== -1 && nowBadgeCoversLabel(nowOffset, labelCentre, labelHeight)
 	const scrollRef = useRef<HTMLDivElement>(null)
-	const [nowOffset, setNowOffset] = useState<number | null>(null)
 	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
+	const [allDayExpanded, setAllDayExpanded] = useState(false)
 	const mobileLayout = useMobileCalendarLayout()
 	const allDaySegments = allDayEventSegments(events, columns)
-	const allDayRowCount = Math.max(1, ...allDaySegments.map((segment) => segment.row + 1))
+	// The band shows three rows; the rest sit behind an expand control.
+	const allDayOverflow = allDayBand(allDaySegments, false).hiddenCount
+	const band = allDayBand(allDaySegments, allDayExpanded)
+	const allDayRowCount = band.rowCount
 	const hasAllDay = allDaySegments.length > 0
 	const dayGridTemplateColumns = days === 1 ? '3.5rem minmax(0, 1fr)' : '3.5rem repeat(7, minmax(0, 1fr))'
 	const mobileAgendaEvents = mobileLayout
@@ -959,17 +1007,6 @@ function TimeGrid({
 						(eventTimes(first)?.start.getTime() ?? 0) - (eventTimes(second)?.start.getTime() ?? 0),
 				)
 		: []
-
-	useEffect(() => {
-		function updateNowOffset() {
-			const current = new Date()
-			const hour = calendarWallClockHour(current, timeZone)
-			setNowOffset((hour - START_HOUR) * HOUR_PX)
-		}
-		updateNowOffset()
-		const id = setInterval(updateNowOffset, 60_000)
-		return () => clearInterval(id)
-	}, [timeZone])
 
 	const startIso = ymd(start)
 	useEffect(() => {
@@ -1014,10 +1051,12 @@ function TimeGrid({
 						{days === 1 ? 'Events this day' : 'Events this week'}
 					</h2>
 					<div className="max-h-48 overflow-y-auto px-2 py-1">
-						{mobileAgendaEvents.map((event, index) => {
+						{mobileAgendaEvents.map((event) => {
 							const times = eventTimes(event)
 							if (!times) return null
-							const tone = eventTone(event, index, calendarById.get(event.calendar_id))
+							const rsvp = eventRsvp(event, email)
+							const rsvpLabel = eventRsvpLabel(rsvp)
+							const ended = isPastEvent(event, now, timeZone)
 							const day = columns.find((column) => eventsOnDay([event], column, timeZone).length > 0)
 							return (
 								<button
@@ -1026,9 +1065,19 @@ function TimeGrid({
 									onClick={() => onPickEvent(event)}
 									className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-muted"
 								>
-									<span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', eventDotClass(tone))} />
+									<span
+										className={cn('h-2.5 w-2.5 shrink-0 rounded-full', EVENT_SWATCH_CLASS)}
+										style={eventColorProps(event, colors)}
+									/>
 									<span className="min-w-0 flex-1">
-										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
+										<span
+											className={cn(
+												'block truncate text-sm font-medium',
+												rsvp === 'declined' && 'line-through',
+											)}
+										>
+											{event.title || '(untitled)'}
+										</span>
 										<span className="block truncate text-xs text-muted-foreground">
 											{day?.toLocaleDateString(undefined, {
 												weekday: 'short',
@@ -1037,6 +1086,8 @@ function TimeGrid({
 											})}
 											{' · '}
 											{times.allDay ? 'All day' : fmtTime(times.start, timeZone)}
+											{rsvpLabel ? ` · ${rsvpLabel}` : null}
+											{ended ? ` · ${EVENT_ENDED_LABEL}` : null}
 										</span>
 									</span>
 								</button>
@@ -1072,43 +1123,49 @@ function TimeGrid({
 								title={timezoneCity(timeZone)}
 								className="truncate text-[10px] font-semibold text-foreground"
 							>
-								{timezoneShortLabel(timeZone)}
+								{timeZoneShortName(timeZone, now)}
 							</span>
 							{secondaryTimezone ? (
 								<span
 									title={timezoneCity(secondaryTimezone)}
 									className="truncate text-[9px] text-muted-foreground"
 								>
-									{timezoneShortLabel(secondaryTimezone)}
+									{timeZoneShortName(secondaryTimezone, now)}
 								</span>
 							) : null}
 						</section>
-						{columns.map((day, dayIndex) => (
-							<div
-								key={day.toISOString()}
-								className="flex flex-col items-center gap-0.5 py-2"
-								style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
-							>
-								<span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-									{day.toLocaleDateString(undefined, { weekday: 'short' })}
-								</span>
-								<span
+						{columns.map((day, dayIndex) => {
+							const isToday = dayIndex === todayIndex
+							return (
+								<div
+									key={day.toISOString()}
 									className={cn(
-										'flex h-8 min-w-8 items-center justify-center rounded-sm px-1 text-sm font-semibold tabular-nums',
-										ymd(day) === todayIso ? 'bg-primary text-primary-foreground' : 'text-foreground',
+										'flex items-baseline justify-center gap-control py-hairline text-[0.8125rem]',
+										isToday ? 'font-semibold text-foreground' : 'text-muted-foreground',
 									)}
+									style={{ gridColumn: dayIndex + 2, gridRow: 1 }}
+									aria-current={isToday ? 'date' : undefined}
 								>
-									{day.getDate()}
-								</span>
-							</div>
-						))}
+									<span>{day.toLocaleDateString(undefined, { weekday: 'short' })}</span>
+									<span
+										className={cn(
+											'tabular-nums',
+											isToday && 'rounded-[5px] bg-today px-control text-today-foreground',
+										)}
+									>
+										{day.getDate()}
+									</span>
+								</div>
+							)
+						})}
 					</div>
 					{hasAllDay ? (
 						<div
-							className="grid border-b border-border pr-3"
+							className="grid gap-y-control border-b border-border py-hairline pr-3"
+							data-testid="calendar-all-day-band"
 							style={{
 								gridTemplateColumns: dayGridTemplateColumns,
-								gridTemplateRows: `repeat(${allDayRowCount}, minmax(2.5rem, auto))`,
+								gridTemplateRows: `repeat(${allDayRowCount}, minmax(1.5rem, auto))`,
 							}}
 						>
 							<div
@@ -1117,34 +1174,30 @@ function TimeGrid({
 							>
 								All day
 							</div>
-							{columns.map((day, dayIndex) => (
-								<div
-									key={day.toISOString()}
-									aria-hidden="true"
-									className="pointer-events-none min-h-10"
-									style={{
-										gridColumn: dayIndex + 2,
-										gridRow: `1 / span ${allDayRowCount}`,
-									}}
-								/>
-							))}
-							{allDaySegments.map((segment) => {
+							{band.segments.map((segment) => {
 								const { event } = segment
-								const tone = eventTone(event, segment.index, calendarById.get(event.calendar_id))
 								const preview = isNewEventPreview(event)
-								const style = {
-									gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
-									gridRow: segment.row + 1,
+								const rsvp = eventRsvp(event, email)
+								const ended = isPastEvent(event, now, timeZone)
+								const title = event.title || '(untitled)'
+								const chipProps = {
+									style: {
+										...eventColorProps(event, colors),
+										gridColumn: `${segment.startColumn + 1} / span ${segment.span}`,
+										gridRow: segment.row + 1,
+									},
+									className:
+										'event-color event-chip z-10 mx-control min-w-0 self-center truncate rounded-[5px] px-cluster py-control text-left text-xs font-medium',
+									'data-rsvp': rsvp,
+									'data-past': ended ? '' : undefined,
+									'data-preview': preview ? '' : undefined,
+									'data-continues-before': segment.continuesBefore ? '' : undefined,
+									'data-continues-after': segment.continuesAfter ? '' : undefined,
 								}
-								const className = cn(
-									'z-10 mx-1 min-w-0 self-center truncate rounded-sm px-2 py-1 text-left text-xs font-medium text-primary-foreground',
-									eventBarClass(tone),
-									preview && 'border border-dashed border-primary-foreground/80 opacity-70',
-								)
 								if (mobileLayout)
 									return (
-										<div key={event.id} aria-hidden="true" style={style} className={className}>
-											{event.title || '(untitled)'}
+										<div key={event.id} aria-hidden="true" {...chipProps}>
+											{title}
 										</div>
 									)
 								return (
@@ -1155,13 +1208,37 @@ function TimeGrid({
 											if (!preview) onPickEvent(event)
 										}}
 										disabled={preview}
-										style={style}
-										className={className}
+										aria-label={eventAccessibleName(title, 'All day', {
+											rsvp,
+											ended,
+											continuesBefore: segment.continuesBefore,
+											continuesAfter: segment.continuesAfter,
+										})}
+										{...chipProps}
 									>
-										{event.title || '(untitled)'}
+										{title}
 									</button>
 								)
 							})}
+							{allDayOverflow === 0 ? null : mobileLayout ? (
+								<div
+									aria-hidden="true"
+									className="px-cluster text-xs text-muted-foreground"
+									style={{ gridColumn: '2 / -1', gridRow: allDayRowCount + 1 }}
+								>
+									{allDayOverflow} more
+								</div>
+							) : (
+								<button
+									type="button"
+									aria-expanded={allDayExpanded}
+									onClick={() => setAllDayExpanded((expanded) => !expanded)}
+									className="touch-target mx-control justify-self-start rounded-[5px] px-cluster py-control text-left text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
+									style={{ gridColumn: '2 / -1', gridRow: allDayRowCount + 1 }}
+								>
+									{allDayExpanded ? 'Show fewer' : `${allDayOverflow} more`}
+								</button>
+							)}
 						</div>
 					) : null}
 				</div>
@@ -1170,15 +1247,50 @@ function TimeGrid({
 					data-testid="calendar-time-grid-body"
 				>
 					<ContinuousDayColumnRules days={days} gridTemplateColumns={dayGridTemplateColumns} />
+					{todayIndex === -1 ? null : (
+						<div
+							aria-hidden="true"
+							data-testid="calendar-now-line"
+							className="pointer-events-none absolute right-3 left-0 z-20 grid -translate-y-1/2 items-center"
+							style={{ top: nowOffset, gridTemplateColumns: dayGridTemplateColumns }}
+						>
+							<span
+								data-testid="calendar-now-badge"
+								className="mr-1 flex h-4 items-center justify-self-end rounded-sm bg-today px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-today-foreground tabular-nums"
+								style={{ gridColumn: 1, gridRow: 1 }}
+							>
+								{fmtTime(now, timeZone)}
+							</span>
+							<span className="h-px bg-today/45" style={{ gridColumn: '2 / -1', gridRow: 1 }} />
+							<span
+								data-testid="calendar-now-line-today"
+								className="h-0.5 bg-today"
+								style={{ gridColumn: todayIndex + 2, gridRow: 1 }}
+							/>
+						</div>
+					)}
 					<div className="grid pr-3" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
 						<div style={{ gridColumn: 1, gridRow: 1 }}>
 							{HOURS.map((hour) => (
 								<div key={hour} className="relative h-[52px]">
-									<span className="absolute -top-2 right-2 text-[11px] tabular-nums text-muted-foreground">
+									<span
+										data-hour-label={hour}
+										className={cn(
+											'absolute -top-2 right-2 h-4 text-[11px] leading-4 tabular-nums text-muted-foreground',
+											// The now badge takes this label's place; hiding keeps the layout still.
+											coveredByNowBadge((hour - START_HOUR) * HOUR_PX, 16) && 'invisible',
+										)}
+									>
 										{hour === START_HOUR ? '' : fmtHour(hour)}
 									</span>
 									{secondaryTimezone && hour !== START_HOUR ? (
-										<span className="absolute top-2 right-2 text-[9px] tabular-nums text-muted-foreground/70">
+										<span
+											data-hour-label={`${hour}-secondary`}
+											className={cn(
+												'absolute top-2 right-2 h-3 text-[9px] leading-3 tabular-nums text-muted-foreground/70',
+												coveredByNowBadge((hour - START_HOUR) * HOUR_PX + 14, 12) && 'invisible',
+											)}
+										>
 											{fmtTime(calendarSlotTime(columns[0] ?? start, hour, timeZone), secondaryTimezone)}
 										</span>
 									) : null}
@@ -1186,10 +1298,12 @@ function TimeGrid({
 							))}
 						</div>
 						{columns.map((day, dayIndex) => {
-							const dayEvents = eventsOnDay(events, day, timeZone).filter(
-								(event) => eventTimes(event)?.allDay === false,
-							)
-							const isToday = ymd(day) === todayIso
+							const boxes = timedDayLayout(events, day, {
+								startHour: START_HOUR,
+								endHour: GRID_END_HOUR,
+								hourHeight: HOUR_PX,
+								timeZone,
+							})
 							return (
 								<div
 									key={day.toISOString()}
@@ -1227,51 +1341,56 @@ function TimeGrid({
 											className="block h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
 										/>
 									))}
-									{isToday && nowOffset !== null ? (
-										<div
-											className="pointer-events-none absolute right-0 left-0 z-20"
-											style={{ top: nowOffset }}
-										>
-											<div className="relative">
-												<div className="absolute -top-1 -left-1 h-2 w-2 rounded-full bg-destructive" />
-												<div className="h-px w-full bg-destructive" />
-											</div>
-										</div>
-									) : null}
-									{dayEvents.map((event, index) => {
+									{boxes.map(({ event, top, height, left, width }) => {
 										const times = eventTimes(event)
-										/* v8 ignore next -- dayEvents excludes records without parsed times -- @preserve */
+										/* v8 ignore next -- timedDayLayout only places events with parsed times -- @preserve */
 										if (!times) return null
-										const { start: s, end: e } = times
 										const preview = isNewEventPreview(event)
-										const layout = timedEventLayout(event, day, {
-											startHour: START_HOUR,
-											endHour: GRID_END_HOUR,
-											hourHeight: HOUR_PX,
-											timeZone,
-										})
-										if (!layout) return null
-										const style = { top: layout.top, height: layout.height }
+										const rsvp = eventRsvp(event, email)
+										const title = event.title || '(untitled)'
+										const range = `${fmtTime(times.start, timeZone)} – ${fmtTime(times.end, timeZone)}`
+										const ended = isPastEvent(event, now, timeZone)
+										// Concurrent events share the column side by side, each with a small gutter.
+										const chipProps = {
+											style: {
+												...eventColorProps(event, colors),
+												top,
+												height,
+												left: `calc(${left * 100}% + 2px)`,
+												width: `calc(${width * 100}% - 4px)`,
+											},
+											'data-rsvp': rsvp,
+											'data-past': ended ? '' : undefined,
+											'data-preview': preview ? '' : undefined,
+										}
+										// A short chip is one centred line (title, then start time) so no glyph
+										// is clipped; a taller one stacks the title over the time range.
+										const twoLines = timedChipLines(height) === 2
 										const className = cn(
-											'absolute right-1 left-1 z-10 flex min-w-0 flex-col overflow-hidden rounded-sm px-1.5 py-1 text-left transition-shadow',
-											eventChipClass(eventTone(event, index, calendarById.get(event.calendar_id))),
-											preview && 'border border-dashed border-primary/70 opacity-70',
+											'event-color event-chip absolute z-10 flex min-w-0 overflow-hidden rounded-[5px] px-cluster text-left transition-shadow',
+											twoLines ? 'flex-col py-control' : 'items-center gap-control py-0',
 										)
-										const content = (
+										const content = twoLines ? (
 											<>
-												<span className="truncate text-xs leading-tight font-semibold">
-													{event.title || '(untitled)'}
+												<span className="truncate text-xs leading-[15px] font-medium">{title}</span>
+												<span className="truncate text-[11px] leading-[14px] opacity-75">{range}</span>
+											</>
+										) : (
+											<>
+												<span
+													data-chip-title=""
+													className="max-w-full shrink-0 truncate text-xs leading-4 font-medium"
+												>
+													{title}
 												</span>
-												{layout.height > 30 ? (
-													<span className="truncate text-[10px] opacity-80">
-														{fmtTime(s, timeZone)} – {fmtTime(e, timeZone)}
-													</span>
-												) : null}
+												<span className="min-w-0 truncate text-[11px] leading-4 opacity-75">
+													{fmtTime(times.start, timeZone)}
+												</span>
 											</>
 										)
 										if (mobileLayout)
 											return (
-												<div key={event.id} aria-hidden="true" style={style} className={className}>
+												<div key={event.id} aria-hidden="true" className={className} {...chipProps}>
 													{content}
 												</div>
 											)
@@ -1283,8 +1402,9 @@ function TimeGrid({
 													if (!preview) onPickEvent(event)
 												}}
 												disabled={preview}
-												style={style}
+												aria-label={eventAccessibleName(title, range, { rsvp, ended })}
 												className={cn('hover:shadow-md', className)}
+												{...chipProps}
 											>
 												{content}
 											</button>
@@ -1346,8 +1466,4 @@ function fmtHour(hour: number): string {
 
 function timezoneCity(timeZone: string): string {
 	return timeZone.replace(/^.*\//, '').replaceAll('_', ' ')
-}
-
-function timezoneShortLabel(timeZone: string): string {
-	return timezoneCity(timeZone).replace(/ .*/, '')
 }
