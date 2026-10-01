@@ -187,6 +187,71 @@ describe('bubbleContent', () => {
 		})
 	})
 
+	it('keeps an answer that merely begins like a mail header', () => {
+		// "Date: Thursday works for me" is a sentence somebody wrote, not the Date
+		// header of a quoted message. Dropping it because of its first word would
+		// silently delete an answer.
+		const answer = text('Date: Thursday works for me')
+		const inline = bubbleContent(
+			[
+				text('Replying inline.'),
+				history(
+					attribution,
+					quote(EARLIER),
+					answer,
+					quote('Also, the retro probably fits better on Friday.'),
+					text('Subject: fine by me too'),
+				),
+			],
+			shown(),
+		)
+		expect(inline.unsure).toBe(false)
+		expect(inline.blocks).toContainEqual(answer)
+		expect(inline.blocks).toContainEqual(text('Subject: fine by me too'))
+
+		const below = bubbleContent([history(attribution, quote(EARLIER)), answer], shown())
+		expect(below.blocks.at(-1)).toEqual(answer)
+
+		// A real header still goes: a lead-in directly above a quote, and Outlook's
+		// group of header lines, wherever they sit in the history.
+		const nested = bubbleContent(
+			[
+				text('See both below.'),
+				history(
+					attribution,
+					quote(EARLIER),
+					text('Agreed.'),
+					text('On Tue, Tomas Reyes wrote:'),
+					quote('Also, the retro probably fits better on Friday.'),
+					text('From: Ines\nSent: Monday'),
+					text('Fine.'),
+				),
+			],
+			shown(),
+		)
+		expect(
+			nested.blocks.map((block) => (block.type === 'paragraph' ? block.spans[0]?.text : block.type)),
+		).toEqual(['See both below.', 'reference', 'Agreed.', 'reference', 'Fine.'])
+		// A lead-in that is not above a quote is just a sentence ending in "wrote:".
+		const sentence = text('This is what the venue wrote:')
+		expect(
+			bubbleContent([text('Hi'), history(attribution, quote(EARLIER), sentence)], shown()).blocks,
+		).toContainEqual(sentence)
+	})
+
+	it('does not fold quoted history whose unquoted lines the thread has never shown', () => {
+		// Outlook-style history has no quote marks. A body line that starts like a
+		// header is still body: if the thread has not shown it, the history stays.
+		const headers = text('From: Ines\nSent: Monday\nSubject: Re: Offsite')
+		const unseen = [
+			text('Thanks.'),
+			history(headers, text(EARLIER), text('Subject: budget is approved, by the way')),
+		]
+		expect(bubbleContent(unseen, shown())).toEqual({ blocks: unseen, unsure: false })
+		const seen = [text('Thanks.'), history(headers, text(EARLIER))]
+		expect(bubbleContent(seen, shown()).blocks).toEqual([text('Thanks.')])
+	})
+
 	it('leaves history without quote marks behind its disclosure, even with text below it', () => {
 		const outlook = history(text('From: Ines\nSent: Monday'), text('An unseen earlier message body.'))
 		const blocks = [outlook, text('Replying below.')]

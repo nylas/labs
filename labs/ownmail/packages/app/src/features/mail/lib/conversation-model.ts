@@ -18,8 +18,10 @@ export const GROUP_WINDOW_SECONDS = 5 * 60
 
 /** A forwarded message is content, not history, so it is never hidden. */
 const FORWARDED = /(?:^|\n)\s*(?:-{2,}\s*forwarded message\s*-{2,}|begin forwarded message:)/i
-/** "On Mon, Ines wrote:" and the header lines Outlook puts above a quote. */
-const ATTRIBUTION = /(?:wrote|a écrit|schrieb|escribió)\s*:\s*$|^(?:from|sent|to|cc|date|subject)\s*:/i
+/** "On Mon, Ines wrote:", the lead-in a mail client puts above a quote. */
+const LEAD_IN = /(?:wrote|a écrit|schrieb|escribió)\s*:\s*$/i
+/** A header line of the block Outlook puts above a quote. */
+const HEADER_LINE = /^(?:from|sent|to|cc|date|subject)\s*:/i
 /** Lines shorter than this ("Thanks", "OK") are too common to identify a message. */
 const MIN_FINGERPRINT = 8
 /** A block outside a quote has to be this long before a repeat of it is folded. */
@@ -105,14 +107,48 @@ export function rememberBlocks(shown: ShownBlock[], blocks: CleanBlock[], author
 	}
 }
 
-/** The fingerprints of quoted lines, without quote markers, attribution lines or lines too short to tell apart. */
-function quotedLines(blocks: CleanBlock[]): string[] {
+/**
+ * Whether a block of quoted history is the header a mail client put above a
+ * quote, rather than something a person wrote. Wording alone is not enough: an
+ * answer can begin "Date: Thursday works for me". So the block must also sit
+ * where a header sits: it opens the history, or it is a lead-in directly above
+ * a quote, or it is a group of two or more header lines.
+ */
+function isHeaderBlock(blocks: CleanBlock[], index: number): boolean {
+	const block = blocks[index] as CleanBlock
+	if (block.type === 'quote') return false
+	const lines = blocksText([block]).split('\n')
+	const leadIn = LEAD_IN.test(lines.join(' '))
+	const headers = lines.every((line) => HEADER_LINE.test(line))
+	if (index === 0) return leadIn || headers
+	return (leadIn && blocks[index + 1]?.type === 'quote') || (headers && lines.length >= 2)
+}
+
+/** Fingerprints of the lines of some blocks, without quote markers or lines too short to tell apart. */
+function lineFingerprints(blocks: CleanBlock[], skip: (line: string) => boolean = () => false): string[] {
 	return blocksText(blocks)
 		.split('\n')
 		.map((line) => line.replace(/^[>\s]+/, ''))
-		.filter((line) => !ATTRIBUTION.test(line))
+		.filter((line) => !skip(line))
 		.map(fingerprint)
 		.filter((line) => line.length >= MIN_FINGERPRINT)
+}
+
+/** The lines of a quote. Lead-ins and header lines inside it belong to older quoted mail. */
+function quotedLines(blocks: CleanBlock[]): string[] {
+	return lineFingerprints(blocks, (line) => LEAD_IN.test(line) || HEADER_LINE.test(line))
+}
+
+/**
+ * The lines of a whole quoted history that have to be found earlier in the
+ * thread before it may be folded: everything except its header blocks. A line
+ * outside a quote counts in full, whatever it starts with.
+ */
+function historyLines(blocks: CleanBlock[]): string[] {
+	return blocks.flatMap((block, index) => {
+		if (isHeaderBlock(blocks, index)) return []
+		return block.type === 'quote' ? quotedLines(block.blocks) : lineFingerprints([block])
+	})
 }
 
 const wasShown = (shown: readonly ShownBlock[], line: string): ShownBlock | undefined =>
@@ -136,7 +172,7 @@ function answeredInside(history: CleanBlock[]): boolean {
 function isRepeat(block: CleanBlock, shown: readonly ShownBlock[]): boolean {
 	if (block.type === 'signature') return true
 	if (block.type === 'history') {
-		return !answeredInside(block.blocks) && repeatsThread(quotedLines(block.blocks), shown)
+		return !answeredInside(block.blocks) && repeatsThread(historyLines(block.blocks), shown)
 	}
 	const text = fingerprint(blocksText([block]))
 	return text.length >= MIN_REPEAT && wasShown(shown, text) !== undefined
@@ -189,17 +225,16 @@ function reference(quote: CleanBlock[], lines: string[], shown: readonly ShownBl
  * Quoted history that is not simply a trailing repeat: answers written between
  * or below quoted lines. Each quote the thread already showed shrinks to a
  * small reply reference above its answer; a quote of something the thread has
- * not shown stays in full. The "On Mon, Ines wrote:" line goes.
+ * not shown stays in full. The "On Mon, Ines wrote:" line goes, but only where
+ * it is a header: anything else outside a quote is kept.
  */
 function expandHistory(
 	history: Extract<CleanBlock, { type: 'history' }>,
 	shown: readonly ShownBlock[],
 ): CleanBlock[] {
 	if (!history.blocks.some((block) => block.type === 'quote')) return [history]
-	return history.blocks.flatMap((block): CleanBlock[] => {
-		if (block.type !== 'quote') {
-			return ATTRIBUTION.test(blocksText([block]).replace(/\n/g, ' ')) ? [] : [block]
-		}
+	return history.blocks.flatMap((block, index): CleanBlock[] => {
+		if (block.type !== 'quote') return isHeaderBlock(history.blocks, index) ? [] : [block]
 		const lines = quotedLines(block.blocks)
 		return lines.length > 0 && repeatsThread(lines, shown) ? [reference(block.blocks, lines, shown)] : [block]
 	})
