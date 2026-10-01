@@ -47,6 +47,7 @@ import {
 	type CalendarRouteData,
 	calendarKeys,
 	calendarStateTestApi,
+	resetCalendarConfirmedEffects,
 	useCreateEventMutation,
 	useDeleteEventMutation,
 	useRescheduleEventMutation,
@@ -352,6 +353,238 @@ describe('calendar mutation hooks', () => {
 		expect(
 			calendarStateTestApi.reconcileCalendarData(client, data, { start: 0, end: 1000 }).events[0]?.when,
 		).toMatchObject({ start_time: 500, end_time: 600 })
+	})
+
+	describe('overlapping changes to one event', () => {
+		type Deferred = { resolve: (value: unknown) => void; reject: (reason: unknown) => void }
+		/** Each call to the provider is held until the test settles it, in any order. */
+		function holdUpdates(): Deferred[] {
+			const held: Deferred[] = []
+			api.updateEvent.mockImplementation(
+				() =>
+					new Promise((resolve, reject) => {
+						held.push({ resolve, reject })
+					}),
+			)
+			return held
+		}
+		const drawn = () => {
+			const data = client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000)) as CalendarRouteData
+			return calendarStateTestApi.reconcileCalendarData(client, data, { start: 0, end: 1000 }).events[0]
+		}
+		const at = (start: number) => ({
+			...event,
+			when: { object: 'timespan', start_time: start, end_time: start + 100 },
+		})
+		/** Starts two drags of the same event, the second before the first has settled. */
+		async function dragTwice() {
+			const held = holdUpdates()
+			const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+			const settled: Promise<unknown>[] = []
+			act(() => {
+				settled.push(reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }).catch(() => {}))
+			})
+			await waitFor(() => expect(held).toHaveLength(1))
+			act(() => {
+				settled.push(
+					reschedule.current
+						.mutateAsync({ event: at(300) as Event, startTime: 500, endTime: 600 })
+						.catch(() => {}),
+				)
+			})
+			await waitFor(() => expect(held).toHaveLength(2))
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+			const settle = (index: number, outcome: 'resolve' | 'reject', value: unknown) =>
+				act(async () => {
+					;(held[index] as Deferred)[outcome](value)
+					await settled[index]
+				})
+			return { settle }
+		}
+
+		it('ends at the second position when the first response arrives last, and stays there', async () => {
+			const { settle } = await dragTwice()
+			await settle(1, 'resolve', { event: at(500) })
+			// The provider's answer to the first drag arrives late, carrying the older time.
+			await settle(0, 'resolve', { event: at(300) })
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+			// A stale provider read is still corrected to the second position, not the first:
+			// the late response was not remembered as the confirmed one.
+			client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+		})
+
+		it('discards the first response even when it arrives before the second has settled', async () => {
+			const { settle } = await dragTwice()
+			await settle(0, 'resolve', { event: at(300) })
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+			await settle(1, 'resolve', { event: at(500) })
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+		})
+
+		it('a failed first request does not roll back the second', async () => {
+			const { settle } = await dragTwice()
+			await settle(0, 'reject', new Error('offline'))
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+			await settle(1, 'resolve', { event: at(500) })
+			expect(drawn()?.when).toMatchObject({ start_time: 500 })
+		})
+
+		it('a failed second request rolls back to the first position, which is then confirmed', async () => {
+			const { settle } = await dragTwice()
+			await settle(1, 'reject', new Error('offline'))
+			expect(drawn()?.when).toMatchObject({ start_time: 300 })
+			// The first drag is now the newest standing change, so its response is kept.
+			await settle(0, 'resolve', { event: { ...at(300), title: 'Canonical' } })
+			expect(drawn()).toMatchObject({ title: 'Canonical', when: { start_time: 300 } })
+			client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+			expect(drawn()?.when).toMatchObject({ start_time: 300 })
+		})
+
+		it('a failed second request rolls back to a first position that was already confirmed', async () => {
+			api.updateEvent.mockResolvedValueOnce({ event: at(300) })
+			const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+			await act(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+			api.updateEvent.mockRejectedValueOnce(new Error('offline'))
+			await act(() =>
+				reschedule.current
+					.mutateAsync({ event: at(300) as Event, startTime: 500, endTime: 600 })
+					.catch(() => {}),
+			)
+			expect(drawn()?.when).toMatchObject({ start_time: 300 })
+		})
+
+		it('returns to the original time when both requests fail, whichever fails first', async () => {
+			for (const order of [
+				[0, 1],
+				[1, 0],
+			] as const) {
+				client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+				const { settle } = await dragTwice()
+				await settle(order[0], 'reject', new Error('offline'))
+				await settle(order[1], 'reject', new Error('offline'))
+				// Never left at the first drag's position, which the provider refused too.
+				expect(drawn()?.when).toMatchObject({ start_time: 100 })
+				cleanup()
+			}
+		})
+
+		it('restores every cached range when two refused drags moved the event between ranges', async () => {
+			// A second, later range is cached too, as a prefetched week would be.
+			const LATER = calendarKeys.range(450, 2000)
+			const rangeEvents = (key: readonly unknown[]) =>
+				client
+					.getQueryData<CalendarRouteData>(key)
+					?.events.map((item) => (item.when as { start_time: number }).start_time)
+			for (const [first, second, order] of [
+				// The second drag reaches the later range; the first never did.
+				[300, 500, [0, 1]],
+				// The first drag leaves the earlier range; the second stays in the later one.
+				[1500, 1700, [1, 0]],
+			] as const) {
+				client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+				client.setQueryData(LATER, { events: [] } as unknown as CalendarRouteData)
+				const held = holdUpdates()
+				const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+				const settled: Promise<unknown>[] = []
+				act(() => {
+					settled.push(
+						reschedule.current.mutateAsync({ event, startTime: first, endTime: first + 100 }).catch(() => {}),
+					)
+				})
+				await waitFor(() => expect(held).toHaveLength(1))
+				act(() => {
+					settled.push(
+						reschedule.current
+							.mutateAsync({ event: at(first) as Event, startTime: second, endTime: second + 100 })
+							.catch(() => {}),
+					)
+				})
+				await waitFor(() => expect(held).toHaveLength(2))
+				for (const index of order) {
+					await act(async () => {
+						;(held[index] as Deferred).reject(new Error('offline'))
+						await settled[index]
+					})
+				}
+				// Both were refused: the event is back at its original time, in its original range only.
+				expect(rangeEvents(calendarKeys.range(0, 1000))).toEqual([100])
+				expect(rangeEvents(LATER)).toEqual([])
+				cleanup()
+			}
+		})
+
+		it('gives the editor the same guarantee: an older save answering late does not replace a newer one', async () => {
+			const held = holdUpdates()
+			const update = renderHook(() => useUpdateEventMutation(event), { wrapper }).result
+			const settled: Promise<unknown>[] = []
+			act(() => {
+				settled.push(update.current.mutateAsync({ eventId: event.id, title: 'First' }).catch(() => {}))
+			})
+			await waitFor(() => expect(held).toHaveLength(1))
+			act(() => {
+				settled.push(update.current.mutateAsync({ eventId: event.id, title: 'Second' }).catch(() => {}))
+			})
+			await waitFor(() => expect(held).toHaveLength(2))
+			await act(async () => {
+				;(held[1] as Deferred).resolve({ event: { ...event, title: 'Second' } })
+				await settled[1]
+			})
+			await act(async () => {
+				;(held[0] as Deferred).resolve({ event: { ...event, title: 'First' } })
+				await settled[0]
+			})
+			expect(drawn()?.title).toBe('Second')
+			client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+			expect(drawn()?.title).toBe('Second')
+
+			// And an older save failing late does not undo the newer one.
+			act(() => {
+				settled.push(update.current.mutateAsync({ eventId: event.id, title: 'Third' }).catch(() => {}))
+			})
+			await waitFor(() => expect(held).toHaveLength(3))
+			act(() => {
+				settled.push(update.current.mutateAsync({ eventId: event.id, title: 'Fourth' }).catch(() => {}))
+			})
+			await waitFor(() => expect(held).toHaveLength(4))
+			await act(async () => {
+				;(held[2] as Deferred).reject(new Error('offline'))
+				await settled[2]
+			})
+			expect(drawn()?.title).toBe('Fourth')
+		})
+
+		it('lets nothing from the previous inbox land after the cache is cleared for another', async () => {
+			const { settle } = await dragTwice()
+			resetCalendarConfirmedEffects(client)
+			client.setQueryData(calendarKeys.range(0, 1000), calendarData)
+			await settle(1, 'resolve', { event: at(500) })
+			await settle(0, 'reject', new Error('offline'))
+			expect(drawn()?.when).toMatchObject({ start_time: 100 })
+		})
+
+		it('keeps changes to different events independent', async () => {
+			const other = { ...event, id: 'event-2', title: 'Other' } as Event
+			client.setQueryData(calendarKeys.range(0, 1000), { events: [event, other] } as CalendarRouteData)
+			const held = holdUpdates()
+			const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+			const settled: Promise<unknown>[] = []
+			act(() => {
+				settled.push(reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+			})
+			await waitFor(() => expect(held).toHaveLength(1))
+			act(() => {
+				settled.push(reschedule.current.mutateAsync({ event: other, startTime: 700, endTime: 800 }))
+			})
+			await waitFor(() => expect(held).toHaveLength(2))
+			await act(async () => {
+				;(held[1] as Deferred).resolve({ eventId: other.id })
+				;(held[0] as Deferred).resolve({ eventId: event.id })
+				await Promise.all(settled)
+			})
+			const events = client.getQueryData<CalendarRouteData>(calendarKeys.range(0, 1000))?.events
+			expect(events?.map((item) => (item.when as { start_time: number }).start_time)).toEqual([300, 700])
+		})
 	})
 
 	it('fails closed when an update hook has no authorized event', async () => {
