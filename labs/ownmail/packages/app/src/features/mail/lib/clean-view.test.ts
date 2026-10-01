@@ -716,6 +716,29 @@ describe('data tables', () => {
 		}
 	})
 
+	it('leaves a marked table with merged cells to the original reader', () => {
+		// The total row of a receipt spans the first two columns. Without the span
+		// its amount would slide under "Qty", which is worse than not cleaning at all.
+		const receipt = (span: string) =>
+			`<table role="presentation" width="600"><tr><td>${PROSE_FILLER}</td></tr><tr><td>` +
+			'<table><tr><th>Item</th><th>Qty</th><th>Price</th></tr>' +
+			'<tr><td>Notebook</td><td>2</td><td>$18.00</td></tr>' +
+			`<tr><td ${span}>Total</td><td>$18.00</td></tr></table></td></tr></table>`
+		for (const span of ['colspan="2"', 'rowspan="2"']) {
+			const body = bodyOf(receipt(span))
+			expect(normaliseBlocks(body).some((block) => block.type === 'table')).toBe(false)
+			expect(cleanConfidence(body, normaliseBlocks(body))).toBeLessThan(CONFIDENCE_THRESHOLD)
+			expect(messageContent(message(receipt(span)), false)).toEqual({ kind: 'original' })
+		}
+		// The same receipt without merged cells is kept as a table.
+		const plain = messageContent(
+			message(receipt('').replace('<td >Total</td>', '<td>Total</td><td></td>')),
+			false,
+		)
+		expect(plain).toMatchObject({ kind: 'article' })
+		expect((plain as { blocks: CleanBlock[] }).blocks.some((block) => block.type === 'table')).toBe(true)
+	})
+
 	it('counts a kept table in the text, the links and the confidence', () => {
 		const html =
 			'<table><caption>Order</caption><tr><th>Item</th><th>Price</th></tr><tr><td>Notebook</td><td><a href="https://shop.example/n">$18.00</a></td></tr></table>'

@@ -369,10 +369,14 @@ const ownCells = (row: Element): Element[] =>
 /**
  * Step 3: a table is data only if its author said so (`th`, `thead` or
  * `caption`), or it is a regular grid of short text cells. A table that holds
- * other tables, or is marked `role=presentation`, is layout.
+ * other tables, merges cells, or is marked `role=presentation`, is not.
  */
 function isDataTable(table: Element): boolean {
 	if (table.querySelector('table')) return false
+	// The block model has plain rows of cells. A merged cell would put every
+	// cell after it under the wrong column, so a table with spans is never kept
+	// as a table: marked ones fail the confidence gate and keep the original.
+	if (table.querySelector('[colspan], [rowspan]')) return false
 	if (table.querySelector('th, thead, caption')) return true
 	if (table.getAttribute('role') === 'presentation') return false
 	const rows = ownRows(table).map(ownCells)
@@ -385,9 +389,7 @@ function isDataTable(table: Element): boolean {
 				cells.length === columns &&
 				cells.every(
 					(cell) =>
-						!cell.hasAttribute('colspan') &&
-						!cell.querySelector(BLOCK_SELECTOR) &&
-						cell.textContent.trim().length <= DATA_CELL_MAX_CHARS,
+						!cell.querySelector(BLOCK_SELECTOR) && cell.textContent.trim().length <= DATA_CELL_MAX_CHARS,
 				),
 		) &&
 		rows.some((cells) => cells.some((cell) => cell.textContent.trim() !== ''))
