@@ -175,10 +175,29 @@ function answeredInside(history: CleanBlock[]): boolean {
 	return firstQuote !== -1 && history.some((block, index) => index > firstQuote && block.type !== 'quote')
 }
 
+const hasQuoteMarks = (history: CleanBlock[]): boolean => history.some((block) => block.type === 'quote')
+
+/**
+ * Quoted history without quote marks: Outlook and other clients mark only where
+ * the earlier mail starts, so everything after that point is "history",
+ * including an answer the sender typed below the original. Nothing in the
+ * markup tells the two apart, and a share-of-text rule would fold a short
+ * answer away with a long original. Such history is a repeat only when every
+ * block of it, in full, was shown earlier in the thread.
+ */
+function unmarkedHistoryRepeats(history: CleanBlock[], shown: readonly ShownBlock[]): boolean {
+	return history.every((block, index) => {
+		if (isHeaderBlock(history, index)) return true
+		const text = fingerprint(blocksText([block]))
+		return text.length >= MIN_FINGERPRINT && wasShown(shown, text) !== undefined
+	})
+}
+
 /** A block the trailing fold may drop: a signature, or content the thread showed before. */
 function isRepeat(block: CleanBlock, shown: readonly ShownBlock[]): boolean {
 	if (block.type === 'signature') return true
 	if (block.type === 'history') {
+		if (!hasQuoteMarks(block.blocks)) return unmarkedHistoryRepeats(block.blocks, shown)
 		return !answeredInside(block.blocks) && repeatsThread(historyLines(block.blocks), shown)
 	}
 	const text = fingerprint(blocksText([block]))
@@ -268,6 +287,8 @@ const QUOTED_TYPES: ReadonlySet<CleanBlock['type']> = new Set(['history', 'signa
  * - Quoted history that is followed by new text, or has answers inside it,
  *   becomes reply references and answers.
  * - A trailing quote the thread has not shown stays behind a disclosure.
+ * - History without quote marks is folded only when all of it was shown
+ *   before; otherwise the message is shown whole.
  *
  * A forwarded message, or a message with nothing new left, is shown whole
  * (`unsure`) rather than risk hiding something that mattered.
@@ -284,6 +305,11 @@ export function bubbleContent(blocks: CleanBlock[], shown: readonly ShownBlock[]
 		const answered = index < all.length - 1 || answeredInside(block.blocks)
 		return answered ? expandHistory(block, shown) : [block]
 	})
+	// History without quote marks that could not be folded may hold new text the
+	// pass cannot point to. The message is shown whole, its quoted text open.
+	if (kept.some((block) => block.type === 'history' && !hasQuoteMarks(block.blocks))) {
+		return { blocks, unsure: true }
+	}
 	const lastNew = kept.findLastIndex((block) => !QUOTED_TYPES.has(block.type))
 	if (lastNew === -1) return { blocks, unsure: true }
 	return {

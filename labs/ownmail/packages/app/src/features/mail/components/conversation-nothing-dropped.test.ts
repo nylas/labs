@@ -207,6 +207,78 @@ describe('nothing a person wrote is silently dropped', () => {
 		expect(words(droppable(content.blocks))).toEqual(['ines', 'carvalho', 'example'])
 	})
 
+	describe('an answer written below quoted mail that has no quote marks', () => {
+		// Outlook and some other clients mark where the quoted mail starts, not what
+		// is quoted: everything after the separator is "history", including an
+		// answer typed below the original. Nothing in the markup tells the two apart.
+		const original =
+			'Could we move the planning session to Thursday afternoon, and would the retro then fit better on Friday morning before people fly out?'
+		const answer = 'Yes, agreed.'
+		const cases: Array<[client: string, html: string]> = [
+			[
+				'Outlook #divRplyFwdMsg',
+				`<p>See below.</p><div id="divRplyFwdMsg"><b>From:</b> Tomas Reyes<br><b>Sent:</b> Monday</div><p>${original}</p><p>${answer}</p>`,
+			],
+			[
+				'Outlook .OutlookMessageHeader',
+				`<p>See below.</p><div class="OutlookMessageHeader"><b>From:</b> Tomas Reyes<br><b>Sent:</b> Monday</div><p>${original}</p><p>${answer}</p>`,
+			],
+			[
+				'Outlook hr#stopSpelling',
+				`<p>See below.</p><hr id="stopSpelling"><p>From: Tomas Reyes<br>Sent: Monday</p><p>${original}</p><p>${answer}</p>`,
+			],
+			[
+				'Thunderbird moz-cite-prefix without a blockquote',
+				`<p>See below.</p><div class="moz-cite-prefix">On 28/09/2026, Tomas Reyes wrote:</div><p>${original}</p><p>${answer}</p>`,
+			],
+			[
+				'Yahoo yahoo_quoted',
+				`<p>See below.</p><div class="yahoo_quoted"><div>On Monday, Tomas Reyes wrote:</div><div>${original}</div><div>${answer}</div></div>`,
+			],
+			[
+				'Apple AppleOriginalContents',
+				`<p>See below.</p><div class="AppleOriginalContents"><div>On Monday, Tomas Reyes wrote:</div><div>${original}</div><div>${answer}</div></div>`,
+			],
+			[
+				'Gmail gmail_quote without a blockquote',
+				`<p>See below.</p><div class="gmail_quote"><div>On Monday, Tomas Reyes wrote:</div><div>${original}</div><div>${answer}</div></div>`,
+			],
+		]
+
+		it.each(cases)('%s: the answer is shown, with the message in full', (_client, html) => {
+			const messages = thread([TOMAS, original], [INES, html])
+			expectNothingDropped(messages)
+			const conversation = buildConversation(messages, {
+				mailboxEmail: SAM.email,
+				contentFor: (message) => messageContent(message, false),
+				originalIds: new Set(),
+			})
+			const bubble = conversation.items.flatMap((item) => (item.kind === 'run' ? item.bubbles : [])).at(-1)
+			// The answer is three words; any share-of-text rule would call the history a repeat.
+			expect(blocksText(bubble?.blocks ?? [])).toContain(answer)
+			expect(bubble?.unsure).toBe(true)
+		})
+
+		it('still folds such history when every part of it was shown before', () => {
+			const messages = thread(
+				[TOMAS, original],
+				[
+					INES,
+					`<p>Works for me.</p><div id="divRplyFwdMsg"><b>From:</b> Tomas Reyes<br><b>Sent:</b> Monday</div><p>${original}</p>`,
+				],
+			)
+			expectNothingDropped(messages)
+			const conversation = buildConversation(messages, {
+				mailboxEmail: SAM.email,
+				contentFor: (message) => messageContent(message, false),
+				originalIds: new Set(),
+			})
+			const bubble = conversation.items.flatMap((item) => (item.kind === 'run' ? item.bubbles : [])).at(-1)
+			expect(bubble).toMatchObject({ unsure: false })
+			expect(blocksText(bubble?.blocks ?? [])).toBe('Works for me.')
+		})
+	})
+
 	it('would catch a dropped answer: the check itself is not vacuous', () => {
 		// The same check, run against a transcript that leaves a new line out.
 		const messages = thread([TOMAS, 'A question.'], [INES, 'An answer nobody has seen before.'])

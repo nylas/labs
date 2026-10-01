@@ -73,10 +73,11 @@ describe('bubbleContent', () => {
 	})
 
 	it('matches hard-wrapped plaintext quotes, ignoring quote marks and attribution lines', () => {
-		const wrapped = text(
-			'On Mon, Ines wrote:\n> Here is the first draft of the offsite\n> agenda. Thursday afternoon is still open.\n> OK',
-		)
-		expect(bubbleContent([text('Works for me.'), history(wrapped)], shown())).toEqual({
+		const wrapped = [
+			text('On Mon, Ines wrote:'),
+			quote('Here is the first draft of the offsite\nagenda. Thursday afternoon is still open.\nOK'),
+		]
+		expect(bubbleContent([text('Works for me.'), history(...wrapped)], shown())).toEqual({
 			blocks: [text('Works for me.')],
 			unsure: false,
 		})
@@ -291,15 +292,31 @@ describe('bubbleContent', () => {
 			text('Thanks.'),
 			history(headers, text(EARLIER), text('Subject: budget is approved, by the way')),
 		]
-		expect(bubbleContent(unseen, shown())).toEqual({ blocks: unseen, unsure: false })
+		expect(bubbleContent(unseen, shown())).toEqual({ blocks: unseen, unsure: true })
 		const seen = [text('Thanks.'), history(headers, text(EARLIER))]
 		expect(bubbleContent(seen, shown()).blocks).toEqual([text('Thanks.')])
 	})
 
-	it('leaves history without quote marks behind its disclosure, even with text below it', () => {
-		const outlook = history(text('From: Ines\nSent: Monday'), text('An unseen earlier message body.'))
-		const blocks = [outlook, text('Replying below.')]
+	it('counts unquoted text above a quote when deciding whether the history is a repeat', () => {
+		// The quote was shown before, but the sentence in front of it was not: the
+		// history as a whole is not a repeat, so it stays reachable in the bubble.
+		const preface = text('For context, this is what the venue desk sent over this morning, word for word.')
+		const blocks = [text('Hi.'), history(preface, quote(EARLIER))]
 		expect(bubbleContent(blocks, shown())).toEqual({ blocks, unsure: false })
+	})
+
+	it('shows the whole message when history without quote marks holds anything the thread has not shown', () => {
+		// An answer typed below an Outlook-style original sits inside the "history"
+		// with nothing to mark it. Three words against a long original would pass
+		// any share-of-text rule, and the answer would vanish.
+		const headers = text('From: Ines\nSent: Monday')
+		for (const blocks of [
+			[text('See below.'), history(headers, text(EARLIER), text('Yes, agreed.'))],
+			[text('See below.'), history(headers, text(EARLIER), text('OK'))],
+			[history(headers, text('An unseen earlier message body.')), text('Replying below.')],
+		]) {
+			expect(bubbleContent(blocks, shown())).toEqual({ blocks, unsure: true })
+		}
 	})
 
 	it('shows the whole message when nothing new would be left, or when it is a forward', () => {
