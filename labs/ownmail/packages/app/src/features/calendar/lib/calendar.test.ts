@@ -1,5 +1,5 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { CALENDAR_HOME_PATH } from '#app/config/route-paths'
 import {
 	ALL_DAY_COLLAPSED_ROWS,
@@ -752,6 +752,75 @@ describe('past events', () => {
 		expect(isPastEvent(event, new Date('2026-07-08T09:30:00Z'))).toBe(false)
 		expect(isPastEvent(event, new Date('2026-07-08T10:00:00Z'))).toBe(true)
 		expect(isPastEvent(event, new Date('2026-07-09T00:00:00Z'))).toBe(true)
+	})
+
+	describe('all-day events end with the display timezone date, not the browser timezone', () => {
+		const original = process.env.TZ
+		afterEach(() => {
+			process.env.TZ = original
+		})
+		const losAngeles = 'America/Los_Angeles'
+		const oct1 = () => allDayEvent('offsite', 'work', '2026-10-01')
+
+		it('keeps an Oct 1 all-day event current all day in Los Angeles when the browser runs in UTC', () => {
+			// Browser midnight (UTC) is 5 PM the previous day in Los Angeles. Comparing the
+			// browser-local end with `now` faded the event at 5 PM on Oct 1, seven hours early.
+			process.env.TZ = 'UTC'
+			// 5:30 PM PDT on Oct 1: already Oct 2 in UTC.
+			expect(isPastEvent(oct1(), new Date('2026-10-02T00:30:00Z'), losAngeles)).toBe(false)
+			// 11:59 PM PDT on Oct 1.
+			expect(isPastEvent(oct1(), new Date('2026-10-02T06:59:00Z'), losAngeles)).toBe(false)
+			// Midnight PDT: Oct 2 has begun for the viewer.
+			expect(isPastEvent(oct1(), new Date('2026-10-02T07:00:00Z'), losAngeles)).toBe(true)
+		})
+
+		it('does not keep the event past its day when the browser is west of the display timezone', () => {
+			// Browser in Los Angeles showing Tokyo: Oct 2 starts in Tokyo while it is still
+			// 8 AM on Oct 1 for the browser.
+			process.env.TZ = losAngeles
+			expect(isPastEvent(oct1(), new Date('2026-10-01T14:59:00Z'), 'Asia/Tokyo')).toBe(false)
+			expect(isPastEvent(oct1(), new Date('2026-10-01T15:00:00Z'), 'Asia/Tokyo')).toBe(true)
+		})
+
+		it('ends a multi-day event after its last day, and never before it starts', () => {
+			process.env.TZ = 'UTC'
+			const trip = allDaySpanEvent('trip', 'work', '2026-10-01', '2026-10-03')
+			expect(isPastEvent(trip, new Date('2026-09-30T12:00:00Z'), losAngeles)).toBe(false)
+			// 11 PM PDT on Oct 2, the last day.
+			expect(isPastEvent(trip, new Date('2026-10-03T06:00:00Z'), losAngeles)).toBe(false)
+			expect(isPastEvent(trip, new Date('2026-10-03T07:00:00Z'), losAngeles)).toBe(true)
+		})
+
+		it('ends at local midnight on the 25-hour day when daylight saving time ends', () => {
+			// Nov 1, 2026 in Los Angeles runs from 07:00Z to 08:00Z the next day.
+			process.env.TZ = 'UTC'
+			const fallBack = allDayEvent('fall-back', 'work', '2026-11-01')
+			expect(isPastEvent(fallBack, new Date('2026-11-01T07:00:00Z'), losAngeles)).toBe(false)
+			// 24 hours after it began it is only 11 PM: still Nov 1.
+			expect(isPastEvent(fallBack, new Date('2026-11-02T07:00:00Z'), losAngeles)).toBe(false)
+			expect(isPastEvent(fallBack, new Date('2026-11-02T08:00:00Z'), losAngeles)).toBe(true)
+		})
+
+		it('ends at local midnight on the 23-hour day when daylight saving time begins', () => {
+			// Mar 8, 2026 in Los Angeles runs from 08:00Z to 07:00Z the next day.
+			process.env.TZ = 'UTC'
+			const springForward = allDayEvent('spring-forward', 'work', '2026-03-08')
+			expect(isPastEvent(springForward, new Date('2026-03-09T06:59:00Z'), losAngeles)).toBe(false)
+			expect(isPastEvent(springForward, new Date('2026-03-09T07:00:00Z'), losAngeles)).toBe(true)
+		})
+
+		it('uses the browser date when no display timezone is chosen', () => {
+			process.env.TZ = 'UTC'
+			expect(isPastEvent(oct1(), new Date('2026-10-01T23:59:00Z'))).toBe(false)
+			expect(isPastEvent(oct1(), new Date('2026-10-02T00:00:00Z'))).toBe(true)
+		})
+	})
+
+	it('judges a timed event by its instant, so the display timezone cannot change the answer', () => {
+		for (const zone of [undefined, 'America/Los_Angeles', 'Asia/Tokyo']) {
+			expect(isPastEvent(event, new Date('2026-07-08T09:59:00Z'), zone)).toBe(false)
+			expect(isPastEvent(event, new Date('2026-07-08T10:00:00Z'), zone)).toBe(true)
+		}
 	})
 
 	it('never dims an event whose time cannot be read', () => {

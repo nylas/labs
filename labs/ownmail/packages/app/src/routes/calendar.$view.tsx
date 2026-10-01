@@ -1179,7 +1179,7 @@ function TimeGrid({
 									className:
 										'event-color event-chip z-10 mx-control min-w-0 self-center truncate rounded-[5px] px-cluster py-control text-left text-xs font-medium',
 									'data-rsvp': rsvp,
-									'data-past': isPastEvent(event, now) ? '' : undefined,
+									'data-past': isPastEvent(event, now, timeZone) ? '' : undefined,
 									'data-preview': preview ? '' : undefined,
 									'data-continues-before': segment.continuesBefore ? '' : undefined,
 									'data-continues-after': segment.continuesAfter ? '' : undefined,
@@ -1330,7 +1330,7 @@ function TimeGrid({
 												width: `calc(${width * 100}% - 4px)`,
 											},
 											'data-rsvp': rsvp,
-											'data-past': isPastEvent(event, now) ? '' : undefined,
+											'data-past': isPastEvent(event, now, timeZone) ? '' : undefined,
 											'data-preview': preview ? '' : undefined,
 										}
 										const className =

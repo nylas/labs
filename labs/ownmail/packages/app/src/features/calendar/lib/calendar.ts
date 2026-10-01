@@ -543,10 +543,18 @@ export function timedDayLayout(events: Event[], day: Date, options: TimedLayoutO
 	return boxes
 }
 
-/** True once an event has ended, so finished meetings can recede. Unparseable events are never past. */
-export function isPastEvent(event: Event, now: Date): boolean {
+/**
+ * True once an event has ended, so finished meetings can recede. Unparseable
+ * events are never past. A timed event ends at an instant, which is the same
+ * everywhere. An all-day event has no instant: it covers whole calendar dates,
+ * so it ends when the date in the display timezone reaches its (exclusive) end
+ * date, whatever timezone the browser itself is in.
+ */
+export function isPastEvent(event: Event, now: Date, timeZone?: CalendarTimeZone): boolean {
 	const times = eventTimes(event)
-	return times !== null && times.end.getTime() <= now.getTime()
+	if (!times) return false
+	if (!times.allDay) return times.end.getTime() <= now.getTime()
+	return compareYmd(ymd(times.end), ymd(calendarDateInTimeZone(now, timeZone))) <= 0
 }
 
 /**
