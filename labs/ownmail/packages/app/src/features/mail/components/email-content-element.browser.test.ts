@@ -588,6 +588,30 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(metrics.probe?.fontSize).toBeGreaterThanOrEqual(12)
 	})
 
+	it('gives unstyled mail a 16px / 1.6 reading baseline that the sender can override', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			640,
+			'<p class="plain">Unstyled body text</p><p class="styled" style="font-size:20px;line-height:1.2">Sender styled text</p>',
+		)
+		const result = await page.locator('ownmail-email').evaluate((host) => {
+			const type = (selector: string) => {
+				const style = getComputedStyle(host.shadowRoot?.querySelector(selector) as Element)
+				return { fontSize: style.fontSize, lineHeight: style.lineHeight }
+			}
+			return { plain: type('.plain'), styled: type('.styled') }
+		})
+		await page.close()
+
+		// Mail that declares no type inherits the reader's baseline instead of the
+		// browser's `normal` line-height; a sender's own declarations still win.
+		expect(result.plain).toEqual({ fontSize: '16px', lineHeight: '25.6px' })
+		expect(result.styled).toEqual({ fontSize: '20px', lineHeight: '24px' })
+	})
+
 	it('normalizes archaic font and center elements without clipping', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 375, height: 700 } })

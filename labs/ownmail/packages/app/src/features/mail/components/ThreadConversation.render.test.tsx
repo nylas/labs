@@ -5,7 +5,7 @@ import { useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT } from '../lib/email-render'
 import type { MailMessage, MailThread } from '../state/mail-queries'
-import { ThreadConversation } from './ThreadConversation'
+import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversation'
 
 const { trustSenderImagesMock, originalColorSendersMock, setSenderOriginalColorsMock } = vi.hoisted(() => ({
 	trustSenderImagesMock: vi.fn(),
@@ -68,7 +68,7 @@ function ConversationProbe({
 	useLayoutEffect(() => {
 		onLayout(
 			threadId,
-			document.querySelector('[data-slot="message-toggle"]')?.getAttribute('aria-expanded') ?? null,
+			document.querySelector('[data-slot="thread-message"]')?.getAttribute('data-state') ?? null,
 		)
 	}, [onLayout, threadId])
 
@@ -83,7 +83,7 @@ describe('ThreadConversation rendering', () => {
 
 		rendered.rerender(<ConversationProbe threadId="t2" messageId="m2" onLayout={onLayout} />)
 
-		expect(layoutStates).toEqual(['true', 'true'])
+		expect(layoutStates).toEqual(['open', 'open'])
 	})
 
 	it('keeps the mobile timestamp on a dedicated one-line row', () => {
@@ -93,7 +93,13 @@ describe('ThreadConversation rendering', () => {
 
 		expect(timestamps).toHaveLength(2)
 		expect(timestamps[0]).toHaveClass('hidden', 'sm:inline-block', 'order-3')
-		expect(timestamps[1]).toHaveClass('basis-full', 'whitespace-nowrap', 'pl-12', 'sm:hidden')
+		expect(timestamps[1]).toHaveClass('basis-full', 'whitespace-nowrap', 'pl-10', 'sm:hidden')
+		// Item 7 of the reading change: metadata is 13px, one step up from the 12px it was.
+		for (const timestamp of timestamps) {
+			expect(timestamp).toHaveClass('text-[13px]')
+			expect(timestamp).not.toHaveClass('text-xs')
+		}
+		expect(container.querySelector('[data-slot="message-details"]')).toHaveClass('text-[13px]')
 	})
 
 	it('makes multi-message display controls descriptive, touch-friendly, and stateful', () => {
@@ -105,33 +111,35 @@ describe('ThreadConversation rendering', () => {
 
 		expect(expand).toHaveTextContent('')
 		expect(expand).toHaveAttribute('title', 'Expand all messages')
-		expect(expand).toHaveClass(
-			'h-11',
-			'w-11',
+		// The shared icon button: 36px with a fine pointer, 44px on narrow and touch screens.
+		const touchFriendly = [
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'forced-colors:focus-visible:outline-2',
 			'forced-colors:focus-visible:outline-offset-2',
 			'forced-colors:focus-visible:outline-solid',
-		)
+		]
+		expect(expand).toHaveClass(...touchFriendly)
 		expect(collapse).toHaveTextContent('')
 		expect(collapse).toHaveAttribute('title', 'Collapse all messages')
-		expect(collapse).toHaveClass(
-			'h-11',
-			'w-11',
-			'focus-visible:ring-[3px]',
-			'focus-visible:ring-ring',
-			'forced-colors:focus-visible:outline-2',
-			'forced-colors:focus-visible:outline-offset-2',
-			'forced-colors:focus-visible:outline-solid',
-		)
+		expect(collapse).toHaveClass(...touchFriendly)
+		const states = () =>
+			[...document.querySelectorAll('[data-slot="thread-message"]')].map((node) =>
+				node.getAttribute('data-state'),
+			)
 
 		fireEvent.click(expand)
 		expect(expand).toBeDisabled()
-		expect(screen.getAllByRole('button', { name: /Collapse message from/ })).toHaveLength(3)
+		expect(states()).toEqual(['open', 'open', 'open'])
+		expect(screen.queryByRole('button', { name: /Expand message from/ })).not.toBeInTheDocument()
 
 		fireEvent.click(collapse)
 		expect(collapse).toBeDisabled()
+		expect(states()).toEqual(['collapsed', 'collapsed', 'collapsed'])
+		// A collapsed message opens from its own summary, without going through a menu.
 		expect(screen.getAllByRole('button', { name: /Expand message from/ })).toHaveLength(3)
 	})
 
@@ -145,7 +153,12 @@ describe('ThreadConversation rendering', () => {
 		)
 		const trigger = screen.getByRole('button', { name: 'Thread display' })
 		expect(screen.getAllByRole('button', { name: 'Thread display' })).toHaveLength(1)
-		expect(trigger).toHaveClass('h-11', 'w-11', 'focus-visible:ring-[3px]')
+		expect(trigger).toHaveClass(
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
+			'focus-visible:ring-[3px]',
+		)
 		expect(trigger.closest('[data-slot="thread-message"]')).toBeNull()
 
 		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
@@ -300,8 +313,16 @@ describe('ThreadConversation rendering', () => {
 		const summary = container.querySelector('[data-slot="thread-summary"]')
 		const attachmentSummary = container.querySelector('[data-slot="thread-attachment-summary"]')
 
-		expect(summary).toHaveClass('py-3', 'xl:sticky', 'xl:top-0', 'xl:py-5')
-		expect(summary).not.toHaveClass('sticky', 'top-0')
+		// The subject scrolls away with the conversation at every width: nothing in
+		// the summary is pinned, and no separator stands between it and the first message.
+		expect(summary?.className).not.toMatch(/sticky|top-0|border-b/)
+		expect(summary).toHaveClass('pt-3')
+		const subject = screen.getByRole('heading', { level: 1 })
+		// Body size in the body face, so it reads as the first line and not a banner.
+		expect(subject).toHaveClass('font-sans', 'text-base', 'leading-6', 'font-semibold')
+		expect(subject.className).not.toMatch(/font-display|text-balance|text-(?:lg|xl|2xl)/)
+		// Labels sit inline after the subject, in the same wrapping line.
+		expect(screen.getByText('Work').parentElement).toBe(subject.parentElement)
 		expect(summary?.firstElementChild).toHaveAttribute('data-slot', 'thread-column')
 		expect(attachmentSummary).toHaveTextContent('1 thread attachment')
 		expect(attachmentSummary).toHaveClass('min-h-11', 'max-w-full')
@@ -468,6 +489,16 @@ describe('ThreadConversation rendering', () => {
 		expect(colorMode()).toBe('original')
 	})
 
+	it('renders its children after the last message, inside the conversation flow', () => {
+		const { container } = render(
+			<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]}>
+				<div data-testid="after-messages" />
+			</ThreadConversation>,
+		)
+		const messages = container.querySelector('[data-slot="thread-messages"]')
+		expect(messages?.lastElementChild).toBe(screen.getByTestId('after-messages'))
+	})
+
 	it('ignores remembered color choices that arrive after the thread closes', async () => {
 		let resolveSenders: (senders: string[]) => void = () => {}
 		originalColorSendersMock.mockReturnValue(new Promise<string[]>((resolve) => (resolveSenders = resolve)))
@@ -475,5 +506,237 @@ describe('ThreadConversation rendering', () => {
 		rendered.unmount()
 		await act(async () => resolveSenders(['sender@example.com']))
 		expect(originalColorSendersMock).toHaveBeenCalledOnce()
+	})
+})
+
+describe('message header', () => {
+	it('is one compact row: a 28px avatar and a single overflow control', () => {
+		const { container } = render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
+		const row = container.querySelector('[data-slot="message-header-row"]') as HTMLElement
+
+		// The height contract (40px fine pointer, 44px touch) lives in styles.css.
+		expect(row).toHaveClass('message-header-row', 'items-center')
+		expect(container.querySelector('[data-slot="sender-avatar"]')).toHaveClass('h-7', 'w-7')
+		// Download and collapse no longer cost the row two 44px buttons: one
+		// overflow control holds both, and nothing in the row is a direct link.
+		expect(row.querySelectorAll('a')).toHaveLength(0)
+		expect(row.querySelectorAll('[data-slot="message-actions"] button')).toHaveLength(1)
+		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
+		expect(overflow).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
+		expect(overflow).toHaveAttribute('aria-haspopup', 'menu')
+		expect(overflow).toHaveAttribute('aria-expanded', 'false')
+	})
+
+	it('keeps the separator clearance outside the row so every header row is the same height', () => {
+		const { container } = render(
+			<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />,
+		)
+		const headers = container.querySelectorAll('[data-slot="message-header"]')
+		// The first message follows the subject directly; later ones are divided by a line.
+		expect(headers[0]?.className).not.toMatch(/border-t|pt-/)
+		expect(headers[1]).toHaveClass('border-t', 'border-border', 'pt-4')
+		for (const header of headers) {
+			expect(header.firstElementChild?.className).not.toMatch(/\bp[tby]-|border/)
+		}
+	})
+
+	it('collapses and re-expands a message through the overflow menu', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
+		const article = screen.getByRole('article', { name: 'sender@example.com' })
+		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
+
+		fireEvent.click(overflow)
+		expect(overflow).toHaveAttribute('aria-expanded', 'true')
+		const menu = screen.getByRole('menu', { name: 'Actions for message from sender@example.com' })
+		expect(overflow).toHaveAttribute('aria-controls', menu.id)
+		const items = screen.getAllByRole('menuitem')
+		expect(items.map((item) => item.textContent)).toEqual(['Collapse message', 'Download raw email'])
+		for (const item of items) expect(item).toHaveClass('min-h-11')
+		expect(items[0]).toHaveFocus()
+		expect(items[0]).toHaveAttribute('aria-expanded', 'true')
+
+		fireEvent.click(items[0] as HTMLElement)
+		expect(article).toHaveAttribute('data-state', 'collapsed')
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		expect(overflow).toHaveFocus()
+
+		fireEvent.click(overflow)
+		const expand = screen.getByRole('menuitem', { name: 'Expand message' })
+		expect(expand).toHaveAttribute('aria-expanded', 'false')
+		fireEvent.click(expand)
+		expect(article).toHaveAttribute('data-state', 'open')
+	})
+
+	it('opens a collapsed message from its summary line', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
+		const article = screen.getAllByRole('article')[0] as HTMLElement
+		expect(article).toHaveAttribute('data-state', 'collapsed')
+
+		const summary = screen.getByRole('button', { name: 'Expand message from sender@example.com' })
+		expect(summary).toHaveTextContent('Message m1')
+		// The hit area stretches over the sender and preview lines.
+		expect(summary).toHaveClass('before:absolute', 'before:inset-0')
+		expect(summary.parentElement).toHaveClass('relative')
+		fireEvent.click(summary)
+
+		expect(article).toHaveAttribute('data-state', 'open')
+		expect(screen.queryByRole('button', { name: /Expand message from/ })).not.toBeInTheDocument()
+	})
+
+	it('moves through the overflow menu with the keyboard and returns focus on dismissal', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
+		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
+		fireEvent.click(overflow)
+		const menu = screen.getByRole('menu')
+		const [toggle, download] = screen.getAllByRole('menuitem') as [HTMLElement, HTMLElement]
+
+		fireEvent.keyDown(menu, { key: 'ArrowDown' })
+		expect(download).toHaveFocus()
+		fireEvent.keyDown(menu, { key: 'ArrowDown' })
+		expect(toggle).toHaveFocus()
+		fireEvent.keyDown(menu, { key: 'ArrowUp' })
+		expect(download).toHaveFocus()
+		fireEvent.keyDown(menu, { key: 'a' })
+		expect(download).toHaveFocus()
+
+		// Escape is handled by the menu: it must not reach the reader's "back to list" shortcut.
+		const onWindowKeyDown = vi.fn()
+		window.addEventListener('keydown', onWindowKeyDown)
+		fireEvent.keyDown(menu, { key: 'Escape' })
+		window.removeEventListener('keydown', onWindowKeyDown)
+		expect(onWindowKeyDown).not.toHaveBeenCalled()
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		expect(overflow).toHaveFocus()
+		expect(overflow).not.toHaveAttribute('aria-controls')
+
+		fireEvent.click(overflow)
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Tab' })
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		expect(overflow).toHaveFocus()
+	})
+
+	it('closes the overflow menu on an outside press, a second trigger press, and after a download', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
+		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
+
+		fireEvent.click(overflow)
+		fireEvent.pointerDown(screen.getByRole('menu'))
+		expect(screen.getByRole('menu')).toBeInTheDocument()
+		fireEvent.pointerDown(document.body)
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+		fireEvent.click(overflow)
+		fireEvent.click(overflow)
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+		fireEvent.click(overflow)
+		const download = screen.getByRole('menuitem', { name: 'Download raw email' })
+		expect(download).toHaveAttribute('href', '/messages/m1/download')
+		download.addEventListener('click', (event) => event.preventDefault())
+		fireEvent.click(download)
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+	})
+})
+
+describe('thread actions placement', () => {
+	function toolbarSlot() {
+		const slot = document.createElement('div')
+		slot.id = THREAD_TOOLBAR_ACTIONS_ID
+		document.body.append(slot)
+		return slot
+	}
+
+	function stubViewport(desktop: boolean) {
+		const listeners = new Set<() => void>()
+		const media = {
+			matches: desktop,
+			addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+			removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+		}
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn(() => media),
+		)
+		return {
+			listeners,
+			resize(next: boolean) {
+				media.matches = next
+				act(() => {
+					for (const listener of listeners) listener()
+				})
+			},
+		}
+	}
+
+	afterEach(() => {
+		document.getElementById(THREAD_TOOLBAR_ACTIONS_ID)?.remove()
+		vi.unstubAllGlobals()
+	})
+
+	const conversation = (
+		<ThreadConversation thread={thread('t1')} messages={[htmlMessage('m1'), htmlMessage('m2')]} />
+	)
+
+	it('moves the display menu and expand/collapse-all into the pane toolbar on desktop', () => {
+		const slot = toolbarSlot()
+		const viewport = stubViewport(true)
+		const { container } = render(conversation)
+		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
+
+		expect(window.matchMedia).toHaveBeenCalledWith('(min-width: 48rem)')
+		// The subject row holds the subject only, so no 44px control sets its height.
+		expect(summary.querySelector('button')).toBeNull()
+		for (const name of ['Thread display', 'Expand all 2 messages', 'Collapse all 2 messages']) {
+			expect(slot).toContainElement(screen.getByRole('button', { name }))
+		}
+
+		// The actions keep working from the toolbar: state stays with the conversation.
+		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expect(container.querySelectorAll('[data-state="open"]')).toHaveLength(2)
+		expect(viewport.listeners.size).toBe(1)
+	})
+
+	it('keeps the actions in the subject row on narrow screens, where the toolbar is already full', () => {
+		const slot = toolbarSlot()
+		const viewport = stubViewport(false)
+		const { container, unmount } = render(conversation)
+		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
+
+		expect(slot).toBeEmptyDOMElement()
+		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+
+		// Crossing the breakpoint moves the same actions, without duplicating them.
+		viewport.resize(true)
+		expect(screen.getAllByRole('button', { name: 'Thread display' })).toHaveLength(1)
+		expect(slot).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		viewport.resize(false)
+		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+
+		unmount()
+		expect(viewport.listeners.size).toBe(0)
+	})
+
+	it('keeps the actions in the subject row for a pane without a toolbar', () => {
+		stubViewport(true)
+		const { container } = render(conversation)
+		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
+
+		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(summary).toContainElement(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+	})
+
+	it('uses the toolbar when the environment cannot report the viewport', () => {
+		const slot = toolbarSlot()
+		vi.stubGlobal('matchMedia', undefined)
+		render(conversation)
+
+		expect(slot).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+	})
+
+	it('renders no action row for a single plain-text message', () => {
+		toolbarSlot()
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
+
+		expect(document.querySelector('[data-slot="thread-actions"]')).toBeNull()
 	})
 })

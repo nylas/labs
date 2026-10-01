@@ -253,6 +253,14 @@ describe('shadowStyleText', () => {
 		expect(css).toContain('padding:0;')
 	})
 
+	it('sets the 16px / 1.6 reading baseline on the host as an overridable default', () => {
+		const host = shadowStyleText().split('\n')[0] as string
+		expect(host).toMatch(/^:host\{/)
+		expect(host).toContain('font-size:16px;line-height:1.6;')
+		// Inherited, never forced: `!important` here would defeat the sender's own type.
+		expect(host).not.toMatch(/(?:font-size|line-height):[^;]*!important/)
+	})
+
 	it('contains provider layout and pins host positioning below the untrusted CSS cascade', () => {
 		const css = shadowStyleText()
 		expect(css).toContain('position:static!important')

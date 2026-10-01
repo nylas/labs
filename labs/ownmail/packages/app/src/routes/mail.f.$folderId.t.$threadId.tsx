@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
-import { ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
 	forwardDraftSearch,
@@ -41,6 +41,7 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getThreadMessages, getThreads } from '#server/fns'
+import { IconButton as ToolbarIconButton } from '#shared/components/ui/icon-button'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
@@ -121,9 +122,9 @@ function ThreadPending() {
 			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 		>
 			<Toolbar />
-			<div className="border-b border-border bg-muted py-3 dark:bg-background xl:py-5">
+			<div className="pt-3">
 				<ThreadColumn>
-					<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
+					<h1 className="min-w-0 font-sans text-base leading-6 font-semibold tracking-normal [overflow-wrap:anywhere]">
 						{subject || 'Loading conversation…'}
 					</h1>
 				</ThreadColumn>
@@ -217,6 +218,7 @@ function ThreadView() {
 	)
 	const swipeHandlers = useHorizontalSwipe(goBackToList)
 	const lastMessage = messages.at(-1)
+	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	const reply = useCallback(() => {
 		/* v8 ignore next -- every exposed reply entry point requires a latest message -- @preserve */
@@ -321,7 +323,12 @@ function ThreadView() {
 				if (isModified || shouldIgnoreReplyShortcut(event)) return
 				if (document.querySelector('[role="dialog"]') || !lastMessage) return
 				event.preventDefault()
-				reply()
+				// Desktop: `r` lands on the inline reply field after the last message.
+				// Where that field is not displayed (mobile) it cannot take focus, so
+				// the shortcut opens the reply directly.
+				const inlineReply = inlineReplyRef.current
+				inlineReply?.focus()
+				if (document.activeElement !== inlineReply) reply()
 				return
 			}
 
@@ -387,17 +394,13 @@ function ThreadView() {
 			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
 			<Toolbar className="gap-1 px-3">
-				<button
-					type="button"
+				<ToolbarIconButton
+					label="Back to list"
 					onClick={goBackToList}
-					aria-label="Back to list"
-					className={cn(
-						'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-						!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden',
-					)}
+					className={cn(!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden')}
 				>
-					<ArrowLeft className="h-5 w-5" />
-				</button>
+					<ArrowLeft className="size-5" />
+				</ToolbarIconButton>
 				<IconButton
 					label={
 						pendingAction === 'archive'
@@ -459,8 +462,9 @@ function ThreadView() {
 					)}
 				</IconButton>
 
+				<div id={THREAD_TOOLBAR_ACTIONS_ID} className="ml-auto flex items-center gap-1" />
 				{lastMessage ? (
-					<div className="ml-auto hidden items-center gap-1 sm:flex">
+					<div className="hidden items-center gap-1 sm:flex">
 						<ActionButton label="Reply" onClick={reply}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
@@ -476,21 +480,26 @@ function ThreadView() {
 			{error ? <ErrorBanner message={error} /> : null}
 
 			<ScrollArea key={threadId} aria-label="Thread conversation" className="min-h-0 flex-1">
-				<ThreadConversation thread={thread} messages={messages} />
+				<ThreadConversation thread={thread} messages={messages}>
+					{lastMessage ? (
+						<ThreadColumn>
+							<button
+								ref={inlineReplyRef}
+								data-slot="inline-reply"
+								type="button"
+								onClick={reply}
+								className="hidden min-h-11 w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:flex"
+							>
+								<Reply className="h-4 w-4 shrink-0" />
+								<span>Write a reply…</span>
+							</button>
+						</ThreadColumn>
+					) : null}
+				</ThreadConversation>
 			</ScrollArea>
 
 			{lastMessage ? (
-				<>
-					<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
-					<button
-						type="button"
-						onClick={reply}
-						className="mx-4 my-3 hidden min-h-11 items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground sm:mx-6 md:flex xl:mx-8"
-					>
-						<Reply className="h-4 w-4 shrink-0" />
-						<span>Write a reply…</span>
-					</button>
-				</>
+				<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
 			) : null}
 		</div>
 	)
@@ -509,18 +518,12 @@ function IconButton({
 	loading?: boolean
 	children: React.ReactNode
 }) {
+	// Every control in the thread toolbar is the shared icon button, so the row
+	// is one size: 36px with a fine pointer, 44px on narrow and touch screens.
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={label}
-			title={label}
-			disabled={disabled}
-			aria-busy={loading || undefined}
-			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 xl:h-9 xl:w-9"
-		>
+		<ToolbarIconButton label={label} onClick={onClick} disabled={disabled} aria-busy={loading || undefined}>
 			{children}
-		</button>
+		</ToolbarIconButton>
 	)
 }
 
@@ -534,15 +537,9 @@ function ActionButton({
 	children: React.ReactNode
 }) {
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={label}
-			title={label}
-			className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
-		>
+		<ToolbarIconButton label={label} onClick={onClick}>
 			{children}
-		</button>
+		</ToolbarIconButton>
 	)
 }
 

@@ -201,7 +201,16 @@ describe('thread header', () => {
 		const heading = screen.getByRole('heading', { name: 'Hello' })
 		expect(heading).toBeInTheDocument()
 		expect(screen.getByText('Work')).toBeInTheDocument()
-		expect(heading.closest('header')).toHaveClass('xl:sticky', 'xl:top-0', 'bg-background')
+		// The subject is in the scroll flow; the toolbar is the only pinned row.
+		const header = heading.closest('header') as HTMLElement
+		expect(header).toHaveClass('bg-background')
+		expect(header.className).not.toMatch(/sticky|top-0/)
+		const viewport = screen.getByRole('region', { name: 'Thread conversation' })
+		expect(viewport).toContainElement(header)
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
+		expect(toolbar).toHaveClass('h-14', 'md:h-11', 'shrink-0')
+		expect(viewport).not.toContainElement(toolbar)
 	})
 
 	it('falls back to "(no subject)" and shows no labels for an empty thread', () => {
@@ -265,7 +274,10 @@ describe('message list', () => {
 				],
 			}),
 		)
-		const link = screen.getByRole('link', { name: 'Download raw email from Alice' })
+		// The download sits behind the message's one overflow button.
+		expect(screen.queryByRole('menuitem', { name: 'Download raw email' })).not.toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Actions for message from Alice' }))
+		const link = screen.getByRole('menuitem', { name: 'Download raw email' })
 
 		expect(link).toHaveAttribute('href', '/messages/msg%2F%231/download')
 		expect(link).toHaveAttribute('download')
@@ -289,19 +301,18 @@ describe('message list', () => {
 	it('expands and collapses every message from the thread overview controls', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const toggles = () => Array.from(document.querySelectorAll('[data-slot="message-toggle"]'))
+		const states = () =>
+			Array.from(document.querySelectorAll('[data-slot="thread-message"]'), (message) =>
+				message.getAttribute('data-state'),
+			)
 
-		expect(toggles().map((button) => button.getAttribute('aria-expanded'))).toEqual([
-			'false',
-			'false',
-			'true',
-		])
+		expect(states()).toEqual(['collapsed', 'collapsed', 'open'])
 		await user.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
-		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'true')).toBe(true)
+		expect(states()).toEqual(['open', 'open', 'open'])
 		expect(screen.getByRole('button', { name: 'Expand all 3 messages' })).toBeDisabled()
 
 		await user.click(screen.getByRole('button', { name: 'Collapse all 3 messages' }))
-		expect(toggles().every((button) => button.getAttribute('aria-expanded') === 'false')).toBe(true)
+		expect(states()).toEqual(['collapsed', 'collapsed', 'collapsed'])
 		expect(screen.getByRole('button', { name: 'Collapse all 3 messages' })).toBeDisabled()
 	})
 
@@ -351,7 +362,7 @@ describe('message list', () => {
 		screen.getByLabelText('Thread conversation').focus()
 		expect(trigger).toHaveAttribute('aria-expanded', 'true')
 		await new Promise((resolve) => setTimeout(resolve, 0))
-		fireEvent.focus(screen.getByRole('link', { name: 'Download raw email from Alice' }))
+		fireEvent.focus(screen.getByRole('button', { name: 'Actions for message from Alice' }))
 		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 
 		await user.click(trigger)
@@ -361,7 +372,7 @@ describe('message list', () => {
 			document.dispatchEvent(new Event('pointerup', { bubbles: true }))
 			document.dispatchEvent(new Event('pointercancel', { bubbles: true }))
 		})
-		fireEvent.focus(screen.getByRole('link', { name: 'Download raw email from Alice' }))
+		fireEvent.focus(screen.getByRole('button', { name: 'Actions for message from Alice' }))
 		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 
 		await user.click(trigger)
@@ -383,7 +394,7 @@ describe('message list', () => {
 		fireEvent.click(trigger)
 		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 		fireEvent.click(trigger)
-		fireEvent.focus(screen.getByRole('link', { name: 'Download raw email from Alice' }))
+		fireEvent.focus(screen.getByRole('button', { name: 'Actions for message from Alice' }))
 		expect(trigger).toHaveAttribute('aria-expanded', 'false')
 		expect(navigate).not.toHaveBeenCalled()
 	})
@@ -425,21 +436,25 @@ describe('message list', () => {
 		renderThread()
 		const content = document.querySelector('[data-slot="expanded-message-content"]')
 
-		expect(content).toHaveClass('mt-3', 'w-full', 'min-w-0')
+		expect(content).toHaveClass('w-full', 'min-w-0')
 		expect(content).not.toHaveClass('pl-12')
+		// The body starts directly under the 40px header row, with no extra gap above it.
+		expect(content?.className).not.toMatch(/\bmt-/)
 	})
 
 	it('toggles a collapsed message open and back, rendering its (empty) body and no attachments', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const toggle = screen.getByRole('button', { name: 'Expand message from (unknown sender)' })
-		expect(toggle.getAttribute('aria-expanded')).toBe('false')
-		await user.click(toggle)
-		expect(toggle.getAttribute('aria-expanded')).toBe('true')
+		const article = screen.getByRole('article', { name: '(unknown sender)' })
+		expect(article).toHaveAttribute('data-state', 'collapsed')
+		await user.click(screen.getByRole('button', { name: 'Expand message from (unknown sender)' }))
+		expect(article).toHaveAttribute('data-state', 'open')
 		// recipient line for the opened message uses its email-only recipient
 		expect(screen.getByText('to noname@x.com')).toBeInTheDocument()
-		await user.click(toggle)
-		expect(toggle.getAttribute('aria-expanded')).toBe('false')
+		// Collapsing goes through the message's overflow menu.
+		await user.click(screen.getByRole('button', { name: 'Actions for message from (unknown sender)' }))
+		await user.click(screen.getByRole('menuitem', { name: 'Collapse message' }))
+		expect(article).toHaveAttribute('data-state', 'collapsed')
 	})
 
 	it('renders attachments inside an opened message, including missing filename and size', () => {
@@ -469,7 +484,9 @@ describe('message list', () => {
 		expect(root?.querySelector('h1')?.textContent).toBe('Heading')
 		expect(root?.querySelector('strong')?.textContent).toBe('ready')
 		expect(root?.textContent).not.toContain('# Heading')
-		expect(screen.queryByRole('link', { name: 'Download raw email from me@x.com' })).not.toBeInTheDocument()
+		// A draft has no raw email, so its overflow menu offers only collapse.
+		fireEvent.click(screen.getByRole('button', { name: 'Actions for message from me@x.com' }))
+		expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Collapse message'])
 	})
 })
 
@@ -479,21 +496,48 @@ describe('toolbar actions', () => {
 	it('keeps mobile and tablet toolbar actions touch-friendly', () => {
 		renderThread()
 
-		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass(
-			'h-11',
-			'w-11',
-			'shrink-0',
-			'xl:hidden',
-		)
-		for (const label of ['Archive', 'Delete', 'Star', 'Mark unread']) {
-			expect(screen.getByRole('button', { name: label })).toHaveClass(
-				'h-11',
-				'w-11',
-				'shrink-0',
-				'xl:h-9',
-				'xl:w-9',
-			)
+		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
+		// One recipe for the whole row: the route's own actions, the reply group and
+		// the thread display actions are all the shared icon button, 36px with a fine
+		// pointer and 44px on narrow and touch screens, so no size is mixed in the row.
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		const buttons = [...toolbar.querySelectorAll('button')]
+		expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+			'Back to list',
+			'Archive',
+			'Delete',
+			'Star',
+			'Mark unread',
+			'Thread display',
+			'Expand all 3 messages',
+			'Collapse all 3 messages',
+			'Reply',
+			'Reply all',
+			'Forward',
+		])
+		for (const button of buttons) {
+			expect(button).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
+			expect(button.className).not.toMatch(/\b(?:xl:)?[hw]-(?:9|11)\b/)
 		}
+	})
+
+	it('hosts the thread display actions in the toolbar, ahead of the reply group', async () => {
+		const user = userEvent.setup()
+		renderThread()
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		const expandAll = screen.getByRole('button', { name: 'Expand all 3 messages' })
+
+		// The subject row no longer carries these, so it needs no 44px control.
+		expect(toolbar).toContainElement(expandAll)
+		expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(
+			screen.getByRole('heading', { name: 'Hello' }).closest('header')?.querySelector('button'),
+		).toBeNull()
+		const reply = screen.getByRole('button', { name: 'Reply' })
+		expect(expandAll.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+		await user.click(expandAll)
+		expect(document.querySelectorAll('[data-slot="thread-message"][data-state="open"]')).toHaveLength(3)
 	})
 
 	it('archives the thread and returns to the folder list', async () => {
@@ -782,7 +826,7 @@ describe('compose navigation', () => {
 		expect(call?.[0].search.to).toBe('')
 	})
 
-	it('opens a reply from the bottom "Write a reply" composer', async () => {
+	it('opens a reply from the inline "Write a reply" field after the last message', async () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
 		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
@@ -814,11 +858,23 @@ describe('compose navigation', () => {
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
 		const desktopReply = screen.getByRole('button', { name: /Write a reply/ })
+		// Desktop only: mobile keeps the bottom bar as its single reply surface.
 		expect(desktopReply).toHaveClass('hidden', 'md:flex')
-		// The reply bar uses the reading column's 16 / 24 / 32px gutters.
-		expect(desktopReply).toHaveClass('mx-4', 'sm:mx-6', 'xl:mx-8')
-		expect(screen.getByTestId('thread-reader').firstElementChild).toHaveClass('h-14', 'md:h-11')
-		expect(desktopReply.parentElement).not.toHaveClass('border-t')
+		// The field is not pinned: it scrolls with the conversation, after the last
+		// message, on the same column (and so the same gutters) as the messages.
+		const viewport = screen.getByRole('region', { name: 'Thread conversation' })
+		expect(viewport).toContainElement(desktopReply)
+		const lastMessage = [...document.querySelectorAll('[data-slot="thread-message"]')].at(-1) as Element
+		expect(lastMessage.compareDocumentPosition(desktopReply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+		expect(desktopReply.closest('[data-slot="thread-column"]')).not.toBeNull()
+		expect(desktopReply.className).not.toMatch(/\bmx-/)
+		const reader = screen.getByTestId('thread-reader')
+		expect(reader.firstElementChild).toHaveClass('h-14', 'md:h-11')
+		// Nothing but the toolbar and the scrolling conversation remains in the pane.
+		expect([...reader.children].map((child) => child.getAttribute('data-slot'))).toEqual([
+			'toolbar',
+			'scroll-area',
+		])
 
 		await user.click(reply)
 		expect(navigate).toHaveBeenLastCalledWith(
@@ -884,8 +940,31 @@ describe('keyboard shortcuts', () => {
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
-	it('opens a reply to the latest message on "r"', async () => {
+	it('moves focus to the inline reply field on "r", which then opens the reply', async () => {
+		const user = userEvent.setup()
 		renderThread()
+		const field = screen.getByRole('button', { name: /Write a reply/ })
+		await act(async () => {
+			fireEvent.keyDown(document.body, { key: 'r' })
+		})
+		// Reading is not interrupted: the shortcut reaches the field, it does not navigate.
+		expect(field).toHaveFocus()
+		expect(navigate).not.toHaveBeenCalled()
+
+		await user.keyboard('{Enter}')
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: '/mail/compose',
+				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', replyToMessageId: 'm2' }),
+			}),
+		)
+	})
+
+	it('opens a reply to the latest message on "r" where the inline field is not displayed', async () => {
+		renderThread()
+		// On mobile the field is `display: none` and cannot take focus; jsdom applies
+		// no stylesheet, so stand in for that by making focus a no-op.
+		vi.spyOn(screen.getByRole('button', { name: /Write a reply/ }), 'focus').mockImplementation(() => {})
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'r' })
 		})
@@ -910,7 +989,7 @@ describe('keyboard shortcuts', () => {
 		document.body.dispatchEvent(event)
 
 		expect(event.defaultPrevented).toBe(true)
-		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
+		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveFocus()
 	})
 
 	it('does not open a reply from interactive controls, with modifiers, or while a dialog is open', async () => {
@@ -1142,7 +1221,7 @@ describe('triage flow', () => {
 	function splitView(matches: boolean) {
 		vi.stubGlobal(
 			'matchMedia',
-			vi.fn(() => ({ matches })),
+			vi.fn(() => ({ matches, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
 		)
 	}
 	function inboxWith(threads: any[]) {

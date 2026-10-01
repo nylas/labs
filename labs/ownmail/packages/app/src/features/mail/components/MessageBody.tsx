@@ -113,7 +113,7 @@ function PreparedHtmlBody({
 		<div
 			data-slot="email-canvas-band"
 			data-email-strategy={canvas?.strategy}
-			className={band ? 'w-full py-6' : 'w-full'}
+			className={band ? 'w-full py-3' : 'w-full'}
 			style={band ? { backgroundColor: band } : undefined}
 		>
 			<ThreadColumn designed={!prepared.isProse}>
