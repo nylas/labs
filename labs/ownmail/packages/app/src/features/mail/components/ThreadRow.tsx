@@ -103,6 +103,21 @@ export function ThreadRowLayout({
 }
 
 /**
+ * A failed action on this row, shown inside the row it concerns. The owning
+ * row component holds the message, so it can never appear on another row.
+ */
+export function ThreadRowError({ message }: { message: string | null }) {
+	return message ? (
+		<p
+			role="alert"
+			className="pointer-events-none relative z-10 col-span-full text-xs font-medium text-destructive"
+		>
+			{message}
+		</p>
+	) : null
+}
+
+/**
  * The visible content and secondary star action for a thread-list row. Callers place a
  * stretched route link before this content so the link and button remain semantic siblings.
  */

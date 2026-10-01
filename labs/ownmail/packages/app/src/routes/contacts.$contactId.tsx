@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Building2, Mail, Pencil, Phone, StickyNote, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
+import { ContactContextMenu } from '#features/contacts/components/ContactContextMenu'
 import { ContactModal } from '#features/contacts/components/ContactModal'
 import { contactDisplayName, contactSubtitle } from '#features/contacts/lib/contacts-model'
 import {
@@ -15,9 +16,11 @@ import { Section } from '#shared/components/ui/section'
 import { ContactAvatar } from './contacts.js'
 
 export const Route = createFileRoute('/contacts/$contactId')({
-	validateSearch: (search): { q?: string; edit?: true } => ({
+	validateSearch: (search): { q?: string; edit?: true; delete?: true } => ({
 		...(typeof search.q === 'string' && search.q ? { q: search.q } : {}),
 		...(search.edit ? { edit: true } : {}),
+		// Set by the list's context menu: open on the delete confirmation.
+		...(search.delete ? { delete: true } : {}),
 	}),
 	loader: ({ params }) => getContact({ data: { contactId: params.contactId } }),
 	component: ContactDetailRoute,
@@ -60,7 +63,7 @@ function ContactDetailRoute() {
 
 function ContactDetail({ loadedContact }: { loadedContact: Contact }) {
 	const { data: contact } = useContact(loadedContact.id, loadedContact)
-	const { q, edit } = Route.useSearch()
+	const { q, edit, delete: deleteRequested } = Route.useSearch()
 	const navigate = useNavigate()
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const [deleting, setDeleting] = useState(false)
@@ -98,13 +101,19 @@ function ContactDetail({ loadedContact }: { loadedContact: Contact }) {
 		<>
 			<ContactDetailScreen
 				contact={contact}
-				confirmingDelete={confirmingDelete}
+				confirmingDelete={confirmingDelete || Boolean(deleteRequested)}
 				deleting={deleting}
 				deleteError={deleteError}
 				onBack={() => navigate({ to: '/contacts', search })}
 				onEdit={openEdit}
+				onNewEmail={(to) => navigate({ to: '/mail/compose', search: { to } })}
 				onRequestDelete={() => setConfirmingDelete(true)}
-				onCancelDelete={() => setConfirmingDelete(false)}
+				onCancelDelete={() => {
+					setConfirmingDelete(false)
+					// A confirmation the list asked for lives in the URL; cancelling clears it.
+					if (deleteRequested)
+						navigate({ to: '/contacts/$contactId', params: { contactId: contact.id }, search })
+				}}
 				onConfirmDelete={remove}
 			/>
 			{edit ? <ContactModal contact={contact} onClose={closeEdit} /> : null}
@@ -119,6 +128,7 @@ export function ContactDetailScreen({
 	deleteError,
 	onBack,
 	onEdit,
+	onNewEmail,
 	onRequestDelete,
 	onCancelDelete,
 	onConfirmDelete,
@@ -129,6 +139,7 @@ export function ContactDetailScreen({
 	deleteError: string | null
 	onBack: () => void
 	onEdit: () => void
+	onNewEmail: (email: string) => void
 	onRequestDelete: () => void
 	onCancelDelete: () => void
 	onConfirmDelete: () => void
@@ -145,13 +156,22 @@ export function ContactDetailScreen({
 				<ArrowLeft className="h-4 w-4" /> All contacts
 			</button>
 
-			<div className="flex items-start gap-4">
-				<ContactAvatar name={name} className="h-14 w-14 text-lg" />
-				<div className="min-w-0 flex-1">
-					<h1 className="text-xl font-semibold text-balance">{name}</h1>
-					{subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
+			{/* The header's menu holds the actions of the buttons below. The
+			    details keep the browser menu, for their links and text. */}
+			<ContactContextMenu
+				contact={contact}
+				onEdit={onEdit}
+				onNewEmail={onNewEmail}
+				onRequestDelete={onRequestDelete}
+			>
+				<div className="flex items-start gap-4">
+					<ContactAvatar name={name} className="h-14 w-14 text-lg" />
+					<div className="min-w-0 flex-1">
+						<h1 className="text-xl font-semibold text-balance">{name}</h1>
+						{subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
+					</div>
 				</div>
-			</div>
+			</ContactContextMenu>
 
 			<div className="mt-6 space-y-5">
 				{contact.emails?.length ? (

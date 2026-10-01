@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID } from '#app/components/MobileTabBar'
@@ -1348,6 +1348,275 @@ describe('/mail/search keyboard shortcuts', () => {
 		document.body.appendChild(input)
 		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 		document.body.removeChild(input)
+
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+})
+
+describe('/mail/search row context menu', () => {
+	const result = (id: string, subject: string, over: Record<string, unknown> = {}) => ({
+		id,
+		unread: false,
+		starred: false,
+		has_attachments: false,
+		folders: ['inbox'],
+		participants: [{ name: 'Zoe' }],
+		subject,
+		snippet: '',
+		message_ids: ['a'],
+		...over,
+	})
+
+	beforeEach(() => {
+		// "Open result" is the selected conversation; "Other result" is not.
+		Route.useSearch = vi.fn(() => ({ q: 'hello', threadId: 'open' }))
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: undefined,
+			selected: null,
+			threads: [result('open', 'Open result'), result('other', 'Other result', { unread: true })],
+		}))
+	})
+
+	async function openMenu(subject: string) {
+		const row = screen.getByRole('link', { name: new RegExp(`Open ${subject}`) }).closest('[data-nav-row]')
+		fireEvent.contextMenu(row as HTMLElement, { clientX: 10, clientY: 10 })
+		return screen.findByRole('menu', { name: `Actions for ${subject}` })
+	}
+	const choose = (name: string) => fireEvent.click(screen.getByRole('menuitem', { name }))
+	const menuClosed = () => waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+	it('acts on the result it was opened on and keeps the selected result open', async () => {
+		renderRoute()
+
+		await openMenu('Other result')
+		choose('Mark as read')
+		await waitFor(() =>
+			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 'other', unread: false } }),
+		)
+		expect(h.navigate).not.toHaveBeenCalled()
+
+		cleanup()
+		renderRoute()
+		await openMenu('Other result')
+		choose('Archive')
+		await waitFor(() =>
+			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 'other', folder: 'archive' } }),
+		)
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('returns to the result list when the selected result itself is deleted', async () => {
+		renderRoute()
+
+		await openMenu('Open result')
+		choose('Delete')
+
+		await waitFor(() =>
+			expect(h.navigate).toHaveBeenCalledWith({ to: '/mail/search', search: { q: 'hello' } }),
+		)
+		expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 'open', folder: 'trash' } })
+	})
+
+	it('closes the selected result when it is marked unread, but not when it is marked read', async () => {
+		renderRoute()
+		await openMenu('Open result')
+		choose('Mark as unread')
+		await waitFor(() =>
+			expect(h.navigate).toHaveBeenCalledWith({ to: '/mail/search', search: { q: 'hello' } }),
+		)
+
+		cleanup()
+		h.navigate.mockClear()
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: undefined,
+			selected: null,
+			threads: [result('open', 'Open result', { unread: true })],
+		}))
+		renderRoute()
+		await openMenu('Open result')
+		choose('Mark as read')
+		await waitFor(() =>
+			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 'open', unread: false } }),
+		)
+		await menuClosed()
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('opens the result and stars it through the same paths as the row', async () => {
+		Route.useSearch = vi.fn(() => ({ q: 'hello', folderId: 'work' }))
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: 'work',
+			selected: null,
+			threads: [result('other', 'Other result')],
+		}))
+		renderRoute()
+
+		await openMenu('Other result')
+		choose('Open')
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/mail/search',
+			search: { q: 'hello', folderId: 'work', threadId: 'other' },
+		})
+		await menuClosed()
+
+		await openMenu('Other result')
+		choose('Star')
+		await waitFor(() =>
+			expect(fns.updateThreadState).toHaveBeenCalledWith({ data: { threadId: 'other', starred: true } }),
+		)
+	})
+
+	it('leaves the list as it was when the provider rejects the change', async () => {
+		fns.updateThreadState.mockRejectedValue(new Error('provider detail'))
+		// The rollback ends with a refetch; the server still holds both results.
+		fns.getFolders.mockResolvedValue([])
+		fns.getThreads.mockResolvedValue({
+			threads: [result('open', 'Open result'), result('other', 'Other result', { unread: true })],
+		})
+		renderRoute()
+
+		await openMenu('Open result')
+		choose('Archive')
+
+		await waitFor(() => expect(fns.updateThreadState).toHaveBeenCalled())
+		await menuClosed()
+		expect(h.navigate).not.toHaveBeenCalled()
+		expect(screen.queryByText(/provider detail/)).not.toBeInTheDocument()
+		// The failure is said on the row that failed, in the reader toolbar's wording.
+		const row = screen.getByRole('link', { name: /Open Open result/ }).closest('[data-nav-row]')
+		expect(within(row as HTMLElement).getByRole('alert')).toHaveTextContent('Action failed')
+	})
+
+	it.each([
+		['Reply', { to: 'ada@example.com', subject: 'Re: Other result', replyToMessageId: 'm2' }],
+		[
+			'Reply all',
+			{ to: 'ada@example.com, bob@example.com', subject: 'Re: Other result', replyToMessageId: 'm2' },
+		],
+	] as const)('starts %s on the last message of the result it was opened on', async (name, response) => {
+		fns.getThreadMessages.mockResolvedValue({
+			thread: result('other', 'Other result'),
+			messages: [
+				{ id: 'm1', subject: 'Other result', from: [{ email: 'old@example.com' }] },
+				{
+					id: 'm2',
+					subject: 'Other result',
+					from: [{ email: 'ada@example.com' }],
+					to: [{ email: 'me@x.com' }, { email: 'bob@example.com' }],
+				},
+			],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await openMenu('Other result')
+		choose(name)
+
+		await waitFor(() =>
+			expect(h.navigate).toHaveBeenCalledWith({
+				to: '/mail/compose',
+				search: { folderId: 'inbox', threadId: 'other', ...response },
+			}),
+		)
+		expect(fns.getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 'other' } })
+	})
+
+	it('forwards the last message of the result', async () => {
+		fns.getThreadMessages.mockResolvedValue({
+			thread: result('other', 'Other result'),
+			messages: [{ id: 'm2', subject: 'Other result', from: [{ email: 'ada@example.com' }], body: 'Hello' }],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await openMenu('Other result')
+		choose('Forward')
+
+		await waitFor(() => expect(h.navigate).toHaveBeenCalled())
+		const { search } = h.navigate.mock.calls[0][0]
+		expect(search).toMatchObject({
+			folderId: 'inbox',
+			threadId: 'other',
+			to: '',
+			subject: 'Fwd: Other result',
+		})
+		expect(search.body).toContain('Forwarded message')
+	})
+
+	it('reports on the row when the thread has no message to answer or cannot be loaded', async () => {
+		fns.getThreadMessages.mockResolvedValue({
+			thread: result('other', 'Other result'),
+			messages: [],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await openMenu('Other result')
+		choose('Reply')
+
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Action failed')
+		const row = screen.getByRole('link', { name: /Open Other result/ }).closest('[data-nav-row]')
+		expect(row).toContainElement(alert)
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('reports a failed star on its row and clears it on the next attempt', async () => {
+		fns.updateThreadState.mockRejectedValueOnce(new Error('provider detail'))
+		fns.getFolders.mockResolvedValue([])
+		fns.getThreads.mockResolvedValue({
+			threads: [result('open', 'Open result'), result('other', 'Other result', { unread: true })],
+		})
+		renderRoute()
+
+		await openMenu('Other result')
+		choose('Star')
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Action failed')
+		expect(alert).not.toHaveTextContent('provider detail')
+		await menuClosed()
+
+		await openMenu('Other result')
+		choose('Archive')
+		await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+	})
+
+	it('puts focus on the cursored result for the ContextMenu key and Shift+F10', async () => {
+		renderRoute()
+		// The cursor starts on the selected result.
+		fireEvent.keyDown(window, { key: 'ContextMenu' })
+		expect(screen.getByRole('link', { name: /Open Open result/ })).toHaveFocus()
+
+		// A result that already has focus keeps it: the browser opens its menu there.
+		const other = screen.getByRole('link', { name: /Open Other result/ })
+		other.focus()
+		fireEvent.keyDown(other, { key: 'F10', shiftKey: true })
+		expect(other).toHaveFocus()
+	})
+
+	it('keeps Escape inside an open menu from closing the selected conversation', async () => {
+		Route.useLoaderData = vi.fn(() => ({
+			folders: [],
+			folderId: undefined,
+			threads: [result('open', 'Open result')],
+			selected: {
+				thread: { id: 'open', subject: 'Open result', starred: false, has_attachments: false, folders: [] },
+				messages: [],
+				mailboxEmail: 'me@x.com',
+			},
+		}))
+		renderRoute()
+
+		await openMenu('Open result')
+		fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Archive' }), { key: 'Escape' })
+		// The same holds for any other menu on the page.
+		const otherMenu = document.body.appendChild(document.createElement('div'))
+		otherMenu.setAttribute('role', 'menu')
+		fireEvent.keyDown(otherMenu, { key: 'Escape' })
+		otherMenu.remove()
 
 		expect(h.navigate).not.toHaveBeenCalled()
 	})

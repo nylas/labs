@@ -1588,3 +1588,21 @@ describe('EventModal — a range dragged out on the grid', () => {
 		})
 	})
 })
+
+describe('EventModal — opened on the delete confirmation from the event context menu', () => {
+	it('hands the request to the event view, which confirms before deleting', () => {
+		render(
+			<EventModal
+				event={timedEvent()}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				startOnDeleteConfirmation
+				onClose={vi.fn()}
+			/>,
+		)
+		expect(screen.getByRole('group', { name: /Delete this event\?/ })).toBeInTheDocument()
+		expect(deleteEvent).not.toHaveBeenCalled()
+	})
+})

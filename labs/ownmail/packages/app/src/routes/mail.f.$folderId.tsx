@@ -1,6 +1,6 @@
 import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Loader2, Reply, Star } from 'lucide-react'
+import { FileText, Loader2, Reply, Star, Trash2 } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
@@ -12,9 +12,11 @@ import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
 	ThreadRowContent,
+	ThreadRowError,
 	ThreadRowLayout,
 	threadRowLinkLabel,
 } from '#features/mail/components/ThreadRow'
+import { ThreadRowMenu, type ThreadRowUpdate } from '#features/mail/components/ThreadRowMenu'
 import {
 	draftRecipientName,
 	folderCount,
@@ -22,7 +24,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
-import { useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
+import { useDeleteDraftMutation, useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
 import {
 	draftsQueryOptions,
 	foldersQueryOptions,
@@ -33,11 +35,20 @@ import {
 	mailKeys,
 	threadListQueryOptions,
 } from '#features/mail/state/mail-queries'
+import { type ThreadResponseKind, threadResponseSearch } from '#features/mail/state/thread-response'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuShortcut,
+	ContextMenuTrigger,
+} from '#shared/components/ui/context-menu'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
-import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
@@ -123,6 +134,7 @@ type FolderListState = {
 function emptyFolderListState(identity: string, nextCursor: string | undefined): FolderListState {
 	return { identity, extraThreads: [], nextCursor, loadingMore: false, loadMoreError: false, cursor: -1 }
 }
+type ThreadUpdateInput = { threadId: string; starred?: boolean } & ThreadRowUpdate
 type ComposeThreadSearch = ReturnType<
 	typeof import('#features/mail/lib/mail-ui-model').composeBackdropThreadSearch
 >
@@ -132,7 +144,9 @@ function FolderView() {
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
 	const updateThread = useUpdateThreadMutation()
+	const deleteDraft = useDeleteDraftMutation()
 	const queryClient = useQueryClient()
+	const navigate = useNavigate()
 	const folderQuery = useQuery({
 		...foldersQueryOptions(
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
@@ -211,6 +225,12 @@ function FolderView() {
 			onLoadMore={loadMoreThreads}
 			onRefresh={refreshThreads}
 			onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
+			onDiscardDraft={(draftId) => deleteDraft.mutateAsync(draftId).then(() => undefined)}
+			onRespondToThread={async ({ threadId, kind }) => {
+				// The reader's own path: the thread's last message, in the composer.
+				const response = await threadResponseSearch(queryClient, threadId, kind)
+				await navigate({ to: '/mail/compose', search: { folderId, threadId, ...response } })
+			}}
 		/>
 	)
 }
@@ -253,6 +273,8 @@ function LoadedMailFolderRouteScreen({
 	onLoadMore,
 	onRefresh,
 	onUpdateThread,
+	onDiscardDraft,
+	onRespondToThread,
 	activeThreadId,
 	composeThreadSearch,
 	children,
@@ -263,7 +285,9 @@ function LoadedMailFolderRouteScreen({
 	loadMoreError?: boolean
 	onLoadMore?: () => Promise<void>
 	onRefresh?: () => Promise<unknown>
-	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
+	onUpdateThread?: (input: ThreadUpdateInput) => Promise<void>
+	onDiscardDraft?: (draftId: string) => Promise<void>
+	onRespondToThread?: (input: { threadId: string; kind: ThreadResponseKind }) => Promise<void>
 	activeThreadId?: string
 	composeThreadSearch?: (threadId: string) => ComposeThreadSearch
 	children?: ReactNode
@@ -410,10 +434,18 @@ function LoadedMailFolderRouteScreen({
 			const target = event.target instanceof HTMLElement ? event.target : null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-			if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return
+			// An open menu owns its keys: arrows, typeahead letters, Enter and Escape.
+			if (isTyping || target?.closest('[role="menu"]')) return
+			if (event.metaKey || event.ctrlKey || event.altKey) return
 			const focusedRow = target?.closest<HTMLElement>('[data-nav-row]')
 			const rows = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')
 			const focusedRowIndex = focusedRow && rows ? Array.from(rows).indexOf(focusedRow) : -1
+			// The browser opens a keyboard context menu on the focused element, so
+			// the cursored row takes focus first and its menu is the one that opens.
+			if (isContextMenuKey(event)) {
+				if (focusedRowIndex < 0) focusNavRow(rows?.[cursor])
+				return
+			}
 			// Keep nested row actions and unrelated links in control of their keys,
 			// but let a focused thread row continue list navigation.
 			if (target?.closest?.('button, select') || (target?.closest?.('a') && focusedRowIndex < 0)) return
@@ -527,7 +559,14 @@ function LoadedMailFolderRouteScreen({
 				drafts.length === 0 ? (
 					<EmptyState />
 				) : (
-					drafts.map((draft, index) => <DraftRow key={draft.id} draft={draft} navActive={cursor === index} />)
+					drafts.map((draft, index) => (
+						<DraftRow
+							key={draft.id}
+							draft={draft}
+							navActive={cursor === index}
+							onDiscardDraft={onDiscardDraft}
+						/>
+					))
 				)
 			) : sortedThreads.length === 0 ? (
 				<EmptyState moreAvailable={Boolean(nextCursor)}>{paginationControls}</EmptyState>
@@ -540,6 +579,8 @@ function LoadedMailFolderRouteScreen({
 							folderId={folderId}
 							baseFolderId={baseFolderId}
 							active={thread.id === activeThreadId}
+							open={thread.id === routedThreadId}
+							onRespondToThread={onRespondToThread}
 							composeSearch={composeThreadSearch?.(thread.id)}
 							navActive={cursor === index}
 							onUpdateThread={onUpdateThread}
@@ -621,23 +662,69 @@ function EmptyState({ moreAvailable = false, children }: { moreAvailable?: boole
 	)
 }
 
-function DraftRow({ draft, navActive }: { draft: MailDraft; navActive: boolean }) {
+/** A keyboard context menu opens on the focused element: the row's link, or the row itself. */
+function focusNavRow(row: HTMLElement | undefined) {
+	;(row?.querySelector<HTMLElement>('.thread-row-link') ?? row)?.focus()
+}
+
+function DraftRow({
+	draft,
+	navActive,
+	onDiscardDraft,
+}: {
+	draft: MailDraft
+	navActive: boolean
+	onDiscardDraft?: (draftId: string) => Promise<void>
+}) {
+	const navigate = useNavigate()
+	const search = { draft: draft.id, folderId: 'drafts' }
+	// A failed discard belongs to this draft: rows are keyed by draft id.
+	const [discardError, setDiscardError] = useState<string | null>(null)
 	return (
-		<Link
-			to="/mail/compose"
-			search={{ draft: draft.id, folderId: 'drafts' }}
-			data-nav-row=""
-			data-nav-cursor={navActive ? 'true' : undefined}
-			className={THREAD_ROW_CLASS}
-		>
-			<ThreadRowLayout
-				leading={<Star className="h-4 w-4 text-muted-foreground" />}
-				sender={draftRecipientName(draft)}
-				epochSeconds={draft.date}
-				subject={draft.subject}
-				snippet={draft.snippet}
-			/>
-		</Link>
+		<ContextMenu>
+			<ContextMenuTrigger asChild>
+				<Link
+					to="/mail/compose"
+					search={search}
+					data-nav-row=""
+					data-nav-cursor={navActive ? 'true' : undefined}
+					className={THREAD_ROW_CLASS}
+				>
+					<ThreadRowLayout
+						leading={<Star className="h-4 w-4 text-muted-foreground" />}
+						sender={draftRecipientName(draft)}
+						epochSeconds={draft.date}
+						subject={draft.subject}
+						snippet={draft.snippet}
+					/>
+					<ThreadRowError message={discardError} />
+				</Link>
+			</ContextMenuTrigger>
+			<ContextMenuContent aria-label={`Actions for draft ${draft.subject || '(no subject)'}`}>
+				<ContextMenuItem aria-keyshortcuts="Enter" onSelect={() => navigate({ to: '/mail/compose', search })}>
+					<FileText aria-hidden="true" />
+					Open draft
+					<ContextMenuShortcut>Enter</ContextMenuShortcut>
+				</ContextMenuItem>
+				<ContextMenuSeparator />
+				{/* The composer discards without a confirmation; so does this. The
+				    optimistic removal is rolled back by the mutation if it fails,
+				    and the row says so in the composer's words. */}
+				<ContextMenuItem
+					variant="destructive"
+					disabled={!onDiscardDraft}
+					onSelect={() => {
+						setDiscardError(null)
+						void onDiscardDraft?.(draft.id).catch(() =>
+							setDiscardError('Could not discard the draft. Check your connection, then try again.'),
+						)
+					}}
+				>
+					<Trash2 aria-hidden="true" />
+					Discard draft
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
 	)
 }
 
@@ -646,18 +733,60 @@ function ThreadRow({
 	folderId,
 	baseFolderId,
 	active,
+	open,
 	composeSearch,
 	navActive,
 	onUpdateThread,
+	onRespondToThread,
 }: {
 	thread: MailThread
 	folderId: string
 	baseFolderId?: string
 	active?: boolean
+	/** Whether this row's conversation is open in the reader beside the list
+	 * (not merely highlighted behind the composer, where there is no reader to close). */
+	open: boolean
 	composeSearch?: ComposeThreadSearch
 	navActive: boolean
-	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
+	onUpdateThread?: (input: ThreadUpdateInput) => Promise<void>
+	onRespondToThread?: (input: { threadId: string; kind: ThreadResponseKind }) => Promise<void>
 }) {
+	const navigate = useNavigate()
+	const search = baseFolderId ? { baseFolderId } : {}
+	// Menu actions and their failure belong to this row's thread: rows are keyed by thread id.
+	const [busy, setBusy] = useState(false)
+	const [actionError, setActionError] = useState<string | null>(null)
+
+	/** Runs one row action; a failure is reported on this row, as the reader toolbar reports its own. */
+	async function runRowAction(action: () => Promise<unknown>) {
+		setBusy(true)
+		setActionError(null)
+		try {
+			await action()
+		} catch {
+			// A mutation has already restored the cached thread.
+			setActionError('Action failed')
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	function openThread() {
+		if (composeSearch) navigate({ to: '/mail/compose', search: composeSearch })
+		else navigate({ to: '/mail/f/$folderId/t/$threadId', params: { folderId, threadId: thread.id }, search })
+	}
+
+	const updateFromMenu = (input: ThreadRowUpdate) =>
+		runRowAction(async () => {
+			if (onUpdateThread) await onUpdateThread({ threadId: thread.id, ...input })
+			else await updateThreadState({ data: { threadId: thread.id, ...input } })
+			// Like the reader toolbar: a conversation that was moved or marked
+			// unread while it is open closes. Any other open conversation stays.
+			if (open && (input.folder !== undefined || input.unread === true)) {
+				await navigate({ to: '/mail/f/$folderId', params: { folderId }, search })
+			}
+		})
+
 	// The star shown is the thread's own, except while a toggle is in flight.
 	// The requested value lives only for that request, so it can never outlive
 	// or disagree with the thread once the request settles.
@@ -670,6 +799,7 @@ function ThreadRow({
 		if (starPending) return
 		const nextStarred = !starred
 		setRequestedStar(nextStarred)
+		setActionError(null)
 		try {
 			if (onUpdateThread) await onUpdateThread({ threadId: thread.id, starred: nextStarred })
 			else {
@@ -679,6 +809,7 @@ function ThreadRow({
 			}
 		} catch {
 			// The mutation gateway has already restored the cached thread.
+			setActionError('Action failed')
 		} finally {
 			setRequestedStar(null)
 		}
@@ -692,14 +823,56 @@ function ThreadRow({
 		'data-unread': optimisticThread.unread ? ('true' as const) : undefined,
 	}
 
+	const menu = {
+		thread: optimisticThread,
+		folderId,
+		busy: busy || starPending,
+		// The folder reader's shortcuts act on the conversation open beside the list.
+		readerShortcuts: open,
+		onOpen: openThread,
+		onRespond: onRespondToThread
+			? (kind: ThreadResponseKind) => runRowAction(() => onRespondToThread({ threadId: thread.id, kind }))
+			: undefined,
+		onToggleStar: toggleStar,
+		onUpdate: updateFromMenu,
+	}
+
 	if (composeSearch) {
 		return (
+			<ThreadRowMenu {...menu}>
+				<div className={className} tabIndex={-1} {...rowState}>
+					<Link
+						to="/mail/compose"
+						search={composeSearch}
+						aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+						className={THREAD_ROW_LINK_CLASS}
+						aria-current={active ? 'true' : undefined}
+						data-active={active ? 'true' : undefined}
+						data-nav-cursor={navActive ? 'true' : undefined}
+						data-unread={optimisticThread.unread ? 'true' : undefined}
+					/>
+					<ThreadRowContent
+						thread={optimisticThread}
+						folderId={folderId}
+						onToggleStar={toggleStar}
+						starPending={starPending}
+					/>
+					<ThreadRowError message={actionError} />
+				</div>
+			</ThreadRowMenu>
+		)
+	}
+
+	return (
+		<ThreadRowMenu {...menu}>
 			<div className={className} tabIndex={-1} {...rowState}>
 				<Link
-					to="/mail/compose"
-					search={composeSearch}
+					to="/mail/f/$folderId/t/$threadId"
+					params={{ folderId, threadId: thread.id }}
+					search={baseFolderId ? { baseFolderId } : {}}
 					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
 					className={THREAD_ROW_LINK_CLASS}
+					activeProps={{ 'data-active': 'true' }}
 					aria-current={active ? 'true' : undefined}
 					data-active={active ? 'true' : undefined}
 					data-nav-cursor={navActive ? 'true' : undefined}
@@ -711,30 +884,8 @@ function ThreadRow({
 					onToggleStar={toggleStar}
 					starPending={starPending}
 				/>
+				<ThreadRowError message={actionError} />
 			</div>
-		)
-	}
-
-	return (
-		<div className={className} tabIndex={-1} {...rowState}>
-			<Link
-				to="/mail/f/$folderId/t/$threadId"
-				params={{ folderId, threadId: thread.id }}
-				search={baseFolderId ? { baseFolderId } : {}}
-				aria-label={threadRowLinkLabel(optimisticThread, folderId)}
-				className={THREAD_ROW_LINK_CLASS}
-				activeProps={{ 'data-active': 'true' }}
-				aria-current={active ? 'true' : undefined}
-				data-active={active ? 'true' : undefined}
-				data-nav-cursor={navActive ? 'true' : undefined}
-				data-unread={optimisticThread.unread ? 'true' : undefined}
-			/>
-			<ThreadRowContent
-				thread={optimisticThread}
-				folderId={folderId}
-				onToggleStar={toggleStar}
-				starPending={starPending}
-			/>
-		</div>
+		</ThreadRowMenu>
 	)
 }

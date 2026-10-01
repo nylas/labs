@@ -41,6 +41,11 @@ export function moveCursor(current: number, delta: number, length: number): numb
 	return next
 }
 
+/** Whether a key press asks for a context menu: the ContextMenu key or Shift+F10. */
+export function isContextMenuKey(event: { key: string; shiftKey: boolean }): boolean {
+	return event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)
+}
+
 /** Return the first or last usable row in a list, or -1 when it is empty. */
 export function edgeCursor(edge: 'first' | 'last', length: number): number {
 	if (length <= 0) return -1

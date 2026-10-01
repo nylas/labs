@@ -607,3 +607,76 @@ describe('ContactsLayout wrapper', () => {
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
 	})
 })
+
+describe('contact row context menu', () => {
+	async function openMenu(name: string) {
+		const row = screen.getAllByRole('link').find((link) => link.textContent?.includes(name)) as HTMLElement
+		fireEvent.contextMenu(row, { clientX: 10, clientY: 10 })
+		return screen.findByRole('menu', { name: `Actions for ${name}` })
+	}
+	const choose = (name: string) => fireEvent.click(screen.getByRole('menuitem', { name }))
+	const menuClosed = () => waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+	it('acts on the contact it was opened on, not on the selected one', async () => {
+		h.pathname = '/contacts/c-bea'
+		shell({ query: 'a', selectedId: 'c-bea' })
+
+		await openMenu('Ada Lovelace')
+		choose('Edit')
+		expect(h.navigate).toHaveBeenLastCalledWith({
+			to: '/contacts/$contactId',
+			params: { contactId: 'c-ada' },
+			search: { q: 'a', edit: true },
+		})
+		await menuClosed()
+
+		await openMenu('Ada Lovelace')
+		choose('Open')
+		expect(h.navigate).toHaveBeenLastCalledWith({
+			to: '/contacts/$contactId',
+			params: { contactId: 'c-ada' },
+			search: { q: 'a' },
+		})
+		await menuClosed()
+
+		await openMenu('Ada Lovelace')
+		choose('New email')
+		expect(h.navigate).toHaveBeenLastCalledWith({ to: '/mail/compose', search: { to: 'ada@x.com' } })
+	})
+
+	it('puts focus on the cursored contact for the ContextMenu key and Shift+F10', () => {
+		h.pathname = '/contacts/c-bea'
+		shell({ selectedId: 'c-bea' })
+		// The cursor starts on the selected contact.
+		fireEvent.keyDown(window, { key: 'ContextMenu' })
+		const bea = screen.getAllByRole('link').find((link) => link.textContent?.includes('Bea')) as HTMLElement
+		expect(bea).toHaveFocus()
+		bea.blur()
+		fireEvent.keyDown(window, { key: 'F10', shiftKey: true })
+		expect(bea).toHaveFocus()
+	})
+
+	it('sends Delete to the confirmation on the contact page instead of deleting from the list', async () => {
+		shell()
+		await openMenu('Bea')
+		expect(screen.getByRole('menuitem', { name: 'Delete…' })).toHaveAttribute('data-variant', 'destructive')
+		choose('Delete…')
+		expect(h.navigate).toHaveBeenCalledWith({
+			to: '/contacts/$contactId',
+			params: { contactId: 'c-bea' },
+			search: { delete: true },
+		})
+		expect(h.navigate).toHaveBeenCalledTimes(1)
+	})
+
+	it('shows the email actions as unavailable for a contact without an address', async () => {
+		shell()
+		await openMenu('Bea')
+		expect(screen.getByRole('menuitem', { name: 'New email' })).toHaveAttribute('aria-disabled', 'true')
+		expect(screen.getByRole('menuitem', { name: 'Copy email address' })).toHaveAttribute(
+			'aria-disabled',
+			'true',
+		)
+		expect(screen.getByRole('menuitem', { name: 'Open' })).toHaveAttribute('aria-keyshortcuts', 'Enter')
+	})
+})

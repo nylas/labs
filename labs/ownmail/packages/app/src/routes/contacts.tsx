@@ -8,6 +8,7 @@ import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { MobileTabBar } from '#app/components/MobileTabBar'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
+import { ContactContextMenu } from '#features/contacts/components/ContactContextMenu'
 import {
 	contactDisplayName,
 	contactIdFromPath,
@@ -20,7 +21,7 @@ import { getContacts } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
-import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
 
@@ -164,9 +165,15 @@ export function ContactsShell({
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey ||
-				target?.closest?.('button, a, select')
+				target?.closest?.('button, a, select, [role="menu"]')
 			)
 				return
+			// The browser opens a keyboard context menu on the focused element, so
+			// the cursored contact takes focus first and its menu is the one that opens.
+			if (isContextMenuKey(event)) {
+				document.querySelector<HTMLElement>('[data-contact-id][data-nav-cursor="true"]')?.focus()
+				return
+			}
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return
@@ -402,25 +409,41 @@ function ContactListItem({
 }) {
 	const name = contactDisplayName(contact)
 	const subtitle = contactSubtitle(contact)
+	const navigate = useNavigate()
+	const openContact = (flags: { edit?: true; delete?: true } = {}) =>
+		navigate({
+			to: '/contacts/$contactId',
+			params: { contactId: contact.id },
+			search: { ...search, ...flags },
+		})
 	return (
-		<Link
-			to="/contacts/$contactId"
-			params={{ contactId: contact.id }}
-			search={search}
-			aria-current={active ? 'true' : undefined}
-			data-contact-id={contact.id}
-			data-nav-cursor={keyboardActive ? 'true' : undefined}
-			className={cn(
-				'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/60',
-				(active || keyboardActive) && 'bg-muted',
-			)}
+		<ContactContextMenu
+			contact={contact}
+			onOpen={() => openContact()}
+			onEdit={() => openContact({ edit: true })}
+			onNewEmail={(to) => navigate({ to: '/mail/compose', search: { to } })}
+			// Deleting is confirmed on the contact's own page.
+			onRequestDelete={() => openContact({ delete: true })}
 		>
-			<ContactAvatar name={name} className="h-8 w-8 text-xs" />
-			<span className="min-w-0 flex-1">
-				<span className="block truncate text-sm font-medium">{name}</span>
-				{subtitle ? <span className="block truncate text-xs text-muted-foreground">{subtitle}</span> : null}
-			</span>
-		</Link>
+			<Link
+				to="/contacts/$contactId"
+				params={{ contactId: contact.id }}
+				search={search}
+				aria-current={active ? 'true' : undefined}
+				data-contact-id={contact.id}
+				data-nav-cursor={keyboardActive ? 'true' : undefined}
+				className={cn(
+					'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/60',
+					(active || keyboardActive) && 'bg-muted',
+				)}
+			>
+				<ContactAvatar name={name} className="h-8 w-8 text-xs" />
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-medium">{name}</span>
+					{subtitle ? <span className="block truncate text-xs text-muted-foreground">{subtitle}</span> : null}
+				</span>
+			</Link>
+		</ContactContextMenu>
 	)
 }
 

@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
 	getMailboxInfo: vi.fn(),
 	updateEvent: vi.fn(),
 	getFreeBusy: vi.fn(),
+	rsvpEvent: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -41,6 +42,7 @@ vi.mock('#features/calendar/server/calendar-fns', () => ({
 	getEvents: (args: any) => h.getEvents(args),
 	updateEvent: (args: any) => h.updateEvent(args),
 	getFreeBusy: (args: any) => h.getFreeBusy(args),
+	rsvpEvent: (args: any) => h.rsvpEvent(args),
 }))
 vi.mock('#server/fns', () => ({ getMailboxInfo: () => h.getMailboxInfo() }))
 
@@ -104,6 +106,7 @@ vi.mock('#features/calendar/components/EventModal', () => ({
 			data-preserve-default-start-time={String(props.preserveDefaultStartTime)}
 			data-default-duration-minutes={String(props.defaultDurationMinutes)}
 			data-start-in-edit={String(props.startInEdit)}
+			data-start-on-delete={String(props.startOnDeleteConfirmation)}
 		>
 			<button
 				type="button"
@@ -146,6 +149,7 @@ vi.mock('#features/calendar/components/EventDetails', async () => {
 					data-calendar-id={props.calendarId}
 					data-calendar-name={props.calendarName}
 					data-email={props.email}
+					data-start-on-delete={String(props.startOnDeleteConfirmation)}
 				>
 					<button type="button" onClick={props.onEdit}>
 						details-edit
@@ -192,7 +196,11 @@ vi.mock('#features/calendar/components/MeetWith', () => ({
 
 vi.mock('#features/calendar/components/CalendarManagerDialog', () => ({
 	CalendarManagerDialog: (props: any) => (
-		<div role="dialog" aria-label="Calendar manager">
+		<div
+			role="dialog"
+			aria-label="Calendar manager"
+			data-initial-action={JSON.stringify(props.initialAction ?? null)}
+		>
 			<button type="button" onClick={() => props.onDeleted('cal2')}>
 				delete-cal2
 			</button>
@@ -2234,5 +2242,424 @@ describe('meet with: colleagues availability on the grid', () => {
 		const panels = screen.getAllByTestId('meet-with')
 		expect(panels).toHaveLength(2)
 		expect(panels.map((panel) => panel.dataset.people)).toEqual(['mina@example.com', 'mina@example.com'])
+	})
+})
+
+describe('context menus', () => {
+	const invited: Event = {
+		id: 'inv1',
+		calendar_id: 'cal2',
+		title: 'Planning',
+		when: { start_time: e('2024-06-15T16:00:00'), end_time: e('2024-06-15T17:00:00') },
+		participants: [{ email: info.email, status: 'noreply' }],
+		organizer: { email: 'boss@example.com' },
+	} as Event
+	const shared: Event = {
+		id: 'ro1',
+		title: 'Company holiday',
+		when: { start_time: e('2024-06-15T18:00:00'), end_time: e('2024-06-15T19:00:00') },
+		participants: [{ email: info.email, status: 'yes' }],
+		organizer: { email: 'hr@example.com' },
+		read_only: true,
+	} as Event
+	const data = () => ({ ...richData(), events: [...richEvents(), invited, shared] })
+	const renderWeek = () => render(<CalendarRouteScreen view="week" data={data()} />)
+	const pane = () => screen.queryByRole('complementary', { name: 'Event details' })
+	const chip = (name: RegExp) => screen.getByRole('button', { name })
+	const mobile = () =>
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+		)
+
+	function openMenu(trigger: HTMLElement, name: string) {
+		fireEvent.contextMenu(trigger, { clientX: 10, clientY: 10 })
+		return screen.getByRole('menu', { name })
+	}
+	const item = (name: string) => screen.getByRole('menuitem', { name })
+	const names = () => screen.getAllByRole('menuitem').map((element) => element.textContent)
+
+	beforeEach(() => {
+		h.rsvpEvent.mockResolvedValue({ ok: true })
+	})
+
+	it('opens on an event without selecting it or opening it in the pane', async () => {
+		renderWeek()
+		chip(/^Standup/).focus()
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		expect(names()).toEqual(['Open', 'Edit', 'Accept', 'Maybe', 'Decline', 'Delete…'])
+		expect(pane()).toBeNull()
+		expect(screen.queryByTestId('event-modal')).toBeNull()
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+		expect(chip(/^Standup/)).not.toHaveAttribute('aria-current')
+		expect(pane()).toBeNull()
+		// Dismissed without a choice: focus is back on the event.
+		await vi.waitFor(() => expect(chip(/^Standup/)).toHaveFocus())
+	})
+
+	it('opens the event the way a click does: in the pane on desktop', async () => {
+		renderWeek()
+		chip(/^Standup/).focus()
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		fireEvent.click(item('Open'))
+		// Focus goes to the pane and stays there: the closing menu does not take it back to the event.
+		await vi.waitFor(() => expect(pane()).toHaveFocus())
+		await new Promise((resolve) => setTimeout(resolve, 30))
+		expect(pane()).toHaveFocus()
+		expect(screen.getByTestId('event-details').dataset).toMatchObject({
+			event: 't1',
+			variant: 'panel',
+			startOnDelete: 'false',
+		})
+		expect(chip(/^Standup/)).toHaveAttribute('aria-current', 'true')
+		expect(screen.queryByTestId('event-modal')).toBeNull()
+	})
+
+	it('opens the editor from Edit without changing what the pane shows', () => {
+		renderWeek()
+		fireEvent.click(chip(/^Night/))
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		fireEvent.click(item('Edit'))
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({
+			event: 't1',
+			startInEdit: 'true',
+			startOnDelete: 'false',
+		})
+		// The pane still shows the event that was selected before.
+		expect(screen.getByTestId('event-details').dataset.event).toBe('t3')
+	})
+
+	it('sends Delete to the confirmation in the event view, and deletes nothing itself', () => {
+		renderWeek()
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		expect(item('Delete…')).toHaveAttribute('data-variant', 'destructive')
+		expect(item('Delete…').querySelector('svg')).not.toBeNull()
+		fireEvent.click(item('Delete…'))
+		expect(screen.getByTestId('event-details').dataset).toMatchObject({ event: 't1', startOnDelete: 'true' })
+		expect(screen.queryByTestId('event-modal')).toBeNull()
+
+		// The request names one event: another event, and the same one opened again, show no confirmation.
+		fireEvent.click(chip(/^Night/))
+		expect(screen.getByTestId('event-details').dataset).toMatchObject({ event: 't3', startOnDelete: 'false' })
+		fireEvent.click(chip(/^Standup/))
+		expect(screen.getByTestId('event-details').dataset).toMatchObject({ event: 't1', startOnDelete: 'false' })
+
+		// Asking again while it is shown starts its view again on the confirmation.
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		fireEvent.click(item('Delete…'))
+		expect(screen.getByTestId('event-details').dataset.startOnDelete).toBe('true')
+		fireEvent.click(screen.getByText('details-close'))
+		fireEvent.click(chip(/^Standup/))
+		expect(screen.getByTestId('event-details').dataset.startOnDelete).toBe('false')
+
+		// A confirmed deletion ends the request too.
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		fireEvent.click(item('Delete…'))
+		fireEvent.click(screen.getByText('details-deleted'))
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		fireEvent.click(item('Edit'))
+		expect(screen.getByTestId('event-modal').dataset.startOnDelete).toBe('false')
+	})
+
+	it('uses the dialog for Open, Edit and Delete on mobile layouts', () => {
+		mobile()
+		render(<CalendarRouteScreen view="day" data={richData()} />)
+		const row = () => screen.getByRole('button', { name: /Standup/ })
+
+		openMenu(row(), 'Actions for Standup')
+		// 44px floor for touch.
+		expect(item('Open')).toHaveClass('max-md:min-h-11', '[@media(any-pointer:coarse)]:min-h-11')
+		fireEvent.click(item('Delete…'))
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({
+			event: 't1',
+			startInEdit: 'false',
+			startOnDelete: 'true',
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'close-unchanged' }))
+
+		// The request ended with the dialog: a tap opens the plain view.
+		fireEvent.click(row())
+		expect(screen.getByTestId('event-modal').dataset.startOnDelete).toBe('false')
+		fireEvent.click(screen.getByRole('button', { name: 'close-unchanged' }))
+
+		openMenu(row(), 'Actions for Standup')
+		fireEvent.click(item('Open'))
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({
+			startInEdit: 'false',
+			startOnDelete: 'false',
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'close-unchanged' }))
+
+		openMenu(row(), 'Actions for Standup')
+		fireEvent.click(item('Edit'))
+		expect(screen.getByTestId('event-modal').dataset.startInEdit).toBe('true')
+	})
+
+	it('does not carry a delete request into an event opened from the mobile sheet', () => {
+		mobile()
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T08:00:00'))
+		try {
+			render(<CalendarRouteScreen view="day" data={richData()} />)
+			// With events still ahead today, the sidebar agenda lists Standup too; the agenda row is the one with a menu.
+			const row = screen
+				.getAllByRole('button', { name: /Standup/ })
+				.find((button) => button.dataset.slot === 'context-menu-trigger') as HTMLElement
+			openMenu(row, 'Actions for Standup')
+			fireEvent.click(item('Delete…'))
+			fireEvent.click(screen.getByRole('button', { name: 'close-unchanged' }))
+			fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+			const sheet = within(screen.getByTestId('sheet'))
+			fireEvent.click(sheet.getAllByRole('button', { name: /Standup/ })[0] as HTMLElement)
+			expect(screen.getByTestId('event-modal').dataset.startOnDelete).toBe('false')
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('answers an invitation for the event the menu was opened on', async () => {
+		renderWeek()
+		openMenu(chip(/^Planning/), 'Actions for Planning')
+		fireEvent.click(item('Maybe'))
+		await vi.waitFor(() =>
+			expect(h.rsvpEvent).toHaveBeenCalledWith({
+				data: { eventId: 'inv1', calendarId: 'cal2', status: 'maybe' },
+			}),
+		)
+		// Answering is not opening, and a saved answer needs no message.
+		expect(pane()).toBeNull()
+		expect(screen.queryByRole('alert')).toBeNull()
+	})
+
+	it('says which event could not be answered when the answer is rolled back', async () => {
+		h.rsvpEvent.mockRejectedValue(new Error('provider detail'))
+		renderWeek()
+		openMenu(chip(/^Planning/), 'Actions for Planning')
+		fireEvent.click(item('Decline'))
+		const alert = await screen.findByRole('alert')
+		expect(alert).toHaveTextContent('Could not save your answer to “Planning”. It was put back.')
+		expect(alert).not.toHaveTextContent('provider detail')
+	})
+
+	it('names an untitled event in the failure message', async () => {
+		h.rsvpEvent.mockRejectedValue(new Error('offline'))
+		render(
+			<CalendarRouteScreen
+				view="week"
+				data={{ ...richData(), events: [{ ...invited, id: 'inv2', title: '' } as Event] }}
+			/>,
+		)
+		openMenu(chip(/^\(untitled\)/), 'Actions for (untitled)')
+		fireEvent.click(item('Accept'))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Could not save your answer to “(untitled)”.')
+	})
+
+	it('shows what an event does not allow as unavailable, by the rule that also blocks dragging it', async () => {
+		render(
+			<CalendarRouteScreen
+				view="week"
+				data={{
+					...data(),
+					calendars: [...calendars, { id: 'cal3', name: 'Holidays', read_only: true }] as Calendar[],
+					events: [
+						...data().events,
+						{
+							id: 'h1',
+							calendar_id: 'cal3',
+							title: 'Bank holiday',
+							when: { start_time: e('2024-06-15T20:00:00'), end_time: e('2024-06-15T21:00:00') },
+						} as Event,
+					],
+				}}
+			/>,
+		)
+		// No guests: nothing to answer.
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		for (const name of ['Accept', 'Maybe', 'Decline'])
+			expect(item(name)).toHaveAttribute('aria-disabled', 'true')
+		expect(item('Edit')).not.toHaveAttribute('aria-disabled')
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+		// On a read-only calendar: it cannot be changed.
+		openMenu(chip(/^Bank holiday/), 'Actions for Bank holiday')
+		expect(item('Edit')).toHaveAttribute('aria-disabled', 'true')
+		expect(item('Delete…')).toHaveAttribute('aria-disabled', 'true')
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+		// Read-only itself: it can be answered but not changed. It names no calendar, so the default one is used.
+		openMenu(chip(/^Company holiday/), 'Actions for Company holiday')
+		expect(item('Edit')).toHaveAttribute('aria-disabled', 'true')
+		expect(item('Delete…')).toHaveAttribute('aria-disabled', 'true')
+		fireEvent.click(item('Accept'))
+		await vi.waitFor(() =>
+			expect(h.rsvpEvent).toHaveBeenCalledWith({
+				data: { eventId: 'ro1', calendarId: 'cal1', status: 'yes' },
+			}),
+		)
+	})
+
+	it('covers all-day chips', () => {
+		renderWeek()
+		openMenu(chip(/^Trip/), 'Actions for Trip')
+		fireEvent.click(item('Open'))
+		expect(screen.getByTestId('event-details').dataset.event).toBe('a2')
+	})
+
+	it('gives a draft preview no menu: there is nothing saved to act on', () => {
+		renderWeek()
+		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(screen.getByRole('button', { name: 'show-live-preview' }))
+		const preview = screen.getByRole('button', { name: /Live draft/ })
+		expect(fireEvent.contextMenu(preview, { clientX: 10, clientY: 10 })).toBe(true)
+		expect(screen.queryByRole('menu')).toBeNull()
+	})
+
+	it('never starts a drag from a right-click or a Control-click on an event', () => {
+		renderWeek()
+		const standup = chip(/^Standup/)
+		for (const press of [{ button: 2 }, { button: 0, ctrlKey: true }]) {
+			fireEvent.pointerDown(standup, { pointerType: 'mouse', clientX: 750, clientY: 500, ...press })
+			fireEvent(window, new MouseEvent('pointermove', { clientX: 750, clientY: 560 }))
+			expect(standup).not.toHaveAttribute('data-dragging')
+			fireEvent(window, new MouseEvent('pointerup', { clientX: 750, clientY: 560 }))
+		}
+		openMenu(standup, 'Actions for Standup')
+		expect(h.updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('starts a new event in the empty slot that was right-clicked', async () => {
+		renderWeek()
+		const slot = screen.getAllByRole('button', { name: /Create event at 9 AM/ })[0] as HTMLElement
+		slot.focus()
+		openMenu(slot, 'Time slot actions')
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+		await vi.waitFor(() => expect(slot).toHaveFocus())
+		openMenu(slot, 'Time slot actions')
+		fireEvent.click(item('New event here'))
+		// The composer opens once the menu has closed, and the menu does not take focus back.
+		const modal = await screen.findByTestId('event-modal')
+		expect(modal.dataset.event).toBe('new')
+		expect(new Date(modal.dataset.defaultStart as string).getHours()).toBe(9)
+		expect(modal.dataset.preserveDefaultStartTime).toBe('true')
+	})
+
+	it('leaves the browser menu alone when the press did not land on a slot or an event', () => {
+		renderWeek()
+		const slot = screen.getAllByRole('button', { name: /Create event at 9 AM/ })[0] as HTMLElement
+		const column = slot.parentElement as HTMLElement
+		expect(fireEvent.contextMenu(column, { clientX: 10, clientY: 10 })).toBe(true)
+		expect(screen.queryByRole('menu')).toBeNull()
+		// A touch that starts there never arms the long press; one on a slot does.
+		vi.useFakeTimers()
+		try {
+			fireEvent.pointerDown(column, { pointerType: 'touch' })
+			act(() => void vi.advanceTimersByTime(800))
+			expect(screen.queryByRole('menu')).toBeNull()
+			fireEvent.pointerDown(slot, { pointerType: 'touch' })
+			act(() => void vi.advanceTimersByTime(800))
+			expect(screen.getByRole('menu', { name: 'Time slot actions' })).toBeInTheDocument()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('gives a colleague busy block no menu of its own', async () => {
+		h.getFreeBusy.mockResolvedValue({
+			people: [
+				{
+					email: 'mina@example.com',
+					busy: [{ start: e('2024-06-15T13:00:00'), end: e('2024-06-15T14:00:00') }],
+					unavailable: false,
+				},
+			],
+		})
+		renderWeek()
+		fireEvent.click(within(screen.getByTestId('meet-with')).getByText('meet-add-mina'))
+		await vi.waitFor(() => expect(document.querySelector('[data-busy-block]')).not.toBeNull(), {
+			timeout: 3000,
+		})
+		const block = document.querySelector('[data-busy-block]') as HTMLElement
+		// It takes no pointer events, so a right-click lands on the slot beneath it.
+		expect(block).toHaveClass('pointer-events-none')
+		expect(block).not.toHaveAttribute('data-slot', 'context-menu-trigger')
+		expect(block.closest('[data-slot="context-menu-trigger"]')).toHaveAttribute('data-calendar-day-column')
+	})
+
+	it('opens the same event menu from a month chip without drilling into the day', () => {
+		render(<CalendarRouteScreen view="month" data={monthData()} />)
+		openMenu(screen.getByRole('button', { name: /Meeting/ }), 'Actions for Meeting')
+		fireEvent.click(item('Edit'))
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({ event: 'm2', startInEdit: 'true' })
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('hides and shows a calendar from its row, and manages it through the calendar manager', () => {
+		renderWeek()
+		const row = () => screen.getByRole('button', { name: /^Calendar/ })
+		openMenu(row(), 'Actions for Calendar')
+		fireEvent.click(item('Hide calendar'))
+		expect(row()).toHaveAttribute('aria-pressed', 'false')
+
+		openMenu(row(), 'Actions for Calendar')
+		fireEvent.click(item('Show calendar'))
+		expect(row()).toHaveAttribute('aria-pressed', 'true')
+
+		openMenu(row(), 'Actions for Calendar')
+		fireEvent.click(item('Delete…'))
+		expect(screen.getByRole('dialog', { name: 'Calendar manager' })).toHaveAttribute(
+			'data-initial-action',
+			JSON.stringify({ kind: 'delete', id: 'cal2' }),
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'close-calendar-manager' }))
+
+		openMenu(row(), 'Actions for Calendar')
+		fireEvent.click(item('Rename…'))
+		expect(screen.getByRole('dialog', { name: 'Calendar manager' })).toHaveAttribute(
+			'data-initial-action',
+			JSON.stringify({ kind: 'edit', id: 'cal2' }),
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'close-calendar-manager' }))
+
+		// The toolbar button still opens the plain list.
+		fireEvent.click(screen.getByRole('button', { name: 'Manage calendars' }))
+		expect(screen.getByRole('dialog', { name: 'Calendar manager' })).toHaveAttribute(
+			'data-initial-action',
+			'null',
+		)
+	})
+
+	it('shows what the calendar manager forbids as unavailable: the primary and read-only calendars', () => {
+		render(
+			<CalendarRouteScreen
+				view="week"
+				data={{
+					...richData(),
+					calendars: [...calendars, { id: 'cal3', name: 'Holidays', read_only: true }] as Calendar[],
+				}}
+			/>,
+		)
+		openMenu(screen.getByRole('button', { name: /^Work/ }), 'Actions for Work')
+		expect(item('Rename…')).not.toHaveAttribute('aria-disabled')
+		expect(item('Delete…')).toHaveAttribute('aria-disabled', 'true')
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+		openMenu(screen.getByRole('button', { name: /^Holidays/ }), 'Actions for Holidays')
+		expect(item('Rename…')).toHaveAttribute('aria-disabled', 'true')
+		expect(item('Delete…')).toHaveAttribute('aria-disabled', 'true')
+		expect(item('Hide calendar')).not.toHaveAttribute('aria-disabled')
+	})
+
+	it('keeps calendar shortcuts out of an open menu', () => {
+		renderWeek()
+		openMenu(chip(/^Standup/), 'Actions for Standup')
+		// Typeahead letters inside the menu must not switch the view or start an event.
+		for (const key of ['m', 'd', 'n', 't']) fireEvent.keyDown(item('Open'), { key })
+		// The same holds for any other menu on the page.
+		const otherMenu = document.body.appendChild(document.createElement('div'))
+		otherMenu.setAttribute('role', 'menu')
+		for (const key of ['m', 'd', 'n', 't']) fireEvent.keyDown(otherMenu, { key })
+		otherMenu.remove()
+		expect(h.navigate).not.toHaveBeenCalled()
+		expect(screen.queryByTestId('event-modal')).toBeNull()
 	})
 })

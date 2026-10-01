@@ -179,3 +179,24 @@ describe('a dismissal request from the surrounding surface', () => {
 		await waitFor(() => expect(onRsvped).toHaveBeenCalledOnce())
 	})
 })
+
+describe('opened on the delete confirmation from the event context menu', () => {
+	it('shows the confirmation at once with focus on the safe choice, and deletes only once confirmed', async () => {
+		const { onDeleted } = renderPanel(invitation(), { startOnDeleteConfirmation: true })
+		expect(screen.getByRole('group', { name: /Delete this event\?/ })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+		// The menu that asked for it is still closing; the safe choice takes focus again once it is gone.
+		screen.getByRole('button', { name: 'Close' }).focus()
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus())
+		expect(deleteEvent).not.toHaveBeenCalled()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Delete event' }))
+		await waitFor(() => expect(onDeleted).toHaveBeenCalled())
+		expect(deleteEvent).toHaveBeenCalledWith({ data: { eventId: 'evt1', calendarId: 'cal1' } })
+	})
+
+	it('shows a read-only event as it is', () => {
+		renderPanel(invitation({ read_only: true }), { startOnDeleteConfirmation: true })
+		expect(screen.queryByRole('group', { name: /Delete this event\?/ })).not.toBeInTheDocument()
+	})
+})
