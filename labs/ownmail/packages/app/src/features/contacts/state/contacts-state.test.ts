@@ -6,6 +6,7 @@ import {
 	type ContactsPages,
 	contactsKeys,
 	contactsStateTestApi,
+	findCachedContact,
 	flattenContactPages,
 	resetContactConfirmedEffects,
 } from './contacts-state.js'
@@ -23,6 +24,17 @@ function pages(): ContactsPages {
 describe('contact cache effects', () => {
 	it('deduplicates contacts across loaded pages', () => {
 		expect(flattenContactPages(pages()).map((contact) => contact.id)).toEqual(['contact-1', 'contact-2'])
+	})
+
+	it('names a contact from the loaded list so a loading detail can show who was selected', () => {
+		const queryClient = new QueryClient()
+		// Before the list has loaded there is nothing to name the selection with.
+		expect(findCachedContact(queryClient, grace.id)).toBeUndefined()
+
+		queryClient.setQueryData(contactsKeys.list(), pages())
+
+		expect(findCachedContact(queryClient, grace.id)).toEqual(grace)
+		expect(findCachedContact(queryClient, 'someone-else')).toBeUndefined()
 	})
 
 	it('updates list copies and detail data together', () => {

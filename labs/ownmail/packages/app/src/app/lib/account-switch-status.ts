@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from 'react'
 
 /* The switching state outlives the control that started it: the mobile
- * switcher unmounts as its navigation sheet closes, while the status overlay
- * rendered by the root route keeps the transition visible. */
+ * switcher unmounts as its navigation sheet closes, and the root route replaces
+ * the whole app with a loader until the next inbox is ready. */
 let switchingTo: string | null = null
 const listeners = new Set<() => void>()
 

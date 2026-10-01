@@ -1,10 +1,11 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { useQuery } from '@tanstack/react-query'
-import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
+import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { MobileTabBar } from '#app/components/MobileTabBar'
 import {
 	CHROME_ROW_CLASS,
@@ -232,7 +233,9 @@ export function MailRouteScreen({
 					<MailSidebar {...sidebarProps} />
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-					<div className="flex min-h-0 flex-1 overflow-hidden">{children ?? <Outlet />}</div>
+					<div className="flex min-h-0 flex-1 overflow-hidden">
+						{children ?? <ContentReadyOutlet parentRouteId="/mail" />}
+					</div>
 				</div>
 			</div>
 			<MobileTabBar active="mail" context={hasThreadActions ? 'thread' : 'primary'} />

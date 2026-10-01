@@ -33,7 +33,7 @@ vi.mock('#features/calendar/server/calendar-fns', () => ({
 import { mailMutationTestApi } from '#features/mail/state/mail-mutations'
 import { mailKeys } from '#features/mail/state/mail-queries'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
-import { AccountSwitchOverlay } from '../components/AccountSwitchOverlay.js'
+import { AccountSwitchLoader } from '../components/AccountSwitchLoader.js'
 import { createOwnmailQueryClient } from '../query/query-provider.js'
 import {
 	ACCOUNT_SWITCH_BLOCKED_MESSAGE,
@@ -70,7 +70,7 @@ function Switcher({ holdMutation = false }: { holdMutation?: boolean }) {
 				</button>
 			) : null}
 			<p data-testid="state">{`${blocked ? 'blocked' : 'ready'}:${switching ?? 'idle'}`}</p>
-			<AccountSwitchOverlay />
+			{switching ? <AccountSwitchLoader email={switching} /> : null}
 		</>
 	)
 }

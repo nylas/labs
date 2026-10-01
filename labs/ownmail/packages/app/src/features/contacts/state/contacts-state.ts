@@ -142,6 +142,12 @@ export function flattenContactPages(data: ContactsPages): Contact[] {
 	return dedupeContacts(data.pages.flatMap((page) => page.contacts))
 }
 
+/** A contact already in the loaded list, used to name a detail that is still loading. */
+export function findCachedContact(queryClient: QueryClient, contactId: string): Contact | undefined {
+	const pages = queryClient.getQueryData<ContactsPages>(contactsKeys.list())
+	return pages ? flattenContactPages(pages).find((contact) => contact.id === contactId) : undefined
+}
+
 function updateContactPages(
 	data: ContactsPages | undefined,
 	updater: (contacts: Contact[], pageIndex: number) => Contact[],

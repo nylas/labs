@@ -1,10 +1,15 @@
 import type { Contact } from '@nylas-labs/cli-kit/v3'
+import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Building2, Mail, Pencil, Phone, StickyNote, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { ContactModal } from '#features/contacts/components/ContactModal'
 import { contactDisplayName, contactSubtitle } from '#features/contacts/lib/contacts-model'
-import { useContact, useDeleteContactMutation } from '#features/contacts/state/contacts-state'
+import {
+	findCachedContact,
+	useContact,
+	useDeleteContactMutation,
+} from '#features/contacts/state/contacts-state'
 import { getContact } from '#server/fns'
 import { Section } from '#shared/components/ui/section'
 import { ContactAvatar } from './contacts.js'
@@ -16,10 +21,44 @@ export const Route = createFileRoute('/contacts/$contactId')({
 	}),
 	loader: ({ params }) => getContact({ data: { contactId: params.contactId } }),
 	component: ContactDetailRoute,
+	pendingComponent: ContactPending,
 })
+
+/** Shown while another contact loads. The name comes from the list beside it
+ * when that row is cached; the previous contact's details are never kept. */
+function ContactPending() {
+	const { contactId } = Route.useParams()
+	const listed = findCachedContact(useQueryClient(), contactId)
+	const name = listed ? contactDisplayName(listed) : undefined
+	return (
+		<div data-testid="contact-pending" aria-busy="true" className="mx-auto max-w-2xl px-5 py-6">
+			<div className="flex items-start gap-4">
+				{name ? (
+					<ContactAvatar name={name} className="h-14 w-14 text-lg" />
+				) : (
+					<div className="h-14 w-14 shrink-0 animate-pulse rounded-full bg-muted motion-reduce:animate-none" />
+				)}
+				<div className="min-w-0 flex-1">
+					<h1 className="text-xl font-semibold text-balance">{name ?? 'Loading contact…'}</h1>
+				</div>
+			</div>
+			<div className="mt-6 flex flex-col gap-3" aria-hidden="true">
+				<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+				<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+				<div className="h-4 w-1/2 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+			</div>
+		</div>
+	)
+}
 
 function ContactDetailRoute() {
 	const loadedContact = Route.useLoaderData()
+	// The delete confirmation and its error belong to one contact, so they live
+	// under a key equal to the contact id.
+	return <ContactDetail key={loadedContact.id} loadedContact={loadedContact} />
+}
+
+function ContactDetail({ loadedContact }: { loadedContact: Contact }) {
 	const { data: contact } = useContact(loadedContact.id, loadedContact)
 	const { q, edit } = Route.useSearch()
 	const navigate = useNavigate()

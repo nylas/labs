@@ -10,10 +10,11 @@ import {
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { AccountSwitchOverlay } from '#app/components/AccountSwitchOverlay'
+import { AccountSwitchLoader } from '#app/components/AccountSwitchLoader'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
+import { useAccountSwitchStatus } from '#app/lib/account-switch-status'
 import type { OwnmailRouterContext } from '#app/query/query-provider'
 import { platform } from '#server/platform'
 import { DEFAULT_SITE_NAME, siteNameFromEnv } from '#server/site-config'
@@ -107,6 +108,7 @@ function NotFoundComponent() {
 }
 
 function RootComponent() {
+	const switchingTo = useAccountSwitchStatus()
 	return (
 		<html lang="en" className={INITIAL_ROOT_CLASS_NAME} suppressHydrationWarning>
 			<head>
@@ -123,8 +125,8 @@ function RootComponent() {
 			<body suppressHydrationWarning>
 				<NavigationProgress />
 				<RouteAnnouncer />
-				<Outlet />
-				<AccountSwitchOverlay />
+				{/* The previous inbox is unmounted, never covered, while the next one loads. */}
+				{switchingTo ? <AccountSwitchLoader email={switchingTo} /> : <Outlet />}
 				<Scripts />
 			</body>
 		</html>
