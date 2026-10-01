@@ -91,7 +91,9 @@ mobile rows prefer 48 pixels.
 
 `pnpm lint` enforces this through `scripts/check-ownmail-accent-rails.mjs`:
 one-sided border utilities and CSS borders, one-sided inset shadows, and CSS
-pseudo-element or absolutely positioned bars 2 to 4px thick. Bars built from
+pseudo-element or absolutely positioned bars 2 to 4px thick, and full-width
+colour strips built from Tailwind utilities on one line (`h-0.5`, `h-1` or
+`h-1.5` with `w-full` or `inset-x-0` and a fill). Other bars built from
 Tailwind utilities in components are not detected and need review.
 
 ## Mobile surface rules

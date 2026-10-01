@@ -194,6 +194,33 @@ test('allows hairlines, dots, thumbs and thin boxes that are in normal flow', ()
 	assert.deepEqual(violations('a.tsx', 'const css = ".a { position: absolute; width: 2px; }"'), [])
 })
 
+// Review finding: the event dialogs drew the calendar colour as a strip across their top edge.
+test('rejects full-width thin colour strips built from Tailwind utilities', () => {
+	for (const line of [
+		"<div className={cn('h-1.5 w-full', eventBarClass(tone))} />",
+		"<div className={cn('h-1 w-full shrink-0', eventBarClass(selectedCalendarTone))} />",
+		'<div className="absolute inset-x-0 top-0 h-0.5 bg-primary" />',
+		'<span className="h-1 w-full bg-event-teal" />',
+	]) {
+		const [violation] = violations('features/calendar/components/EventModal.tsx', line)
+		assert.equal(violation?.kind, 'edge-strip', line)
+	}
+})
+
+test('allows swatches, dots, skeleton lines and unfilled spacers', () => {
+	for (const line of [
+		"<span className={cn('h-[11px] w-[11px] shrink-0 rounded-[3px]', eventDotClass(tone))} />",
+		"<span className={cn('h-2 w-2 rounded-full', eventDotClass(tone))} />",
+		'<div className="h-4 w-full animate-pulse rounded bg-muted" />',
+		'<div className="h-1 w-full" />',
+		'<div className="h-1 w-full bg-transparent" />',
+		'<div className="h-11 w-full bg-card md:h-1" />',
+		'<div className="min-h-1 w-full bg-card" />',
+	]) {
+		assert.deepEqual(violations('routes/calendar.tsx', line), [], line)
+	}
+})
+
 test('scans source and CSS but skips tests and email fixtures', () => {
 	const root = mkdtempSync(join(tmpdir(), 'ownmail-accent-rails-'))
 	try {

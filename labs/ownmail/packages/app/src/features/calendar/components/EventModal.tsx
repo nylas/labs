@@ -73,10 +73,6 @@ function currentViewportSize(): Size {
 	return { width: window.innerWidth, height: window.innerHeight }
 }
 
-function eventBarClass(tone: EventTone): string {
-	return eventColorClass(tone, 'bg')
-}
-
 function eventDotClass(tone: EventTone): string {
 	return eventColorClass(tone, 'bg')
 }
@@ -416,10 +412,13 @@ export function EventModal({
 			>
 				<DialogContent presentation="bottom-sheet" className={EVENT_DIALOG_PANEL_CLASS}>
 					<DialogTitle className="sr-only">Event details</DialogTitle>
-					<div className={cn('h-1.5 w-full', eventBarClass(tone))} />
 					<div className="flex items-start justify-between gap-3 px-5 pt-4">
 						<div className="flex min-w-0 items-start gap-3">
-							<span className={cn('mt-1.5 h-3 w-3 shrink-0 rounded-full', eventDotClass(tone))} />
+							<span
+								data-slot="calendar-swatch"
+								aria-hidden="true"
+								className={cn('mt-2 h-[11px] w-[11px] shrink-0 rounded-[3px]', eventDotClass(tone))}
+							/>
 							<div className="min-w-0">
 								<h2 className="text-lg leading-snug font-semibold text-balance">
 									{event.title || '(untitled)'}
@@ -627,7 +626,6 @@ export function EventModal({
 				} as CSSProperties
 			}
 		>
-			<div className={cn('h-1 w-full shrink-0', eventBarClass(selectedCalendarTone))} />
 			<div
 				onPointerDown={startPanelDrag}
 				className="flex touch-auto items-center justify-between gap-3 border-b border-border px-5 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 select-none sm:touch-none sm:pt-3"
@@ -635,7 +633,18 @@ export function EventModal({
 				<div className="flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
 					<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 					<div>
-						<h2 className="font-display text-lg font-semibold">New event</h2>
+						<div className="flex items-center gap-2">
+							<span
+								data-slot="calendar-swatch"
+								aria-hidden="true"
+								className={cn(
+									'h-[11px] w-[11px] shrink-0 rounded-[3px]',
+									eventDotClass(selectedCalendarTone),
+								)}
+							/>
+							<h2 className="font-display text-lg font-semibold">New event</h2>
+							<span className="sr-only">{selectedCalendar?.name || calendarName} calendar</span>
+						</div>
 						<p className="text-xs text-muted-foreground">Add the essentials, then save.</p>
 					</div>
 				</div>

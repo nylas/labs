@@ -28,6 +28,12 @@ const PATTERNS = [
 	},
 ]
 
+// A full-width strip 2 to 6px tall with a fill, built from Tailwind utilities:
+// `h-1 w-full bg-primary`, `cn('h-1.5 inset-x-0', toneClass(tone))`.
+const STRIP_HEIGHT = /(?<![\w:.-])h-(?:0\.5|1|1\.5)(?![\w.-])/
+const STRIP_WIDTH = /(?<![\w-])(?:w-full|inset-x-0)(?![\w-])/
+const STRIP_FILL = /(?<![\w-])bg-(?!transparent\b)|\w+Class\(/
+
 // A bar 2 to 4px thick: `2px`..`4px` or `0.125rem`..`0.25rem`.
 const THIN = /^(?:[2-4]px|0?\.(?:125|1875|25)rem)$/
 
@@ -71,6 +77,16 @@ export function findAccentRailViolations({ filePath, sourceText }) {
 			const match = regex.exec(text)
 			if (match)
 				violations.push({ filePath, line: index + 1, column: match.index + 1, kind, match: match[0] })
+		}
+		const strip = STRIP_HEIGHT.exec(text)
+		if (strip && STRIP_WIDTH.test(text) && STRIP_FILL.test(text)) {
+			violations.push({
+				filePath,
+				line: index + 1,
+				column: strip.index + 1,
+				kind: 'edge-strip',
+				match: strip[0],
+			})
 		}
 	})
 	if (filePath.endsWith('.css')) violations.push(...findEdgeBars(filePath, sourceText))
