@@ -1,19 +1,36 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, renderHook } from '@testing-library/react'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	availableTimezones,
 	defaultUserPreferences,
+	displayNameFor,
 	hiddenCalendarIdsFor,
 	isSupportedTimezone,
 	readUserPreferences,
+	USER_PREFERENCES_STORAGE_KEY,
+	userPreferencesTestApi,
+	useUserPreferences,
+	useUserPreferencesReady,
+	withDisplayName,
 	withHiddenCalendarIds,
 	writeUserPreferences,
 } from './user-preferences.js'
 
-describe('user preferences', () => {
-	beforeEach(() => window.localStorage.clear())
+beforeEach(() => {
+	window.localStorage.clear()
+	userPreferencesTestApi.reset()
+})
 
+afterEach(() => {
+	cleanup()
+	vi.restoreAllMocks()
+})
+
+describe('user preferences', () => {
 	it('uses safe local defaults when no preference has been saved', () => {
 		const preferences = defaultUserPreferences()
 		expect(preferences.autoSaveContacts).toBe(true)
@@ -27,7 +44,7 @@ describe('user preferences', () => {
 
 	it('normalizes saved values and drops invalid or duplicate timezones', () => {
 		const saved = writeUserPreferences({
-			displayName: '  Ada Lovelace  ',
+			displayNameByAccount: { 'Ada@Example.com': '  Ada Lovelace  ' },
 			autoSaveContacts: false,
 			emailDarkMode: false,
 			emailLayoutMode: 'original',
@@ -40,7 +57,7 @@ describe('user preferences', () => {
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
 		})
 		expect(saved).toEqual({
-			displayName: 'Ada Lovelace',
+			displayNameByAccount: { 'ada@example.com': 'Ada Lovelace' },
 			autoSaveContacts: false,
 			emailDarkMode: false,
 			emailLayoutMode: 'original',
@@ -84,7 +101,7 @@ describe('user preferences', () => {
 		expect(readUserPreferences()).toEqual(defaultUserPreferences())
 
 		const saved = writeUserPreferences({
-			displayName: 123 as never,
+			displayNameByAccount: 123 as never,
 			autoSaveContacts: true,
 			emailDarkMode: true,
 			emailLayoutMode: 'invalid' as never,
@@ -95,7 +112,7 @@ describe('user preferences', () => {
 			hiddenCalendarsByAccount: ['cal-work'] as never,
 		})
 		expect(saved.hiddenCalendarsByAccount).toEqual({})
-		expect(saved.displayName).toBe('')
+		expect(saved.displayNameByAccount).toEqual({})
 		expect(saved.remoteImagePolicy).toBe('ask')
 		expect(saved.emailLayoutMode).toBe('readable')
 		expect(saved.emailColorMode).toBe('automatic')
@@ -196,16 +213,151 @@ describe('user preferences', () => {
 			throw new Error('storage unavailable')
 		})
 		expect(
-			writeUserPreferences({
-				displayName: 'Ada',
-				autoSaveContacts: true,
-				emailDarkMode: true,
-				emailLayoutMode: 'readable',
-				emailColorMode: 'automatic',
-				remoteImagePolicy: 'ask',
-				primaryTimezone: 'UTC',
-				secondaryTimezone: '',
-			}),
-		).toMatchObject({ displayName: 'Ada', primaryTimezone: 'UTC' })
+			writeUserPreferences({ ...defaultUserPreferences(), readingPane: 'none', primaryTimezone: 'UTC' }),
+		).toMatchObject({ readingPane: 'none', primaryTimezone: 'UTC' })
+		// Nothing was stored, but the choice still holds for this visit.
+		expect(window.localStorage.getItem(USER_PREFERENCES_STORAGE_KEY)).toBeNull()
+		expect(readUserPreferences().readingPane).toBe('none')
+	})
+
+	it('falls back to defaults when browser storage cannot be read at all', () => {
+		vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+			throw new Error('storage blocked')
+		})
+		expect(readUserPreferences()).toEqual(defaultUserPreferences())
+	})
+})
+
+describe('per-inbox display names', () => {
+	it('never shows one inbox the display name saved in another', () => {
+		const saved = writeUserPreferences(
+			withDisplayName(defaultUserPreferences(), 'Ada@Example.com', '  Ada Lovelace '),
+		)
+		expect(displayNameFor(saved, ' ada@example.com ')).toBe('Ada Lovelace')
+		// Grace has no name of her own; she must not be labelled "Ada Lovelace".
+		expect(displayNameFor(saved, 'grace@example.com')).toBe('')
+
+		const both = withDisplayName(saved, 'grace@example.com', 'Grace Hopper')
+		expect(displayNameFor(both, 'ada@example.com')).toBe('Ada Lovelace')
+		expect(displayNameFor(both, 'grace@example.com')).toBe('Grace Hopper')
+	})
+
+	it('drops the legacy single display name because it cannot be attributed to an inbox', () => {
+		window.localStorage.setItem(
+			USER_PREFERENCES_STORAGE_KEY,
+			JSON.stringify({ ...defaultUserPreferences(), displayName: 'Ada Lovelace' }),
+		)
+		const read = readUserPreferences()
+		expect(read.displayNameByAccount).toEqual({})
+		expect(read).not.toHaveProperty('displayName')
+		expect(displayNameFor(read, 'grace@example.com')).toBe('')
+	})
+
+	it('keeps only well-formed names for well-formed inboxes, so a tampered store cannot label an account', () => {
+		const saved = writeUserPreferences({
+			...defaultUserPreferences(),
+			displayNameByAccount: {
+				'ada@example.com': `  ${'A'.repeat(150)}  `,
+				'not-an-email': 'Mallory',
+				'blank@example.com': '   ',
+				'wrong-shape@example.com': 42 as never,
+				'line\nbreak@example.com': 'Mallory',
+			},
+		})
+		expect(saved.displayNameByAccount).toEqual({ 'ada@example.com': 'A'.repeat(120) })
+		expect(
+			writeUserPreferences({ ...defaultUserPreferences(), displayNameByAccount: ['Ada'] as never })
+				.displayNameByAccount,
+		).toEqual({})
+	})
+
+	it('clears a name, ignores an unusable inbox, and caps stored inboxes to the most recent', () => {
+		let preferences = withDisplayName(defaultUserPreferences(), 'ada@example.com', 'Ada')
+		expect(withDisplayName(preferences, 'no-at-sign', 'Mallory')).toBe(preferences)
+		expect(displayNameFor(preferences, '')).toBe('')
+		expect(withDisplayName(preferences, 'ada@example.com', '  ').displayNameByAccount).toEqual({})
+
+		for (let index = 0; index < 22; index++) {
+			preferences = withDisplayName(preferences, `user${index}@example.com`, `User ${index}`)
+		}
+		preferences = withDisplayName(preferences, 'ada@example.com', 'Ada again')
+		const saved = writeUserPreferences(preferences)
+		expect(Object.keys(saved.displayNameByAccount)).toHaveLength(20)
+		expect(displayNameFor(saved, 'ada@example.com')).toBe('Ada again')
+		expect(displayNameFor(saved, 'user0@example.com')).toBe('')
+		expect(displayNameFor(saved, 'user21@example.com')).toBe('User 21')
+	})
+})
+
+describe('shared preference store', () => {
+	it('has the saved values on the very first client render, with no default-then-flip', () => {
+		writeUserPreferences({
+			...defaultUserPreferences(),
+			readingPane: 'horizontal',
+			emailLayoutMode: 'original',
+		})
+		const renders: string[] = []
+
+		const { result } = renderHook(() => {
+			const [preferences] = useUserPreferences()
+			renders.push(`${preferences.readingPane}:${preferences.emailLayoutMode}:${useUserPreferencesReady()}`)
+			return preferences
+		})
+
+		// A reader that started from defaults would paint "vertical" first.
+		expect(renders[0]).toBe('horizontal:original:true')
+		expect(new Set(renders)).toEqual(new Set(['horizontal:original:true']))
+		// The snapshot keeps its identity until the stored text changes.
+		expect(readUserPreferences()).toBe(result.current)
+	})
+
+	it('renders defaults marked "not ready" on the server, so dependent regions can show a placeholder', () => {
+		writeUserPreferences({ ...defaultUserPreferences(), readingPane: 'horizontal' })
+
+		function Probe() {
+			const [preferences] = useUserPreferences()
+			return createElement('p', null, `${preferences.readingPane}:${useUserPreferencesReady()}`)
+		}
+
+		// The server cannot read this device's storage.
+		expect(renderToString(createElement(Probe))).toBe('<p>vertical:false</p>')
+	})
+
+	it('is one store: a change saved by one reader reaches every other reader', () => {
+		const first = renderHook(() => useUserPreferences())
+		const second = renderHook(() => useUserPreferences())
+
+		act(() => first.result.current[1]({ ...first.result.current[0], readingPane: 'none' }))
+
+		expect(first.result.current[0].readingPane).toBe('none')
+		expect(second.result.current[0].readingPane).toBe('none')
+	})
+
+	it('follows changes made in another tab and ignores unrelated storage keys', () => {
+		const { result, unmount } = renderHook(() => useUserPreferences())
+		const before = result.current[0]
+
+		act(() => {
+			window.localStorage.setItem('theme', 'dark')
+			window.dispatchEvent(new StorageEvent('storage', { key: 'theme' }))
+		})
+		expect(result.current[0]).toBe(before)
+
+		act(() => {
+			window.localStorage.setItem(
+				USER_PREFERENCES_STORAGE_KEY,
+				JSON.stringify({ ...defaultUserPreferences(), readingPane: 'horizontal' }),
+			)
+			window.dispatchEvent(new StorageEvent('storage', { key: USER_PREFERENCES_STORAGE_KEY }))
+		})
+		expect(result.current[0].readingPane).toBe('horizontal')
+
+		// `localStorage.clear()` in another tab reports a null key and wipes the entry.
+		act(() => {
+			window.localStorage.clear()
+			window.dispatchEvent(new StorageEvent('storage', { key: null }))
+		})
+		expect(result.current[0].readingPane).toBe('vertical')
+		unmount()
 	})
 })

@@ -1,6 +1,20 @@
-const STORAGE_KEY = 'ownmail:trusted-image-senders:v2'
-const LEGACY_STORAGE_KEY = 'ownmail:trusted-image-senders:v1'
-const ORIGINAL_COLORS_STORAGE_KEY = 'ownmail:original-color-senders:v1'
+import { accountKey } from '#shared/lib/account-key'
+
+/* Sender choices are made inside one inbox and apply only there, so each list
+ * is stored under its mailbox: `<base>:<account>`.
+ *
+ * Lists written before this were shared by every inbox on the device. They
+ * cannot be attributed to an inbox, so they are deliberately dropped (never
+ * read, and removed on the next write or clear) rather than applied to
+ * whichever inbox happens to be active. The cost is that a sender has to be
+ * trusted once more. */
+const TRUSTED_SENDERS_KEY = 'ownmail:trusted-image-senders:v3'
+const ORIGINAL_COLORS_KEY = 'ownmail:original-color-senders:v2'
+const LEGACY_SHARED_KEYS = [
+	'ownmail:trusted-image-senders:v1',
+	'ownmail:trusted-image-senders:v2',
+	'ownmail:original-color-senders:v1',
+]
 const DATABASE_NAME = 'ownmail-sender-trust'
 const DATABASE_VERSION = 1
 const KEY_STORE_NAME = 'keys'
@@ -180,68 +194,94 @@ async function writeSenderList(
 			storageKey,
 			JSON.stringify({ v: 1, iv: base64url(iv), ciphertext: base64url(new Uint8Array(ciphertext)) }),
 		)
-		if (storageKey === STORAGE_KEY) storage.removeItem(LEGACY_STORAGE_KEY)
+		removeLegacySharedLists(storage)
 		return true
 	} catch {
 		return false
 	}
 }
 
+function removeLegacySharedLists(storage: Storage): void {
+	for (const legacyKey of LEGACY_SHARED_KEYS) storage.removeItem(legacyKey)
+}
+
+/** The storage key of one mailbox's list. An unusable account has no list:
+ * every caller then fails closed instead of falling back to a shared one. */
+function accountStorageKey(base: string, account: string | null | undefined): string | null {
+	const key = accountKey(account)
+	return key ? `${base}:${key}` : null
+}
+
 export async function senderImagesTrusted(
 	sender: string | null | undefined,
+	account: string | null | undefined,
 	storage: Storage = localStorage,
 	keyStore: SenderTrustKeyStore = browserKeyStore,
 ): Promise<boolean> {
 	const canonical = canonicalSender(sender)
-	const key = canonical ? await keyStore.getOrCreateKey() : null
-	return key && canonical ? (await readSenderList(storage, key, STORAGE_KEY)).includes(canonical) : false
+	const storageKey = accountStorageKey(TRUSTED_SENDERS_KEY, account)
+	const key = canonical && storageKey ? await keyStore.getOrCreateKey() : null
+	return key && canonical && storageKey
+		? (await readSenderList(storage, key, storageKey)).includes(canonical)
+		: false
 }
 
 export async function trustSenderImages(
 	sender: string | null | undefined,
+	account: string | null | undefined,
 	storage: Storage = localStorage,
 	keyStore: SenderTrustKeyStore = browserKeyStore,
 ): Promise<boolean> {
 	const canonical = canonicalSender(sender)
-	const key = canonical ? await keyStore.getOrCreateKey() : null
-	if (!canonical || !key) return false
-	const senders = (await readSenderList(storage, key, STORAGE_KEY)).filter(
+	const storageKey = accountStorageKey(TRUSTED_SENDERS_KEY, account)
+	const key = canonical && storageKey ? await keyStore.getOrCreateKey() : null
+	if (!canonical || !storageKey || !key) return false
+	const senders = (await readSenderList(storage, key, storageKey)).filter(
 		(candidate) => candidate !== canonical,
 	)
-	return writeSenderList(storage, key, STORAGE_KEY, [canonical, ...senders].slice(0, MAX_TRUSTED_SENDERS))
+	return writeSenderList(storage, key, storageKey, [canonical, ...senders].slice(0, MAX_TRUSTED_SENDERS))
 }
 
 /** Senders whose mail the reader chose to always show in its original colors. */
 export async function originalColorSenders(
+	account: string | null | undefined,
 	storage: Storage = localStorage,
 	keyStore: SenderTrustKeyStore = browserKeyStore,
 ): Promise<string[]> {
-	const key = await keyStore.getOrCreateKey()
-	return key ? readSenderList(storage, key, ORIGINAL_COLORS_STORAGE_KEY) : []
+	const storageKey = accountStorageKey(ORIGINAL_COLORS_KEY, account)
+	const key = storageKey ? await keyStore.getOrCreateKey() : null
+	return key && storageKey ? readSenderList(storage, key, storageKey) : []
 }
 
 /** Remember (or forget) that a sender's mail should keep its original colors. */
 export async function setSenderOriginalColors(
 	sender: string | null | undefined,
 	enabled: boolean,
+	account: string | null | undefined,
 	storage: Storage = localStorage,
 	keyStore: SenderTrustKeyStore = browserKeyStore,
 ): Promise<boolean> {
 	const canonical = canonicalSender(sender)
-	const key = canonical ? await keyStore.getOrCreateKey() : null
-	if (!canonical || !key) return false
-	const others = (await readSenderList(storage, key, ORIGINAL_COLORS_STORAGE_KEY)).filter(
+	const storageKey = accountStorageKey(ORIGINAL_COLORS_KEY, account)
+	const key = canonical && storageKey ? await keyStore.getOrCreateKey() : null
+	if (!canonical || !storageKey || !key) return false
+	const others = (await readSenderList(storage, key, storageKey)).filter(
 		(candidate) => candidate !== canonical,
 	)
 	const senders = enabled ? [canonical, ...others].slice(0, MAX_TRUSTED_SENDERS) : others
-	return writeSenderList(storage, key, ORIGINAL_COLORS_STORAGE_KEY, senders)
+	return writeSenderList(storage, key, storageKey, senders)
 }
 
-/** Remove every remembered per-sender image permission without exposing stored identities. */
-export function clearTrustedImageSenders(storage: Storage = localStorage): boolean {
+/** Remove one mailbox's remembered per-sender image permissions without exposing stored identities. */
+export function clearTrustedImageSenders(
+	account: string | null | undefined,
+	storage: Storage = localStorage,
+): boolean {
+	const storageKey = accountStorageKey(TRUSTED_SENDERS_KEY, account)
+	if (!storageKey) return false
 	try {
-		storage.removeItem(STORAGE_KEY)
-		storage.removeItem(LEGACY_STORAGE_KEY)
+		storage.removeItem(storageKey)
+		removeLegacySharedLists(storage)
 		return true
 	} catch {
 		return false

@@ -45,6 +45,7 @@ vi.mock('#shared/components/Sheet', () => ({
 		) : null,
 }))
 
+import { userPreferencesTestApi } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { Route } from './settings.js'
 
@@ -79,11 +80,12 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup()
 	vi.restoreAllMocks()
+	userPreferencesTestApi.reset()
 })
 
 describe('/settings', () => {
 	it('loads account information and the server-owned password capability', async () => {
-		await expect(Route.options.loader()).resolves.toEqual({
+		await expect(Route.options.loader({ context: { queryClient: new QueryClient() } })).resolves.toEqual({
 			info,
 			capabilities: { passwordResetEnabled: false },
 		})
@@ -211,7 +213,8 @@ describe('/settings', () => {
 			appName: 'OwnMail',
 		})
 		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toEqual({
-			displayName: 'Ada Lovelace',
+			// The name is saved for this mailbox only.
+			displayNameByAccount: { 'ada@example.com': 'Ada Lovelace' },
 			autoSaveContacts: false,
 			emailDarkMode: false,
 			emailLayoutMode: 'readable',

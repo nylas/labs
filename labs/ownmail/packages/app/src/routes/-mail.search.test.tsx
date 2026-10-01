@@ -39,6 +39,7 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 const fns = vi.hoisted(() => ({
+	getMailboxInfo: vi.fn(async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' })),
 	getFolders: vi.fn(),
 	getThreads: vi.fn(),
 	getThreadMessages: vi.fn(),
@@ -171,7 +172,10 @@ describe('/mail/search loader', () => {
 		fns.getFolders.mockResolvedValue([])
 		fns.getThreads.mockResolvedValue({ threads: [] })
 
-		const result = await Route.options.loader({ deps: { q: 'y', folderId: 'work' } })
+		const result = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
+			deps: { q: 'y', folderId: 'work' },
+		})
 
 		expect(fns.getThreads).toHaveBeenCalledWith({ data: { q: 'y', folderId: 'work' } })
 		expect(fns.getThreadMessages).not.toHaveBeenCalled()
@@ -182,7 +186,10 @@ describe('/mail/search loader', () => {
 		fns.getFolders.mockResolvedValue([])
 		fns.getThreads.mockResolvedValue({ threads: [] })
 
-		const result = await Route.options.loader({ deps: { q: 'z' } })
+		const result = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
+			deps: { q: 'z' },
+		})
 
 		expect(fns.getThreads).toHaveBeenCalledWith({ data: { q: 'z' } })
 		expect(result.folderId).toBeUndefined()
@@ -193,6 +200,7 @@ describe('/mail/search loader', () => {
 		fns.getThreads.mockResolvedValue({ threads: [{ id: 'existing-mailbox-thread' }] })
 
 		const result = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
 			deps: { q: '   ', folderId: undefined, threadId: 'existing-mailbox-thread' },
 		})
 
@@ -656,30 +664,31 @@ describe('/mail/search thread detail', () => {
 		mailboxEmail?: string
 		markedRead?: boolean
 	}) {
-		Route.useSearch = vi.fn(() => ({ q: 'hello', threadId: overrides.thread.id }))
-		Route.useLoaderData = vi.fn(() => ({
-			folders: [],
-			folderId: 'work',
-			// A single row keeps list markup rendering alongside the detail pane.
-			threads: [
-				{
-					id: overrides.thread.id,
-					unread: false,
-					starred: false,
-					has_attachments: false,
-					folders: ['inbox'],
-					participants: [{ name: 'X' }],
-					subject: 'row',
-					snippet: '',
-					message_ids: ['1'],
-				},
-			],
-			selected: {
-				thread: overrides.thread,
-				messages: overrides.messages,
-				mailboxEmail: overrides.mailboxEmail ?? 'me@x.com',
+		// A single row keeps list markup rendering alongside the detail pane.
+		const threads = [
+			{
+				id: overrides.thread.id,
+				unread: false,
+				starred: false,
+				has_attachments: false,
+				folders: ['inbox'],
+				participants: [{ name: 'X' }],
+				subject: 'row',
+				snippet: '',
+				message_ids: ['1'],
 			},
-		}))
+		]
+		const selected = {
+			thread: overrides.thread,
+			messages: overrides.messages,
+			mailboxEmail: overrides.mailboxEmail ?? 'me@x.com',
+		}
+		Route.useSearch = vi.fn(() => ({ q: 'hello', threadId: overrides.thread.id }))
+		Route.useLoaderData = vi.fn(() => ({ folders: [], folderId: 'work', threads, selected }))
+		// A failed action ends with a refetch; the server still holds this conversation.
+		fns.getFolders.mockResolvedValue([])
+		fns.getThreads.mockResolvedValue({ threads })
+		fns.getThreadMessages.mockResolvedValue(selected)
 	}
 
 	it('lets search results use the chosen reading pane, keeping a way back when the list is hidden', async () => {
@@ -1123,6 +1132,10 @@ describe('/mail/search thread detail', () => {
 		})
 		Route.useSearch = vi.fn(() => ({ q: 'hello', folderId: 'work', threadId: selectedId }))
 		Route.useLoaderData = vi.fn(routeData)
+		// The failed action ends with a refetch; the server holds whichever result is open.
+		fns.getFolders.mockResolvedValue([])
+		fns.getThreads.mockResolvedValue({ threads: [] })
+		fns.getThreadMessages.mockImplementation(async () => routeData().selected)
 		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
 		const Comp = Route.options.component as () => JSX.Element
 		const view = render(

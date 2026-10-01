@@ -1,8 +1,14 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import { hiddenCalendarIdsFor, readUserPreferences } from '#app/preferences/user-preferences'
-import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { useEffect, useMemo } from 'react'
+import { accountScope } from '#app/lib/account-scope'
+import {
+	hiddenCalendarIdsFor,
+	readUserPreferences,
+	useUserPreferences,
+	useUserPreferencesReady,
+} from '#app/preferences/user-preferences'
+import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import {
 	createEvent,
 	deleteEvent,
@@ -17,6 +23,11 @@ import type {
 	UpdateEventInput,
 } from '#features/calendar/server/calendar-input'
 import {
+	type OptimisticWrite,
+	recordOptimisticWrite,
+	undoOptimisticWrite,
+} from '#shared/lib/optimistic-write'
+import {
 	addDays,
 	type CalView,
 	eventTimes,
@@ -26,6 +37,9 @@ import {
 	ymd,
 } from '../lib/calendar.js'
 import { isSameEmail } from '../lib/calendar-ui-model.js'
+import { CALENDAR_RANGE_START, calendarKeys, hiddenCalendarsKey } from './calendar-keys.js'
+
+export { calendarKeys }
 
 /** One cached event range. Route-only values (mailbox info, anchor) stay out of the cache. */
 export type CalendarRangeData = Awaited<ReturnType<typeof getEvents>>
@@ -34,23 +48,13 @@ export type CalendarRouteData = Awaited<ReturnType<typeof loadCalendarRouteData>
 /** A fetched range in Unix seconds, as stored in the range query key. */
 export type CalendarRange = { start: number; end: number }
 
-export const calendarKeys = {
-	all: ['calendar'] as const,
-	/**
-	 * Hidden calendars are not fetched, so they are part of what a range entry
-	 * holds: un-hiding one must miss the cache and load its events.
-	 */
-	range: (start: number, end: number, hiddenCalendarIds: readonly string[] = []) =>
-		['calendar', 'range', start, end, hiddenKey(hiddenCalendarIds)] as const,
-}
-
-/** Provider ids never contain a line break, so the joined list is unambiguous. */
-function hiddenKey(hiddenCalendarIds: readonly string[]): string {
-	return hiddenCalendarIds.join('\n')
-}
-
 const CONFIRMED_EFFECT_TTL_MS = 30_000
-const confirmedEffects = new WeakMap<QueryClient, Array<{ effect: CalendarEffect; expiresAt: number }>>()
+// Each receipt remembers the account it was confirmed for; it is only replayed
+// onto that account's ranges.
+const confirmedEffects = new WeakMap<
+	QueryClient,
+	Array<{ account: string; effect: CalendarEffect; expiresAt: number }>
+>()
 
 /** Drop replayed calendar receipts when the cache is cleared for another inbox. */
 export function resetCalendarConfirmedEffects(queryClient: QueryClient): void {
@@ -61,7 +65,7 @@ function rememberConfirmedCalendarEffect(queryClient: QueryClient, effect: Calen
 	const current = confirmedEffects.get(queryClient) ?? []
 	confirmedEffects.set(queryClient, [
 		...current.filter((entry) => entry.expiresAt > Date.now()),
-		{ effect, expiresAt: Date.now() + CONFIRMED_EFFECT_TTL_MS },
+		{ account: accountScope(), effect, expiresAt: Date.now() + CONFIRMED_EFFECT_TTL_MS },
 	])
 }
 
@@ -72,9 +76,12 @@ function reconcileCalendarData<T extends { events: Event[] }>(
 ): T {
 	const active = (confirmedEffects.get(queryClient) ?? []).filter((entry) => entry.expiresAt > Date.now())
 	confirmedEffects.set(queryClient, active)
+	const account = accountScope()
 	return {
 		...data,
-		events: active.reduce((events, entry) => applyEventEffect(events, entry.effect, range), data.events),
+		events: active
+			.filter((entry) => entry.account === account)
+			.reduce((events, entry) => applyEventEffect(events, entry.effect, range), data.events),
 	}
 }
 
@@ -118,10 +125,10 @@ export function calendarRangeQueryOptions(
  */
 export async function loadCalendarRouteData(queryClient: QueryClient, view: CalView, date?: string) {
 	const { anchor, start, end } = calendarRouteRange(view, date)
-	// Hidden calendars are a per-mailbox device preference, so the mailbox must be
-	// known before the range is requested. On the server there are no stored
-	// preferences and every calendar is fetched.
-	const info = await queryClient.ensureQueryData(mailboxInfoQueryOptions())
+	// The mailbox comes first, for two reasons: the range key is partitioned by
+	// account, and hidden calendars are a per-mailbox device preference. On the
+	// server there are no stored preferences and every calendar is fetched.
+	const info = await ensureMailboxInfo(queryClient)
 	const hiddenCalendarIds = hiddenCalendarIdsForRequest(
 		hiddenCalendarIdsFor(readUserPreferences(), info.email),
 	)
@@ -148,7 +155,8 @@ export function useCalendarRouteData(
 ) {
 	const queryClient = useQueryClient()
 	const { start, end } = calendarRouteRange(view, date)
-	const loadedForTheseCalendars = hiddenKey(hiddenCalendarIds) === hiddenKey(initialData.hiddenCalendarIds)
+	const loadedForTheseCalendars =
+		hiddenCalendarsKey(hiddenCalendarIds) === hiddenCalendarsKey(initialData.hiddenCalendarIds)
 	const query = useQuery({
 		...calendarRangeQueryOptions(queryClient, start, end, hiddenCalendarIds),
 		initialData: {
@@ -171,15 +179,6 @@ export function useCalendarRouteData(
 	return { data, refetch: query.refetch }
 }
 
-function subscribeToPreferences(onChange: () => void) {
-	window.addEventListener('storage', onChange)
-	window.addEventListener('ownmail:user-preferences', onChange)
-	return () => {
-		window.removeEventListener('storage', onChange)
-		window.removeEventListener('ownmail:user-preferences', onChange)
-	}
-}
-
 /**
  * The hidden calendars to leave out of event requests for one mailbox. It reads
  * the stored preference synchronously, so the first client render already asks
@@ -187,10 +186,11 @@ function subscribeToPreferences(onChange: () => void) {
  * repeats the ids the loader used, which keeps server and client output equal.
  */
 export function useHiddenCalendarIdsForRequest(email: string, loaderIds: readonly string[]): string[] {
-	const key = useSyncExternalStore(
-		subscribeToPreferences,
-		() => hiddenKey(hiddenCalendarIdsForRequest(hiddenCalendarIdsFor(readUserPreferences(), email))),
-		() => hiddenKey(loaderIds),
+	// The one shared preference store: no second subscription to keep in step.
+	const [preferences] = useUserPreferences()
+	const ready = useUserPreferencesReady()
+	const key = hiddenCalendarsKey(
+		ready ? hiddenCalendarIdsForRequest(hiddenCalendarIdsFor(preferences, email)) : loaderIds,
 	)
 	return useMemo(() => (key ? key.split('\n') : []), [key])
 }
@@ -305,9 +305,9 @@ function applyEventEffect(events: Event[], effect: CalendarEffect, range: Calend
 /** Pure cache reducer applied to every loaded calendar range. */
 export function applyCalendarEffect(queryClient: QueryClient, effect: CalendarEffect) {
 	for (const [queryKey, data] of queryClient.getQueriesData<CalendarRangeData>({
-		queryKey: ['calendar', 'range'],
+		queryKey: calendarKeys.ranges(),
 	})) {
-		const [, , start, end] = queryKey
+		const [start, end] = queryKey.slice(CALENDAR_RANGE_START, CALENDAR_RANGE_START + 2)
 		if (!data || typeof start !== 'number' || typeof end !== 'number') continue
 		queryClient.setQueryData<CalendarRangeData>(queryKey, {
 			...data,
@@ -355,14 +355,11 @@ function eventFromUpdate(previous: Event, input: UpdateEventInput): Event {
 	} as Event
 }
 
-type CalendarSnapshot = ReturnType<QueryClient['getQueriesData']>
-
-function snapshotCalendar(queryClient: QueryClient): CalendarSnapshot {
-	return queryClient.getQueriesData({ queryKey: calendarKeys.all })
-}
-
-function restoreCalendar(queryClient: QueryClient, snapshot: CalendarSnapshot | undefined) {
-	for (const [key, data] of snapshot ?? []) queryClient.setQueryData(key, data)
+/** Undoes a failed optimistic write without touching anything it did not change
+ * or anything the server has replaced since, then asks the server what is true. */
+function restoreCalendar(queryClient: QueryClient, written: OptimisticWrite | undefined) {
+	undoOptimisticWrite(queryClient, written)
+	refreshCalendar(queryClient)
 }
 
 function refreshCalendar(queryClient: QueryClient) {
@@ -388,12 +385,13 @@ export function useCreateEventMutation() {
 		mutationFn: (input: CreateEventInput) => createEvent({ data: input }),
 		onMutate: async (input) => {
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
-			const snapshot = snapshotCalendar(queryClient)
 			const optimisticId = `optimistic-event-${crypto.randomUUID()}`
-			applyCalendarEffect(queryClient, { type: 'created', event: eventFromCreate(optimisticId, input) })
-			return { snapshot, optimisticId }
+			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
+				applyCalendarEffect(queryClient, { type: 'created', event: eventFromCreate(optimisticId, input) }),
+			)
+			return { written, optimisticId }
 		},
-		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
+		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.written),
 		onSuccess: (receipt, input, context) => {
 			/* v8 ignore else -- @preserve successful library callbacks always receive the context returned by onMutate */
 			if (context) applyCalendarEffect(queryClient, { type: 'deleted', eventId: context.optimisticId })
@@ -419,11 +417,12 @@ export function useUpdateEventMutation(event: Event | null) {
 		onMutate: async (input) => {
 			if (!event) return undefined
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
-			const snapshot = snapshotCalendar(queryClient)
-			applyCalendarEffect(queryClient, { type: 'updated', event: eventFromUpdate(event, input) })
-			return { snapshot }
+			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
+				applyCalendarEffect(queryClient, { type: 'updated', event: eventFromUpdate(event, input) }),
+			)
+			return { written }
 		},
-		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
+		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.written),
 		onSuccess: (receipt, input) => {
 			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over event is absent -- @preserve */
 			if (!event) return
@@ -446,11 +445,12 @@ export function useDeleteEventMutation(eventId: string) {
 		mutationFn: (input: EventIdInput) => deleteEvent({ data: input }),
 		onMutate: async () => {
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
-			const snapshot = snapshotCalendar(queryClient)
-			applyCalendarEffect(queryClient, { type: 'deleted', eventId })
-			return { snapshot }
+			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
+				applyCalendarEffect(queryClient, { type: 'deleted', eventId }),
+			)
+			return { written }
 		},
-		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
+		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.written),
 		onSuccess: () => {
 			const effect = { type: 'deleted', eventId } as const
 			applyCalendarEffect(queryClient, effect)
@@ -469,16 +469,17 @@ export function useRsvpEventMutation(eventId: string) {
 		mutationFn: (input: RsvpEventInput) => rsvpEvent({ data: input }),
 		onMutate: async (input) => {
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
-			const snapshot = snapshotCalendar(queryClient)
-			applyCalendarEffect(queryClient, {
-				type: 'rsvped',
-				eventId,
-				status: input.status,
-				email: signedInEmail(),
-			})
-			return { snapshot }
+			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
+				applyCalendarEffect(queryClient, {
+					type: 'rsvped',
+					eventId,
+					status: input.status,
+					email: signedInEmail(),
+				}),
+			)
+			return { written }
 		},
-		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.snapshot),
+		onError: (_error, _input, context) => restoreCalendar(queryClient, context?.written),
 		onSuccess: (_receipt, input) => {
 			const effect = { type: 'rsvped', eventId, status: input.status, email: signedInEmail() } as const
 			applyCalendarEffect(queryClient, effect)

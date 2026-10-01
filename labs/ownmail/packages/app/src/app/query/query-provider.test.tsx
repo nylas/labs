@@ -1,19 +1,46 @@
 // @vitest-environment jsdom
 import { QueryClient } from '@tanstack/react-query'
-import { act, cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetAccountScope } from '../lib/account-scope.js'
+import { documentNavigation } from '../lib/account-switch.js'
+import { readSwitchingTo, setSwitchingTo } from '../lib/account-switch-status.js'
 import { OwnmailQueryProvider, queryProviderTestApi } from './query-provider.js'
 
-const routerState = vi.hoisted(() => ({ pathname: '/' }))
+const routerState = vi.hoisted(() => ({
+	pathname: '/',
+	navigate: vi.fn(async (_options: { to: string }) => {}),
+	invalidate: vi.fn(async () => {}),
+}))
 vi.mock('@tanstack/react-router', () => ({
+	useRouter: () => ({
+		state: { location: { pathname: routerState.pathname } },
+		navigate: routerState.navigate,
+		invalidate: routerState.invalidate,
+	}),
 	useRouterState: (options: { select: (state: { location: { pathname: string } }) => unknown }) =>
 		options.select({ location: { pathname: routerState.pathname } }),
 }))
+const getMailboxInfo = vi.hoisted(() => vi.fn())
+vi.mock('#server/fns', () => ({ getMailboxInfo: () => getMailboxInfo() }))
+vi.mock('#features/calendar/server/calendar-fns', () => ({}))
+
+const ada = { email: 'ada@ownmail.com', appName: 'OwnMail', accounts: [] }
+const grace = { email: 'grace@ownmail.com', appName: 'OwnMail', accounts: [] }
+
+beforeEach(() => {
+	getMailboxInfo.mockResolvedValue(ada)
+})
 
 afterEach(() => {
 	cleanup()
+	act(() => setSwitchingTo(null))
+	resetAccountScope()
 	vi.restoreAllMocks()
 	vi.useRealTimers()
+	getMailboxInfo.mockReset()
+	routerState.navigate.mockClear()
+	routerState.invalidate.mockClear()
 	routerState.pathname = '/'
 	history.replaceState(null, '', '/')
 })
@@ -345,5 +372,105 @@ describe('server state synchronization', () => {
 		await act(async () => {})
 		expect(mailInvalidations()).toBe(4)
 		view.unmount()
+	})
+})
+
+describe('session changed outside this tab', () => {
+	function versionsUnchanged() {
+		return vi
+			.spyOn(globalThis, 'fetch')
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ domains: { mail: 1, contacts: 1, calendar: 1 } })),
+			)
+	}
+
+	it('drops the previous inbox and loads the new one when the mailbox behind the session changes', async () => {
+		routerState.pathname = '/mail/f/inbox/t/ada-thread'
+		versionsUnchanged()
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		render(
+			<OwnmailQueryProvider client={client}>
+				<div>mail</div>
+			</OwnmailQueryProvider>,
+		)
+		await waitFor(() => expect(getMailboxInfo).toHaveBeenCalledOnce())
+		client.setQueryData(['mail', 'ada@ownmail.com', 'folders'], [{ id: 'inbox', name: 'Ada inbox' }])
+		const order: string[] = []
+		routerState.navigate.mockImplementation(async (options) => {
+			// By now the previous inbox is unmounted and none of its data remains.
+			order.push(`navigate:${options.to}:${readSwitchingTo()}:${client.getQueryCache().getAll().length}`)
+		})
+		routerState.invalidate.mockImplementation(async () => {
+			order.push('invalidate')
+		})
+
+		// Another tab switched inbox (or the person signed in again): the same
+		// cookie now answers for Grace. The tab notices on its next focus refetch.
+		getMailboxInfo.mockResolvedValue(grace)
+		await act(async () => {
+			await client.refetchQueries({ queryKey: ['account', 'mailbox-info'] })
+		})
+
+		await waitFor(() => expect(readSwitchingTo()).toBeNull())
+		expect(order).toEqual(['navigate:/:grace@ownmail.com:0', 'invalidate'])
+		expect(client.getQueryData(['mail', 'ada@ownmail.com', 'folders'])).toBeUndefined()
+	})
+
+	it('leaves an in-app switch that is already under way alone', async () => {
+		routerState.pathname = '/calendar/week'
+		versionsUnchanged()
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		render(
+			<OwnmailQueryProvider client={client}>
+				<div>calendar</div>
+			</OwnmailQueryProvider>,
+		)
+		await waitFor(() => expect(getMailboxInfo).toHaveBeenCalledOnce())
+
+		// The switcher owns the transition and will load the next inbox itself.
+		act(() => setSwitchingTo('grace@ownmail.com'))
+		getMailboxInfo.mockResolvedValue(grace)
+		await act(async () => {
+			await client.refetchQueries({ queryKey: ['account', 'mailbox-info'] })
+		})
+
+		expect(routerState.navigate).not.toHaveBeenCalled()
+		expect(readSwitchingTo()).toBe('grace@ownmail.com')
+	})
+
+	it('loads the destination as a document if the in-app reload fails', async () => {
+		routerState.pathname = '/contacts/ada-contact'
+		versionsUnchanged()
+		const assign = vi.spyOn(documentNavigation, 'assign').mockImplementation(() => {})
+		routerState.navigate.mockRejectedValueOnce(new Error('loader failed'))
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		render(
+			<OwnmailQueryProvider client={client}>
+				<div>contacts</div>
+			</OwnmailQueryProvider>,
+		)
+		await waitFor(() => expect(getMailboxInfo).toHaveBeenCalledOnce())
+
+		getMailboxInfo.mockResolvedValue(grace)
+		await act(async () => {
+			await client.refetchQueries({ queryKey: ['account', 'mailbox-info'] })
+		})
+
+		// The loader stays up: nothing of the previous inbox may come back.
+		await waitFor(() => expect(assign).toHaveBeenCalledWith('/contacts'))
+		expect(readSwitchingTo()).toBe('grace@ownmail.com')
+	})
+
+	it('does not watch the mailbox outside the synchronized sections', async () => {
+		routerState.pathname = '/login'
+		versionsUnchanged()
+		render(
+			<OwnmailQueryProvider>
+				<div>login</div>
+			</OwnmailQueryProvider>,
+		)
+		await act(async () => {})
+
+		expect(getMailboxInfo).not.toHaveBeenCalled()
 	})
 })

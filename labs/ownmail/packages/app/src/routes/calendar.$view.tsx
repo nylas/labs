@@ -23,6 +23,7 @@ import {
 import {
 	hiddenCalendarIdsFor,
 	useUserPreferences,
+	useUserPreferencesReady,
 	withHiddenCalendarIds,
 } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
@@ -190,6 +191,11 @@ function CalendarViewRoutePage() {
 	)
 	const calendarQuery = useCalendarRouteData(view, date, initialData, hiddenCalendarIds)
 	usePrefetchAdjacentCalendarRanges(view, calendarQuery.data.anchorIso, hiddenCalendarIds)
+
+	// The grid is drawn in the saved timezone and without the calendars hidden
+	// on this device. Until those can be read, the grid stays empty rather than
+	// showing events at times, or from calendars, that change after hydration.
+	if (!useUserPreferencesReady()) return <CalendarPending />
 
 	return (
 		<CalendarRouteScreen

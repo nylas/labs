@@ -45,22 +45,32 @@ type SendDraftFields = DraftFields & { draftId: string }
 
 type OptimisticContext = { operation: MailOptimisticOperation }
 
-const managerByClient = new WeakMap<QueryClient, ReturnType<typeof createMailOptimisticManager>>()
+type MailOptimisticManager = ReturnType<typeof createMailOptimisticManager>
+
+// One journal per account: an operation begun in one inbox is settled against
+// that inbox's keys, whichever inbox the tab is showing when its receipt lands.
+const managersByClient = new WeakMap<QueryClient, Map<string, MailOptimisticManager>>()
 
 function managerFor(client: QueryClient) {
-	let manager = managerByClient.get(client)
+	let managers = managersByClient.get(client)
+	if (!managers) {
+		managers = new Map()
+		managersByClient.set(client, managers)
+	}
+	const root = mailKeys.all
+	let manager = managers.get(root[1])
 	if (!manager) {
-		manager = createMailOptimisticManager(client)
-		managerByClient.set(client, manager)
+		manager = createMailOptimisticManager(client, root)
+		managers.set(root[1], manager)
 	}
 	return manager
 }
 
-/** Detach the optimistic journal from a cache that is being cleared for another
- * inbox, so in-flight receipts cannot replay the previous inbox's snapshot. */
+/** Detach the optimistic journals from a cache that is being cleared for another
+ * inbox, so in-flight receipts cannot replay the previous inbox's values. */
 export function resetMailOptimisticJournal(client: QueryClient): void {
-	managerByClient.get(client)?.reset()
-	managerByClient.delete(client)
+	for (const manager of managersByClient.get(client)?.values() ?? []) manager.reset()
+	managersByClient.delete(client)
 }
 
 function safeFolders(folders: Folder[] | undefined) {
@@ -173,6 +183,9 @@ function startReadOnOpen(
 	const attempt: ReadAttempt = { failed: false }
 	inFlight.set(threadId, attempt)
 	const input = { threadId, unread: false }
+	// Resolved now, so a failure that lands after an inbox switch cannot be
+	// applied to a conversation in the next inbox.
+	const detailKey = mailKeys.threadDetail(threadId)
 	const observer = new MutationObserver(client, {
 		mutationFn: () => markThreadRead({ data: { threadId } }),
 		onMutate: async (): Promise<OptimisticContext> => ({
@@ -183,7 +196,7 @@ function startReadOnOpen(
 			context?.operation.rollback()
 			// A detail loaded after the journal's snapshot was aligned outside it;
 			// return it to unread so the reader agrees with the restored row.
-			client.setQueryData<MailThreadDetail>(mailKeys.threadDetail(threadId), (detail) =>
+			client.setQueryData<MailThreadDetail>(detailKey, (detail) =>
 				detail && !detail.thread.unread ? { ...detail, thread: { ...detail.thread, unread: true } } : detail,
 			)
 		},

@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { act, fireEvent, waitFor, within } from '@testing-library/react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Content-ready transitions (design.md): every identity-changing transition is
@@ -72,7 +73,13 @@ vi.mock('#features/calendar/server/calendar-fns', () => calendarFns)
 Element.prototype.scrollIntoView = vi.fn()
 window.scrollTo = vi.fn()
 
+import { accountScope, resetAccountScope } from '#app/lib/account-scope'
 import { setSwitchingTo } from '#app/lib/account-switch-status'
+import {
+	defaultUserPreferences,
+	userPreferencesTestApi,
+	writeUserPreferences,
+} from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { getRouter } from '../router.js'
 
@@ -165,6 +172,8 @@ afterEach(async () => {
 	await act(async () => mounted?.root.unmount())
 	mounted = undefined
 	act(() => setSwitchingTo(null))
+	resetAccountScope()
+	userPreferencesTestApi.reset()
 	vi.unstubAllGlobals()
 	vi.resetAllMocks()
 	window.localStorage.clear()
@@ -222,6 +231,146 @@ describe('account switch', () => {
 		)
 		expect(cached).toContain('Grace launch plan')
 		expect(cached).not.toContain('Ada')
+		// Every entry is filed under Grace; nothing is left under Ada's keys.
+		expect(accountScope()).toBe(GRACE)
+		const keys = queryClient
+			.getQueryCache()
+			.getAll()
+			.map((query) => query.queryKey)
+		expect(keys.filter((key) => key[0] === 'mail').every((key) => key[1] === GRACE)).toBe(true)
+	})
+
+	it('drops the previous inbox when the session changes in another tab, instead of blending the two', async () => {
+		fns.getFolders.mockResolvedValue([
+			{ id: 'inbox', name: 'Inbox' },
+			{ id: 'ada-receipts', name: 'Ada receipts' },
+		])
+		fns.getThreads.mockResolvedValue({ threads: [thread('ada-1', 'Ada quarterly invoice')] })
+		const { queryClient } = await mountApp('/mail/f/inbox')
+		expect(pageText()).toContain('Ada quarterly invoice')
+		expect(accountScope()).toBe(ADA)
+
+		// Another tab switches inbox: the shared cookie now answers for Grace.
+		const graceInfo = hold<unknown>()
+		fns.getMailboxInfo.mockReturnValue(graceInfo.promise)
+		fns.getFolders.mockResolvedValue([
+			{ id: 'inbox', name: 'Inbox' },
+			{ id: 'grace-notes', name: 'Grace notes' },
+		])
+		fns.getThreads.mockResolvedValue({ threads: [thread('grace-1', 'Grace launch plan')] })
+		// This tab comes back into focus and refetches what it is showing.
+		await act(async () => {
+			void queryClient.invalidateQueries({ refetchType: 'active' })
+			await new Promise((resolve) => setTimeout(resolve, 20))
+		})
+		// Until the mailbox answers, Grace's data can only land under Ada's keys;
+		// the moment it does, the tab must stop presenting it as Ada's.
+		await act(async () => {
+			graceInfo.resolve({ email: GRACE, appName: 'OwnMail', accounts: accounts(GRACE) })
+			await new Promise((resolve) => setTimeout(resolve, 0))
+		})
+		fns.getMailboxInfo.mockResolvedValue({ email: GRACE, appName: 'OwnMail', accounts: accounts(GRACE) })
+
+		await waitFor(() => expect(pageText()).toContain('Grace notes'))
+		await waitFor(() => expect(pageText()).not.toContain('Switching to'))
+		expect(pageText()).toContain('Grace launch plan')
+		expect(pageText()).not.toContain('Ada')
+		expect(accountScope()).toBe(GRACE)
+		const queries = queryClient.getQueryCache().getAll()
+		expect(JSON.stringify(queries.map((query) => query.state.data))).not.toContain('Ada')
+		expect(JSON.stringify(queries.map((query) => query.queryKey))).not.toContain(ADA)
+	})
+})
+
+describe('first render', () => {
+	async function serverHtml(path: string) {
+		const router = getRouter()
+		router.update({ ...router.options, history: createMemoryHistory({ initialEntries: [path] }) })
+		await router.load()
+		const host = document.createElement('div')
+		host.innerHTML = renderToString(<RouterProvider router={router} />)
+		return within(host)
+	}
+
+	beforeEach(() => {
+		// This device has saved choices the server cannot know about.
+		writeUserPreferences({
+			...defaultUserPreferences(),
+			readingPane: 'none',
+			listDensity: 'condensed',
+			primaryTimezone: 'Pacific/Auckland',
+			hiddenCalendarsByAccount: { [ADA]: ['primary'] },
+		})
+	})
+
+	it('renders the folder placeholder on the server, not a default split that rearranges after hydration', async () => {
+		fns.getThreads.mockResolvedValue({ threads: [thread('inbox-1', 'Inbox only subject')] })
+
+		const html = await serverHtml('/mail/f/inbox')
+
+		// The folders around the list do not depend on a preference and are real.
+		expect(html.getByRole('heading', { level: 1 })).toHaveTextContent('Inbox')
+		expect(html.queryByTestId('thread-list-skeleton')).not.toBeNull()
+		expect(html.queryByText('Inbox only subject')).toBeNull()
+
+		// In the browser the saved layout is there on the first render.
+		await mountApp('/mail/f/inbox')
+		expect(page().queryByTestId('folder-pending')).toBeNull()
+		expect(pageText()).toContain('Inbox only subject')
+		expect(page().getByRole('button', { name: 'Reading pane: No split' })).toBeInTheDocument()
+		// The saved list density is there too: rows never paint at the default height first.
+		expect(page().getByText('Inbox only subject').closest('[data-density]')).toHaveAttribute(
+			'data-density',
+			'condensed',
+		)
+	})
+
+	it('renders the search placeholder on the server', async () => {
+		fns.getThreads.mockResolvedValue({ threads: [thread('beta-1', 'Beta result')] })
+
+		const html = await serverHtml('/mail/search?q=beta')
+
+		expect(html.queryByTestId('search-pending')).not.toBeNull()
+		expect(html.queryByText('Beta result')).toBeNull()
+	})
+
+	it('renders an empty calendar grid on the server, not events in the wrong timezone or from hidden calendars', async () => {
+		const calendar = { id: 'primary', name: 'Ada calendar', is_primary: true }
+		calendarFns.getEvents.mockResolvedValue({
+			calendar,
+			calendars: [calendar],
+			events: [
+				{
+					id: 'hidden-1',
+					calendar_id: 'primary',
+					title: 'Hidden on this device',
+					when: { object: 'timespan', start_time: 1_772_452_800, end_time: 1_772_456_400 },
+				},
+			],
+		})
+
+		const html = await serverHtml('/calendar/month?date=2026-03-02')
+
+		expect(html.queryByTestId('calendar-pending')).not.toBeNull()
+		expect(html.getByRole('heading', { level: 1 })).toHaveTextContent('March 2026')
+		// With defaults, the server would have painted an event this device hides.
+		expect(html.queryByText('Hidden on this device')).toBeNull()
+
+		await mountApp('/calendar/month?date=2026-03-02')
+		expect(page().queryByTestId('calendar-pending')).toBeNull()
+		expect(pageText()).not.toContain('Hidden on this device')
+	})
+
+	it('renders an empty settings page on the server, not default choices that change after hydration', async () => {
+		fns.getAccountCapabilities.mockResolvedValue({ passwordResetEnabled: false })
+
+		const html = await serverHtml('/settings')
+
+		expect(html.queryByTestId('settings-pending')).not.toBeNull()
+		expect(html.queryByLabelText('Darken email content automatically')).toBeNull()
+
+		await mountApp('/settings')
+		expect(page().getByRole('combobox', { name: /Primary timezone/ })).toHaveValue('Pacific/Auckland')
 	})
 })
 

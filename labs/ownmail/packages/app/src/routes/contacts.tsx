@@ -7,6 +7,7 @@ import { CommandPalette, useCommandPaletteShortcut } from '#app/components/Comma
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { MobileTabBar } from '#app/components/MobileTabBar'
 import { CHROME_ROW_CLASS, CHROME_ROW_SHELL_CLASS } from '#app/config/layout'
+import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import {
 	contactDisplayName,
 	contactIdFromPath,
@@ -15,7 +16,7 @@ import {
 	sortContacts,
 } from '#features/contacts/lib/contacts-model'
 import { flattenContactPages, useContactsPages } from '#features/contacts/state/contacts-state'
-import { getContacts, getMailboxInfo } from '#server/fns'
+import { getContacts } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
@@ -25,8 +26,11 @@ import { cn } from '#shared/lib/utils'
 export const Route = createFileRoute('/contacts')({
 	validateSearch: (search): { q?: string } =>
 		typeof search.q === 'string' && search.q ? { q: search.q } : {},
-	loader: async () => {
-		const [info, page] = await Promise.all([getMailboxInfo(), getContacts({ data: {} })])
+	loader: async ({ context }) => {
+		const [info, page] = await Promise.all([
+			ensureMailboxInfo(context.queryClient),
+			getContacts({ data: {} }),
+		])
 		return { info, contacts: page.contacts, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) }
 	},
 	staleTime: 30_000,

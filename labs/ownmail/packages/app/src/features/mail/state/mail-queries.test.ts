@@ -1,10 +1,13 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
+import { accountScope, SERVER_ACCOUNT_SCOPE } from '#app/lib/account-scope'
 import {
 	draftQueryOptions,
 	draftsQueryOptions,
 	foldersQueryOptions,
+	MAIL_KEY_ARGUMENT,
+	MAIL_KEY_KIND,
 	mailKeys,
 	normalizeMailThreadFilters,
 	threadDetailQueryOptions,
@@ -39,14 +42,20 @@ describe('mail query cache boundaries', () => {
 			starred: false,
 		})
 		expect(normalizeMailThreadFilters({})).toEqual({})
-		expect(mailKeys.all).toEqual(['mail'])
-		expect(mailKeys.folders()).toEqual(['mail', 'folders'])
-		expect(mailKeys.drafts()).toEqual(['mail', 'drafts'])
-		expect(mailKeys.draft('d1')).toEqual(['mail', 'draft', 'd1'])
-		expect(mailKeys.threadLists()).toEqual(['mail', 'threads'])
-		expect(mailKeys.threadList()).toEqual(['mail', 'threads', {}])
-		expect(mailKeys.threadDetails()).toEqual(['mail', 'thread'])
-		expect(mailKeys.threadDetail('t1')).toEqual(['mail', 'thread', 't1'])
+		// Every key is rooted in the account, so one inbox's entries can never
+		// be read as another's. (Server rendering uses a fixed segment.)
+		const account = accountScope()
+		expect(account).toBe(SERVER_ACCOUNT_SCOPE)
+		expect(mailKeys.all).toEqual(['mail', account])
+		expect(mailKeys.folders()).toEqual(['mail', account, 'folders'])
+		expect(mailKeys.drafts()).toEqual(['mail', account, 'drafts'])
+		expect(mailKeys.draft('d1')).toEqual(['mail', account, 'draft', 'd1'])
+		expect(mailKeys.threadLists()).toEqual(['mail', account, 'threads'])
+		expect(mailKeys.threadList()).toEqual(['mail', account, 'threads', {}])
+		expect(mailKeys.threadDetails()).toEqual(['mail', account, 'thread'])
+		expect(mailKeys.threadDetail('t1')).toEqual(['mail', account, 'thread', 't1'])
+		expect(mailKeys.threadDetail('t1')[MAIL_KEY_KIND]).toBe('thread')
+		expect(mailKeys.threadDetail('t1')[MAIL_KEY_ARGUMENT]).toBe('t1')
 	})
 
 	it('fails closed on malformed filters and provider identifiers', () => {
@@ -189,7 +198,7 @@ describe('mail query cache boundaries', () => {
 		}))
 		const options = threadListQueryOptions({ folderId: 'inbox' }, fetchPage)
 		const first = await new QueryClient().fetchInfiniteQuery(options)
-		expect(options.queryKey).toEqual(['mail', 'threads', { folderId: 'inbox' }])
+		expect(options.queryKey).toEqual(mailKeys.threadList({ folderId: 'inbox' }))
 		expect(fetchPage).toHaveBeenCalledWith({ folderId: 'inbox' })
 		expect(first.pages[0]).toEqual({ threads: [toMailThread(thread)], nextCursor: 'next' })
 		const firstPage = first.pages[0]

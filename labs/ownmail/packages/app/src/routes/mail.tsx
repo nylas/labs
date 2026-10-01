@@ -13,7 +13,7 @@ import {
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
 } from '#app/config/layout'
-import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { MailSearchBar } from '#features/mail/components/MailSearchBar'
 import { MailSidebar } from '#features/mail/components/MailSidebar'
 import {
@@ -29,10 +29,9 @@ import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail')({
 	loader: async ({ context }) => {
-		const [info, folders] = await Promise.all([
-			context.queryClient.ensureQueryData(mailboxInfoQueryOptions()),
-			context.queryClient.ensureQueryData(foldersQueryOptions(() => getFolders())),
-		])
+		// The mailbox comes first: the folder key is partitioned by account.
+		const info = await ensureMailboxInfo(context.queryClient)
+		const folders = await context.queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
 		return { info, folders }
 	},
 	staleTime: Number.POSITIVE_INFINITY,

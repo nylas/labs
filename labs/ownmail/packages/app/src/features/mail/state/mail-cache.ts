@@ -1,6 +1,8 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
-import type { QueryClient, QueryKey } from '@tanstack/react-query'
+import { hashKey, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import {
+	MAIL_KEY_ARGUMENT,
+	MAIL_KEY_KIND,
 	type MailDraft,
 	type MailFolder,
 	type MailMessage,
@@ -23,8 +25,6 @@ export type MailCacheEffect =
 	| ({ type: 'thread.moved'; threadId: string; targetFolderId: string; thread?: MailThread } & FolderReceipt)
 	| ({ type: 'thread.reconciled'; thread: MailThread } & FolderReceipt)
 	| { type: 'folders.reconciled'; folders: MailFolder[] }
-
-export type MailCacheSnapshot = ReadonlyArray<readonly [QueryKey, unknown]>
 
 const SYSTEM_FOLDER_IDS = new Set(['inbox', 'sent', 'drafts', 'archive', 'trash', 'junk', 'spam', 'starred'])
 
@@ -244,11 +244,11 @@ function keyPart(queryKey: QueryKey, index: number): unknown {
 }
 
 function isMailKey(queryKey: QueryKey, kind: string): boolean {
-	return keyPart(queryKey, 0) === 'mail' && keyPart(queryKey, 1) === kind
+	return keyPart(queryKey, 0) === 'mail' && keyPart(queryKey, MAIL_KEY_KIND) === kind
 }
 
 function keyFilters(queryKey: QueryKey): MailThreadFilters {
-	const value = keyPart(queryKey, 2)
+	const value = keyPart(queryKey, MAIL_KEY_ARGUMENT)
 	return value && typeof value === 'object' ? (value as MailThreadFilters) : {}
 }
 
@@ -266,8 +266,12 @@ function entryThread(data: unknown, queryKey: QueryKey, threadId: string): MailT
 	return undefined
 }
 
-export function findCachedThread(client: QueryClient, threadId: string): MailThread | undefined {
-	for (const [queryKey, data] of client.getQueriesData({ queryKey: mailKeys.all })) {
+export function findCachedThread(
+	client: QueryClient,
+	threadId: string,
+	root: QueryKey = mailKeys.all,
+): MailThread | undefined {
+	for (const [queryKey, data] of client.getQueriesData({ queryKey: root })) {
 		const thread = entryThread(data, queryKey, threadId)
 		if (thread) return thread
 	}
@@ -287,7 +291,7 @@ export function reduceMailCacheEntry(
 	if (isMailKey(queryKey, 'drafts')) return updateDrafts(data as MailDraft[], effect)
 	if (isMailKey(queryKey, 'draft')) {
 		const draft = data as MailDraft
-		const cachedDraftId = keyPart(queryKey, 2)
+		const cachedDraftId = keyPart(queryKey, MAIL_KEY_ARGUMENT)
 		if (effect.type === 'draft.saved' && cachedDraftId === effect.draft.id && draft.id === effect.draft.id) {
 			return effect.draft
 		}
@@ -328,28 +332,28 @@ export function reduceMailCacheEntry(
 	return data
 }
 
-export function applyMailCacheEffect(client: QueryClient, inputEffect: MailCacheEffect): void {
-	const effect = inputEffect
+/** Applies an effect to every cached entry under `root` (one account's mail)
+ * and returns the keys whose cached value it actually changed. */
+export function applyMailCacheEffect(
+	client: QueryClient,
+	effect: MailCacheEffect,
+	root: QueryKey = mailKeys.all,
+): QueryKey[] {
 	const threadId = effectThreadId(effect)
-	const beforeThread = threadId ? findCachedThread(client, threadId) : undefined
-	for (const [queryKey, data] of client.getQueriesData({ queryKey: mailKeys.all })) {
+	const beforeThread = threadId ? findCachedThread(client, threadId, root) : undefined
+	const changed: QueryKey[] = []
+	for (const [queryKey, data] of client.getQueriesData({ queryKey: root })) {
 		const next = reduceMailCacheEntry(queryKey, data, effect, beforeThread)
 		if (next === undefined && data !== undefined) {
 			client.removeQueries({ queryKey, exact: true })
 		} else if (next !== data) {
 			client.setQueryData(queryKey, next)
 		}
+		// Structural sharing keeps the cached reference when nothing differs, so
+		// a changed reference is the test for "this effect touched the entry".
+		if (client.getQueryData(queryKey) !== data) changed.push(queryKey)
 	}
-}
-
-export function captureMailCacheSnapshot(client: QueryClient): MailCacheSnapshot {
-	return client
-		.getQueriesData({ queryKey: mailKeys.all })
-		.map(([queryKey, data]) => [queryKey, data] as const)
-}
-
-export function restoreMailCacheSnapshot(client: QueryClient, snapshot: MailCacheSnapshot): void {
-	for (const [queryKey, data] of snapshot) client.setQueryData(queryKey, data)
+	return changed
 }
 
 export type MailOptimisticOperation = {
@@ -364,26 +368,70 @@ type JournalEntry = {
 	status: 'pending' | 'confirmed'
 }
 
-/** A per-QueryClient optimistic journal. Rebuilding from the base snapshot and
- * replaying surviving effects prevents one failed request from rolling back a
- * newer, unrelated optimistic change. */
-export function createMailOptimisticManager(client: QueryClient) {
+/** One cache entry the journal has written: the value it held before the first
+ * optimistic write, and the value the journal last left there. */
+type TouchedEntry = { queryKey: QueryKey; base: unknown; written: unknown }
+
+/**
+ * A per-QueryClient, per-account optimistic journal.
+ *
+ * Only entries an effect actually changed are tracked. To settle an operation
+ * the journal returns each tracked entry to its base and replays the surviving
+ * effects, so one failed request cannot roll back a newer, unrelated
+ * optimistic change. An entry whose value is no longer the one the journal
+ * wrote has been replaced by a refetch that landed mid-mutation: that newer
+ * server data becomes the base and is never overwritten by an older snapshot.
+ * A rollback ends by refetching the active queries, because nothing else will
+ * tell the screen what the server now holds.
+ *
+ * `root` pins the journal to the account it was created for; a receipt that
+ * arrives after the tab has moved to another inbox cannot touch that inbox.
+ */
+export function createMailOptimisticManager(client: QueryClient, root: QueryKey = mailKeys.all) {
 	let nextId = 1
-	let base: MailCacheSnapshot | undefined
 	let entries: JournalEntry[] = []
+	let refetchWhenSettled = false
+	const touched = new Map<string, TouchedEntry>()
+
+	function apply(effect: MailCacheEffect) {
+		const before = new Map(
+			client.getQueriesData({ queryKey: root }).map(([queryKey, data]) => [hashKey(queryKey), data]),
+		)
+		for (const queryKey of applyMailCacheEffect(client, effect, root)) {
+			const hash = hashKey(queryKey)
+			const entry = touched.get(hash) ?? { queryKey, base: before.get(hash), written: undefined }
+			entry.written = client.getQueryData(queryKey)
+			touched.set(hash, entry)
+		}
+	}
 
 	function rebuild() {
-		// A reset (for example, after switching inboxes) discards the base; late
-		// receipts from the previous inbox must not restore its snapshot.
-		if (!base) return
-		restoreMailCacheSnapshot(client, base)
-		for (const entry of entries) applyMailCacheEffect(client, entry.effect)
+		for (const entry of touched.values()) {
+			const current = client.getQueryData(entry.queryKey)
+			if (current === entry.written) {
+				// Still the journal's own value: return it to its base.
+				if (entry.base === undefined) client.removeQueries({ queryKey: entry.queryKey, exact: true })
+				else client.setQueryData(entry.queryKey, entry.base)
+				entry.written = client.getQueryData(entry.queryKey)
+			} else {
+				// Newer server data landed; it is the base from now on.
+				entry.base = current
+				entry.written = current
+			}
+		}
+		for (const entry of entries) apply(entry.effect)
 	}
 
 	function finishIfSettled() {
 		if (entries.some((entry) => entry.status === 'pending')) return
 		entries = []
-		base = undefined
+		touched.clear()
+		if (!refetchWhenSettled) return
+		refetchWhenSettled = false
+		void client.invalidateQueries({ queryKey: root, refetchType: 'active' }).catch(
+			/* v8 ignore next -- @preserve a failed background refetch leaves the restored cache in place and is retried by the next poll */
+			() => {},
+		)
 	}
 
 	return {
@@ -395,13 +443,12 @@ export function createMailOptimisticManager(client: QueryClient) {
 			// cancelling that fetch would fail the reader's own route load.
 			await client.cancelQueries(
 				options.preserveThreadDetails
-					? { queryKey: mailKeys.all, predicate: (query) => query.queryKey[1] !== 'thread' }
-					: { queryKey: mailKeys.all },
+					? { queryKey: root, predicate: (query) => query.queryKey[MAIL_KEY_KIND] !== 'thread' }
+					: { queryKey: root },
 			)
-			base ??= captureMailCacheSnapshot(client)
 			const entry: JournalEntry = { id: nextId++, effect, status: 'pending' }
 			entries.push(entry)
-			applyMailCacheEffect(client, effect)
+			apply(effect)
 			let settled = false
 			return {
 				id: entry.id,
@@ -418,6 +465,7 @@ export function createMailOptimisticManager(client: QueryClient) {
 					if (settled) return false
 					settled = true
 					entries = entries.filter((candidate) => candidate !== entry)
+					refetchWhenSettled = true
 					rebuild()
 					finishIfSettled()
 					return true
@@ -427,10 +475,11 @@ export function createMailOptimisticManager(client: QueryClient) {
 		pendingCount() {
 			return entries.filter((entry) => entry.status === 'pending').length
 		},
-		/** Forget every journal entry and base snapshot without touching the cache. */
+		/** Forget every journal entry and tracked value without touching the cache. */
 		reset() {
 			entries = []
-			base = undefined
+			touched.clear()
+			refetchWhenSettled = false
 		},
 	}
 }

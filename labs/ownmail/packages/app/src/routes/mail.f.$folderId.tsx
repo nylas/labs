@@ -3,7 +3,8 @@ import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/re
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
-import { useUserPreferences } from '#app/preferences/user-preferences'
+import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
+import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadListSkeleton } from '#features/mail/components/ThreadListSkeleton'
@@ -49,6 +50,8 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 })
 
 export async function loadMailFolderData(folderId: string, queryClient: QueryClient) {
+	// The mailbox comes first: every key below is partitioned by account.
+	await ensureMailboxInfo(queryClient)
 	const folders = await queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
 	if (folderId === 'drafts') {
 		return {
@@ -76,6 +79,17 @@ export async function loadMailFolderData(folderId: string, queryClient: QueryCli
 function FolderPending() {
 	const { folderId } = Route.useParams()
 	const queryClient = useQueryClient()
+	return (
+		<MailFolderPlaceholder
+			folderId={folderId}
+			folders={queryClient.getQueryData<MailFolder[]>(mailKeys.folders())}
+		/>
+	)
+}
+
+/** A folder's title over skeleton rows: the pending view, and the first server
+ * render, where the reading-pane preference that shapes the list is unknown. */
+function MailFolderPlaceholder({ folderId, folders }: { folderId: string; folders?: MailFolder[] }) {
 	const [{ readingPane, listDensity }] = useUserPreferences()
 	const threadOpen = useRouterState({ select: (state) => state.location.pathname.includes('/t/') })
 	const layout = readingPaneLayout(readingPane, threadOpen)
@@ -84,7 +98,7 @@ function FolderPending() {
 			<section className={layout.list} data-density={listDensity}>
 				<Toolbar className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">
-						{mailFolderTitle(folderId, queryClient.getQueryData<MailFolder[]>(mailKeys.folders()))}
+						{mailFolderTitle(folderId, folders)}
 					</h1>
 				</Toolbar>
 				<ThreadListSkeleton />
@@ -215,7 +229,19 @@ function dedupeThreads<T extends { id: string }>(threads: T[]): T[] {
 	return [...new Map(threads.map((thread) => [thread.id, thread])).values()]
 }
 
-export function MailFolderRouteScreen({
+type MailFolderRouteScreenProps = Parameters<typeof LoadedMailFolderRouteScreen>[0]
+
+/** The list and reader are laid out by the reading-pane preference, which the
+ * server cannot know. Until it can be read, the folder shows its placeholder
+ * instead of a default split that would rearrange after hydration. */
+export function MailFolderRouteScreen(props: MailFolderRouteScreenProps) {
+	if (!useUserPreferencesReady()) {
+		return <MailFolderPlaceholder folderId={props.folderId} folders={props.folders} />
+	}
+	return <LoadedMailFolderRouteScreen {...props} />
+}
+
+function LoadedMailFolderRouteScreen({
 	threads: initialThreads,
 	drafts,
 	folders,

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
 import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
@@ -53,6 +54,8 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
 	}),
 	loader: async ({ context, params, preload }) => {
+		// The mailbox comes first: the detail key is partitioned by account.
+		await ensureMailboxInfo(context.queryClient)
 		const options = threadDetailQueryOptions(params.threadId, (threadId) =>
 			getThreadMessages({ data: { threadId } }),
 		)
