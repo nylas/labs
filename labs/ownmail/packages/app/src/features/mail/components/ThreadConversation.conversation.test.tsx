@@ -334,6 +334,13 @@ describe('the transcript', () => {
 		expect(bubbles()[0]).toHaveTextContent(/^See you Thursday\.$/)
 	})
 
+	it('keeps a postscript written below a plaintext signature in the bubble', () => {
+		renderThread([email('ps', TOMAS, MONDAY, 'Main point\n\n-- \nTomas Reyes\n\nPS: door code 482913')])
+		openConversation()
+		expect(bubbles()[0]).toHaveTextContent('Main point')
+		expect(bubbles()[0]).toHaveTextContent('PS: door code 482913')
+	})
+
 	it('names nobody in a two-person chat', () => {
 		renderThread([
 			{ ...email('a', INES, MONDAY, 'Lunch?'), to: [SAM] },

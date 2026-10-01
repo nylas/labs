@@ -117,6 +117,11 @@ const FOLD_SCORE = 3
 const LONG_CODE = /(?<![\d/-])(?<!\d[.,])\d{6,8}(?![\d/-]|[.,]\d)/
 const SHORT_CODE = /(?<![\d/-])(?<!\d[.,])\d{4,8}(?![\d/-]|[.,]\d)/
 const CODE_WORD = /\b(?:code|pin|otp|passcode|password|verification|one[\s-]time)\b/i
+/** "PS:", "P.S.", "PPS": a postscript is message content, wherever it sits. */
+const POSTSCRIPT = /^\s*p\.?\s?p?\.?\s?s\b[.:,\s-]/i
+/** A signature paragraph is a few short lines of name and contact details. */
+const SIGNATURE_MAX_LINES = 6
+const SIGNATURE_MAX_LINE_CHARS = 60
 const UNSUBSCRIBE = /unsubscribe|opt[\s-]?out|(?:manage|update|email)\s+(?:your\s+)?(?:email\s+)?preferences/i
 const HIDDEN_STYLE =
 	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent|(?:font-size|max-height|line-height):0(?![.\d]))/
@@ -507,9 +512,32 @@ function plainTextBlocks(text: string): CleanBlock[] {
 	const [body, ...signature] = `\n${content.visible}`.split(/\n-- ?(?=\n|$)/)
 	const blocks = paragraphs(body as string)
 	const signed = paragraphs(signature.join('\n'))
-	if (signed.length > 0) blocks.push({ type: 'signature', blocks: signed })
+	// The signature is the paragraph under the delimiter and any further
+	// paragraphs of name and contact lines. It ends at the first paragraph that
+	// reads as message content, a postscript above all: that text and everything
+	// after it stay ordinary blocks, so removing the signature cannot take them.
+	const end = signed.findIndex((block, index) => !isSignatureParagraph(blocksText([block]), index === 0))
+	const signatureBlocks = end === -1 ? signed : signed.slice(0, end)
+	if (signatureBlocks.length > 0) blocks.push({ type: 'signature', blocks: signatureBlocks })
+	blocks.push(...signed.slice(signatureBlocks.length))
 	if (content.quoted) blocks.push({ type: 'history', blocks: plainHistoryBlocks(content.quoted) })
 	return blocks
+}
+
+/**
+ * Whether a paragraph below the `-- ` delimiter still belongs to the signature.
+ * A postscript never does. The paragraph directly under the delimiter otherwise
+ * does; a later one only if it looks like identity lines (a few short lines,
+ * none of them a sentence). When in doubt it is message content and stays.
+ */
+function isSignatureParagraph(text: string, first: boolean): boolean {
+	if (POSTSCRIPT.test(text)) return false
+	if (first) return true
+	const lines = text.split('\n')
+	return (
+		lines.length <= SIGNATURE_MAX_LINES &&
+		lines.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS && !/[.!?]$/.test(line.trim()))
+	)
 }
 
 /**

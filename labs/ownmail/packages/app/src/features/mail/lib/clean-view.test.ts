@@ -217,6 +217,51 @@ describe('signatures', () => {
 		})
 	})
 
+	it('ends the plaintext signature where the message continues, so a postscript is never swallowed', () => {
+		// Everything after "-- " used to be one signature block. The thread pass
+		// removes signatures, so the door code in the postscript vanished with it.
+		const p = (text: string): CleanBlock => ({ type: 'paragraph', spans: [{ text }] })
+		expect(messageContent(message('Main point\n\n-- \nName\n\nPS: door code 482913'), false)).toMatchObject({
+			blocks: [p('Main point'), { type: 'signature', blocks: [p('Name')] }, p('PS: door code 482913')],
+		})
+		// Identity paragraphs stay in the signature; the first paragraph of prose ends it for good.
+		expect(
+			messageContent(
+				message(
+					'Main point\n\n--\nMara Lindqvist\nOperations\n\nExample Co\n+46 8 555 010 01\n\nOne more thing, bring the projector.\n\nExample Co',
+				),
+				false,
+			),
+		).toMatchObject({
+			blocks: [
+				p('Main point'),
+				{ type: 'signature', blocks: [p('Mara Lindqvist\nOperations'), p('Example Co\n+46 8 555 010 01')] },
+				p('One more thing, bring the projector.'),
+				p('Example Co'),
+			],
+		})
+		// A postscript straight under the delimiter, however it is written, is not a signature at all.
+		for (const postscript of ['PS: bring cash', 'P.S. bring cash', 'PPS - bring cash', 'p.s bring cash']) {
+			expect(messageContent(message(`Hi\n\n-- \n${postscript}`), false)).toMatchObject({
+				blocks: [p('Hi'), p(postscript)],
+			})
+		}
+		// Long lines, or many of them, are prose rather than identity lines.
+		const long =
+			`${'A closing remark that runs on well past what any signature line would. '.repeat(1)}`.trim()
+		expect(messageContent(message(`Hi\n\n-- \nName\n\n${long.slice(0, 61)}`), false)).toMatchObject({
+			blocks: [p('Hi'), { type: 'signature', blocks: [p('Name')] }, p(long.slice(0, 61))],
+		})
+		const many = 'a\nb\nc\nd\ne\nf\ng'
+		expect(messageContent(message(`Hi\n\n-- \nName\n\n${many}`), false)).toMatchObject({
+			blocks: [p('Hi'), { type: 'signature', blocks: [p('Name')] }, p(many)],
+		})
+		// A word that merely starts with "ps" is not a postscript marker.
+		expect(messageContent(message('Hi\n\n-- \nPsmith & Sons'), false)).toMatchObject({
+			blocks: [p('Hi'), { type: 'signature', blocks: [p('Psmith & Sons')] }],
+		})
+	})
+
 	it('counts a signature in the text, links and confidence like any other content', () => {
 		const html =
 			'<table><tr><td>Body copy that is long enough to matter.</td></tr></table><div class="gmail_signature"><a href="https://example.com/me">Tomas</a></div>'

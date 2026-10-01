@@ -17,7 +17,9 @@ import type { MailMessage } from '../state/mail-queries.js'
  * was unsure) or handed to the standard reader. Only two things may go, both by
  * design and both still behind "Show original":
  *
- * - a signature the sender's mail client marked (or the plaintext `-- ` block);
+ * - a signature the sender's mail client marked, or the signature lines under a
+ *   plaintext `-- ` delimiter. Only those lines: a postscript or any other
+ *   message text below them is content, and is checked like any other;
  * - the header that opens quoted history ("On Mon, Ines wrote:", Outlook's
  *   From/Sent/To/Subject group). Only the block in that position: a line that
  *   merely begins like a header is content, and is checked like any other.
@@ -190,6 +192,19 @@ describe('nothing a person wrote is silently dropped', () => {
 				[SAM, 'See you Thursday.\n\n-- \nSam Reader\n+1 555 010 0199'],
 			),
 		)
+	})
+
+	it('holds for a postscript written below a plaintext signature', () => {
+		const messages = thread(
+			[TOMAS, 'Which room, and how do we get in?'],
+			[INES, 'Main point: room 4B.\n\n-- \nInes Carvalho\nExample Co\n\nPS: door code 482913'],
+			[SAM, 'Thanks.\n\n--\nSam Reader\n\nOne more thing, catering arrives at noon.'],
+		)
+		expectNothingDropped(messages)
+		// The exemption covers the signature lines only, so the postscript is really checked.
+		const content = messageContent(messages[1] as MailMessage, false)
+		if (content.kind !== 'blocks') throw new Error('expected a bubble')
+		expect(words(droppable(content.blocks))).toEqual(['ines', 'carvalho', 'example'])
 	})
 
 	it('would catch a dropped answer: the check itself is not vacuous', () => {
