@@ -1,11 +1,12 @@
 import {
 	DashboardAccountClient,
+	DashboardAccountError,
 	type DashboardTokens,
 	DpopKey,
 	GatewayClient,
 	NylasV3Client,
 } from '@nylas-labs/cli-kit'
-import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
+import { apiBaseUrl, dashboardAccountUrl, gatewayUrls, OWNMAIL_OAUTH_CLIENT_ID } from '../nylas-env.js'
 import { readPendingSecret } from '../state/pending-secrets.js'
 import type { AuthState, ProjectState } from '../state/schema.js'
 import { loadAuth, saveAuth } from '../state/store.js'
@@ -47,11 +48,69 @@ export async function createContext(project: ProjectState): Promise<StepContext>
 	return ctx
 }
 
-export function tokens(ctx: StepContext): DashboardTokens {
+const SESSION_RENEWAL_MARGIN_MS = 60_000
+const renewals = new WeakMap<StepContext, Promise<void>>()
+
+/**
+ * The session to send. An OAuth session lasts minutes and cannot be
+ * refreshed, so it is renewed here, at the point of use, when it is about to
+ * end — a setup run can wait on DNS for far longer than one session.
+ */
+export async function tokens(ctx: StepContext): Promise<DashboardTokens> {
 	if (!ctx.auth) throw new Error('Not logged in — dashboard auth step must run first')
+	const expiresAt = ctx.auth.oauth?.sessionExpiresAt
+	if (expiresAt !== undefined && expiresAt - Date.now() < SESSION_RENEWAL_MARGIN_MS) {
+		await renewSession(ctx)
+	}
 	return ctx.auth.orgToken
 		? { userToken: ctx.auth.userToken, orgToken: ctx.auth.orgToken }
 		: { userToken: ctx.auth.userToken }
+}
+
+/**
+ * Exchanges a fresh access token for a new session. Concurrent callers share
+ * one renewal: refresh tokens rotate, and presenting a spent one signs the
+ * person out everywhere.
+ */
+export function renewSession(ctx: StepContext): Promise<void> {
+	let renewal = renewals.get(ctx)
+	if (!renewal) {
+		renewal = exchangeFreshSession(ctx).finally(() => renewals.delete(ctx))
+		renewals.set(ctx, renewal)
+	}
+	return renewal
+}
+
+async function exchangeFreshSession(ctx: StepContext): Promise<void> {
+	const auth = ctx.auth
+	if (!auth?.oauth) throw new Error('This Nylas session cannot be renewed.')
+	const dashboard = requireDashboard(ctx)
+	try {
+		const refreshed = await dashboard.oauthRefresh({
+			clientId: OWNMAIL_OAUTH_CLIENT_ID,
+			refreshToken: auth.oauth.refreshToken,
+		})
+		const refreshToken = refreshed.refreshToken ?? auth.oauth.refreshToken
+		// The presented token is spent now: store its successor before anything else can fail.
+		setAuth(ctx, { ...auth, oauth: { ...auth.oauth, refreshToken }, updatedAt: Date.now() })
+		const session = await dashboard.oauthExchange(refreshed.accessToken)
+		setAuth(ctx, {
+			...auth,
+			userToken: session.userToken,
+			orgToken: session.orgToken,
+			userPublicId: session.user.publicId,
+			orgPublicId: session.orgPublicId,
+			oauth: { refreshToken, sessionExpiresAt: session.expiresAt },
+			updatedAt: Date.now(),
+		})
+	} catch (err) {
+		if (err instanceof DashboardAccountError && err.status < 500) {
+			throw new Error('Your Nylas session expired. Run `npx ownmail auth login`, then retry.', {
+				cause: err,
+			})
+		}
+		throw err
+	}
 }
 
 export function setAuth(ctx: StepContext, next: AuthState): void {

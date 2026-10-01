@@ -58,7 +58,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	let sessionError: unknown
 	if (ctx.auth) {
 		try {
-			await requireDashboard(ctx).currentSession(tokens(ctx))
+			await requireDashboard(ctx).currentSession(await tokens(ctx))
 			sessionOk = true
 		} catch (err) {
 			sessionError = err
@@ -79,7 +79,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		if (opts.fix) {
 			try {
 				const key = await requireGateway(ctx).createApiKey(
-					tokens(ctx),
+					await tokens(ctx),
 					project.region,
 					project.applicationId,
 					{
@@ -131,7 +131,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		} else {
 			try {
 				const apiKeys = await requireGateway(ctx).listApiKeys(
-					tokens(ctx),
+					await tokens(ctx),
 					project.region,
 					project.applicationId,
 				)
@@ -181,7 +181,7 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 		if (project.domainId && sessionOk) {
 			try {
 				const domain = await requireDashboard(ctx).getInboxDomain(
-					tokens(ctx),
+					await tokens(ctx),
 					project.domainId,
 					project.region,
 				)
@@ -327,7 +327,12 @@ export async function runDoctor(opts: { name?: string; fix?: boolean }): Promise
 	} finally {
 		if (probeKeyId && project.applicationId) {
 			try {
-				await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, project.applicationId, probeKeyId)
+				await requireGateway(ctx).revokeApiKey(
+					await tokens(ctx),
+					project.region,
+					project.applicationId,
+					probeKeyId,
+				)
 				results.push({ name: 'Temporary API key', status: 'pass', detail: 'revoked' })
 			} catch (err) {
 				results.push({
@@ -397,7 +402,7 @@ async function repairApiKey(
 	}
 	let created: GatewayApiKey & { apiKey: string }
 	try {
-		created = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, applicationId, {
+		created = await requireGateway(ctx).createApiKey(await tokens(ctx), project.region, applicationId, {
 			name: `ownmail ${project.slug} (doctor repair ${new Date().toISOString().slice(0, 10)})`,
 			expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 		})
@@ -418,7 +423,7 @@ async function repairApiKey(
 		// The replacement was never installed, so revoke it instead of leaving an
 		// untracked active credential behind. The previously installed key remains.
 		try {
-			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, created.id)
+			await requireGateway(ctx).revokeApiKey(await tokens(ctx), project.region, applicationId, created.id)
 		} catch (revokeError) {
 			// The operator gets the generic repair failure below; never print secrets.
 			const reference = supportReference(revokeError)
@@ -455,7 +460,7 @@ async function repairApiKey(
 	)
 	if (issue.oldKeyId && issue.oldKeyId !== created.id) {
 		try {
-			await requireGateway(ctx).revokeApiKey(tokens(ctx), project.region, applicationId, issue.oldKeyId)
+			await requireGateway(ctx).revokeApiKey(await tokens(ctx), project.region, applicationId, issue.oldKeyId)
 		} catch (err) {
 			return {
 				name: 'Nylas API key',

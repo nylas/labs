@@ -81,7 +81,7 @@ async function runAppDomainLocked(project: ProjectState, opts: AppDomainOptions)
 	const gateway = requireGateway(ctx)
 	let temporaryKeyId: string | undefined
 	try {
-		const key = await gateway.createApiKey(tokens(ctx), project.region, requireApplicationId(project), {
+		const key = await gateway.createApiKey(await tokens(ctx), project.region, requireApplicationId(project), {
 			name: `ownmail app-domain ${new Date().toISOString()}`,
 			expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
 		})
@@ -151,7 +151,12 @@ async function runAppDomainLocked(project: ProjectState, opts: AppDomainOptions)
 	} finally {
 		if (temporaryKeyId) {
 			try {
-				await gateway.revokeApiKey(tokens(ctx), project.region, requireApplicationId(project), temporaryKeyId)
+				await gateway.revokeApiKey(
+					await tokens(ctx),
+					project.region,
+					requireApplicationId(project),
+					temporaryKeyId,
+				)
 			} catch (err) {
 				const reference = supportReference(err)
 				const message = `Could not revoke the temporary Nylas API key. Revoke it in the Nylas Dashboard.${

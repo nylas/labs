@@ -1,16 +1,12 @@
 import * as p from '@clack/prompts'
 import {
-	type AuthResponse,
 	DashboardAccountClient,
 	DpopKey,
 	type GatewayApplication,
 	GatewayClient,
 	NylasV3Client,
 	type Region,
-	type SsoLoginType,
 } from '@nylas-labs/cli-kit'
-import open from 'open'
-import { z } from 'zod'
 import { DEPLOYMENT_API_KEY_LIFETIME_DAYS, reusableApiKey } from '../api-key-lifecycle.js'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import {
@@ -20,18 +16,24 @@ import {
 	readPendingSecret,
 	storePendingSecret,
 } from '../state/pending-secrets.js'
-import type { ProjectState } from '../state/schema.js'
+import type { AuthState, ProjectState } from '../state/schema.js'
 import { markStep, saveProject } from '../state/store.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
-import { requireDashboard, requireGateway, requireV3, type StepContext, setAuth, tokens } from './context.js'
+import {
+	renewSession,
+	requireDashboard,
+	requireGateway,
+	requireV3,
+	type StepContext,
+	setAuth,
+	tokens,
+} from './context.js'
+import { signInWithBrowser } from './oauth-login.js'
 
 const APP_BRANDING_PREFIX = 'ownmail:'
 const SANDBOX_GRANT_CAP = 5
 const APPLICATION_REGIONS: Region[] = ['us', 'eu']
-const DASHBOARD_EMAIL_SCHEMA = z.string().trim().max(254).email()
-const DASHBOARD_PASSWORD_SCHEMA = z.string().min(1).max(1024)
-const DASHBOARD_MFA_CODE_SCHEMA = z.string().regex(/^[0-9]{6}$/)
 const DOMAIN_VERIFICATION_CHECKS = ['ownership', 'mx', 'spf', 'dkim', 'feedback'] as const
 const DOMAIN_VERIFICATION_STATUS_MAX_LENGTH = 16
 const DOMAIN_POLL_INTERVAL_MS = 30_000
@@ -48,22 +50,16 @@ type VerificationInput = Pick<
 	setRawMode?: (mode: boolean) => unknown
 }
 
-/** 01 — Dashboard email/password or SSO flow (login or register). */
+/** 01 — Sign in (or register) on the Nylas dashboard's own login page. */
 export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 	if (ctx.auth) {
-		// Session may be stale — probe and refresh instead of re-prompting.
+		// Session may be stale — probe and renew instead of re-prompting.
 		try {
-			await requireDashboard(ctx).currentSession(tokens(ctx))
+			await requireDashboard(ctx).currentSession(await tokens(ctx))
 			return
 		} catch {
 			try {
-				const refreshed = await requireDashboard(ctx).refresh(tokens(ctx))
-				setAuth(ctx, {
-					...ctx.auth,
-					userToken: refreshed.userToken,
-					...(refreshed.orgToken ? { orgToken: refreshed.orgToken } : {}),
-					updatedAt: Date.now(),
-				})
+				await refreshStoredSession(ctx, ctx.auth)
 				return
 			} catch {
 				p.log.warn('Your Nylas session expired — let’s log in again.')
@@ -72,186 +68,50 @@ export async function stepDashboardAuth(ctx: StepContext): Promise<void> {
 		}
 	}
 
-	const mode = await p.select({
-		message: 'Do you already have a Nylas account?',
-		options: [
-			{ value: 'register' as const, label: 'No — create one (free)' },
-			{ value: 'login' as const, label: 'Yes — log in' },
-		],
-	})
-	if (p.isCancel(mode)) throw new CancelledError()
-
-	const loginType = await p.select({
-		message: 'Sign in with',
-		options:
-			mode === 'login'
-				? [
-						{ value: 'email_password' as const, label: 'Nylas email and password' },
-						{ value: 'google_SSO' as const, label: 'Google' },
-						{ value: 'microsoft_SSO' as const, label: 'Microsoft' },
-						{ value: 'github_SSO' as const, label: 'GitHub' },
-						{ value: 'saml_SSO' as const, label: 'Enterprise SAML' },
-					]
-				: [
-						{ value: 'google_SSO' as const, label: 'Google' },
-						{ value: 'microsoft_SSO' as const, label: 'Microsoft' },
-						{ value: 'github_SSO' as const, label: 'GitHub' },
-					],
-	})
-	if (p.isCancel(loginType)) throw new CancelledError()
-
-	const samlSsoInput =
-		loginType === 'saml_SSO'
-			? {
-					loginType,
-					mode: 'login' as const,
-					email: await promptDashboardEmail('Work email for Enterprise SAML', 'you@company.com'),
-				}
-			: undefined
 	const dpop = ctx.dpop ?? (await DpopKey.generate())
 	const dashboard = new DashboardAccountClient(dpop, dashboardAccountUrl(), fetch, OWNMAIL_USER_AGENT)
 	ctx.dpop = dpop
 	ctx.dashboard = dashboard
 	ctx.gateway = new GatewayClient(dpop, gatewayUrls(), fetch, OWNMAIL_USER_AGENT)
 
-	let result: AuthResponse
-	if (loginType === 'email_password') {
-		result = await authorizeWithPassword(dashboard)
-	} else {
-		const spinner = p.spinner()
-		const ssoInput = samlSsoInput ?? { loginType: loginType as SsoLoginType, mode }
-		const ssoResult = await dashboard.ssoAuthorize(ssoInput, async (started) => {
-			const url = started.verificationUriComplete ?? started.verificationUri
-			p.note(
-				`Visit this URL to finish signing in:\n\n  ${url}\n\nCode: ${started.userCode}`,
-				'Confirm in browser',
-			)
-			const shouldOpen = await p.confirm({
-				message: 'Open this URL in your browser?',
-				initialValue: true,
-			})
-			if (p.isCancel(shouldOpen)) throw new CancelledError()
-			if (shouldOpen) {
-				await open(url).catch(() => {
-					p.log.warn('Could not open your browser automatically. Use the URL above.')
-				})
-			}
-			spinner.start('Waiting for you to finish in the browser…')
-		})
-		if (ssoResult.status === 'mfa_required') {
-			spinner.stop('Browser sign-in complete — MFA required')
-			result = await completeDashboardMfa(
-				dashboard,
-				ssoResult.user.publicId,
-				ssoResult.organizations[0]?.publicId,
-			)
-		} else if (ssoResult.status !== 'complete') {
-			spinner.stop('Browser sign-in did not complete')
-			throw new Error(
-				ssoResult.status === 'access_denied'
-					? loginType === 'saml_SSO'
-						? 'Enterprise SAML sign-in was denied. Check your work email and ask your organization administrator to confirm your Nylas access, then retry.'
-						: 'Sign-in was denied. If this Google, Microsoft, or GitHub email does not have a Nylas dashboard account, re-run ownmail and choose “No — create one (free)”.'
-					: 'The sign-in link expired before it was confirmed. Re-run ownmail to start a new sign-in.',
-			)
-		} else {
-			spinner.stop('Browser sign-in complete')
-			result = ssoResult
-		}
-	}
+	const { session, refreshToken } = await signInWithBrowser(dashboard, ctx.project.region)
 
 	setAuth(ctx, {
-		userToken: result.userToken,
-		orgToken: result.orgToken,
-		userPublicId: result.user.publicId,
-		orgPublicId: result.organizations[0]?.publicId,
+		userToken: session.userToken,
+		orgToken: session.orgToken,
+		userPublicId: session.user.publicId,
+		orgPublicId: session.orgPublicId,
 		dpopPrivateJwk: dpop.toStored().privateJwk as Record<string, unknown>,
+		oauth: { refreshToken, sessionExpiresAt: session.expiresAt },
 		updatedAt: Date.now(),
 	})
 	markStep(ctx.project, 'dashboard-auth')
 }
 
-async function promptDashboardEmail(message: string, placeholder: string): Promise<string> {
-	const emailInput = await p.text({
-		message,
-		placeholder,
-		validate: (value) =>
-			DASHBOARD_EMAIL_SCHEMA.safeParse(value).success ? undefined : 'Enter a valid email address.',
+async function refreshStoredSession(ctx: StepContext, auth: AuthState): Promise<void> {
+	if (auth.oauth) return renewSession(ctx)
+	// A session stored by an earlier OwnMail (password or device flow) still refreshes in place.
+	const refreshed = await requireDashboard(ctx).refresh(await tokens(ctx))
+	setAuth(ctx, {
+		...auth,
+		userToken: refreshed.userToken,
+		...(refreshed.orgToken ? { orgToken: refreshed.orgToken } : {}),
+		updatedAt: Date.now(),
 	})
-	if (p.isCancel(emailInput)) throw new CancelledError()
-	return DASHBOARD_EMAIL_SCHEMA.parse(emailInput).toLowerCase()
-}
-
-async function authorizeWithPassword(dashboard: DashboardAccountClient): Promise<AuthResponse> {
-	const email = await promptDashboardEmail('Nylas account email', 'you@example.com')
-
-	let password = await p.password({
-		message: 'Nylas account password',
-		validate: (value) =>
-			DASHBOARD_PASSWORD_SCHEMA.safeParse(value).success
-				? undefined
-				: 'Enter a password between 1 and 1024 characters.',
-	})
-	if (p.isCancel(password)) throw new CancelledError()
-
-	const spinner = p.spinner()
-	spinner.start('Signing in to Nylas…')
-	let loginResult: Awaited<ReturnType<DashboardAccountClient['loginWithPassword']>>
-	try {
-		loginResult = await dashboard.loginWithPassword({ email, password })
-	} catch (err) {
-		spinner.stop('Nylas sign-in failed')
-		throw new Error(
-			'Email/password sign-in failed. Check your credentials and confirm this account uses Nylas email/password login.',
-			{ cause: err },
-		)
-	} finally {
-		password = ''
-	}
-
-	if (loginResult.status === 'complete') {
-		spinner.stop('Nylas sign-in complete')
-		return loginResult
-	}
-
-	spinner.stop('Password accepted — MFA required')
-	return completeDashboardMfa(dashboard, loginResult.user.publicId, loginResult.organizations[0]?.publicId)
-}
-
-async function completeDashboardMfa(
-	dashboard: DashboardAccountClient,
-	userPublicId: string,
-	orgPublicId?: string,
-): Promise<AuthResponse> {
-	let code = await p.password({
-		message: 'Six-digit authenticator code',
-		validate: (value) =>
-			DASHBOARD_MFA_CODE_SCHEMA.safeParse(value).success ? undefined : 'Enter a six-digit code.',
-	})
-	if (p.isCancel(code)) throw new CancelledError()
-
-	const spinner = p.spinner()
-	spinner.start('Verifying authenticator code…')
-	try {
-		const result = await dashboard.completeMfaLogin({
-			userPublicId,
-			code,
-			...(orgPublicId ? { orgPublicId } : {}),
-		})
-		code = ''
-		spinner.stop('MFA verification complete')
-		return result
-	} catch (err) {
-		code = ''
-		spinner.stop('MFA verification failed')
-		throw new Error('MFA verification failed. Check the six-digit code and try again.', { cause: err })
-	}
 }
 
 /** 02 — Resolve the active organization (picker when the user has several). */
 export async function stepOrg(ctx: StepContext): Promise<void> {
+	// An OAuth session is for the organization chosen on the consent page and cannot switch.
+	const consentedOrg = ctx.auth?.oauth ? ctx.auth.orgPublicId : undefined
+	if (consentedOrg) {
+		ctx.project.orgPublicId = consentedOrg
+		saveProject(ctx.project)
+		markStep(ctx.project, 'org')
+		return
+	}
 	const dashboard = requireDashboard(ctx)
-	const session = await dashboard.currentSession(tokens(ctx))
+	const session = await dashboard.currentSession(await tokens(ctx))
 	const orgs = session.organizations ?? (session.organization ? [session.organization] : [])
 
 	let orgPublicId = session.organization?.publicId ?? orgs[0]?.publicId
@@ -263,7 +123,7 @@ export async function stepOrg(ctx: StepContext): Promise<void> {
 		})
 		if (p.isCancel(picked)) throw new CancelledError()
 		if (picked !== session.organization?.publicId) {
-			const switched = await dashboard.switchOrg(tokens(ctx), picked)
+			const switched = await dashboard.switchOrg(await tokens(ctx), picked)
 			const auth = ctx.auth
 			/* v8 ignore next -- tokens(ctx) above throws when auth is absent. -- @preserve */
 			if (!auth) throw new Error('Not logged in — dashboard auth step must run first')
@@ -304,7 +164,7 @@ export async function stepApp(ctx: StepContext): Promise<void> {
 		ctx.project.region = existing.region
 		p.log.info(`Using existing ${existing.region.toUpperCase()} sandbox app: ${appDisplayName(existing)}`)
 	} else {
-		const created = await gateway.createApplication(tokens(ctx), ctx.project.region, orgPublicId, {
+		const created = await gateway.createApplication(await tokens(ctx), ctx.project.region, orgPublicId, {
 			region: ctx.project.region,
 			environment: 'sandbox',
 			branding: { name: brandName, description: 'Created by npx ownmail' },
@@ -340,7 +200,7 @@ export async function listSandboxApplications(
 ): Promise<SandboxApplication[]> {
 	const apps: SandboxApplication[] = []
 	for (const region of prioritizedRegions(ctx.project.region)) {
-		const listed = await gateway.listApplications(tokens(ctx), region, orgPublicId)
+		const listed = await gateway.listApplications(await tokens(ctx), region, orgPublicId)
 		for (const app of listed) {
 			if (!isSandboxApplication(app)) continue
 			apps.push({ ...app, region: parseRegion(app.region) ?? region })
@@ -373,7 +233,7 @@ export async function stepApiKey(ctx: StepContext): Promise<void> {
 
 	const pendingApiKey = readPendingSecret(ctx.project, 'apiKey')
 	if (pendingApiKey) {
-		const keys = await gateway.listApiKeys(tokens(ctx), ctx.project.region, applicationId)
+		const keys = await gateway.listApiKeys(await tokens(ctx), ctx.project.region, applicationId)
 		if (reusableApiKey(keys, ctx.project.apiKeyId)) {
 			ctx.v3 = nylasClient(pendingApiKey, ctx.project.region)
 			markStep(ctx.project, 'api-key')
@@ -391,7 +251,7 @@ export async function stepApiKey(ctx: StepContext): Promise<void> {
 	spinner.start('Creating a Nylas API key…')
 	let created: Awaited<ReturnType<typeof gateway.createApiKey>>
 	try {
-		created = await gateway.createApiKey(tokens(ctx), ctx.project.region, applicationId, {
+		created = await gateway.createApiKey(await tokens(ctx), ctx.project.region, applicationId, {
 			name: `ownmail ${ctx.project.slug} ${apiKeyNameSuffix()}`,
 			expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 		})
@@ -408,7 +268,7 @@ export async function stepApiKey(ctx: StepContext): Promise<void> {
 		})
 	} catch (storageError) {
 		try {
-			await gateway.revokeApiKey(tokens(ctx), ctx.project.region, applicationId, created.id)
+			await gateway.revokeApiKey(await tokens(ctx), ctx.project.region, applicationId, created.id)
 		} catch {
 			p.log.warn('Could not revoke an unused replacement Nylas API key. Revoke it in the Nylas dashboard.')
 		}
@@ -463,7 +323,7 @@ export async function planDomain(ctx: StepContext): Promise<void> {
 	const dashboard = requireDashboard(ctx)
 	const region = ctx.project.region
 
-	const domains = await dashboard.listInboxDomains(tokens(ctx), { limit: 100 })
+	const domains = await dashboard.listInboxDomains(await tokens(ctx), { limit: 100 })
 	const branded = domains.find((d) => d.branded && d.region === region)
 	if (branded) {
 		adoptDomain(ctx, branded.id, branded.domainAddress, true, isFullyVerified(branded))
@@ -521,7 +381,7 @@ async function planBrandedDomain(ctx: StepContext): Promise<void> {
 		if (p.isCancel(sub)) throw new CancelledError()
 		const domainAddress = `${sub}.nylas.email`
 
-		const availability = await dashboard.domainAvailability(tokens(ctx), domainAddress)
+		const availability = await dashboard.domainAvailability(await tokens(ctx), domainAddress)
 		if (!availability.available) {
 			p.log.warn(`${domainAddress} is taken — try ${sub}-hq, ${sub}-app, or get-${sub}.`)
 			continue
@@ -588,7 +448,7 @@ async function createBrandedDomain(
 	spinner.start(`Claiming ${domainAddress}…`)
 	let created: Awaited<ReturnType<typeof dashboard.createInboxDomain>>
 	try {
-		created = await dashboard.createInboxDomain(tokens(ctx), {
+		created = await dashboard.createInboxDomain(await tokens(ctx), {
 			name: domainAddress.slice(0, -'.nylas.email'.length),
 			domainAddress,
 			region,
@@ -603,7 +463,7 @@ async function createBrandedDomain(
 
 async function createCustomDomain(ctx: StepContext, domain: string, region: 'us' | 'eu'): Promise<void> {
 	const dashboard = requireDashboard(ctx)
-	const created = await dashboard.createInboxDomain(tokens(ctx), {
+	const created = await dashboard.createInboxDomain(await tokens(ctx), {
 		name: domain,
 		domainAddress: domain,
 		region,
@@ -618,7 +478,7 @@ async function verifyCustomDomain(ctx: StepContext, domainId: string, domain: st
 	p.log.step('Publish these DNS records at your DNS provider:')
 	for (const type of DOMAIN_VERIFICATION_CHECKS) {
 		try {
-			const info = await dashboard.domainInfo(tokens(ctx), domainId, { region, type })
+			const info = await dashboard.domainInfo(await tokens(ctx), domainId, { region, type })
 			const o = info.attempt?.options
 			if (o?.host && o.type && o.value) {
 				p.log.message(`  ${o.type.padEnd(6)} ${o.host}  →  ${o.value}`)
@@ -711,7 +571,7 @@ async function runDomainVerificationSweep(
 	const dashboard = requireDashboard(ctx)
 	for (const type of [...pending]) {
 		try {
-			const result = await dashboard.verifyDomain(tokens(ctx), domainId, { type }, ctx.project.region)
+			const result = await dashboard.verifyDomain(await tokens(ctx), domainId, { type }, ctx.project.region)
 			if (isSuccessfulDomainVerificationStatus(result.status)) pending.delete(type)
 		} catch {
 			// A later authoritative domain refresh can still observe a completed check.
@@ -728,7 +588,7 @@ async function refreshDomainVerificationState(
 	pending: Set<DomainVerificationCheck>,
 ): Promise<boolean> {
 	try {
-		const domain = await requireDashboard(ctx).getInboxDomain(tokens(ctx), domainId, ctx.project.region)
+		const domain = await requireDashboard(ctx).getInboxDomain(await tokens(ctx), domainId, ctx.project.region)
 		updatePendingDomainChecks(pending, domain)
 		return isFullyVerified(domain)
 	} catch {

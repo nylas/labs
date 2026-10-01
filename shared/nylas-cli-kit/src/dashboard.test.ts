@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DashboardAccountClient, DashboardAccountError } from './dashboard.js'
+import {
+	createOAuthPkcePair,
+	DASHBOARD_SESSION_OAUTH_SCOPE,
+	DashboardAccountClient,
+	DashboardAccountError,
+} from './dashboard.js'
 import { DpopKey } from './dpop.js'
 
 async function clientWithResponse(payload: unknown): Promise<DashboardAccountClient> {
@@ -517,4 +522,150 @@ describe('DashboardAccountClient errors', () => {
 			requestId: 'req-invalid-json-123',
 		})
 	})
+})
+
+describe('DashboardAccountClient OAuth sign-in', () => {
+	const exchanged = {
+		userToken: 'user-token',
+		orgToken: 'org-token',
+		user: { publicId: 'user-public-id' },
+		orgPublicId: 'org-public-id',
+		expiresAt: '2026-10-01T00:15:00.000Z',
+	}
+
+	it('derives the PKCE challenge as the S256 hash of a fresh verifier', async () => {
+		const first = await createOAuthPkcePair()
+		const second = await createOAuthPkcePair()
+		const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(first.codeVerifier))
+
+		// The server recomputes this hash; any other derivation fails every sign-in.
+		expect(first.codeChallenge).toBe(Buffer.from(digest).toString('base64url'))
+		expect(first.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43}$/)
+		expect(second.codeVerifier).not.toBe(first.codeVerifier)
+	})
+
+	it('asks for a dashboard session with PKCE, and names the sign-up region only when given', async () => {
+		const client = await clientWithResponse({})
+		const input = {
+			clientId: 'client-id',
+			redirectUri: 'http://127.0.0.1:5123/callback',
+			state: 'state-value',
+			codeChallenge: 'challenge',
+		}
+
+		const url = new URL(client.oauthAuthorizeUrl({ ...input, region: 'eu' }))
+
+		expect(`${url.origin}${url.pathname}`).toBe('https://dashboard-account.test/oauth/authorize')
+		// Without dashboard.session the exchange refuses the token.
+		expect(DASHBOARD_SESSION_OAUTH_SCOPE.split(' ')).toContain('dashboard.session')
+		expect(Object.fromEntries(url.searchParams)).toEqual({
+			response_type: 'code',
+			client_id: 'client-id',
+			redirect_uri: 'http://127.0.0.1:5123/callback',
+			scope: DASHBOARD_SESSION_OAUTH_SCOPE,
+			state: 'state-value',
+			code_challenge: 'challenge',
+			code_challenge_method: 'S256',
+			region: 'eu',
+		})
+		expect(new URL(client.oauthAuthorizeUrl(input)).searchParams.has('region')).toBe(false)
+	})
+
+	it('redeems an authorization code as a form-encoded public client with no credential', async () => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({
+			access_token: 'access',
+			token_type: 'Bearer',
+			expires_in: 900,
+			refresh_token: 'refresh',
+		})
+
+		await expect(
+			client.oauthToken({
+				clientId: 'client-id',
+				code: 'code',
+				redirectUri: 'http://127.0.0.1:5123/callback',
+				codeVerifier: 'verifier',
+			}),
+		).resolves.toEqual({ accessToken: 'access', refreshToken: 'refresh' })
+
+		const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+		expect(url).toBe('https://dashboard-account.test/oauth/token')
+		expect(init.headers).toEqual({ 'Content-Type': 'application/x-www-form-urlencoded' })
+		expect(Object.fromEntries(new URLSearchParams(init.body as string))).toEqual({
+			grant_type: 'authorization_code',
+			client_id: 'client-id',
+			code: 'code',
+			redirect_uri: 'http://127.0.0.1:5123/callback',
+			code_verifier: 'verifier',
+		})
+	})
+
+	it('rotates a refresh token and tolerates an answer without a new one', async () => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({ access_token: 'access-2' })
+
+		await expect(client.oauthRefresh({ clientId: 'client-id', refreshToken: 'refresh' })).resolves.toEqual({
+			accessToken: 'access-2',
+		})
+
+		const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+		expect(Object.fromEntries(new URLSearchParams(init.body as string))).toEqual({
+			grant_type: 'refresh_token',
+			client_id: 'client-id',
+			refresh_token: 'refresh',
+		})
+	})
+
+	it('surfaces a refused token request with the OAuth error body', async () => {
+		const dpop = await DpopKey.generate()
+		const fetchImpl = vi.fn(async () => Response.json({ error: 'invalid_grant' }, { status: 400 }))
+		const client = new DashboardAccountClient(
+			dpop,
+			'https://dashboard-account.test',
+			fetchImpl as unknown as typeof fetch,
+		)
+
+		await expect(client.oauthRefresh({ clientId: 'client-id', refreshToken: 'spent' })).rejects.toMatchObject(
+			{
+				name: 'DashboardAccountError',
+				status: 400,
+				body: { error: 'invalid_grant' },
+			},
+		)
+	})
+
+	it.each([null, {}, { access_token: '' }])('rejects a malformed token response %j', async (payload) => {
+		const client = await clientWithResponse(payload)
+
+		await expect(client.oauthRefresh({ clientId: 'client-id', refreshToken: 'refresh' })).rejects.toThrow(
+			/malformed response/,
+		)
+	})
+
+	it('exchanges an access token for a DPoP-bound session without sending it as a bearer', async () => {
+		const { client, fetchImpl } = await clientAndFetchWithResponse({
+			request_id: 'req',
+			success: true,
+			data: exchanged,
+		})
+
+		await expect(client.oauthExchange('access')).resolves.toEqual({
+			...exchanged,
+			expiresAt: Date.parse(exchanged.expiresAt),
+		})
+
+		const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+		expect(url).toBe('https://dashboard-account.test/auth/cli/oauth/exchange')
+		expect(JSON.parse(init.body as string)).toEqual({ accessToken: 'access' })
+		expect(init.headers).toMatchObject({ DPoP: expect.any(String) })
+		expect(init.headers).not.toHaveProperty('Authorization')
+	})
+
+	it.each([null, { ...exchanged, orgPublicId: undefined }, { ...exchanged, expiresAt: 'soon' }])(
+		'rejects a malformed exchange response %j',
+		async (data) => {
+			const client = await clientWithResponse({ request_id: 'req', success: true, data })
+
+			await expect(client.oauthExchange('access')).rejects.toThrow(/malformed response/)
+		},
+	)
 })

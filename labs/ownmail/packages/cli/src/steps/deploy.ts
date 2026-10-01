@@ -681,7 +681,7 @@ async function finalizePendingApiKeyRotation(ctx: StepContext): Promise<void> {
 	if (!rotation || rotation.replacementKeyId !== ctx.project.apiKeyId) return
 	try {
 		await requireGateway(ctx).revokeApiKey(
-			tokens(ctx),
+			await tokens(ctx),
 			ctx.project.region,
 			requireNylasClientId(ctx.project.applicationId),
 			rotation.previousKeyId,

@@ -23,11 +23,10 @@ npx ownmail
 
 The setup wizard signs you in, creates an inbox, configures a domain, and
 deploys the app. You can safely re-run it to resume an incomplete setup.
-Existing Nylas users can sign in with their Nylas email/password (including
-authenticator-code MFA), Google, Microsoft, GitHub, or their organization’s
-Enterprise SAML provider. Enterprise SAML sign-in uses a work email to discover
-the organization, then completes securely in the browser. Account creation
-continues through the browser-based provider flow.
+Sign-in happens on the Nylas dashboard login page in your browser: log in the
+way you normally do, or create a free account there, then approve OwnMail. If
+you belong to several organizations, choose the one that should own the
+mailbox on that page.
 
 Setup proposes the name shown in the app from your email domain—for example,
 `acme.nylas.email` becomes **Acme Mail** and `mail.your-company.com` becomes

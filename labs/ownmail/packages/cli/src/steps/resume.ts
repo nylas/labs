@@ -87,7 +87,7 @@ export async function findDeployedApp(ctx: StepContext, slug: string): Promise<S
 	if (!orgPublicId) throw new Error('Organization unavailable — rerun ownmail setup')
 	const matches: SandboxApplication[] = []
 	for (const app of await listSandboxApplications(ctx, gateway, orgPublicId)) {
-		const keys = await gateway.listApiKeys(tokens(ctx), app.region, app.applicationId)
+		const keys = await gateway.listApiKeys(await tokens(ctx), app.region, app.applicationId)
 		const deployed = keys.some(
 			(key) => key.status.trim().toLowerCase() === 'active' && isDeploymentKeyName(key.name, slug),
 		)

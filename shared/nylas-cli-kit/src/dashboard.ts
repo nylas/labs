@@ -1,5 +1,6 @@
 /**
  * Client for the Nylas dashboard-account service:
+ * - OAuth authorization-code sign-in (PKCE) exchanged for a dashboard session
  * - CLI email/password and SSO device-authorization flows
  * - session management (current, switch-org, refresh, logout)
  * - inbox domains REST (/orgs/inbox/domains/*)
@@ -12,6 +13,34 @@ import type { DpopKey } from './dpop.js'
 import { bodyRequestId, responseRequestId, userAgentHeader } from './http.js'
 
 export const DEFAULT_DASHBOARD_ACCOUNT_URL = 'https://dashboard-account.eu.nylas.com'
+
+/** What a first-party app asks for so its token can become a dashboard session. */
+export const DASHBOARD_SESSION_OAUTH_SCOPE = 'openid offline_access dashboard.session'
+
+export type OAuthPkcePair = {
+	codeVerifier: string
+	codeChallenge: string
+}
+
+export type OAuthTokenResponse = {
+	accessToken: string
+	/** Absent when the server could not issue one; the session then cannot be renewed. */
+	refreshToken?: string
+}
+
+/**
+ * A session exchanged from an OAuth access token. It is for the organization
+ * chosen on the consent page, cannot be refreshed or switched to another
+ * organization, and ends at `expiresAt` (epoch milliseconds): renew it by
+ * exchanging a fresh access token.
+ */
+export type OAuthSessionResponse = {
+	userToken: string
+	orgToken: string
+	user: DashboardUser
+	orgPublicId: string
+	expiresAt: number
+}
 
 export type SsoLoginType = 'google_SSO' | 'microsoft_SSO' | 'github_SSO' | 'saml_SSO'
 export type SsoMode = 'login' | 'register'
@@ -116,6 +145,7 @@ export type DomainVerificationResult = {
 type Envelope<T> = { request_id: string; success: boolean; data: T }
 type JsonRecord = Record<string, unknown>
 const DEFAULT_HTTP_TIMEOUT_MS = 30_000
+const PKCE_VERIFIER_BYTES = 32
 const MAX_SSO_URL_LENGTH = 2_048
 const MAX_SSO_EXPIRES_IN_SECONDS = 3_600
 const MAX_SSO_POLL_INTERVAL_SECONDS = 300
@@ -135,6 +165,19 @@ export class DashboardAccountError extends Error {
 	}
 }
 
+/** RFC 7636 S256 verifier and challenge from the platform's secure RNG. */
+export async function createOAuthPkcePair(): Promise<OAuthPkcePair> {
+	const codeVerifier = base64url(crypto.getRandomValues(new Uint8Array(PKCE_VERIFIER_BYTES)))
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier))
+	return { codeVerifier, codeChallenge: base64url(new Uint8Array(digest)) }
+}
+
+function base64url(bytes: Uint8Array): string {
+	let bin = ''
+	for (const b of bytes) bin += String.fromCharCode(b)
+	return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+}
+
 export class DashboardAccountClient {
 	private readonly attributionHeaders: Record<string, string>
 
@@ -145,6 +188,69 @@ export class DashboardAccountClient {
 		userAgent?: string,
 	) {
 		this.attributionHeaders = userAgentHeader(userAgent)
+	}
+
+	// ---- OAuth sign-in (authorization code + PKCE) ----------------------------
+
+	/**
+	 * The dashboard page that signs the person in (or registers them), lets
+	 * them pick an organization and asks for consent. `region` only decides
+	 * where a NEW account's organization is created.
+	 */
+	oauthAuthorizeUrl(input: {
+		clientId: string
+		redirectUri: string
+		state: string
+		codeChallenge: string
+		region?: 'us' | 'eu'
+	}): string {
+		const params = new URLSearchParams({
+			response_type: 'code',
+			client_id: input.clientId,
+			redirect_uri: input.redirectUri,
+			scope: DASHBOARD_SESSION_OAUTH_SCOPE,
+			state: input.state,
+			code_challenge: input.codeChallenge,
+			code_challenge_method: 'S256',
+		})
+		if (input.region) params.set('region', input.region)
+		return `${this.baseUrl}/oauth/authorize?${params}`
+	}
+
+	async oauthToken(input: {
+		clientId: string
+		code: string
+		redirectUri: string
+		codeVerifier: string
+	}): Promise<OAuthTokenResponse> {
+		return this.requestOAuthToken({
+			grant_type: 'authorization_code',
+			client_id: input.clientId,
+			code: input.code,
+			redirect_uri: input.redirectUri,
+			code_verifier: input.codeVerifier,
+		})
+	}
+
+	/**
+	 * Refresh tokens rotate: the one presented is spent whether or not the
+	 * caller receives the answer, so persist the returned token before using
+	 * the access token.
+	 */
+	async oauthRefresh(input: { clientId: string; refreshToken: string }): Promise<OAuthTokenResponse> {
+		return this.requestOAuthToken({
+			grant_type: 'refresh_token',
+			client_id: input.clientId,
+			refresh_token: input.refreshToken,
+		})
+	}
+
+	/** Trades an access token carrying `dashboard.session` for a DPoP-bound session. */
+	async oauthExchange(accessToken: string): Promise<OAuthSessionResponse> {
+		const data = await this.requestEnveloped<unknown>('POST', '/auth/cli/oauth/exchange', {
+			body: { accessToken },
+		})
+		return parseOAuthSessionResponse(data, '/auth/cli/oauth/exchange')
 	}
 
 	// ---- CLI email/password flow ---------------------------------------------
@@ -358,33 +464,30 @@ export class DashboardAccountClient {
 			},
 			`dashboard-account ${method} ${path}`,
 		)
+		return readJsonResponse<T>(res, method, path)
+	}
 
-		const text = await res.text()
-		let parsed: unknown = null
-		let validJson = true
-		try {
-			parsed = text ? JSON.parse(text) : null
-		} catch {
-			validJson = false
-			parsed = text
-		}
-		if (!res.ok) {
-			throw new DashboardAccountError(
-				`dashboard-account ${method} ${path} failed with ${res.status}`,
-				res.status,
-				parsed,
-				responseRequestId(res, parsed),
-			)
-		}
-		if (!validJson) {
-			throw new DashboardAccountError(
-				`dashboard-account ${method} ${path} returned invalid JSON`,
-				res.status,
-				undefined,
-				responseRequestId(res),
-			)
-		}
-		return parsed as T
+	/**
+	 * `/oauth/token` is standards-shaped (RFC 6749): a form-encoded request and
+	 * a bare JSON answer with no envelope. A public client sends no credential.
+	 */
+	private async requestOAuthToken(form: Record<string, string>): Promise<OAuthTokenResponse> {
+		const path = '/oauth/token'
+		const res = await fetchWithTimeout(
+			this.fetchImpl,
+			`${this.baseUrl}${path}`,
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/x-www-form-urlencoded',
+					...this.attributionHeaders,
+				},
+				body: new URLSearchParams(form).toString(),
+				redirect: 'error',
+			},
+			`dashboard-account POST ${path}`,
+		)
+		return parseOAuthTokenResponse(await readJsonResponse<unknown>(res, 'POST', path), path)
 	}
 
 	/** Unwraps the `{request_id, success, data}` envelope used by REST routes. */
@@ -396,6 +499,35 @@ export class DashboardAccountClient {
 		const envelope = unwrapEnvelope<T>(await this.request<unknown>(method, path, opts), path)
 		return envelope.data
 	}
+}
+
+async function readJsonResponse<T>(res: Response, method: string, path: string): Promise<T> {
+	const text = await res.text()
+	let parsed: unknown = null
+	let validJson = true
+	try {
+		parsed = text ? JSON.parse(text) : null
+	} catch {
+		validJson = false
+		parsed = text
+	}
+	if (!res.ok) {
+		throw new DashboardAccountError(
+			`dashboard-account ${method} ${path} failed with ${res.status}`,
+			res.status,
+			parsed,
+			responseRequestId(res, parsed),
+		)
+	}
+	if (!validJson) {
+		throw new DashboardAccountError(
+			`dashboard-account ${method} ${path} returned invalid JSON`,
+			res.status,
+			undefined,
+			responseRequestId(res),
+		)
+	}
+	return parsed as T
 }
 
 function unwrapEnvelope<T>(value: unknown, path: string): Envelope<T> {
@@ -495,6 +627,28 @@ function parseSsoPollResponse(value: unknown, path: string): SsoPollResponse {
 	}
 
 	throw new Error(`dashboard-account ${path} returned an unknown SSO status`)
+}
+
+function parseOAuthTokenResponse(value: unknown, path: string): OAuthTokenResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	const refreshToken = readOptionalString(value, 'refresh_token')
+	return {
+		accessToken: readString(value, 'access_token', path),
+		...(refreshToken ? { refreshToken } : {}),
+	}
+}
+
+function parseOAuthSessionResponse(value: unknown, path: string): OAuthSessionResponse {
+	if (!isRecord(value)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	const expiresAt = Date.parse(readString(value, 'expiresAt', path))
+	if (Number.isNaN(expiresAt)) throw new Error(`dashboard-account ${path} returned a malformed response`)
+	return {
+		userToken: readString(value, 'userToken', path),
+		orgToken: readString(value, 'orgToken', path),
+		user: parseDashboardUser(value.user, path),
+		orgPublicId: readString(value, 'orgPublicId', path),
+		expiresAt,
+	}
 }
 
 function parsePasswordLoginResponse(value: unknown, path: string): PasswordLoginResponse {

@@ -2,6 +2,12 @@ import { GATEWAY_URLS, type Region, V3_URLS } from '@nylas-labs/cli-kit'
 
 export type OwnmailNylasEnvironment = 'production' | 'staging'
 
+/**
+ * OwnMail's built-in public OAuth client in dashboard-account
+ * (`config/oauthBuiltInClients.ts`). The same value in every environment.
+ */
+export const OWNMAIL_OAUTH_CLIENT_ID = 'a080777d-3735-41db-8680-b02311bc6d0b'
+
 const STAGING_DASHBOARD_ACCOUNT_URL = 'https://dashboard-account-stg.eu.nylas.com'
 const STAGING_API_BASE_URL = 'https://api-staging.us.nylas.com'
 const STAGING_GATEWAY_URLS: Record<Region, string> = {

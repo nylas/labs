@@ -41,7 +41,7 @@ export const SiteNameSchema = z
 
 /**
  * Persistent CLI state. Two files under ~/.config/ownmail (0600):
- * - auth.json: dashboard session + DPoP private key
+ * - auth.json: dashboard session, its OAuth refresh token + DPoP private key
  * - projects/<slug>.json: one deployed project
  *
  * Durable secrets (API key, session secret) live only as Cloudflare Worker
@@ -56,6 +56,17 @@ export const AuthStateSchema = z.object({
 	userPublicId: z.string().optional(),
 	orgPublicId: z.string().optional(),
 	dpopPrivateJwk: z.record(z.string(), z.unknown()),
+	/**
+	 * Present when the session was exchanged from an OAuth sign-in. Such a
+	 * session is short-lived and cannot be refreshed; it is renewed by
+	 * exchanging a fresh access token before `sessionExpiresAt` (epoch ms).
+	 */
+	oauth: z
+		.object({
+			refreshToken: z.string().min(1),
+			sessionExpiresAt: z.number(),
+		})
+		.optional(),
 	updatedAt: z.number(),
 })
 export type AuthState = z.infer<typeof AuthStateSchema>

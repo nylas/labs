@@ -57,7 +57,7 @@ export async function runEject(opts: { name?: string; dir?: string }): Promise<v
 	if (ctx.auth && project.applicationId && project.orgPublicId) {
 		try {
 			const created = await requireGateway(ctx).createApiKey(
-				tokens(ctx),
+				await tokens(ctx),
 				project.region,
 				project.applicationId,
 				{

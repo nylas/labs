@@ -25,10 +25,15 @@ export async function runInboxAdd(opts: { name?: string }): Promise<void> {
 	const ctx = await createContext(project)
 	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail auth login` first.')
 
-	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
-		name: `ownmail inbox-add ${Date.now()}`,
-		expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
-	})
+	const key = await requireGateway(ctx).createApiKey(
+		await tokens(ctx),
+		project.region,
+		project.applicationId,
+		{
+			name: `ownmail inbox-add ${Date.now()}`,
+			expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
+		},
+	)
 	const v3 = new NylasV3Client(
 		key.apiKey,
 		project.region,
@@ -84,10 +89,15 @@ export async function runInboxResetPassword(opts: { name?: string; email?: strin
 	const ctx = await createContext(project)
 	if (!ctx.auth) throw new Error('Not logged in — run `npx ownmail auth login` first.')
 
-	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
-		name: `ownmail password-reset ${Date.now()}`,
-		expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
-	})
+	const key = await requireGateway(ctx).createApiKey(
+		await tokens(ctx),
+		project.region,
+		project.applicationId,
+		{
+			name: `ownmail password-reset ${Date.now()}`,
+			expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
+		},
+	)
 	const v3 = new NylasV3Client(
 		key.apiKey,
 		project.region,
