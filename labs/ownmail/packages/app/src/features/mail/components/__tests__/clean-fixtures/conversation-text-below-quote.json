@@ -67,37 +67,9 @@
 	"bubble": {
 		"blocks": [
 			{
-				"type": "history",
-				"blocks": [
-					{
-						"type": "paragraph",
-						"spans": [
-							{
-								"text": "On Tue, Sep 29, 2026 at 8:30 AM Ines Carvalho <"
-							},
-							{
-								"text": "ines@example.com",
-								"href": "mailto:ines@example.com"
-							},
-							{
-								"text": "> wrote:"
-							}
-						]
-					},
-					{
-						"type": "quote",
-						"blocks": [
-							{
-								"type": "paragraph",
-								"spans": [
-									{
-										"text": "Updated and sent the invite. Retro is Friday at 9."
-									}
-								]
-							}
-						]
-					}
-				]
+				"type": "reference",
+				"text": "Updated and sent the invite. Retro is Friday at 9.",
+				"author": "Ines"
 			},
 			{
 				"type": "paragraph",
@@ -128,6 +100,6 @@
 				]
 			}
 		],
-		"unsure": true
+		"unsure": false
 	}
 }

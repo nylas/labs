@@ -12,7 +12,7 @@ import {
 	messageContent,
 	stripHiddenContent,
 } from '../lib/clean-view.js'
-import { newContent } from '../lib/conversation-model.js'
+import { bubbleContent, rememberBlocks, type ShownBlock } from '../lib/conversation-model.js'
 import { prepareEmailMessageContent } from '../lib/email-message-content.js'
 import { sanitizeEmailDocument } from '../lib/sanitize-email.js'
 
@@ -38,6 +38,7 @@ const SYNTHETIC: ReadonlyArray<readonly [name: string, expected: Expected]> = [
 	['conversation-forwarded-message', 'blocks'],
 	['conversation-inline-replies', 'blocks'],
 	['conversation-text-below-quote', 'blocks'],
+	['conversation-text-below-signature', 'blocks'],
 	['clean-newsletter-layout-tables', 'article'],
 	['clean-transactional-notice', 'article'],
 	['clean-one-time-code', 'article'],
@@ -76,6 +77,25 @@ function strippedBody(html: string, designed: boolean): HTMLElement {
 }
 
 const squash = (value: string) => value.replace(/\s+/g, '')
+
+/** What the thread had already shown before each reply fixture arrived. */
+const EARLIER: ShownBlock[] = []
+rememberBlocks(
+	EARLIER,
+	[
+		'Here is the first draft of the offsite agenda. Thursday afternoon is still open.',
+		'Updated and sent the invite. Retro is Friday at 9.',
+	].map((text) => ({ type: 'paragraph', spans: [{ text }] })),
+	'Ines',
+)
+rememberBlocks(
+	EARLIER,
+	[
+		'Could we use Thursday afternoon for the planning session?',
+		'Also, the retro probably fits better on Friday.',
+	].map((text) => ({ type: 'paragraph', spans: [{ text }] })),
+	'Tomas',
+)
 
 function textNodes(root: Node): string[] {
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
@@ -122,7 +142,8 @@ describe.each(SYNTHETIC)('synthetic fixture %s', (name, expected) => {
 	it(`converts to "${expected}" and matches its recorded block model`, async () => {
 		const content = convert(html, name)
 		expect(content.kind).toBe(expected)
-		const recorded = content.kind === 'blocks' ? { ...content, bubble: newContent(content.blocks) } : content
+		const recorded =
+			content.kind === 'blocks' ? { ...content, bubble: bubbleContent(content.blocks, EARLIER) } : content
 		await expect(`${JSON.stringify(recorded, null, '\t')}\n`).toMatchFileSnapshot(
 			`./__tests__/clean-fixtures/${name}.json`,
 		)
@@ -149,14 +170,15 @@ describe('what a bubble may hide', () => {
 	const bubble = (name: string) => {
 		const content = convert(fixtureHtml('reader-fixtures', name), name)
 		if (content.kind !== 'blocks') throw new Error(`${name} is not a bubble`)
-		return newContent(content.blocks)
+		return bubbleContent(content.blocks, EARLIER)
 	}
 	const bubbleText = (name: string) => blocksText(bubble(name).blocks)
 
-	it('drops the trailing quote of an ordinary reply', () => {
+	it('drops the signature and the trailing quote of an ordinary reply', () => {
 		expect(bubble('conversation-gmail-reply').unsure).toBe(false)
 		expect(bubbleText('conversation-gmail-reply')).toContain('Could we use Thursday afternoon')
 		expect(bubbleText('conversation-gmail-reply')).not.toContain('Here is the first draft')
+		expect(bubbleText('conversation-gmail-reply')).not.toContain('Operations, Example Co')
 
 		expect(bubble('conversation-outlook-reply').unsure).toBe(false)
 		expect(bubbleText('conversation-outlook-reply')).not.toContain('retro probably fits better')
@@ -167,15 +189,38 @@ describe('what a bubble may hide', () => {
 		expect(bubbleText('conversation-forwarded-message')).toContain('Door code 482913')
 	})
 
-	it('never hides answers written between quoted lines', () => {
-		expect(bubble('conversation-inline-replies').unsure).toBe(true)
+	it('shows answers written between quoted lines, each under a reference to its question', () => {
+		const { blocks, unsure } = bubble('conversation-inline-replies')
+		expect(unsure).toBe(false)
+		expect(blocks.map((block) => block.type)).toEqual([
+			'paragraph',
+			'reference',
+			'paragraph',
+			'reference',
+			'paragraph',
+		])
+		expect(blocks[1]).toEqual({
+			type: 'reference',
+			author: 'Tomas',
+			text: 'Could we use Thursday afternoon for the planning session?',
+		})
 		expect(bubbleText('conversation-inline-replies')).toContain('Yes, Thursday from one works.')
 		expect(bubbleText('conversation-inline-replies')).toContain('Friday at nine, before people leave.')
 	})
 
 	it('never hides text written below the quote', () => {
-		expect(bubble('conversation-text-below-quote').unsure).toBe(true)
+		const { blocks, unsure } = bubble('conversation-text-below-quote')
+		expect(unsure).toBe(false)
+		expect(blocks[0]).toMatchObject({ type: 'reference', author: 'Ines' })
 		expect(bubbleText('conversation-text-below-quote')).toContain('Room 4B is booked for both days.')
+		expect(bubbleText('conversation-text-below-quote')).toContain('Catering arrives at noon')
+	})
+
+	it('never hides text written below a signature', () => {
+		const { blocks, unsure } = bubble('conversation-text-below-signature')
+		expect(unsure).toBe(false)
+		expect(blocks.map((block) => block.type)).toEqual(['paragraph', 'signature', 'paragraph'])
+		expect(bubbleText('conversation-text-below-signature')).toContain('the door code for Room 4B is 482913')
 	})
 })
 

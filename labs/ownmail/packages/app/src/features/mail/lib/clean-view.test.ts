@@ -174,6 +174,60 @@ describe('normaliseBlocks', () => {
 	})
 })
 
+describe('signatures', () => {
+	it('marks the signature a mail client inserted, so the thread pass can remove it', () => {
+		for (const marker of [
+			'class="gmail_signature"',
+			'class="moz-signature"',
+			'id="Signature"',
+			'id="AppleMailSignature"',
+		]) {
+			expect(blocksOf(`<div>See you Thursday.</div><div ${marker}>Tomas Reyes<br>Operations</div>`)).toEqual([
+				{ type: 'paragraph', spans: [{ text: 'See you Thursday.' }] },
+				{ type: 'signature', blocks: [{ type: 'paragraph', spans: [{ text: 'Tomas Reyes\nOperations' }] }] },
+			])
+		}
+		// An empty signature container is nothing.
+		expect(blocksOf('<div>Hi</div><div class="gmail_signature"> </div>')).toHaveLength(1)
+	})
+
+	it('reads the plaintext "-- " line as the start of the signature', () => {
+		expect(
+			messageContent(message('See you Thursday.\n\n-- \nTomas Reyes\nOperations\n\nExample Co'), false),
+		).toMatchObject({
+			blocks: [
+				{ type: 'paragraph', spans: [{ text: 'See you Thursday.' }] },
+				{
+					type: 'signature',
+					blocks: [
+						{ type: 'paragraph', spans: [{ text: 'Tomas Reyes\nOperations' }] },
+						{ type: 'paragraph', spans: [{ text: 'Example Co' }] },
+					],
+				},
+			],
+		})
+		// Dashes inside a line, or a longer rule, are not the delimiter.
+		expect(messageContent(message('Either way -- fine.\n---\nDone'), false)).toMatchObject({
+			blocks: [{ type: 'paragraph', spans: [{ text: 'Either way -- fine.\n---\nDone' }] }],
+		})
+		// A message that starts with the delimiter is all signature.
+		expect(messageContent(message('--\nTomas'), false)).toMatchObject({
+			blocks: [{ type: 'signature', blocks: [{ type: 'paragraph', spans: [{ text: 'Tomas' }] }] }],
+		})
+	})
+
+	it('counts a signature in the text, links and confidence like any other content', () => {
+		const html =
+			'<table><tr><td>Body copy that is long enough to matter.</td></tr></table><div class="gmail_signature"><a href="https://example.com/me">Tomas</a></div>'
+		const body = bodyOf(html)
+		const blocks = normaliseBlocks(body)
+		expect(blocksText(blocks)).toBe('Body copy that is long enough to matter.\nTomas')
+		expect(blockLinks(blocks)).toEqual(['https://example.com/me'])
+		expect(cleanConfidence(body, blocks)).toBe(1)
+		expect(blocksText([{ type: 'reference', text: 'Quoted line', author: 'Ines' }])).toBe('Quoted line')
+	})
+})
+
 describe('blocksText', () => {
 	it('returns what a reader sees, one block per line', () => {
 		expect(
