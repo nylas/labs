@@ -47,8 +47,10 @@ import {
 	isNewEventPreview,
 	isPastEvent,
 	moveCalendarDay,
+	nowBadgeCoversLabel,
 	shiftAnchor,
 	startOfWeek,
+	timedChipLines,
 	timedDayLayout,
 	timeZoneShortName,
 	upcomingAgenda,
@@ -980,6 +982,8 @@ function TimeGrid({
 	const todayIso = ymd(calendarDateInTimeZone(now, timeZone))
 	const todayIndex = columns.findIndex((day) => ymd(day) === todayIso)
 	const nowOffset = (calendarWallClockHour(now, timeZone) - START_HOUR) * HOUR_PX
+	const coveredByNowBadge = (labelCentre: number, labelHeight: number) =>
+		todayIndex !== -1 && nowBadgeCoversLabel(nowOffset, labelCentre, labelHeight)
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
 	const [allDayExpanded, setAllDayExpanded] = useState(false)
@@ -1247,11 +1251,12 @@ function TimeGrid({
 						<div
 							aria-hidden="true"
 							data-testid="calendar-now-line"
-							className="pointer-events-none absolute right-3 left-0 z-20 grid h-0 items-center"
+							className="pointer-events-none absolute right-3 left-0 z-20 grid -translate-y-1/2 items-center"
 							style={{ top: nowOffset, gridTemplateColumns: dayGridTemplateColumns }}
 						>
 							<span
-								className="mr-1 justify-self-end rounded-sm bg-today px-1 py-px text-[10px] leading-tight font-semibold whitespace-nowrap text-today-foreground tabular-nums"
+								data-testid="calendar-now-badge"
+								className="mr-1 flex h-4 items-center justify-self-end rounded-sm bg-today px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-today-foreground tabular-nums"
 								style={{ gridColumn: 1, gridRow: 1 }}
 							>
 								{fmtTime(now, timeZone)}
@@ -1268,11 +1273,24 @@ function TimeGrid({
 						<div style={{ gridColumn: 1, gridRow: 1 }}>
 							{HOURS.map((hour) => (
 								<div key={hour} className="relative h-[52px]">
-									<span className="absolute -top-2 right-2 text-[11px] tabular-nums text-muted-foreground">
+									<span
+										data-hour-label={hour}
+										className={cn(
+											'absolute -top-2 right-2 h-4 text-[11px] leading-4 tabular-nums text-muted-foreground',
+											// The now badge takes this label's place; hiding keeps the layout still.
+											coveredByNowBadge((hour - START_HOUR) * HOUR_PX, 16) && 'invisible',
+										)}
+									>
 										{hour === START_HOUR ? '' : fmtHour(hour)}
 									</span>
 									{secondaryTimezone && hour !== START_HOUR ? (
-										<span className="absolute top-2 right-2 text-[9px] tabular-nums text-muted-foreground/70">
+										<span
+											data-hour-label={`${hour}-secondary`}
+											className={cn(
+												'absolute top-2 right-2 h-3 text-[9px] leading-3 tabular-nums text-muted-foreground/70',
+												coveredByNowBadge((hour - START_HOUR) * HOUR_PX + 14, 12) && 'invisible',
+											)}
+										>
 											{fmtTime(calendarSlotTime(columns[0] ?? start, hour, timeZone), secondaryTimezone)}
 										</span>
 									) : null}
@@ -1345,14 +1363,29 @@ function TimeGrid({
 											'data-past': ended ? '' : undefined,
 											'data-preview': preview ? '' : undefined,
 										}
-										const className =
-											'event-color event-chip absolute z-10 flex min-w-0 flex-col overflow-hidden rounded-[5px] px-cluster py-control text-left transition-shadow'
-										const content = (
+										// A short chip is one centred line (title, then start time) so no glyph
+										// is clipped; a taller one stacks the title over the time range.
+										const twoLines = timedChipLines(height) === 2
+										const className = cn(
+											'event-color event-chip absolute z-10 flex min-w-0 overflow-hidden rounded-[5px] px-cluster text-left transition-shadow',
+											twoLines ? 'flex-col py-control' : 'items-center gap-control py-0',
+										)
+										const content = twoLines ? (
 											<>
-												<span className="truncate text-xs leading-tight font-medium">{title}</span>
-												{height > 30 ? (
-													<span className="truncate text-[11px] opacity-75">{range}</span>
-												) : null}
+												<span className="truncate text-xs leading-[15px] font-medium">{title}</span>
+												<span className="truncate text-[11px] leading-[14px] opacity-75">{range}</span>
+											</>
+										) : (
+											<>
+												<span
+													data-chip-title=""
+													className="max-w-full shrink-0 truncate text-xs leading-4 font-medium"
+												>
+													{title}
+												</span>
+												<span className="min-w-0 truncate text-[11px] leading-4 opacity-75">
+													{fmtTime(times.start, timeZone)}
+												</span>
 											</>
 										)
 										if (mobileLayout)

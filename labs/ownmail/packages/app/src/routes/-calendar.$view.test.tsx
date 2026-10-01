@@ -839,6 +839,13 @@ describe('week view time grid', () => {
 		// The 5-minute event is too short to show a time range and has no title.
 		const untitled = screen.getByRole('button', { name: /^\(untitled\)/ })
 		expect(untitled.textContent).not.toContain('–')
+		// A chip too short for two lines is one centred line with no block padding, so the
+		// title is never cut off: title first, then the start time.
+		expect(untitled).toHaveClass('items-center', 'py-0')
+		expect(untitled).not.toHaveClass('flex-col')
+		expect(untitled).toHaveTextContent(/^\(untitled\)11 AM$/)
+		expect(untitled.querySelector('[data-chip-title]')).toHaveClass('leading-4', 'truncate')
+		expect(standup).toHaveClass('flex-col', 'py-control')
 	})
 
 	it('labels the primary and secondary time scales directly in the time ruler', async () => {
@@ -1148,6 +1155,54 @@ describe('current-time indicator', () => {
 			vi.advanceTimersByTime(60 * 60_000)
 		})
 		expect(screen.getByTestId('calendar-now-line').style.top).toBe(`${6 * 52}px`)
+	})
+
+	it('hides the hour label under the now badge instead of drawing two times on top of each other', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-12T05:46:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		const label = (hour: number) => document.querySelector(`[data-hour-label="${hour}"]`) as HTMLElement
+		expect(screen.getByTestId('calendar-now-badge')).toHaveTextContent('5:46 AM')
+		// `invisible` keeps the label's box, so nothing in the gutter moves.
+		expect(label(6)).toHaveClass('invisible')
+		expect(label(6)).toHaveTextContent('6 AM')
+		expect(label(5)).not.toHaveClass('invisible')
+		expect(label(7)).not.toHaveClass('invisible')
+		act(() => {
+			vi.advanceTimersByTime(44 * 60_000)
+		})
+		// 6:30 AM: the badge has moved clear of both neighbours.
+		expect(label(6)).not.toHaveClass('invisible')
+		expect(label(7)).not.toHaveClass('invisible')
+	})
+
+	it('hides a second-timezone label under the badge too, and no label when today is not shown', () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ primaryTimezone: 'America/Toronto', secondaryTimezone: 'Europe/London' }),
+		)
+		vi.useFakeTimers()
+		// 6:17 AM in Toronto: the badge is over the secondary label that sits just below the 6 AM line.
+		vi.setSystemTime(new Date('2024-06-12T10:17:00Z'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		act(() => {
+			vi.advanceTimersByTime(0)
+		})
+		expect(document.querySelector('[data-hour-label="6-secondary"]')).toHaveClass('invisible')
+		expect(document.querySelector('[data-hour-label="7-secondary"]')).not.toHaveClass('invisible')
+		cleanup()
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-25')} />)
+		act(() => {
+			vi.advanceTimersByTime(0)
+		})
+		expect(document.querySelectorAll('[data-hour-label].invisible')).toHaveLength(0)
+	})
+
+	it('centres the now line on the current time rather than hanging the badge below it', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-12T10:30:00'))
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-12')} />)
+		expect(screen.getByTestId('calendar-now-line')).toHaveClass('-translate-y-1/2')
 	})
 
 	it('draws no now line on a week that does not contain today', () => {

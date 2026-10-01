@@ -24,8 +24,12 @@ import {
 	isRenderableCalendarEvent,
 	MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST,
 	moveCalendarDay,
+	NOW_BADGE_HEIGHT,
+	nowBadgeCoversLabel,
 	shiftAnchor,
 	startOfWeek,
+	TIMED_CHIP_TWO_LINE_MIN_HEIGHT,
+	timedChipLines,
 	timedDayLayout,
 	timedEventLayout,
 	timedEventsOnDay,
@@ -942,5 +946,75 @@ describe('hidden calendars sent with an event request', () => {
 		const ids = hiddenCalendarIdsForRequest(many)
 		expect(ids).toHaveLength(MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST)
 		expect(ids[0]).toBe('calendar-00')
+	})
+})
+
+describe('timed chip text fit', () => {
+	const GRID = { startHour: 0, endHour: 24, hourHeight: 52, timeZone: 'UTC' }
+	const heightOf = (minutes: number) =>
+		timedEventLayout(
+			timedEvent(
+				'e',
+				'work',
+				'2026-07-08T09:00:00Z',
+				new Date(Date.UTC(2026, 6, 8, 9, minutes)).toISOString(),
+			),
+			new Date(2026, 6, 8),
+			GRID,
+		)?.height as number
+
+	it('uses one line for any chip too short to hold a title line above a time line without clipping', () => {
+		// Two lines need 2px of border, 8px of padding, a 15px title and a 14px time line.
+		expect(TIMED_CHIP_TWO_LINE_MIN_HEIGHT).toBeGreaterThanOrEqual(2 + 8 + 15 + 14)
+		// 15 minutes is the 20px minimum chip; 30 and 45 minutes are still too short for two lines.
+		expect([15, 30, 45].map((minutes) => timedChipLines(heightOf(minutes)))).toEqual([1, 1, 1])
+		expect(timedChipLines(TIMED_CHIP_TWO_LINE_MIN_HEIGHT - 1)).toBe(1)
+	})
+
+	it('stacks the title over the time range from an hour-long event upwards', () => {
+		expect(timedChipLines(TIMED_CHIP_TWO_LINE_MIN_HEIGHT)).toBe(2)
+		expect([60, 90, 240].map((minutes) => timedChipLines(heightOf(minutes)))).toEqual([2, 2, 2])
+	})
+
+	it('leaves room for one 16px text line inside the minimum chip, so short events are readable', () => {
+		const borders = 2
+		expect(heightOf(5)).toBe(20)
+		expect(heightOf(5) - borders).toBeGreaterThanOrEqual(16)
+	})
+})
+
+describe('now badge and gutter hour labels', () => {
+	// An hour label is 16px tall and centred on its hour line; the grid is 52px per hour.
+	const hourLabel = (hour: number) => [hour * 52, 16] as const
+	const nowAt = (hour: number, minute: number) => (hour + minute / 60) * 52
+
+	it('hides the hour label the badge would be drawn over, so two times are never stacked', () => {
+		// 5:46 AM: the badge sits 12px above the 6 AM line and overlaps its label.
+		expect(nowBadgeCoversLabel(nowAt(5, 46), ...hourLabel(6))).toBe(true)
+		expect(nowBadgeCoversLabel(nowAt(6, 0), ...hourLabel(6))).toBe(true)
+		expect(nowBadgeCoversLabel(nowAt(6, 17), ...hourLabel(6))).toBe(true)
+	})
+
+	it('keeps every label the badge does not touch', () => {
+		expect(nowBadgeCoversLabel(nowAt(5, 46), ...hourLabel(5))).toBe(false)
+		expect(nowBadgeCoversLabel(nowAt(6, 30), ...hourLabel(6))).toBe(false)
+		expect(nowBadgeCoversLabel(nowAt(6, 30), ...hourLabel(7))).toBe(false)
+	})
+
+	it('hides a label exactly when the two boxes intersect, not merely when they are close', () => {
+		const [centre, height] = hourLabel(6)
+		const touching = (NOW_BADGE_HEIGHT + height) / 2
+		expect(nowBadgeCoversLabel(centre + touching - 0.5, centre, height)).toBe(true)
+		expect(nowBadgeCoversLabel(centre + touching, centre, height)).toBe(false)
+		expect(nowBadgeCoversLabel(centre - touching, centre, height)).toBe(false)
+	})
+
+	it('at most one hour label is hidden at any minute of the day', () => {
+		for (let minute = 0; minute < 24 * 60; minute += 1) {
+			const hidden = Array.from({ length: 25 }, (_, hour) => hour).filter((hour) =>
+				nowBadgeCoversLabel((minute / 60) * 52, ...hourLabel(hour)),
+			)
+			expect(hidden.length).toBeLessThanOrEqual(1)
+		}
 	})
 })
