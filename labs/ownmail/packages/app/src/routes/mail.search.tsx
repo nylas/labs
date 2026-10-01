@@ -3,7 +3,8 @@ import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useUserPreferences } from '#app/preferences/user-preferences'
+import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
+import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
@@ -59,6 +60,8 @@ export const Route = createFileRoute('/mail/search')({
 	}),
 	loaderDeps: ({ search }) => ({ q: search.q, folderId: search.folderId, threadId: search.threadId }),
 	loader: async ({ context, deps, preload }) => {
+		// The mailbox comes first: the detail key is partitioned by account.
+		await ensureMailboxInfo(context.queryClient)
 		const hasSearchQuery = deps.q.trim().length > 0
 		const emptyResults: Awaited<ReturnType<typeof getThreads>> = { threads: [] }
 		const [folders, res, selected] = await Promise.all([
@@ -86,7 +89,7 @@ export const Route = createFileRoute('/mail/search')({
 		])
 		return { ...res, folders, folderId: deps.folderId, selected }
 	},
-	component: SearchResults,
+	component: SearchRoute,
 	pendingComponent: SearchPending,
 })
 
@@ -173,6 +176,13 @@ function SearchPending() {
 			</section>
 		</div>
 	)
+}
+
+/** The results and reader are laid out by the reading-pane preference, which
+ * the server cannot know. Until it can be read, the search shows its pending
+ * view instead of a default split that would rearrange after hydration. */
+function SearchRoute() {
+	return useUserPreferencesReady() ? <SearchResults /> : <SearchPending />
 }
 
 function SearchResults() {

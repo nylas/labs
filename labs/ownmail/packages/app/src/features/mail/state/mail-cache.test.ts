@@ -1,15 +1,13 @@
 import { QueryClient } from '@tanstack/react-query'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
 	applyMailCacheEffect,
-	captureMailCacheSnapshot,
 	createMailOptimisticManager,
 	dedupeThreadPages,
 	dedupeThreads,
 	findCachedThread,
 	type MailCacheEffect,
 	reduceMailCacheEntry,
-	restoreMailCacheSnapshot,
 	safeSentMessage,
 	sentThreadFromMessage,
 	threadFoldersAfterCacheMove,
@@ -296,7 +294,7 @@ describe('mail query cache effects', () => {
 
 	it('reduces absent and unrelated entries without creating cache data', () => {
 		const effect: MailCacheEffect = { type: 'draft.deleted', draftId: 'd1' }
-		expect(reduceMailCacheEntry(['mail', 'draft', 'other'], d1, effect)).toEqual(d1)
+		expect(reduceMailCacheEntry(mailKeys.draft('other'), d1, effect)).toEqual(d1)
 		expect(reduceMailCacheEntry(['elsewhere'], { value: true }, effect)).toEqual({ value: true })
 		expect(reduceMailCacheEntry(mailKeys.drafts(), undefined, effect)).toBeUndefined()
 		expect(
@@ -319,7 +317,7 @@ describe('mail query cache effects', () => {
 			}),
 		).toMatchObject({ subject: 'Updated' })
 		expect(
-			reduceMailCacheEntry(['mail', 'threads'], list(), {
+			reduceMailCacheEntry(mailKeys.threadLists(), list(), {
 				type: 'thread.reconciled',
 				thread: t1,
 			}),
@@ -369,12 +367,127 @@ describe('mail query cache effects', () => {
 })
 
 describe('mail optimistic transaction journal', () => {
-	it('captures and restores rollback snapshots', () => {
+	it('reports only the entries an effect actually changed', () => {
 		const client = seedClient()
-		const snapshot = captureMailCacheSnapshot(client)
-		applyMailCacheEffect(client, { type: 'thread.starred', threadId: 't1', starred: true })
-		restoreMailCacheSnapshot(client, snapshot)
-		expect(cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]?.starred).toBe(false)
+		const changed = applyMailCacheEffect(client, { type: 'thread.starred', threadId: 't1', starred: true })
+		// Lists that neither hold nor gain the thread keep their cached value, so
+		// a rollback has nothing to say about them.
+		expect(changed).toContainEqual(mailKeys.threadList({ folderId: 'inbox' }))
+		expect(changed).toContainEqual(mailKeys.threadList({ starred: true }))
+		expect(changed).not.toContainEqual(mailKeys.threadList({ folderId: 'trash' }))
+		expect(changed).not.toContainEqual(mailKeys.drafts())
+	})
+
+	it('keeps a refetch that landed mid-mutation when the mutation is rolled back', async () => {
+		const client = seedClient()
+		const manager = createMailOptimisticManager(client)
+		const inbox = mailKeys.threadList({ folderId: 'inbox' })
+		const star = await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+
+		// A poll or focus refetch answers while the star request is in flight,
+		// bringing a message that arrived in the meantime.
+		const arrived: MailThread = { id: 't2', subject: 'Arrived meanwhile', folders: ['inbox'] }
+		client.setQueryData(inbox, list(arrived, t1))
+
+		star.rollback()
+
+		// Restoring the pre-mutation snapshot would have deleted the new message.
+		expect(cachedList(client, { folderId: 'inbox' }).pages[0]?.threads.map((thread) => thread.id)).toEqual([
+			't2',
+			't1',
+		])
+		// Entries the server did not replace go back to their value before the star.
+		expect(cachedList(client, { folderId: 'work' }).pages[0]?.threads[0]?.starred).toBe(false)
+		expect(cachedList(client, { starred: true }).pages[0]?.threads).toEqual([])
+	})
+
+	it('replays surviving optimistic work on top of newer server data', async () => {
+		const client = seedClient()
+		const manager = createMailOptimisticManager(client)
+		const inbox = mailKeys.threadList({ folderId: 'inbox' })
+		const star = await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		const read = await manager.begin({ type: 'thread.read', threadId: 't1', unread: false })
+		client.setQueryData(inbox, list({ ...t1, subject: 'Renamed on the server' }))
+
+		star.rollback()
+
+		// The read is still pending, so it stays applied over what the server sent.
+		expect(cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]).toMatchObject({
+			subject: 'Renamed on the server',
+			unread: false,
+		})
+		read.commit()
+	})
+
+	it('ends a rollback by refetching active queries, once no optimistic work is pending', async () => {
+		const client = seedClient()
+		const invalidate = vi.spyOn(client, 'invalidateQueries')
+		const manager = createMailOptimisticManager(client)
+		const star = await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		const read = await manager.begin({ type: 'thread.read', threadId: 't1', unread: false })
+
+		star.rollback()
+		// A refetch now would race the read that is still in flight.
+		expect(invalidate).not.toHaveBeenCalled()
+
+		read.commit()
+		// Nothing else tells the screen what the server holds after a failure.
+		expect(invalidate).toHaveBeenCalledExactlyOnceWith({ queryKey: mailKeys.all, refetchType: 'active' })
+	})
+
+	it('does not refetch active queries after a commit, whose receipt is already authoritative', async () => {
+		const client = seedClient()
+		const invalidate = vi.spyOn(client, 'invalidateQueries')
+		const star = await createMailOptimisticManager(client).begin({
+			type: 'thread.starred',
+			threadId: 't1',
+			starred: true,
+		})
+
+		star.commit()
+
+		expect(invalidate).not.toHaveBeenCalled()
+	})
+
+	it('restores an entry its own optimistic effect removed', async () => {
+		const client = seedClient()
+		const remove = await createMailOptimisticManager(client).begin({ type: 'draft.deleted', draftId: 'd1' })
+		expect(client.getQueryData(mailKeys.draft('d1'))).toBeUndefined()
+
+		remove.rollback()
+
+		expect(client.getQueryData(mailKeys.draft('d1'))).toEqual(d1)
+	})
+
+	it('does not resurrect an entry that was dropped from the cache mid-mutation', async () => {
+		const client = seedClient()
+		const manager = createMailOptimisticManager(client)
+		const inbox = mailKeys.threadList({ folderId: 'inbox' })
+		const star = await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		const read = await manager.begin({ type: 'thread.read', threadId: 't1', unread: false })
+		client.removeQueries({ queryKey: inbox, exact: true })
+
+		star.rollback()
+		read.rollback()
+
+		expect(client.getQueryData(inbox)).toBeUndefined()
+	})
+
+	it('settles an operation against the account it began in, never another inbox', async () => {
+		const client = new QueryClient()
+		const adaInbox = ['mail', 'ada@example.com', 'threads', { folderId: 'inbox' }]
+		const graceInbox = ['mail', 'grace@example.com', 'threads', { folderId: 'inbox' }]
+		client.setQueryData(adaInbox, list(t1))
+		client.setQueryData(graceInbox, list(t1))
+		const manager = createMailOptimisticManager(client, ['mail', 'ada@example.com'])
+
+		const star = await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		// Both inboxes can hold a thread with the same provider id.
+		expect(client.getQueryData<MailThreadListData>(adaInbox)?.pages[0]?.threads[0]?.starred).toBe(true)
+		expect(client.getQueryData<MailThreadListData>(graceInbox)?.pages[0]?.threads[0]?.starred).toBe(false)
+
+		star.rollback()
+		expect(client.getQueryData<MailThreadListData>(graceInbox)).toEqual(list(t1))
 	})
 
 	it('can leave thread detail fetches running while still cancelling stale list refetches', async () => {

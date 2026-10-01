@@ -8,28 +8,38 @@ import {
 	useQueryClient,
 } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
+import { accountScope } from '#app/lib/account-scope'
 import type { ContactFieldsInput } from '#features/contacts/server/contact-input'
 import { createContact, deleteContact, getContact, getContacts, updateContact } from '#server/fns'
+import {
+	type OptimisticWrite,
+	recordOptimisticWrite,
+	undoOptimisticWrite,
+} from '#shared/lib/optimistic-write'
 
 export type ContactsPage = Awaited<ReturnType<typeof getContacts>>
 export type ContactsPages = InfiniteData<ContactsPage, string | undefined>
 
+/** Every contacts key starts with `['contacts', <account>]`. */
 export const contactsKeys = {
-	all: ['contacts'] as const,
-	list: () => ['contacts', 'list'] as const,
-	detail: (contactId: string) => ['contacts', 'detail', contactId] as const,
+	get all() {
+		return ['contacts', accountScope()] as const
+	},
+	list: () => [...contactsKeys.all, 'list'] as const,
+	detail: (contactId: string) => [...contactsKeys.all, 'detail', contactId] as const,
 }
 
+type ContactEffect =
+	| { type: 'created'; contact: Contact }
+	| { type: 'updated'; contact: Contact }
+	| { type: 'deleted'; contactId: string }
+
 const CONFIRMED_EFFECT_TTL_MS = 30_000
+// Each receipt remembers the account it was confirmed for; it is only replayed
+// onto that account's pages.
 const confirmedEffects = new WeakMap<
 	QueryClient,
-	Array<{
-		expiresAt: number
-		effect:
-			| { type: 'created'; contact: Contact }
-			| { type: 'updated'; contact: Contact }
-			| { type: 'deleted'; contactId: string }
-	}>
+	Array<{ account: string; expiresAt: number; effect: ContactEffect }>
 >()
 
 /** Drop replayed contact receipts when the cache is cleared for another inbox. */
@@ -37,17 +47,11 @@ export function resetContactConfirmedEffects(queryClient: QueryClient): void {
 	confirmedEffects.delete(queryClient)
 }
 
-function rememberConfirmedContactEffect(
-	queryClient: QueryClient,
-	effect:
-		| { type: 'created'; contact: Contact }
-		| { type: 'updated'; contact: Contact }
-		| { type: 'deleted'; contactId: string },
-) {
+function rememberConfirmedContactEffect(queryClient: QueryClient, effect: ContactEffect) {
 	const current = confirmedEffects.get(queryClient) ?? []
 	confirmedEffects.set(queryClient, [
 		...current.filter((entry) => entry.expiresAt > Date.now()),
-		{ effect, expiresAt: Date.now() + CONFIRMED_EFFECT_TTL_MS },
+		{ account: accountScope(), effect, expiresAt: Date.now() + CONFIRMED_EFFECT_TTL_MS },
 	])
 }
 
@@ -59,7 +63,8 @@ function reconcileContactPage(
 	let contacts = page.contacts
 	const active = (confirmedEffects.get(queryClient) ?? []).filter((entry) => entry.expiresAt > Date.now())
 	confirmedEffects.set(queryClient, active)
-	for (const { effect } of active) {
+	const account = accountScope()
+	for (const { effect } of active.filter((entry) => entry.account === account)) {
 		if (effect.type === 'deleted') {
 			contacts = contacts.filter((contact) => contact.id !== effect.contactId)
 			continue
@@ -163,13 +168,7 @@ function updateContactPages(
 }
 
 /** Pure, exhaustive cache effect for contact create/update/delete operations. */
-export function applyContactEffect(
-	queryClient: QueryClient,
-	effect:
-		| { type: 'created'; contact: Contact }
-		| { type: 'updated'; contact: Contact }
-		| { type: 'deleted'; contactId: string },
-) {
+export function applyContactEffect(queryClient: QueryClient, effect: ContactEffect) {
 	if (effect.type === 'deleted') {
 		queryClient.removeQueries({ queryKey: contactsKeys.detail(effect.contactId), exact: true })
 		queryClient.setQueryData<ContactsPages>(contactsKeys.list(), (data) =>
@@ -216,14 +215,11 @@ function contactFromFields(contactId: string, fields: ContactFieldsInput, previo
 	} as Contact
 }
 
-type ContactSnapshot = ReturnType<QueryClient['getQueriesData']>
-
-function snapshotContacts(queryClient: QueryClient): ContactSnapshot {
-	return queryClient.getQueriesData({ queryKey: contactsKeys.all })
-}
-
-function restoreContacts(queryClient: QueryClient, snapshot: ContactSnapshot | undefined) {
-	for (const [key, data] of snapshot ?? []) queryClient.setQueryData(key, data)
+/** Undoes a failed optimistic write without touching anything it did not change
+ * or anything the server has replaced since, then asks the server what is true. */
+function restoreContacts(queryClient: QueryClient, written: OptimisticWrite | undefined) {
+	undoOptimisticWrite(queryClient, written)
+	refreshContacts(queryClient)
 }
 
 function refreshContacts(queryClient: QueryClient) {
@@ -241,15 +237,16 @@ export function useCreateContactMutation() {
 		mutationFn: (fields: ContactFieldsInput) => createContact({ data: fields }),
 		onMutate: async (fields) => {
 			await queryClient.cancelQueries({ queryKey: contactsKeys.all })
-			const snapshot = snapshotContacts(queryClient)
 			const optimisticId = `optimistic-contact-${crypto.randomUUID()}`
-			applyContactEffect(queryClient, {
-				type: 'created',
-				contact: contactFromFields(optimisticId, fields),
-			})
-			return { snapshot, optimisticId, fields }
+			const written = recordOptimisticWrite(queryClient, contactsKeys.all, () =>
+				applyContactEffect(queryClient, {
+					type: 'created',
+					contact: contactFromFields(optimisticId, fields),
+				}),
+			)
+			return { written, optimisticId, fields }
 		},
-		onError: (_error, _fields, context) => restoreContacts(queryClient, context?.snapshot),
+		onError: (_error, _fields, context) => restoreContacts(queryClient, context?.written),
 		onSuccess: (receipt, fields, context) => {
 			/* v8 ignore else -- @preserve successful library callbacks always receive the context returned by onMutate */
 			if (context) applyContactEffect(queryClient, { type: 'deleted', contactId: context.optimisticId })
@@ -275,14 +272,15 @@ export function useUpdateContactMutation(contact: Contact | null) {
 		onMutate: async (fields) => {
 			if (!contact) return undefined
 			await queryClient.cancelQueries({ queryKey: contactsKeys.all })
-			const snapshot = snapshotContacts(queryClient)
-			applyContactEffect(queryClient, {
-				type: 'updated',
-				contact: contactFromFields(contact.id, fields, contact),
-			})
-			return { snapshot, fields }
+			const written = recordOptimisticWrite(queryClient, contactsKeys.all, () =>
+				applyContactEffect(queryClient, {
+					type: 'updated',
+					contact: contactFromFields(contact.id, fields, contact),
+				}),
+			)
+			return { written, fields }
 		},
-		onError: (_error, _fields, context) => restoreContacts(queryClient, context?.snapshot),
+		onError: (_error, _fields, context) => restoreContacts(queryClient, context?.written),
 		onSuccess: (receipt, fields) => {
 			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over contact is absent -- @preserve */
 			if (!contact) return
@@ -304,11 +302,12 @@ export function useDeleteContactMutation(contactId: string) {
 		mutationFn: () => deleteContact({ data: { contactId } }),
 		onMutate: async () => {
 			await queryClient.cancelQueries({ queryKey: contactsKeys.all })
-			const snapshot = snapshotContacts(queryClient)
-			applyContactEffect(queryClient, { type: 'deleted', contactId })
-			return { snapshot }
+			const written = recordOptimisticWrite(queryClient, contactsKeys.all, () =>
+				applyContactEffect(queryClient, { type: 'deleted', contactId }),
+			)
+			return { written }
 		},
-		onError: (_error, _variables, context) => restoreContacts(queryClient, context?.snapshot),
+		onError: (_error, _variables, context) => restoreContacts(queryClient, context?.written),
 		onSuccess: () => {
 			const effect = { type: 'deleted', contactId } as const
 			applyContactEffect(queryClient, effect)

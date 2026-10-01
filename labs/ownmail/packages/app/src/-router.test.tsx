@@ -1,7 +1,12 @@
+// @vitest-environment jsdom
 import { createMemoryHistory, RouterContextProvider } from '@tanstack/react-router'
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { accountScope, resetAccountScope, UNKNOWN_ACCOUNT_SCOPE } from '#app/lib/account-scope'
+import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { getRouter } from './router.js'
+
+afterEach(() => resetAccountScope())
 
 describe('getRouter', () => {
 	it('builds a router wired to the generated route tree with intent preloading', () => {
@@ -36,5 +41,28 @@ describe('getRouter', () => {
 				</RouterContextProvider>,
 			),
 		).not.toThrow()
+	})
+
+	it('tells the browser which mailbox the server rendered, so hydration builds account-partitioned keys', () => {
+		const router = getRouter()
+		const { dehydrate, hydrate } = router.options
+		if (!dehydrate || !hydrate) throw new Error('Expected the router to carry the account across hydration')
+
+		// Nothing is known before a mailbox loader has run.
+		expect(dehydrate()).toEqual({ accountEmail: undefined })
+
+		router.options.context.queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, {
+			email: 'Ada@OwnMail.com',
+			appName: 'OwnMail',
+			accounts: [],
+		})
+		const dehydrated = dehydrate()
+		expect(dehydrated).toEqual({ accountEmail: 'Ada@OwnMail.com' })
+
+		// The value crosses the wire, so the browser validates it like any other input.
+		hydrate({ accountEmail: 'not-a-mailbox' })
+		expect(accountScope()).toBe(UNKNOWN_ACCOUNT_SCOPE)
+		hydrate(dehydrated)
+		expect(accountScope()).toBe('ada@ownmail.com')
 	})
 })

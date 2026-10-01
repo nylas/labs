@@ -51,7 +51,8 @@ describe('hidden calendars in the range cache', () => {
 	it('keys a range by its hidden calendars, because their events were never fetched into it', () => {
 		const everything = calendarKeys.range(...WEEK_A)
 		const withoutWork = calendarKeys.range(...WEEK_A, ['work'])
-		expect(everything).toEqual(['calendar', 'range', WEEK_A[0], WEEK_A[1], ''])
+		// The account comes first, then the range and the calendars left out of it.
+		expect(everything).toEqual([...calendarKeys.all, 'range', WEEK_A[0], WEEK_A[1], ''])
 		expect(withoutWork).not.toEqual(everything)
 		// Showing the calendar again must miss the entry that was fetched without it.
 		const queryClient = new QueryClient()
@@ -317,7 +318,7 @@ describe('calendar cache effects', () => {
 
 	it('ignores calendar range entries whose key carries no numeric range', () => {
 		const queryClient = new QueryClient()
-		const malformed = ['calendar', 'range', 'start', 'end']
+		const malformed = [...calendarKeys.ranges(), 'start', 'end']
 		queryClient.setQueryData(malformed, data([event]))
 
 		applyCalendarEffect(queryClient, { type: 'updated', event: rescheduled(1_800_600_000) })

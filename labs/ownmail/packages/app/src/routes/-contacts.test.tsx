@@ -433,10 +433,17 @@ describe('ContactsLayout wrapper', () => {
 	it('loads mailbox info and the first page of contacts, surfacing the cursor', async () => {
 		h.getMailboxInfo.mockResolvedValue(info)
 		h.getContacts.mockResolvedValue({ contacts, nextCursor: 'cursor-2' })
-		expect(await Route.options.loader()).toEqual({ info, contacts, nextCursor: 'cursor-2' })
+		expect(await Route.options.loader({ context: { queryClient: new QueryClient() } })).toEqual({
+			info,
+			contacts,
+			nextCursor: 'cursor-2',
+		})
 
 		h.getContacts.mockResolvedValue({ contacts })
-		expect(await Route.options.loader()).toEqual({ info, contacts })
+		expect(await Route.options.loader({ context: { queryClient: new QueryClient() } })).toEqual({
+			info,
+			contacts,
+		})
 	})
 
 	it('owns route pagination in the shared query cache', async () => {

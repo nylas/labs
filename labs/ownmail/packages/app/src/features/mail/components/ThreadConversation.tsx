@@ -12,6 +12,7 @@ import {
 	useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
 import { IconButton } from '#shared/components/ui/icon-button'
@@ -103,7 +104,7 @@ function ThreadConversationController({
 
 	useEffect(() => {
 		let active = true
-		void originalColorSenders().then((senders) => {
+		void originalColorSenders(accountScope()).then((senders) => {
 			if (active) setOriginalSenders(new Set(senders))
 		})
 		return () => {
@@ -121,7 +122,7 @@ function ThreadConversationController({
 			})
 		update(enabled)
 		setOriginalColorStatus('idle')
-		if (await setSenderOriginalColors(address, enabled)) return
+		if (await setSenderOriginalColors(address, enabled, accountScope())) return
 		update(!enabled)
 		setOriginalColorStatus('error')
 	}, [])
@@ -137,7 +138,7 @@ function ThreadConversationController({
 
 	const onTrustSender = useCallback(async (address: string) => {
 		setSenderTrustStatus({ address, state: 'loading' })
-		const trusted = await trustSenderImages(address)
+		const trusted = await trustSenderImages(address, accountScope())
 		if (!trusted) {
 			setSenderTrustStatus({ address, state: 'error' })
 			return

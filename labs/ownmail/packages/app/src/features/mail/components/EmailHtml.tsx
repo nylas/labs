@@ -5,6 +5,7 @@
 
 import { type Ref, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
+import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import {
 	applyEmailColorMode,
@@ -207,7 +208,7 @@ export function EmailHtml({
 		}
 		if (!senderAddress) return
 		let active = true
-		void senderImagesTrusted(senderAddress).then((trusted) => {
+		void senderImagesTrusted(senderAddress, accountScope()).then((trusted) => {
 			if (active && trusted) applyRemoteImages(ref.current, true)
 		})
 		return () => {
