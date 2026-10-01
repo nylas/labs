@@ -51,6 +51,7 @@ const {
 	deleteCalendar,
 	deleteEvent,
 	getEvents,
+	getFreeBusy,
 	rsvpEvent,
 	updateCalendar,
 	updateEvent,
@@ -399,6 +400,90 @@ describe('calendar server functions', () => {
 		resolveMailbox([])
 
 		await expect(getEvents({ data: RANGE })).rejects.toThrow('No calendar found on this account.')
+	})
+
+	describe('availability lookup', () => {
+		const LOOKUP = {
+			start: 1_800_000_000,
+			end: 1_800_600_000,
+			emails: ['Ada@Example.com', 'bob@example.com'],
+		}
+		const freeBusyMailbox = (getFreeBusy: unknown) =>
+			resolveMailbox([{ id: 'primary', is_primary: true, name: 'Personal' }], { getFreeBusy })
+
+		it('free/busy never requests event details: one lookup of times, and no calendar or event read', async () => {
+			const lookup = vi.fn(async () => ({
+				data: [
+					{
+						email: 'ada@example.com',
+						object: 'free_busy',
+						time_slots: [
+							{ start_time: 1_800_003_600, end_time: 1_800_007_200, status: 'busy', title: 'Private' },
+						],
+					},
+					{ email: 'bob@example.com', object: 'error', error: 'Unable to resolve bob@example.com' },
+				],
+			}))
+			const mailbox = freeBusyMailbox(lookup)
+
+			const result = await getFreeBusy({ data: LOOKUP })
+
+			// The provider is asked for a range and addresses only.
+			expect(lookup).toHaveBeenCalledExactlyOnceWith({
+				start_time: LOOKUP.start,
+				end_time: LOOKUP.end,
+				emails: ['ada@example.com', 'bob@example.com'],
+			})
+			expect(mailbox.listEvents).not.toHaveBeenCalled()
+			expect(mailbox.listCalendars).not.toHaveBeenCalled()
+			// Only times come back; provider error text and stray fields do not.
+			expect(result).toEqual({
+				people: [
+					{
+						email: 'ada@example.com',
+						busy: [{ start: 1_800_003_600, end: 1_800_007_200 }],
+						unavailable: false,
+					},
+					{ email: 'bob@example.com', busy: [], unavailable: true },
+				],
+			})
+			expect(JSON.stringify(result)).not.toMatch(/Private|Unable to resolve/)
+		})
+
+		it('rejects an out-of-bounds lookup before the provider is called', async () => {
+			const lookup = vi.fn()
+			freeBusyMailbox(lookup)
+			expect(() => getFreeBusy({ data: { ...LOOKUP, emails: ['not-an-address'] } })).toThrow('Invalid people')
+			expect(() => getFreeBusy({ data: { ...LOOKUP, end: LOOKUP.start + 60 * 60 * 24 * 30 } })).toThrow(
+				'Range too large',
+			)
+			expect(lookup).not.toHaveBeenCalled()
+		})
+
+		it.each([
+			[
+				new NylasApiError('Too many requests for ada@example.com', 429),
+				'Availability is temporarily rate limited. Try again shortly.',
+			],
+			[
+				new NylasApiError('Provider error for ada@example.com', 502),
+				'Could not load availability. Try again shortly.',
+			],
+			[new Error('socket hang up'), 'Could not load availability. Try again shortly.'],
+			[new NylasApiError('expired', 401), 'Your mailbox session expired. Sign in again and retry.'],
+			[new NylasApiError('forbidden', 403), 'Your mailbox session expired. Sign in again and retry.'],
+		])('answers a provider failure with a generic message and no provider detail', async (error, message) => {
+			freeBusyMailbox(vi.fn().mockRejectedValue(error))
+			const failure = await getFreeBusy({ data: LOOKUP }).catch((caught: Error) => caught)
+			expect(failure).toBeInstanceOf(Error)
+			expect((failure as Error).message).toBe(message)
+			expect((failure as Error).message).not.toContain('@')
+		})
+
+		it('requires a signed-in mailbox, like every other calendar read', async () => {
+			mailboxFromRequest.mockResolvedValue(null)
+			await expect(getFreeBusy({ data: LOOKUP })).rejects.toMatchObject({ to: LOGIN_PATH })
+		})
 	})
 
 	it('treats a malformed calendar list as empty instead of crashing the calendar view', async () => {

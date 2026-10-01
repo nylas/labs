@@ -1010,6 +1010,21 @@
 	opacity: 0.5;
 }
 
+/*
+ * A colleague's busy time from "Meet with": a hatched tint with a uniform
+ * one-pixel border in that person's hue. The hatch, not the hue alone, sets it
+ * apart from the person's own events, and it carries the colleague's name.
+ */
+.busy-block {
+	background-color: color-mix(in oklab, var(--event-c) 14%, var(--card));
+	background-image: repeating-linear-gradient(
+		135deg,
+		color-mix(in oklab, var(--event-c) 38%, transparent) 0 2px,
+		transparent 2px 7px
+	);
+	border: 1px solid color-mix(in oklab, var(--event-c) 55%, var(--card));
+}
+
 /* The event shown in the detail pane: a uniform ring, alongside aria-current. */
 .event-chip[aria-current="true"] {
 	outline: 2px solid var(--ring);

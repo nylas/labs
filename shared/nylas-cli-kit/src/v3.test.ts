@@ -779,6 +779,66 @@ describe('NylasV3Client', () => {
 		expect(seriesIds).toEqual(['series-1', undefined])
 	})
 
+	it('looks up free/busy with only a time range and email addresses, against the grant-scoped endpoint', async () => {
+		const calls: { method: string; url: string; body: unknown }[] = []
+		const fetchImpl: typeof fetch = async (input, init) => {
+			calls.push({
+				method: init?.method ?? 'GET',
+				url: String(input),
+				body: init?.body ? JSON.parse(String(init.body)) : null,
+			})
+			return Response.json({
+				request_id: 'req',
+				data: [
+					{
+						email: 'ada@example.com',
+						object: 'free_busy',
+						time_slots: [{ start_time: 100, end_time: 200, status: 'busy', object: 'time_slot' }],
+					},
+					{ email: 'nobody@example.com', object: 'error', error: 'Unable to resolve e-mail address' },
+					'not-an-entry',
+				],
+			})
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant/123')
+
+		const result = await mailbox.getFreeBusy({
+			start_time: 100,
+			end_time: 900,
+			emails: ['ada@example.com', 'nobody@example.com'],
+		})
+
+		// The request names people and a range and nothing else: no calendar or event is asked for.
+		expect(calls).toEqual([
+			{
+				method: 'POST',
+				url: 'https://api.us.nylas.com/v3/grants/grant%2F123/calendars/free-busy',
+				body: { start_time: 100, end_time: 900, emails: ['ada@example.com', 'nobody@example.com'] },
+			},
+		])
+		// Per-person results come back as given; a malformed entry is dropped at the boundary.
+		expect(result.data).toEqual([
+			{
+				email: 'ada@example.com',
+				object: 'free_busy',
+				time_slots: [{ start_time: 100, end_time: 200, status: 'busy', object: 'time_slot' }],
+			},
+			{ email: 'nobody@example.com', object: 'error', error: 'Unable to resolve e-mail address' },
+		])
+	})
+
+	it('surfaces a rate limit on a free/busy lookup as an API error with its status', async () => {
+		const fetchImpl: typeof fetch = async () =>
+			Response.json(
+				{ request_id: 'req', error: { type: 'rate_limit_error', message: 'Too many' } },
+				{ status: 429 },
+			)
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+		await expect(
+			mailbox.getFreeBusy({ start_time: 100, end_time: 900, emails: ['ada@example.com'] }),
+		).rejects.toMatchObject({ status: 429 })
+	})
+
 	it('can create an event without notifying participants', async () => {
 		let requestUrl = ''
 		let requestBody: unknown
