@@ -399,8 +399,9 @@ function Bubble({ bubble, mine }: { bubble: ConversationBubble; mine: boolean })
 				data-slot="conversation-bubble"
 				data-unsure={bubble.unsure || undefined}
 				className={cn(
-					'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster text-foreground',
-					mine ? 'bg-primary/15' : 'bg-muted',
+					'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster',
+					// The reader's own bubbles are the quiet green tint; everyone else's are neutral.
+					mine ? 'bg-bubble-own text-bubble-own-foreground' : 'bg-muted text-foreground',
 				)}
 			>
 				{bubble.blocks.length > 0 ? (

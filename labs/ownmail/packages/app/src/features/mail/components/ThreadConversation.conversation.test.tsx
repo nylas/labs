@@ -249,11 +249,28 @@ describe('the transcript', () => {
 		expect(link).toHaveAttribute('rel', 'noopener noreferrer nofollow')
 	})
 
+	it("tints the reader's own bubbles and keeps everyone else's neutral, with the side as a second signal", () => {
+		renderThread()
+		openConversation()
+		for (const run of runs()) {
+			const mine = run.dataset.side === 'me'
+			for (const bubble of run.querySelectorAll('[data-slot="conversation-bubble"]')) {
+				// Own: the quiet green surface and its own text colour, which links inherit.
+				if (mine) expect(bubble).toHaveClass('bg-bubble-own', 'text-bubble-own-foreground')
+				else expect(bubble).toHaveClass('bg-muted', 'text-foreground')
+				expect(bubble.classList.contains('bg-bubble-own')).toBe(mine)
+			}
+			// Colour is never the only signal: own runs also sit on the right.
+			expect(run.classList.contains('flex-row-reverse')).toBe(mine)
+		}
+		expect(runs().some((run) => run.dataset.side === 'me')).toBe(true)
+	})
+
 	it('draws bubbles as fills, never with a side rail', () => {
 		renderThread()
 		openConversation()
 		for (const bubble of bubbles()) {
-			expect(bubble.className).toMatch(/\bbg-(?:muted|primary\/15)\b/)
+			expect(bubble.className).toMatch(/\bbg-(?:muted|bubble-own)\b/)
 			expect(bubble.className).not.toMatch(/\bborder|shadow|before:|after:/)
 		}
 	})

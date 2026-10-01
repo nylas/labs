@@ -192,9 +192,13 @@ and renders exactly as before when the view is off.
   for screen readers only. Consecutive emails from one sender within five
   minutes form one run with one time line, and a day separator starts each
   local day.
-- Bubbles are fills (`--muted`, and a `--primary` tint for the reader's own
-  messages) with no border, side rail or shadow. Side and name carry the
-  sender, so the tint is never the only signal.
+- Bubbles are fills with no border, side rail or shadow: `--muted` for
+  everyone else, and the quiet green `--bubble-own` with `--bubble-own-fg` text
+  for the reader's own messages. In the dark theme that pair is the green
+  accent surface; the light accent is neutral, so the light theme has its own
+  tint. Message text, muted text and reply references inside an own bubble hold
+  4.5:1 or better in both themes (tested from the tokens). Side and name carry
+  the sender, so the tint is never the only signal.
 - Content. Bubbles render a block model (heading, paragraph, list, quote,
   image, code, rule, quoted history) as React elements in app type. No message
   markup is injected: content always passes the sanitizer first, links keep the
