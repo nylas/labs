@@ -196,7 +196,7 @@ describe('RSVP state of the signed-in user', () => {
 		expect(eventRsvpLabel('awaiting')).toBe('Not yet answered')
 		expect(eventRsvpLabel('declined')).toBe('Declined')
 		const names = (['accepted', 'tentative', 'awaiting', 'declined'] as const).map((rsvp) =>
-			eventAccessibleName('Sprint planning', '3 PM – 4 PM', rsvp),
+			eventAccessibleName('Sprint planning', '3 PM – 4 PM', { rsvp }),
 		)
 		expect(names).toEqual([
 			'Sprint planning, 3 PM – 4 PM',
@@ -205,6 +205,42 @@ describe('RSVP state of the signed-in user', () => {
 			'Sprint planning, 3 PM – 4 PM, Declined',
 		])
 		expect(new Set(names).size).toBe(4)
+	})
+})
+
+describe('event states that the grid shows without words', () => {
+	it('says an event has ended, because fading the chip is invisible to a screen reader', () => {
+		const upcoming = eventAccessibleName('Standup', '9 AM – 10 AM', { rsvp: 'accepted', ended: false })
+		const finished = eventAccessibleName('Standup', '9 AM – 10 AM', { rsvp: 'accepted', ended: true })
+		expect(upcoming).toBe('Standup, 9 AM – 10 AM')
+		expect(finished).toBe('Standup, 9 AM – 10 AM, Ended')
+		expect(finished).not.toBe(upcoming)
+	})
+
+	it('appends the ended state the same way as the RSVP state, after it', () => {
+		expect(eventAccessibleName('Sprint planning', '3 PM – 4 PM', { rsvp: 'declined', ended: true })).toBe(
+			'Sprint planning, 3 PM – 4 PM, Declined, Ended',
+		)
+	})
+
+	it('says when an all-day event runs beyond the visible days, which is otherwise only a cut-off edge', () => {
+		const name = (continuesBefore: boolean, continuesAfter: boolean) =>
+			eventAccessibleName('Vacation', 'All day', { rsvp: 'accepted', continuesBefore, continuesAfter })
+		expect(name(false, false)).toBe('Vacation, All day')
+		expect(name(true, false)).toBe('Vacation, All day, Started earlier')
+		expect(name(false, true)).toBe('Vacation, All day, Continues later')
+		expect(name(true, true)).toBe('Vacation, All day, Started earlier, Continues later')
+	})
+
+	it('gives every combination of visual state its own name', () => {
+		const names = (['accepted', 'tentative', 'awaiting', 'declined'] as const).flatMap((rsvp) =>
+			[false, true].flatMap((ended) =>
+				[false, true].map((continuesAfter) =>
+					eventAccessibleName('Offsite', 'All day', { rsvp, ended, continuesAfter }),
+				),
+			),
+		)
+		expect(new Set(names).size).toBe(names.length)
 	})
 })
 

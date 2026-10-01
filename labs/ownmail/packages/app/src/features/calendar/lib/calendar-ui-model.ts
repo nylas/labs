@@ -133,9 +133,35 @@ export function eventRsvpLabel(rsvp: EventRsvp): string | null {
 	return null
 }
 
-/** Accessible name for an event chip: title, when, and any answer that is not a plain acceptance. */
-export function eventAccessibleName(title: string, when: string, rsvp: EventRsvp): string {
-	return [title, when, eventRsvpLabel(rsvp)].filter(Boolean).join(', ')
+/** Word for an event that has finished; the grid otherwise shows this only by fading the chip. */
+export const EVENT_ENDED_LABEL = 'Ended'
+
+/** What the grid shows about an event without words: outline, strikethrough, fading, a cut-off edge. */
+export type EventChipState = {
+	rsvp: EventRsvp
+	/** The event has finished. */
+	ended?: boolean
+	/** An all-day event began before the first visible day. */
+	continuesBefore?: boolean
+	/** An all-day event runs past the last visible day. */
+	continuesAfter?: boolean
+}
+
+/**
+ * Accessible name for an event chip: title, when, then every state the chip
+ * shows only visually, so none of them depends on colour, opacity or shape.
+ */
+export function eventAccessibleName(title: string, when: string, state: EventChipState): string {
+	return [
+		title,
+		when,
+		state.continuesBefore ? 'Started earlier' : null,
+		state.continuesAfter ? 'Continues later' : null,
+		eventRsvpLabel(state.rsvp),
+		state.ended ? EVENT_ENDED_LABEL : null,
+	]
+		.filter(Boolean)
+		.join(', ')
 }
 
 export function eventHour(event: Event): { startHour: number; endHour: number; allDay: boolean } {

@@ -57,6 +57,7 @@ import {
 } from '#features/calendar/lib/calendar'
 import {
 	calendarColors,
+	EVENT_ENDED_LABEL,
 	type EventColor,
 	eventAccessibleName,
 	eventColor,
@@ -727,6 +728,7 @@ function MiniCalendar({
 							type="button"
 							onClick={() => onPick(day)}
 							data-current-week={inWeek ? '' : undefined}
+							aria-current={isToday ? 'date' : undefined}
 							tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
 							onKeyDown={(event) => {
 								const next = moveCalendarDay(day, event.key)
@@ -843,6 +845,7 @@ function MonthGrid({
 										year: 'numeric',
 									})}; ${dayEvents.length} ${dayEvents.length === 1 ? 'event' : 'events'}`}
 									aria-selected={ymd(day) === ymd(activeDay)}
+									aria-current={iso === todayIso ? 'date' : undefined}
 									tabIndex={ymd(day) === ymd(activeDay) ? 0 : -1}
 									data-month-calendar-day={iso}
 									className={cn(
@@ -1049,6 +1052,7 @@ function TimeGrid({
 							if (!times) return null
 							const rsvp = eventRsvp(event, email)
 							const rsvpLabel = eventRsvpLabel(rsvp)
+							const ended = isPastEvent(event, now, timeZone)
 							const day = columns.find((column) => eventsOnDay([event], column, timeZone).length > 0)
 							return (
 								<button
@@ -1079,6 +1083,7 @@ function TimeGrid({
 											{' · '}
 											{times.allDay ? 'All day' : fmtTime(times.start, timeZone)}
 											{rsvpLabel ? ` · ${rsvpLabel}` : null}
+											{ended ? ` · ${EVENT_ENDED_LABEL}` : null}
 										</span>
 									</span>
 								</button>
@@ -1169,6 +1174,7 @@ function TimeGrid({
 								const { event } = segment
 								const preview = isNewEventPreview(event)
 								const rsvp = eventRsvp(event, email)
+								const ended = isPastEvent(event, now, timeZone)
 								const title = event.title || '(untitled)'
 								const chipProps = {
 									style: {
@@ -1179,7 +1185,7 @@ function TimeGrid({
 									className:
 										'event-color event-chip z-10 mx-control min-w-0 self-center truncate rounded-[5px] px-cluster py-control text-left text-xs font-medium',
 									'data-rsvp': rsvp,
-									'data-past': isPastEvent(event, now, timeZone) ? '' : undefined,
+									'data-past': ended ? '' : undefined,
 									'data-preview': preview ? '' : undefined,
 									'data-continues-before': segment.continuesBefore ? '' : undefined,
 									'data-continues-after': segment.continuesAfter ? '' : undefined,
@@ -1198,7 +1204,12 @@ function TimeGrid({
 											if (!preview) onPickEvent(event)
 										}}
 										disabled={preview}
-										aria-label={eventAccessibleName(title, 'All day', rsvp)}
+										aria-label={eventAccessibleName(title, 'All day', {
+											rsvp,
+											ended,
+											continuesBefore: segment.continuesBefore,
+											continuesAfter: segment.continuesAfter,
+										})}
 										{...chipProps}
 									>
 										{title}
@@ -1320,6 +1331,7 @@ function TimeGrid({
 										const rsvp = eventRsvp(event, email)
 										const title = event.title || '(untitled)'
 										const range = `${fmtTime(times.start, timeZone)} – ${fmtTime(times.end, timeZone)}`
+										const ended = isPastEvent(event, now, timeZone)
 										// Concurrent events share the column side by side, each with a small gutter.
 										const chipProps = {
 											style: {
@@ -1330,7 +1342,7 @@ function TimeGrid({
 												width: `calc(${width * 100}% - 4px)`,
 											},
 											'data-rsvp': rsvp,
-											'data-past': isPastEvent(event, now, timeZone) ? '' : undefined,
+											'data-past': ended ? '' : undefined,
 											'data-preview': preview ? '' : undefined,
 										}
 										const className =
@@ -1357,7 +1369,7 @@ function TimeGrid({
 													if (!preview) onPickEvent(event)
 												}}
 												disabled={preview}
-												aria-label={eventAccessibleName(title, range, rsvp)}
+												aria-label={eventAccessibleName(title, range, { rsvp, ended })}
 												className={cn('hover:shadow-md', className)}
 												{...chipProps}
 											>
