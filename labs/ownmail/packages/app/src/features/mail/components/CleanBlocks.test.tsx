@@ -94,6 +94,26 @@ describe('CleanBlocks', () => {
 		expect(screen.getByText('Image not loaded')).toBeInTheDocument()
 	})
 
+	it('shows a reply reference as a small filled pointer, and a kept signature as muted text', () => {
+		const { container } = render(
+			<CleanBlocks
+				blocks={[
+					{ type: 'reference', author: 'Tomas', text: 'the retro probably fits better on Friday' },
+					{ type: 'reference', text: 'no author known' },
+					{ type: 'signature', blocks: [{ type: 'paragraph', spans: [{ text: 'Ines Carvalho' }] }] },
+				]}
+			/>,
+		)
+		const [named, anonymous] = [...container.querySelectorAll<HTMLElement>('[data-slot="clean-reference"]')]
+		expect(named).toHaveTextContent('Tomas: the retro probably fits better on Friday')
+		expect(anonymous).toHaveTextContent(/^no author known$/)
+		// A fill, not a quote bar down one side.
+		expect(named?.className).toMatch(/\bbg-/)
+		expect(named?.className).not.toMatch(/border/)
+		expect(container.querySelector('[data-slot="clean-signature"]')).toHaveTextContent('Ines Carvalho')
+		expect(container.querySelector('[data-slot="clean-signature"]')).toHaveClass('text-muted-foreground')
+	})
+
 	it('keeps quoted history behind a disclosure with a full-size touch target', () => {
 		render(
 			<CleanBlocks

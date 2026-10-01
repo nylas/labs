@@ -49,6 +49,10 @@ export type CleanBlock =
 	| { type: 'rule' }
 	/** Earlier messages quoted below a reply, as detected by `collapseQuotedHistory`. */
 	| { type: 'history'; blocks: CleanBlock[] }
+	/** The sender's signature, as marked by their mail client or found by the thread pass. */
+	| { type: 'signature'; blocks: CleanBlock[] }
+	/** A quoted line the thread already showed, kept as a short pointer above its answer. */
+	| { type: 'reference'; text: string; author?: string }
 
 /** What a message is, judged from its body alone. */
 export type MailClass = 'prose' | 'reply' | 'transactional' | 'newsletter'
@@ -78,6 +82,8 @@ const SKIPPED_TAGS = new Set(['STYLE', 'SCRIPT', 'HEAD', 'TITLE', 'SUMMARY', 'TE
 /** Images at or below this size on both sides are emoji or icons and read as their alt text. */
 const INLINE_IMAGE_MAX = 32
 const QUOTED_HISTORY_CLASS = 'ownmail-quoted-history'
+/** How Gmail, Thunderbird, Outlook and Apple Mail mark the signature they insert. */
+const SIGNATURE_SELECTOR = '.gmail_signature, .moz-signature, #Signature, #AppleMailSignature'
 const ORIGINAL: MessageContent = { kind: 'original' }
 /** Images this small on either side are tracking pixels or spacers. */
 const TRACKING_IMAGE_MAX = 2
@@ -294,7 +300,9 @@ function blockElement(element: Element, marks: Marks, out: CleanBlock[]): void {
 			? 'quote'
 			: tag === 'DETAILS' && element.classList.contains(QUOTED_HISTORY_CLASS)
 				? 'history'
-				: undefined
+				: element.matches(SIGNATURE_SELECTOR)
+					? 'signature'
+					: undefined
 	if (nested) {
 		const blocks: CleanBlock[] = []
 		collectBlocks(element, marks, blocks)
@@ -376,7 +384,10 @@ function blockText(block: CleanBlock): string {
 			return block.items.map(spansText).join('\n')
 		case 'quote':
 		case 'history':
+		case 'signature':
 			return blocksText(block.blocks)
+		case 'reference':
+			return block.text
 		case 'image':
 			return block.alt
 		case 'code':
@@ -401,11 +412,17 @@ export function blocksText(blocks: CleanBlock[]): string {
 /** Plaintext keeps its paragraphs; a recognised reply separator starts the quoted history. */
 function plainTextBlocks(text: string): CleanBlock[] {
 	const content = splitPlainQuotedHistory(text)
-	const blocks: CleanBlock[] = content.visible
-		.split(/\n{2,}/)
-		.map((part) => part.trim())
-		.filter(Boolean)
-		.map((part) => paragraph([{ text: part }]))
+	const paragraphs = (part: string): CleanBlock[] =>
+		part
+			.split(/\n{2,}/)
+			.map((piece) => piece.trim())
+			.filter(Boolean)
+			.map((piece) => paragraph([{ text: piece }]))
+	// The plaintext convention: a line holding only "-- " starts the signature.
+	const [body, ...signature] = `\n${content.visible}`.split(/\n-- ?(?=\n|$)/)
+	const blocks = paragraphs(body as string)
+	const signed = paragraphs(signature.join('\n'))
+	if (signed.length > 0) blocks.push({ type: 'signature', blocks: signed })
 	if (content.quoted) blocks.push({ type: 'history', blocks: [paragraph([{ text: content.quoted }])] })
 	return blocks
 }
@@ -565,7 +582,9 @@ function keptText(blocks: CleanBlock[]): string {
 		.map((block) => {
 			if (block.type === 'heading' || block.type === 'paragraph') return spansText(block.spans)
 			if (block.type === 'list') return block.items.map(spansText).join('')
-			if (block.type === 'quote' || block.type === 'history') return keptText(block.blocks)
+			if (block.type === 'quote' || block.type === 'history' || block.type === 'signature') {
+				return keptText(block.blocks)
+			}
 			return block.type === 'code' ? block.text : ''
 		})
 		.join('')
@@ -644,8 +663,9 @@ function linksOf(blocks: CleanBlock[], out: Set<string>): void {
 			for (const span of block.spans) if (span.href) out.add(span.href)
 		} else if (block.type === 'list') {
 			for (const span of block.items.flat()) if (span.href) out.add(span.href)
-		} else if (block.type === 'quote' || block.type === 'history') linksOf(block.blocks, out)
-		else if (block.type === 'image' && block.href) out.add(block.href)
+		} else if (block.type === 'quote' || block.type === 'history' || block.type === 'signature') {
+			linksOf(block.blocks, out)
+		} else if (block.type === 'image' && block.href) out.add(block.href)
 	}
 }
 

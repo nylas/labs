@@ -1,0 +1,69 @@
+{
+	"kind": "blocks",
+	"blocks": [
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Updated and sent the invite. Retro is Friday at 9."
+				}
+			]
+		},
+		{
+			"type": "signature",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "Ines Carvalho\nExample Co · +1 555 0142"
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "PS: the door code for Room 4B is 482913."
+				}
+			]
+		}
+	],
+	"hasRemoteImages": false,
+	"bubble": {
+		"blocks": [
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Updated and sent the invite. Retro is Friday at 9."
+					}
+				]
+			},
+			{
+				"type": "signature",
+				"blocks": [
+					{
+						"type": "paragraph",
+						"spans": [
+							{
+								"text": "Ines Carvalho\nExample Co · +1 555 0142"
+							}
+						]
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "PS: the door code for Room 4B is 482913."
+					}
+				]
+			}
+		],
+		"unsure": false
+	}
+}

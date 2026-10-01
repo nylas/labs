@@ -235,6 +235,65 @@ describe('the transcript', () => {
 		}
 	})
 
+	it('shows participant and subject changes as system lines in the stream', () => {
+		const MARA = { name: 'Mara Lindqvist', email: 'mara@example.com' }
+		renderThread([
+			{
+				id: 'a',
+				from: [INES],
+				to: [SAM, TOMAS],
+				date: MONDAY,
+				subject: 'Offsite agenda draft',
+				body: 'Draft attached.',
+			},
+			{
+				id: 'b',
+				from: [INES],
+				to: [MARA, SAM],
+				cc: [TOMAS],
+				date: MONDAY + 60,
+				subject: 'Re: Offsite agenda, final',
+				body: 'Adding Mara.',
+			},
+		])
+		openConversation()
+		const event = document.querySelector('[data-slot="conversation-event"]') as HTMLElement
+		expect(event).toHaveTextContent(
+			'Ines added Mara Lindqvist · Tomas Reyes moved to Cc · Ines changed the subject to “Offsite agenda, final”',
+		)
+		// The line sits between the two emails, so they are two runs although a minute apart.
+		expect(
+			event.compareDocumentPosition(runs()[1] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy()
+		expect(runs()).toHaveLength(2)
+	})
+
+	it('answers a quoted line under a short reference to it, credited to who wrote it', () => {
+		renderThread([
+			email('q', TOMAS, MONDAY, 'Could we use Thursday afternoon for the planning session?'),
+			email(
+				'a',
+				INES,
+				MONDAY + 3600,
+				'<div class="moz-cite-prefix">On 28/09/2026, Tomas wrote:</div><blockquote type="cite">Could we use Thursday afternoon for the planning session?</blockquote><div>Yes, from one.</div>',
+			),
+		])
+		openConversation()
+		const answer = bubbles()[1] as HTMLElement
+		expect(answer.querySelector('[data-slot="clean-reference"]')).toHaveTextContent(
+			'Tomas: Could we use Thursday afternoon for the planning session?',
+		)
+		expect(answer).toHaveTextContent('Yes, from one.')
+		expect(answer).not.toHaveTextContent('wrote:')
+		expect(answer.querySelector('details')).toBeNull()
+	})
+
+	it('leaves the signature out of the bubble', () => {
+		renderThread([email('s', TOMAS, MONDAY, 'See you Thursday.\n\n-- \nTomas Reyes\n+1 555 0100')])
+		openConversation()
+		expect(bubbles()[0]).toHaveTextContent(/^See you Thursday\.$/)
+	})
+
 	it('names nobody in a two-person chat', () => {
 		renderThread([
 			{ ...email('a', INES, MONDAY, 'Lunch?'), to: [SAM] },
