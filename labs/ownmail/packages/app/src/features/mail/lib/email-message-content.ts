@@ -80,11 +80,12 @@ export function prepareEmailMessageContent(
 	const document = new DOMParser().parseFromString(parseableHtml, 'text/html')
 	preserveLegacyVmlCtas(document)
 	rewriteCidImages(document, messageId, attachments, imageTokens)
+	// Judge prose on the sender's markup alone. The quoted-history disclosure
+	// added below carries inline border and padding styles of its own, which
+	// would otherwise make every reply with a recognised quote look designed.
+	const isProse = isLikelyProseDocument(document)
 	collapseQuotedHistory(document)
-	return {
-		html: document.documentElement.outerHTML,
-		isProse: isLikelyProseDocument(document),
-	}
+	return { html: document.documentElement.outerHTML, isProse }
 }
 
 /** Preserve a usable link when an old Outlook email supplies only a VML button. */
