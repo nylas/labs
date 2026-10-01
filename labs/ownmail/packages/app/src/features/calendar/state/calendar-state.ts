@@ -446,21 +446,22 @@ export function useCreateEventMutation() {
  *
  * Requests for one event are sent one at a time, in the order the changes were
  * made, so the provider's final state is the latest change. While one is in
- * flight only the latest waiting change is kept; the ones it replaced are never
- * sent.
+ * flight there is one waiting request: each further change is merged into it,
+ * so the request that goes next carries everything asked for since, and the
+ * changes it absorbed are never sent on their own.
  *
  * Each change also takes a number in the order it was made. Only the newest
  * change still standing may write its result: an older response is discarded,
  * and an older failure does not undo what came after it.
  */
-type QueuedSend = { start: () => void; skip: () => void }
+type QueuedSend = { input: UpdateEventInput; start: () => void; skip: () => void }
 type EventWrites = {
 	issued: number
 	failed: Set<number>
 	pending: Map<number, OptimisticWrite>
 	/** A request for this event is with the provider. */
 	sending: boolean
-	/** The latest change waiting for that request to settle. */
+	/** The change waiting for that request to settle: everything asked for since, merged. */
 	queued: QueuedSend | null
 	/** What the provider last confirmed underneath a newer change; a rollback returns to it. */
 	confirmed?: CalendarEffect
@@ -484,21 +485,36 @@ function eventWriteKey(eventId: string): string {
 }
 
 /**
- * Sends a change to an event when it is its turn. A change that is replaced
- * while waiting, or still waiting when the cache is cleared for another inbox,
- * is never sent and resolves as superseded.
+ * A change is a partial patch: a move carries times, an edit carries text.
+ * Merging keeps every field either one set, and the later value where both set
+ * the same field. Start and end always travel as a pair in a single change, so
+ * they stay a pair in the merged one.
  */
-function sendEventWrite<T>(
+function mergeEventUpdates(earlier: UpdateEventInput, later: UpdateEventInput): UpdateEventInput {
+	const merged: Record<string, unknown> = { ...earlier }
+	for (const [field, value] of Object.entries(later)) {
+		if (value !== undefined) merged[field] = value
+	}
+	return merged as UpdateEventInput
+}
+
+/**
+ * Sends a change to an event when it is its turn. A change that waits behind
+ * another waiting change is merged with it: the newer one carries the fields
+ * of both to the provider, and the older one, never sent itself, resolves as
+ * superseded. So does a change still waiting when the cache is cleared for
+ * another inbox.
+ */
+function sendEventWrite(
 	queryClient: QueryClient,
-	eventId: string,
-	send: () => Promise<T>,
-): Promise<T | typeof SUPERSEDED> {
-	const writes = eventWrites.get(queryClient)?.get(eventWriteKey(eventId))
+	input: UpdateEventInput,
+): Promise<Awaited<ReturnType<typeof updateEvent>> | typeof SUPERSEDED> {
+	const writes = eventWrites.get(queryClient)?.get(eventWriteKey(input.eventId))
 	// The cache was cleared for another inbox before this change could be sent.
 	if (!writes) return Promise.resolve(SUPERSEDED)
-	const run = (): Promise<T> => {
+	const run = (data: UpdateEventInput) => {
 		writes.sending = true
-		return send().finally(() => {
+		return updateEvent({ data }).finally(() => {
 			writes.sending = false
 			// Whether it succeeded or failed, the latest waiting change goes next.
 			const next = writes.queued
@@ -506,11 +522,18 @@ function sendEventWrite<T>(
 			next?.start()
 		})
 	}
-	if (!writes.sending) return run()
+	if (!writes.sending) return run(input)
 	return new Promise((resolve, reject) => {
-		// Only the latest intent is worth sending; the one it replaces is dropped.
-		writes.queued?.skip()
-		writes.queued = { start: () => run().then(resolve, reject), skip: () => resolve(SUPERSEDED) }
+		// One request waits. It takes over whatever was already waiting, field by
+		// field, so a queued title edit is not lost to a later move.
+		const waiting = writes.queued
+		const merged = waiting ? mergeEventUpdates(waiting.input, input) : input
+		waiting?.skip()
+		writes.queued = {
+			input: merged,
+			start: () => run(merged).then(resolve, reject),
+			skip: () => resolve(SUPERSEDED),
+		}
 	})
 }
 
@@ -624,7 +647,7 @@ export function useUpdateEventMutation(event: Event | null) {
 	return useMutation({
 		mutationFn: (input: UpdateEventInput) => {
 			if (!event) throw new Error('Event is required')
-			return sendEventWrite(queryClient, event.id, () => updateEvent({ data: input }))
+			return sendEventWrite(queryClient, input)
 		},
 		onMutate: async (input) => {
 			if (!event) return undefined
@@ -634,7 +657,12 @@ export function useUpdateEventMutation(event: Event | null) {
 			// must not be replayed over this newer change.
 			const restoreReceipts = supersedeConfirmedEventEffects(queryClient, event.id)
 			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
-				applyCalendarEffect(queryClient, { type: 'updated', event: eventFromUpdate(event, input) }),
+				applyCalendarEffect(queryClient, {
+					type: 'updated',
+					// Drawn over the event as it stands now, so a change still waiting
+					// to be sent (a move, say) is not redrawn away by this one.
+					event: eventFromUpdate(findCachedEvent(queryClient, event.id) ?? event, input),
+				}),
 			)
 			trackEventWrite(queryClient, ticket, written, restoreReceipts)
 			return { written, ticket }
@@ -678,8 +706,7 @@ export function useRescheduleEventMutation() {
 		endTime,
 	})
 	return useMutation({
-		mutationFn: (input: RescheduleEventInput) =>
-			sendEventWrite(queryClient, input.event.id, () => updateEvent({ data: updateInput(input) })),
+		mutationFn: (input: RescheduleEventInput) => sendEventWrite(queryClient, updateInput(input)),
 		onMutate: async (input) => {
 			const ticket = issueEventWrite(queryClient, input.event.id)
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
@@ -689,7 +716,12 @@ export function useRescheduleEventMutation() {
 			const written = recordOptimisticWrite(queryClient, calendarKeys.all, () =>
 				applyCalendarEffect(queryClient, {
 					type: 'updated',
-					event: eventFromUpdate(input.event, updateInput(input)),
+					// Drawn over the event as it stands now, so a change still waiting
+					// to be sent (a new title, say) is not redrawn away by this one.
+					event: eventFromUpdate(
+						findCachedEvent(queryClient, input.event.id) ?? input.event,
+						updateInput(input),
+					),
 				}),
 			)
 			trackEventWrite(queryClient, ticket, written, restoreReceipts)

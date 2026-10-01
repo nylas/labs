@@ -516,6 +516,94 @@ describe('calendar mutation hooks', () => {
 			expect(sent).toHaveLength(0)
 		})
 
+		describe('changes waiting behind a request are merged, not replaced', () => {
+			/** A move is with the provider; every later change waits behind it. */
+			async function behindAMove() {
+				const sent = holdUpdates()
+				const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+				const update = renderHook(() => useUpdateEventMutation(event), { wrapper }).result
+				const settled: Promise<unknown>[] = []
+				const queue = async (start: () => Promise<unknown>) => {
+					act(() => {
+						settled.push(start().catch(() => {}))
+					})
+					await flush()
+				}
+				await queue(() => reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }))
+				const settle = async (index: number, outcome: 'resolve' | 'reject', value: unknown) => {
+					await act(async () => {
+						;(sent[index] as Sent)[outcome](value)
+					})
+					await flush()
+				}
+				return { sent, settle, settled, queue, reschedule, update }
+			}
+
+			it('sends a title edit queued between two moves together with the final times', async () => {
+				const { sent, settle, settled, queue, reschedule, update } = await behindAMove()
+				await queue(() => update.current.mutateAsync({ eventId: event.id, title: 'Renamed' }))
+				await queue(() => reschedule.current.mutateAsync({ event: at(300), startTime: 500, endTime: 600 }))
+				expect(drawn()).toMatchObject({ title: 'Renamed', when: { start_time: 500 } })
+				await settle(0, 'resolve', { event: at(300) })
+				// One request carries both: the title would otherwise never reach the provider,
+				// and its answer would put the old title back.
+				expect(sent).toHaveLength(2)
+				expect(sent[1]?.data).toEqual({
+					eventId: event.id,
+					calendarId: 'calendar-1',
+					title: 'Renamed',
+					startTime: 500,
+					endTime: 600,
+				})
+				await settle(1, 'resolve', { event: { ...at(500), title: 'Renamed' } })
+				await Promise.all(settled)
+				expect(afterStaleRead()).toMatchObject({ title: 'Renamed', when: { start_time: 500 } })
+			})
+
+			it('delivers two waiting edits to different fields in one request', async () => {
+				const { sent, settle, queue, update } = await behindAMove()
+				await queue(() => update.current.mutateAsync({ eventId: event.id, title: 'Renamed' }))
+				await queue(() => update.current.mutateAsync({ eventId: event.id, location: 'Room 4' }))
+				await settle(0, 'resolve', { event: at(300) })
+				expect(sent).toHaveLength(2)
+				expect(sent[1]?.data).toEqual({ eventId: event.id, title: 'Renamed', location: 'Room 4' })
+			})
+
+			it('sends the latest value when the same field is changed twice while waiting', async () => {
+				const { sent, settle, queue, update } = await behindAMove()
+				await queue(() =>
+					update.current.mutateAsync({ eventId: event.id, title: 'Draft', description: 'Agenda' }),
+				)
+				// A field the later change leaves unset says nothing about it.
+				await queue(() =>
+					update.current.mutateAsync({ eventId: event.id, title: 'Final', description: undefined }),
+				)
+				await settle(0, 'resolve', { event: at(300) })
+				// The newer title wins; the description only the earlier edit carried is kept.
+				expect(sent[1]?.data).toEqual({ eventId: event.id, title: 'Final', description: 'Agenda' })
+			})
+
+			it('always sends start and end together, so the merged request passes validation', async () => {
+				const { sent, settle, queue, reschedule, update } = await behindAMove()
+				await queue(() => reschedule.current.mutateAsync({ event: at(300), startTime: 500, endTime: 650 }))
+				await queue(() => update.current.mutateAsync({ eventId: event.id, title: 'Renamed' }))
+				await settle(0, 'resolve', { event: at(300) })
+				expect(sent[1]?.data).toMatchObject({ title: 'Renamed', startTime: 500, endTime: 650 })
+			})
+
+			it('rolls every field of a failed merged request back to the last confirmed values', async () => {
+				const { settle, settled, queue, reschedule, update } = await behindAMove()
+				await queue(() => update.current.mutateAsync({ eventId: event.id, title: 'Renamed' }))
+				await queue(() => reschedule.current.mutateAsync({ event: at(300), startTime: 500, endTime: 600 }))
+				await settle(0, 'resolve', { event: at(300) })
+				await settle(1, 'reject', new Error('offline'))
+				await Promise.all(settled)
+				// Neither the title nor the second move reached the provider; the first move did.
+				expect(drawn()).toMatchObject({ title: 'Planning', when: { start_time: 300 } })
+				expect(afterStaleRead()).toMatchObject({ title: 'Planning', when: { start_time: 300 } })
+			})
+		})
+
 		it('keeps changes to different events independent: neither waits for the other', async () => {
 			const other = { ...event, id: 'event-2', title: 'Other' } as Event
 			client.setQueryData(calendarKeys.range(0, 1000), { events: [event, other] } as CalendarRouteData)
