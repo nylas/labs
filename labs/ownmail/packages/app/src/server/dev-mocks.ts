@@ -4,6 +4,9 @@ import type {
 	Draft,
 	Event,
 	Folder,
+	FreeBusy,
+	FreeBusyRequest,
+	FreeBusyTimeSlot,
 	ItemResponse,
 	ListQuery,
 	ListResponse,
@@ -308,6 +311,33 @@ class DevMailbox {
 
 	async deleteEvent(eventId: string, _calendarId: string): Promise<void> {
 		mockDeleteEvent(eventId)
+	}
+
+	/**
+	 * Made-up availability for local development: every weekday in the range each
+	 * person is busy mid-morning and mid-afternoon, offset a little per person.
+	 */
+	async getFreeBusy(body: FreeBusyRequest): Promise<ListResponse<FreeBusy>> {
+		const HOUR = 3600
+		return listResponse(
+			body.emails.map((email, index): FreeBusy => {
+				const time_slots: FreeBusyTimeSlot[] = []
+				for (let day = Math.floor(body.start_time / 86_400) * 86_400; day < body.end_time; day += 86_400) {
+					const weekday = new Date(day * 1000).getUTCDay()
+					if (weekday === 0 || weekday === 6) continue
+					for (const [startHour, hours] of [
+						[14 + index, 1],
+						[18 + index, 1.5],
+					] as const) {
+						const start_time = day + startHour * HOUR
+						const end_time = start_time + hours * HOUR
+						if (start_time >= body.start_time && end_time <= body.end_time)
+							time_slots.push({ start_time, end_time, status: 'busy', object: 'time_slot' })
+					}
+				}
+				return { email, object: 'free_busy', time_slots }
+			}),
+		)
 	}
 
 	async sendRsvp(

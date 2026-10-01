@@ -436,6 +436,41 @@ describe('dev mock Nylas client surface', () => {
 		expect(unbounded.data.every((event) => event.calendar_id === 'work')).toBe(true)
 	})
 
+	it('makes up weekday busy times for local development, inside the requested range only', async () => {
+		// Monday 5 October 2026 00:00 UTC to the following Monday.
+		const monday = Date.UTC(2026, 9, 5) / 1000
+		const week = await mailbox.getFreeBusy({
+			start_time: monday,
+			end_time: monday + 7 * 86_400,
+			emails: ['mina@example.com', 'sam@example.com'],
+		})
+		expect(week.data.map((person) => person.email)).toEqual(['mina@example.com', 'sam@example.com'])
+		const [mina, sam] = week.data
+		if (!mina || !('time_slots' in mina) || !sam || !('time_slots' in sam))
+			throw new Error('expected busy times')
+		// Two periods on each of five weekdays; nothing at the weekend.
+		expect(mina.time_slots).toHaveLength(10)
+		expect(
+			mina.time_slots.every((slot) => {
+				const weekday = new Date(slot.start_time * 1000).getUTCDay()
+				return weekday >= 1 && weekday <= 5 && slot.status === 'busy'
+			}),
+		).toBe(true)
+		// Each person is offset, so two people are told apart in the grid.
+		expect(sam.time_slots[0]?.start_time).toBe((mina.time_slots[0]?.start_time ?? 0) + 3600)
+
+		// A range that ends mid-afternoon leaves out the period it would cut off.
+		const partial = await mailbox.getFreeBusy({
+			start_time: monday,
+			end_time: monday + 16 * 3600,
+			emails: ['mina@example.com'],
+		})
+		const [only] = partial.data
+		expect(only && 'time_slots' in only ? only.time_slots : []).toEqual([
+			{ start_time: monday + 14 * 3600, end_time: monday + 15 * 3600, status: 'busy', object: 'time_slot' },
+		])
+	})
+
 	it('creates, renames, and deletes calendars while protecting unavailable targets', async () => {
 		const created = await mailbox.createCalendar({ name: 'Temporary' })
 		const calendarId = created.data.id

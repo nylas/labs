@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
 	getEvents: vi.fn(),
 	getMailboxInfo: vi.fn(),
 	updateEvent: vi.fn(),
+	getFreeBusy: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -39,6 +40,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('#features/calendar/server/calendar-fns', () => ({
 	getEvents: (args: any) => h.getEvents(args),
 	updateEvent: (args: any) => h.updateEvent(args),
+	getFreeBusy: (args: any) => h.getFreeBusy(args),
 }))
 vi.mock('#server/fns', () => ({ getMailboxInfo: () => h.getMailboxInfo() }))
 
@@ -159,6 +161,34 @@ vi.mock('#features/calendar/components/EventDetails', async () => {
 		},
 	}
 })
+
+// The people search owns its render tests; here it shows what the route gave it and
+// lets a test choose people and ask for a retry.
+vi.mock('#features/calendar/components/MeetWith', () => ({
+	MeetWith: (props: any) => (
+		<div
+			data-testid="meet-with"
+			data-people={props.people.map((person: any) => person.email).join(',')}
+			data-results={JSON.stringify(props.results)}
+			data-loading={String(props.loading)}
+			data-error={props.error ?? ''}
+			data-shown-on-grid={String(props.shownOnGrid)}
+		>
+			<button
+				type="button"
+				onClick={() => props.onChange([...props.people, { email: 'mina@example.com', name: 'Mina Park' }])}
+			>
+				meet-add-mina
+			</button>
+			<button type="button" onClick={() => props.onChange([])}>
+				meet-clear
+			</button>
+			<button type="button" onClick={props.onRetry}>
+				meet-retry
+			</button>
+		</div>
+	),
+}))
 
 vi.mock('#features/calendar/components/CalendarManagerDialog', () => ({
 	CalendarManagerDialog: (props: any) => (
@@ -2094,5 +2124,115 @@ describe('dragging events in the time grid', () => {
 			defaultStart: new Date('2024-06-15T14:00:00').toISOString(),
 			defaultDurationMinutes: '60',
 		})
+	})
+})
+
+describe('meet with: colleagues availability on the grid', () => {
+	const meetWith = () => screen.getAllByTestId('meet-with')[0] as HTMLElement
+	const blocks = () => [...document.querySelectorAll<HTMLElement>('[data-busy-block]')]
+	// Mina is busy 1 PM to 2 PM on Saturday, when "Sync" is also on.
+	const busy = { start: e('2024-06-15T13:00:00'), end: e('2024-06-15T14:00:00') }
+
+	beforeEach(() => {
+		h.getFreeBusy.mockResolvedValue({
+			people: [{ email: 'mina@example.com', busy: [busy], unavailable: false }],
+		})
+	})
+
+	it('overlays a chosen person busy times as named, non-interactive blocks beside the events', async () => {
+		renderControlsWeek()
+		expect(meetWith().dataset).toMatchObject({ people: '', shownOnGrid: 'true', loading: 'false' })
+		expect(blocks()).toHaveLength(0)
+		fireEvent.click(within(meetWith()).getByText('meet-add-mina'))
+		await vi.waitFor(() => expect(blocks()).toHaveLength(1), { timeout: 3000 })
+
+		// One lookup for the visible week plus a day either side, naming only the person.
+		expect(h.getFreeBusy).toHaveBeenCalledExactlyOnceWith({
+			data: {
+				start: e('2024-06-08T00:00:00'),
+				end: e('2024-06-17T00:00:00'),
+				emails: ['mina@example.com'],
+			},
+		})
+		const block = blocks()[0] as HTMLElement
+		// Named in text, so it is not told apart by colour alone.
+		expect(block).toHaveTextContent('Mina Park')
+		expect(block.dataset.busyBlock).toBe('0')
+		// Decorative and inert: it cannot be focused, clicked or dragged, and the slot beneath stays usable.
+		expect(block.tagName).toBe('DIV')
+		expect(block).toHaveAttribute('aria-hidden', 'true')
+		expect(block).toHaveClass('pointer-events-none', 'busy-block')
+		expect(block.querySelector('button, a, [tabindex]')).toBeNull()
+		expect(block.style.top).toBe(`${13 * 52}px`)
+		// It sits beside the overlapping event instead of covering it.
+		const sync = screen.getByRole('button', { name: /^Sync/ })
+		expect(sync.style.width).toBe('calc(50% - 4px)')
+		expect(block.style.width).toBe('calc(50% - 4px)')
+		expect(block.style.left).not.toBe(sync.style.left)
+		expect(meetWith().dataset.results).toContain('mina@example.com')
+	})
+
+	it('removes the blocks when the person is removed', async () => {
+		renderControlsWeek()
+		fireEvent.click(within(meetWith()).getByText('meet-add-mina'))
+		await vi.waitFor(() => expect(blocks()).toHaveLength(1), { timeout: 3000 })
+		fireEvent.click(within(meetWith()).getByText('meet-clear'))
+		expect(blocks()).toHaveLength(0)
+		expect(screen.getByRole('button', { name: /^Sync/ }).style.width).toBe('calc(100% - 4px)')
+	})
+
+	it('passes a generic failure to the panel and retries only when asked', async () => {
+		h.getFreeBusy.mockRejectedValue(new Error('Availability is temporarily rate limited. Try again shortly.'))
+		renderControlsWeek()
+		fireEvent.click(within(meetWith()).getByText('meet-add-mina'))
+		await vi.waitFor(
+			() =>
+				expect(meetWith().dataset.error).toBe('Availability is temporarily rate limited. Try again shortly.'),
+			{ timeout: 3000 },
+		)
+		expect(h.getFreeBusy).toHaveBeenCalledOnce()
+		expect(blocks()).toHaveLength(0)
+
+		h.getFreeBusy.mockResolvedValue({
+			people: [{ email: 'mina@example.com', busy: [busy], unavailable: false }],
+		})
+		fireEvent.click(within(meetWith()).getByText('meet-retry'))
+		await vi.waitFor(() => expect(blocks()).toHaveLength(1), { timeout: 3000 })
+		expect(h.getFreeBusy).toHaveBeenCalledTimes(2)
+	})
+
+	it('asks for nothing in the month view, which has no time grid to draw on', async () => {
+		render(<CalendarRouteScreen view="month" data={monthData()} />)
+		expect(meetWith().dataset.shownOnGrid).toBe('false')
+		fireEvent.click(within(meetWith()).getByText('meet-add-mina'))
+		await new Promise((resolve) => setTimeout(resolve, 600))
+		expect(h.getFreeBusy).not.toHaveBeenCalled()
+		expect(meetWith().dataset.people).toBe('mina@example.com')
+	})
+
+	it('does not carry the chosen people into another inbox', async () => {
+		const view = renderControlsWeek()
+		fireEvent.click(within(meetWith()).getByText('meet-add-mina'))
+		await vi.waitFor(() => expect(blocks()).toHaveLength(1), { timeout: 3000 })
+		view.rerender(
+			<QueryClientProvider client={new QueryClient()}>
+				<CalendarRouteScreen
+					view="week"
+					data={{ ...richData(), info: { ...info, email: 'other@ownmail.local' } }}
+				/>
+			</QueryClientProvider>,
+		)
+		// On that very render: nobody chosen, nothing overlaid.
+		expect(meetWith().dataset.people).toBe('')
+		expect(blocks()).toHaveLength(0)
+	})
+
+	it('offers the same panel in the mobile sheet, with the people already chosen', () => {
+		renderControlsWeek()
+		fireEvent.click(within(meetWith()).getByText('meet-add-mina'))
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		const panels = screen.getAllByTestId('meet-with')
+		expect(panels).toHaveLength(2)
+		expect(panels.map((panel) => panel.dataset.people)).toEqual(['mina@example.com', 'mina@example.com'])
 	})
 })

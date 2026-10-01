@@ -217,6 +217,29 @@ export type CreateEventOptions = {
 	notifyParticipants?: boolean
 }
 
+/** A free/busy lookup: a time range in Unix seconds and the people to look up. */
+export type FreeBusyRequest = {
+	start_time: number
+	end_time: number
+	emails: string[]
+}
+
+export type FreeBusyTimeSlot = {
+	start_time: number
+	end_time: number
+	status?: string
+	object?: string
+}
+
+/**
+ * One person's result. The provider answers per email: either the busy time
+ * slots in the range or an error for an address it could not look up. Only
+ * times are returned, never event titles or other details.
+ */
+export type FreeBusy =
+	| { email: string; object?: 'free_busy'; time_slots: FreeBusyTimeSlot[] }
+	| { email: string; object?: 'error'; error: string }
+
 export type Webhook = {
 	id: string
 	trigger_types: string[]
@@ -1057,6 +1080,10 @@ export class GrantScopedClient {
 				: {}),
 		}
 		return this.client.request('DELETE', this.path(`/events/${encodeURIComponent(eventId)}${toQuery(query)}`))
+	}
+	/** Busy time slots for a set of people, looked up through this grant's calendar provider. */
+	getFreeBusy(body: FreeBusyRequest): Promise<ListResponse<FreeBusy>> {
+		return this.client.request('POST', this.path('/calendars/free-busy'), body)
 	}
 	sendRsvp(
 		eventId: string,

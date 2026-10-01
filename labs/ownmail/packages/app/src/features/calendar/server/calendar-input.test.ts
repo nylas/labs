@@ -5,6 +5,7 @@ import {
 	normalizeCreateEventInput,
 	normalizeEventIdInput,
 	normalizeEventRangeInput,
+	normalizeFreeBusyInput,
 	normalizeRsvpEventInput,
 	normalizeUpdateCalendarInput,
 	normalizeUpdateEventInput,
@@ -35,6 +36,69 @@ describe('calendar input validation', () => {
 			'Invalid calendar',
 		)
 		expect(() => normalizeCalendarIdInput({ calendarId: 'bad\nid' })).toThrow('Invalid calendar')
+	})
+
+	describe('availability lookups', () => {
+		const range = { start: 1_800_000_000, end: 1_800_600_000 }
+		const attempt = (input: unknown) => () => normalizeFreeBusyInput(input as never)
+
+		it('canonicalises and de-duplicates the people, so equal lookups are equal', () => {
+			expect(
+				normalizeFreeBusyInput({
+					...range,
+					emails: [' Ada@Example.com ', 'bob@example.com', 'ada@example.com'],
+				}),
+			).toEqual({ ...range, emails: ['ada@example.com', 'bob@example.com'] })
+		})
+
+		it('rejects the whole lookup when any address is not on the allow-list, without echoing it', () => {
+			for (const emails of [
+				['ada@example.com', 'not-an-address'],
+				['ada@example.com\nbcc: eve@example.com'],
+				['ada@example.com, eve@example.com'],
+				[42],
+				[null],
+			]) {
+				expect(attempt({ ...range, emails })).toThrow('Invalid people')
+			}
+			// The message never repeats what was sent: it may be someone's address.
+			try {
+				normalizeFreeBusyInput({ ...range, emails: ['secret.person@'] })
+				expect.unreachable()
+			} catch (error) {
+				expect((error as Error).message).not.toContain('secret')
+			}
+		})
+
+		it('requires a short list of people: at least one and at most five', () => {
+			expect(attempt({ ...range, emails: [] })).toThrow('Invalid people')
+			expect(attempt({ ...range, emails: 'ada@example.com' })).toThrow('Invalid people')
+			expect(attempt({ ...range })).toThrow('Invalid people')
+			const six = Array.from({ length: 6 }, (_, index) => `person${index}@example.com`)
+			expect(attempt({ ...range, emails: six })).toThrow('Too many people')
+			expect(normalizeFreeBusyInput({ ...range, emails: six.slice(0, 5) }).emails).toHaveLength(5)
+		})
+
+		it('bounds the range to ten days of whole, ordered epoch seconds', () => {
+			const emails = ['ada@example.com']
+			const tenDays = 60 * 60 * 24 * 10
+			expect(normalizeFreeBusyInput({ start: 1000, end: 1000 + tenDays, emails })).toEqual({
+				start: 1000,
+				end: 1000 + tenDays,
+				emails,
+			})
+			expect(attempt({ start: 1000, end: 1001 + tenDays, emails })).toThrow('Range too large')
+			expect(attempt({ start: 2000, end: 1000, emails })).toThrow('End must be after start')
+			expect(attempt({ start: 1.5, end: 2000, emails })).toThrow('Invalid start')
+			expect(attempt({ start: 1000, end: '2000', emails })).toThrow('Invalid end')
+			expect(attempt({ start: -1, end: 2000, emails })).toThrow('Invalid start')
+		})
+
+		it('rejects a request that is not an object', () => {
+			for (const input of [null, undefined, 'ada@example.com', ['ada@example.com']]) {
+				expect(attempt(input)).toThrow('Invalid request')
+			}
+		})
 	})
 
 	it('normalizes event list ranges for Nylas epoch-second filters', () => {
