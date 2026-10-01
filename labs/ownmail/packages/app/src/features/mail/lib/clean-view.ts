@@ -19,7 +19,11 @@
  */
 
 import type { MailMessage } from '../state/mail-queries.js'
-import { prepareEmailMessageContent, splitPlainQuotedHistory } from './email-message-content.js'
+import {
+	closingSignatureTables,
+	prepareEmailMessageContent,
+	splitPlainQuotedHistory,
+} from './email-message-content.js'
 import { messageHasHtml } from './mail-ui-model.js'
 import { sanitizedDocumentHasRemoteImages, sanitizeEmailDocument } from './sanitize-email.js'
 
@@ -646,13 +650,21 @@ export function bodySignals(body: Element): BodySignals {
  * counts double), link-dense text, several images for little text, and deeply
  * nested or presentation tables. Otherwise a message with quoted history is a
  * reply chain, prose is prose, and the rest is transactional.
+ *
+ * A message a person signed is one-to-one mail even when the tool it was sent
+ * through adds an opt-out link or header: there the unsubscribe signal counts
+ * once, so it takes a sign of designed layout as well to call the message bulk.
  */
 export function classifyMail(body: Element, isProse: boolean, listUnsubscribe = false): MailClass {
 	const signals = bodySignals(body)
 	const bulk =
 		// The List-Unsubscribe header is the sender declaring bulk mail; it weighs
 		// the same as an unsubscribe link in the body.
-		(listUnsubscribe || signals.unsubscribeLinks > 0 ? 2 : 0) +
+		(listUnsubscribe || signals.unsubscribeLinks > 0
+			? closingSignatureTables(body).length > 0
+				? 1
+				: 2
+			: 0) +
 		(signals.links >= 4 && signals.linkDensity >= 0.3 ? 1 : 0) +
 		(signals.images >= 3 && signals.textLength / signals.images < 400 ? 1 : 0) +
 		(signals.tableDepth >= 3 || signals.presentationTables >= 2 ? 1 : 0)

@@ -197,6 +197,23 @@ describe('EmailHtml', () => {
 		expect((emailElement().parentElement as HTMLElement).style.minHeight).toBe('300px')
 	})
 
+	it('reopens a message on the paper it was last shown on, and only that message', () => {
+		document.documentElement.classList.add('dark')
+		rememberEmail(renderedEmailKey('m-paper', 'dark', 'automatic'), {
+			strategy: 'paper',
+			canvas: 'rgb(255, 255, 255)',
+			height: 300,
+		})
+		const view = render(<EmailHtml html="<p>Logo mail</p>" messageId="m-paper" />)
+		expect(emailElement()).toHaveAttribute('data-email-paper')
+
+		// Original colors is a different presentation; nothing was remembered for it.
+		view.rerender(<EmailHtml html="<p>Logo mail</p>" messageId="m-paper" colorMode="original" />)
+		expect(emailElement()).not.toHaveAttribute('data-email-paper')
+		view.rerender(<EmailHtml html="<p>Other mail</p>" messageId="m-other" />)
+		expect(emailElement()).not.toHaveAttribute('data-email-paper')
+	})
+
 	it('reports renderer status and retries failures when the thread revision advances', async () => {
 		const onDisplayStatus = vi.fn()
 		const view = render(

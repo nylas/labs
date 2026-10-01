@@ -1,0 +1,207 @@
+{
+	"kind": "blocks",
+	"blocks": [
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Hi there,"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "I saw that you started a trial of Example Planner."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "I can walk you through the setup. Should we find a time this week to go over your project?"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Is this something you look after, or is there someone else I should talk to?"
+				}
+			]
+		},
+		{
+			"type": "image",
+			"alt": "",
+			"href": "https://example.com/"
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Tomas Reyes"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Account Manager, "
+				},
+				{
+					"text": "Example Co",
+					"href": "https://example.com/"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "tomas@example.com",
+					"href": "mailto:tomas@example.com"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "+1 555 0100"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Book a meeting with me",
+					"href": "https://meet.example.com/tomas"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "If you would rather not hear from me again, please "
+				},
+				{
+					"text": "let me know",
+					"href": "https://example.com/preferences/opt-out?id=3f9a"
+				},
+				{
+					"text": "."
+				}
+			]
+		}
+	],
+	"hasRemoteImages": true,
+	"bubble": {
+		"blocks": [
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Hi there,"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "I saw that you started a trial of Example Planner."
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "I can walk you through the setup. Should we find a time this week to go over your project?"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Is this something you look after, or is there someone else I should talk to?"
+					}
+				]
+			},
+			{
+				"type": "image",
+				"alt": "",
+				"href": "https://example.com/"
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Tomas Reyes"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Account Manager, "
+					},
+					{
+						"text": "Example Co",
+						"href": "https://example.com/"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "tomas@example.com",
+						"href": "mailto:tomas@example.com"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "+1 555 0100"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "Book a meeting with me",
+						"href": "https://meet.example.com/tomas"
+					}
+				]
+			},
+			{
+				"type": "paragraph",
+				"spans": [
+					{
+						"text": "If you would rather not hear from me again, please "
+					},
+					{
+						"text": "let me know",
+						"href": "https://example.com/preferences/opt-out?id=3f9a"
+					},
+					{
+						"text": "."
+					}
+				]
+			}
+		],
+		"unsure": false
+	}
+}

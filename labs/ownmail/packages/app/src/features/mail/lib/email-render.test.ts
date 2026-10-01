@@ -4,6 +4,7 @@ import {
 	applyEmailColorMode,
 	applyEmailHtml,
 	applyEmailImageMode,
+	applyEmailKnownPaper,
 	applyEmailLayoutMode,
 	applyEmailTheme,
 	applyRemoteImages,
@@ -370,6 +371,15 @@ describe('email theme and remote images', () => {
 		retryRemoteImages(el)
 		expect(el).toHaveAttribute('data-color-mode', 'original')
 		expect(retryFailedImages).toHaveBeenCalledOnce()
+	})
+
+	it('marks a message last shown on paper, and clears the mark when it no longer is', () => {
+		expect(() => applyEmailKnownPaper(null, true)).not.toThrow()
+		const el = document.createElement('div')
+		applyEmailKnownPaper(el, true)
+		expect(el).toHaveAttribute('data-email-paper')
+		applyEmailKnownPaper(el, false)
+		expect(el).not.toHaveAttribute('data-email-paper')
 	})
 })
 

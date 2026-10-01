@@ -456,7 +456,7 @@ function ThreadConversationContent({
 					{children}
 				</ConversationTranscript>
 			) : (
-				<div data-slot="thread-messages" className="pb-10">
+				<div data-slot="thread-messages" className="pt-cluster pb-10">
 					{messages.map((message, index) => (
 						<MessageBlock
 							key={message.id}
@@ -608,7 +608,8 @@ function MessageBlock({
 			</ThreadColumn>
 
 			{open ? (
-				<div id={contentId} data-slot="expanded-message-content" className="w-full min-w-0 pb-4">
+				// A sender canvas can be a full-width sheet; the header keeps its clearance from it.
+				<div id={contentId} data-slot="expanded-message-content" className="w-full min-w-0 pt-hairline pb-4">
 					<ThreadColumn>
 						<CalendarInvitationCard message={message} />
 					</ThreadColumn>

@@ -195,6 +195,63 @@ describe('bubbleContent', () => {
 		expect(bubbleContent([intro, initials], [], TOMAS).blocks).toEqual([intro, initials])
 	})
 
+	it('recognises a signature whose lines are separate blocks, as a table layout leaves them', () => {
+		// A signature laid out as a table reaches the block model one line per
+		// block. It is still the sender signing off, so it must not fill the bubble.
+		const intro = text('Shall we talk this week?')
+		const name = text('Tomas Reyes')
+		const title = text('Operations, Example Co')
+		const address = text('tomas@example.com')
+		const phone = text('+1 555 010 0199')
+		expect(bubbleContent([intro, name, title, address, phone], [], TOMAS)).toEqual({
+			blocks: [intro],
+			unsure: false,
+		})
+
+		// The portrait above the name is part of it, wherever the message text ends.
+		const portrait = { type: 'image', alt: '' } as CleanBlock
+		expect(bubbleContent([intro, portrait, name, address, phone], [], TOMAS).blocks).toEqual([intro])
+		expect(bubbleContent([intro, intro, name, address, phone], [], TOMAS).blocks).toEqual([intro, intro])
+
+		// It ends at its last contact line: what follows is message text and is
+		// never folded away with it. An opt-out sentence has to stay readable.
+		const booking = text('Book a meeting with me')
+		const optOut = text('If you would rather not hear from me again, please let me know.')
+		expect(bubbleContent([intro, name, address, phone, booking, optOut], [], TOMAS).blocks).toEqual([
+			intro,
+			signature(name, address, phone),
+			booking,
+			optOut,
+		])
+		// However many short lines follow, a signature holds only so many.
+		const many = [intro, name, address, phone, phone, phone, phone, phone, phone]
+		expect(bubbleContent(many, [], TOMAS).blocks).toEqual([
+			intro,
+			signature(name, address, phone, phone, phone, phone),
+			phone,
+			phone,
+		])
+
+		// A name with nothing to reach the person by is a sign-off line, not a
+		// signature, and somebody else's details are content the sender shared.
+		for (const blocks of [
+			[intro, name, title],
+			[intro, name, title, text('https://example.com/a'), text('https://example.com/b')],
+			[intro, name, text(`A long closing paragraph that is plainly prose. ${EARLIER}`), address, phone],
+			[intro, name, text('tomas@example.com\n+1 555 010 0199 ext. 4, weekdays only')],
+		]) {
+			expect(bubbleContent(blocks, [], TOMAS).blocks).toEqual(blocks)
+		}
+		expect(bubbleContent([intro, name, address, phone], [], INES).blocks).toEqual([
+			intro,
+			name,
+			address,
+			phone,
+		])
+		// A message that is only a contact card is the message.
+		expect(bubbleContent([name, address, phone], [], TOMAS).blocks).toEqual([name, address, phone])
+	})
+
 	it('keeps a signature in place when there is text below it', () => {
 		const blocks = [text('Main point.'), signature(text('Tomas')), text('PS: bring the projector.')]
 		expect(bubbleContent(blocks)).toEqual({ blocks, unsure: false })
@@ -511,7 +568,12 @@ describe('buildConversation', () => {
 		)
 		expect(kinds(conversation.items)).toEqual(['day', 'run:a', 'card', 'run:b'])
 		// Designed mail has no bubble form to go back to.
-		expect(conversation.items[2]).toMatchObject({ kind: 'card', label: 'Ines Carvalho', restorable: false })
+		expect(conversation.items[2]).toMatchObject({
+			kind: 'card',
+			label: 'Ines Carvalho',
+			mine: false,
+			restorable: false,
+		})
 	})
 
 	it('shows the original for a message the reader asked for, and can restore its bubble', () => {

@@ -348,17 +348,63 @@ const STYLESHEET_LAYOUT = new RegExp(`@media|(?:^|[;{\\s])${LAYOUT_PROPERTY}\\s*
 /** Sizing and fill attributes on anything but an image, which carries them as plain content. */
 const LEGACY_DESIGN_SELECTOR = ':not(img)[width], :not(img)[height], [bgcolor], [background]'
 
+/** A signature table is small: a name, a title and a few ways to reach the person. */
+const SIGNATURE_TABLE_MAX_CHARS = 300
+/** What may follow a signature: an opt-out line or a confidentiality note, not more of the message. */
+const SIGNATURE_TRAILING_MAX_CHARS = 300
+/** A way to reach a person: a phone number or an email address. */
+const PERSONAL_CONTACT = /\+?\d[\d\s().-]{6,}\d|[^\s@]+@[^\s@]+\.[^\s@]+/
+
+const textLength = (node: Node): number => (node.textContent as string).replace(/\s+/g, ' ').trim().length
+
+/**
+ * The tables of a message that do nothing but sign it. Sales and support tools
+ * lay a person's signature out as a small table (a portrait beside a name and
+ * contact lines) under words that person wrote. Such a message is still prose.
+ *
+ * Every table in the message has to be one: flat, short, and holding a phone
+ * number or an email address, with the message's words above the first and at
+ * most a closing line below the last. One table that lays out content means
+ * the message is designed, and then none of them is "just a signature".
+ */
+export function closingSignatureTables(body: Element): Element[] {
+	const tables = [...body.querySelectorAll('table')]
+	const first = tables[0]
+	if (!first) return []
+	const signs = (table: Element) =>
+		!table.querySelector('table') &&
+		textLength(table) <= SIGNATURE_TABLE_MAX_CHARS &&
+		PERSONAL_CONTACT.test(table.textContent as string)
+	if (!tables.every(signs)) return []
+	const last = tables.at(-1) as Element
+	let before = 0
+	let after = 0
+	const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+	while (walker.nextNode()) {
+		const node = walker.currentNode
+		if (first.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING) before += textLength(node)
+		else if (!last.contains(node) && last.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) {
+			after += textLength(node)
+		}
+	}
+	return before > 0 && after <= SIGNATURE_TRAILING_MAX_CHARS ? tables : []
+}
+
 /**
  * Whether a message reads as prose and so takes the reading measure. A message
  * is prose unless it shows a sign of designed layout: a table or embedded media
  * canvas, legacy sizing attributes, a stylesheet or inline style that sizes or
  * positions a box, or a padded or bordered card. Images, text-only stylesheets
- * (which most mail clients add to ordinary replies) and the padded, bordered
- * blockquote that mail clients use for quotation are all ordinary prose.
+ * (which most mail clients add to ordinary replies), the padded, bordered
+ * blockquote that mail clients use for quotation, and a closing signature laid
+ * out as a small table are all ordinary prose.
  */
 function isLikelyProseDocument(document: Document): boolean {
-	const body = document.body
-	if (!body.textContent?.trim()) return false
+	if (!document.body.textContent?.trim()) return false
+	// Judge the words a person wrote; a signature table and its cells are not layout.
+	const body = document.body.cloneNode(true) as HTMLElement
+	if (closingSignatureTables(body).length > 0)
+		for (const table of body.querySelectorAll('table')) table.remove()
 	if (body.querySelector('table, svg, canvas, video, audio')) return false
 	for (const stylesheet of document.querySelectorAll('style')) {
 		if (STYLESHEET_LAYOUT.test(stylesheet.textContent)) return false

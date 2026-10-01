@@ -275,6 +275,54 @@ function TranscriptItem({
 		)
 	}
 
+	if (item.kind === 'card' && chat) {
+		// In a chat the standard reader is one more message from its sender: it
+		// sits on their side, in a bubble its canvas fills, never across the pane.
+		const { message, mine } = item
+		return (
+			<article
+				data-slot="conversation-card"
+				data-side={mine ? 'me' : 'them'}
+				aria-label={`Message from ${item.label}`}
+			>
+				<ThreadColumn>
+					<div className={cn('flex min-w-0 flex-col gap-cluster', mine ? 'items-end' : 'items-start')}>
+						<div className="flex min-w-0 flex-wrap items-center gap-x-cluster">
+							<p className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+								<span className="font-semibold text-foreground">{mine ? 'You' : item.label}</span>
+								{message.date ? (
+									<>
+										{' · '}
+										<MessageTime epochSeconds={message.date} />
+									</>
+								) : null}
+							</p>
+							{item.restorable ? (
+								<Button variant="ghost" size="sm" onClick={() => onSetOriginal([message.id], false)}>
+									Show in conversation
+								</Button>
+							) : null}
+						</div>
+						<div className="w-full min-w-0 empty:hidden">
+							<CalendarInvitationCard message={message} />
+						</div>
+						{/* A painted sender canvas fills the bubble edge to edge; mail without one sits on the bubble's own fill. */}
+						<div
+							data-slot="conversation-card-body"
+							className={cn(
+								'w-full min-w-0 overflow-hidden rounded-2xl bg-muted py-cluster empty:hidden has-[[data-slot=email-canvas-band][style]]:py-0',
+								BUBBLE_MAX_WIDTH_CLASS,
+							)}
+						>
+							{renderOriginal(message)}
+						</div>
+						<BubbleAttachments message={message} />
+					</div>
+				</ThreadColumn>
+			</article>
+		)
+	}
+
 	if (item.kind === 'card') {
 		const { message } = item
 		return (
@@ -292,7 +340,7 @@ function TranscriptItem({
 						</p>
 						{item.restorable ? (
 							<Button variant="ghost" size="sm" onClick={() => onSetOriginal([message.id], false)}>
-								{chat ? 'Show in conversation' : 'Show clean view'}
+								Show clean view
 							</Button>
 						) : null}
 					</div>
@@ -447,6 +495,12 @@ function MessageMenu({
 	)
 }
 
+/**
+ * A message never spans the whole column, so the side it sits on (the reader's
+ * on the right, everyone else's on the left) shows however long the message is.
+ */
+const BUBBLE_MAX_WIDTH_CLASS = 'max-w-[min(72ch,85%)]'
+
 function emailCount(count: number): string {
 	return count === 1 ? '1 email' : `${count} emails`
 }
@@ -476,7 +530,8 @@ function Bubble({
 					data-slot="conversation-bubble"
 					data-unsure={bubble.unsure || undefined}
 					className={cn(
-						'flex min-w-0 max-w-[min(72ch,100%)] flex-col gap-cluster rounded-2xl px-hairline py-cluster',
+						'flex min-w-0 flex-col gap-cluster rounded-2xl px-hairline py-cluster',
+						BUBBLE_MAX_WIDTH_CLASS,
 						// The reader's own bubbles are the quiet green tint; everyone else's are neutral.
 						mine ? 'bg-bubble-own text-bubble-own-foreground' : 'bg-muted text-foreground',
 					)}

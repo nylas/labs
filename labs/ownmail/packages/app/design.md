@@ -176,7 +176,9 @@ conversation as its first line. On desktop one row is pinned, the 44px toolbar,
 which also carries the thread's display actions; the reply field follows the
 last message. Message bodies default to 16px with a 1.6 line-height, which a
 sender's own styles override, and prose is held to a 72ch measure. Designed
-(table or layout) mail keeps the full column.
+(table or layout) mail keeps the full column. The first message header sits 8px
+beneath the subject, and an open message's body starts 12px beneath its header,
+so a sender canvas that spans the pane never touches the header above it.
 
 ## Conversation view
 
@@ -202,6 +204,11 @@ and renders exactly as before when the view is off.
   tint. Message text, muted text and reply references inside an own bubble hold
   4.5:1 or better in both themes (tested from the tokens). Side and name carry
   the sender, so the tint is never the only signal.
+- Side and width. No message spans the column: a bubble, and a message the
+  standard reader shows inside a chat, is at most the 72ch measure or 85% of
+  the column, whichever is smaller, on its sender's side. The standard reader's
+  bubble is filled edge to edge by a painted sender canvas, and by `--muted`
+  when the sender paints none.
 - Content. Bubbles render a block model (heading, paragraph, list, quote,
   image, code, rule, quoted history) as React elements in app type. No message
   markup is injected: content always passes the sanitizer first, links keep the
@@ -217,7 +224,8 @@ and renders exactly as before when the view is off.
   thread has not shown stays behind a closed "Quoted text" disclosure.
   Signatures (a `-- ` line, the mail client's own signature marker, or a closing
   block with a name line, two contact lines and a phone number or email
-  address) are left out, unless text follows them. A closing list of links is
+  address, whether those lines share one block or a table layout gave each its
+  own) are left out, unless text follows them. A closing list of links is
   content and stays. A quote header ("On Mon, Ines wrote:", Outlook's
   From/Sent group) is dropped only where a header sits: opening the history or
   directly above a quote. Unquoted lines after a quote, in plain text too, are
@@ -237,6 +245,10 @@ and renders exactly as before when the view is off.
   the stream: a uniform one-pixel border, the 72ch measure, app typography. A
   thread that is only designed mail opens as an article, with no card border,
   day separators, participants line or chat input.
+- Signed mail is a message. A person's words above a small table that only
+  signs them (a portrait, a name, contact lines) are prose, in both readers. An
+  opt-out link or header on such mail counts as one bulk signal, not two, so it
+  stays a bubble unless it is also built like a newsletter.
 - Clean pipeline. Classify on body signals (unsubscribe links, link
   density, images per text, table nesting and `role=presentation`); strip
   preheaders, hidden and zero-size content, tracking pixels and spacers, and a

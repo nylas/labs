@@ -628,6 +628,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private backingStrategy: EmailColorStrategy = 'original'
 		private senderDarkStylesHtml: string | null = null
 		private senderDarkStyles = false
+		/** Light-matte artwork was measured in this document; it holds while images reload. */
+		private lightMatteArtwork = false
 		private readonly colorOverrides = new ColorOverrides()
 
 		connectedCallback(): void {
@@ -665,6 +667,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
 			if (oldValue === newValue) return
 			if (name === 'data-message-id') {
+				this.lightMatteArtwork = false
 				this.hasRemoteImages = false
 				this.lastRemoteImagesStatus = ''
 				this.removeAttribute('data-load-remote-images')
@@ -724,6 +727,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 
 		set emailHtml(value: string) {
 			if (value !== this.html) {
+				this.lightMatteArtwork = false
 				this.hasRemoteImages = false
 				this.lastRemoteImagesStatus = ''
 				this.removeAttribute('data-load-remote-images')
@@ -900,12 +904,20 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private applyColorStrategy(content: HTMLElement, containerWidth: number): void {
 			const { theme, colorMode, senderDarkStyles } = this.colorInputs()
 			const canvas = detectEmailCanvas(content, containerWidth)
-			const lightMatteArtwork =
+			// Choosing paper swaps every proxied image for its light variant. A matte
+			// that is reloading cannot be sampled, so once one is seen it is remembered
+			// rather than re-decided, or the message would flip back to the dark remap.
+			this.lightMatteArtwork ||=
 				theme === 'dark' &&
 				colorMode === 'automatic' &&
 				!senderDarkStyles &&
 				hasLightMatteArtwork(content, canvas.color ?? DEFAULT_EMAIL_CANVAS)
-			const strategy = chooseEmailColorStrategy({ theme, colorMode, senderDarkStyles, lightMatteArtwork })
+			const strategy = chooseEmailColorStrategy({
+				theme,
+				colorMode,
+				senderDarkStyles,
+				lightMatteArtwork: this.knownLightMatteArtwork(),
+			})
 			this.strategy = strategy
 			this.canvasColor =
 				strategy === 'remap'
@@ -983,9 +995,20 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			return this.senderDarkStyles
 		}
 
-		/** The strategy before artwork is measured, so the first image requests already match it. */
+		/**
+		 * The strategy before artwork is measured, so the first image requests
+		 * already match it. A message known to sit on paper, from this document's
+		 * earlier measurement or the reader's last visit, starts there.
+		 */
 		private provisionalStrategy(): EmailColorStrategy {
-			return chooseEmailColorStrategy({ ...this.colorInputs(), lightMatteArtwork: false })
+			return chooseEmailColorStrategy({
+				...this.colorInputs(),
+				lightMatteArtwork: this.knownLightMatteArtwork(),
+			})
+		}
+
+		private knownLightMatteArtwork(): boolean {
+			return this.lightMatteArtwork || this.hasAttribute('data-email-paper')
 		}
 
 		/** Proxied images follow the presentation: light artwork on paper, dark variants on the dark ground. */
