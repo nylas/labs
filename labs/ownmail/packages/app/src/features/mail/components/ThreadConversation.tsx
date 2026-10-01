@@ -13,9 +13,14 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { accountScope } from '#app/lib/account-scope'
-import { useUserPreferences } from '#app/preferences/user-preferences'
+import {
+	type ThreadView,
+	useUserPreferences,
+	useUserPreferencesReady,
+} from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
 import { IconButton } from '#shared/components/ui/icon-button'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { labelBadgeClass } from '#shared/lib/color-tone'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -27,11 +32,14 @@ import {
 } from '../lib/image-sender-trust.js'
 import { collapsedMessagePreview, messageHasHtml, threadLabels } from '../lib/mail-ui-model.js'
 import type { MailMessage, MailThread } from '../state/mail-queries.js'
+import { AttachmentLink, formatSize } from './AttachmentLink.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
+import { type ConversationReply, ConversationTranscript } from './ConversationTranscript.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { MessageBody } from './MessageBody.js'
 import { ThreadColumn } from './ThreadColumn.js'
 import { ThreadDisplayMenu } from './ThreadDisplayMenu.js'
+import { ThreadViewSwitch } from './ThreadViewSwitch.js'
 
 /** A pane toolbar renders an element with this id to host the thread's display actions. */
 export const THREAD_TOOLBAR_ACTIONS_ID = 'thread-toolbar-actions'
@@ -63,18 +71,33 @@ function useThreadToolbarSlot(): HTMLElement | null | undefined {
  * expandable message list. Shared by the folder thread route, the compose backdrop,
  * and search results so there is a single reading-pane implementation. `children`
  * render after the last message, inside the same scroll flow.
+ *
+ * The optional Conversation view shows the same thread as a chat transcript.
+ * `mailboxEmail` is the signed-in address (its messages sit on the right) and
+ * `reply` supplies the existing reply entry points for the pinned input, which
+ * replaces `children` in that view.
  */
 export function ThreadConversation({
 	thread,
 	messages,
+	mailboxEmail,
+	reply,
 	children,
 }: {
 	thread: MailThread
 	messages: MailMessage[]
+	mailboxEmail?: string
+	reply?: ConversationReply
 	children?: ReactNode
 }) {
 	return (
-		<ThreadConversationController key={thread.id} thread={thread} messages={messages}>
+		<ThreadConversationController
+			key={thread.id}
+			thread={thread}
+			messages={messages}
+			mailboxEmail={mailboxEmail}
+			reply={reply}
+		>
 			{children}
 		</ThreadConversationController>
 	)
@@ -83,13 +106,32 @@ export function ThreadConversation({
 function ThreadConversationController({
 	thread,
 	messages,
+	mailboxEmail,
+	reply,
 	children,
 }: {
 	thread: MailThread
 	messages: MailMessage[]
+	mailboxEmail: string | undefined
+	reply: ConversationReply | undefined
 	children?: ReactNode
 }) {
 	const [preferences, savePreferences] = useUserPreferences()
+	// The saved view is not known while rendering on the server and hydrating.
+	// Until it is, the messages are a neutral placeholder, so a person whose
+	// default is Conversation never sees the standard reader first.
+	const preferencesReady = useUserPreferencesReady()
+	// The toolbar switch flips this thread only, in memory. The flip lives under
+	// the thread's identity and is remembered against the default it overrode:
+	// once a new default is chosen (from the command palette) it is dropped, not
+	// kept for later.
+	const [viewOverride, setViewOverride] = useIdentityState<{ view: ThreadView; over: ThreadView } | null>(
+		[thread.id],
+		() => null,
+	)
+	const overrideStands = viewOverride?.over === preferences.threadView
+	if (viewOverride && !overrideStands) setViewOverride(null)
+	const threadView = viewOverride && overrideStands ? viewOverride.view : preferences.threadView
 	const [displayStatuses, setDisplayStatuses] = useState<Map<string, EmailDisplayStatus>>(() => new Map())
 	const [loadRemoteImagesForThread, setLoadRemoteImagesForThread] = useState(false)
 	const [trustedDuringThisView, setTrustedDuringThisView] = useState<Set<string>>(() => new Set())
@@ -155,6 +197,11 @@ function ThreadConversationController({
 			key={latestMessageId}
 			thread={thread}
 			messages={messages}
+			mailboxEmail={mailboxEmail}
+			reply={reply}
+			threadView={threadView}
+			onThreadViewChange={(view) => setViewOverride({ view, over: preferences.threadView })}
+			preferencesReady={preferencesReady}
 			displayStatuses={displayStatuses}
 			layoutMode={preferences.emailLayoutMode}
 			colorMode={preferences.emailColorMode}
@@ -182,6 +229,11 @@ function ThreadConversationController({
 function ThreadConversationContent({
 	thread,
 	messages,
+	mailboxEmail,
+	reply,
+	threadView,
+	onThreadViewChange,
+	preferencesReady,
 	displayStatuses,
 	layoutMode,
 	colorMode,
@@ -204,6 +256,11 @@ function ThreadConversationContent({
 }: {
 	thread: MailThread
 	messages: MailMessage[]
+	mailboxEmail: string | undefined
+	reply: ConversationReply | undefined
+	threadView: ThreadView
+	onThreadViewChange: (view: ThreadView) => void
+	preferencesReady: boolean
 	displayStatuses: ReadonlyMap<string, EmailDisplayStatus>
 	layoutMode: EmailLayoutMode
 	colorMode: EmailColorMode
@@ -256,11 +313,15 @@ function ThreadConversationContent({
 		})
 	}
 
+	const conversation = threadView === 'conversation'
+	const viewSwitch = <ThreadViewSwitch value={threadView} onChange={onThreadViewChange} />
+
 	// Display menu and expand/collapse-all. They live in the pane toolbar on
 	// desktop, so the subject row there is one line of text and nothing else.
 	const threadActions =
 		hasHtmlMessages || messages.length > 1 ? (
 			<div data-slot="thread-actions" className="flex min-w-0 shrink-0 items-center gap-1">
+				{viewSwitch}
 				{hasHtmlMessages ? (
 					<ThreadDisplayMenu
 						messages={messages}
@@ -280,7 +341,7 @@ function ThreadConversationContent({
 						onRetryImages={onRetryImages}
 					/>
 				) : null}
-				{messages.length > 1 ? (
+				{messages.length > 1 && !conversation ? (
 					<fieldset className="flex min-w-0 shrink-0 items-center gap-1 border-0 p-0">
 						<legend className="sr-only">Message display controls</legend>
 						<IconButton
@@ -302,10 +363,15 @@ function ThreadConversationContent({
 					</fieldset>
 				) : null}
 			</div>
-		) : null
+		) : (
+			viewSwitch
+		)
 
 	return (
-		<div data-slot="thread-conversation" className="min-h-full bg-background">
+		<div
+			data-slot="thread-conversation"
+			className={conversation ? 'flex min-h-full flex-col bg-background' : 'min-h-full bg-background'}
+		>
 			{/* The subject is the first line of the conversation: body size, in the
 			    scroll flow, with no separator before the first message. */}
 			<header data-slot="thread-summary" className="bg-background pt-3">
@@ -340,32 +406,86 @@ function ThreadConversationContent({
 				</ThreadColumn>
 			</header>
 
-			<div data-slot="thread-messages" className="pb-10">
-				{messages.map((message, index) => (
-					<MessageBlock
-						key={message.id}
-						first={index === 0}
-						message={message}
-						open={openMessageIds.has(message.id)}
-						onToggle={() => toggleMessage(message.id)}
-						darkenEmail={darkenEmail}
-						layoutMode={layoutMode}
-						colorMode={
-							colorMode === 'original' ||
-							originalColorSenders.has(message.from?.[0]?.email?.trim().toLowerCase() ?? '')
-								? 'original'
-								: 'automatic'
-						}
-						loadRemoteImagesForThread={loadRemoteImagesForThread}
-						loadRemoteImagesForSender={trustedDuringThisView.has(
-							message.from?.[0]?.email?.trim().toLowerCase() ?? '',
-						)}
-						retryRevision={retryRevision}
-						onDisplayStatus={onDisplayStatus}
-					/>
-				))}
-				{children}
-			</div>
+			{!preferencesReady ? (
+				<ThreadMessagesPlaceholder />
+			) : conversation ? (
+				<ConversationTranscript
+					threadId={thread.id}
+					messages={messages}
+					mailboxEmail={mailboxEmail}
+					loadRemoteImagesForThread={loadRemoteImagesForThread}
+					trustedDuringThisView={trustedDuringThisView}
+					onDisplayStatus={onDisplayStatus}
+					reply={reply}
+					renderOriginal={(message) => (
+						<MessageBody
+							message={message}
+							darkenEmail={darkenEmail}
+							layoutMode={layoutMode}
+							colorMode={
+								colorMode === 'original' ||
+								originalColorSenders.has(message.from?.[0]?.email?.trim().toLowerCase() ?? '')
+									? 'original'
+									: 'automatic'
+							}
+							loadRemoteImagesForThread={loadRemoteImagesForThread}
+							loadRemoteImagesForSender={trustedDuringThisView.has(
+								message.from?.[0]?.email?.trim().toLowerCase() ?? '',
+							)}
+							retryRevision={retryRevision}
+							onDisplayStatus={onDisplayStatus}
+						/>
+					)}
+				>
+					{children}
+				</ConversationTranscript>
+			) : (
+				<div data-slot="thread-messages" className="pb-10">
+					{messages.map((message, index) => (
+						<MessageBlock
+							key={message.id}
+							first={index === 0}
+							message={message}
+							open={openMessageIds.has(message.id)}
+							onToggle={() => toggleMessage(message.id)}
+							darkenEmail={darkenEmail}
+							layoutMode={layoutMode}
+							colorMode={
+								colorMode === 'original' ||
+								originalColorSenders.has(message.from?.[0]?.email?.trim().toLowerCase() ?? '')
+									? 'original'
+									: 'automatic'
+							}
+							loadRemoteImagesForThread={loadRemoteImagesForThread}
+							loadRemoteImagesForSender={trustedDuringThisView.has(
+								message.from?.[0]?.email?.trim().toLowerCase() ?? '',
+							)}
+							retryRevision={retryRevision}
+							onDisplayStatus={onDisplayStatus}
+						/>
+					))}
+					{children}
+				</div>
+			)}
+		</div>
+	)
+}
+
+/**
+ * The messages while the saved thread view is unknown (server render and
+ * hydration). It is the same block the thread skeleton shows, so nothing moves
+ * when the reader or the transcript takes its place.
+ */
+function ThreadMessagesPlaceholder() {
+	return (
+		<div data-slot="thread-messages-pending" className="py-5" aria-hidden="true">
+			<ThreadColumn>
+				<div className="flex flex-col gap-3">
+					<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+					<div className="h-4 w-5/6 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+					<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+				</div>
+			</ThreadColumn>
 		</div>
 	)
 }
@@ -761,36 +881,4 @@ function MessageAttachments({ message }: { message: MailMessage }) {
 	)
 }
 
-type Attachment = NonNullable<MailMessage['attachments']>[number]
-
-function AttachmentLink({
-	attachment,
-	messageId,
-	attribution,
-}: {
-	attachment: Attachment
-	messageId: string
-	attribution: string
-}) {
-	const filename = attachment.filename ?? 'attachment'
-	const sizeLabel = attachment.size ? formatSize(attachment.size) : undefined
-	return (
-		<a
-			data-slot="thread-attachment"
-			href={`/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`}
-			aria-label={`${filename}${sizeLabel ? `, ${sizeLabel}` : ''}, attached to message from ${attribution}`}
-			className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid dark:bg-muted/40 dark:hover:bg-muted"
-			download={attachment.filename}
-		>
-			<Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-			<span className="min-w-0 truncate font-medium">{filename}</span>
-			{sizeLabel ? <span className="shrink-0 text-muted-foreground">· {sizeLabel}</span> : null}
-		</a>
-	)
-}
-
-export function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`
-	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
+export { formatSize }
