@@ -27,6 +27,7 @@ import {
 	recordOptimisticWrite,
 	undoOptimisticWrite,
 } from '#shared/lib/optimistic-write'
+import { seededData } from '#shared/lib/seeded-data'
 import {
 	addDays,
 	type CalView,
@@ -189,21 +190,22 @@ export function useCalendarRouteData(
 	const { start, end } = calendarRouteRange(view, date)
 	const loadedForTheseCalendars =
 		hiddenCalendarsKey(hiddenCalendarIds) === hiddenCalendarsKey(initialData.hiddenCalendarIds)
+	const seedRange = {
+		calendar: initialData.calendar,
+		calendars: initialData.calendars,
+		events: initialData.events,
+		truncated: initialData.truncated,
+	}
 	const query = useQuery({
 		...calendarRangeQueryOptions(queryClient, start, end, hiddenCalendarIds),
-		initialData: {
-			calendar: initialData.calendar,
-			calendars: initialData.calendars,
-			events: initialData.events,
-			truncated: initialData.truncated,
-		},
+		initialData: seedRange,
 		// Loader data fetched for a different set of hidden calendars is only a
 		// stand-in: mark it stale so the right set loads straight away.
 		...(loadedForTheseCalendars ? {} : { initialDataUpdatedAt: 0 }),
 		select: (data) => reconcileCalendarData(queryClient, data, { start, end }),
 	})
 	const data: CalendarRouteData = {
-		...query.data,
+		...seededData(query.data, seedRange),
 		hiddenCalendarIds: initialData.hiddenCalendarIds,
 		info: initialData.info,
 		anchorIso: initialData.anchorIso,

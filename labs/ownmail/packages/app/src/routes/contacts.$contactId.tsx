@@ -13,6 +13,7 @@ import {
 } from '#features/contacts/state/contacts-state'
 import { getContact } from '#server/fns'
 import { Section } from '#shared/components/ui/section'
+import { seededData } from '#shared/lib/seeded-data'
 import { ContactAvatar } from './contacts.js'
 
 export const Route = createFileRoute('/contacts/$contactId')({
@@ -62,7 +63,7 @@ function ContactDetailRoute() {
 }
 
 function ContactDetail({ loadedContact }: { loadedContact: Contact }) {
-	const { data: contact } = useContact(loadedContact.id, loadedContact)
+	const contact = seededData(useContact(loadedContact.id, loadedContact).data, loadedContact)
 	const { q, edit, delete: deleteRequested } = Route.useSearch()
 	const navigate = useNavigate()
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
