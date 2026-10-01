@@ -143,6 +143,9 @@ describe('CleanBlocks', () => {
 		// No header row was marked, so none is invented; and a wide table scrolls instead of squeezing.
 		expect(second?.querySelector('th, caption')).toBeNull()
 		expect(first?.parentElement).toHaveClass('overflow-x-auto')
+		// Row separators are full-width hairlines, and cell text keeps 12px clear of them.
+		expect(first?.querySelector('tr')).toHaveClass('border-b', 'border-border')
+		expect(first?.querySelector('td')).toHaveClass('py-hairline')
 	})
 
 	it('folds the footer into one disclosure that says what is inside, and keeps every link in it', () => {
