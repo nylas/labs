@@ -166,6 +166,26 @@ test('allows hairline separators, uniform borders and borders that are switched 
 	assert.deepEqual(violations('a.tsx', "<div style={{ borderLeft: '1px solid var(--border)' }} />"), [])
 })
 
+test('does not mistake TypeScript types and assignments for CSS declarations', () => {
+	allows('a.ts', (text) => text, [
+		'type Style = { borderWidth: number | string }',
+		'type Style = { borderLeft?: string | undefined; boxShadow: string }',
+		'const boxShadow: ShadowToken = tokens.sm',
+		'function rail({ borderLeftWidth: width }: Props) {}',
+		'const style = { borderWidth: size === 1 ? narrow : wide }',
+	])
+	// A real value in the same position is still read, in either comment style for the allow note.
+	assert.deepEqual(kinds('a.ts', "const style = { borderWidth: '0 0 0 4px' }"), ['css'])
+	assert.deepEqual(kinds('a.ts', "const style = { borderLeftWidth: 'var(--rail)' }"), ['unverifiable'])
+	assert.deepEqual(
+		violations(
+			'a.ts',
+			"// accent-rails-allow: resolves to the 1px hairline\nconst style = { borderLeftWidth: 'var(--rail)' }",
+		),
+		[],
+	)
+})
+
 test('treats one-sided widths it cannot evaluate as violations unless explicitly allowed', () => {
 	rejects('styles.css', declaration, 'unverifiable', [
 		'border-left-width: var(--rail)',

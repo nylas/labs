@@ -30,6 +30,9 @@ const ALLOW_COMMENT = /accent-rails-allow:\s*\w/
 // One physical or logical side, or one axis (`border-inline`, the CSS form of `border-x-*`).
 const SIDE = '(?:left|right|top|bottom|inline-start|inline-end|block-start|block-end|inline|block)'
 const SIDE_BORDER = new RegExp(`^border-${SIDE}(-width|-color)?$`)
+// What marks a value in a component as CSS: a length, a function, a hex colour or a border keyword.
+const CSS_VALUE =
+	/\d(?:px|rem|em)\b|\b(?:var|calc|rgb|rgba|hsl|oklch|color-mix)\(|#[\da-f]{3,8}\b|\b(?:inset|solid|dashed|dotted|double|thin|medium|thick)\b/i
 const DECLARATION = /(?<![\w-])([a-zA-Z-]+)\s*:\s*([^;{}]+)/g
 const TAILWIND_SIDE_BORDER = /(?<![\w-])border-[lrtbsexy]-(\[[^\]\s]*\]|\([^)\s]*\)|[\w./-]+)/g
 const TAILWIND_SHADOW = /(?<![\w-])(inset-)?shadow-\[([^\]\s]*)\]/g
@@ -240,7 +243,8 @@ export function findAccentRailViolations({ filePath, sourceText }) {
 		// Outside CSS a declaration is an inline style or a CSS string, which stays on one line.
 		if (!isCss) {
 			for (const match of line.matchAll(DECLARATION)) {
-				const problem = declarationProblem(match[1], match[2].trim())
+				// A type annotation (`borderWidth: number | string`) has the same shape but no CSS value.
+				const problem = CSS_VALUE.test(match[2]) ? declarationProblem(match[1], match[2].trim()) : null
 				if (problem) problems.push({ ...problem, index: offset + match.index, match: match[0].trim() })
 			}
 		}
