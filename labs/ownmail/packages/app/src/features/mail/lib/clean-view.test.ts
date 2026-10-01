@@ -874,6 +874,41 @@ describe('foldBoilerplate', () => {
 		expect(foldBoilerplate([...BODY, footer]).at(-1)).toMatchObject({ type: 'footer' })
 	})
 
+	it('never folds a block that holds a code written in groups', () => {
+		// "123-456" is a six-digit code with a separator. Read digit by digit it
+		// matched no code pattern, and the block that held it was folded away.
+		for (const text of [
+			'Verification code: 123-456 · Privacy · Unsubscribe',
+			'Your code is 123 456 · Privacy · Unsubscribe',
+			'123\u00a0456 · Privacy · Unsubscribe',
+			'123\u2009456 · Privacy · Unsubscribe',
+			'123\u202f456 · Privacy · Unsubscribe',
+			'© Lanternpost · 482-913 · Unsubscribe',
+			// Beside a word that says "code", other groupings count too.
+			'Your PIN: 12 34 · Unsubscribe',
+			'One-time passcode 1234-5678 · Privacy',
+			'Security code 12-34-56 · Privacy · Unsubscribe',
+		]) {
+			expect(foldBoilerplate([...BODY, p(text)])).toEqual([...BODY, p(text)])
+		}
+	})
+
+	it('still folds footers whose digits are a phone number, a date, a range of years or an amount', () => {
+		for (const text of [
+			'© 2024-2026 Harbor & Pine · Unsubscribe',
+			'© Harbor & Pine · +1 555 010 0199 · Unsubscribe',
+			'© Harbor & Pine · 020 123 456 789 · Unsubscribe',
+			'© Harbor & Pine · 555-0100 · Unsubscribe',
+			'© Harbor & Pine · since 2026-09-28 · Unsubscribe',
+			'© Harbor & Pine · 12 Quay Street, Portside 941 07 · Unsubscribe',
+			'© Harbor & Pine · over 10 000 000 readers · Unsubscribe',
+			'© Harbor & Pine · from $1,299.00 or 123.456,00 · Unsubscribe',
+			'© Harbor & Pine · ref 100-200/3 · Unsubscribe',
+		]) {
+			expect(foldBoilerplate([...BODY, p(text)]).at(-1)).toMatchObject({ type: 'footer' })
+		}
+	})
+
 	it('never folds the call to action, headings, images or ordinary copy', () => {
 		const cta: CleanBlock = {
 			type: 'paragraph',

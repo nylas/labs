@@ -117,6 +117,16 @@ const FOLD_SCORE = 3
 const LONG_CODE = /(?<![\d/-])(?<!\d[.,])\d{6,8}(?![\d/-]|[.,]\d)/
 const SHORT_CODE = /(?<![\d/-])(?<!\d[.,])\d{4,8}(?![\d/-]|[.,]\d)/
 const CODE_WORD = /\b(?:code|pin|otp|passcode|password|verification|one[\s-]time)\b/i
+/**
+ * Codes are often written in groups: "123-456", "123 456", with a hyphen, a
+ * space, a non-breaking space or a thin space between them. Two groups of three
+ * digits standing alone are a code on sight. A longer run of digit groups on
+ * either side is a phone number or a large amount, so that is excluded.
+ */
+const GROUPED_CODE =
+	/(?<![\d/.,+-])(?<!\d[ \u00a0\u2009\u202f])\d{3}[ \u00a0\u2009\u202f-]\d{3}(?![\d/-]|[.,]\d|[ \u00a0\u2009\u202f]\d)/
+/** Next to a word that says "code", any two to four groups of two to four digits count. */
+const GROUPED_DIGITS = /(?<![\d/.,+-])\d{2,4}(?:[ \u00a0\u2009\u202f-]\d{2,4}){1,3}(?![\d/]|[.,]\d)/
 /** "PS:", "P.S.", "PPS": a postscript is message content, wherever it sits. */
 const POSTSCRIPT = /^\s*p\.?\s?p?\.?\s?s\b[.:,\s-]/i
 /** A signature paragraph is a few short lines of name and contact details. */
@@ -827,9 +837,16 @@ function blockSpans(block: CleanBlock): CleanSpan[] {
 	return block.type === 'list' ? block.items.flat() : []
 }
 
-/** A code someone has to type in must stay in plain sight, whatever else the block looks like. */
+/**
+ * A code someone has to type in must stay in plain sight, whatever else the
+ * block looks like: six to eight digits, two groups of three, or any short or
+ * grouped number beside a word such as "code" or "PIN".
+ */
 function holdsCode(text: string): boolean {
-	return LONG_CODE.test(text) || (CODE_WORD.test(text) && SHORT_CODE.test(text))
+	if (LONG_CODE.test(text) || GROUPED_CODE.test(text)) return true
+	// With a word that says so, be generous: wrongly keeping a block visible only
+	// makes an article a little longer; folding a code away hides what it was sent for.
+	return CODE_WORD.test(text) && (SHORT_CODE.test(text) || GROUPED_DIGITS.test(text))
 }
 
 /**
