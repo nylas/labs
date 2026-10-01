@@ -59,7 +59,12 @@ const confirmedEffects = new WeakMap<
 /** Drop replayed calendar receipts when the cache is cleared for another inbox. */
 export function resetCalendarConfirmedEffects(queryClient: QueryClient): void {
 	confirmedEffects.delete(queryClient)
-	// Requests still in flight for the previous inbox may not write into the next one.
+	// Requests still in flight for the previous inbox may not write into the next
+	// one, and changes still waiting their turn are dropped without being sent.
+	for (const writes of eventWrites.get(queryClient)?.values() ?? []) {
+		writes.queued?.skip()
+		writes.queued = null
+	}
 	eventWrites.delete(queryClient)
 }
 
@@ -436,22 +441,84 @@ export function useCreateEventMutation() {
 
 /*
  * Changes to one event can overlap: it is dragged again, or saved again, before
- * the previous request has settled, and the responses may arrive in either
- * order. Each change takes a number in the order it was made. Only the newest
+ * the previous request has settled. Two rules keep the screen and the provider
+ * in step.
+ *
+ * Requests for one event are sent one at a time, in the order the changes were
+ * made, so the provider's final state is the latest change. While one is in
+ * flight only the latest waiting change is kept; the ones it replaced are never
+ * sent.
+ *
+ * Each change also takes a number in the order it was made. Only the newest
  * change still standing may write its result: an older response is discarded,
  * and an older failure does not undo what came after it.
  */
-type EventWrites = { issued: number; failed: Set<number>; pending: Map<number, OptimisticWrite> }
+type QueuedSend = { start: () => void; skip: () => void }
+type EventWrites = {
+	issued: number
+	failed: Set<number>
+	pending: Map<number, OptimisticWrite>
+	/** A request for this event is with the provider. */
+	sending: boolean
+	/** The latest change waiting for that request to settle. */
+	queued: QueuedSend | null
+	/** What the provider last confirmed underneath a newer change; a rollback returns to it. */
+	confirmed?: CalendarEffect
+}
 type EventWriteTicket = { key: string; sequence: number }
 
+/** The outcome of a change that was replaced by a later one before it was sent. */
+const SUPERSEDED = { superseded: true } as const
+
 const eventWrites = new WeakMap<QueryClient, Map<string, EventWrites>>()
+
+/** Event ids are only unique within one inbox. */
+function eventWriteKey(eventId: string): string {
+	return `${accountScope()}\n${eventId}`
+}
+
+/**
+ * Sends a change to an event when it is its turn. A change that is replaced
+ * while waiting, or still waiting when the cache is cleared for another inbox,
+ * is never sent and resolves as superseded.
+ */
+function sendEventWrite<T>(
+	queryClient: QueryClient,
+	eventId: string,
+	send: () => Promise<T>,
+): Promise<T | typeof SUPERSEDED> {
+	const writes = eventWrites.get(queryClient)?.get(eventWriteKey(eventId))
+	// The cache was cleared for another inbox before this change could be sent.
+	if (!writes) return Promise.resolve(SUPERSEDED)
+	const run = (): Promise<T> => {
+		writes.sending = true
+		return send().finally(() => {
+			writes.sending = false
+			// Whether it succeeded or failed, the latest waiting change goes next.
+			const next = writes.queued
+			writes.queued = null
+			next?.start()
+		})
+	}
+	if (!writes.sending) return run()
+	return new Promise((resolve, reject) => {
+		// Only the latest intent is worth sending; the one it replaces is dropped.
+		writes.queued?.skip()
+		writes.queued = { start: () => run().then(resolve, reject), skip: () => resolve(SUPERSEDED) }
+	})
+}
 
 function issueEventWrite(queryClient: QueryClient, eventId: string): EventWriteTicket {
 	const byEvent = eventWrites.get(queryClient) ?? new Map<string, EventWrites>()
 	eventWrites.set(queryClient, byEvent)
-	// Event ids are only unique within one inbox.
-	const key = `${accountScope()}\n${eventId}`
-	const writes = byEvent.get(key) ?? { issued: 0, failed: new Set<number>(), pending: new Map() }
+	const key = eventWriteKey(eventId)
+	const writes = byEvent.get(key) ?? {
+		issued: 0,
+		failed: new Set<number>(),
+		pending: new Map(),
+		sending: false,
+		queued: null,
+	}
 	byEvent.set(key, writes)
 	writes.issued += 1
 	writes.pending.set(writes.issued, [])
@@ -495,26 +562,39 @@ function settleEventWrite(queryClient: QueryClient, ticket: EventWriteTicket, fa
 
 /**
  * Rolls back a failed change to an event, unless a newer change to it is still
- * standing. The rollback restores only what this change wrote, then asks the
- * server what is true.
+ * standing. The rollback restores only what this change wrote, returns to the
+ * last position the provider confirmed, then asks the server what is true.
  */
 function rollBackEventWrite(
 	queryClient: QueryClient,
 	context: { ticket: EventWriteTicket; written: OptimisticWrite; restoreReceipts: () => void },
 ) {
+	const confirmed = eventWrites.get(queryClient)?.get(context.ticket.key)?.confirmed
 	if (!settleEventWrite(queryClient, context.ticket, true)) return
 	context.restoreReceipts()
 	undoOptimisticWrite(queryClient, context.written)
-	// An older change still in flight wrote the value just restored. The cache
-	// may hold it as a new object, and that is the one the older change must
-	// recognise as its own if it fails too.
-	const stillPending = eventWrites.get(queryClient)?.get(context.ticket.key)?.pending.values() ?? []
-	for (const earlier of stillPending) {
-		for (const entry of earlier) {
-			const restored = context.written.find((candidate) => candidate.before === entry.after)
-			if (restored) entry.after = queryClient.getQueryData(restored.queryKey)
-		}
+	if (confirmed) {
+		// An earlier change was confirmed while this one waited: that is where the event is.
+		rememberConfirmedCalendarEffect(queryClient, confirmed)
+		applyCalendarEffect(queryClient, confirmed)
 	}
+	refreshCalendar(queryClient)
+}
+
+/**
+ * Applies a confirmed change, unless a newer change to the event is still
+ * standing: then the confirmation is only kept as the place to return to if
+ * that newer change fails.
+ */
+function confirmEventWrite(queryClient: QueryClient, ticket: EventWriteTicket, effect: CalendarEffect) {
+	if (!settleEventWrite(queryClient, ticket, false)) {
+		const writes = eventWrites.get(queryClient)?.get(ticket.key)
+		if (writes) writes.confirmed = effect
+		return
+	}
+	// Remembered before it is applied: the views re-read the receipts when the cache changes.
+	rememberConfirmedCalendarEffect(queryClient, effect)
+	applyCalendarEffect(queryClient, effect)
 	refreshCalendar(queryClient)
 }
 
@@ -523,7 +603,7 @@ export function useUpdateEventMutation(event: Event | null) {
 	return useMutation({
 		mutationFn: (input: UpdateEventInput) => {
 			if (!event) throw new Error('Event is required')
-			return updateEvent({ data: input })
+			return sendEventWrite(queryClient, event.id, () => updateEvent({ data: input }))
 		},
 		onMutate: async (input) => {
 			if (!event) return undefined
@@ -545,18 +625,17 @@ export function useUpdateEventMutation(event: Event | null) {
 		onSuccess: (receipt, input, context) => {
 			/* v8 ignore next -- mutationFn rejects before success whenever the closed-over event is absent -- @preserve */
 			if (!event || !context) return
-			// A newer save of this event was made since: this older response is discarded.
-			if (!settleEventWrite(queryClient, context.ticket, false)) return
+			if ('superseded' in receipt) {
+				// Replaced by a newer save before it was sent: it changed nothing at the provider.
+				settleEventWrite(queryClient, context.ticket, true)
+				return
+			}
 			const current = findCachedEvent(queryClient, event.id) ?? event
 			const canonical = 'event' in receipt && receipt.event ? receipt.event : undefined
-			const effect = {
+			confirmEventWrite(queryClient, context.ticket, {
 				type: 'updated',
 				event: canonical ?? eventFromUpdate(current, input),
-			} as const
-			// Remembered before it is applied: the views re-read the receipts when the cache changes.
-			rememberConfirmedCalendarEffect(queryClient, effect)
-			applyCalendarEffect(queryClient, effect)
-			refreshCalendar(queryClient)
+			})
 		},
 	})
 }
@@ -578,7 +657,8 @@ export function useRescheduleEventMutation() {
 		endTime,
 	})
 	return useMutation({
-		mutationFn: (input: RescheduleEventInput) => updateEvent({ data: updateInput(input) }),
+		mutationFn: (input: RescheduleEventInput) =>
+			sendEventWrite(queryClient, input.event.id, () => updateEvent({ data: updateInput(input) })),
 		onMutate: async (input) => {
 			const ticket = issueEventWrite(queryClient, input.event.id)
 			await queryClient.cancelQueries({ queryKey: calendarKeys.all })
@@ -606,17 +686,17 @@ export function useRescheduleEventMutation() {
 			// redraw it nor be remembered as its confirmed position.
 			/* v8 ignore next -- @preserve successful library callbacks always receive the context returned by onMutate */
 			if (!context) return
-			if (!settleEventWrite(queryClient, context.ticket, false)) return
+			if ('superseded' in receipt) {
+				// Replaced by a newer move before it was sent: it changed nothing at the provider.
+				settleEventWrite(queryClient, context.ticket, true)
+				return
+			}
 			const current = findCachedEvent(queryClient, input.event.id) ?? input.event
 			const canonical = 'event' in receipt && receipt.event ? receipt.event : undefined
-			const effect = {
+			confirmEventWrite(queryClient, context.ticket, {
 				type: 'updated',
 				event: canonical ?? eventFromUpdate(current, updateInput(input)),
-			} as const
-			// Remembered before it is applied: the views re-read the receipts when the cache changes.
-			rememberConfirmedCalendarEffect(queryClient, effect)
-			applyCalendarEffect(queryClient, effect)
-			refreshCalendar(queryClient)
+			})
 		},
 	})
 }
