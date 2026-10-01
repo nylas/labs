@@ -1,5 +1,11 @@
 # ownmail
 
+## 0.20.2
+
+### Patch Changes
+
+- 4b55793: Release minified server bundles so the packed OwnMail CLI stays below its 3.5 MB deployment budget.
+
 ## 0.20.1
 
 ## 0.20.0
