@@ -1,0 +1,64 @@
+{
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "image",
+			"alt": "Acme logo",
+			"src": "data:image/png;base64,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"
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Hi there,"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "You may have just received a \"Welcome!\" email from us, and that was a mistake. We know an unexpected email is an annoyance, and we're genuinely sorry for the confusion and clutter in your inbox."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Please feel free to ignore or delete it. No action is needed on your end, we're reviewing our processes so that this doesn't happen again."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Thank you for your patience,"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "The Acme Team"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Acme Observability · 1 Example Way\n"
+				},
+				{
+					"text": "Unsubscribe",
+					"href": "https://fixtures.invalid/unsubscribe"
+				}
+			]
+		}
+	],
+	"hasRemoteImages": false,
+	"mailClass": "newsletter"
+}

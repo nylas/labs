@@ -9,6 +9,11 @@
  * model carries text, and the only attributes it keeps are link targets on an
  * allow-list and image sources the sanitizer already controlled.
  *
+ * Designed mail (newsletters, receipts, notifications) goes through the clean
+ * pipeline first: classify on body signals, strip hidden and tracking content,
+ * unwrap layout tables in reading order, normalise, then pass a confidence
+ * gate. A message the gate is unsure about keeps the standard reader.
+ *
  * Every step is deterministic code; nothing here calls a model or the network.
  */
 
@@ -23,6 +28,8 @@ export interface CleanSpan {
 	italic?: true
 	code?: true
 	href?: string
+	/** The link was drawn as a button (a call to action). */
+	cta?: true
 }
 
 export interface CleanImage {
@@ -43,9 +50,19 @@ export type CleanBlock =
 	/** Earlier messages quoted below a reply, as detected by `collapseQuotedHistory`. */
 	| { type: 'history'; blocks: CleanBlock[] }
 
+/** What a message is, judged from its body alone. */
+export type MailClass = 'prose' | 'reply' | 'transactional' | 'newsletter'
+
 /** What the Conversation view shows for one message. */
 export type MessageContent =
 	| { kind: 'blocks'; blocks: CleanBlock[]; hasRemoteImages: boolean }
+	/** Designed mail converted by the clean pipeline, shown as an article card. */
+	| {
+			kind: 'article'
+			blocks: CleanBlock[]
+			hasRemoteImages: boolean
+			mailClass: Extract<MailClass, 'transactional' | 'newsletter'>
+	  }
 	/** The message keeps the standard reader's rendering. */
 	| { kind: 'original' }
 
@@ -62,6 +79,57 @@ const SKIPPED_TAGS = new Set(['STYLE', 'SCRIPT', 'HEAD', 'TITLE', 'SUMMARY', 'TE
 const INLINE_IMAGE_MAX = 32
 const QUOTED_HISTORY_CLASS = 'ownmail-quoted-history'
 const ORIGINAL: MessageContent = { kind: 'original' }
+/** Images this small on either side are tracking pixels or spacers. */
+const TRACKING_IMAGE_MAX = 2
+/** A fill that is no fill at all: the page colour or nothing. */
+const PLAIN_FILL = /^(?:#fff(?:fff)?|white|transparent|none|inherit|initial|unset)$/i
+const STYLE_FILL = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;!]+)/i
+const STYLE_FONT_SIZE = /(?:^|;)\s*font-size\s*:\s*([\d.]+)(px|pt)/i
+/** A styled line at least this large reads as a heading. */
+const HEADING_FONT_PX = 18
+const TITLE_FONT_PX = 24
+const HEADING_MAX_CHARS = 120
+/** Below this score the clean result is not trusted and the message renders as it does today. */
+export const CONFIDENCE_THRESHOLD = 0.85
+/** With less text than this outside links, a message with images is treated as image-only. */
+const IMAGE_ONLY_TEXT = 140
+const UNSUBSCRIBE = /unsubscribe|opt[\s-]?out|(?:manage|update|email)\s+(?:your\s+)?(?:email\s+)?preferences/i
+const HIDDEN_STYLE =
+	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent|(?:font-size|max-height|line-height):0(?![.\d]))/
+const HIDDEN_NAME = /(?:^|[\s_-])(?:preheader|preview-?text)(?:$|[\s_-])/i
+
+const squash = (text: string): string => text.replace(/\s+/g, '')
+
+function fillOf(element: Element): string {
+	return (
+		element.getAttribute('bgcolor') ??
+		STYLE_FILL.exec(element.getAttribute('style') ?? '')?.[1] ??
+		''
+	).trim()
+}
+
+const hasFill = (element: Element): boolean => {
+	const fill = fillOf(element)
+	return fill !== '' && !PLAIN_FILL.test(fill)
+}
+
+/**
+ * A link drawn as a button: the anchor is filled, or it is the only content of
+ * a filled table cell (the usual "button built from a table"). The email
+ * renderer reads this from computed styles; a sanitized document that is not
+ * rendered has none, so this reads the inline styles and attributes instead.
+ */
+function isCallToAction(anchor: Element): boolean {
+	if (hasFill(anchor)) return true
+	const label = anchor.textContent.trim()
+	const cell = anchor.closest('td, th')
+	return label !== '' && cell !== null && hasFill(cell) && cell.textContent.trim() === label
+}
+
+/** The host of a link, used to name a linked image that has no description. */
+function linkLabel(href: string): string {
+	return href.replace(/^(?:https?:\/\/|mailto:)(?:www\.)?/i, '').split(/[/?#]/)[0] as string
+}
 
 function marksFor(element: Element, marks: Marks): Marks {
 	const tag = element.tagName
@@ -70,7 +138,7 @@ function marksFor(element: Element, marks: Marks): Marks {
 	if (tag === 'CODE' || tag === 'TT' || tag === 'KBD') return { ...marks, code: true }
 	if (tag === 'A') {
 		const href = element.getAttribute('href')?.trim() ?? ''
-		if (SAFE_LINK.test(href)) return { ...marks, href }
+		if (SAFE_LINK.test(href)) return { ...marks, href, ...(isCallToAction(element) ? { cta: true } : {}) }
 	}
 	return marks
 }
@@ -79,8 +147,14 @@ function imagePiece(image: Element, marks: Marks): Piece {
 	const alt = image.getAttribute('alt')?.trim() ?? ''
 	const width = Number.parseFloat(image.getAttribute('width') ?? '')
 	const height = Number.parseFloat(image.getAttribute('height') ?? '')
-	if (width <= INLINE_IMAGE_MAX && height <= INLINE_IMAGE_MAX) return { text: alt, ...marks }
+	if (width <= TRACKING_IMAGE_MAX || height <= TRACKING_IMAGE_MAX) return { text: '' }
+	// A linked image with no description is named by where its link goes, so
+	// the link itself is never lost.
+	const label = alt || (marks.href ? linkLabel(marks.href) : '')
+	if (width <= INLINE_IMAGE_MAX && height <= INLINE_IMAGE_MAX) return { text: label, ...marks }
 	const src = image.getAttribute('src')?.trim() ?? ''
+	// An unloaded image that says nothing and links nowhere carries no content.
+	if (!label && !SAFE_IMAGE.test(src)) return { text: '' }
 	return {
 		image: {
 			type: 'image',
@@ -117,7 +191,9 @@ function inlinePieces(node: Node, marks: Marks, out: Piece[]): void {
 }
 
 function sameMarks(a: CleanSpan, b: CleanSpan): boolean {
-	return a.bold === b.bold && a.italic === b.italic && a.code === b.code && a.href === b.href
+	return (
+		a.bold === b.bold && a.italic === b.italic && a.code === b.code && a.href === b.href && a.cta === b.cta
+	)
 }
 
 /** Merge neighbours with the same marks, tidy whitespace, and trim the run. */
@@ -225,7 +301,37 @@ function blockElement(element: Element, marks: Marks, out: CleanBlock[]): void {
 		if (blocks.length > 0) out.push({ type: nested, blocks })
 		return
 	}
-	collectBlocks(element, marksFor(element, marks), out)
+	const inner = marksFor(element, marks)
+	const level = styledHeadingLevel(element)
+	if (level) {
+		const pieces: Piece[] = []
+		for (const child of Array.from(element.childNodes)) inlinePieces(child, inner, pieces)
+		pushInline(pieces, out, (spans) => ({ type: 'heading', level, spans }))
+		return
+	}
+	collectBlocks(element, inner, out)
+}
+
+function fontSizePx(element: Element): number {
+	const match = STYLE_FONT_SIZE.exec(element.getAttribute('style') ?? '')
+	if (!match) return 0
+	return Number.parseFloat(match[1] as string) * ((match[2] as string).toLowerCase() === 'pt' ? 4 / 3 : 1)
+}
+
+/**
+ * Designed mail rarely uses heading tags: a headline is a table cell or div
+ * with a large font. A short leaf block set that large is a heading, unless it
+ * is a button.
+ */
+function styledHeadingLevel(element: Element): 1 | 2 | undefined {
+	const text = element.textContent.trim()
+	if (!text || text.length > HEADING_MAX_CHARS || element.querySelector(BLOCK_SELECTOR)) return undefined
+	if (Array.from(element.querySelectorAll('a')).some(isCallToAction)) return undefined
+	let size = fontSizePx(element)
+	for (const inner of element.querySelectorAll('[style]')) {
+		if (inner.textContent.trim() === text) size = Math.max(size, fontSizePx(inner))
+	}
+	return size >= TITLE_FONT_PX ? 1 : size >= HEADING_FONT_PX ? 2 : undefined
 }
 
 /** A block element, or an inline wrapper (a link around a table, say) that contains one. */
@@ -311,13 +417,192 @@ function plainBodyText(message: MailMessage): string {
 	return (body ?? snippet).replace(/\r\n?/g, '\n').trim()
 }
 
+export interface BodySignals {
+	/** Deepest nesting of tables: layout tables nest, data tables rarely do. */
+	tableDepth: number
+	presentationTables: number
+	images: number
+	textLength: number
+	links: number
+	/** Share of the visible text that is link text. */
+	linkDensity: number
+	unsubscribeLinks: number
+}
+
+/** The body signals classification is built on. No headers are involved. */
+export function bodySignals(body: Element): BodySignals {
+	let tableDepth = 0
+	for (const table of body.querySelectorAll('table')) {
+		let depth = 1
+		let outer = (table.parentElement as Element).closest('table')
+		while (outer) {
+			depth += 1
+			outer = (outer.parentElement as Element).closest('table')
+		}
+		tableDepth = Math.max(tableDepth, depth)
+	}
+	const anchors = Array.from(body.querySelectorAll('a[href]'))
+	const textLength = squash(body.textContent).length
+	const linkText = anchors.reduce((total, anchor) => total + squash(anchor.textContent).length, 0)
+	return {
+		tableDepth,
+		presentationTables: body.querySelectorAll('table[role="presentation"]').length,
+		images: body.querySelectorAll('img').length,
+		textLength,
+		links: anchors.length,
+		linkDensity: textLength > 0 ? linkText / textLength : 0,
+		unsubscribeLinks: anchors.filter(
+			(anchor) =>
+				UNSUBSCRIBE.test(anchor.textContent) || UNSUBSCRIBE.test(anchor.getAttribute('href') as string),
+		).length,
+	}
+}
+
 /**
- * Convert one message for the Conversation view. Prose becomes blocks; drafts
- * and designed mail keep the standard reader. Remote images stay blocked until
- * `allowRemoteImages` says the reader consented, exactly as in the standard
- * reader: the sanitizer removes their sources, and this never restores them.
+ * Step 1, classify. Bulk mail shows at least two of: an unsubscribe link (which
+ * counts double), link-dense text, several images for little text, and deeply
+ * nested or presentation tables. Otherwise a message with quoted history is a
+ * reply chain, prose is prose, and the rest is transactional.
  */
-export function messageContent(message: MailMessage, allowRemoteImages: boolean): MessageContent {
+export function classifyMail(body: Element, isProse: boolean): MailClass {
+	const signals = bodySignals(body)
+	const bulk =
+		(signals.unsubscribeLinks > 0 ? 2 : 0) +
+		(signals.links >= 4 && signals.linkDensity >= 0.3 ? 1 : 0) +
+		(signals.images >= 3 && signals.textLength / signals.images < 400 ? 1 : 0) +
+		(signals.tableDepth >= 3 || signals.presentationTables >= 2 ? 1 : 0)
+	if (bulk >= 2) return 'newsletter'
+	if (body.querySelector(`details.${QUOTED_HISTORY_CLASS}`)) return 'reply'
+	return isProse ? 'prose' : 'transactional'
+}
+
+function isHidden(element: Element): boolean {
+	const style = squash(element.getAttribute('style') ?? '').toLowerCase()
+	return (
+		element.hasAttribute('hidden') ||
+		HIDDEN_STYLE.test(style) ||
+		HIDDEN_NAME.test(`${element.getAttribute('class') ?? ''} ${element.id}`)
+	)
+}
+
+function imageSide(image: Element, side: 'width' | 'height'): number {
+	const fromStyle = new RegExp(`(?:^|;)\\s*${side}\\s*:\\s*([\\d.]+)px`, 'i').exec(
+		image.getAttribute('style') ?? '',
+	)
+	return Number.parseFloat(image.getAttribute(side) ?? fromStyle?.[1] ?? '')
+}
+
+/** Selectors a stylesheet hides by default, outside any media or container query. */
+function hiddenSelectors(css: string): string[] {
+	const selectors: string[] = []
+	let depth = 0
+	let ruleStart = 0
+	let bodyStart = 0
+	for (let index = 0; index < css.length; index += 1) {
+		const character = css[index]
+		if (character === '{') {
+			if (depth === 0) bodyStart = index + 1
+			depth += 1
+		} else if (character === '}') {
+			depth -= 1
+			if (depth !== 0) continue
+			const selector = css.slice(ruleStart, bodyStart - 1).trim()
+			if (!selector.startsWith('@') && /display\s*:\s*none/i.test(css.slice(bodyStart, index))) {
+				selectors.push(selector)
+			}
+			ruleStart = index + 1
+		}
+	}
+	return selectors
+}
+
+/**
+ * Step 2, strip: content no reader would see. Preheaders, `display:none`,
+ * `mso-hide` and zero-size text go, and so do tracking pixels and spacers. A
+ * block that a stylesheet hides by default is removed only when the same text
+ * is still present elsewhere, which is how duplicated mobile and desktop copies
+ * look; anything else stays, because hiding it could lose content.
+ */
+export function stripHiddenContent(document: Element): void {
+	const body = document.querySelector('body') as HTMLElement
+	for (const element of Array.from(body.querySelectorAll('*'))) {
+		if (body.contains(element) && isHidden(element)) element.remove()
+	}
+	for (const image of Array.from(body.querySelectorAll('img'))) {
+		if (imageSide(image, 'width') <= TRACKING_IMAGE_MAX || imageSide(image, 'height') <= TRACKING_IMAGE_MAX) {
+			image.remove()
+		}
+	}
+	for (const style of document.querySelectorAll('style')) {
+		for (const selector of hiddenSelectors(style.textContent)) {
+			let matches: Element[]
+			try {
+				matches = Array.from(body.querySelectorAll(selector))
+			} catch {
+				// A selector this engine cannot parse hides nothing here.
+				continue
+			}
+			for (const element of matches) {
+				const text = squash(element.textContent)
+				const parent = element.parentNode as Node
+				const next = element.nextSibling
+				element.remove()
+				if (text && !squash(body.textContent).includes(text)) parent.insertBefore(element, next)
+			}
+		}
+	}
+}
+
+/** The text a reader can see in a stripped body, without whitespace. */
+function visibleText(body: Element): string {
+	const copy = body.cloneNode(true) as Element
+	for (const skipped of copy.querySelectorAll('style, summary, title, template')) skipped.remove()
+	return squash(copy.textContent)
+}
+
+function keptText(blocks: CleanBlock[]): string {
+	return blocks
+		.map((block) => {
+			if (block.type === 'heading' || block.type === 'paragraph') return spansText(block.spans)
+			if (block.type === 'list') return block.items.map(spansText).join('')
+			if (block.type === 'quote' || block.type === 'history') return keptText(block.blocks)
+			return block.type === 'code' ? block.text : ''
+		})
+		.join('')
+}
+
+/**
+ * Step 8, the confidence gate: the share of visible text the blocks retained,
+ * with a penalty for a data table the unwrap would flatten and for content that
+ * is mostly images, where the text is likely baked into the pictures.
+ */
+export function cleanConfidence(body: Element, blocks: CleanBlock[]): number {
+	const visible = visibleText(body)
+	if (blocks.length === 0 || visible.length === 0) return 0
+	let score = Math.min(1, squash(keptText(blocks)).length / visible.length)
+	if (body.querySelector('th, thead, caption')) score -= 0.5
+	if (body.querySelector('img')) {
+		const copy = body.cloneNode(true) as Element
+		for (const anchor of copy.querySelectorAll('a')) anchor.remove()
+		if (visibleText(copy).length < IMAGE_ONLY_TEXT) score -= 0.5
+	}
+	return score
+}
+
+/**
+ * Convert one message for the Conversation view. Prose and reply chains become
+ * bubble blocks; designed mail becomes an article when the clean pipeline is
+ * confident, and keeps the standard reader when it is not, when the reader
+ * asked for original layouts (`cleanDesigned` false), or for drafts. Remote
+ * images stay blocked until `allowRemoteImages` says the reader consented,
+ * exactly as in the standard reader: the sanitizer removes their sources, and
+ * this never restores them.
+ */
+export function messageContent(
+	message: MailMessage,
+	allowRemoteImages: boolean,
+	cleanDesigned = true,
+): MessageContent {
 	if (message.ownmailDraft === true) return ORIGINAL
 	if (!messageHasHtml(message)) {
 		return { kind: 'blocks', blocks: plainTextBlocks(plainBodyText(message)), hasRemoteImages: false }
@@ -328,7 +613,6 @@ export function messageContent(message: MailMessage, allowRemoteImages: boolean)
 		message.attachments ?? [],
 		message.ownmailImageTokens,
 	)
-	if (!prepared.isProse) return ORIGINAL
 	// The prepared document is a serialised <html> element, so it is never blank
 	// and the sanitizer always returns a document.
 	const blocked = sanitizeEmailDocument(prepared.html) as HTMLElement
@@ -337,6 +621,37 @@ export function messageContent(message: MailMessage, allowRemoteImages: boolean)
 		hasRemoteImages && allowRemoteImages
 			? (sanitizeEmailDocument(prepared.html, { allowRemoteImages: true }) as HTMLElement)
 			: blocked
-	const blocks = normaliseBlocks(sanitized.querySelector('body') as HTMLElement)
-	return blocks.length > 0 ? { kind: 'blocks', blocks, hasRemoteImages } : ORIGINAL
+	const body = sanitized.querySelector('body') as HTMLElement
+	const mailClass = classifyMail(body, prepared.isProse)
+	const designed = mailClass === 'newsletter' || mailClass === 'transactional' ? mailClass : undefined
+	if (!designed && prepared.isProse) {
+		// Prose skips straight to normalisation.
+		const blocks = normaliseBlocks(body)
+		return blocks.length > 0 ? { kind: 'blocks', blocks, hasRemoteImages } : ORIGINAL
+	}
+	if (designed && !cleanDesigned) return ORIGINAL
+	stripHiddenContent(sanitized)
+	const blocks = normaliseBlocks(body)
+	if (cleanConfidence(body, blocks) < CONFIDENCE_THRESHOLD) return ORIGINAL
+	return designed
+		? { kind: 'article', blocks, hasRemoteImages, mailClass: designed }
+		: { kind: 'blocks', blocks, hasRemoteImages }
+}
+
+function linksOf(blocks: CleanBlock[], out: Set<string>): void {
+	for (const block of blocks) {
+		if (block.type === 'heading' || block.type === 'paragraph') {
+			for (const span of block.spans) if (span.href) out.add(span.href)
+		} else if (block.type === 'list') {
+			for (const span of block.items.flat()) if (span.href) out.add(span.href)
+		} else if (block.type === 'quote' || block.type === 'history') linksOf(block.blocks, out)
+		else if (block.type === 'image' && block.href) out.add(block.href)
+	}
+}
+
+/** Every link target the blocks keep reachable. */
+export function blockLinks(blocks: CleanBlock[]): string[] {
+	const links = new Set<string>()
+	linksOf(blocks, links)
+	return [...links]
 }

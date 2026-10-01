@@ -14,13 +14,20 @@ function keyed<T>(items: readonly T[]): Array<{ key: string; item: T }> {
  * a new tab, no opener, no referrer, and a visible underline and focus ring.
  * The block model only carries http(s) and mailto targets.
  */
-function SafeLink({ href, children }: { href: string; children: ReactNode }) {
+function SafeLink({ href, cta = false, children }: { href: string; cta?: boolean; children: ReactNode }) {
 	return (
 		<a
 			href={href}
 			target="_blank"
 			rel="noopener noreferrer nofollow"
-			className="rounded-sm underline underline-offset-2 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			data-cta={cta || undefined}
+			className={cn(
+				'[overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+				// A call to action keeps its button shape, drawn with the app's own tokens.
+				cta
+					? 'inline-flex min-h-11 items-center rounded-md bg-primary px-region font-medium text-primary-foreground'
+					: 'rounded-sm underline underline-offset-2',
+			)}
 		>
 			{children}
 		</a>
@@ -33,7 +40,13 @@ function Span({ span }: { span: CleanSpan }) {
 		node = <code className="rounded-sm bg-background/60 px-control font-mono text-sm">{node}</code>
 	if (span.italic) node = <em>{node}</em>
 	if (span.bold) node = <strong className="font-semibold">{node}</strong>
-	return span.href ? <SafeLink href={span.href}>{node}</SafeLink> : node
+	return span.href ? (
+		<SafeLink href={span.href} cta={span.cta === true}>
+			{node}
+		</SafeLink>
+	) : (
+		node
+	)
 }
 
 function Spans({ spans }: { spans: CleanSpan[] }) {

@@ -49,6 +49,29 @@ describe('CleanBlocks', () => {
 		expect(quote.className).not.toMatch(/border/)
 	})
 
+	it('draws a call to action as a button in app colours, with a full-size touch target', () => {
+		render(
+			<CleanBlocks
+				blocks={[
+					{
+						type: 'paragraph',
+						spans: [
+							{ text: 'Read the issue', href: 'https://example.com/issue', cta: true },
+							{ text: 'plain link', href: 'https://example.com/plain' },
+						],
+					},
+				]}
+			/>,
+		)
+		const button = screen.getByRole('link', { name: 'Read the issue' })
+		expect(button).toHaveAttribute('data-cta', 'true')
+		expect(button).toHaveClass('min-h-11', 'bg-primary', 'text-primary-foreground')
+		expect(button).toHaveAttribute('rel', 'noopener noreferrer nofollow')
+		const plain = screen.getByRole('link', { name: 'plain link' })
+		expect(plain).not.toHaveAttribute('data-cta')
+		expect(plain).toHaveClass('underline')
+	})
+
 	it('shows an image only when it has a controlled source, and says so in words otherwise', () => {
 		const { container } = render(
 			<CleanBlocks

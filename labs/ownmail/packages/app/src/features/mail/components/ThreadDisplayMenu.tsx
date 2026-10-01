@@ -5,7 +5,8 @@
 
 import { Check, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
+import type { EmailLayoutPreference } from '#app/preferences/user-preferences'
+import type { EmailColorMode } from '../lib/email-render.js'
 import { messageHasHtml } from '../lib/mail-ui-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
@@ -15,10 +16,22 @@ const displayOptionClass =
 const imageActionClass =
 	'inline-flex min-h-11 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50'
 
+const STANDARD_LAYOUT_OPTIONS = [
+	['readable', 'Readable'],
+	['original', 'Original'],
+] as const
+
+/** In the Conversation view designed mail is a clean article unless the reader wants the original. */
+export const CONVERSATION_LAYOUT_OPTIONS = [
+	['clean', 'Clean'],
+	['original', 'Original'],
+] as const
+
 export function ThreadDisplayMenu({
 	messages,
 	statuses,
 	layoutMode,
+	layoutOptions = STANDARD_LAYOUT_OPTIONS,
 	colorMode,
 	showColorControl,
 	senderTrustStatus,
@@ -34,13 +47,15 @@ export function ThreadDisplayMenu({
 }: {
 	messages: MailMessage[]
 	statuses: ReadonlyMap<string, EmailDisplayStatus>
-	layoutMode: EmailLayoutMode
+	layoutMode: EmailLayoutPreference
+	/** The layouts on offer; the Conversation view offers Clean in place of Readable. */
+	layoutOptions?: ReadonlyArray<readonly [EmailLayoutPreference, string]>
 	colorMode: EmailColorMode
 	showColorControl: boolean
 	senderTrustStatus: { address?: string; state: 'idle' | 'loading' | 'error' }
 	originalColorSenders?: ReadonlySet<string>
 	originalColorStatus?: 'idle' | 'error'
-	onLayoutModeChange: (mode: EmailLayoutMode) => void
+	onLayoutModeChange: (mode: EmailLayoutPreference) => void
 	onColorModeChange: (mode: EmailColorMode) => void
 	onSenderOriginalColorsChange?: (address: string, enabled: boolean) => void
 	onShowThreadImages: () => void
@@ -223,12 +238,7 @@ export function ThreadDisplayMenu({
 						<fieldset className="mt-3 border-t border-border pt-3">
 							<legend className="text-xs font-medium text-foreground">Layout</legend>
 							<div className="mt-1.5 flex rounded-md bg-muted/60 p-0.5">
-								{(
-									[
-										['readable', 'Readable'],
-										['original', 'Original'],
-									] as const
-								).map(([mode, label]) => (
+								{layoutOptions.map(([mode, label]) => (
 									<button
 										key={mode}
 										type="button"

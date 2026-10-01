@@ -164,6 +164,45 @@ describe('buildConversation', () => {
 		expect(conversation.items[2]).toMatchObject({ kind: 'card', key: 'b', restorable: true })
 	})
 
+	it('places designed mail in the stream as an article, which can show its original and come back', () => {
+		const article: MessageContent = {
+			kind: 'article',
+			blocks: [text('Issue 112')],
+			hasRemoteImages: false,
+			mailClass: 'newsletter',
+		}
+		const messages = [message('a', TOMAS, NOON), message('news', INES, NOON + 60)]
+		const conversation = build(messages, { news: article })
+		expect(kinds(conversation.items)).toEqual(['day', 'run:a', 'article'])
+		expect(conversation.items[2]).toMatchObject({ label: 'Ines Carvalho', blocks: [text('Issue 112')] })
+		// One person-to-person message keeps the thread a chat.
+		expect(conversation.layout).toBe('chat')
+
+		const original = build(messages, { news: article }, ['news'])
+		expect(original.items[2]).toMatchObject({ kind: 'card', restorable: true })
+	})
+
+	it('opens a thread of only designed mail as an article, not a chat', () => {
+		const article: MessageContent = {
+			kind: 'article',
+			blocks: [text('Receipt')],
+			hasRemoteImages: false,
+			mailClass: 'transactional',
+		}
+		const messages = [message('a', INES, NOON), message('b', INES, NOON + 86_400 * 2), message('c', INES)]
+		const contents = { a: article, b: { kind: 'original' } as MessageContent, c: article }
+		const conversation = build(messages, contents)
+		expect(conversation.layout).toBe('article')
+		// An article has no day separators.
+		expect(kinds(conversation.items)).toEqual(['article', 'card', 'article'])
+		// Showing an article's original does not turn the thread into a chat.
+		expect(build(messages, contents, ['a']).layout).toBe('article')
+		// A reply the reader switched to its original still makes it a chat.
+		expect(build([...messages, message('d', TOMAS, NOON)], contents, ['d']).layout).toBe('chat')
+		// An empty thread is nothing in particular.
+		expect(build([]).layout).toBe('chat')
+	})
+
 	it('fills each bubble with only the newly written text', () => {
 		const conversation = build([message('a', TOMAS, NOON)], {
 			a: { kind: 'blocks', blocks: [text('New'), history(quote('Old'))], hasRemoteImages: false },

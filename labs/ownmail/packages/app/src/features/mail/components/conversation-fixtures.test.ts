@@ -4,100 +4,230 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { blocksText, type CleanBlock, type CleanSpan, messageContent } from '../lib/clean-view.js'
-import { type BubbleContent, newContent } from '../lib/conversation-model.js'
+import {
+	blockLinks,
+	blocksText,
+	type CleanBlock,
+	type MessageContent,
+	messageContent,
+	stripHiddenContent,
+} from '../lib/clean-view.js'
+import { newContent } from '../lib/conversation-model.js'
+import { prepareEmailMessageContent } from '../lib/email-message-content.js'
 import { sanitizeEmailDocument } from '../lib/sanitize-email.js'
 
 /**
  * The Conversation view rewrites what a message looks like, so its corpus pins
- * what must survive: the block model of every fixture is snapshotted, and each
- * fixture has to keep its text and links, never come out empty, and convert the
- * same way twice. All fixtures are synthetic.
+ * what must survive. The block model of every synthetic fixture is snapshotted,
+ * and every fixture the clean view accepts has to keep its visible text and its
+ * links, keep unsubscribe reachable, never come out empty, and convert the same
+ * way twice. Fixtures the clean view must refuse are pinned as fallbacks.
+ *
+ * `reader-fixtures` are synthetic. `real-email-fixtures` are scrubbed real
+ * layouts (see real-email-fixtures.test.ts); they are checked for the
+ * invariants only and are never copied into a snapshot.
  */
 
 const directory = dirname(fileURLToPath(import.meta.url))
 
-const FIXTURES = [
-	'conversation-gmail-reply',
-	'conversation-outlook-reply',
-	'conversation-forwarded-message',
-	'conversation-inline-replies',
-	'conversation-text-below-quote',
+type Expected = MessageContent['kind']
+
+const SYNTHETIC: ReadonlyArray<readonly [name: string, expected: Expected]> = [
+	['conversation-gmail-reply', 'blocks'],
+	['conversation-outlook-reply', 'blocks'],
+	['conversation-forwarded-message', 'blocks'],
+	['conversation-inline-replies', 'blocks'],
+	['conversation-text-below-quote', 'blocks'],
+	['clean-newsletter-layout-tables', 'article'],
+	['clean-transactional-notice', 'article'],
+	['clean-one-time-code', 'article'],
+	['light-matte-logo', 'article'],
+	['report-canvas-dark-band', 'article'],
+	// Golden fallbacks: the clean view must leave these to the standard reader.
+	['clean-image-only-newsletter', 'original'],
+	['clean-receipt-data-table', 'original'],
+	['ci-notification-card', 'original'],
+]
+
+const SCRUBBED_REAL = [
+	'bare-legacy-tables',
+	'long-form-fixed-width',
+	'nested-background-cards',
+	'responsive-image-gallery',
+	'responsive-table-stack',
 ] as const
 
-function fixtureHtml(name: string): string {
-	return readFileSync(join(directory, 'reader-fixtures', `${name}.html`), 'utf8')
+function fixtureHtml(folder: string, name: string): string {
+	return readFileSync(join(directory, folder, `${name}.html`), 'utf8')
 }
 
-function convert(name: string): { blocks: CleanBlock[]; bubble: BubbleContent } {
-	const content = messageContent({ id: name, body: fixtureHtml(name) }, false)
-	if (content.kind !== 'blocks') throw new Error(`${name} did not convert to blocks`)
-	return { blocks: content.blocks, bubble: newContent(content.blocks) }
+function convert(html: string, name: string): MessageContent {
+	return messageContent({ id: name, body: html }, false)
 }
 
-function spansOf(blocks: CleanBlock[]): CleanSpan[] {
-	return blocks.flatMap((block) => {
-		if (block.type === 'heading' || block.type === 'paragraph') return block.spans
-		if (block.type === 'list') return block.items.flat()
-		if (block.type === 'quote' || block.type === 'history') return spansOf(block.blocks)
-		return []
-	})
+/** The sanitized, stripped body the clean view worked from, built independently of it. */
+function strippedBody(html: string, designed: boolean): HTMLElement {
+	const prepared = prepareEmailMessageContent(html, 'fixture')
+	const sanitized = sanitizeEmailDocument(prepared.html) as HTMLElement
+	if (designed) stripHiddenContent(sanitized)
+	const body = sanitized.querySelector('body') as HTMLElement
+	for (const skipped of body.querySelectorAll('style, summary')) skipped.remove()
+	return body
 }
 
 const squash = (value: string) => value.replace(/\s+/g, '')
 
-describe.each(FIXTURES)('conversation fixture %s', (name) => {
-	it('matches its recorded block model', async () => {
-		await expect(`${JSON.stringify(convert(name), null, '\t')}\n`).toMatchFileSnapshot(
+function textNodes(root: Node): string[] {
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+	const texts: string[] = []
+	while (walker.nextNode()) {
+		const text = squash(walker.currentNode.textContent ?? '')
+		if (text) texts.push(text)
+	}
+	return texts
+}
+
+function assertInvariants(
+	html: string,
+	name: string,
+	content: Exclude<MessageContent, { kind: 'original' }>,
+) {
+	const blocks: CleanBlock[] = content.blocks
+	// Output is never empty, and the pipeline is idempotent.
+	expect(blocks.length).toBeGreaterThan(0)
+	expect(convert(html, name)).toEqual(content)
+
+	const body = strippedBody(html, content.kind === 'article')
+	// Every piece of visible text is retained.
+	const kept = squash(blocksText(blocks))
+	for (const text of textNodes(body)) expect(kept).toContain(text)
+
+	// Every link a reader could follow is retained.
+	const links = blockLinks(blocks)
+	const anchors = [...body.querySelectorAll('a[href]')].filter(
+		(anchor) =>
+			/^(?:https?:|mailto:)/i.test(anchor.getAttribute('href') ?? '') &&
+			(squash(anchor.textContent) !== '' || anchor.querySelector('img') !== null),
+	)
+	for (const anchor of anchors) expect(links).toContain(anchor.getAttribute('href'))
+
+	// Unsubscribe stays reachable.
+	const unsubscribe = anchors.filter((anchor) => /unsubscribe/i.test(anchor.textContent))
+	for (const anchor of unsubscribe) expect(links).toContain(anchor.getAttribute('href'))
+}
+
+describe.each(SYNTHETIC)('synthetic fixture %s', (name, expected) => {
+	const html = fixtureHtml('reader-fixtures', name)
+
+	it(`converts to "${expected}" and matches its recorded block model`, async () => {
+		const content = convert(html, name)
+		expect(content.kind).toBe(expected)
+		const recorded = content.kind === 'blocks' ? { ...content, bubble: newContent(content.blocks) } : content
+		await expect(`${JSON.stringify(recorded, null, '\t')}\n`).toMatchFileSnapshot(
 			`./__tests__/clean-fixtures/${name}.json`,
 		)
 	})
 
-	it('never comes out empty and converts the same way twice', () => {
-		const first = convert(name)
-		expect(first.blocks.length).toBeGreaterThan(0)
-		expect(first.bubble.blocks.length).toBeGreaterThan(0)
-		expect(convert(name)).toEqual(first)
+	it('keeps its text and links, never comes out empty, and converts the same way twice', () => {
+		const content = convert(html, name)
+		if (content.kind !== 'original') assertInvariants(html, name, content)
+		// A fallback is stable too: asking again never flips it to a clean render.
+		else expect(convert(html, name)).toEqual({ kind: 'original' })
 	})
+})
 
-	it('keeps every word and every link of the sanitized message', () => {
-		const sanitized = sanitizeEmailDocument(fixtureHtml(name)) as HTMLElement
-		const body = sanitized.querySelector('body') as HTMLElement
-		for (const style of body.querySelectorAll('style')) style.remove()
-		const { blocks } = convert(name)
-
-		expect(squash(blocksText(blocks))).toBe(squash(body.textContent))
-		const kept = new Set(spansOf(blocks).map((span) => span.href))
-		for (const anchor of body.querySelectorAll('a[href]')) expect(kept).toContain(anchor.getAttribute('href'))
+describe.each(SCRUBBED_REAL)('scrubbed real layout %s', (name) => {
+	it('either falls back or keeps every invariant', () => {
+		const html = fixtureHtml('real-email-fixtures', name)
+		const content = convert(html, name)
+		if (content.kind !== 'original') assertInvariants(html, name, content)
+		else expect(convert(html, name)).toEqual({ kind: 'original' })
 	})
 })
 
 describe('what a bubble may hide', () => {
-	const bubbleText = (name: string) => blocksText(convert(name).bubble.blocks)
+	const bubble = (name: string) => {
+		const content = convert(fixtureHtml('reader-fixtures', name), name)
+		if (content.kind !== 'blocks') throw new Error(`${name} is not a bubble`)
+		return newContent(content.blocks)
+	}
+	const bubbleText = (name: string) => blocksText(bubble(name).blocks)
 
 	it('drops the trailing quote of an ordinary reply', () => {
-		const { bubble } = convert('conversation-gmail-reply')
-		expect(bubble.unsure).toBe(false)
-		expect(blocksText(bubble.blocks)).toContain('Could we use Thursday afternoon')
-		expect(blocksText(bubble.blocks)).not.toContain('Here is the first draft')
+		expect(bubble('conversation-gmail-reply').unsure).toBe(false)
+		expect(bubbleText('conversation-gmail-reply')).toContain('Could we use Thursday afternoon')
+		expect(bubbleText('conversation-gmail-reply')).not.toContain('Here is the first draft')
 
-		expect(convert('conversation-outlook-reply').bubble.unsure).toBe(false)
+		expect(bubble('conversation-outlook-reply').unsure).toBe(false)
 		expect(bubbleText('conversation-outlook-reply')).not.toContain('retro probably fits better')
 	})
 
 	it('never hides a forwarded message, including the code inside it', () => {
-		expect(convert('conversation-forwarded-message').bubble.unsure).toBe(true)
+		expect(bubble('conversation-forwarded-message').unsure).toBe(true)
 		expect(bubbleText('conversation-forwarded-message')).toContain('Door code 482913')
 	})
 
 	it('never hides answers written between quoted lines', () => {
-		expect(convert('conversation-inline-replies').bubble.unsure).toBe(true)
+		expect(bubble('conversation-inline-replies').unsure).toBe(true)
 		expect(bubbleText('conversation-inline-replies')).toContain('Yes, Thursday from one works.')
 		expect(bubbleText('conversation-inline-replies')).toContain('Friday at nine, before people leave.')
 	})
 
 	it('never hides text written below the quote', () => {
-		expect(convert('conversation-text-below-quote').bubble.unsure).toBe(true)
+		expect(bubble('conversation-text-below-quote').unsure).toBe(true)
 		expect(bubbleText('conversation-text-below-quote')).toContain('Room 4B is booked for both days.')
+	})
+})
+
+describe('what an article may drop', () => {
+	const article = (name: string) => {
+		const content = convert(fixtureHtml('reader-fixtures', name), name)
+		if (content.kind !== 'article') throw new Error(`${name} is not an article`)
+		return content
+	}
+
+	it('drops the preheader, tracking pixel, spacer and duplicated mobile copy of a newsletter', () => {
+		const { blocks, mailClass } = article('clean-newsletter-layout-tables')
+		const text = blocksText(blocks)
+		expect(mailClass).toBe('newsletter')
+		// The preheader repeats the intro; only the visible copy remains.
+		expect(text.match(/Three small utilities we kept using all month/g)).toHaveLength(1)
+		expect(text.match(/Reply to this email to tell us what you use\./g)).toHaveLength(1)
+		expect(JSON.stringify(blocks)).not.toContain('track.example')
+		// Layout tables are read in row order: headline, intro, the two cards, the button.
+		expect(text.indexOf('Issue 112')).toBeLessThan(text.indexOf('A calmer clipboard.'))
+		expect(text.indexOf('A calmer clipboard.')).toBeLessThan(text.indexOf('Plain-text timers.'))
+		expect(text.indexOf('Plain-text timers.')).toBeLessThan(text.indexOf('Read the issue'))
+		expect(blocks).toContainEqual({
+			type: 'heading',
+			level: 1,
+			spans: [{ text: 'Issue 112: the quiet tools issue' }],
+		})
+		expect(blocks).toContainEqual({
+			type: 'paragraph',
+			spans: [{ text: 'Read the issue', href: 'https://fieldnotes.example/issues/112', cta: true }],
+		})
+		expect(blockLinks(blocks)).toContain('https://fieldnotes.example/unsubscribe?u=1')
+		// An icon with no description is still a link, named by where it goes.
+		expect(text).toContain('photos.example')
+	})
+
+	it('keeps a one-time code that sits in the small print', () => {
+		const { blocks, mailClass } = article('clean-one-time-code')
+		expect(mailClass).toBe('transactional')
+		expect(blocksText(blocks)).toContain('Your code is 482913')
+	})
+
+	it('keeps the button a transactional notice exists for, rescued from Outlook markup too', () => {
+		const { blocks } = article('clean-transactional-notice')
+		expect(blocks).toContainEqual({
+			type: 'paragraph',
+			spans: [
+				{ text: 'Track parcel', href: 'https://parcelway.example/track/PW-4471-0092' },
+				{ text: ' ' },
+				{ text: 'Track your parcel', href: 'https://parcelway.example/track/PW-4471-0092', cta: true },
+			],
+		})
+		expect(blocksText(blocks)).toContain('PW-4471-0092')
 	})
 })

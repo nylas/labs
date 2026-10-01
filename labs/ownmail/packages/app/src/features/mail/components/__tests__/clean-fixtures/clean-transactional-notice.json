@@ -1,0 +1,83 @@
+{
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "image",
+			"alt": "Parcelway"
+		},
+		{
+			"type": "heading",
+			"level": 2,
+			"spans": [
+				{
+					"text": "Your parcel is out for delivery"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Hello Sam,\n\nParcel "
+				},
+				{
+					"text": "PW-4471-0092",
+					"code": true
+				},
+				{
+					"text": " left the depot at 7:40 AM and should arrive today between 1 and 3 PM. Someone needs to be home to sign for it."
+				}
+			]
+		},
+		{
+			"type": "list",
+			"ordered": false,
+			"items": [
+				[
+					{
+						"text": "Leave with a neighbour: reply NEIGHBOUR"
+					}
+				],
+				[
+					{
+						"text": "Collect from the depot instead"
+					}
+				]
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Track parcel",
+					"href": "https://parcelway.example/track/PW-4471-0092"
+				},
+				{
+					"text": " "
+				},
+				{
+					"text": "Track your parcel",
+					"href": "https://parcelway.example/track/PW-4471-0092",
+					"cta": true
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Questions? Write to "
+				},
+				{
+					"text": "help@parcelway.example",
+					"href": "mailto:help@parcelway.example"
+				},
+				{
+					"text": ". Parcelway Ltd, Unit 4, Canal Yard."
+				}
+			]
+		}
+	],
+	"hasRemoteImages": true,
+	"mailClass": "transactional"
+}

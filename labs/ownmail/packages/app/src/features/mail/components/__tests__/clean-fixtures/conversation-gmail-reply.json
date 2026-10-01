@@ -1,4 +1,5 @@
 {
+	"kind": "blocks",
 	"blocks": [
 		{
 			"type": "paragraph",
@@ -72,6 +73,7 @@
 			]
 		}
 	],
+	"hasRemoteImages": false,
 	"bubble": {
 		"blocks": [
 			{

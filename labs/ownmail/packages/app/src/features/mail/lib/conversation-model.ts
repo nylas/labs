@@ -34,9 +34,16 @@ export type ConversationItem =
 	| { kind: 'run'; key: string; label: string; mine: boolean; bubbles: ConversationBubble[] }
 	/** A message shown by the standard reader, across the full column. */
 	| { kind: 'card'; key: string; label: string; message: MailMessage; restorable: boolean }
+	/** Designed mail rendered natively by the clean pipeline. */
+	| { kind: 'article'; key: string; label: string; message: MailMessage; blocks: CleanBlock[] }
 
 export interface Conversation {
 	items: ConversationItem[]
+	/**
+	 * `article` when every message is designed mail: the thread reads as an
+	 * article, without the chat's day separators, participants or reply input.
+	 */
+	layout: 'chat' | 'article'
 	/** Three or more participants: runs carry a name and initials. */
 	group: boolean
 	/** "Ines, Tomas and you": everyone on the thread, the signed-in address last. */
@@ -121,6 +128,7 @@ export function buildConversation(messages: MailMessage[], options: Conversation
 	let day: string | undefined
 	let run: Extract<ConversationItem, { kind: 'run' }> | undefined
 	let runSender = ''
+	let designedOnly = messages.length > 0
 
 	for (const message of messages) {
 		if (message.date) {
@@ -140,10 +148,17 @@ export function buildConversation(messages: MailMessage[], options: Conversation
 				key: message.id,
 				label,
 				message,
-				restorable: content.kind === 'blocks',
+				restorable: content.kind !== 'original',
 			})
+			designedOnly &&= content.kind !== 'blocks'
 			continue
 		}
+		if (content.kind === 'article') {
+			run = undefined
+			items.push({ kind: 'article', key: message.id, label, message, blocks: content.blocks })
+			continue
+		}
+		designedOnly = false
 		const bubble: ConversationBubble = { message, ...newContent(content.blocks) }
 		const sender = addressKey(message.from?.[0]?.email) || label
 		const previous = run?.bubbles.at(-1)?.message.date
@@ -163,5 +178,10 @@ export function buildConversation(messages: MailMessage[], options: Conversation
 	}
 
 	const { count, summary } = participantSummary(messages, own)
-	return { items, group: count >= 3, participants: summary }
+	return {
+		items: designedOnly ? items.filter((item) => item.kind !== 'day') : items,
+		layout: designedOnly ? 'article' : 'chat',
+		group: count >= 3,
+		participants: summary,
+	}
 }

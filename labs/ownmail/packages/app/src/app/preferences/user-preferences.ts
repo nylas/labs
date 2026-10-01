@@ -30,6 +30,14 @@ export type CalendarHourHeight = (typeof CALENDAR_HOUR_HEIGHTS)[number]
 
 export const DEFAULT_CALENDAR_HOUR_HEIGHT: CalendarHourHeight = 52
 
+/**
+ * How designed mail is laid out. `clean` is the Conversation view's article
+ * rendering; the standard reader, and any older build, reads it as `readable`.
+ */
+export type EmailLayoutPreference = 'readable' | 'original' | 'clean'
+
+export const EMAIL_LAYOUT_PREFERENCES: readonly EmailLayoutPreference[] = ['readable', 'original', 'clean']
+
 /** How a thread is read: the standard message list, or the optional chat-style
  * Conversation view. Unknown stored values fall back to the standard reader. */
 export type ThreadView = 'messages' | 'conversation'
@@ -45,7 +53,7 @@ export type UserPreferences = {
 	displayNameByAccount: Record<string, string>
 	autoSaveContacts: boolean
 	emailDarkMode: boolean
-	emailLayoutMode: 'readable' | 'original'
+	emailLayoutMode: EmailLayoutPreference
 	emailColorMode: 'automatic' | 'original'
 	remoteImagePolicy: RemoteImagePolicy
 	readingPane: ReadingPane
@@ -213,7 +221,9 @@ function normalizePreferences(value: unknown): UserPreferences {
 		displayNameByAccount: normalizeDisplayNameByAccount(input.displayNameByAccount),
 		autoSaveContacts: input.autoSaveContacts !== false,
 		emailDarkMode: input.emailDarkMode !== false,
-		emailLayoutMode: input.emailLayoutMode === 'original' ? 'original' : 'readable',
+		emailLayoutMode: EMAIL_LAYOUT_PREFERENCES.includes(input.emailLayoutMode as EmailLayoutPreference)
+			? (input.emailLayoutMode as EmailLayoutPreference)
+			: 'readable',
 		emailColorMode: input.emailColorMode === 'original' ? 'original' : 'automatic',
 		remoteImagePolicy: input.remoteImagePolicy === 'always' ? 'always' : 'ask',
 		readingPane: READING_PANES.includes(input.readingPane as ReadingPane)
