@@ -95,8 +95,10 @@ describe('ContextMenu', () => {
 		expect(rightClick(screen.getByTestId('row-text'))).toBe(false)
 		const menu = await screen.findByRole('menu', { name: 'Row actions' })
 		expect(menu).toHaveAttribute('data-slot', 'context-menu-content')
-		// The app's menu look: uniform 1px border on the popover surface.
-		expect(menu).toHaveClass('rounded-lg', 'border', 'border-border', 'bg-popover', 'w-60')
+		// A context menu floats over the plane: panel glass, the one recipe for menus.
+		expect(menu).toHaveClass('glass-panel', 'w-60')
+		expect(menu).not.toHaveAttribute('data-glass')
+		expect(menu.className).not.toMatch(/bg-popover|shadow-|rounded-/)
 
 		const open = screen.getByRole('menuitem', { name: 'Open' })
 		// 44px floor wherever the menu can be touched.

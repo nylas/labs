@@ -26,6 +26,7 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import { GLASS_PANEL_CLASS, GLASS_PANEL_FROM_SM_CLASS } from '#shared/components/ui/glass'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { labelBadgeClass } from '#shared/lib/color-tone'
@@ -705,7 +706,7 @@ function MessageActionsMenu({
 					role="menu"
 					aria-label={`Actions for message from ${fromLabel}`}
 					onKeyDown={onMenuKeyDown}
-					className="absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+					className={cn('absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 p-1', GLASS_PANEL_CLASS)}
 				>
 					<button
 						data-slot="message-toggle"
@@ -843,7 +844,11 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 				<section
 					id={panelId}
 					aria-labelledby={labelId}
-					className="z-20 mt-2 w-[calc(100vw-5.5rem)] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-sm sm:absolute sm:left-0 sm:top-full sm:w-96 sm:max-w-[calc(100vw-6rem)]"
+					// In the flow on a phone, so flat there; it floats, as glass, from `sm` up.
+					className={cn(
+						'z-20 mt-2 w-[calc(100vw-5.5rem)] border p-4 sm:absolute sm:left-0 sm:top-full sm:w-96 sm:max-w-[calc(100vw-6rem)]',
+						GLASS_PANEL_FROM_SM_CLASS,
+					)}
 				>
 					<h2 id={labelId} className="mb-3 font-display text-sm font-semibold text-foreground">
 						Message details

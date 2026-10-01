@@ -80,14 +80,17 @@
 	}
 }
 
+/* Pinned over the page so content scrolls beneath it; its surface is the bar glass recipe. */
 .mobile-tab-bar {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	left: 0;
 	z-index: 40;
 	min-height: calc(var(--mobile-tab-bar-height) + var(--safe-area-bottom));
 	padding-right: var(--safe-area-right);
 	padding-bottom: var(--safe-area-bottom);
 	padding-left: var(--safe-area-left);
-	border-top: 1px solid var(--border);
-	background: var(--background);
 	color: var(--foreground);
 }
 
@@ -152,6 +155,7 @@
 }
 
 .pull-to-refresh-indicator {
+	top: var(--pull-to-refresh-top, 0px);
 	opacity: 0.85;
 	transform: translateY(calc(-100% + var(--pull-distance)));
 	transition:
@@ -166,7 +170,7 @@
 
 .pull-refresh-keyboard-action {
 	position: absolute;
-	top: 0.5rem;
+	top: calc(var(--pull-to-refresh-top, 0px) + 0.5rem);
 	right: 0.5rem;
 	z-index: 35;
 	min-height: var(--touch-target-min);
@@ -1034,12 +1038,14 @@
 /*
  * An event being dragged or adjusted from the keyboard follows the pointer
  * with no animation of its own, so there is nothing to reduce for
- * prefers-reduced-motion beyond the global transition rule below.
+ * prefers-reduced-motion beyond the global transition rule below. While it
+ * floats it takes the `glass-panel` class: neutral panel glass at full
+ * strength, so its text stays legible over whatever it is dragged across.
  */
 .event-chip[data-dragging] {
 	z-index: 20;
-	opacity: 0.85;
-	box-shadow: var(--shadow-md, 0 4px 6px -1px rgb(0 0 0 / 0.1));
+	opacity: 1;
+	text-decoration: none;
 }
 
 /* An all-day event that continues beyond the visible days runs flush to that edge. */
@@ -1142,7 +1148,6 @@
 		max-height: var(--event-composer-max-height);
 		width: 28rem;
 		max-width: calc(100vw - 1rem);
-		border-radius: var(--radius-xl);
 	}
 }
 
@@ -1336,5 +1341,175 @@
 @media (min-width: 768px) {
 	.fab {
 		display: none;
+	}
+}
+
+/*
+ * Glass layer (design.md "Glass layer"). One meaning: this surface floats above
+ * the plane and content passes beneath it. These two recipes are the only
+ * places `backdrop-filter` may appear; `pnpm lint` enforces that.
+ *
+ * Unlayered on purpose: a recipe beats the Tailwind utilities on the element,
+ * so a surface adopts glass by adding one class. The caller positions it.
+ */
+
+/*
+ * Bar glass: a pinned bar that content scrolls under. Translucent with blur,
+ * one hairline on the content edge, no shadow, square, edge to edge. The blur
+ * sits on a layer behind the bar's content instead of on the bar itself, so a
+ * menu opened from the bar blurs the plane beneath it and is never glass
+ * stacked on glass. The bar keeps a 1px edge so its height is that of a flat
+ * bar; the layer covers that edge and draws the line on the glass.
+ * `data-glass-edge="top"` is for a bar pinned to the bottom.
+ */
+.glass-bar {
+	isolation: isolate;
+	border-bottom: 1px solid transparent;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.glass-bar::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 -1px;
+	z-index: -1;
+	border-bottom: 1px solid var(--glass-line);
+	background: var(--glass-bg);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+	backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+	pointer-events: none;
+}
+
+.glass-bar[data-glass-edge="top"] {
+	border-top: 1px solid transparent;
+	border-bottom-width: 0;
+}
+
+.glass-bar[data-glass-edge="top"]::before {
+	inset: -1px 0 0;
+	border-top: 1px solid var(--glass-line);
+	border-bottom-width: 0;
+}
+
+/*
+ * Panel glass: something that opens over the plane and closes again.
+ * Translucent with blur, a uniform 1px border, the one soft shadow, 12px
+ * radius. `data-glass="solid"` is a panel opened from another glass surface:
+ * same shape, opaque, because glass never sits on glass.
+ */
+.glass-panel {
+	border: 1px solid var(--glass-line);
+	border-radius: var(--glass-radius);
+	background: var(--glass-bg);
+	color: var(--popover-foreground);
+	box-shadow: var(--glass-shadow);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+	backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+}
+
+.glass-panel[data-glass="solid"] {
+	background: var(--card);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
+
+/*
+ * Status colour on glass. Over the worst backdrop glass is a little darker (or,
+ * in the dark theme, lighter) than `--card`, so `--destructive` is one step
+ * stronger here: red text and icons hold 4.5:1 on glass as they do on the plane.
+ */
+.glass-bar,
+.glass-panel {
+	--destructive: oklch(0.5 0.2 25);
+}
+
+.dark .glass-bar,
+.dark .glass-panel {
+	--destructive: oklch(0.69 0.19 25);
+}
+
+/* A panel that sits in the flow below `sm` and floats from `sm` up is glass only where it floats. */
+@media (width < 40rem) {
+	.glass-panel-from-sm {
+		border-color: var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--card);
+		box-shadow: none;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+
+	/* The new-event composer is a full-screen editor on a phone. */
+	.event-composer-panel.glass-panel-from-sm {
+		border-radius: 0;
+	}
+}
+
+/* Readable on anything: solid `--card` wherever the blur is unavailable or unwanted. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	.glass-bar::before,
+	.glass-panel {
+		background: var(--card);
+	}
+}
+
+@media (prefers-reduced-transparency: reduce) {
+	.glass-bar::before,
+	.glass-panel {
+		background: var(--card);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+@media (prefers-contrast: more) {
+	.glass-bar::before,
+	.glass-panel {
+		background: var(--card);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+@media (forced-colors: active) {
+	.glass-bar::before,
+	.glass-panel {
+		background: var(--card);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+/*
+ * Content beneath a pinned bar. A scroll region starts at the top of its pane
+ * and runs under the bar: its padding keeps the first line where it was, and
+ * its scroll padding keeps keyboard focus and `scrollIntoView` clear of the
+ * bar. The padding is the toolbar's own height, `--toolbar-height`.
+ */
+.under-pinned-bar {
+	padding-top: var(--toolbar-height);
+	scroll-padding-top: var(--toolbar-height);
+}
+
+/* Pull to refresh starts below the bar, and stays hidden until pulled: at rest
+ * the indicator would otherwise show through the glass above it. */
+.pull-to-refresh-under-pinned-bar {
+	--pull-to-refresh-top: var(--toolbar-height);
+}
+
+.pull-to-refresh-under-pinned-bar:not([aria-busy="true"]) .pull-to-refresh-indicator:not([data-pulling]) {
+	visibility: hidden;
+}
+
+/* The mobile tab bar is pinned over the page; this keeps the last line reachable above it. */
+@media (width < 48rem) {
+	.under-mobile-bar {
+		/* The bar is its row plus its 1px hairline. */
+		--mobile-bar-inset: calc(var(--mobile-tab-bar-height) + 1px + var(--safe-area-bottom));
+		/* `--under-mobile-bar-gap` carries the element's own bottom padding, which this replaces. */
+		padding-bottom: calc(var(--mobile-bar-inset) + var(--under-mobile-bar-gap, 0px));
+		scroll-padding-bottom: var(--mobile-bar-inset);
 	}
 }

@@ -2,6 +2,7 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, ChevronRight, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -307,7 +308,7 @@ function DesktopAccountSwitcher({ accounts }: { accounts: MailboxAccountOption[]
 					</span>
 				</summary>
 			</RailTooltip>
-			<div className="absolute bottom-0 left-[calc(100%+0.5rem)] z-50 w-64 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
+			<div className={cn('absolute bottom-0 left-[calc(100%+0.5rem)] z-50 w-64 p-1.5', GLASS_PANEL_CLASS)}>
 				<p className="px-2 py-1 text-xs font-semibold text-muted-foreground">Switch inbox</p>
 				{blocked ? (
 					<p id={blockedMessageId} className="px-2 pb-1 text-xs text-muted-foreground">

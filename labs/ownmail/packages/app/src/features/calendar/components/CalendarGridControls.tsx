@@ -6,13 +6,14 @@ import {
 	isSupportedTimezone,
 } from '#app/preferences/user-preferences'
 import { Button } from '#shared/components/ui/button'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { cn } from '#shared/lib/utils'
 import { timeZoneShortName } from '../lib/calendar.js'
 import { hourHeightLabel, stepHourHeight } from '../lib/calendar-zoom.js'
 
-const POPOVER_CLASS =
-	'absolute top-full z-40 mt-control rounded-lg border border-border bg-card p-hairline text-left shadow-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring'
+// Panel glass: these open from the day header and float over the grid.
+const POPOVER_CLASS = `absolute top-full z-40 mt-control p-hairline text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring ${GLASS_PANEL_CLASS}`
 
 /**
  * A small non-modal popover anchored to its trigger. It closes on Escape (focus

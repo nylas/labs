@@ -24,6 +24,29 @@ type ScrollbarGeometry = {
 	offset: number
 }
 
+/** Space at the viewport's edges taken by a pinned bar the content scrolls under. */
+type EdgeInsets = {
+	top: number
+	bottom: number
+}
+
+/**
+ * A viewport that runs beneath a pinned bar carries that bar's height as
+ * padding. The scrollbar and overflow affordances stay in the part of the
+ * viewport that is not under a bar.
+ */
+function edgeInsets(viewport: HTMLElement): EdgeInsets {
+	const style = getComputedStyle(viewport)
+	return {
+		top: Number.parseFloat(style.paddingTop) || 0,
+		bottom: Number.parseFloat(style.paddingBottom) || 0,
+	}
+}
+
+function scrollbarTrackHeight(viewport: HTMLElement, insets: EdgeInsets) {
+	return Math.max(0, viewport.clientHeight - insets.top - insets.bottom - 8)
+}
+
 type ScrollbarDrag = {
 	pointerId: number
 	startScrollTop: number
@@ -53,6 +76,7 @@ export function ScrollArea({
 	const [viewport, setViewport] = useState<HTMLElement | null>(null)
 	const [overflow, setOverflow] = useState<OverflowState>({ top: false, bottom: false })
 	const [scrollbar, setScrollbar] = useState<ScrollbarGeometry>({ height: 0, offset: 0 })
+	const [insets, setInsets] = useState<EdgeInsets>({ top: 0, bottom: 0 })
 	const [scrolling, setScrolling] = useState(false)
 	const [dragging, setDragging] = useState(false)
 
@@ -79,7 +103,8 @@ export function ScrollArea({
 
 		const updateOverflow = () => {
 			const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
-			const trackHeight = Math.max(0, viewport.clientHeight - 8)
+			const nextInsets = edgeInsets(viewport)
+			const trackHeight = scrollbarTrackHeight(viewport, nextInsets)
 			const nextOverflow = {
 				top: viewport.scrollTop > 1,
 				bottom: maxScrollTop - viewport.scrollTop > 1,
@@ -99,6 +124,9 @@ export function ScrollArea({
 			)
 			setScrollbar((current) =>
 				current.height === height && current.offset === offset ? current : { height, offset },
+			)
+			setInsets((current) =>
+				current.top === nextInsets.top && current.bottom === nextInsets.bottom ? current : nextInsets,
 			)
 		}
 		const onScroll = () => {
@@ -143,7 +171,7 @@ export function ScrollArea({
 		const drag = scrollbarDrag.current as ScrollbarDrag
 		const activeViewport = viewport as HTMLElement
 		const maxScrollTop = Math.max(0, activeViewport.scrollHeight - activeViewport.clientHeight)
-		const trackHeight = Math.max(0, activeViewport.clientHeight - 8)
+		const trackHeight = scrollbarTrackHeight(activeViewport, insets)
 		const thumbTravel = Math.max(1, trackHeight - scrollbar.height)
 		const nextScrollTop = drag.startScrollTop + ((event.clientY - drag.startY) / thumbTravel) * maxScrollTop
 		activeViewport.scrollTop = Math.min(maxScrollTop, Math.max(0, nextScrollTop))
@@ -192,7 +220,8 @@ export function ScrollArea({
 					data-slot="scroll-area-scrollbar"
 					data-scrolling={scrolling ? 'true' : 'false'}
 					data-dragging={dragging ? 'true' : 'false'}
-					className="pointer-events-none absolute inset-y-1 right-0 z-30 w-2.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 data-[dragging=true]:pointer-events-auto data-[dragging=true]:opacity-100 data-[scrolling=true]:pointer-events-auto data-[scrolling=true]:opacity-100"
+					style={{ top: `${insets.top + 4}px`, bottom: `${insets.bottom + 4}px` }}
+					className="pointer-events-none absolute right-0 z-30 w-2.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 data-[dragging=true]:pointer-events-auto data-[dragging=true]:opacity-100 data-[scrolling=true]:pointer-events-auto data-[scrolling=true]:opacity-100"
 				>
 					<div
 						data-slot="scroll-area-thumb"
@@ -209,8 +238,9 @@ export function ScrollArea({
 				aria-hidden="true"
 				data-slot="scroll-area-overflow-top"
 				data-overflow-top={overflow.top ? '' : undefined}
+				style={{ top: `${insets.top}px` }}
 				className={cn(
-					'pointer-events-none absolute inset-x-0 top-0 z-20 h-5 bg-linear-to-b to-transparent transition-opacity',
+					'pointer-events-none absolute inset-x-0 z-20 h-5 bg-linear-to-b to-transparent transition-opacity',
 					overflowGradientClassName,
 					!overflow.top && 'opacity-0',
 				)}
@@ -219,8 +249,9 @@ export function ScrollArea({
 				aria-hidden="true"
 				data-slot="scroll-area-overflow-bottom"
 				data-overflow-bottom={overflow.bottom ? '' : undefined}
+				style={{ bottom: `${insets.bottom}px` }}
 				className={cn(
-					'pointer-events-none absolute inset-x-0 bottom-0 z-20 h-5 bg-linear-to-t to-transparent transition-opacity',
+					'pointer-events-none absolute inset-x-0 z-20 h-5 bg-linear-to-t to-transparent transition-opacity',
 					overflowGradientClassName,
 					!overflow.bottom && 'opacity-0',
 				)}

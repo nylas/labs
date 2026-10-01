@@ -1,9 +1,11 @@
 import { X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { searchContacts } from '#server/fns'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { Input } from '#shared/components/ui/input'
 import { moveHighlight } from '#shared/lib/contact-token'
+import { cn } from '#shared/lib/utils'
 import { describeRange } from '../lib/calendar-drag.js'
 import { eventColorStyle } from '../lib/calendar-ui-model.js'
 import {
@@ -166,7 +168,7 @@ export function MeetWith({
 						id={listboxId}
 						role="listbox"
 						aria-label="People suggestions"
-						className="absolute z-10 mt-control w-full overflow-hidden rounded-xl border border-border bg-popover py-control shadow-lg"
+						className={cn('absolute z-10 mt-control w-full overflow-hidden py-control', GLASS_PANEL_CLASS)}
 					>
 						{suggestions.map((suggestion, index) => (
 							<div key={suggestion.email} role="presentation">

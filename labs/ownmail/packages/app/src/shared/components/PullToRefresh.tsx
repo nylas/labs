@@ -141,6 +141,7 @@ export function PullToRefresh({
 			<div
 				className="pull-to-refresh-indicator pointer-events-none absolute inset-x-0 top-0 z-30 flex h-12 items-center justify-center gap-2 text-xs font-medium text-muted-foreground"
 				style={{ '--pull-distance': `${distance}px` } as CSSProperties}
+				data-pulling={distance > 0 ? '' : undefined}
 				aria-hidden="true"
 			>
 				{refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}

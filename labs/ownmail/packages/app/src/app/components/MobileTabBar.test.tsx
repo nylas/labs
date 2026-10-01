@@ -18,6 +18,9 @@ describe('MobileTabBar', () => {
 		render(<MobileTabBar active="calendar" />)
 		const nav = screen.getByRole('navigation', { name: 'Primary mobile' })
 		expect(nav.parentElement).toHaveClass('mobile-tab-bar', 'md:hidden')
+		// Bar glass pinned to the bottom: content scrolls beneath it, and its one line is the top edge.
+		expect(nav.parentElement).toHaveClass('glass-bar')
+		expect(nav.parentElement).toHaveAttribute('data-glass-edge', 'top')
 		const links = screen.getAllByRole('link')
 		expect(links).toHaveLength(4)
 		for (const link of links) {

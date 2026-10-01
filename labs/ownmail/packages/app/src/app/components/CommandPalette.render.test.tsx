@@ -37,6 +37,8 @@ describe('CommandPalette', () => {
 		expect(input).toHaveAttribute('aria-controls', listbox.id)
 		expect(input).toHaveAttribute('aria-activedescendant', screen.getAllByRole('option')[0]?.id)
 		expect(input).toHaveClass('focus-visible:ring-ring')
+		// The palette opens over the page and closes again: panel glass, unlike the solid modal dialogs.
+		expect(screen.getByRole('dialog', { name: 'Command palette' })).toHaveClass('glass-panel')
 	})
 
 	it('filters commands by label and shows an empty state when nothing matches', async () => {

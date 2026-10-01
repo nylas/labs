@@ -2,6 +2,7 @@ import * as SelectPrimitive from '@radix-ui/react-select'
 import { Check, ChevronDown } from 'lucide-react'
 import type * as React from 'react'
 import { cn } from '#shared/lib/utils'
+import { useGlassPanelProps } from './glass.js'
 
 export const Select = SelectPrimitive.Root
 export const SelectValue = SelectPrimitive.Value
@@ -33,13 +34,17 @@ export function SelectContent({
 	children,
 	...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+	// A list opened from a glass panel is solid: glass never sits on glass.
+	const panel = useGlassPanelProps()
 	return (
 		<SelectPrimitive.Portal>
 			<SelectPrimitive.Content
 				data-slot="select-content"
 				position="popper"
+				{...panel}
 				className={cn(
-					'relative z-50 max-h-64 min-w-[8rem] w-[var(--radix-select-trigger-width)] overflow-x-hidden overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+					'relative z-50 max-h-64 min-w-[8rem] w-[var(--radix-select-trigger-width)] overflow-x-hidden overflow-y-auto',
+					panel.className,
 					className,
 				)}
 				{...props}

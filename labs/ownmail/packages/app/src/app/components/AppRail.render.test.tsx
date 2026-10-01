@@ -320,6 +320,11 @@ describe('AppRailNav', () => {
 
 		fireEvent.click(summary)
 		expect(details).toHaveAttribute('open')
+		// The rail stays flat; the menu that opens from it floats over the page as panel glass.
+		const menu = screen.getByText('Switch inbox').parentElement as HTMLElement
+		expect(menu).toHaveClass('glass-panel', 'absolute')
+		expect(menu.className).not.toMatch(/bg-popover|shadow-|rounded-/)
+		expect(menu.parentElement?.closest('.glass-panel, .glass-bar')).toBeNull()
 		fireEvent.pointerDown(summary)
 		expect(details).toHaveAttribute('open')
 		fireEvent.pointerDown(document.body)

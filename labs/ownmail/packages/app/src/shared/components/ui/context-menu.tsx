@@ -1,6 +1,7 @@
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
 import type * as React from 'react'
 import { cn } from '#shared/lib/utils'
+import { useGlassPanelProps } from './glass.js'
 
 /**
  * The shadcn/ui Context Menu (Radix variant) on this app's tokens.
@@ -84,10 +85,13 @@ export function ContextMenuContent({
 	collisionPadding = 8,
 	...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
+	// Panel glass over the plane; solid when it opens over a glass surface.
+	const panel = useGlassPanelProps()
 	return (
 		<ContextMenuPrimitive.Portal>
 			<ContextMenuPrimitive.Content
 				data-slot="context-menu-content"
+				{...panel}
 				collisionPadding={collisionPadding}
 				onClick={stopAtMenu}
 				onKeyDown={stopAtMenu}
@@ -95,7 +99,8 @@ export function ContextMenuContent({
 				onTouchMove={stopAtMenu}
 				onTouchEnd={stopAtMenu}
 				className={cn(
-					'z-50 max-h-(--radix-context-menu-content-available-height) min-w-52 origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none data-[side=left]:translate-x-[max(0px,calc(100%-var(--radix-context-menu-content-available-width)))] data-[side=right]:translate-x-[min(0px,calc(var(--radix-context-menu-content-available-width)-100%))]',
+					'z-50 max-h-(--radix-context-menu-content-available-height) min-w-52 origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto p-1 outline-none data-[side=left]:translate-x-[max(0px,calc(100%-var(--radix-context-menu-content-available-width)))] data-[side=right]:translate-x-[min(0px,calc(var(--radix-context-menu-content-available-width)-100%))]',
+					panel.className,
 					className,
 				)}
 				{...props}

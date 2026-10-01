@@ -20,7 +20,8 @@ export type ReadingPaneLayout = {
  * rows inside the same fine-pointer query that enables those rows.
  */
 export function readingPaneLayout(pane: ReadingPane, threadOpen: boolean): ReadingPaneLayout {
-	const listBase = 'h-full min-w-0 flex-1 flex-col bg-card/50'
+	// `relative`: the list pane is the containing block of its pinned toolbar.
+	const listBase = 'relative h-full min-w-0 flex-1 flex-col bg-card/50'
 	const readerBase = 'min-h-0 min-w-0 flex-1 flex-col bg-background'
 	if (pane === 'none') {
 		return {

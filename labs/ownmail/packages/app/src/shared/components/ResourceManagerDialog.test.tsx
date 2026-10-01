@@ -150,7 +150,12 @@ describe('ResourceManagerDialog', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Close' }))
 		expect(props.onClose).toHaveBeenCalledTimes(1)
-		await user.click(document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement)
+		// A modal dialog is a solid workspace behind a dimmed scrim: neither is glass, and the scrim does not blur.
+		const overlay = document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement
+		expect(overlay.className).not.toMatch(/backdrop-/)
+		expect(document.querySelector('[data-slot="dialog-content"]')).toHaveClass('bg-popover')
+		expect(document.querySelector('.glass-panel, .glass-bar')).toBeNull()
+		await user.click(overlay)
 		expect(props.onClose).toHaveBeenCalledTimes(2)
 		fireEvent.keyDown(document, { key: 'Escape' })
 		expect(props.onClose).toHaveBeenCalledTimes(3)

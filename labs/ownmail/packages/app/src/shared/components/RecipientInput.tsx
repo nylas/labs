@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } f
 import { searchContacts } from '#server/fns'
 import { addToken, moveHighlight, removeTokenAt, tokensToValue, valueToTokens } from '../lib/contact-token.js'
 import { cn } from '../lib/utils.js'
+import { useGlassPanelProps } from './ui/glass.js'
 import { Input } from './ui/input.js'
 
 /**
@@ -49,6 +50,8 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 	const [open, setOpen] = useState(false)
 	const [highlight, setHighlight] = useState(0)
 	const listboxId = useId()
+	// Suggestions opened from a glass panel are solid: glass never sits on glass.
+	const panel = useGlassPanelProps()
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const currentValueRef = useRef(value)
 	// Contact lookups can finish out of order. Keep a monotonically increasing
@@ -211,7 +214,8 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 					id={listboxId}
 					role="listbox"
 					aria-label={`${label} suggestions`}
-					className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg"
+					{...panel}
+					className={cn('absolute z-10 mt-1 w-full overflow-hidden py-1', panel.className)}
 				>
 					{suggestions.map((suggestion, index) => (
 						<div key={suggestion.email} role="presentation">

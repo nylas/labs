@@ -6,6 +6,7 @@ import { READING_PANE_OPTIONS } from '#features/mail/components/ReadingPaneMenu'
 import { THREAD_VIEW_OPTIONS } from '#features/mail/components/ThreadViewSwitch'
 import { MAIL_FOLDERS } from '#features/mail/lib/mail-ui-model'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
+import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { cn } from '#shared/lib/utils'
 import { CALENDAR_HOME_PATH, CONTACTS_HOME_PATH } from '../config/route-paths.js'
 import { themeToggleLabel, toggleTheme } from '../config/theme.js'
@@ -176,7 +177,11 @@ export function CommandPalette({
 		>
 			<DialogContent
 				aria-label="Command palette"
-				className="command-palette top-[calc(var(--safe-area-top)+1rem)] max-h-[calc(100dvh-var(--safe-area-top)-var(--safe-area-bottom)-2rem)] translate-y-0 sm:top-[12dvh]"
+				// Panel glass: the recipe replaces the dialog's solid surface, border and shadow.
+				className={cn(
+					'command-palette top-[calc(var(--safe-area-top)+1rem)] max-h-[calc(100dvh-var(--safe-area-top)-var(--safe-area-bottom)-2rem)] translate-y-0 sm:top-[12dvh]',
+					GLASS_PANEL_CLASS,
+				)}
 				onOpenAutoFocus={(event) => {
 					event.preventDefault()
 					inputRef.current?.focus()

@@ -1,3 +1,5 @@
+import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
+import { cn } from '#shared/lib/utils'
 import { THREAD_ROW_CLASS, ThreadRowLayout } from './ThreadRow.js'
 
 const ROW_WIDTHS = ['w-24', 'w-32', 'w-20', 'w-28', 'w-36', 'w-24']
@@ -9,10 +11,15 @@ const BAR_CLASS = 'inline-block h-3 animate-pulse rounded bg-muted align-middle 
 /** Placeholder rows for a thread list whose folder or search is still loading.
  * They are real list rows with blank cells, so they take the height of the
  * list density set on the section around them and share the list's gutter:
- * nothing moves when the rows arrive. */
+ * nothing moves when the rows arrive. Like the list, they start beneath the
+ * pane's pinned toolbar. */
 export function ThreadListSkeleton() {
 	return (
-		<div data-testid="thread-list-skeleton" aria-hidden="true" className="min-h-0 flex-1 overflow-hidden">
+		<div
+			data-testid="thread-list-skeleton"
+			aria-hidden="true"
+			className={cn('min-h-0 flex-1 overflow-hidden', UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
+		>
 			{ROW_WIDTHS.map((width, index) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows never reorder
 				<div key={index} className={THREAD_ROW_CLASS}>

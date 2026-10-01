@@ -280,3 +280,177 @@ describe('mail list density styles', () => {
 		expect(densityBlock).toMatch(/\.list-density-menu\s*\{\s*display: block;/)
 	})
 })
+
+describe('glass layer', () => {
+	const glassStart = styles.indexOf('.glass-bar {')
+	const glass = styles.slice(glassStart)
+	const block = (source: string, selector: string) => {
+		const start = source.indexOf(`${selector} {`)
+		expect(start).toBeGreaterThanOrEqual(0)
+		return source.slice(start, source.indexOf('}', start))
+	}
+	const light = tokens.slice(tokens.indexOf(':root {'), tokens.indexOf('.dark {'))
+	const dark = tokens.slice(tokens.indexOf('.dark {'))
+	const BLUR = 'backdrop-filter: blur(var(--glass-blur)) saturate(1.15);'
+
+	it('keeps glass mostly solid in both themes so text holds 4.5:1 over any backdrop', () => {
+		// Measured in the app: 85% of white keeps muted text at 4.59:1 over black;
+		// 89% of the dark card keeps it at 4.61:1 over white. Lower values fail.
+		expect(light).toContain('--glass-bg: color-mix(in oklch, var(--card) 85%, transparent);')
+		expect(dark).toContain('--glass-bg: color-mix(in oklch, var(--card) 89%, transparent);')
+		expect(light).toContain('--glass-blur: 14px;')
+		expect(light).toContain('--glass-line: color-mix(in oklch, var(--foreground) 10%, transparent);')
+		expect(dark).toContain('--glass-line: oklch(1 0 0 / 12%);')
+		expect(light).toContain(
+			'--glass-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent);',
+		)
+		expect(dark).toContain('--glass-shadow: 0 8px 24px oklch(0 0 0 / 40%);')
+		// Panels are 12px; the plane keeps 6px, so shape also tells the layers apart.
+		expect(light).toContain('--glass-radius: 0.75rem;')
+		expect(light).toContain('--radius: 0.375rem;')
+	})
+
+	it('draws bar glass as a blurred layer behind the bar with one hairline and no shadow', () => {
+		const bar = block(glass, '.glass-bar')
+		// The bar keeps a 1px edge, so it is exactly as tall as a flat bar with a separator.
+		expect(bar).toContain('border-bottom: 1px solid transparent;')
+		expect(bar).toContain('border-radius: 0;')
+		expect(bar).toContain('box-shadow: none;')
+		// The blur is on a layer behind the bar, not the bar: a menu opened from
+		// the bar is then a panel over the plane, never glass stacked on glass.
+		expect(bar).not.toContain('backdrop-filter')
+		const layer = block(glass, '.glass-bar::before')
+		expect(layer).toContain('background: var(--glass-bg);')
+		expect(layer).toContain(BLUR)
+		expect(layer).toContain(`-webkit-${BLUR}`)
+		expect(layer).toContain('z-index: -1;')
+		expect(bar).toContain('isolation: isolate;')
+		// The layer covers the bar's edge and draws the one line there, on the glass.
+		expect(layer).toContain('inset: 0 0 -1px;')
+		expect(layer).toContain('border-bottom: 1px solid var(--glass-line);')
+		expect(layer).not.toMatch(/border-(top|left|right)/)
+	})
+
+	it('moves the one hairline to the top edge of a bar pinned to the bottom', () => {
+		const bottomBar = block(glass, '.glass-bar[data-glass-edge="top"]')
+		expect(bottomBar).toContain('border-top: 1px solid transparent;')
+		expect(bottomBar).toContain('border-bottom-width: 0;')
+		const bottomLayer = block(glass, '.glass-bar[data-glass-edge="top"]::before')
+		expect(bottomLayer).toContain('inset: -1px 0 0;')
+		expect(bottomLayer).toContain('border-top: 1px solid var(--glass-line);')
+		expect(bottomLayer).toContain('border-bottom-width: 0;')
+	})
+
+	it('draws panel glass with a uniform border, the one soft shadow and a 12px radius', () => {
+		const panel = block(glass, '.glass-panel')
+		expect(panel).toContain('border: 1px solid var(--glass-line);')
+		expect(panel).toContain('border-radius: var(--glass-radius);')
+		expect(panel).toContain('background: var(--glass-bg);')
+		expect(panel).toContain('box-shadow: var(--glass-shadow);')
+		expect(panel).toContain(BLUR)
+		// No brighter top edge: that would be an accent rail by another name.
+		expect(panel).not.toMatch(/border-(top|bottom|left|right)/)
+	})
+
+	it('keeps glass neutral: no tint, gradient, glow or noise in either recipe', () => {
+		const recipes = glass.slice(0, glass.indexOf('.under-pinned-bar'))
+		expect(recipes).not.toMatch(/gradient|url\(|filter: [^;]*(hue|sepia|invert)|--primary|--accent\b/)
+		// One shadow, on panels only, through the one token.
+		expect(recipes.match(/box-shadow: (?!none)[^;]+;/g)).toEqual(['box-shadow: var(--glass-shadow);'])
+	})
+
+	it('strengthens the destructive colour on glass so red text also holds 4.5:1 over the worst backdrop', () => {
+		// Measured: the plane's red is 3.82:1 on light glass over black and 4.32:1 on dark glass over white.
+		expect(glass).toMatch(/\.glass-bar,\s*\.glass-panel\s*\{\s*--destructive: oklch\(0\.5 0\.2 25\);/)
+		expect(glass).toMatch(
+			/\.dark \.glass-bar,\s*\.dark \.glass-panel\s*\{\s*--destructive: oklch\(0\.69 0\.19 25\);/,
+		)
+		// Same hue as the plane's token: a stronger step of the status colour, not a tint of the glass.
+		expect(light).toContain('--destructive: oklch(0.55 0.2 25);')
+		expect(dark).toContain('--destructive: oklch(0.66 0.19 25);')
+	})
+
+	it('never animates the blur: only opacity and position move on glass', () => {
+		expect(styles).not.toMatch(/(transition|animation|will-change)[^;{}]*backdrop-filter/)
+		expect(glass.slice(0, glass.indexOf('.under-pinned-bar'))).not.toMatch(/transition|animation/)
+	})
+
+	it('makes a panel opened from glass, or one in the flow on a phone, solid', () => {
+		const solid = block(glass, '.glass-panel[data-glass="solid"]')
+		expect(solid).toContain('background: var(--card);')
+		expect(solid).toContain('backdrop-filter: none;')
+		expect(glass).toMatch(
+			/@media \(width < 40rem\)\s*\{\s*\.glass-panel-from-sm\s*\{[^}]*background: var\(--card\);[^}]*box-shadow: none;[^}]*backdrop-filter: none;/,
+		)
+	})
+
+	it('falls back to solid card when the blur is unavailable or unwanted', () => {
+		const solidFallback =
+			/\{\s*\.glass-bar::before,\s*\.glass-panel\s*\{\s*background: var\(--card\);\s*-webkit-backdrop-filter: none;\s*backdrop-filter: none;\s*\}/
+		for (const query of [
+			'@media (prefers-reduced-transparency: reduce)',
+			'@media (prefers-contrast: more)',
+			'@media (forced-colors: active)',
+		]) {
+			const start = glass.indexOf(query)
+			expect(start, query).toBeGreaterThanOrEqual(0)
+			expect(glass.slice(start + query.length, glass.indexOf('\n}\n', start) + 2), query).toMatch(
+				solidFallback,
+			)
+		}
+		expect(glass).toMatch(
+			/@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{\s*\.glass-bar::before,\s*\.glass-panel\s*\{\s*background: var\(--card\);/,
+		)
+	})
+
+	it('keeps the first line and keyboard focus clear of a pinned toolbar', () => {
+		// One source for the toolbar height: the token the toolbar's own height class reads.
+		expect(light).toContain('--toolbar-height: 3.5rem;')
+		expect(tokens).toMatch(/@media \(min-width: 48rem\)\s*\{\s*:root\s*\{\s*--toolbar-height: 2\.75rem;/)
+		expect(tokens.match(/--toolbar-height:/g)).toHaveLength(2)
+		expect(styles).not.toMatch(/--toolbar-height:/)
+		const under = block(glass, '.under-pinned-bar')
+		expect(under).toContain('padding-top: var(--toolbar-height);')
+		expect(under).toContain('scroll-padding-top: var(--toolbar-height);')
+	})
+
+	it('pins the mobile tab bar over the page and keeps the last line reachable above it', () => {
+		const tabBar = block(styles, '.mobile-tab-bar')
+		expect(tabBar).toContain('position: fixed;')
+		expect(tabBar).toContain('bottom: 0;')
+		// Its surface is the bar recipe, not a colour of its own.
+		expect(tabBar).not.toMatch(/background|border-top/)
+		const under = block(glass, '.under-mobile-bar')
+		// The bar's own height: its row, its 1px hairline and the home indicator.
+		expect(under).toContain(
+			'--mobile-bar-inset: calc(var(--mobile-tab-bar-height) + 1px + var(--safe-area-bottom));',
+		)
+		expect(under).toContain(
+			'padding-bottom: calc(var(--mobile-bar-inset) + var(--under-mobile-bar-gap, 0px));',
+		)
+		expect(under).toContain('scroll-padding-bottom: var(--mobile-bar-inset);')
+		// Only where the bar exists: desktop bottoms keep their own padding.
+		expect(glass).toMatch(/@media \(width < 48rem\)\s*\{\s*\.under-mobile-bar\s*\{/)
+	})
+
+	it('hides the pull-to-refresh indicator beneath a pinned bar until it is pulled', () => {
+		expect(block(glass, '.pull-to-refresh-under-pinned-bar')).toContain(
+			'--pull-to-refresh-top: var(--toolbar-height);',
+		)
+		expect(glass).toMatch(
+			/\.pull-to-refresh-under-pinned-bar:not\(\[aria-busy="true"\]\) \.pull-to-refresh-indicator:not\(\[data-pulling\]\)\s*\{\s*visibility: hidden;/,
+		)
+		expect(block(styles, '.pull-to-refresh-indicator')).toContain('top: var(--pull-to-refresh-top, 0px);')
+	})
+})
+
+describe('dragged calendar event', () => {
+	it('floats as full-strength panel glass, with no dimming or shadow of its own', () => {
+		const start = styles.indexOf('.event-chip[data-dragging] {')
+		const dragging = styles.slice(start, styles.indexOf('}', start))
+		// The glass-panel class supplies the surface; a dimmed or struck-through chip would not stay legible.
+		expect(dragging).toContain('opacity: 1;')
+		expect(dragging).toContain('text-decoration: none;')
+		expect(dragging).not.toMatch(/box-shadow|backdrop-filter|transition/)
+	})
+})

@@ -21,6 +21,7 @@ import { clearTrustedImageSenders } from '#features/mail/lib/image-sender-trust'
 import { getAccountCapabilities, resetMailboxPassword, updateMailboxDisplayName } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { Button } from '#shared/components/ui/button'
+import { UNDER_MOBILE_BAR_CLASS } from '#shared/components/ui/glass'
 import { Section } from '#shared/components/ui/section'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
@@ -249,7 +250,7 @@ function SettingsPage() {
 					accounts={info.accounts}
 					active="settings"
 				/>
-				<main className="min-w-0 flex-1 overflow-y-auto">
+				<main className={cn('min-w-0 flex-1 overflow-y-auto', UNDER_MOBILE_BAR_CLASS)}>
 					<div className="mx-auto w-full max-w-2xl space-y-7 px-5 py-7 sm:px-8">
 						<section>
 							<div className="flex items-center gap-2">

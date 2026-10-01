@@ -176,6 +176,10 @@ describe('RecipientInput', () => {
 
 		const listbox = screen.getByRole('listbox', { name: 'Recipients suggestions' })
 		expect(listbox).toBeInTheDocument()
+		// Suggestions float over the form: panel glass, not an opaque popover with its own shadow.
+		expect(listbox).toHaveClass('glass-panel')
+		expect(listbox).not.toHaveAttribute('data-glass')
+		expect(listbox.className).not.toMatch(/bg-popover|shadow-/)
 		expect(field()).toHaveAttribute('role', 'combobox')
 		expect(field()).toHaveAttribute('aria-expanded', 'true')
 		expect(field()).toHaveAttribute('aria-controls', listbox.id)

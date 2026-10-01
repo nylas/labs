@@ -70,6 +70,9 @@ describe('grid zoom control', () => {
 		fireEvent.click(trigger)
 		const popover = screen.getByRole('dialog', { name: 'Grid zoom' })
 		expect(popover).toHaveFocus()
+		// It opens from the day header and floats over the grid: panel glass, not its own fill and shadow.
+		expect(popover).toHaveClass('glass-panel', 'absolute', 'top-full')
+		expect(popover.className).not.toMatch(/bg-card|bg-popover|shadow-|rounded-/)
 		// Other keys are left alone so the buttons keep their native behaviour.
 		fireEvent.keyDown(popover, { key: 'Enter' })
 		expect(screen.getByRole('dialog', { name: 'Grid zoom' })).toBeInTheDocument()
@@ -130,6 +133,7 @@ describe('second time zone control', () => {
 		render(<Zones initial="" onChange={onChange} />)
 		const trigger = screen.getByRole('button', { name: 'Time zone: EDT. Add a second time zone' })
 		fireEvent.click(trigger)
+		expect(screen.getByRole('dialog', { name: 'Second time zone' })).toHaveClass('glass-panel')
 		const popover = within(screen.getByRole('dialog', { name: 'Second time zone' }))
 		// Nothing to remove yet.
 		expect(popover.queryByRole('button', { name: 'Remove second time zone' })).toBeNull()

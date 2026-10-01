@@ -43,6 +43,7 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getThreadMessages, getThreads } from '#server/fns'
+import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { IconButton as ToolbarIconButton } from '#shared/components/ui/icon-button'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
@@ -362,10 +363,10 @@ function ThreadView() {
 				swipeHandlers.onTouchEnd(event)
 			}}
 			data-testid="thread-reader"
-			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+			className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
-			<Toolbar className="gap-1 px-3">
+			<Toolbar pinned className="gap-1 px-3">
 				<ToolbarIconButton
 					label="Back to list"
 					onClick={goBackToList}
@@ -449,13 +450,19 @@ function ThreadView() {
 					</div>
 				) : null}
 			</Toolbar>
-			{error ? <ErrorBanner message={error} /> : null}
+			{/* An error sits in the flow below the bar, so the conversation starts under the error instead. */}
+			{error ? (
+				<div className={UNDER_PINNED_BAR_CLASS}>
+					<ErrorBanner message={error} />
+				</div>
+			) : null}
 
 			<ScrollArea
 				key={threadId}
 				// The reading position belongs to one conversation.
 				scrollRestorationId={`thread:${threadId}`}
 				aria-label="Thread conversation"
+				viewportClassName={cn(!error && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
 				className="min-h-0 flex-1"
 			>
 				<ThreadConversation

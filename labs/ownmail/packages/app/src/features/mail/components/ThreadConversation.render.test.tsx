@@ -563,6 +563,9 @@ describe('message header', () => {
 		expect(overflow).toHaveAttribute('aria-expanded', 'true')
 		const menu = screen.getByRole('menu', { name: 'Actions for message from sender@example.com' })
 		expect(overflow).toHaveAttribute('aria-controls', menu.id)
+		// The menu floats over the message: panel glass, one layer deep.
+		expect(menu).toHaveClass('glass-panel')
+		expect(menu.parentElement?.closest('.glass-panel')).toBeNull()
 		const items = screen.getAllByRole('menuitem')
 		expect(items.map((item) => item.textContent)).toEqual(['Collapse message', 'Download raw email'])
 		for (const item of items) expect(item).toHaveClass('min-h-11')

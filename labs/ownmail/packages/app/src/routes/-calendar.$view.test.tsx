@@ -594,6 +594,15 @@ describe('week view + header navigation', () => {
 		expect(screen.getByTestId('calendar-time-grid-body')).toHaveClass('max-sm:min-w-[54rem]')
 	})
 
+	it('draws one line under the day header when there is no all-day band', () => {
+		renderWeek({ ...richData(), events: [] })
+		const header = screen.getByTestId('calendar-time-grid-header')
+		expect(screen.queryByTestId('calendar-all-day-band')).toBeNull()
+		// The glass bar draws the line on its content edge; the day row inside adds none.
+		expect(header).toHaveClass('glass-bar')
+		expect(header.firstElementChild?.className).not.toMatch(/border/)
+	})
+
 	it('keeps every calendar action available in the 320px mobile header', () => {
 		renderWeek()
 
@@ -849,6 +858,15 @@ describe('week view time grid', () => {
 		render(<CalendarRouteScreen view="week" data={{ ...richData(), events: allDay }} />)
 		const band = within(screen.getByTestId('calendar-all-day-band'))
 		expect(band.getAllByRole('button', { name: /, All day/ })).toHaveLength(3)
+		// The day header and its all-day band are one pinned glass bar the grid scrolls beneath.
+		// The recipe draws its one line on the content edge, so the rows inside draw none.
+		const header = screen.getByTestId('calendar-time-grid-header')
+		expect(header).toHaveClass('glass-bar', 'sticky', 'top-0')
+		expect(header).not.toHaveClass('bg-background')
+		expect(header).toContainElement(screen.getByTestId('calendar-all-day-band'))
+		expect(screen.getByTestId('calendar-all-day-band').className).not.toMatch(/border-b|border-border/)
+		expect(header.firstElementChild).toHaveClass('border-b', 'border-transparent')
+		expect(header.closest('[data-slot="scroll-area-viewport"]')).toHaveClass('under-mobile-bar')
 		const more = band.getByRole('button', { name: '2 more' })
 		expect(more).toHaveAttribute('aria-expanded', 'false')
 		fireEvent.click(more)
@@ -1972,7 +1990,10 @@ describe('dragging events in the time grid', () => {
 		// While dragging, the box is drawn at the snapped time: 9:30, not 9:36.
 		expect(standup().style.top).toBe(`${y(9.5)}px`)
 		expect(standup()).toHaveAttribute('data-dragging')
+		// While it is dragged the event floats over the grid, so it is panel glass; at rest it is flat again.
+		expect(standup()).toHaveClass('glass-panel')
 		release(X, y(10.1))
+		expect(standup()).not.toHaveClass('glass-panel')
 		fireEvent.click(standup())
 
 		await vi.waitFor(() => expect(h.updateEvent).toHaveBeenCalledOnce())
@@ -2286,8 +2307,11 @@ describe('context menus', () => {
 	it('opens on an event without selecting it or opening it in the pane', async () => {
 		renderWeek()
 		chip(/^Standup/).focus()
-		openMenu(chip(/^Standup/), 'Actions for Standup')
+		const menu = openMenu(chip(/^Standup/), 'Actions for Standup')
 		expect(names()).toEqual(['Open', 'Edit', 'Accept', 'Maybe', 'Decline', 'Delete…'])
+		// Over the grid the menu is the one glass layer.
+		expect(menu).toHaveClass('glass-panel')
+		expect(menu).not.toHaveAttribute('data-glass')
 		expect(pane()).toBeNull()
 		expect(screen.queryByTestId('event-modal')).toBeNull()
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
@@ -2295,6 +2319,16 @@ describe('context menus', () => {
 		expect(pane()).toBeNull()
 		// Dismissed without a choice: focus is back on the event.
 		await vi.waitFor(() => expect(chip(/^Standup/)).toHaveFocus())
+	})
+
+	it('keeps a menu opened on an all-day event solid, because the day header it sits in is glass', () => {
+		renderWeek()
+		const holiday = chip(/^Holiday, All day/)
+		expect(holiday.closest('.glass-bar')).toBe(screen.getByTestId('calendar-time-grid-header'))
+		const menu = openMenu(holiday, 'Actions for Holiday')
+		// One layer deep: the menu opens over the glass bar, so it is opaque.
+		expect(menu).toHaveClass('glass-panel')
+		expect(menu).toHaveAttribute('data-glass', 'solid')
 	})
 
 	it('opens the event the way a click does: in the pane on desktop', async () => {

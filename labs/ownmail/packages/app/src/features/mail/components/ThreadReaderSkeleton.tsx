@@ -1,3 +1,4 @@
+import { UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { ThreadColumn } from './ThreadColumn.js'
 
@@ -8,15 +9,17 @@ export function ThreadReaderSkeleton({ subject }: { subject?: string }) {
 		<div
 			data-testid="thread-reader-pending"
 			aria-busy="true"
-			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+			className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 		>
-			<Toolbar />
-			<div className="pt-3">
-				<ThreadColumn>
-					<h1 className="min-w-0 font-sans text-base leading-6 font-semibold tracking-normal [overflow-wrap:anywhere]">
-						{subject || 'Loading conversation…'}
-					</h1>
-				</ThreadColumn>
+			<Toolbar pinned />
+			<div className={UNDER_PINNED_BAR_CLASS}>
+				<div className="pt-3">
+					<ThreadColumn>
+						<h1 className="min-w-0 font-sans text-base leading-6 font-semibold tracking-normal [overflow-wrap:anywhere]">
+							{subject || 'Loading conversation…'}
+						</h1>
+					</ThreadColumn>
+				</div>
 			</div>
 			<div className="py-5" aria-hidden="true">
 				<ThreadColumn>
