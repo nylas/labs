@@ -87,3 +87,68 @@ describe('mail search divider styles', () => {
 		)
 	})
 })
+
+describe('borders and accents', () => {
+	const rule = (selector: string) => {
+		const start = styles.indexOf(`${selector} {`)
+		expect(start).toBeGreaterThanOrEqual(0)
+		return styles.slice(start, styles.indexOf('}', start))
+	}
+
+	it('marks severity with a uniform tinted border instead of a side rail', () => {
+		const error = rule('.mail-search-error')
+		expect(error).toContain('border: 1px solid color-mix(in oklch, var(--destructive), transparent 70%);')
+		expect(error).toContain('background: color-mix(in oklch, var(--destructive), transparent 92%);')
+		expect(error).not.toMatch(/border-(left|right|top|bottom)/)
+	})
+
+	it('marks the open thread and current folder with a fill only', () => {
+		for (const selector of ['.thread-row:has([data-active="true"])', '.nav-item-active']) {
+			expect(rule(selector)).toContain('background: var(--muted);')
+			expect(rule(selector)).not.toContain('box-shadow')
+		}
+		expect(rule('.nav-item-active')).toContain('font-weight: 500;')
+		expect(styles).not.toContain('.mobile-nav-item-active')
+	})
+
+	it('draws the keyboard cursor as a uniform two-pixel outline that survives forced colours', () => {
+		const cursor = rule(
+			'.thread-row:has([data-nav-cursor="true"]):not([data-active="true"]):not(:has([data-active="true"]))',
+		)
+		expect(cursor).toContain('outline: 2px solid var(--ring);')
+		expect(cursor).toContain('outline-offset: -2px;')
+		expect(cursor).not.toContain('box-shadow')
+		expect(styles).toMatch(
+			/@media \(forced-colors: active\)\s*\{[^}]*data-nav-cursor="true"[^}]*\{\s*outline: 2px solid Highlight;/,
+		)
+	})
+
+	it('quotes composer text with an indent and muted colour, not a bar', () => {
+		const quote = rule('.markdown-editor blockquote')
+		expect(quote).toContain('padding-left: 0.75rem;')
+		expect(quote).toContain('color: var(--color-muted-foreground);')
+		expect(quote).not.toContain('border')
+	})
+
+	it('marks search field states with a uniform ring instead of a bottom accent', () => {
+		expect(rule('.mail-search-control[data-state="error"]')).toContain(
+			'box-shadow: inset 0 0 0 1px var(--destructive);',
+		)
+		expect(rule('.mail-search-control[data-state="success"]')).toContain('box-shadow: inset 0 0 0 1px ')
+		// The focus outline is separate, so the ring never replaces keyboard focus.
+		expect(rule('.mail-search-control:focus-within')).toContain('outline-color: var(--event-teal);')
+	})
+
+	it('marks the active desktop destination with a fill, not a bar beside it', () => {
+		expect(styles).not.toContain('app-rail-item-indicator')
+		expect(rule('.app-rail-item-active')).toContain('background: color-mix(')
+		expect(rule('.app-rail-item-active')).toContain('color: var(--foreground);')
+	})
+
+	it('marks the active mobile tab with a filled pill behind the icon, not an edge bar', () => {
+		expect(styles).not.toMatch(/\.mobile-tab(-active)?::(before|after)/)
+		expect(rule('.mobile-tab-active .mobile-tab-icon')).toContain('background: var(--muted);')
+		expect(rule('.mobile-tab-active')).toContain('color: var(--foreground);')
+		expect(rule('.mobile-tab')).toContain('min-height: var(--mobile-tab-bar-height);')
+	})
+})

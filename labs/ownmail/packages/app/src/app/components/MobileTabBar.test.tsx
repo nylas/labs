@@ -27,6 +27,12 @@ describe('MobileTabBar', () => {
 		}
 		expect(screen.getByRole('link', { name: 'Calendar' })).toHaveAttribute('aria-current', 'page')
 		expect(screen.getByRole('link', { name: 'Mail' })).not.toHaveAttribute('aria-current')
+		// The active tab is a filled pill behind the icon plus a heavier glyph, never colour alone.
+		expect(screen.getByRole('link', { name: 'Calendar' })).toHaveClass('mobile-tab-active')
+		expect(screen.getByRole('link', { name: 'Mail' })).not.toHaveClass('mobile-tab-active')
+		const strokeOf = (name: string) =>
+			screen.getByRole('link', { name }).querySelector('.mobile-tab-icon svg')?.getAttribute('stroke-width')
+		expect(Number(strokeOf('Calendar'))).toBeGreaterThan(Number(strokeOf('Mail')))
 	})
 
 	it('reuses the bottom surface as an empty thread toolbar slot', () => {

@@ -90,12 +90,11 @@ export function MailSidebar({
 							to="/mail/f/$folderId"
 							params={{ folderId: folder.id }}
 							onClick={onNavigate}
+							aria-current={active ? 'page' : undefined}
 							className={cn(
 								'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
 								mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
-								active
-									? cn('nav-item-active', mobile && 'mobile-nav-item-active')
-									: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+								active ? 'nav-item-active' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
 							)}
 						>
 							<Icon className="h-4 w-4 shrink-0" />
@@ -140,11 +139,12 @@ export function MailSidebar({
 									params={{ folderId: nextFolderId }}
 									search={nextBaseFolderId ? { baseFolderId: nextBaseFolderId } : {}}
 									onClick={onNavigate}
+									aria-current={active ? 'page' : undefined}
 									className={cn(
 										'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
 										mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
 										active
-											? cn('nav-item-active', mobile && 'mobile-nav-item-active')
+											? 'nav-item-active'
 											: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
 									)}
 								>

@@ -73,6 +73,59 @@ mobile rows prefer 48 pixels.
 - Keep visible text for ambiguous actions, primary submission, destructive
   confirmation, dynamic destinations, and status or error communication.
 
+## Borders and accents
+
+1. Banned. Any border whose width or colour differs from the other sides as an
+   accent: `border-l-4`, `border-l-primary`, CSS `border-left` of 2px or more,
+   on any side.
+2. Banned. Simulated rails: one-sided inset shadows, and `::before`, `::after`
+   or absolutely positioned bars 2 to 4px thick along an edge.
+3. Allowed. A uniform 1px border on all sides, full-length 1px separators in
+   `--border`, and uniform rings and outlines.
+4. Use instead. Severity: uniform border, tint and glyph. Selection: fill and
+   ARIA state. Keyboard cursor: uniform 2px ring. Category: dot, swatch or full
+   tint. Quotation: indent and muted text, or a disclosure. System card: icon
+   tile and label.
+5. Never colour alone. Pair every state with a glyph, text, weight or ARIA
+   attribute.
+
+### Enforcement
+
+`pnpm lint` runs `scripts/check-ownmail-accent-rails.mjs` over `src`, excluding
+tests, email fixtures and the dev mock emails. It parses lengths (px, rem and em
+at 16px) and compares them numerically. It rejects:
+
+- A border on one side or one axis that is 2px or wider, or in a colour other
+  than the separator tokens: `border-left` and the other physical and logical
+  sides, `border-inline`, `border-block`, their `-width` and `-color`
+  longhands, `border-width` when its sides differ, and the Tailwind forms
+  (`border-l-4`, `border-s-[0.25rem]`, `border-x-2`, `border-l-primary`).
+- An inset shadow with any offset and no blur, in CSS or as
+  `shadow-[inset_…]`. Uniform rings (`inset 0 0 0 1px`) pass.
+- A CSS pseudo-element or absolutely positioned box that is 2 to 4px thick in
+  exactly one dimension.
+- A full-width colour strip built from Tailwind utilities on one line (`h-0.5`,
+  `h-1` or `h-1.5` with `w-full` or `inset-x-0` and a fill).
+
+A one-sided width or inset offset the check cannot evaluate (`var()`, `calc()`)
+is rejected too. It is the only case that may be vouched for, with a comment
+on the same or the previous line: `accent-rails-allow: <reason>`.
+
+Known blind spots, which need review instead:
+
+- Class lists assembled across several lines or from variables and helpers, so
+  the utilities never appear together or literally (`cn(side, width)`).
+- Values that come from variables: a custom property that resolves to a wide
+  border, a Tailwind theme value, or an inline style built at runtime.
+- Bars built from Tailwind utilities other than the full-width strip above
+  (for example `absolute left-0 w-0.5 h-4`), and bars positioned with
+  `fixed`, `sticky` or layout rather than `absolute` or a pseudo-element.
+- Units the check does not convert (`%`, `vw`, `ch`) and `em` on text that is
+  not 16px.
+- Gradients, images, outlines and `clip-path` used to draw an edge, and a
+  uniform `border` whose sides are then recoloured by a separate
+  `border-color` shorthand.
+
 ## Mobile surface rules
 
 - Honor top, inline, and bottom safe areas without padding the global `body`.

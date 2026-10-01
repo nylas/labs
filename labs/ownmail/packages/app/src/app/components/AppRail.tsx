@@ -413,7 +413,6 @@ function RailLink({
 					isActive && 'app-rail-item-active',
 				)}
 			>
-				{isActive ? <span className="app-rail-item-indicator" aria-hidden="true" /> : null}
 				{children}
 			</Link>
 		</RailTooltip>

@@ -969,10 +969,13 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		}
 		const { unmount } = render(<MailFolderRouteScreen {...props} />)
 		expect(screen.getByRole('link', { name: /Open Subject/ })).toHaveAttribute('data-active', 'true')
+		// Selection is a fill, so the open row must also be announced as current.
+		expect(screen.getByRole('link', { name: /Open Subject/ })).toHaveAttribute('aria-current', 'true')
 		unmount()
 		render(<MailFolderRouteScreen {...props} composeThreadSearch={(threadId) => ({ to: [threadId] })} />)
 		const threadLink = screen.getByRole('link', { name: /Open Subject/ })
 		expect(threadLink).toHaveAttribute('data-active', 'true')
+		expect(threadLink).toHaveAttribute('aria-current', 'true')
 		fireEvent.keyDown(window, { key: 'j' })
 		expect(threadLink.closest('[data-nav-row]')).toHaveAttribute('data-nav-cursor', 'true')
 	})

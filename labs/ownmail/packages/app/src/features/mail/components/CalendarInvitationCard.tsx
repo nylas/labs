@@ -169,7 +169,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 			aria-labelledby={`invitation-title-${attachmentId}`}
 			className="mb-5 overflow-hidden rounded-xl border border-border bg-card shadow-sm"
 		>
-			<div className="border-l-4 border-l-primary px-4 py-4 sm:px-5">
+			<div className="px-4 py-4 sm:px-5">
 				<div className="flex min-w-0 items-start gap-3">
 					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
 						<CalendarDays className="h-5 w-5" />

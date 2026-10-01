@@ -1,4 +1,4 @@
-import { ArrowRight, CircleHelp, LoaderCircle, Search, X } from 'lucide-react'
+import { ArrowRight, CircleAlert, CircleHelp, LoaderCircle, Search, X } from 'lucide-react'
 import { useId, useMemo, useRef, useState } from 'react'
 import {
 	applyMailSearchSuggestion,
@@ -193,7 +193,8 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 				<div className="mail-search-panel" data-state={hasError ? 'error' : 'default'}>
 					{hasError ? (
 						<div className="mail-search-error" role="alert">
-							{message}
+							<CircleAlert className="mt-px h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+							<span className="min-w-0">{message}</span>
 						</div>
 					) : (
 						<>

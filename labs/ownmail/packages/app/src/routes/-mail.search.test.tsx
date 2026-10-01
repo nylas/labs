@@ -277,6 +277,9 @@ describe('/mail/search results list', () => {
 			'data-to',
 			'/mail/search',
 		)
+		// The open result is announced, not only filled: exactly one row link is current.
+		expect(container.querySelectorAll('a[aria-current="true"]')).toHaveLength(1)
+		expect(container.querySelector('[data-active="true"] a')).toHaveAttribute('aria-current', 'true')
 		expect(container.querySelector('[data-unread="true"]')).toBeTruthy()
 		// No conversation selected -> the reader shows the empty prompt.
 		expect(screen.getByText('Select a conversation')).toBeTruthy()

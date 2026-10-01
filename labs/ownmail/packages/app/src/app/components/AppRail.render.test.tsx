@@ -85,6 +85,14 @@ describe('AppRailNav', () => {
 		render(<AppRailNav email="ada@ownmail.com" active="mail" />)
 		const mail = screen.getByRole('link', { name: 'Mail' })
 		expect(mail).toHaveAttribute('aria-current', 'page')
+		// Current location is a fill plus a heavier glyph and ARIA state; no bar is drawn beside it.
+		expect(mail).toHaveClass('app-rail-item-active')
+		expect(mail.querySelector('span')).toBeNull()
+		const calendarLink = screen.getByRole('link', { name: 'Calendar' })
+		expect(calendarLink).not.toHaveClass('app-rail-item-active')
+		expect(Number(mail.querySelector('svg')?.getAttribute('stroke-width'))).toBeGreaterThan(
+			Number(calendarLink.querySelector('svg')?.getAttribute('stroke-width')),
+		)
 		expect(mail).toHaveClass('[@media(any-pointer:coarse)]:min-h-11', '[@media(any-pointer:coarse)]:min-w-11')
 		expect(screen.getByRole('link', { name: 'Calendar' })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: 'Contacts' })).not.toHaveAttribute('aria-current')

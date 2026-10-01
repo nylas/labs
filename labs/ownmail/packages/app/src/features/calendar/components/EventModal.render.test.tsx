@@ -97,6 +97,14 @@ describe('EventModal — new event', () => {
 			/>,
 		)
 		expect(screen.getByRole('heading', { name: 'New event' })).toBeInTheDocument()
+		// The calendar's colour is a small swatch beside the title, named in text; no strip spans the top edge.
+		const dialog = screen.getByRole('dialog', { name: 'New event' })
+		const swatch = dialog.querySelector('[data-slot="calendar-swatch"]')
+		expect(swatch).toHaveClass('h-[11px]', 'w-[11px]', 'rounded-[3px]')
+		expect(swatch?.className).toMatch(/\bbg-/)
+		expect(swatch?.parentElement).toHaveTextContent(/New event.+ calendar$/)
+		expect(dialog.firstElementChild).toContainElement(screen.getByRole('heading', { name: 'New event' }))
+		expect(dialog.querySelector('.w-full.h-1, .w-full.h-1\\.5')).toBeNull()
 		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
 			'h-11',
 			'w-11',
@@ -698,10 +706,7 @@ describe('EventModal — new event', () => {
 		expect(dialog.style.getPropertyValue('--event-composer-left')).toBe('122px')
 		expect(dialog.style.getPropertyValue('--event-composer-top')).toBe('100px')
 		expect(dialog.style.getPropertyValue('--event-composer-max-height')).toBe('calc(100dvh - 108px)')
-		expect(dialog.firstElementChild?.nextElementSibling?.nextElementSibling).toHaveClass(
-			'overflow-y-auto',
-			'overscroll-contain',
-		)
+		expect(dialog.firstElementChild?.nextElementSibling).toHaveClass('overflow-y-auto', 'overscroll-contain')
 	})
 
 	it('keeps the composer within the viewport after a resize', () => {
@@ -835,6 +840,11 @@ describe('EventModal — existing event', () => {
 		expect(screen.getByRole('dialog')).toHaveAttribute('data-presentation', 'bottom-sheet')
 		expect(screen.getByRole('heading', { name: 'Team Sync' })).toBeInTheDocument()
 		expect(screen.getByText('Work calendar')).toBeInTheDocument()
+		// The calendar is a swatch beside the title with its name as text; no colour strip tops the dialog.
+		const swatch = screen.getByRole('dialog').querySelector('[data-slot="calendar-swatch"]')
+		expect(swatch).toHaveClass('h-[11px]', 'w-[11px]', 'rounded-[3px]')
+		expect(swatch?.parentElement).toHaveTextContent('Team SyncWork calendar')
+		expect(screen.getByRole('dialog').querySelector('.w-full.h-1, .w-full.h-1\\.5')).toBeNull()
 		expect(screen.getByText('Room 5')).toBeInTheDocument()
 		expect(screen.getByText('Bob, no-name@x.com')).toBeInTheDocument()
 		expect(screen.getByText('Weekly sync')).toBeInTheDocument()

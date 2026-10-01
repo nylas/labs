@@ -143,7 +143,10 @@ describe('MailSearchBar', () => {
 
 		expect(onSubmit).not.toHaveBeenCalled()
 		expect(input()).toHaveAttribute('aria-invalid', 'true')
-		expect(screen.getByRole('alert')).toHaveTextContent("“:” isn't supported")
+		const alert = screen.getByRole('alert')
+		expect(alert).toHaveTextContent("“:” isn't supported")
+		// Severity is carried by a glyph as well as colour; the glyph is decorative to screen readers.
+		expect(alert.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
 	})
 
 	it('treats Clear as an explicit action and restores the blank value', () => {
