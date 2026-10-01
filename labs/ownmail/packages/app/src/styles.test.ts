@@ -130,6 +130,21 @@ describe('borders and accents', () => {
 		expect(quote).not.toContain('border')
 	})
 
+	it('marks search field states with a uniform ring instead of a bottom accent', () => {
+		expect(rule('.mail-search-control[data-state="error"]')).toContain(
+			'box-shadow: inset 0 0 0 1px var(--destructive);',
+		)
+		expect(rule('.mail-search-control[data-state="success"]')).toContain('box-shadow: inset 0 0 0 1px ')
+		// The focus outline is separate, so the ring never replaces keyboard focus.
+		expect(rule('.mail-search-control:focus-within')).toContain('outline-color: var(--event-teal);')
+	})
+
+	it('marks the active desktop destination with a fill, not a bar beside it', () => {
+		expect(styles).not.toContain('app-rail-item-indicator')
+		expect(rule('.app-rail-item-active')).toContain('background: color-mix(')
+		expect(rule('.app-rail-item-active')).toContain('color: var(--foreground);')
+	})
+
 	it('marks the active mobile tab with a filled pill behind the icon, not an edge bar', () => {
 		expect(styles).not.toMatch(/\.mobile-tab(-active)?::(before|after)/)
 		expect(rule('.mobile-tab-active .mobile-tab-icon')).toContain('background: var(--muted);')

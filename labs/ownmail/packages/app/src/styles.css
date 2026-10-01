@@ -309,11 +309,11 @@
 }
 
 .mail-search-control[data-state="error"] {
-	box-shadow: inset 0 -2px 0 var(--destructive);
+	box-shadow: inset 0 0 0 1px var(--destructive);
 }
 
 .mail-search-control[data-state="success"] {
-	box-shadow: inset 0 -1px 0 color-mix(in oklch, var(--primary), transparent 35%);
+	box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary), transparent 35%);
 }
 
 .mail-search-icon-button {
@@ -660,17 +660,6 @@
 
 .app-rail-item-active:hover {
 	background: color-mix(in oklch, var(--foreground), transparent 87%);
-}
-
-.app-rail-item-indicator {
-	position: absolute;
-	left: -0.5rem;
-	top: 50%;
-	width: 2px;
-	height: 0.875rem;
-	border-radius: 9999px;
-	background: var(--foreground);
-	transform: translateY(-50%);
 }
 
 .app-rail-item-utility {

@@ -89,8 +89,10 @@ mobile rows prefer 48 pixels.
 5. Never colour alone. Pair every state with a glyph, text, weight or ARIA
    attribute.
 
-`pnpm lint` enforces the border and inset-shadow patterns through
-`scripts/check-ownmail-accent-rails.mjs`.
+`pnpm lint` enforces this through `scripts/check-ownmail-accent-rails.mjs`:
+one-sided border utilities and CSS borders, one-sided inset shadows, and CSS
+pseudo-element or absolutely positioned bars 2 to 4px thick. Bars built from
+Tailwind utilities in components are not detected and need review.
 
 ## Mobile surface rules
 

@@ -92,9 +92,106 @@ test('allows uniform borders, 1px separators, and uniform outlines', () => {
 	)
 })
 
-test('has no exceptions: a rail inside the mobile tab indicator is rejected too', () => {
-	const css = ['.mobile-tab::before {', '\tborder-top: 2px solid var(--primary);', '}'].join('\n')
-	assert.equal(violations('styles.css', css).length, 1)
+// Review finding: the search field marked an invalid query with a 2px bottom shadow.
+test('rejects vertical one-sided inset shadows with and without the spread length', () => {
+	for (const shadow of [
+		'inset 0 -2px 0 var(--destructive)',
+		'inset 0 -1px 0 color-mix(in oklch, var(--primary), transparent 35%)',
+		'inset 0 2px 0 0 red',
+		'inset 0 -0.125rem 0 red',
+	]) {
+		const [violation] = violations('styles.css', `.a {\n\tbox-shadow: ${shadow};\n}`)
+		assert.equal(violation?.kind, 'inset-shadow', shadow)
+		assert.equal(violation?.line, 2)
+	}
+})
+
+test('rejects horizontal one-sided inset shadows with and without the spread length', () => {
+	for (const shadow of ['inset 2px 0 0 red', 'inset -3px 0 0 0 red', 'inset 0.25rem 0 0 red']) {
+		assert.equal(violations('styles.css', `.a {\n\tbox-shadow: ${shadow};\n}`).length, 1, shadow)
+	}
+})
+
+test('allows uniform inset rings and soft inset shadows', () => {
+	for (const shadow of [
+		'inset 0 0 0 1px var(--destructive)',
+		'inset 0 0 0 2px var(--ring)',
+		'inset 0 1px 2px rgb(0 0 0 / 10%)',
+		'inset 0 2px 0.5rem red',
+		'0 1px 2px red',
+	]) {
+		assert.deepEqual(violations('styles.css', `.a {\n\tbox-shadow: ${shadow};\n}`), [], shadow)
+	}
+})
+
+// Review finding: the desktop rail drew a 2px bar beside the active destination.
+test('rejects absolutely positioned and pseudo-element bars 2 to 4px thick', () => {
+	const indicator = [
+		'.app-rail-item-indicator {',
+		'\tposition: absolute;',
+		'\tleft: -0.5rem;',
+		'\twidth: 2px;',
+		'\theight: 0.875rem;',
+		'\tbackground: var(--foreground);',
+		'}',
+	].join('\n')
+	const [bar] = violations('styles.css', indicator)
+	assert.equal(bar?.kind, 'edge-bar')
+	assert.equal(bar?.line, 4)
+	assert.equal(bar?.match, 'width: 2px')
+
+	// The former mobile tab indicator: its colour was set by a second rule.
+	const tab = ['.mobile-tab::before {', '\twidth: 1.75rem;', '\theight: 2px;', '\tcontent: "";', '}'].join(
+		'\n',
+	)
+	assert.equal(violations('styles.css', tab)[0]?.match, 'height: 2px')
+	assert.equal(violations('styles.css', '.a::after { height: 0.25rem; width: 100%; }').length, 1)
+	assert.equal(violations('styles.css', '.a { position: absolute; width: 4px; }').length, 1)
+	// Only CSS is parsed for bars; a border rail inside the pseudo-element is still a border rail.
+	assert.equal(violations('styles.css', '.a::before {\n\tborder-top: 2px solid red;\n}')[0]?.kind, 'css')
+})
+
+test('allows hairlines, dots, thumbs and thin boxes that are in normal flow', () => {
+	const css = [
+		'.mail-header::after {',
+		'\tposition: absolute;',
+		'\tright: 0;',
+		'\tbottom: 0;',
+		'\tleft: 0;',
+		'\theight: 1px;',
+		'\tbackground: var(--border);',
+		'\tcontent: "";',
+		'}',
+		'.thread-row::before {',
+		'\tposition: absolute;',
+		'\twidth: 5px;',
+		'\theight: 5px;',
+		'}',
+		'.dot::before {',
+		'\twidth: 4px;',
+		'\theight: 4px;',
+		'}',
+		'.toggle-thumb {',
+		'\tposition: absolute;',
+		'\ttop: 2px;',
+		'\twidth: 1rem;',
+		'\theight: 1rem;',
+		'\tbackground: var(--card);',
+		'}',
+		'.progress {',
+		'\theight: 2px;',
+		'\tmin-height: 2px;',
+		'\tbackground: var(--primary);',
+		'}',
+		'.panel {',
+		'\tposition: absolute;',
+		'\tmax-width: 4px;',
+		'\tline-height: 2px;',
+		'}',
+	].join('\n')
+	assert.deepEqual(violations('styles.css', css), [])
+	// Bars are a CSS-only check: the same text in a component is not parsed as rules.
+	assert.deepEqual(violations('a.tsx', 'const css = ".a { position: absolute; width: 2px; }"'), [])
 })
 
 test('scans source and CSS but skips tests and email fixtures', () => {
