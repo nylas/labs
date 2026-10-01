@@ -95,6 +95,20 @@ describe('user preferences', () => {
 		expect(readUserPreferences().threadView).toBe('conversation')
 	})
 
+	it('remembers the clean layout, and falls back to readable for a layout it does not know', () => {
+		// `clean` is the Conversation view's article layout. A value from a newer
+		// build must degrade to the readable layout rather than break the reader.
+		expect(defaultUserPreferences().emailLayoutMode).toBe('readable')
+		for (const emailLayoutMode of ['clean', 'original', 'readable']) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ emailLayoutMode }))
+			expect(readUserPreferences().emailLayoutMode).toBe(emailLayoutMode)
+		}
+		for (const emailLayoutMode of ['magazine', 7, null]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ emailLayoutMode }))
+			expect(readUserPreferences().emailLayoutMode).toBe('readable')
+		}
+	})
+
 	it('keeps the split reading pane for unknown stored layouts', () => {
 		// A layout name from a newer or tampered build must not hide the list.
 		for (const readingPane of ['diagonal', 42, null]) {
