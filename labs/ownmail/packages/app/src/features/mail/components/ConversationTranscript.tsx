@@ -101,16 +101,38 @@ export function ConversationTranscript({
 		}
 	}, [account, messages, setStoredTrust])
 
+	// One more classification signal, fetched only now that the view is on. Until
+	// it answers, and if it fails, messages are classified on their bodies alone.
+	const [listUnsubscribeIds, setListUnsubscribeIds] = useState<ReadonlySet<string>>(() => new Set())
+	useEffect(() => {
+		let active = true
+		// Loaded on demand, so the standard reader never asks for message headers.
+		import('../server/mail-functions.js')
+			.then(({ getThreadListUnsubscribe }) => getThreadListUnsubscribe({ data: { threadId } }))
+			.then(
+				(result) => {
+					if (active) setListUnsubscribeIds(new Set(result.messageIds))
+				},
+				() => {},
+			)
+		return () => {
+			active = false
+		}
+	}, [threadId])
+
 	const allowAll = preferences.remoteImagePolicy === 'always' || loadRemoteImagesForThread
 	const contents = useMemo(() => {
 		const map = new Map<string, { content: MessageContent; allowed: boolean }>()
 		for (const message of messages) {
 			const sender = senderKey(message)
 			const allowed = allowAll || trustedDuringThisView.has(sender) || storedTrust.has(sender)
-			map.set(message.id, { content: messageContent(message, allowed, cleanDesigned), allowed })
+			map.set(message.id, {
+				content: messageContent(message, allowed, cleanDesigned, listUnsubscribeIds.has(message.id)),
+				allowed,
+			})
 		}
 		return map
-	}, [allowAll, cleanDesigned, messages, storedTrust, trustedDuringThisView])
+	}, [allowAll, cleanDesigned, listUnsubscribeIds, messages, storedTrust, trustedDuringThisView])
 
 	const conversation = useMemo(
 		() =>

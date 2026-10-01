@@ -10,6 +10,7 @@ import {
 	CONFIDENCE_THRESHOLD,
 	classifyMail,
 	cleanConfidence,
+	foldBoilerplate,
 	messageContent,
 	normaliseBlocks,
 	stripHiddenContent,
@@ -467,14 +468,20 @@ describe('cleanConfidence', () => {
 		expect(score('<img alt="Poster" width="600" height="800">')).toBe(0)
 	})
 
-	it('drops below the threshold for a data table the unwrap would flatten', () => {
+	it('drops below the threshold for a marked data table that cannot be kept as a table', () => {
+		const nested = (mark: string) =>
+			`<table>${mark}<tr><td><table><tr><td>${PROSE_FILLER}</td></tr></table></td></tr></table>`
 		for (const table of [
-			`<table><tr><th>Item</th></tr><tr><td>${PROSE_FILLER}</td></tr></table>`,
-			`<table><thead><tr><td>Item</td></tr></thead><tr><td>${PROSE_FILLER}</td></tr></table>`,
-			`<table><caption>Order</caption><tr><td>${PROSE_FILLER}</td></tr></table>`,
+			nested('<tr><th>Item</th></tr>'),
+			nested('<thead><tr><td>Item</td></tr></thead>'),
+			nested('<caption>Order</caption>'),
 		]) {
 			expect(score(table)).toBeLessThan(CONFIDENCE_THRESHOLD)
 		}
+		// The same marks on a table that is kept as a table cost nothing.
+		expect(
+			score('<table><tr><th>Item</th><th>Price</th></tr><tr><td>Notebook</td><td>$18.00</td></tr></table>'),
+		).toBe(1)
 	})
 
 	it('drops below the threshold when the content is mostly images', () => {
@@ -552,10 +559,13 @@ describe('designed mail', () => {
 
 	it('keeps the standard reader when the gate is unsure, or when original layouts were asked for', () => {
 		expect(
-			messageContent(message('<table><tr><th>Item</th></tr><tr><td>Notebook</td></tr></table>'), false),
-		).toEqual({
-			kind: 'original',
-		})
+			messageContent(
+				message(
+					'<table><tr><th>Item</th></tr><tr><td><table><tr><td>Notebook</td></tr></table></td></tr></table>',
+				),
+				false,
+			),
+		).toEqual({ kind: 'original' })
 		const article = message(designed('Hello'))
 		expect(messageContent(article, false).kind).toBe('article')
 		expect(messageContent(article, false, false)).toEqual({ kind: 'original' })
@@ -569,6 +579,214 @@ describe('designed mail', () => {
 		expect(messageContent(reply, false)).toMatchObject({ kind: 'blocks' })
 		// The reader's layout choice is about designed mail, not about replies.
 		expect(messageContent(reply, false, false)).toMatchObject({ kind: 'blocks' })
+	})
+})
+
+describe('data tables', () => {
+	const table = (html: string) => blocksOf(html)[0]
+
+	it('keeps a table its author marked as data, header row and caption included', () => {
+		expect(
+			table(
+				'<table><caption> Order  1042 </caption><thead><tr><td>Item</td><td>Price</td></tr></thead>' +
+					'<tr><td>Field <b>notebook</b></td><td><a href="https://shop.example/n">$18.00</a></td></tr>' +
+					'<tr><td><img alt="Gift" src="x.png" width="80" height="80"></td><td></td></tr></table>',
+			),
+		).toEqual({
+			type: 'table',
+			header: true,
+			caption: 'Order 1042',
+			rows: [
+				[[{ text: 'Item' }], [{ text: 'Price' }]],
+				[
+					[{ text: 'Field ' }, { text: 'notebook', bold: true }],
+					[{ text: '$18.00', href: 'https://shop.example/n' }],
+				],
+				[[{ text: 'Gift' }], []],
+			],
+		})
+		expect(
+			table('<table><tr><th>Status</th><th>Job</th></tr><tr><td>OK</td><td>Lint</td></tr></table>'),
+		).toMatchObject({
+			type: 'table',
+			header: true,
+		})
+	})
+
+	it('keeps an unmarked table that is a regular grid of short cells', () => {
+		expect(
+			table(
+				'<table><tr><td>Depart</td><td>8:40 AM</td></tr><tr><td>Arrive</td><td>11:55 PM</td></tr></table>',
+			),
+		).toEqual({
+			type: 'table',
+			header: false,
+			rows: [
+				[[{ text: 'Depart' }], [{ text: '8:40 AM' }]],
+				[[{ text: 'Arrive' }], [{ text: '11:55 PM' }]],
+			],
+		})
+	})
+
+	it('reads everything else as layout, in row order', () => {
+		const long =
+			'A calmer clipboard keeps twenty items and nothing else, and that limit turned out to be the feature.'
+		for (const layout of [
+			// One row, one column, ragged rows, merged cells, prose cells, blocks in cells, empty grids.
+			'<table><tr><td>Home</td><td>Archive</td></tr></table>',
+			'<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>',
+			'<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>',
+			'<table><tr><td colspan="2">Title</td><td>x</td></tr><tr><td>a</td><td>b</td></tr></table>',
+			`<table><tr><td>${long}</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>`,
+			'<table><tr><td><p>a</p></td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>',
+			'<table><tr><td></td><td></td></tr><tr><td></td><td></td></tr></table>',
+			// The author said it is layout.
+			'<table role="presentation"><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>',
+			// A table that holds tables is layout, whatever its header says.
+			'<table><tr><th>Item</th><th>x</th></tr><tr><td><table><tr><td>Notebook</td></tr></table></td><td>y</td></tr></table>',
+			'<table></table>',
+		]) {
+			expect(blocksOf(layout).every((block) => block.type !== 'table')).toBe(true)
+		}
+	})
+
+	it('counts a kept table in the text, the links and the confidence', () => {
+		const html =
+			'<table><caption>Order</caption><tr><th>Item</th><th>Price</th></tr><tr><td>Notebook</td><td><a href="https://shop.example/n">$18.00</a></td></tr></table>'
+		const body = bodyOf(html)
+		const blocks = normaliseBlocks(body)
+		expect(blocksText(blocks)).toBe('Order\nItem | Price\nNotebook | $18.00')
+		expect(
+			blocksText(blocksOf('<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>')),
+		).toBe('a | b\nc | d')
+		expect(blockLinks(blocks)).toEqual(['https://shop.example/n'])
+		expect(cleanConfidence(body, blocks)).toBe(1)
+	})
+})
+
+describe('foldBoilerplate', () => {
+	const p = (text: string): CleanBlock => ({ type: 'paragraph', spans: [{ text }] })
+	const links = (...labels: string[]): CleanBlock => ({
+		type: 'paragraph',
+		spans: labels.flatMap((label, index) => [
+			...(index > 0 ? [{ text: ' · ' }] : []),
+			{ text: label, href: `https://example.com/${label.toLowerCase().replace(/\s+/g, '-')}` },
+		]),
+	})
+	const BODY = [
+		p('Issue 112: the quiet tools issue'),
+		p('Three small utilities we kept using all month.'),
+		p('A calmer clipboard keeps twenty items.'),
+		p('Plain-text timers beat every app we tried.'),
+	]
+
+	it('moves navigation, social rows and the footer into one disclosure, in order, deleting nothing', () => {
+		const nav = links('Home', 'Archive', 'Shop', 'View in browser')
+		const social = links('Social', 'Video')
+		const legal: CleanBlock = {
+			type: 'paragraph',
+			spans: [
+				{ text: '© Harbor & Pine · 12 Quay Street · ' },
+				{ text: 'Unsubscribe', href: 'https://example.com/unsubscribe' },
+				{ text: ' · ' },
+				{ text: 'Preferences', href: 'https://example.com/preferences' },
+			],
+		}
+		const folded = foldBoilerplate([nav, ...BODY, p('Reply to tell us what you use.'), social, legal])
+		expect(folded).toEqual([
+			...BODY,
+			p('Reply to tell us what you use.'),
+			{ type: 'footer', blocks: [nav, social, legal], links: 8, unsubscribe: true },
+		])
+		// Unsubscribe is still reachable.
+		expect(blockLinks(folded)).toContain('https://example.com/unsubscribe')
+		expect(blocksText(folded)).toContain('Home · Archive · Shop · View in browser')
+	})
+
+	it('folds a list of footer links, and finds unsubscribe by its address when the label says something else', () => {
+		const list: CleanBlock = {
+			type: 'list',
+			ordered: false,
+			items: [
+				[{ text: 'Stop these emails', href: 'https://example.com/unsubscribe?u=1' }],
+				[{ text: 'Privacy', href: 'https://example.com/p' }],
+			],
+		}
+		expect(foldBoilerplate([...BODY, list]).at(-1)).toEqual({
+			type: 'footer',
+			blocks: [list],
+			links: 2,
+			unsubscribe: true,
+		})
+		expect(foldBoilerplate([...BODY, p('© 2026 Harbor & Pine. All rights reserved.')]).at(-1)).toMatchObject({
+			type: 'footer',
+			links: 0,
+			unsubscribe: false,
+		})
+	})
+
+	it('never folds a block that holds a code someone has to type in', () => {
+		for (const text of [
+			'Your code is 482913 and it expires in 10 minutes. Privacy · Terms',
+			'© Lanternpost. Your PIN: 4821. Unsubscribe',
+			'Verification 90412 · Privacy',
+		]) {
+			expect(foldBoilerplate([...BODY, p(text)])).toEqual([...BODY, p(text)])
+		}
+		// A year, a postcode, a phone number or a price is not a code.
+		const footer = p(
+			'© 2026 Harbor & Pine, 12 Quay Street, Portside 94107 · +1 555 0100 · from $1,299.00 · Unsubscribe',
+		)
+		expect(foldBoilerplate([...BODY, footer]).at(-1)).toMatchObject({ type: 'footer' })
+	})
+
+	it('never folds the call to action, headings, images or ordinary copy', () => {
+		const cta: CleanBlock = {
+			type: 'paragraph',
+			spans: [{ text: 'Unsubscribe me now', href: 'https://example.com/go', cta: true }],
+		}
+		const heading: CleanBlock = { type: 'heading', level: 2, spans: [{ text: 'Privacy terms' }] }
+		const image: CleanBlock = { type: 'image', alt: 'Unsubscribe', href: 'https://example.com/u' }
+		// Legal words in the middle of the message, or a closing line without them, are just copy.
+		const middle = [
+			p('Intro'),
+			p('We changed our privacy policy this month.'),
+			...BODY,
+			p('See you next week.'),
+		]
+		// A single link on its own line at the end is a "read more", not navigation.
+		const readMore = [...BODY, links('Read the deep dive')]
+		for (const blocks of [[...BODY, cta], [...BODY, heading], [...BODY, image], middle, readMore]) {
+			expect(foldBoilerplate(blocks)).toEqual(blocks)
+		}
+	})
+
+	it('folds nothing when that would leave nothing to read', () => {
+		const only = [p('© Harbor & Pine · Unsubscribe')]
+		expect(foldBoilerplate(only)).toEqual(only)
+		expect(foldBoilerplate([])).toEqual([])
+	})
+})
+
+describe('the List-Unsubscribe header', () => {
+	const notice = `<table width="600"><tr><td>Room 4B is confirmed. ${'Details follow. '.repeat(12)}</td></tr></table>`
+
+	it('classifies a message as bulk mail on its own, like an unsubscribe link in the body', () => {
+		expect(classifyMail(bodyOf(notice), false)).toBe('transactional')
+		expect(classifyMail(bodyOf(notice), false, true)).toBe('newsletter')
+		expect(messageContent(message(notice), false, true, true)).toMatchObject({
+			kind: 'article',
+			mailClass: 'newsletter',
+		})
+		// Without the header the body decides, exactly as before.
+		expect(messageContent(message(notice), false)).toMatchObject({
+			kind: 'article',
+			mailClass: 'transactional',
+		})
+		// A plain letter from a mailing list becomes an article instead of a chat bubble.
+		expect(messageContent(message('<p>Hello list, the meeting moved.</p>'), false, true, true).kind).toBe(
+			'article',
+		)
 	})
 })
 

@@ -57,6 +57,7 @@ function makeMailbox() {
 		listThreads: vi.fn(),
 		getThread: vi.fn(),
 		getMessage: vi.fn(),
+		listMessages: vi.fn(),
 		updateThread: vi.fn(),
 		listDrafts: vi.fn(),
 		send: vi.fn(),
@@ -361,6 +362,63 @@ describe('getThreads', () => {
 		await expect(fns.getThreads.handler({ data: {} })).rejects.toThrow(
 			'Something went wrong talking to your mailbox. Check your connection and try again.',
 		)
+	})
+})
+
+describe('getThreadListUnsubscribe', () => {
+	it('validates the thread id', () => {
+		expect(fns.getThreadListUnsubscribe.validator({ threadId: 'thread-1' })).toEqual({ threadId: 'thread-1' })
+		expect(() => fns.getThreadListUnsubscribe.validator({ threadId: 'bad\nid' })).toThrow()
+	})
+
+	it('asks for headers on one thread and returns only the ids of bulk messages, never a header value', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValue({
+			data: [
+				{
+					id: 'news',
+					headers: [{ name: 'List-Unsubscribe', value: '<https://secret.example/u?token=abc>' }],
+				},
+				{ id: 'lower', headers: [{ name: ' list-unsubscribe ', value: '<mailto:leave@example.com>' }] },
+				{ id: 'person', headers: [{ name: 'Message-ID', value: '<1@example.com>' }] },
+				{ id: 'blank', headers: [{ name: 'List-Unsubscribe', value: '  ' }] },
+				{
+					id: 'odd',
+					headers: [
+						null,
+						'List-Unsubscribe',
+						{ name: 7, value: 'x' },
+						{ name: 'List-Unsubscribe', value: 9 },
+					],
+				},
+				{ id: 'none' },
+				{ id: 'not-a-list', headers: { 'List-Unsubscribe': 'x' } },
+				{ id: 42, headers: [{ name: 'List-Unsubscribe', value: 'x' }] },
+				null,
+			],
+		})
+		const result = await fns.getThreadListUnsubscribe.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+		})
+		expect(result).toEqual({ messageIds: ['news', 'lower'] })
+		expect(JSON.stringify(result)).not.toContain('secret.example')
+	})
+
+	it('answers "none" when the lookup fails or returns something unexpected, so the reader still works', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockRejectedValue(new NylasApiError('fields is not supported', 400))
+		expect(await fns.getThreadListUnsubscribe.handler({ data: { threadId: 't1' } })).toEqual({
+			messageIds: [],
+		})
+
+		mailbox.listMessages.mockResolvedValue({ data: 'unexpected' })
+		expect(await fns.getThreadListUnsubscribe.handler({ data: { threadId: 't1' } })).toEqual({
+			messageIds: [],
+		})
 	})
 })
 

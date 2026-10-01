@@ -11,8 +11,9 @@
  *
  * Designed mail (newsletters, receipts, notifications) goes through the clean
  * pipeline first: classify on body signals, strip hidden and tracking content,
- * unwrap layout tables in reading order, normalise, then pass a confidence
- * gate. A message the gate is unsure about keeps the standard reader.
+ * unwrap layout tables in reading order (keeping real data tables as tables),
+ * normalise, pass a confidence gate, and fold boilerplate into one disclosure.
+ * A message the gate is unsure about keeps the standard reader.
  *
  * Every step is deterministic code; nothing here calls a model or the network.
  */
@@ -53,6 +54,10 @@ export type CleanBlock =
 	| { type: 'signature'; blocks: CleanBlock[] }
 	/** A quoted line the thread already showed, kept as a short pointer above its answer. */
 	| { type: 'reference'; text: string; author?: string }
+	/** A real data table: rows of cells, with the first row a header when the sender marked one. */
+	| { type: 'table'; header: boolean; rows: CleanSpan[][][]; caption?: string }
+	/** Navigation, social rows and footers, folded into one disclosure and never deleted. */
+	| { type: 'footer'; blocks: CleanBlock[]; links: number; unsubscribe: boolean }
 
 /** What a message is, judged from its body alone. */
 export type MailClass = 'prose' | 'reply' | 'transactional' | 'newsletter'
@@ -99,6 +104,19 @@ const HEADING_MAX_CHARS = 120
 export const CONFIDENCE_THRESHOLD = 0.85
 /** With less text than this outside links, a message with images is treated as image-only. */
 const IMAGE_ONLY_TEXT = 140
+/** A grid cell longer than this is prose in a layout column, not data. */
+const DATA_CELL_MAX_CHARS = 60
+/** What footers say: copyright, why you got this, how to stop it, the small print. */
+const LEGAL =
+	/©|\(c\)\s*\d{4}|all rights reserved|unsubscribe|opt[\s-]?out|privacy|terms\b|you(?:'|’| a)re receiving|view (?:this email )?in (?:your |a )?browser|preferences|no longer wish/i
+/** A row this short that is nearly all links is navigation or a social row. */
+const LINK_ROW_MAX_CHARS = 120
+const LINK_ROW_DENSITY = 0.7
+const FOLD_SCORE = 3
+/** A one-time code: six to eight digits, or four or more next to a word that says so. */
+const LONG_CODE = /(?<![\d/-])(?<!\d[.,])\d{6,8}(?![\d/-]|[.,]\d)/
+const SHORT_CODE = /(?<![\d/-])(?<!\d[.,])\d{4,8}(?![\d/-]|[.,]\d)/
+const CODE_WORD = /\b(?:code|pin|otp|passcode|password|verification|one[\s-]time)\b/i
 const UNSUBSCRIBE = /unsubscribe|opt[\s-]?out|(?:manage|update|email)\s+(?:your\s+)?(?:email\s+)?preferences/i
 const HIDDEN_STYLE =
 	/(?:^|;)(?:display:none|visibility:hidden|mso-hide:all|opacity:0(?![.\d])|color:transparent|(?:font-size|max-height|line-height):0(?![.\d]))/
@@ -260,13 +278,7 @@ function listItems(list: Element, marks: Marks): CleanSpan[][] {
 			if (child.nodeType === 1 && ['UL', 'OL'].includes((child as Element).tagName)) continue
 			inlinePieces(child, marks, pieces)
 		}
-		const spans = tidySpans(
-			pieces.map((piece) =>
-				'image' in piece
-					? { text: piece.image.alt, ...(piece.image.href ? { href: piece.image.href } : {}) }
-					: piece,
-			),
-		)
+		const spans = tidySpans(pieces.map(pieceSpan))
 		if (spans.length > 0) items.push(spans)
 	}
 	return items
@@ -293,6 +305,10 @@ function blockElement(element: Element, marks: Marks, out: CleanBlock[]): void {
 	if (tag === 'UL' || tag === 'OL') {
 		const items = listItems(element, marks)
 		if (items.length > 0) out.push({ type: 'list', ordered: tag === 'OL', items })
+		return
+	}
+	if (tag === 'TABLE' && isDataTable(element)) {
+		out.push(dataTable(element, marks))
 		return
 	}
 	const nested =
@@ -342,6 +358,67 @@ function styledHeadingLevel(element: Element): 1 | 2 | undefined {
 	return size >= TITLE_FONT_PX ? 1 : size >= HEADING_FONT_PX ? 2 : undefined
 }
 
+/** The rows of a table itself, not of tables nested inside it. */
+function ownRows(table: Element): Element[] {
+	return Array.from(table.querySelectorAll('tr')).filter((row) => row.closest('table') === table)
+}
+
+const ownCells = (row: Element): Element[] =>
+	Array.from(row.children).filter((cell) => /^T[DH]$/.test(cell.tagName))
+
+/**
+ * Step 3: a table is data only if its author said so (`th`, `thead` or
+ * `caption`), or it is a regular grid of short text cells. A table that holds
+ * other tables, or is marked `role=presentation`, is layout.
+ */
+function isDataTable(table: Element): boolean {
+	if (table.querySelector('table')) return false
+	if (table.querySelector('th, thead, caption')) return true
+	if (table.getAttribute('role') === 'presentation') return false
+	const rows = ownRows(table).map(ownCells)
+	const columns = rows[0]?.length ?? 0
+	return (
+		rows.length >= 2 &&
+		columns >= 2 &&
+		rows.every(
+			(cells) =>
+				cells.length === columns &&
+				cells.every(
+					(cell) =>
+						!cell.hasAttribute('colspan') &&
+						!cell.querySelector(BLOCK_SELECTOR) &&
+						cell.textContent.trim().length <= DATA_CELL_MAX_CHARS,
+				),
+		) &&
+		rows.some((cells) => cells.some((cell) => cell.textContent.trim() !== ''))
+	)
+}
+
+function dataTable(table: Element, marks: Marks): CleanBlock {
+	const rows = ownRows(table)
+	const caption = table.querySelector('caption')?.textContent.replace(/\s+/g, ' ').trim()
+	const first = rows[0]
+	return {
+		type: 'table',
+		header: first !== undefined && (first.closest('thead') !== null || first.querySelector('th') !== null),
+		rows: rows.map((row) =>
+			ownCells(row).map((cell) => {
+				const pieces: Piece[] = []
+				for (const child of Array.from(cell.childNodes)) inlinePieces(child, marksFor(cell, marks), pieces)
+				return tidySpans(pieces.map(pieceSpan))
+			}),
+		),
+		...(caption ? { caption } : {}),
+	}
+}
+
+/** An image inside running text (a list item, a table cell) reads as its description. */
+function pieceSpan(piece: Piece): CleanSpan {
+	return 'image' in piece
+		? { text: piece.image.alt, ...(piece.image.href ? { href: piece.image.href } : {}) }
+		: piece
+}
+
 /** A block element, or an inline wrapper (a link around a table, say) that contains one. */
 function isBlockLevel(node: Node): node is Element {
 	if (node.nodeType !== 1) return false
@@ -385,7 +462,13 @@ function blockText(block: CleanBlock): string {
 		case 'quote':
 		case 'history':
 		case 'signature':
+		case 'footer':
 			return blocksText(block.blocks)
+		case 'table':
+			return [
+				...(block.caption ? [block.caption] : []),
+				...block.rows.map((cells) => cells.map(spansText).join(' | ')),
+			].join('\n')
 		case 'reference':
 			return block.text
 		case 'image':
@@ -481,10 +564,12 @@ export function bodySignals(body: Element): BodySignals {
  * nested or presentation tables. Otherwise a message with quoted history is a
  * reply chain, prose is prose, and the rest is transactional.
  */
-export function classifyMail(body: Element, isProse: boolean): MailClass {
+export function classifyMail(body: Element, isProse: boolean, listUnsubscribe = false): MailClass {
 	const signals = bodySignals(body)
 	const bulk =
-		(signals.unsubscribeLinks > 0 ? 2 : 0) +
+		// The List-Unsubscribe header is the sender declaring bulk mail; it weighs
+		// the same as an unsubscribe link in the body.
+		(listUnsubscribe || signals.unsubscribeLinks > 0 ? 2 : 0) +
 		(signals.links >= 4 && signals.linkDensity >= 0.3 ? 1 : 0) +
 		(signals.images >= 3 && signals.textLength / signals.images < 400 ? 1 : 0) +
 		(signals.tableDepth >= 3 || signals.presentationTables >= 2 ? 1 : 0)
@@ -582,9 +667,9 @@ function keptText(blocks: CleanBlock[]): string {
 		.map((block) => {
 			if (block.type === 'heading' || block.type === 'paragraph') return spansText(block.spans)
 			if (block.type === 'list') return block.items.map(spansText).join('')
-			if (block.type === 'quote' || block.type === 'history' || block.type === 'signature') {
-				return keptText(block.blocks)
-			}
+			const nested = nestedBlocks(block)
+			if (nested) return keptText(nested)
+			if (block.type === 'table') return `${block.caption ?? ''}${block.rows.flat().map(spansText).join('')}`
 			return block.type === 'code' ? block.text : ''
 		})
 		.join('')
@@ -592,14 +677,16 @@ function keptText(blocks: CleanBlock[]): string {
 
 /**
  * Step 8, the confidence gate: the share of visible text the blocks retained,
- * with a penalty for a data table the unwrap would flatten and for content that
+ * with a penalty for a marked data table that had to be flattened and for content that
  * is mostly images, where the text is likely baked into the pictures.
  */
 export function cleanConfidence(body: Element, blocks: CleanBlock[]): number {
 	const visible = visibleText(body)
 	if (blocks.length === 0 || visible.length === 0) return 0
 	let score = Math.min(1, squash(keptText(blocks)).length / visible.length)
-	if (body.querySelector('th, thead, caption')) score -= 0.5
+	// A table its author marked as data, but that could not be kept as one.
+	const marked = Array.from(body.querySelectorAll('th, thead, caption'))
+	if (marked.some((element) => !isDataTable(element.closest('table') as Element))) score -= 0.5
 	if (body.querySelector('img')) {
 		const copy = body.cloneNode(true) as Element
 		for (const anchor of copy.querySelectorAll('a')) anchor.remove()
@@ -621,6 +708,8 @@ export function messageContent(
 	message: MailMessage,
 	allowRemoteImages: boolean,
 	cleanDesigned = true,
+	/** The message carried a List-Unsubscribe header (attested by the server; body signals decide otherwise). */
+	listUnsubscribe = false,
 ): MessageContent {
 	if (message.ownmailDraft === true) return ORIGINAL
 	if (!messageHasHtml(message)) {
@@ -641,7 +730,7 @@ export function messageContent(
 			? (sanitizeEmailDocument(prepared.html, { allowRemoteImages: true }) as HTMLElement)
 			: blocked
 	const body = sanitized.querySelector('body') as HTMLElement
-	const mailClass = classifyMail(body, prepared.isProse)
+	const mailClass = classifyMail(body, prepared.isProse, listUnsubscribe)
 	const designed = mailClass === 'newsletter' || mailClass === 'transactional' ? mailClass : undefined
 	if (!designed && prepared.isProse) {
 		// Prose skips straight to normalisation.
@@ -653,8 +742,71 @@ export function messageContent(
 	const blocks = normaliseBlocks(body)
 	if (cleanConfidence(body, blocks) < CONFIDENCE_THRESHOLD) return ORIGINAL
 	return designed
-		? { kind: 'article', blocks, hasRemoteImages, mailClass: designed }
+		? { kind: 'article', blocks: foldBoilerplate(blocks), hasRemoteImages, mailClass: designed }
 		: { kind: 'blocks', blocks, hasRemoteImages }
+}
+
+/** The blocks inside a quote, quoted history, signature or footer. */
+export function nestedBlocks(block: CleanBlock): CleanBlock[] | undefined {
+	return block.type === 'quote' ||
+		block.type === 'history' ||
+		block.type === 'signature' ||
+		block.type === 'footer'
+		? block.blocks
+		: undefined
+}
+
+function blockSpans(block: CleanBlock): CleanSpan[] {
+	if (block.type === 'paragraph') return block.spans
+	return block.type === 'list' ? block.items.flat() : []
+}
+
+/** A code someone has to type in must stay in plain sight, whatever else the block looks like. */
+function holdsCode(text: string): boolean {
+	return LONG_CODE.test(text) || (CODE_WORD.test(text) && SHORT_CODE.test(text))
+}
+
+/**
+ * Step 4, fold boilerplate. Each paragraph or list is scored on what marks
+ * navigation, social rows and footers: legal wording (2), a short row of two or
+ * more links that is nearly all links (2), and sitting at the very start or in the closing part of
+ * the message (1). Blocks scoring 3 or more move, in order, into one footer
+ * disclosure at the end. Nothing is deleted, so unsubscribe stays reachable. A
+ * call to action is never folded, and neither is a block holding a short
+ * numeric code.
+ */
+export function foldBoilerplate(blocks: CleanBlock[]): CleanBlock[] {
+	const kept: CleanBlock[] = []
+	const folded: CleanBlock[] = []
+	blocks.forEach((block, index) => {
+		const spans = blockSpans(block)
+		const text = spansText(spans)
+		const linked = spans.reduce((total, span) => total + (span.href ? span.text.length : 0), 0)
+		// One link on its own line is a "read more", not a row of navigation.
+		const targets = new Set(spans.flatMap((span) => (span.href ? [span.href] : []))).size
+		const edge = index === 0 || index >= blocks.length * 0.75
+		const score =
+			(LEGAL.test(text) ? 2 : 0) +
+			(targets >= 2 && text.length <= LINK_ROW_MAX_CHARS && linked / text.length >= LINK_ROW_DENSITY
+				? 2
+				: 0) +
+			(edge ? 1 : 0)
+		const protectedBlock = spans.length === 0 || spans.some((span) => span.cta) || holdsCode(text)
+		if (!protectedBlock && score >= FOLD_SCORE) folded.push(block)
+		else kept.push(block)
+	})
+	// With everything folded there would be nothing left to read: fold nothing.
+	if (folded.length === 0 || kept.length === 0) return blocks
+	const links = folded.flatMap(blockSpans).filter((span) => span.href)
+	return [
+		...kept,
+		{
+			type: 'footer',
+			blocks: folded,
+			links: new Set(links.map((span) => span.href)).size,
+			unsubscribe: links.some((span) => UNSUBSCRIBE.test(span.text) || UNSUBSCRIBE.test(span.href as string)),
+		},
+	]
 }
 
 function linksOf(blocks: CleanBlock[], out: Set<string>): void {
@@ -663,9 +815,11 @@ function linksOf(blocks: CleanBlock[], out: Set<string>): void {
 			for (const span of block.spans) if (span.href) out.add(span.href)
 		} else if (block.type === 'list') {
 			for (const span of block.items.flat()) if (span.href) out.add(span.href)
-		} else if (block.type === 'quote' || block.type === 'history' || block.type === 'signature') {
-			linksOf(block.blocks, out)
-		} else if (block.type === 'image' && block.href) out.add(block.href)
+		} else if (block.type === 'table') {
+			for (const span of block.rows.flat(2)) if (span.href) out.add(span.href)
+		} else if (block.type === 'image') {
+			if (block.href) out.add(block.href)
+		} else linksOf(nestedBlocks(block) ?? [], out)
 	}
 }
 

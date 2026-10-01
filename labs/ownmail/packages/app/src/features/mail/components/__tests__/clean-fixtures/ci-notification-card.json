@@ -1,3 +1,134 @@
 {
-	"kind": "original"
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "heading",
+			"level": 1,
+			"spans": [
+				{
+					"text": "[acme/"
+				},
+				{
+					"text": "website",
+					"href": "https://fixtures.invalid/acme/website"
+				},
+				{
+					"text": "] CI workflow run"
+				}
+			]
+		},
+		{
+			"type": "heading",
+			"level": 1,
+			"spans": [
+				{
+					"text": "CI: Some jobs were not successful"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "View workflow run",
+					"href": "https://fixtures.invalid/runs/1"
+				}
+			]
+		},
+		{
+			"type": "table",
+			"header": true,
+			"rows": [
+				[
+					[
+						{
+							"text": "Status"
+						}
+					],
+					[
+						{
+							"text": "Job"
+						}
+					],
+					[
+						{
+							"text": "Annotations"
+						}
+					]
+				],
+				[
+					[],
+					[
+						{
+							"text": "CI",
+							"bold": true
+						},
+						{
+							"text": " / Lint, typecheck, build\nSucceeded in 5 minutes and 28 seconds"
+						}
+					],
+					[
+						{
+							"text": "1"
+						}
+					]
+				],
+				[
+					[],
+					[
+						{
+							"text": "CI",
+							"bold": true
+						},
+						{
+							"text": " / E2E (chromium)\nFailed in 11 minutes and 2 seconds"
+						}
+					],
+					[
+						{
+							"text": "3"
+						}
+					]
+				],
+				[
+					[],
+					[
+						{
+							"text": "CI",
+							"bold": true
+						},
+						{
+							"text": " / Unit tests\nSucceeded in 2 minutes and 51 seconds"
+						}
+					],
+					[
+						{
+							"text": "0"
+						}
+					]
+				]
+			]
+		},
+		{
+			"type": "footer",
+			"blocks": [
+				{
+					"type": "paragraph",
+					"spans": [
+						{
+							"text": "You are receiving this because this workflow ran on your push.\n"
+						},
+						{
+							"text": "Manage your workflow notifications",
+							"href": "https://fixtures.invalid/settings"
+						}
+					]
+				}
+			],
+			"links": 1,
+			"unsubscribe": false
+		}
+	],
+	"hasRemoteImages": false,
+	"mailClass": "transactional"
 }

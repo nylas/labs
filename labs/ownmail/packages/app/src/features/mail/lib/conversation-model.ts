@@ -11,7 +11,7 @@
  */
 
 import type { MailMessage } from '../state/mail-queries.js'
-import { blocksText, type CleanBlock, type MessageContent } from './clean-view.js'
+import { blocksText, type CleanBlock, type MessageContent, nestedBlocks } from './clean-view.js'
 
 /** Consecutive emails from one sender this close together read as one run. */
 export const GROUP_WINDOW_SECONDS = 5 * 60
@@ -94,8 +94,10 @@ const fingerprint = (text: string): string => text.toLowerCase().replace(/[^\p{L
  */
 export function rememberBlocks(shown: ShownBlock[], blocks: CleanBlock[], author?: string): void {
 	for (const block of blocks) {
-		if (block.type === 'quote' || block.type === 'history' || block.type === 'signature') {
-			rememberBlocks(shown, block.blocks)
+		const nested = nestedBlocks(block)
+		if (nested) {
+			// A footer is the sender's own words; quoted text is somebody else's.
+			rememberBlocks(shown, nested, block.type === 'footer' ? author : undefined)
 			continue
 		}
 		const text = fingerprint(blocksText([block]))

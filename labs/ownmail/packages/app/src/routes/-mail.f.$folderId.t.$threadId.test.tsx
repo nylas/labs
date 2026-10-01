@@ -23,6 +23,10 @@ const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
 const markThreadRead = vi.fn()
 const getThreads = vi.fn()
+// The Conversation view looks up bulk-mail headers on demand; the route tests never need a real lookup.
+vi.mock('#features/mail/server/mail-functions', () => ({
+	getThreadListUnsubscribe: () => Promise.resolve({ messageIds: [] }),
+}))
 vi.mock('#server/fns', () => ({
 	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
 	getThreads: (input: any) => getThreads(input),
