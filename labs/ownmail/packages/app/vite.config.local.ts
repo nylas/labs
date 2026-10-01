@@ -24,6 +24,8 @@ export default defineConfig(({ command }) => ({
 	environments: {
 		ssr: {
 			build: {
+				// Keep the packed Node server small alongside the Cloudflare build.
+				minify: 'esbuild',
 				rollupOptions: {
 					external: ['cloudflare:workers'],
 				},
