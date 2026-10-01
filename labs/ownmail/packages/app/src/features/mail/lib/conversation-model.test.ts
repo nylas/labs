@@ -121,6 +121,15 @@ describe('bubbleContent', () => {
 				'a@example.com\nb@example.com\nc@example.com\nd@example.com\ne@example.com\nf@example.com\ng@example.com',
 			),
 			quote('+1 555 010 0199\ntomas@example.com'),
+			// Contact details without a name line identify nobody.
+			text('+1 555 010 0199\ntomas@example.com'),
+			text('Tomas\n+1 555 010 0199\ntomas@example.com'),
+			// A name with a single contact line is too little to go on.
+			text('Tomas Reyes\ntomas@example.com'),
+			// Long lines are prose, not a signature.
+			text(
+				`Tomas Reyes\n${'reach me on +1 555 010 0199 during office hours only, '.repeat(2)}\ntomas@example.com`,
+			),
 		]) {
 			const blocks = [text('See you Thursday.'), closing]
 			expect(bubbleContent(blocks).blocks).toEqual(blocks)
@@ -128,6 +137,26 @@ describe('bubbleContent', () => {
 		// A message that is only contact details is the message.
 		const only = [text('+1 555 010 0199\ntomas@example.com')]
 		expect(bubbleContent(only)).toEqual({ blocks: only, unsure: false })
+	})
+
+	it('keeps a closing list of links: links alone are content, not a signature', () => {
+		// Two lines with URLs used to be enough to call a block a signature, which
+		// removed the very links the message was sent to share.
+		for (const closing of [
+			text('Resources:\nhttps://example.com/agenda\nhttps://example.com/venue'),
+			text('Further Reading\nhttps://example.com/agenda\nwww.example.com/venue'),
+			text('Contacts:\nines@example.com\ntomas@example.com'),
+		]) {
+			const blocks = [text('Here is what you asked for.'), closing]
+			expect(bubbleContent(blocks)).toEqual({ blocks, unsure: false })
+		}
+		// A name with a link and a personal contact is still a signature.
+		expect(
+			bubbleContent([
+				text('See you Thursday.'),
+				text('Mara Lindqvist\nhttps://example.com\n+46 8 555 010 01'),
+			]).blocks,
+		).toEqual([text('See you Thursday.')])
 	})
 
 	it('keeps a signature in place when there is text below it', () => {

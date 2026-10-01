@@ -33,6 +33,10 @@ const SIGNATURE_DASHES = /^--\s*(?:\n|$)/
 const SIGNATURE_MAX_LINES = 6
 const SIGNATURE_MAX_LINE_CHARS = 60
 const CONTACT_LINE = /\+?\d[\d\s().-]{6,}\d|@|https?:\/\/|www\./i
+/** A way to reach a person: a phone number or an email address. A link alone is not. */
+const PERSONAL_CONTACT = /\+?\d[\d\s().-]{6,}\d|[^\s@]+@[^\s@]+\.[^\s@]+/
+/** A person's name on its own line: two to four words, capitalised, nothing else. */
+const NAME_LINE = /^\p{Lu}[\p{L}.'’-]*(?: [\p{L}.'’-]+){1,3}$/u
 const SUBJECT_PREFIX = /^(?:\s*(?:re|fwd?|aw|wg|tr|sv)\s*:\s*)+/i
 
 export interface BubbleContent {
@@ -178,21 +182,30 @@ function isRepeat(block: CleanBlock, shown: readonly ShownBlock[]): boolean {
 	return text.length >= MIN_REPEAT && wasShown(shown, text) !== undefined
 }
 
-/** A short closing block made mostly of phone numbers, addresses and links. */
+/**
+ * A closing block that identifies a person: their name on the first line, then
+ * at least two contact lines, one of them a phone number or an email address.
+ * Contact lines alone are not enough. "Resources:" followed by two links is
+ * content, and removing it would lose the links; when the shape is not clearly
+ * a signature the block stays.
+ */
 function isContactBlock(block: CleanBlock): boolean {
 	if (block.type !== 'paragraph') return false
-	const lines = blocksText([block]).split('\n')
+	const [name, ...rest] = blocksText([block]).split('\n') as [string, ...string[]]
 	return (
-		lines.length >= 2 &&
-		lines.length <= SIGNATURE_MAX_LINES &&
-		lines.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS) &&
-		lines.filter((line) => CONTACT_LINE.test(line)).length >= 2
+		NAME_LINE.test(name) &&
+		rest.length >= 2 &&
+		rest.length < SIGNATURE_MAX_LINES &&
+		rest.every((line) => line.length <= SIGNATURE_MAX_LINE_CHARS) &&
+		rest.filter((line) => CONTACT_LINE.test(line)).length >= 2 &&
+		rest.some((line) => PERSONAL_CONTACT.test(line))
 	)
 }
 
 /**
  * Find the signature when the sender's client did not mark one: everything
- * from a `-- ` line to the quoted history, or else a closing contact block.
+ * from a `-- ` line to the quoted history, or else a closing block that names
+ * a person and how to reach them.
  */
 function markSignatures(blocks: CleanBlock[]): CleanBlock[] {
 	if (blocks.some((block) => block.type === 'signature')) return blocks
