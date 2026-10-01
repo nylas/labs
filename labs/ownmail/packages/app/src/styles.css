@@ -221,6 +221,20 @@
 }
 
 /*
+ * A message header in the thread reader is a 40px row with a fine pointer. On
+ * narrow and touch-capable devices it keeps the 44px touch floor.
+ */
+.message-header-row {
+	min-height: 2.5rem;
+}
+
+@media (max-width: 48rem), (any-pointer: coarse) {
+	.message-header-row {
+		min-height: var(--touch-target-min);
+	}
+}
+
+/*
  * iOS Safari zooms the viewport when an editable control has text smaller
  * than 16px. Keep every native or rich-text editing surface at that minimum
  * on touch-first devices; larger viewports retain their compact desktop type.

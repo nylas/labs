@@ -339,14 +339,30 @@ function normalizeContentId(value: string): string {
 	return normalized.replace(/^<|>$/g, '').trim().toLowerCase()
 }
 
+/** Declarations that place or size a box. Text styling (font, colour, margin, line-height) is not layout. */
+const LAYOUT_PROPERTY = '(?:(?:min-|max-)?(?:width|height)|display|position|float|background(?:-image)?)'
+const INLINE_LAYOUT = new RegExp(`(?:^|;)\\s*${LAYOUT_PROPERTY}\\s*:`, 'i')
+const INLINE_BOX = /(?:^|;)\s*(?:padding(?:-[\w-]+)?|border(?:-[\w-]+)?)\s*:/i
+const STYLESHEET_LAYOUT = new RegExp(`@media|(?:^|[;{\\s])${LAYOUT_PROPERTY}\\s*:`, 'i')
+/** Sizing and fill attributes on anything but an image, which carries them as plain content. */
+const LEGACY_DESIGN_SELECTOR = ':not(img)[width], :not(img)[height], [bgcolor], [background]'
+
+/**
+ * Whether a message reads as prose and so takes the reading measure. A message
+ * is prose unless it shows a sign of designed layout: a table or embedded media
+ * canvas, legacy sizing attributes, a stylesheet or inline style that sizes or
+ * positions a box, or a padded or bordered card. Images, text-only stylesheets
+ * (which most mail clients add to ordinary replies) and the padded, bordered
+ * blockquote that mail clients use for quotation are all ordinary prose.
+ */
 function isLikelyProseDocument(document: Document): boolean {
 	const body = document.body
 	if (!body.textContent?.trim()) return false
-	if (document.querySelector('style') || body.querySelector('table, img, svg, canvas, video, audio')) {
-		return false
+	if (body.querySelector('table, svg, canvas, video, audio')) return false
+	for (const stylesheet of document.querySelectorAll('style')) {
+		if (STYLESHEET_LAYOUT.test(stylesheet.textContent)) return false
 	}
-	const legacyDesignSelector = '[width], [height], [bgcolor], [background]'
-	if (body.matches(legacyDesignSelector) || body.querySelector(legacyDesignSelector)) return false
+	if (body.matches(LEGACY_DESIGN_SELECTOR) || body.querySelector(LEGACY_DESIGN_SELECTOR)) return false
 
 	const styledElements = [
 		...(body.hasAttribute('style') ? [body] : []),
@@ -354,13 +370,8 @@ function isLikelyProseDocument(document: Document): boolean {
 	]
 	for (const element of styledElements) {
 		const style = element.getAttribute('style') as string
-		if (
-			/(?:^|;)\s*(?:(?:min-|max-)?(?:width|height)|display|position|float|background(?:-image)?|padding(?:-[\w-]+)?|border(?:-[\w-]+)?)\s*:/i.test(
-				style,
-			)
-		) {
-			return false
-		}
+		if (INLINE_LAYOUT.test(style)) return false
+		if (element.tagName !== 'BLOCKQUOTE' && INLINE_BOX.test(style)) return false
 	}
 	return true
 }

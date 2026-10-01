@@ -1,8 +1,20 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · genre: modern-minimal · theme: Quiet */
-import { ChevronDown, ChevronsDown, ChevronsUp, Download, Paperclip } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronsDown, ChevronsUp, Download, MoreHorizontal, Paperclip } from 'lucide-react'
+import {
+	type KeyboardEvent as ReactKeyboardEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ClientMessageTime } from '#shared/components/ClientTime'
+import { IconButton } from '#shared/components/ui/icon-button'
 import { labelBadgeClass } from '#shared/lib/color-tone'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -20,16 +32,62 @@ import { MessageBody } from './MessageBody.js'
 import { ThreadColumn } from './ThreadColumn.js'
 import { ThreadDisplayMenu } from './ThreadDisplayMenu.js'
 
+/** A pane toolbar renders an element with this id to host the thread's display actions. */
+export const THREAD_TOOLBAR_ACTIONS_ID = 'thread-toolbar-actions'
+
+/** The toolbar takes the thread actions from Tailwind's `md` breakpoint, where it is the 44px desktop row. */
+const TOOLBAR_ACTIONS_QUERY = '(min-width: 48rem)'
+
 /**
- * The canonical thread reader: subject header, thread-level attachments, and the
- * expandable message list. Shared by the folder thread route, the compose backdrop,
- * and search results so there is a single reading-pane implementation.
+ * Where the thread actions render: the pane toolbar's slot on desktop, or `null`
+ * for the subject row (narrow screens, whose toolbar is already full, and panes
+ * without a toolbar). `undefined` until mounted, so server markup never paints
+ * the actions in one place and then moves them.
  */
-export function ThreadConversation({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
-	return <ThreadConversationController key={thread.id} thread={thread} messages={messages} />
+function useThreadToolbarSlot(): HTMLElement | null | undefined {
+	const [slot, setSlot] = useState<HTMLElement | null | undefined>(undefined)
+	useLayoutEffect(() => {
+		const desktop = window.matchMedia?.(TOOLBAR_ACTIONS_QUERY)
+		const update = () =>
+			setSlot(desktop?.matches === false ? null : document.getElementById(THREAD_TOOLBAR_ACTIONS_ID))
+		update()
+		desktop?.addEventListener('change', update)
+		return () => desktop?.removeEventListener('change', update)
+	}, [])
+	return slot
 }
 
-function ThreadConversationController({ thread, messages }: { thread: MailThread; messages: MailMessage[] }) {
+/**
+ * The canonical thread reader: subject, thread-level attachments, and the
+ * expandable message list. Shared by the folder thread route, the compose backdrop,
+ * and search results so there is a single reading-pane implementation. `children`
+ * render after the last message, inside the same scroll flow.
+ */
+export function ThreadConversation({
+	thread,
+	messages,
+	children,
+}: {
+	thread: MailThread
+	messages: MailMessage[]
+	children?: ReactNode
+}) {
+	return (
+		<ThreadConversationController key={thread.id} thread={thread} messages={messages}>
+			{children}
+		</ThreadConversationController>
+	)
+}
+
+function ThreadConversationController({
+	thread,
+	messages,
+	children,
+}: {
+	thread: MailThread
+	messages: MailMessage[]
+	children?: ReactNode
+}) {
 	const [preferences, savePreferences] = useUserPreferences()
 	const [displayStatuses, setDisplayStatuses] = useState<Map<string, EmailDisplayStatus>>(() => new Map())
 	const [loadRemoteImagesForThread, setLoadRemoteImagesForThread] = useState(false)
@@ -114,7 +172,9 @@ function ThreadConversationController({ thread, messages }: { thread: MailThread
 			onAlwaysShowImages={() => savePreferences({ ...preferences, remoteImagePolicy: 'always' })}
 			onTrustSender={(address) => void onTrustSender(address)}
 			onRetryImages={() => setRetryRevision((current) => current + 1)}
-		/>
+		>
+			{children}
+		</ThreadConversationContent>
 	)
 }
 
@@ -139,6 +199,7 @@ function ThreadConversationContent({
 	onAlwaysShowImages,
 	onTrustSender,
 	onRetryImages,
+	children,
 }: {
 	thread: MailThread
 	messages: MailMessage[]
@@ -160,7 +221,9 @@ function ThreadConversationContent({
 	onAlwaysShowImages: () => void
 	onTrustSender: (address: string) => void
 	onRetryImages: () => void
+	children?: ReactNode
 }) {
+	const toolbarSlot = useThreadToolbarSlot()
 	const latestMessageId = messages.at(-1)?.id
 	const [openMessageIds, setOpenMessageIds] = useState<Set<string>>(
 		() => new Set(latestMessageId ? [latestMessageId] : []),
@@ -192,81 +255,79 @@ function ThreadConversationContent({
 		})
 	}
 
+	// Display menu and expand/collapse-all. They live in the pane toolbar on
+	// desktop, so the subject row there is one line of text and nothing else.
+	const threadActions =
+		hasHtmlMessages || messages.length > 1 ? (
+			<div data-slot="thread-actions" className="flex min-w-0 shrink-0 items-center gap-1">
+				{hasHtmlMessages ? (
+					<ThreadDisplayMenu
+						messages={messages}
+						statuses={displayStatuses}
+						layoutMode={layoutMode}
+						colorMode={colorMode}
+						showColorControl={darkenEmail}
+						senderTrustStatus={senderTrustStatus}
+						originalColorSenders={originalColorSenders}
+						originalColorStatus={originalColorStatus}
+						onSenderOriginalColorsChange={onSenderOriginalColorsChange}
+						onLayoutModeChange={onLayoutModeChange}
+						onColorModeChange={onColorModeChange}
+						onShowThreadImages={onShowThreadImages}
+						onAlwaysShowImages={onAlwaysShowImages}
+						onTrustSender={onTrustSender}
+						onRetryImages={onRetryImages}
+					/>
+				) : null}
+				{messages.length > 1 ? (
+					<fieldset className="flex min-w-0 shrink-0 items-center gap-1 border-0 p-0">
+						<legend className="sr-only">Message display controls</legend>
+						<IconButton
+							label={`Expand all ${messages.length} messages`}
+							title="Expand all messages"
+							onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
+							disabled={allMessagesOpen}
+						>
+							<ChevronsDown aria-hidden="true" />
+						</IconButton>
+						<IconButton
+							label={`Collapse all ${messages.length} messages`}
+							title="Collapse all messages"
+							onClick={() => setOpenMessageIds(new Set())}
+							disabled={allMessagesClosed}
+						>
+							<ChevronsUp aria-hidden="true" />
+						</IconButton>
+					</fieldset>
+				) : null}
+			</div>
+		) : null
+
 	return (
 		<div data-slot="thread-conversation" className="min-h-full bg-background">
-			<header
-				data-slot="thread-summary"
-				className="border-b border-border bg-background py-3 xl:sticky xl:top-0 xl:z-10 xl:py-5"
-			>
+			{/* The subject is the first line of the conversation: body size, in the
+			    scroll flow, with no separator before the first message. */}
+			<header data-slot="thread-summary" className="bg-background pt-3">
 				<ThreadColumn>
-					<div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-2 xl:flex xl:flex-wrap xl:justify-between xl:gap-x-4 xl:gap-y-3">
-						<div className="flex min-w-0 flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:gap-x-3 xl:gap-y-2">
-							<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
+					<div className="flex min-w-0 items-start justify-between gap-x-2">
+						<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+							<h1 className="min-w-0 font-sans text-base leading-6 font-semibold tracking-normal [overflow-wrap:anywhere]">
 								{thread.subject || '(no subject)'}
 							</h1>
-							{labels.length > 0 ? (
-								<div className="flex min-w-0 flex-wrap gap-1.5">
-									{labels.map((label) => (
-										<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
-											{label.name}
-										</span>
-									))}
-								</div>
-							) : null}
+							{labels.map((label) => (
+								<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
+									{label.name}
+								</span>
+							))}
 						</div>
-
-						<div className="flex min-w-0 shrink-0 items-center gap-0.5 xl:gap-1">
-							{hasHtmlMessages ? (
-								<ThreadDisplayMenu
-									messages={messages}
-									statuses={displayStatuses}
-									layoutMode={layoutMode}
-									colorMode={colorMode}
-									showColorControl={darkenEmail}
-									senderTrustStatus={senderTrustStatus}
-									originalColorSenders={originalColorSenders}
-									originalColorStatus={originalColorStatus}
-									onSenderOriginalColorsChange={onSenderOriginalColorsChange}
-									onLayoutModeChange={onLayoutModeChange}
-									onColorModeChange={onColorModeChange}
-									onShowThreadImages={onShowThreadImages}
-									onAlwaysShowImages={onAlwaysShowImages}
-									onTrustSender={onTrustSender}
-									onRetryImages={onRetryImages}
-								/>
-							) : null}
-							{messages.length > 1 ? (
-								<fieldset className="flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0 xl:gap-1">
-									<legend className="sr-only">Message display controls</legend>
-									<button
-										type="button"
-										onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
-										disabled={allMessagesOpen}
-										aria-label={`Expand all ${messages.length} messages`}
-										title="Expand all messages"
-										className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
-									>
-										<ChevronsDown className="h-4 w-4" aria-hidden="true" />
-									</button>
-									<button
-										type="button"
-										onClick={() => setOpenMessageIds(new Set())}
-										disabled={allMessagesClosed}
-										aria-label={`Collapse all ${messages.length} messages`}
-										title="Collapse all messages"
-										className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
-									>
-										<ChevronsUp className="h-4 w-4" aria-hidden="true" />
-									</button>
-								</fieldset>
-							) : null}
-						</div>
+						{toolbarSlot === null ? threadActions : null}
 					</div>
+					{toolbarSlot ? createPortal(threadActions, toolbarSlot) : null}
 
 					{messages.length > 1 && threadAttachments.length > 0 ? (
 						<div
 							data-slot="thread-attachment-summary"
-							className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md text-sm font-medium text-muted-foreground xl:mt-4"
+							className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md text-sm font-medium text-muted-foreground"
 						>
 							<Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
 							<span>
@@ -302,6 +363,7 @@ function ThreadConversationContent({
 						onDisplayStatus={onDisplayStatus}
 					/>
 				))}
+				{children}
 			</div>
 		</div>
 	)
@@ -339,83 +401,78 @@ function MessageBlock({
 	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
 
 	return (
-		<article data-slot="thread-message" aria-labelledby={senderHeadingId}>
+		<article
+			data-slot="thread-message"
+			data-state={open ? 'open' : 'collapsed'}
+			aria-labelledby={senderHeadingId}
+		>
 			<ThreadColumn>
-				<div
-					data-slot="message-header"
-					className={cn(
-						'flex min-w-0 flex-wrap items-start gap-x-3 pt-4',
-						!first && 'border-t border-border',
-					)}
-				>
+				{/* The separator and its clearance sit outside the row, so the row's
+				    height is the same for the first message and every later one. */}
+				<div data-slot="message-header" className={cn(!first && 'border-t border-border pt-4')}>
 					<div
-						data-slot="sender-avatar"
-						className={cn(
-							'flex shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-foreground',
-							open ? 'h-10 w-10 text-xs' : 'h-8 w-8 text-[11px]',
-						)}
+						data-slot="message-header-row"
+						className="message-header-row flex min-w-0 flex-wrap items-center gap-x-3"
 					>
-						{initials(fromLabel)}
-					</div>
-					<div className="min-w-0 flex-1 pt-1">
-						<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-							<h2
-								id={senderHeadingId}
-								className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
-							>
-								{fromLabel}
-							</h2>
-							{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
-							{message.date ? (
-								<ClientMessageTime
-									epochSeconds={message.date}
-									className="order-3 ml-auto hidden shrink-0 text-xs text-muted-foreground tabular-nums sm:inline-block"
-								/>
+						<div
+							data-slot="sender-avatar"
+							className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground"
+						>
+							{initials(fromLabel)}
+						</div>
+						<div className="relative min-w-0 flex-1">
+							<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+								<h2
+									id={senderHeadingId}
+									className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
+								>
+									{fromLabel}
+								</h2>
+								{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
+								{message.date ? (
+									<ClientMessageTime
+										epochSeconds={message.date}
+										className="order-3 ml-auto hidden shrink-0 text-[13px] text-muted-foreground tabular-nums sm:inline-block"
+									/>
+								) : null}
+							</div>
+							{!open ? (
+								// A collapsed message opens from its own summary; the stretched
+								// hit area covers the sender and preview lines.
+								<button
+									data-slot="message-expand"
+									type="button"
+									onClick={onToggle}
+									aria-label={`Expand message from ${fromLabel}`}
+									className="mt-1 block w-full truncate rounded-sm text-left text-sm text-muted-foreground before:absolute before:inset-0 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								>
+									{collapsedMessagePreview(message)}
+								</button>
 							) : null}
 						</div>
-						{!open ? (
-							<p className="mt-1 truncate text-sm text-muted-foreground">
-								{collapsedMessagePreview(message)}
-							</p>
-						) : null}
-					</div>
-					<div className="flex shrink-0 items-center gap-1">
-						{message.ownmailDraft !== true ? (
-							<a
-								data-slot="raw-email-download"
-								href={`/messages/${encodeURIComponent(message.id)}/download`}
-								download
-								aria-label={`Download raw email from ${fromLabel}`}
-								title="Download raw email"
-								className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							>
-								<Download className="h-4 w-4" />
-							</a>
-						) : null}
-						<button
-							data-slot="message-toggle"
-							type="button"
-							onClick={onToggle}
-							className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							aria-expanded={open}
-							aria-controls={contentId}
-							aria-label={`${open ? 'Collapse' : 'Expand'} message from ${fromLabel}`}
-							title={`${open ? 'Collapse' : 'Expand'} message`}
-						>
-							<ChevronDown className={cn('h-4 w-4', open && 'rotate-180')} />
-						</button>
-					</div>
-					{message.date ? (
-						<ClientMessageTime
-							epochSeconds={message.date}
-							className="mt-1 basis-full whitespace-nowrap pl-12 text-right text-xs leading-5 text-muted-foreground sm:hidden"
+						<MessageActionsMenu
+							fromLabel={fromLabel}
+							messageOpen={open}
+							contentId={contentId}
+							downloadHref={
+								message.ownmailDraft !== true
+									? `/messages/${encodeURIComponent(message.id)}/download`
+									: undefined
+							}
+							onToggle={onToggle}
 						/>
-					) : null}
+						{message.date ? (
+							<ClientMessageTime
+								epochSeconds={message.date}
+								className="basis-full whitespace-nowrap pl-10 text-right text-[13px] leading-5 text-muted-foreground sm:hidden"
+							/>
+						) : null}
+					</div>
 				</div>
 			</ThreadColumn>
 
 			{open ? (
-				<div id={contentId} data-slot="expanded-message-content" className="mt-3 w-full min-w-0 pb-4">
+				<div id={contentId} data-slot="expanded-message-content" className="w-full min-w-0 pb-4">
 					<ThreadColumn>
 						<CalendarInvitationCard message={message} />
 					</ThreadColumn>
@@ -437,6 +494,118 @@ function MessageBlock({
 				<div data-slot="collapsed-message-end" className="pb-4" />
 			)}
 		</article>
+	)
+}
+
+const messageActionClass =
+	'flex min-h-11 w-full items-center gap-3 whitespace-nowrap rounded-md px-3 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring'
+
+/** The one control in a message header: collapse or expand, and the raw download. */
+function MessageActionsMenu({
+	fromLabel,
+	messageOpen,
+	contentId,
+	downloadHref,
+	onToggle,
+}: {
+	fromLabel: string
+	messageOpen: boolean
+	contentId: string
+	downloadHref: string | undefined
+	onToggle: () => void
+}) {
+	const [open, setOpen] = useState(false)
+	const rootRef = useRef<HTMLDivElement>(null)
+	const triggerRef = useRef<HTMLButtonElement>(null)
+	const menuRef = useRef<HTMLDivElement>(null)
+	const menuId = useId()
+
+	useEffect(() => {
+		if (!open) return
+		menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+		function closeOnOutsidePointer(event: PointerEvent) {
+			if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+		}
+		document.addEventListener('pointerdown', closeOnOutsidePointer)
+		return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
+	}, [open])
+
+	function close() {
+		setOpen(false)
+		triggerRef.current?.focus()
+	}
+
+	function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+		if (event.key === 'Escape' || event.key === 'Tab') {
+			event.preventDefault()
+			event.stopPropagation()
+			close()
+			return
+		}
+		const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
+		if (step === 0) return
+		event.preventDefault()
+		const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+		const index = items.indexOf(document.activeElement as HTMLElement)
+		items[(index + step + items.length) % items.length]?.focus()
+	}
+
+	return (
+		<div ref={rootRef} data-slot="message-actions" className="relative shrink-0">
+			<IconButton
+				ref={triggerRef}
+				label={`Actions for message from ${fromLabel}`}
+				title="Message actions"
+				aria-haspopup="menu"
+				aria-expanded={open}
+				aria-controls={open ? menuId : undefined}
+				onClick={() => setOpen((isOpen) => !isOpen)}
+			>
+				<MoreHorizontal aria-hidden="true" />
+			</IconButton>
+			{open ? (
+				<div
+					ref={menuRef}
+					id={menuId}
+					role="menu"
+					aria-label={`Actions for message from ${fromLabel}`}
+					onKeyDown={onMenuKeyDown}
+					className="absolute right-0 top-[calc(100%+0.25rem)] z-50 w-52 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+				>
+					<button
+						data-slot="message-toggle"
+						type="button"
+						role="menuitem"
+						aria-expanded={messageOpen}
+						aria-controls={contentId}
+						onClick={() => {
+							close()
+							onToggle()
+						}}
+						className={messageActionClass}
+					>
+						<ChevronDown
+							className={cn('h-4 w-4 shrink-0 text-muted-foreground', messageOpen && 'rotate-180')}
+							aria-hidden="true"
+						/>
+						{messageOpen ? 'Collapse message' : 'Expand message'}
+					</button>
+					{downloadHref ? (
+						<a
+							data-slot="raw-email-download"
+							role="menuitem"
+							href={downloadHref}
+							download
+							onClick={close}
+							className={messageActionClass}
+						>
+							<Download className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+							Download raw email
+						</a>
+					) : null}
+				</div>
+			) : null}
+		</div>
 	)
 }
 
@@ -519,7 +688,7 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 		<div
 			ref={rootRef}
 			data-slot="message-details"
-			className="relative order-3 min-w-0 basis-full text-xs text-muted-foreground sm:order-2 sm:max-w-80 sm:shrink-0 sm:basis-auto"
+			className="relative order-3 min-w-0 basis-full text-[13px] text-muted-foreground sm:order-2 sm:max-w-80 sm:shrink-0 sm:basis-auto"
 		>
 			<button
 				ref={triggerRef}

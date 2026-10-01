@@ -90,6 +90,21 @@ describe('native mobile shell styles', () => {
 	})
 })
 
+describe('thread reader message header', () => {
+	it('is a 40px row with a fine pointer', () => {
+		expect(styles).toMatch(/\n\.message-header-row\s*\{\s*min-height: 2\.5rem;\s*\}/)
+	})
+
+	it('keeps the 44px touch floor on narrow and touch-capable devices', () => {
+		const touchRule =
+			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.message-header-row\s*\{\s*min-height: var\(--touch-target-min\);/
+		expect(styles).toMatch(touchRule)
+		expect(tokens).toContain('--touch-target-min: 2.75rem;')
+		// The touch override must follow the 40px base rule to win at equal specificity.
+		expect(styles.search(touchRule)).toBeGreaterThan(styles.indexOf('\n.message-header-row {'))
+	})
+})
+
 describe('mail search divider styles', () => {
 	it('draws one divider above the full header without blocking input', () => {
 		expect(styles).toMatch(

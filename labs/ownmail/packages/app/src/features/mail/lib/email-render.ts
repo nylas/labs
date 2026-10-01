@@ -258,9 +258,10 @@ export function shadowStyleText(): string {
 	// the gutter and paints the sender canvas full bleed. Layout/paint containment
 	// bounds positioned provider content to the message surface. Paper and original
 	// presentations paint the sender canvas on the root as well, so the message
-	// stays light even before the thread band has updated.
+	// stays light even before the thread band has updated. The 16px / 1.6 type is
+	// an inherited default: any size or line-height the sender declares wins.
 	return `
-:host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
+:host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;font-size:16px;line-height:1.6;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
 :host([data-email-theme="dark"]){--ownmail-email-theme:dark;--ownmail-email-link-color:#7dd3fc;color:#e5e7eb;color-scheme:dark;}
 :host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:#1a1a1a;color-scheme:light;}
 :host([data-email-pan]){overflow-x:auto!important;overflow-y:hidden!important;touch-action:pan-x pan-y pinch-zoom;overscroll-behavior-x:contain;}

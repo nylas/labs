@@ -248,11 +248,39 @@ describe('prose classification', () => {
 		expect(prepared.isProse).toBe(true)
 	})
 
+	// The reading measure applies to everything a person wrote as a message, not
+	// only to bare semantic markup: what mail clients add to an ordinary reply
+	// (a text stylesheet, a signature image, a bordered quotation) is still prose.
+	it.each([
+		[
+			'a mail-client text stylesheet',
+			'<style>p.MsoNormal{margin:0in;font-size:11.0pt;line-height:115%;font-family:"Calibri",sans-serif}a:link{color:#0563C1}</style><p class="MsoNormal">Thanks, see you Thursday.</p>',
+		],
+		[
+			'an inline or signature image',
+			'<p>Photo attached.</p><img src="https://example.com/logo.png" width="120" height="40">',
+		],
+		[
+			'a bordered, padded quotation',
+			'<p>Agreed.</p><blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">Earlier text</blockquote>',
+		],
+		['highlighted text', '<p>Please <span style="background-color:yellow">read 4.2</span> first.</p>'],
+	])('bounds %s', (_label, html) => {
+		expect(prepareEmailMessageContent(html, 'm1').isProse).toBe(true)
+	})
+
 	it.each([
 		['empty markup', '<p> </p>'],
 		['fixed table design', '<table width="600"><tr><td>Newsletter</td></tr></table>'],
-		['image design', '<p>Newsletter</p><img src="https://example.com/hero.png">'],
+		['unsized table design', '<table><tr><td>Newsletter</td></tr></table>'],
+		['embedded media', '<p>Newsletter</p><video src="https://example.com/a.mp4"></video>'],
 		['stylesheet design', '<style>p{max-width:600px}</style><p>Newsletter</p>'],
+		[
+			'stylesheet layout after other rules',
+			'<style>p{color:red}.card{display:flex}</style><p>Newsletter</p>',
+		],
+		['responsive stylesheet', '<style>@media (max-width:600px){p{color:red}}</style><p>Newsletter</p>'],
+		['sized container', '<div width="600">Newsletter</div>'],
 		['legacy design attribute', '<div bgcolor="#fff">Newsletter</div>'],
 		['body design attribute', '<body width="640">Newsletter</body>'],
 		['inline layout', '<div style="display:grid">Newsletter</div>'],
