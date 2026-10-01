@@ -29,7 +29,7 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 		}
 		try {
 			await gateway.revokeApiKey(
-				tokens(ctx),
+				await tokens(ctx),
 				project.region,
 				project.applicationId,
 				pendingRotation.previousKeyId,
@@ -47,7 +47,7 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 
 	const spinner = p.spinner()
 	spinner.start('Minting a fresh API key…')
-	const created = await gateway.createApiKey(tokens(ctx), project.region, project.applicationId, {
+	const created = await gateway.createApiKey(await tokens(ctx), project.region, project.applicationId, {
 		name: `ownmail ${project.slug} (rotated ${new Date().toISOString().slice(0, 10)})`,
 		expiresIn: DEPLOYMENT_API_KEY_LIFETIME_DAYS,
 	})
@@ -61,7 +61,7 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 		spinner.stop('The key swap could not be confirmed.')
 		if (err instanceof CloudflareNoChangeError) {
 			try {
-				await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, created.id)
+				await gateway.revokeApiKey(await tokens(ctx), project.region, project.applicationId, created.id)
 			} catch (revokeError) {
 				const reference = revokeError instanceof GatewayError ? supportReference(revokeError) : undefined
 				p.log.warn(
@@ -97,7 +97,7 @@ export async function runRotateKey(opts: { name?: string }): Promise<void> {
 
 	if (oldKeyId && oldKeyId !== created.id) {
 		try {
-			await gateway.revokeApiKey(tokens(ctx), project.region, project.applicationId, oldKeyId)
+			await gateway.revokeApiKey(await tokens(ctx), project.region, project.applicationId, oldKeyId)
 			delete project.pendingApiKeyRotation
 			saveProject(project)
 			p.log.step('Old key revoked.')

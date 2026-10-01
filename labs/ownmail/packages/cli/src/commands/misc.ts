@@ -32,10 +32,15 @@ export async function runGrants(opts: { name?: string }): Promise<void> {
 	if (!ctx.auth || !project.applicationId) {
 		throw new Error('Not logged in or app missing — run `npx ownmail` first.')
 	}
-	const key = await requireGateway(ctx).createApiKey(tokens(ctx), project.region, project.applicationId, {
-		name: `ownmail grants ${Date.now()}`,
-		expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
-	})
+	const key = await requireGateway(ctx).createApiKey(
+		await tokens(ctx),
+		project.region,
+		project.applicationId,
+		{
+			name: `ownmail grants ${Date.now()}`,
+			expiresIn: TEMPORARY_API_KEY_LIFETIME_DAYS,
+		},
+	)
 	const v3 = new NylasV3Client(
 		key.apiKey,
 		project.region,

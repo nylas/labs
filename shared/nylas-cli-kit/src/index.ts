@@ -1,5 +1,7 @@
 export {
 	type AuthResponse,
+	createOAuthPkcePair,
+	DASHBOARD_SESSION_OAUTH_SCOPE,
 	DashboardAccountClient,
 	DashboardAccountError,
 	type DashboardOrganization,
@@ -9,6 +11,9 @@ export {
 	type DomainAvailability,
 	type DomainVerificationResult,
 	type InboxDomain,
+	type OAuthPkcePair,
+	type OAuthSessionResponse,
+	type OAuthTokenResponse,
 	type OrgSwitchResponse,
 	type PasswordLoginResponse,
 	type SessionResponse,

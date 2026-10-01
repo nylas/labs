@@ -151,12 +151,13 @@ revokes when the operation ends.
 
 ## Security and data handling
 
-- OwnMail supports existing Nylas accounts that use email/password (including
-  authenticator-code MFA), browser-based Google, Microsoft, or GitHub sign-in,
-  and organization-managed Enterprise SAML. SAML home-realm discovery uses the
-  work email entered in the CLI; authentication stays in the browser and tokens
-  remain bound to the CLI’s local proof-of-possession key. New Nylas accounts
-  are created through the Google, Microsoft, or GitHub browser flow. Cloudflare
+- OwnMail signs in to Nylas on the dashboard's own login page, in your
+  browser, with OAuth (authorization code and PKCE on a loopback redirect).
+  Every sign-in method the dashboard offers works, and new accounts are created
+  there too. The CLI never sees your Nylas password or MFA code. You approve
+  OwnMail acting with your role in one organization, and its short-lived
+  dashboard session stays bound to the CLI’s local proof-of-possession key.
+  Cloudflare
   setup recommends browser OAuth, with a least-privilege API token available as
   an advanced option.
 - Hosted app secrets are stored through the selected provider's secret manager.

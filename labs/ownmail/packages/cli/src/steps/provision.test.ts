@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events'
 import * as p from '@clack/prompts'
 import { DashboardAccountClient, DpopKey, GatewayClient, NylasV3Client } from '@nylas-labs/cli-kit'
-import open from 'open'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiBaseUrl, dashboardAccountUrl, gatewayUrls } from '../nylas-env.js'
 import type { ProjectState } from '../state/schema.js'
@@ -9,6 +8,7 @@ import { markStep, saveAuth, saveProject } from '../state/store.js'
 import { OWNMAIL_USER_AGENT } from '../usage-attribution.js'
 import { generateAppPassword, validateAppPassword } from '../util/password.js'
 import type { StepContext } from './context.js'
+import { signInWithBrowser } from './oauth-login.js'
 import {
 	CancelledError,
 	listSandboxApplications,
@@ -51,19 +51,21 @@ vi.mock('@clack/prompts', () => ({
 	group: vi.fn(),
 }))
 
-vi.mock('open', () => ({ default: vi.fn() }))
+vi.mock('./oauth-login.js', () => ({ signInWithBrowser: vi.fn() }))
 
 vi.mock('@nylas-labs/cli-kit', () => ({
 	DpopKey: { generate: vi.fn(), fromStored: vi.fn() },
 	DashboardAccountClient: vi.fn(),
 	GatewayClient: vi.fn(),
 	NylasV3Client: vi.fn(),
+	DashboardAccountError: class DashboardAccountError extends Error {},
 }))
 
 vi.mock('../nylas-env.js', () => ({
 	apiBaseUrl: vi.fn(),
 	dashboardAccountUrl: vi.fn(),
 	gatewayUrls: vi.fn(),
+	OWNMAIL_OAUTH_CLIENT_ID: 'ownmail-client',
 }))
 
 vi.mock('../util/password.js', () => ({
@@ -106,6 +108,13 @@ vi.mock('../state/pending-secrets.js', () => ({
 import { clearPendingSecret, storePendingSecret } from '../state/pending-secrets.js'
 
 const fakeDpop = { toStored: () => ({ privateJwk: { crv: 'Ed25519' } }) }
+const exchangedSession = {
+	userToken: 'ut',
+	orgToken: 'ot',
+	user: { publicId: 'user-pub' },
+	orgPublicId: 'org-pub',
+	expiresAt: 1_800_000_000_000,
+}
 
 function setDefaults(): void {
 	vi.mocked(p.isCancel).mockImplementation((v: unknown) => v === CANCEL)
@@ -116,7 +125,7 @@ function setDefaults(): void {
 	vi.mocked(p.select).mockResolvedValue('unset')
 	vi.mocked(p.text).mockResolvedValue('unset')
 	vi.mocked(p.password).mockResolvedValue('unset')
-	vi.mocked(open).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof open>>)
+	vi.mocked(signInWithBrowser).mockResolvedValue({ session: exchangedSession, refreshToken: 'refresh-1' })
 	vi.mocked(DpopKey.generate).mockResolvedValue(fakeDpop as unknown as DpopKey)
 	vi.mocked(DpopKey.fromStored).mockResolvedValue(fakeDpop as unknown as DpopKey)
 	vi.mocked(DashboardAccountClient).mockImplementation(function DashboardAccountClientMock() {
@@ -199,7 +208,7 @@ describe('stepDashboardAuth', () => {
 		await stepDashboardAuth(ctx)
 
 		expect(currentSession).toHaveBeenCalledTimes(1)
-		expect(p.select).not.toHaveBeenCalled()
+		expect(signInWithBrowser).not.toHaveBeenCalled()
 		expect(markStep).not.toHaveBeenCalled()
 	})
 
@@ -214,7 +223,7 @@ describe('stepDashboardAuth', () => {
 		expect(ctx.auth?.userToken).toBe('new-user')
 		expect(ctx.auth?.orgToken).toBe('new-org')
 		expect(saveAuth).toHaveBeenCalled()
-		expect(p.select).not.toHaveBeenCalled()
+		expect(signInWithBrowser).not.toHaveBeenCalled()
 	})
 
 	it('refreshes while keeping the previous org token when refresh omits one', async () => {
@@ -228,405 +237,123 @@ describe('stepDashboardAuth', () => {
 		expect(ctx.auth?.orgToken).toBe('org-tok')
 	})
 
-	it('warns and falls back to interactive login when refresh also fails', async () => {
+	it('renews an OAuth session by exchanging a fresh access token, never the legacy refresh', async () => {
+		// The server refuses to refresh an exchanged session; only a new exchange keeps it alive.
+		const currentSession = vi.fn().mockRejectedValue(new Error('401'))
+		const refresh = vi.fn()
+		const oauthRefresh = vi.fn().mockResolvedValue({ accessToken: 'access-2', refreshToken: 'refresh-2' })
+		const oauthExchange = vi.fn().mockResolvedValue(exchangedSession)
+		const ctx = baseCtx({
+			auth: {
+				...baseCtx().auth,
+				oauth: { refreshToken: 'refresh-1', sessionExpiresAt: Date.now() + 600_000 },
+			},
+			dashboard: { currentSession, refresh, oauthRefresh, oauthExchange } as never,
+		} as never)
+
+		await stepDashboardAuth(ctx)
+
+		expect(refresh).not.toHaveBeenCalled()
+		expect(oauthRefresh).toHaveBeenCalledWith({ clientId: 'ownmail-client', refreshToken: 'refresh-1' })
+		expect(ctx.auth).toMatchObject({
+			userToken: 'ut',
+			oauth: { refreshToken: 'refresh-2', sessionExpiresAt: exchangedSession.expiresAt },
+		})
+		expect(signInWithBrowser).not.toHaveBeenCalled()
+	})
+
+	it('warns and signs in again in the browser when the stored session cannot be renewed', async () => {
 		const currentSession = vi.fn().mockRejectedValue(new Error('401'))
 		const refresh = vi.fn().mockRejectedValue(new Error('refresh dead'))
 		const ctx = baseCtx({ dashboard: { currentSession, refresh } as never })
-		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never) // cancel the mode picker
-
-		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
-		expect(p.log.warn).toHaveBeenCalled()
-		expect(ctx.auth).toBeNull()
-	})
-
-	it('throws CancelledError when the login-type picker is cancelled', async () => {
-		const ctx = baseCtx({ auth: null })
-		vi.mocked(p.select).mockResolvedValueOnce('register' as never)
-		vi.mocked(p.select).mockResolvedValueOnce(CANCEL as never)
-
-		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
-		const registerOptions = vi.mocked(p.select).mock.calls[1]?.[0]?.options
-		expect(registerOptions).not.toContainEqual(expect.objectContaining({ value: 'saml_SSO' }))
-	})
-
-	it('logs in with a Nylas email and password without exposing the password', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce(' User@Example.com ')
-		vi.mocked(p.password).mockResolvedValueOnce('secret-password')
-		const loginWithPassword = vi.fn().mockResolvedValue({
-			status: 'complete',
-			userToken: 'ut',
-			orgToken: 'ot',
-			user: { publicId: 'user-pub' },
-			organizations: [{ publicId: 'org-pub' }],
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { loginWithPassword } as unknown as DashboardAccountClient
-		})
 
 		await stepDashboardAuth(ctx)
 
-		expect(loginWithPassword).toHaveBeenCalledWith({
-			email: 'user@example.com',
-			password: 'secret-password',
-		})
-		expect(p.password).toHaveBeenCalledWith(expect.objectContaining({ message: 'Nylas account password' }))
-		expect(ctx.auth?.userToken).toBe('ut')
-		const emailPrompt = vi.mocked(p.text).mock.calls[0]?.[0]
-		expect(emailPrompt?.placeholder).toBe('you@example.com')
-		expect(emailPrompt?.validate?.('invalid')).toBe('Enter a valid email address.')
-		expect(emailPrompt?.validate?.('valid@example.com')).toBeUndefined()
-		const passwordPrompt = vi.mocked(p.password).mock.calls[0]?.[0]
-		expect(passwordPrompt?.validate?.('')).toMatch(/between 1 and 1024/)
-		expect(passwordPrompt?.validate?.('valid')).toBeUndefined()
-	})
-
-	it('keeps invalid email/password failures generic', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
-		vi.mocked(p.password).mockResolvedValueOnce('wrong-password')
-		const loginWithPassword = vi.fn().mockRejectedValue(new Error('internal auth detail'))
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { loginWithPassword } as unknown as DashboardAccountClient
-		})
-
-		const failure = stepDashboardAuth(ctx)
-		await expect(failure).rejects.toThrow(/Email\/password sign-in failed/)
-		await expect(failure).rejects.not.toThrow(/internal auth detail/)
-	})
-
-	it('completes password login MFA and validates the hidden code prompt', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
-		vi.mocked(p.password).mockResolvedValueOnce('password').mockResolvedValueOnce('123456')
-		const loginWithPassword = vi.fn().mockResolvedValue({
-			status: 'mfa_required',
-			user: { publicId: 'user-pub' },
-			organizations: [{ publicId: 'org-pub' }],
-		})
-		const completeMfaLogin = vi.fn().mockResolvedValue({
-			userToken: 'ut',
-			orgToken: 'ot',
-			user: { publicId: 'user-pub' },
-			organizations: [],
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { loginWithPassword, completeMfaLogin } as unknown as DashboardAccountClient
-		})
-
-		await stepDashboardAuth(ctx)
-
-		expect(completeMfaLogin).toHaveBeenCalledWith({
-			userPublicId: 'user-pub',
-			code: '123456',
-			orgPublicId: 'org-pub',
-		})
-		const mfaPrompt = vi.mocked(p.password).mock.calls[1]?.[0]
-		expect(mfaPrompt?.validate?.('12345')).toBe('Enter a six-digit code.')
-		expect(mfaPrompt?.validate?.('123456')).toBeUndefined()
+		expect(p.log.warn).toHaveBeenCalledWith(expect.stringMatching(/session expired/))
+		expect(signInWithBrowser).toHaveBeenCalledTimes(1)
 		expect(ctx.auth?.userToken).toBe('ut')
 	})
 
-	it('keeps MFA failures generic', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
-		vi.mocked(p.password).mockResolvedValueOnce('password').mockResolvedValueOnce('123456')
-		const loginWithPassword = vi.fn().mockResolvedValue({
-			status: 'mfa_required',
-			user: { publicId: 'user-pub' },
-			organizations: [],
-		})
-		const completeMfaLogin = vi.fn().mockRejectedValue(new Error('sensitive factor detail'))
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { loginWithPassword, completeMfaLogin } as unknown as DashboardAccountClient
-		})
-
-		const failure = stepDashboardAuth(ctx)
-		await expect(failure).rejects.toThrow('MFA verification failed')
-		await expect(failure).rejects.not.toThrow(/sensitive factor detail/)
-	})
-
-	it('allows cancellation at each email/password secret prompt', async () => {
-		const emailCtx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce(CANCEL as never)
-		await expect(stepDashboardAuth(emailCtx)).rejects.toBeInstanceOf(CancelledError)
-
-		vi.clearAllMocks()
-		setDefaults()
-		const passwordCtx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
-		vi.mocked(p.password).mockResolvedValueOnce(CANCEL as never)
-		await expect(stepDashboardAuth(passwordCtx)).rejects.toBeInstanceOf(CancelledError)
-
-		vi.clearAllMocks()
-		setDefaults()
-		const mfaCtx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('email_password' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('user@example.com')
-		vi.mocked(p.password)
-			.mockResolvedValueOnce('password')
-			.mockResolvedValueOnce(CANCEL as never)
-		const loginWithPassword = vi.fn().mockResolvedValue({
-			status: 'mfa_required',
-			user: { publicId: 'user-pub' },
-			organizations: [],
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { loginWithPassword } as unknown as DashboardAccountClient
-		})
-		await expect(stepDashboardAuth(mfaCtx)).rejects.toBeInstanceOf(CancelledError)
-	})
-
-	it('completes a fresh login, reusing an existing DPoP key and opening the browser', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
-		const started = {
-			verificationUri: 'https://v',
-			verificationUriComplete: 'https://vc',
-			userCode: 'CODE',
-		}
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted(started)
-			return {
-				status: 'complete',
-				userToken: 'ut',
-				orgToken: 'ot',
-				user: { publicId: 'user-pub' },
-				organizations: [{ publicId: 'org-pub' }],
-			}
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
+	it('signs in through the browser and stores what renews the session later', async () => {
+		// Without the refresh token and expiry the 15-minute session could never be renewed.
+		const ctx = baseCtx({
+			auth: null,
+			dpop: fakeDpop as unknown as DpopKey,
+			project: baseProject({ region: 'eu' }),
 		})
 
 		await stepDashboardAuth(ctx)
 
 		expect(DpopKey.generate).not.toHaveBeenCalled()
-		expect(open).toHaveBeenCalledWith('https://vc')
-		expect(ctx.auth?.userToken).toBe('ut')
-		expect(ctx.auth?.orgPublicId).toBe('org-pub')
-		expect(markStep).toHaveBeenCalledWith(ctx.project, 'dashboard-auth')
-	})
-
-	it('completes Enterprise SAML login using a validated work email', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('saml_SSO' as never)
-		vi.mocked(p.text).mockResolvedValueOnce(' User@Acme.com ')
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({
-				verificationUri: 'https://dashboard.test/pages/cli-saml',
-				verificationUriComplete: 'https://dashboard.test/pages/cli-saml?code=ABCD2345',
-				userCode: 'ABCD2345',
-			})
-			return {
-				status: 'complete',
-				userToken: 'ut',
-				orgToken: 'ot',
-				user: { publicId: 'user-pub' },
-				organizations: [{ publicId: 'org-pub' }],
-			}
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
-
-		await stepDashboardAuth(ctx)
-
-		const loginOptions = vi.mocked(p.select).mock.calls[1]?.[0]?.options
-		expect(loginOptions).toContainEqual({ value: 'saml_SSO', label: 'Enterprise SAML' })
-		expect(p.text).toHaveBeenCalledWith(
-			expect.objectContaining({
-				message: 'Work email for Enterprise SAML',
-				placeholder: 'you@company.com',
-			}),
+		expect(DashboardAccountClient).toHaveBeenCalledWith(fakeDpop, undefined, fetch, OWNMAIL_USER_AGENT)
+		expect(GatewayClient).toHaveBeenCalledWith(
+			fakeDpop,
+			{ us: 'https://gw.us', eu: 'https://gw.eu' },
+			fetch,
+			OWNMAIL_USER_AGENT,
 		)
-		const emailPrompt = vi.mocked(p.text).mock.calls[0]?.[0]
-		expect(emailPrompt?.validate?.('invalid')).toBe('Enter a valid email address.')
-		expect(emailPrompt?.validate?.('valid@example.com')).toBeUndefined()
-		expect(ssoAuthorize).toHaveBeenCalledWith(
-			{ loginType: 'saml_SSO', mode: 'login', email: 'user@acme.com' },
-			expect.any(Function),
-		)
-		expect(open).toHaveBeenCalledWith('https://dashboard.test/pages/cli-saml?code=ABCD2345')
-		expect(ctx.auth?.orgPublicId).toBe('org-pub')
-	})
-
-	it('allows cancellation before starting Enterprise SAML home-realm discovery', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('saml_SSO' as never)
-		vi.mocked(p.text).mockResolvedValueOnce(CANCEL as never)
-
-		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
-		expect(DashboardAccountClient).not.toHaveBeenCalled()
-	})
-
-	it('generates a DPoP key, warns on browser-open failure, and handles an org-less result', async () => {
-		const ctx = baseCtx({ auth: null, dpop: null })
-		vi.mocked(p.select).mockResolvedValueOnce('register' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('microsoft_SSO' as never)
-		vi.mocked(open).mockRejectedValueOnce(new Error('no browser'))
-		const started = { verificationUri: 'https://only-plain', userCode: 'CODE' }
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted(started)
-			return {
-				status: 'complete',
-				userToken: 'ut',
-				orgToken: 'ot',
-				user: { publicId: 'user-pub' },
-				organizations: [],
-			}
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
-
-		await stepDashboardAuth(ctx)
-
-		expect(DpopKey.generate).toHaveBeenCalledTimes(1)
-		expect(open).toHaveBeenCalledWith('https://only-plain')
-		expect(p.log.warn).toHaveBeenCalled()
-		expect(ctx.auth?.orgPublicId).toBeUndefined()
-	})
-
-	it('does not open the browser when the user declines', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('github_SSO' as never)
-		vi.mocked(p.confirm).mockResolvedValueOnce(false)
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return {
-				status: 'complete',
-				userToken: 'ut',
-				orgToken: 'ot',
-				user: { publicId: 'u' },
-				organizations: [{ publicId: 'o' }],
-			}
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
-
-		await stepDashboardAuth(ctx)
-
-		expect(open).not.toHaveBeenCalled()
-	})
-
-	it('throws CancelledError when the open-browser confirm is cancelled', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
-		vi.mocked(p.confirm).mockResolvedValueOnce(CANCEL as never)
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return { status: 'complete' }
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
-
-		await expect(stepDashboardAuth(ctx)).rejects.toBeInstanceOf(CancelledError)
-	})
-
-	it('completes MFA when the browser flow reports mfa_required', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
-		vi.mocked(p.password).mockResolvedValueOnce('123456')
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return {
-				status: 'mfa_required',
-				user: { publicId: 'u' },
-				organizations: [{ publicId: 'o' }],
-			}
-		})
-		const completeMfaLogin = vi.fn().mockResolvedValue({
+		expect(signInWithBrowser).toHaveBeenCalledWith(ctx.dashboard, 'eu')
+		expect(saveAuth).toHaveBeenCalledWith({
 			userToken: 'ut',
 			orgToken: 'ot',
-			user: { publicId: 'u' },
-			organizations: [{ publicId: 'o' }],
+			userPublicId: 'user-pub',
+			orgPublicId: 'org-pub',
+			dpopPrivateJwk: { crv: 'Ed25519' },
+			oauth: { refreshToken: 'refresh-1', sessionExpiresAt: exchangedSession.expiresAt },
+			updatedAt: expect.any(Number),
 		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize, completeMfaLogin } as unknown as DashboardAccountClient
-		})
-
-		await stepDashboardAuth(ctx)
-
-		expect(completeMfaLogin).toHaveBeenCalledWith({
-			userPublicId: 'u',
-			code: '123456',
-			orgPublicId: 'o',
-		})
-		expect(ctx.auth?.userToken).toBe('ut')
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'dashboard-auth')
+		// The dashboard page owns every credential: the terminal never asks for one.
+		expect(p.select).not.toHaveBeenCalled()
+		expect(p.password).not.toHaveBeenCalled()
 	})
 
-	it('explains how to create an account when the selected SSO identity is denied', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return { status: 'access_denied' }
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
+	it('generates a DPoP key for a first sign-in and leaves no session behind when it fails', async () => {
+		const ctx = baseCtx({ auth: null })
+		vi.mocked(signInWithBrowser).mockRejectedValueOnce(new Error('Sign-in was cancelled in the browser.'))
 
-		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/choose “No — create one \(free\)”/)
-	})
+		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/cancelled in the browser/)
 
-	it('gives organization-specific guidance when Enterprise SAML sign-in is denied', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('saml_SSO' as never)
-		vi.mocked(p.text).mockResolvedValueOnce('user@acme.com')
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return { status: 'access_denied' }
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
-
-		await expect(stepDashboardAuth(ctx)).rejects.toThrow(
-			/ask your organization administrator to confirm your Nylas access/,
-		)
-	})
-
-	it('explains when the device sign-in link expires', async () => {
-		const ctx = baseCtx({ auth: null, dpop: fakeDpop as unknown as DpopKey })
-		vi.mocked(p.select).mockResolvedValueOnce('login' as never)
-		vi.mocked(p.select).mockResolvedValueOnce('google_SSO' as never)
-		const ssoAuthorize = vi.fn(async (_input, onStarted: (s: unknown) => Promise<void>) => {
-			await onStarted({ verificationUri: 'https://v', userCode: 'CODE' })
-			return { status: 'expired_token' }
-		})
-		vi.mocked(DashboardAccountClient).mockImplementationOnce(function DashboardAccountClientMock() {
-			return { ssoAuthorize } as unknown as DashboardAccountClient
-		})
-
-		await expect(stepDashboardAuth(ctx)).rejects.toThrow(/sign-in link expired/)
+		expect(DpopKey.generate).toHaveBeenCalledTimes(1)
+		expect(saveAuth).not.toHaveBeenCalled()
+		expect(markStep).not.toHaveBeenCalled()
 	})
 })
 
 describe('stepOrg', () => {
+	it('refuses to move a resumed project to another organization', async () => {
+		// The app and its keys live in the original org; re-homing the project would
+		// make every later call fail with an opaque authorization error.
+		const ctx = baseCtx({
+			project: baseProject({ orgPublicId: 'org-original' }),
+			auth: { ...baseCtx().auth, oauth: { refreshToken: 'refresh-1', sessionExpiresAt: 1 } },
+		} as never)
+
+		await expect(stepOrg(ctx)).rejects.toThrow(/different Nylas organization/)
+
+		expect(ctx.project.orgPublicId).toBe('org-original')
+		expect(markStep).not.toHaveBeenCalled()
+	})
+
+	it('takes the organization chosen on the consent page for an OAuth session', async () => {
+		// The server refuses switch-org on an exchanged session, so the picker must not run.
+		const currentSession = vi.fn()
+		const switchOrg = vi.fn()
+		const ctx = baseCtx({
+			auth: { ...baseCtx().auth, oauth: { refreshToken: 'refresh-1', sessionExpiresAt: 1 } },
+			dashboard: { currentSession, switchOrg } as never,
+		} as never)
+
+		await stepOrg(ctx)
+
+		expect(ctx.project.orgPublicId).toBe('org1')
+		expect(saveProject).toHaveBeenCalledWith(ctx.project)
+		expect(markStep).toHaveBeenCalledWith(ctx.project, 'org')
+		expect(currentSession).not.toHaveBeenCalled()
+		expect(switchOrg).not.toHaveBeenCalled()
+		expect(p.select).not.toHaveBeenCalled()
+	})
+
 	it('keeps a single org and skips re-saving auth when it already matches', async () => {
 		const currentSession = vi.fn().mockResolvedValue({
 			organizations: [{ publicId: 'org1', name: 'Acme' }],

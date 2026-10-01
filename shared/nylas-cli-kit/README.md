@@ -1,8 +1,9 @@
 # @nylas-labs/cli-kit
 
-Typed, edge-safe clients for the Nylas v3 API, Nylas dashboard email/password,
-social SSO, and Enterprise SAML device-flow authentication, domains REST, and
-the gateway GraphQL API. It powers the [OwnMail](https://www.npmjs.com/package/ownmail)
+Typed, edge-safe clients for the Nylas v3 API, Nylas dashboard OAuth sign-in
+(authorization code with PKCE, exchanged for a DPoP-bound session), the older
+email/password and device-flow authentication, domains REST, and the gateway
+GraphQL API. It powers the [OwnMail](https://www.npmjs.com/package/ownmail)
 CLI and app.
 
 ## Installation

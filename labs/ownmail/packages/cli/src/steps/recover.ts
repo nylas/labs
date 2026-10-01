@@ -56,7 +56,7 @@ export async function stepRecover(ctx: StepContext): Promise<void> {
 async function identifyDeployedKey(ctx: StepContext): Promise<void> {
 	const applicationId = ctx.project.applicationId
 	if (!applicationId) throw new Error('Nylas application unavailable — rerun ownmail setup')
-	const keys = await requireGateway(ctx).listApiKeys(tokens(ctx), ctx.project.region, applicationId)
+	const keys = await requireGateway(ctx).listApiKeys(await tokens(ctx), ctx.project.region, applicationId)
 	const deployed = keys.filter(
 		(key) => key.status.trim().toLowerCase() === 'active' && isDeploymentKeyName(key.name, ctx.project.slug),
 	)
@@ -128,7 +128,7 @@ async function recoverDomain(ctx: StepContext): Promise<void> {
 		await planDomain(ctx)
 		return
 	}
-	const domains = await requireDashboard(ctx).listInboxDomains(tokens(ctx), { limit: 100 })
+	const domains = await requireDashboard(ctx).listInboxDomains(await tokens(ctx), { limit: 100 })
 	const domain = domains.find(
 		(candidate) => candidate.domainAddress.toLowerCase() === host && candidate.region === ctx.project.region,
 	)
