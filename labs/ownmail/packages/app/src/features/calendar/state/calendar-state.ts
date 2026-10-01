@@ -85,19 +85,19 @@ function rememberConfirmedCalendarEffect(queryClient: QueryClient, effect: Calen
 function supersedeConfirmedEventEffects(queryClient: QueryClient, eventId: string): () => void {
 	const previous = confirmedEffects.get(queryClient) ?? []
 	const account = accountScope()
-	confirmedEffects.set(
-		queryClient,
-		previous.filter(
-			(entry) =>
-				!(
-					entry.account === account &&
-					(entry.effect.type === 'created' || entry.effect.type === 'updated') &&
-					entry.effect.event.id === eventId
-				),
-		),
-	)
+	const superseded = (entry: (typeof previous)[number]) =>
+		entry.account === account &&
+		(entry.effect.type === 'created' || entry.effect.type === 'updated') &&
+		entry.effect.event.id === eventId
+	const removed = previous.filter(superseded)
+	const kept = previous.filter((entry) => !superseded(entry))
+	confirmedEffects.set(queryClient, kept)
 	return () => {
-		confirmedEffects.set(queryClient, previous)
+		// Only this event's receipts are put back. Whatever was confirmed for
+		// other events while this change was pending is in the ledger now and
+		// must stay there.
+		const current = confirmedEffects.get(queryClient) as typeof previous
+		confirmedEffects.set(queryClient, [...current, ...removed])
 	}
 }
 

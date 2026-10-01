@@ -567,6 +567,58 @@ describe('calendar mutation hooks', () => {
 		})
 	})
 
+	describe('confirmed receipts while changes overlap', () => {
+		const RANGE = { start: 0, end: 1000 }
+		const other = {
+			id: 'event-2',
+			calendar_id: 'calendar-1',
+			title: 'Other',
+			when: { object: 'timespan', start_time: 600, end_time: 700 },
+		} as Event
+		const moved = (source: Event, start: number) =>
+			({ ...source, when: { object: 'timespan', start_time: start, end_time: start + 100 } }) as Event
+		const stale = { events: [event, other] } as CalendarRouteData
+		/** What a view draws for an event once an eventually consistent provider read lands. */
+		const drawnAfterStaleRead = (eventId: string) => {
+			client.setQueryData(calendarKeys.range(RANGE.start, RANGE.end), stale)
+			const when = calendarStateTestApi
+				.reconcileCalendarData(client, stale, RANGE)
+				.events.find((candidate) => candidate.id === eventId)?.when
+			return (when as { start_time: number }).start_time
+		}
+
+		beforeEach(() => {
+			client.setQueryData(calendarKeys.range(RANGE.start, RANGE.end), stale)
+		})
+
+		it('keeps another event confirmation when a change that was pending before it fails afterwards', async () => {
+			let refuse: (reason: unknown) => void = () => {}
+			api.updateEvent.mockImplementation(({ data }: { data: { eventId: string } }) =>
+				data.eventId === event.id
+					? new Promise((_resolve, reject) => {
+							refuse = reject
+						})
+					: Promise.resolve({ event: moved(other, 800) }),
+			)
+			const reschedule = renderHook(() => useRescheduleEventMutation(), { wrapper }).result
+			let pending: Promise<unknown> = Promise.resolve()
+			// A is moved and its request is still with the provider...
+			act(() => {
+				pending = reschedule.current.mutateAsync({ event, startTime: 300, endTime: 400 }).catch(() => {})
+			})
+			await act(async () => {})
+			// ...while B is moved and confirmed.
+			await act(() => reschedule.current.mutateAsync({ event: other, startTime: 800, endTime: 900 }))
+			await act(async () => {
+				refuse(new Error('offline'))
+				await pending
+			})
+			// A's failure triggers a refetch; a stale read must not move B back.
+			expect(drawnAfterStaleRead(other.id)).toBe(800)
+			expect(drawnAfterStaleRead(event.id)).toBe(100)
+		})
+	})
+
 	it('fails closed when an update hook has no authorized event', async () => {
 		const update = renderHook(() => useUpdateEventMutation(null), { wrapper }).result
 		await expect(act(() => update.current.mutateAsync({ eventId: 'missing', title: 'No' }))).rejects.toThrow(
