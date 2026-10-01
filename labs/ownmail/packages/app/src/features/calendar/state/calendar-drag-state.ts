@@ -129,10 +129,21 @@ export function useCalendarDrag(options: CalendarDragOptions) {
 		pointer.current = null
 	}, [])
 
-	// A drag still in flight when the grid unmounts, or shows something else,
-	// must not leave listeners behind.
+	// When the grid unmounts or shows something else, whatever was in progress
+	// is over: a drag in flight must not leave listeners behind, and an
+	// unconfirmed keyboard adjustment must not be waiting, with its preview, for
+	// the same range to be shown again, where Enter would save it. The setters
+	// captured here belong to the identity being left, so they clear its state.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the cleanup must also run when the grid's identity changes.
-	useEffect(() => endPointerDrag, [endPointerDrag, scope])
+	useEffect(
+		() => () => {
+			endPointerDrag()
+			keyboardSession.current = null
+			setPreview(null)
+			setAnnouncement('')
+		},
+		[endPointerDrag, scope, setPreview, setAnnouncement],
+	)
 
 	const beginPointerDrag = (start: PointerStart, kind: DragKind, drawn: Event | null) => {
 		{
