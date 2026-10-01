@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'ownmail:trusted-image-senders:v2'
 const LEGACY_STORAGE_KEY = 'ownmail:trusted-image-senders:v1'
+const ORIGINAL_COLORS_STORAGE_KEY = 'ownmail:original-color-senders:v1'
 const DATABASE_NAME = 'ownmail-sender-trust'
 const DATABASE_VERSION = 1
 const KEY_STORE_NAME = 'keys'
@@ -10,7 +11,6 @@ const MAX_ENCRYPTED_BYTES = 128 * 1024
 const IV_BYTES = 12
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
-const additionalData = encoder.encode(STORAGE_KEY)
 
 interface EncryptedSenderRecord {
 	v: 1
@@ -143,9 +143,12 @@ function boundedSenders(value: unknown): string[] {
 	return senders
 }
 
-async function readTrustedSenders(storage: Storage, key: CryptoKey): Promise<string[]> {
+// Each remembered list is bound to its storage key as AES-GCM additional data, so
+// one list's ciphertext can never be replayed as another's.
+async function readSenderList(storage: Storage, key: CryptoKey, storageKey: string): Promise<string[]> {
 	try {
-		const serialized = storage.getItem(STORAGE_KEY)
+		const additionalData = encoder.encode(storageKey)
+		const serialized = storage.getItem(storageKey)
 		if (!serialized || serialized.length > MAX_ENCRYPTED_BYTES * 2) return []
 		const record: unknown = JSON.parse(serialized)
 		if (!isEncryptedSenderRecord(record)) return []
@@ -159,8 +162,14 @@ async function readTrustedSenders(storage: Storage, key: CryptoKey): Promise<str
 	}
 }
 
-async function writeTrustedSenders(storage: Storage, key: CryptoKey, senders: string[]): Promise<boolean> {
+async function writeSenderList(
+	storage: Storage,
+	key: CryptoKey,
+	storageKey: string,
+	senders: string[],
+): Promise<boolean> {
 	try {
+		const additionalData = encoder.encode(storageKey)
 		const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
 		const ciphertext = await crypto.subtle.encrypt(
 			{ name: 'AES-GCM', iv, additionalData },
@@ -168,10 +177,10 @@ async function writeTrustedSenders(storage: Storage, key: CryptoKey, senders: st
 			encoder.encode(JSON.stringify(senders)),
 		)
 		storage.setItem(
-			STORAGE_KEY,
+			storageKey,
 			JSON.stringify({ v: 1, iv: base64url(iv), ciphertext: base64url(new Uint8Array(ciphertext)) }),
 		)
-		storage.removeItem(LEGACY_STORAGE_KEY)
+		if (storageKey === STORAGE_KEY) storage.removeItem(LEGACY_STORAGE_KEY)
 		return true
 	} catch {
 		return false
@@ -185,7 +194,7 @@ export async function senderImagesTrusted(
 ): Promise<boolean> {
 	const canonical = canonicalSender(sender)
 	const key = canonical ? await keyStore.getOrCreateKey() : null
-	return key && canonical ? (await readTrustedSenders(storage, key)).includes(canonical) : false
+	return key && canonical ? (await readSenderList(storage, key, STORAGE_KEY)).includes(canonical) : false
 }
 
 export async function trustSenderImages(
@@ -196,8 +205,36 @@ export async function trustSenderImages(
 	const canonical = canonicalSender(sender)
 	const key = canonical ? await keyStore.getOrCreateKey() : null
 	if (!canonical || !key) return false
-	const senders = (await readTrustedSenders(storage, key)).filter((candidate) => candidate !== canonical)
-	return writeTrustedSenders(storage, key, [canonical, ...senders].slice(0, MAX_TRUSTED_SENDERS))
+	const senders = (await readSenderList(storage, key, STORAGE_KEY)).filter(
+		(candidate) => candidate !== canonical,
+	)
+	return writeSenderList(storage, key, STORAGE_KEY, [canonical, ...senders].slice(0, MAX_TRUSTED_SENDERS))
+}
+
+/** Senders whose mail the reader chose to always show in its original colors. */
+export async function originalColorSenders(
+	storage: Storage = localStorage,
+	keyStore: SenderTrustKeyStore = browserKeyStore,
+): Promise<string[]> {
+	const key = await keyStore.getOrCreateKey()
+	return key ? readSenderList(storage, key, ORIGINAL_COLORS_STORAGE_KEY) : []
+}
+
+/** Remember (or forget) that a sender's mail should keep its original colors. */
+export async function setSenderOriginalColors(
+	sender: string | null | undefined,
+	enabled: boolean,
+	storage: Storage = localStorage,
+	keyStore: SenderTrustKeyStore = browserKeyStore,
+): Promise<boolean> {
+	const canonical = canonicalSender(sender)
+	const key = canonical ? await keyStore.getOrCreateKey() : null
+	if (!canonical || !key) return false
+	const others = (await readSenderList(storage, key, ORIGINAL_COLORS_STORAGE_KEY)).filter(
+		(candidate) => candidate !== canonical,
+	)
+	const senders = enabled ? [canonical, ...others].slice(0, MAX_TRUSTED_SENDERS) : others
+	return writeSenderList(storage, key, ORIGINAL_COLORS_STORAGE_KEY, senders)
 }
 
 /** Remove every remembered per-sender image permission without exposing stored identities. */

@@ -13,7 +13,8 @@
 			"!**/.turbo",
 			"!**/.wrangler",
 			"!**/routeTree.gen.ts",
-			"!labs/ownmail/packages/app/src/features/mail/components/real-email-fixtures"
+			"!labs/ownmail/packages/app/src/features/mail/components/real-email-fixtures",
+			"!labs/ownmail/packages/app/src/features/mail/components/reader-fixtures"
 		]
 	},
 	"formatter": {

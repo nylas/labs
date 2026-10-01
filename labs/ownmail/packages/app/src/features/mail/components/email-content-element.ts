@@ -1,13 +1,32 @@
 import {
+	chooseEmailColorStrategy,
+	compositeColor,
+	contrastRatio,
+	DARK_READER_GROUND,
+	DEFAULT_EMAIL_CANVAS,
+	type EmailColorStrategy,
+	formatRgb,
+	parseComputedColor,
+	pixelsHaveLightMatte,
+	type RgbColor,
+	remapBorderColor,
+	remapSurfaceColor,
+	remapTextColor,
+	sameColor,
+} from '../lib/email-color-map.js'
+import {
 	computeScale,
+	EMAIL_CANVAS_EVENT,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
+	type EmailCanvasDetail,
 	type EmailLayoutMode,
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
 	type LinkPreviewDetail,
+	MIN_EMAIL_SCALE,
 	meaningfulContentWidth,
 	type PreviewPoint,
 	scaledHeight,
@@ -17,6 +36,7 @@ import {
 	PICTURE_MEDIA_ATTRIBUTE,
 	type PictureMediaDefinition,
 	sanitizedDocumentHasRemoteImages,
+	sanitizedEmailSupportsDarkMode,
 	sanitizeEmailDocument,
 } from '../lib/sanitize-email.js'
 
@@ -27,7 +47,8 @@ import {
  * boundary, forcing links to open safely in a new tab, and shrink-to-fit scaling
  * for wide (non-responsive) emails on narrow screens. It reports link hovers back
  * to the host via a composed {@link LINK_PREVIEW_EVENT} so the app can show a URL
- * preview, and reflects the host-controlled `data-dark-invert` attribute (pure CSS).
+ * preview, and reports the color strategy and canvas it chose for the message
+ * (see {@link EMAIL_CANVAS_EVENT}) so the thread can extend that canvas.
  *
  * Registration is deferred to {@link ensureEmailElementDefined} — called only on
  * the client — so importing this module never touches `HTMLElement`/`customElements`
@@ -54,11 +75,32 @@ export function previewPoint(event: Event, target: EventTarget | null): PreviewP
 	return { x: rect.left, y: rect.bottom }
 }
 
-/** Force every link to open in a new tab without leaking the opener. */
+/**
+ * Padded or filled anchors are call-to-action buttons. Their shape already sets
+ * them apart from body text, so they keep the sender's decoration instead of the
+ * reader's forced underline.
+ */
+export function isCallToActionAnchor(anchor: HTMLAnchorElement): boolean {
+	const style = getComputedStyle(anchor)
+	const fill = parseComputedColor(style.backgroundColor)
+	if ((fill && fill.alpha > 0) || (style.backgroundImage && style.backgroundImage !== 'none')) return true
+	if (!['block', 'inline-block', 'flex', 'inline-flex', 'table-cell'].includes(style.display)) return false
+	const padding = Math.max(
+		Number.parseFloat(style.paddingLeft) || 0,
+		Number.parseFloat(style.paddingTop) || 0,
+	)
+	return padding >= 6 || (Number.parseFloat(style.borderTopWidth) || 0) > 0
+}
+
+/** Force every link to open in a new tab without leaking the opener; underline text links. */
 export function rewriteAnchors(root: HTMLElement): void {
 	for (const anchor of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
 		anchor.setAttribute('target', '_blank')
 		anchor.setAttribute('rel', 'noopener noreferrer nofollow')
+		if (isCallToActionAnchor(anchor)) {
+			anchor.setAttribute('data-ownmail-cta', '')
+			continue
+		}
 		anchor.style.setProperty('text-decoration', 'underline', 'important')
 		anchor.style.setProperty('text-decoration-thickness', 'max(1px, .08em)', 'important')
 		anchor.style.setProperty('text-underline-offset', '.15em', 'important')
@@ -112,8 +154,6 @@ function setImportantStyle(element: HTMLElement | SVGElement, property: string, 
 	element.style.setProperty(property, value, 'important')
 }
 
-const NARROW_TABLE_REFLOW_WIDTH = 400
-
 function stackTableForNarrowPane(table: HTMLTableElement): void {
 	const sections = [table, ...table.querySelectorAll<HTMLElement>('thead, tbody, tfoot, tr, td, th')]
 	for (const section of sections) {
@@ -124,29 +164,6 @@ function stackTableForNarrowPane(table: HTMLTableElement): void {
 		setImportantStyle(section, 'max-width', '100%')
 		setImportantStyle(section, 'width', '100%')
 	}
-}
-
-function isolateBackgroundMedia(root: HTMLElement): void {
-	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
-		if (['HEAD', 'STYLE', 'TITLE', 'META', 'LINK'].includes(element.tagName)) continue
-		const style = getComputedStyle(element)
-		if (!style.backgroundImage || style.backgroundImage === 'none') continue
-		element.setAttribute('data-ownmail-background-media', '')
-		for (const property of ['image', 'position', 'size', 'repeat', 'origin', 'clip'] as const) {
-			setImportantStyle(
-				element,
-				`--ownmail-background-${property}`,
-				style.getPropertyValue(`background-${property}`),
-			)
-		}
-	}
-}
-
-interface RgbColor {
-	alpha: number
-	blue: number
-	green: number
-	red: number
 }
 
 const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
@@ -317,56 +334,6 @@ export function applyPictureSourceMedia(root: HTMLElement, theme: 'dark' | 'ligh
 	}
 }
 
-function computedRgb(value: string): RgbColor | null {
-	const match = value.match(
-		/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d*\.?\d+))?\s*\)$/i,
-	)
-	if (!match) return null
-	const [red, green, blue, alpha = '1'] = match.slice(1)
-	/* v8 ignore next -- the expression requires all three captured RGB channels -- @preserve */
-	if (red === undefined || green === undefined || blue === undefined) return null
-	return {
-		red: Math.min(255, Number(red)),
-		green: Math.min(255, Number(green)),
-		blue: Math.min(255, Number(blue)),
-		alpha: Math.min(1, Number(alpha)),
-	}
-}
-
-function compositeColor(foreground: RgbColor, background: RgbColor): RgbColor {
-	const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha)
-	/* v8 ignore next -- callers require a painted foreground and background -- @preserve */
-	if (alpha === 0) return foreground
-	return {
-		red:
-			(foreground.red * foreground.alpha + background.red * background.alpha * (1 - foreground.alpha)) /
-			alpha,
-		green:
-			(foreground.green * foreground.alpha + background.green * background.alpha * (1 - foreground.alpha)) /
-			alpha,
-		blue:
-			(foreground.blue * foreground.alpha + background.blue * background.alpha * (1 - foreground.alpha)) /
-			alpha,
-		alpha,
-	}
-}
-
-function relativeLuminance(color: RgbColor): number {
-	const channel = (value: number): number => {
-		const normalized = value / 255
-		return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
-	}
-	return channel(color.red) * 0.2126 + channel(color.green) * 0.7152 + channel(color.blue) * 0.0722
-}
-
-function colorContrast(first: RgbColor, second: RgbColor): number {
-	const firstLuminance = relativeLuminance(first)
-	const secondLuminance = relativeLuminance(second)
-	return (
-		(Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05)
-	)
-}
-
 /**
  * Keep text readable when a partially adaptive template leaves a local surface
  * light. Transparent text wrappers are evaluated against their nearest painted
@@ -389,7 +356,7 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 	if (!enabled) return
 	const surfaceCache = new WeakMap<Element, RgbColor | null>()
 	const ambiguousSurface = new WeakSet<Element>()
-	const rootSurface = computedRgb(getComputedStyle(root).backgroundColor)
+	const rootSurface = parseComputedColor(getComputedStyle(root).backgroundColor)
 	surfaceCache.set(root, rootSurface?.alpha ? rootSurface : null)
 
 	for (const element of root.querySelectorAll<HTMLElement | SVGElement>('*')) {
@@ -398,7 +365,7 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 		const parent = element.parentElement as Element
 		const parentSurface = surfaceCache.get(parent) as RgbColor | null
 		const paintsBox = !['contents', 'none'].includes(style.display)
-		const layer = paintsBox ? computedRgb(style.backgroundColor) : null
+		const layer = paintsBox ? parseComputedColor(style.backgroundColor) : null
 		const surface = layer?.alpha
 			? parentSurface
 				? compositeColor(layer, parentSurface)
@@ -417,14 +384,14 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 		) {
 			continue
 		}
-		const color = computedRgb(style.color)
+		const color = parseComputedColor(style.color)
 		if (!color) continue
 		const renderedColor = color.alpha < 1 ? compositeColor(color, surface) : color
-		if (colorContrast(renderedColor, surface) >= 4.5) continue
+		if (contrastRatio(renderedColor, surface) >= 4.5) continue
 
 		const dark = { red: 26, green: 26, blue: 26, alpha: 1 }
 		const light = { red: 245, green: 245, blue: 245, alpha: 1 }
-		const fallback = colorContrast(dark, surface) >= colorContrast(light, surface) ? 'dark' : 'light'
+		const fallback = contrastRatio(dark, surface) >= contrastRatio(light, surface) ? 'dark' : 'light'
 		contrastColorStyle.set(element, {
 			hadStyle: element.hasAttribute('style'),
 			priority: element.style.getPropertyPriority('color'),
@@ -435,6 +402,200 @@ export function applyInheritedSurfaceContrast(root: HTMLElement, enabled: boolea
 	}
 }
 
+const NON_RENDERED_TAGS = ['HEAD', 'STYLE', 'TITLE', 'META', 'LINK']
+
+/** Inline overrides written by the color remap, restorable before every remeasure. */
+export class ColorOverrides {
+	private entries: Array<{
+		element: HTMLElement | SVGElement
+		hadStyle: boolean
+		priority: string
+		property: string
+		value: string
+	}> = []
+
+	set(element: HTMLElement | SVGElement, property: string, value: string): void {
+		this.entries.push({
+			element,
+			hadStyle: element.hasAttribute('style'),
+			priority: element.style.getPropertyPriority(property),
+			property,
+			value: element.style.getPropertyValue(property),
+		})
+		element.style.setProperty(property, value, 'important')
+	}
+
+	restore(): void {
+		for (const entry of this.entries.reverse()) {
+			if (entry.value) entry.element.style.setProperty(entry.property, entry.value, entry.priority)
+			else entry.element.style.removeProperty(entry.property)
+			if (!entry.hadStyle && entry.element.style.length === 0) entry.element.removeAttribute('style')
+		}
+		this.entries = []
+	}
+}
+
+export interface EmailCanvas {
+	/** The sender's painted canvas, or null when the message relies on the default light canvas. */
+	color: RgbColor | null
+	/** Full-width elements painted in the canvas color; they become transparent under remap. */
+	elements: Set<Element>
+}
+
+/**
+ * Find the sender's canvas: the first painted element that spans the pane and
+ * holds most of the message. Every other full-width element painted the same
+ * color is part of that canvas. Narrower painted boxes are cards. A full-width
+ * banner that does not wrap the message (a hero strip) is never the canvas.
+ */
+export function detectEmailCanvas(root: HTMLElement, paneWidth: number): EmailCanvas {
+	const elements = new Set<Element>()
+	if (paneWidth <= 0) return { color: null, elements }
+	const messageHeight = root.scrollHeight
+	const wide: Array<{ element: HTMLElement; color: RgbColor }> = []
+	let color: RgbColor | null = null
+	for (const element of root.querySelectorAll<HTMLElement>('*')) {
+		if (!(element instanceof HTMLElement) || NON_RENDERED_TAGS.includes(element.tagName)) continue
+		if (element.offsetWidth < paneWidth * 0.97) continue
+		const painted = parseComputedColor(getComputedStyle(element).backgroundColor)
+		if (!painted || painted.alpha < 0.5) continue
+		wide.push({ element, color: painted })
+		if (!color && element.offsetHeight >= messageHeight * 0.5) color = painted
+	}
+	const canvasColor = color ?? DEFAULT_EMAIL_CANVAS
+	for (const candidate of wide) if (sameColor(candidate.color, canvasColor)) elements.add(candidate.element)
+	return { color, elements }
+}
+
+function nearestSurface(element: Element, surfaces: Map<Element, RgbColor>, fallback: RgbColor): RgbColor {
+	for (let node = element.parentElement; node; node = node.parentElement) {
+		const surface = surfaces.get(node)
+		if (surface) return surface
+	}
+	/* v8 ignore next -- the remap root is always seeded, so every rendered descendant finds a surface -- @preserve */
+	return fallback
+}
+
+/**
+ * Adapt a light-only message for the dark reader, color by color. The canvas
+ * turns transparent so the app ground (and the thread's band) shows through,
+ * light cards lift to an elevated surface, sender dark sections and brand fills
+ * keep their color, and every text color is re-chosen for its new surface.
+ * Subtrees painted over a background image keep their authored colors, because
+ * the text was designed against artwork the reader cannot recolor. Media, SVG,
+ * and canvas content are never touched.
+ */
+export function applyEmailColorRemap(
+	root: HTMLElement,
+	canvas: EmailCanvas,
+	overrides: ColorOverrides,
+	ground: RgbColor = DARK_READER_GROUND,
+): void {
+	const previous = new Map<Element, RgbColor>([[root, canvas.color ?? DEFAULT_EMAIL_CANVAS]])
+	const next = new Map<Element, RgbColor>([[root, ground]])
+	const authored = new Set<Element>()
+	const snapshots = Array.from(root.querySelectorAll<HTMLElement | SVGElement>('*'))
+		.filter(
+			(element) =>
+				(element instanceof HTMLElement || element instanceof SVGElement) &&
+				!NON_RENDERED_TAGS.includes(element.tagName) &&
+				!['IMG', 'VIDEO', 'PICTURE', 'SOURCE', 'CANVAS'].includes(element.tagName) &&
+				!element.closest('svg'),
+		)
+		.map((element) => {
+			const style = getComputedStyle(element)
+			return {
+				borders: (['top', 'right', 'bottom', 'left'] as const).flatMap((side) => {
+					const width = Number.parseFloat(style.getPropertyValue(`border-${side}-width`))
+					const lineStyle = style.getPropertyValue(`border-${side}-style`)
+					const color = parseComputedColor(style.getPropertyValue(`border-${side}-color`))
+					return width > 0 && !['none', 'hidden'].includes(lineStyle) && color ? [{ side, color }] : []
+				}),
+				background: parseComputedColor(style.backgroundColor),
+				color: parseComputedColor(style.color),
+				element,
+				image: Boolean(style.backgroundImage) && style.backgroundImage !== 'none',
+				paintsBox: !['contents', 'none'].includes(style.display),
+			}
+		})
+	for (const snapshot of snapshots) {
+		const { element } = snapshot
+		const parentPrevious = nearestSurface(element, previous, DEFAULT_EMAIL_CANVAS)
+		const parentNext = nearestSurface(element, next, ground)
+		const layer =
+			snapshot.paintsBox && snapshot.background && snapshot.background.alpha >= 0.05
+				? snapshot.background
+				: null
+		const parentAuthored = authored.has(element.parentElement as Element)
+		if ((snapshot.paintsBox && snapshot.image) || (parentAuthored && (!layer || layer.alpha < 0.95))) {
+			authored.add(element)
+			continue
+		}
+		let previousSurface = parentPrevious
+		let nextSurface = parentNext
+		if (layer) {
+			previousSurface = compositeColor(layer, parentPrevious)
+			if (canvas.elements.has(element)) {
+				overrides.set(element, 'background-color', 'transparent')
+			} else {
+				nextSurface = remapSurfaceColor(previousSurface)
+				if (nextSurface !== previousSurface || layer.alpha < 1) {
+					overrides.set(element, 'background-color', formatRgb(nextSurface))
+				}
+			}
+		}
+		previous.set(element, previousSurface)
+		next.set(element, nextSurface)
+		if (snapshot.color) {
+			overrides.set(element, 'color', formatRgb(remapTextColor(snapshot.color, previousSurface, nextSurface)))
+		}
+		for (const { side, color } of snapshot.borders) {
+			const mapped = remapBorderColor(color, nextSurface)
+			if (mapped) overrides.set(element, `border-${side}-color`, formatRgb(mapped))
+		}
+	}
+}
+
+/** The nearest painted surface behind an element, or the canvas when nothing is painted. */
+function paintedSurfaceBehind(element: Element, root: HTMLElement, canvas: RgbColor): RgbColor {
+	for (let node = element.parentElement; node && node !== root; node = node.parentElement) {
+		const painted = parseComputedColor(getComputedStyle(node).backgroundColor)
+		if (painted && painted.alpha >= 0.95) return painted
+	}
+	return canvas
+}
+
+/* v8 ignore start -- canvas pixel sampling of decoded images is exercised by the Chromium suite -- @preserve */
+function imageHasLightMatte(image: HTMLImageElement, surface: RgbColor): boolean {
+	// Stretched spacers and tracking pixels carry no artwork worth protecting.
+	if (!image.complete || image.naturalWidth * image.naturalHeight < 400) return false
+	if (image.offsetWidth * image.offsetHeight < 4_000) return false
+	try {
+		const canvas = document.createElement('canvas')
+		canvas.width = 32
+		canvas.height = 16
+		const context = canvas.getContext('2d', { willReadFrequently: true })
+		if (!context) return false
+		context.drawImage(image, 0, 0, canvas.width, canvas.height)
+		return pixelsHaveLightMatte(context.getImageData(0, 0, canvas.width, canvas.height).data, 32, 16, surface)
+	} catch {
+		return false
+	}
+}
+/* v8 ignore stop -- @preserve */
+
+/**
+ * Does visible artwork carry an opaque light matte? Remapping would leave such
+ * images as white boxes on the dark ground, so the message stays on paper.
+ */
+export function hasLightMatteArtwork(root: HTMLElement, canvas: RgbColor): boolean {
+	for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
+		if (image.hidden) continue
+		if (imageHasLightMatte(image, paintedSurfaceBehind(image, root, canvas))) return true
+	}
+	return false
+}
+
 function createEmailElementClass(Base: typeof HTMLElement) {
 	return class extends Base {
 		static get observedAttributes(): string[] {
@@ -442,7 +603,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				'data-layout-mode',
 				'data-load-remote-images',
 				'data-email-theme',
-				'data-dark-invert',
+				'data-color-mode',
 				'data-image-mode',
 				'data-message-id',
 			]
@@ -460,6 +621,14 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 		private lastRemoteImagesStatus = ''
 		private imageStates = new WeakMap<HTMLImageElement, 'failed' | 'loaded' | 'pending'>()
 		private imageRetry = 0
+		private strategy: EmailColorStrategy = 'original'
+		private appliedImageTheme: 'dark' | 'light' = 'light'
+		private lastCanvasStatus = ''
+		private canvasColor: RgbColor | null = null
+		private backingStrategy: EmailColorStrategy = 'original'
+		private senderDarkStylesHtml: string | null = null
+		private senderDarkStyles = false
+		private readonly colorOverrides = new ColorOverrides()
 
 		connectedCallback(): void {
 			const root = this.ensureShadow()
@@ -508,15 +677,13 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			}
 			if (name === 'data-email-theme' && this.contentRoot) {
 				applyPictureSourceMedia(this.contentRoot, this.emailTheme(), this.clientWidth)
-				applyControlledImageTreatment(this.contentRoot, this.imageMode(), this.emailTheme())
 			}
-			if (name === 'data-image-mode' && this.contentRoot) {
-				applyControlledImageTreatment(this.contentRoot, this.imageMode(), this.emailTheme())
+			if (['data-email-theme', 'data-color-mode'].includes(name)) {
+				this.strategy = this.provisionalStrategy()
 			}
-			if (['data-dark-invert', 'data-email-theme', 'data-image-mode'].includes(name) && this.contentRoot) {
-				for (const image of this.contentRoot.querySelectorAll<HTMLImageElement>('img')) {
-					if (image.complete) updateDarkImageBacking(image, this.darkImageBackingEnabled())
-				}
+			if (['data-email-theme', 'data-image-mode'].includes(name) && this.contentRoot) {
+				this.appliedImageTheme = this.imageTheme()
+				applyControlledImageTreatment(this.contentRoot, this.imageMode(), this.appliedImageTheme)
 			}
 			this.scheduleMeasure()
 		}
@@ -582,18 +749,23 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				const blockedRemoteImages = sanitizedDocumentHasRemoteImages(documentElement)
 				if (!loadRemoteImages) this.hasRemoteImages = blockedRemoteImages
 				applyPictureSourceMedia(documentElement, this.emailTheme(), this.clientWidth)
-				applyControlledImageTreatment(documentElement, this.imageMode(), this.emailTheme())
+				this.strategy = this.provisionalStrategy()
+				this.appliedImageTheme = this.imageTheme()
+				applyControlledImageTreatment(documentElement, this.imageMode(), this.appliedImageTheme)
 			}
+			// The previous document's overrides belong to nodes that are being discarded.
+			this.colorOverrides.restore()
 			root.replaceChildren(...(documentElement ? [documentElement] : []))
 			this.imageStates = new WeakMap()
+			this.backingStrategy = this.strategy
 			for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
 				if (this.controlledImageReferences(image)) this.imageStates.set(image, 'pending')
 				if (image.complete) updateDarkImageBacking(image, this.darkImageBackingEnabled())
 			}
 			applyInheritedSurfaceContrast(root, false)
 			rewriteAnchors(root)
-			isolateBackgroundMedia(root)
 			this.lastLayoutStatus = ''
+			this.lastCanvasStatus = ''
 			this.emitCurrentRemoteImagesStatus(loadRemoteImages)
 			this.scheduleMeasure()
 		}
@@ -667,6 +839,8 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const containerWidth = this.clientWidth
 			if (containerWidth <= 0) return
 
+			// Measure sender colors and geometry, never the previous pass's remap.
+			this.colorOverrides.restore()
 			// Always measure from a trusted, unscaled pane-width canvas. Otherwise a
 			// previous transform or natural width becomes part of the next measurement.
 			content.style.setProperty('--ownmail-email-scale', '1', 'important')
@@ -675,35 +849,41 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			content.style.setProperty('width', `${containerWidth}px`, 'important')
 			content.style.setProperty('max-width', 'none', 'important')
 			content.style.setProperty('transform', 'scale(var(--ownmail-email-scale, 1))', 'important')
+			// Detect the sender's direction, not the one the host inherited from the last pass.
+			this.removeAttribute('data-email-direction')
 			const rtl = this.updateLogicalDirection(content)
 			const mode = this.layoutMode()
 			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
 			applyPictureSourceMedia(content, this.emailTheme(), containerWidth)
-			applyInheritedSurfaceContrast(
-				content,
-				this.getAttribute('data-email-theme') === 'dark' && !this.hasAttribute('data-dark-invert'),
-			)
-			// The contrast pass restores and reapplies its inline fallback synchronously;
-			// discard those observer records so the repair cannot schedule itself forever.
-			this.mutationObserver?.takeRecords()
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
 			const naturalWidth =
 				mode === 'original' ? Math.max(containerWidth, visibleWidth || content.scrollWidth) : containerWidth
 			content.style.setProperty('--ownmail-email-natural-width', `${naturalWidth}px`, 'important')
 			content.style.setProperty('width', `${naturalWidth}px`, 'important')
 
-			const scale = mode === 'original' ? computeScale(naturalWidth, containerWidth) : 1
+			// Fixed-width layouts shrink only to the legibility floor; past it the
+			// message pans horizontally inside its own box instead.
+			const scale = mode === 'original' ? computeScale(naturalWidth, containerWidth, MIN_EMAIL_SCALE) : 1
 			content.style.setProperty('--ownmail-email-scale', `${scale}`, 'important')
-			content.style.setProperty(
-				'left',
-				rtl && scale < 1 ? `${containerWidth - naturalWidth}px` : '0px',
-				'important',
-			)
+			// The host takes the message's direction, so an RTL canvas starts at the
+			// pane's right edge, scales from there, and pans toward its inline end.
+			content.style.setProperty('left', '0px', 'important')
+			if (rtl) this.setAttribute('data-email-direction', 'rtl')
+			const pans =
+				naturalWidth * scale > containerWidth + 0.5 ||
+				(mode === 'readable' && content.scrollWidth > containerWidth + 0.5)
+			if (pans) this.setAttribute('data-email-pan', '')
+			else this.removeAttribute('data-email-pan')
 			if (scale < 1) {
 				this.style.height = `${scaledHeight(content.scrollHeight, scale)}px`
 			} else {
 				this.style.height = ''
 			}
+
+			this.applyColorStrategy(content, containerWidth)
+			// The color passes restore and reapply inline overrides synchronously;
+			// discard those observer records so the repair cannot schedule itself forever.
+			this.mutationObserver?.takeRecords()
 
 			this.emitLayoutStatus({
 				mode,
@@ -713,6 +893,46 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				reflowed,
 				needsFit: naturalWidth > containerWidth,
 			})
+			this.emitCanvasStatus(scaledHeight(content.scrollHeight, scale))
+		}
+
+		/** Choose and apply how this message's colors are presented on the current app theme. */
+		private applyColorStrategy(content: HTMLElement, containerWidth: number): void {
+			const { theme, colorMode, senderDarkStyles } = this.colorInputs()
+			const canvas = detectEmailCanvas(content, containerWidth)
+			const lightMatteArtwork =
+				theme === 'dark' &&
+				colorMode === 'automatic' &&
+				!senderDarkStyles &&
+				hasLightMatteArtwork(content, canvas.color ?? DEFAULT_EMAIL_CANVAS)
+			const strategy = chooseEmailColorStrategy({ theme, colorMode, senderDarkStyles, lightMatteArtwork })
+			this.strategy = strategy
+			this.canvasColor =
+				strategy === 'remap'
+					? null
+					: strategy === 'native'
+						? canvas.color
+						: (canvas.color ?? DEFAULT_EMAIL_CANVAS)
+			this.setAttribute('data-email-strategy', strategy)
+			if (strategy === 'paper' || strategy === 'original') {
+				this.style.setProperty('--ownmail-email-canvas', formatRgb(canvas.color ?? DEFAULT_EMAIL_CANVAS))
+			} else {
+				this.style.removeProperty('--ownmail-email-canvas')
+			}
+			// Paper keeps the sender's light artwork, so proxied images use their light treatment.
+			const imageTheme = this.imageTheme()
+			if (imageTheme !== this.appliedImageTheme) {
+				this.appliedImageTheme = imageTheme
+				applyControlledImageTreatment(content, this.imageMode(), imageTheme)
+			}
+			if (strategy !== this.backingStrategy) {
+				this.backingStrategy = strategy
+				for (const image of content.querySelectorAll<HTMLImageElement>('img')) {
+					if (image.complete) updateDarkImageBacking(image, this.darkImageBackingEnabled())
+				}
+			}
+			applyInheritedSurfaceContrast(content, strategy === 'native')
+			if (strategy === 'remap') applyEmailColorRemap(content, canvas, this.colorOverrides)
 		}
 
 		private scheduleMeasure(): void {
@@ -742,8 +962,39 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			return this.getAttribute('data-image-mode') === 'original' ? 'original' : 'automatic'
 		}
 
+		private colorInputs(): {
+			theme: 'dark' | 'light'
+			colorMode: 'automatic' | 'original'
+			senderDarkStyles: boolean
+		} {
+			return {
+				theme: this.emailTheme(),
+				colorMode: this.getAttribute('data-color-mode') === 'original' ? 'original' : 'automatic',
+				senderDarkStyles: this.hasSenderDarkStyles(),
+			}
+		}
+
+		/** Does the sender ship an adaptive dark stylesheet? Checked once per document, after sanitizing. */
+		private hasSenderDarkStyles(): boolean {
+			if (this.senderDarkStylesHtml !== this.html) {
+				this.senderDarkStylesHtml = this.html
+				this.senderDarkStyles = sanitizedEmailSupportsDarkMode(this.html)
+			}
+			return this.senderDarkStyles
+		}
+
+		/** The strategy before artwork is measured, so the first image requests already match it. */
+		private provisionalStrategy(): EmailColorStrategy {
+			return chooseEmailColorStrategy({ ...this.colorInputs(), lightMatteArtwork: false })
+		}
+
+		/** Proxied images follow the presentation: light artwork on paper, dark variants on the dark ground. */
+		private imageTheme(): 'dark' | 'light' {
+			return this.strategy === 'paper' || this.strategy === 'original' ? 'light' : this.emailTheme()
+		}
+
 		private darkImageBackingEnabled(): boolean {
-			return this.emailTheme() === 'dark' && this.hasAttribute('data-dark-invert')
+			return this.strategy === 'remap'
 		}
 
 		private updateLogicalDirection(content: HTMLElement): boolean {
@@ -832,12 +1083,6 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 				if (tooWide && canResize && !['TD', 'TH', 'TR'].includes(element.tagName)) {
 					setImportantStyle(element, 'width', '100%')
 				}
-				if (element.tagName === 'TABLE' && tooWide) {
-					setImportantStyle(element, 'table-layout', 'fixed')
-					if (readableWidth < NARROW_TABLE_REFLOW_WIDTH) {
-						stackTableForNarrowPane(element as HTMLTableElement)
-					}
-				}
 				if (normalizeHorizontalMargins) {
 					setImportantStyle(element, 'margin-left', '0px')
 					setImportantStyle(element, 'margin-right', '0px')
@@ -849,15 +1094,46 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 					setImportantStyle(element, 'font-size', '12px')
 				}
 			}
+			// Clamping keeps row structure whenever the cells' content can fit. Only a
+			// table whose cells still cannot fit stacks them, innermost table first, so
+			// a multi-column layout is never broken just because the pane is narrow. A
+			// word longer than its cell is split only when stacking could not help.
+			const overflows = (table: HTMLTableElement): boolean => {
+				const rect = table.getBoundingClientRect()
+				return (
+					table.scrollWidth > readableWidth + 0.5 ||
+					rect.right > contentRect.right + 0.5 ||
+					rect.left < contentRect.left - 0.5
+				)
+			}
+			for (const table of Array.from(content.querySelectorAll<HTMLTableElement>('table')).reverse()) {
+				if (getComputedStyle(table).display === 'none' || !overflows(table)) continue
+				stackTableForNarrowPane(table)
+				changed = true
+				if (!overflows(table)) continue
+				for (const cell of table.querySelectorAll<HTMLElement>('td, th')) {
+					setImportantStyle(cell, 'overflow-wrap', 'anywhere')
+				}
+			}
 			// Ancestor width constraints can reduce a flex/grid allocation after the
 			// initial measurements. Re-evaluate nowrap descendants against that final
 			// allocation so their min-content width cannot keep the pane overflowing.
 			/* v8 ignore start -- final flex/grid allocation is exercised by the Chromium suite -- @preserve */
-			for (const element of content.querySelectorAll<HTMLElement>('[nowrap], [style*="white-space" i]')) {
+			for (const element of content.querySelectorAll('*')) {
+				if (!(element instanceof HTMLElement)) continue
 				const style = getComputedStyle(element)
 				if (!element.hasAttribute('nowrap') && style.whiteSpace !== 'nowrap') continue
 				const rect = element.getBoundingClientRect()
-				const parentRect = element.parentElement?.getBoundingClientRect() ?? contentRect
+				// Inline and inline-block wrappers shrink around their nowrap content, so
+				// compare against the nearest ancestor that actually allocates a width.
+				let allocation = element.parentElement
+				while (
+					allocation &&
+					['inline', 'inline-block', 'contents'].includes(getComputedStyle(allocation).display)
+				) {
+					allocation = allocation.parentElement
+				}
+				const parentRect = allocation?.getBoundingClientRect() ?? contentRect
 				const exceedsOwnBox = element.scrollWidth > rect.width + 0.5
 				const exceedsAllocation = rect.left < parentRect.left - 0.5 || rect.right > parentRect.right + 0.5
 				if (!exceedsOwnBox && !exceedsAllocation) continue
@@ -875,6 +1151,18 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			this.dispatchEvent(
 				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, { detail, bubbles: true, composed: true }),
 			)
+		}
+
+		private emitCanvasStatus(height: number): void {
+			const detail: EmailCanvasDetail = {
+				strategy: this.strategy,
+				canvas: this.canvasColor ? formatRgb(this.canvasColor) : null,
+				height,
+			}
+			const status = JSON.stringify(detail)
+			if (status === this.lastCanvasStatus) return
+			this.lastCanvasStatus = status
+			this.dispatchEvent(new CustomEvent(EMAIL_CANVAS_EVENT, { detail, bubbles: true, composed: true }))
 		}
 
 		private emitRemoteImagesStatus(detail: EmailRemoteImagesDetail): void {

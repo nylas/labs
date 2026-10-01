@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
-	applyDarkInvert,
 	applyEmailColorMode,
 	applyEmailHtml,
 	applyEmailImageMode,
@@ -63,6 +62,11 @@ describe('computeScale', () => {
 	it('shrinks content wider than the pane to fit', () => {
 		expect(computeScale(600, 300)).toBe(0.5)
 		expect(computeScale(800, 400)).toBe(0.5)
+	})
+
+	it('never shrinks below the legibility floor', () => {
+		expect(computeScale(1200, 300, 0.8)).toBe(0.8)
+		expect(computeScale(500, 450, 0.8)).toBe(0.9)
 	})
 })
 
@@ -232,16 +236,21 @@ describe('linkPreviewText', () => {
 })
 
 describe('shadowStyleText', () => {
-	it('scopes to the host and defines the dark inversion', () => {
+	it('scopes to the host and presents dark mode by strategy, never with a filter', () => {
 		const css = shadowStyleText()
 		expect(css).toContain(':host')
 		expect(css).toContain('container:ownmail-email / inline-size')
-		expect(css).toContain('data-dark-invert')
-		expect(css).toContain('invert(1)')
+		expect(css).not.toContain('invert(')
+		expect(css).not.toContain('data-dark-invert')
 		expect(css).toContain(
-			':host([data-dark-invert]){--ownmail-email-link-color:#075985;color-scheme:dark;filter:invert(1)',
+			':host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:#1a1a1a;color-scheme:light;}',
 		)
-		expect(css).not.toContain(':host([data-dark-invert]) .email-root{filter:')
+		expect(css).toContain(
+			':host([data-email-strategy="paper"]) .email-root,:host([data-email-strategy="original"][data-color-mode="original"]) .email-root{background:var(--ownmail-email-canvas,#fff)!important;}',
+		)
+		expect(css).toContain(':host([data-email-direction="rtl"]){direction:rtl;}')
+		expect(css).toContain(':host([data-email-pan]){overflow-x:auto!important;overflow-y:hidden!important;')
+		expect(css).toContain('padding:0;')
 	})
 
 	it('contains provider layout and pins host positioning below the untrusted CSS cascade', () => {
@@ -273,20 +282,15 @@ describe('shadowStyleText', () => {
 		expect(css).toContain('background:transparent!important')
 		expect(css).toContain('[data-email-theme="dark"]')
 		expect(css).toContain('--ownmail-email-link-color:#7dd3fc')
-		expect(css).toContain('[data-dark-invert]){--ownmail-email-link-color:#075985')
 		expect(css).toContain(':where(a[href]):focus-visible{outline:2px solid CanvasText!important')
 		expect(css).toContain('box-shadow:0 0 0 4px Canvas!important')
+		expect(css).toContain(':where(a[href]:not([data-ownmail-cta])){text-decoration:underline!important;')
+		expect(css).toContain(':where(td, th){min-width:0!important;overflow-wrap:break-word!important;')
 		expect(css).toContain(
-			':where(img:is([src], [srcset]), video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important',
+			':host([data-email-strategy="remap"]) .email-root img[data-ownmail-image-backing]{background-color:#f3f4f6',
 		)
-		expect(css).not.toContain(
-			'video, svg, canvas){filter:invert(1) hue-rotate(180deg)!important;background-color',
-		)
-		expect(css).toContain('img[data-ownmail-image-backing]{background-color:#f3f4f6')
-		expect(css).toContain(':where(svg, canvas){background-color:#f3f4f6')
-		expect(css).toContain('[data-ownmail-background-media]::before')
 		expect(css).toContain(
-			':host([data-dark-invert]) .email-root{background:#fff!important;color:#1a1a1a!important;}',
+			':host([data-email-strategy="remap"]) .email-root :where(svg, canvas){background-color:#f3f4f6',
 		)
 	})
 
@@ -307,22 +311,6 @@ describe('applyEmailHtml', () => {
 		const element = { emailHtml: '' } as { emailHtml: string } & EventTarget
 		applyEmailHtml(element, '<p>hi</p>')
 		expect(element.emailHtml).toBe('<p>hi</p>')
-	})
-})
-
-describe('applyDarkInvert', () => {
-	afterEach(() => vi.restoreAllMocks())
-
-	it('is a no-op when the element is not yet mounted', () => {
-		expect(() => applyDarkInvert(null, true)).not.toThrow()
-	})
-
-	it('sets the attribute when inverting and removes it otherwise', () => {
-		const el = document.createElement('div')
-		applyDarkInvert(el, true)
-		expect(el.hasAttribute('data-dark-invert')).toBe(true)
-		applyDarkInvert(el, false)
-		expect(el.hasAttribute('data-dark-invert')).toBe(false)
 	})
 })
 

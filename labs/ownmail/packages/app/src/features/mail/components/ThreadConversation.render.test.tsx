@@ -7,10 +7,16 @@ import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT } from '../lib/email-rende
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
-const { trustSenderImagesMock } = vi.hoisted(() => ({ trustSenderImagesMock: vi.fn() }))
+const { trustSenderImagesMock, originalColorSendersMock, setSenderOriginalColorsMock } = vi.hoisted(() => ({
+	trustSenderImagesMock: vi.fn(),
+	originalColorSendersMock: vi.fn(),
+	setSenderOriginalColorsMock: vi.fn(),
+}))
 vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../lib/image-sender-trust')>()),
 	trustSenderImages: trustSenderImagesMock,
+	originalColorSenders: originalColorSendersMock,
+	setSenderOriginalColors: setSenderOriginalColorsMock,
 }))
 
 afterEach(() => {
@@ -21,6 +27,10 @@ afterEach(() => {
 
 beforeEach(() => {
 	trustSenderImagesMock.mockReset()
+	originalColorSendersMock.mockReset()
+	originalColorSendersMock.mockResolvedValue([])
+	setSenderOriginalColorsMock.mockReset()
+	setSenderOriginalColorsMock.mockResolvedValue(true)
 })
 
 const CONTROLLED_IMAGE = `/email-images/${'a'.repeat(20)}.${'b'.repeat(20)}?mode=automatic&theme=light`
@@ -290,8 +300,9 @@ describe('ThreadConversation rendering', () => {
 		const summary = container.querySelector('[data-slot="thread-summary"]')
 		const attachmentSummary = container.querySelector('[data-slot="thread-attachment-summary"]')
 
-		expect(summary).toHaveClass('px-4', 'py-3', 'xl:sticky', 'xl:top-0', 'xl:py-5')
+		expect(summary).toHaveClass('py-3', 'xl:sticky', 'xl:top-0', 'xl:py-5')
 		expect(summary).not.toHaveClass('sticky', 'top-0')
+		expect(summary?.firstElementChild).toHaveAttribute('data-slot', 'thread-column')
 		expect(attachmentSummary).toHaveTextContent('1 thread attachment')
 		expect(attachmentSummary).toHaveClass('min-h-11', 'max-w-full')
 		expect(container.querySelectorAll('[data-slot="thread-attachment"]')).toHaveLength(0)
@@ -366,9 +377,12 @@ describe('ThreadConversation rendering', () => {
 
 		expect(messageSurfaces).toHaveLength(2)
 		for (const surface of messageSurfaces) {
-			expect(surface).toHaveClass('rounded-xl', 'border', 'bg-background', 'shadow-xs')
+			expect(surface).not.toHaveClass('rounded-xl', 'border', 'shadow-xs')
 		}
-		expect(messageSurfaces[0]?.parentElement).toHaveClass('space-y-3')
+		const headers = container.querySelectorAll('[data-slot="message-header"]')
+		expect(headers[0]).not.toHaveClass('border-t')
+		expect(headers[1]).toHaveClass('border-t', 'border-border')
+		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-slot', 'thread-messages')
 		expect(screen.getAllByRole('heading', { level: 2, name: 'sender@example.com' })).toHaveLength(2)
 		expect(screen.getAllByRole('article', { name: 'sender@example.com' })).toHaveLength(2)
 	})
@@ -387,5 +401,57 @@ describe('ThreadConversation rendering', () => {
 			container.querySelector('[aria-label="anonymous.txt, attached to message from (unknown sender)"]'),
 		).toBeInTheDocument()
 		expect(container.querySelectorAll('[data-slot="thread-attachment"]')).toHaveLength(1)
+	})
+
+	it('remembers a sender color choice and renders their messages in original colors', async () => {
+		const rendered = render(
+			<ThreadConversation thread={thread('colors')} messages={[htmlMessage('m1'), htmlMessage('m2')]} />,
+		)
+		const colorModes = () =>
+			[...rendered.container.querySelectorAll(EMAIL_ELEMENT_TAG)].map((element) =>
+				element.getAttribute('data-color-mode'),
+			)
+		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		const toggle = await screen.findByRole('button', {
+			name: 'Always use original colors from sender@example.com',
+		})
+		expect(toggle).toHaveAttribute('aria-pressed', 'false')
+		fireEvent.click(toggle)
+
+		await waitFor(() => expect(setSenderOriginalColorsMock).toHaveBeenCalledWith('sender@example.com', true))
+		await waitFor(() => expect(colorModes()).toEqual(['original', 'original']))
+		expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+		fireEvent.click(toggle)
+		await waitFor(() => expect(setSenderOriginalColorsMock).toHaveBeenCalledWith('sender@example.com', false))
+		await waitFor(() => expect(colorModes()).toEqual(['automatic', 'automatic']))
+	})
+
+	it('applies remembered sender color choices and reverts a choice that cannot be saved', async () => {
+		originalColorSendersMock.mockResolvedValue(['sender@example.com'])
+		setSenderOriginalColorsMock.mockResolvedValue(false)
+		const rendered = render(
+			<ThreadConversation thread={thread('colors-saved')} messages={[htmlMessage('m1')]} />,
+		)
+		const colorMode = () =>
+			rendered.container.querySelector(EMAIL_ELEMENT_TAG)?.getAttribute('data-color-mode')
+		await waitFor(() => expect(colorMode()).toBe('original'))
+
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(
+			await screen.findByRole('button', { name: 'Always use original colors from sender@example.com' }),
+		)
+		expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save that color choice. Try again.')
+		expect(colorMode()).toBe('original')
+	})
+
+	it('ignores remembered color choices that arrive after the thread closes', async () => {
+		let resolveSenders: (senders: string[]) => void = () => {}
+		originalColorSendersMock.mockReturnValue(new Promise<string[]>((resolve) => (resolveSenders = resolve)))
+		const rendered = render(<ThreadConversation thread={thread('closing')} messages={[htmlMessage('m1')]} />)
+		rendered.unmount()
+		await act(async () => resolveSenders(['sender@example.com']))
+		expect(originalColorSendersMock).toHaveBeenCalledOnce()
 	})
 })

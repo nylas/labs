@@ -6,6 +6,7 @@
 import { Check, ImageOff, LoaderCircle, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
+import { messageHasHtml } from '../lib/mail-ui-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 
@@ -21,8 +22,11 @@ export function ThreadDisplayMenu({
 	colorMode,
 	showColorControl,
 	senderTrustStatus,
+	originalColorSenders = new Set<string>(),
+	originalColorStatus = 'idle',
 	onLayoutModeChange,
 	onColorModeChange,
+	onSenderOriginalColorsChange,
 	onShowThreadImages,
 	onAlwaysShowImages,
 	onTrustSender,
@@ -34,8 +38,11 @@ export function ThreadDisplayMenu({
 	colorMode: EmailColorMode
 	showColorControl: boolean
 	senderTrustStatus: { address?: string; state: 'idle' | 'loading' | 'error' }
+	originalColorSenders?: ReadonlySet<string>
+	originalColorStatus?: 'idle' | 'error'
 	onLayoutModeChange: (mode: EmailLayoutMode) => void
 	onColorModeChange: (mode: EmailColorMode) => void
+	onSenderOriginalColorsChange?: (address: string, enabled: boolean) => void
 	onShowThreadImages: () => void
 	onAlwaysShowImages: () => void
 	onTrustSender: (address: string) => void
@@ -61,6 +68,7 @@ export function ThreadDisplayMenu({
 	)
 	const showLayoutControl = layoutMode === 'original' || statusValues.some((status) => status.layoutAvailable)
 	const blockedSenders = uniqueBlockedSenders(messages, statuses)
+	const colorSenders = onSenderOriginalColorsChange ? uniqueHtmlSenders(messages).slice(0, 4) : []
 	const trustableSender = blockedSenders.length === 1 ? blockedSenders[0] : undefined
 	const isTrustingSender =
 		senderTrustStatus.state === 'loading' && senderTrustStatus.address === trustableSender
@@ -263,6 +271,30 @@ export function ThreadDisplayMenu({
 									</button>
 								))}
 							</div>
+							{colorMode === 'automatic' && colorSenders.length > 0 ? (
+								<div className="mt-2 grid gap-1">
+									{colorSenders.map((sender) => {
+										const pressed = originalColorSenders.has(sender)
+										return (
+											<button
+												key={sender}
+												type="button"
+												aria-pressed={pressed}
+												onClick={() => onSenderOriginalColorsChange?.(sender, !pressed)}
+												className={`${imageActionClass} justify-between gap-2 border border-border bg-background text-left text-foreground hover:bg-muted aria-pressed:border-foreground`}
+											>
+												<span className="min-w-0 truncate">Always use original colors from {sender}</span>
+												{pressed ? <Check className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
+											</button>
+										)
+									})}
+								</div>
+							) : null}
+							{originalColorStatus === 'error' ? (
+								<p role="alert" className="mt-2 text-xs text-destructive">
+									Couldn’t save that color choice. Try again.
+								</p>
+							) : null}
 						</fieldset>
 					) : null}
 
@@ -292,6 +324,15 @@ function uniqueBlockedSenders(
 			return []
 		}
 		const sender = message.from[0].email.trim().toLowerCase()
+		return sender ? [sender] : []
+	})
+	return [...new Set(senders)]
+}
+
+/** Unique senders of HTML messages, in thread order, as normalized addresses. */
+function uniqueHtmlSenders(messages: MailMessage[]): string[] {
+	const senders = messages.flatMap((message) => {
+		const sender = messageHasHtml(message) ? message.from?.[0]?.email?.trim().toLowerCase() : undefined
 		return sender ? [sender] : []
 	})
 	return [...new Set(senders)]

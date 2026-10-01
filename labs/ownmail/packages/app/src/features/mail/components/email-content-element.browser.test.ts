@@ -6,6 +6,8 @@ import { type Browser, chromium, type Page } from 'playwright'
 import sharp from 'sharp'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { DARK_READER_GROUND, formatRgb } from '../lib/email-color-map.js'
+import { MIN_EMAIL_SCALE } from '../lib/email-render.js'
 import { sanitizeEmailHtml } from '../lib/sanitize-email.js'
 
 interface ElementMetrics {
@@ -35,6 +37,23 @@ const realEmailWidths = [
 
 function readRealEmailFixture(name: (typeof realEmailFixtures)[number]): string {
 	return readFileSync(`${componentDirectory}/real-email-fixtures/${name}.html`, 'utf8')
+}
+
+function readReaderFixture(
+	name: 'ci-notification-card' | 'light-matte-logo' | 'report-canvas-dark-band',
+): string {
+	return readFileSync(`${componentDirectory}/reader-fixtures/${name}.html`, 'utf8')
+}
+
+const darkGround = formatRgb(DARK_READER_GROUND)
+
+/** Put the fixture page on the app's dark ground and switch the element to the dark reader. */
+async function useDarkReader(page: Page): Promise<void> {
+	await page.locator('ownmail-email').evaluate((host, ground) => {
+		document.body.style.background = ground
+		host.setAttribute('data-email-theme', 'dark')
+	}, darkGround)
+	await settleLayout(page)
 }
 
 async function settleLayout(page: Page, frames = 3): Promise<void> {
@@ -110,6 +129,28 @@ async function readMetrics(page: Page, selector = '.probe'): Promise<ElementMetr
 	}, selector)
 }
 
+/** Original layouts stop shrinking at the legibility floor; anything wider stays reachable by panning. */
+function expectReachableByPanning(metrics: ElementMetrics, direction: 'ltr' | 'rtl' = 'ltr'): void {
+	expect(metrics.probe).not.toBeNull()
+	expect(metrics.scale).toBeGreaterThanOrEqual(MIN_EMAIL_SCALE - 0.001)
+	const probe = metrics.probe as NonNullable<ElementMetrics['probe']>
+	if (direction === 'ltr') {
+		expect(probe.left).toBeGreaterThanOrEqual(metrics.host.left - 0.5)
+		expect(probe.right - metrics.host.left).toBeLessThanOrEqual(metrics.host.scrollWidth + 0.5)
+	} else {
+		expect(probe.right).toBeLessThanOrEqual(metrics.host.right + 0.5)
+		expect(metrics.host.right - probe.left).toBeLessThanOrEqual(metrics.host.scrollWidth + 0.5)
+	}
+}
+
+async function lastNaturalWidth(page: Page): Promise<number> {
+	return page.evaluate(
+		() =>
+			(window as Window & { __ownmailLastLayoutStatus?: { naturalWidth?: number } }).__ownmailLastLayoutStatus
+				?.naturalWidth ?? 0,
+	)
+}
+
 function expectHorizontallyContained(metrics: ElementMetrics): void {
 	expect(metrics.probe).not.toBeNull()
 	expect(metrics.probe?.left).toBeGreaterThanOrEqual(metrics.host.left - 0.5)
@@ -142,6 +183,12 @@ async function renderedContrast(
 async function firstRenderedPixel(image: Buffer): Promise<[number, number, number]> {
 	const { data } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
 	return [data[0] ?? 0, data[1] ?? 0, data[2] ?? 0]
+}
+
+async function centerRenderedPixel(image: Buffer): Promise<[number, number, number]> {
+	const { data, info } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+	const offset = (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * info.channels
+	return [data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0]
 }
 
 async function renderedLightDarkContrast(image: Buffer): Promise<number> {
@@ -320,16 +367,14 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			if (!browser) throw new Error('Chromium failed to launch')
 			const page = await browser.newPage({ viewport: { width: 375, height: 900 } })
 			await mountEmail(page, fixtureUrl, 343, readRealEmailFixture(fixture))
-			await page.locator('ownmail-email').evaluate((host) => {
-				host.setAttribute('data-email-theme', 'dark')
-				host.setAttribute('data-dark-invert', '')
-			})
-			await settleLayout(page)
+			await useDarkReader(page)
 			const image = await page.locator('ownmail-email').screenshot()
 			const contrast = await renderedLightDarkContrast(image)
 			const canvas = await firstRenderedPixel(image)
+			const strategy = await page.locator('ownmail-email').getAttribute('data-email-strategy')
 			await page.close()
 
+			expect(strategy).toBe('remap')
 			expect(contrast).toBeGreaterThanOrEqual(4.5)
 			expect(relativeLuminance(...canvas)).toBeLessThan(0.1)
 		},
@@ -339,11 +384,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 375, height: 300 } })
 		await mountEmail(page, fixtureUrl, 343, '<a class="probe" href="https://example.test">Readable link</a>')
-		await page.locator('ownmail-email').evaluate((host) => {
-			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
-		})
-		await settleLayout(page)
+		await useDarkReader(page)
 		const contrast = await renderedContrast(await page.locator('ownmail-email .probe').screenshot())
 		await page.close()
 
@@ -385,7 +426,8 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		const metrics = await readMetrics(page)
 		await page.close()
 
-		expectHorizontallyContained(metrics)
+		expectReachableByPanning(metrics)
+		expect(metrics.scale).toBeCloseTo(MIN_EMAIL_SCALE, 3)
 	})
 
 	it('does not let an offscreen hidden preheader change visible-content fitting', async () => {
@@ -395,6 +437,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			'<table class="probe" width="600" style="width:600px"><tr><td>Newsletter</td></tr></table>'
 		await mountEmail(page, fixtureUrl, 375, visible, 'original')
 		const baseline = await readMetrics(page)
+		const baselineWidth = await lastNaturalWidth(page)
 		await mountEmail(
 			page,
 			fixtureUrl,
@@ -403,9 +446,11 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			'original',
 		)
 		const withPreheader = await readMetrics(page)
+		const preheaderWidth = await lastNaturalWidth(page)
 		await page.close()
 
-		expectHorizontallyContained(withPreheader)
+		expectReachableByPanning(withPreheader)
+		expect(preheaderWidth).toBeCloseTo(baselineWidth, 0)
 		expect(withPreheader.probe?.width).toBeCloseTo(baseline.probe?.width ?? 0, 0)
 		expect(withPreheader.scale).toBeCloseTo(baseline.scale, 3)
 	})
@@ -417,6 +462,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			'<table class="probe" width="600" style="width:600px"><tr><td>Newsletter</td></tr></table>'
 		await mountEmail(page, fixtureUrl, 343, visible, 'original')
 		const baseline = await readMetrics(page)
+		const baselineWidth = await lastNaturalWidth(page)
 		await mountEmail(
 			page,
 			fixtureUrl,
@@ -425,9 +471,11 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			'original',
 		)
 		const withPreheader = await readMetrics(page)
+		const preheaderWidth = await lastNaturalWidth(page)
 		await page.close()
 
-		expectHorizontallyContained(withPreheader)
+		expectReachableByPanning(withPreheader)
+		expect(preheaderWidth).toBeCloseTo(baselineWidth, 0)
 		expect(withPreheader.scale).toBeCloseTo(baseline.scale, 3)
 		expect(withPreheader.host.height).toBeCloseTo(baseline.host.height, 0)
 	})
@@ -486,7 +534,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(state.headings[2]?.width).toBeGreaterThanOrEqual(80)
 		expect(state.annotationWhiteSpace).toBe('nowrap')
 		expect(state.iconWidth).toBe(20)
-		expect(state.oversizedWidth).toBeLessThanOrEqual(335)
+		expect(state.oversizedWidth).toBeLessThanOrEqual(375)
 	})
 
 	it('rechecks nowrap children after narrowing their flex allocation', async () => {
@@ -515,7 +563,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 
 		expectHorizontallyContained(metrics)
-		expect(state.rowWidth).toBeLessThanOrEqual(335)
+		expect(state.rowWidth).toBeLessThanOrEqual(375)
 		expect(state.items).toHaveLength(2)
 		expect(state.items.map((item) => item.whiteSpace)).toContain('normal')
 		for (const item of state.items) {
@@ -575,15 +623,17 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		const direction = await page.locator('ownmail-email').evaluate((host) => ({
 			mode: host.shadowRoot?.querySelector('.email-root')?.getAttribute('data-ownmail-direction'),
 			left: (host.shadowRoot?.querySelector('.email-root') as HTMLElement | null)?.style.left,
+			pan: host.getAttribute('data-email-pan'),
+			hostDirection: getComputedStyle(host).direction,
 		}))
 		await page.close()
 
-		expectHorizontallyContained(metrics)
+		expectReachableByPanning(metrics, 'rtl')
 		expect(direction.mode).toBe('rtl')
-		expect(direction.left).toMatch(/^-/)
-		const leftInset = (metrics.probe?.left ?? 0) - metrics.host.left
-		const rightInset = metrics.host.right - (metrics.probe?.right ?? 0)
-		expect(rightInset).toBeLessThanOrEqual(leftInset + 1)
+		expect(direction.left).toBe('0px')
+		expect(direction.pan).toBe('')
+		expect(direction.hostDirection).toBe('rtl')
+		expect(metrics.host.right - (metrics.probe?.right ?? 0)).toBeLessThanOrEqual(1)
 	})
 
 	it('evaluates sender width media queries against the reading pane', async () => {
@@ -902,7 +952,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		).toBe(0)
 		await page.locator('ownmail-email').evaluate((host) => {
 			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
+			host.setAttribute('data-color-mode', 'original')
 		})
 		await settleLayout(page, 4)
 		expect(
@@ -962,7 +1012,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			page,
 			fixtureUrl,
 			414,
-			`<body style="margin:0;background:rgb(255,255,255)">
+			`<style>@media (prefers-color-scheme:dark){.gradient{color:rgb(255,255,255)}}</style><body style="margin:0;background:rgb(255,255,255)">
 				<div class="gradient" style="padding:16px;background-image:linear-gradient(rgb(0,0,0),rgb(0,0,0));color:rgb(255,255,255)">
 					<p class="image-copy">Readable on the image</p>
 					<p class="opaque-copy" style="background:rgb(255,255,255);color:rgb(255,255,255)">Opaque child</p>
@@ -1021,7 +1071,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(original.css).not.toContain('@media (max-width:400px)')
 	})
 
-	it('preserves media and CSS-background fidelity with a transparent accessible dark canvas', async () => {
+	it('preserves media and CSS-background fidelity on a transparent accessible dark canvas', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
 		const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
@@ -1036,9 +1086,8 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			<svg class="logo" width="20" height="20"><rect width="20" height="20" fill="#123456"/></svg><canvas class="art" width="20" height="20"></canvas>
 			<div class="background" style="background-image:url('${redBackground}');width:80px;height:40px">Background copy</div>`,
 		)
+		await useDarkReader(page)
 		const state = await page.locator('ownmail-email').evaluate((host) => {
-			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
 			const root = host.shadowRoot?.querySelector<HTMLElement>('.email-root')
 			const link = root?.querySelector<HTMLAnchorElement>('.focus-link')
 			link?.focus()
@@ -1050,46 +1099,45 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			})
 			const linkStyle = link ? getComputedStyle(link) : null
 			return {
+				strategy: host.getAttribute('data-email-strategy'),
+				hostFilter: getComputedStyle(host).filter,
 				rootBackground: root ? getComputedStyle(root).backgroundColor : null,
 				media,
-				backgroundMarked: background?.hasAttribute('data-ownmail-background-media') ?? false,
 				backgroundImage: background ? getComputedStyle(background).backgroundImage : null,
-				backgroundLayerImage: background ? getComputedStyle(background, '::before').backgroundImage : null,
-				backgroundLayerFilter: background ? getComputedStyle(background, '::before').filter : null,
 				linkOutline: linkStyle?.outlineStyle ?? null,
 				linkOutlineWidth: linkStyle?.outlineWidth ?? null,
 				linkFocusRing: linkStyle?.boxShadow ?? null,
 				linkColor: linkStyle?.color ?? null,
 			}
 		})
-		const backgroundPixel = await firstRenderedPixel(
+		// Sample the middle of the box: the focused link's ring may overlap its top edge.
+		const backgroundPixel = await centerRenderedPixel(
 			await page.locator('ownmail-email .background').screenshot(),
 		)
+		const linkContrast = await renderedContrast(await page.locator('ownmail-email .focus-link').screenshot())
 		await page.close()
 
-		expect(state.rootBackground).toBe('rgb(255, 255, 255)')
+		expect(state.strategy).toBe('remap')
+		expect(state.hostFilter).toBe('none')
+		expect(state.rootBackground).toBe('rgba(0, 0, 0, 0)')
 		for (const media of state.media) {
-			expect(media.filter).not.toBe('none')
+			expect(media.filter).toBe('none')
 			expect(media.background).toBe(
 				['.logo', '.art'].includes(media.selector) ? 'rgb(243, 244, 246)' : 'rgba(0, 0, 0, 0)',
 			)
 		}
-		expect(state.backgroundMarked).toBe(true)
-		expect(state.backgroundImage).toBe('none')
-		expect(state.backgroundLayerImage).not.toBe('none')
-		expect(state.backgroundLayerFilter).not.toBe('none')
+		expect(state.backgroundImage).not.toBe('none')
 		expect(backgroundPixel[0]).toBeGreaterThan(150)
-		expect(backgroundPixel[0]).toBeGreaterThan(backgroundPixel[1] * 2)
-		expect(backgroundPixel[0]).toBeGreaterThan(backgroundPixel[2] * 2)
 		expect(backgroundPixel[1]).toBeLessThan(80)
 		expect(backgroundPixel[2]).toBeLessThan(80)
 		expect(state.linkOutline).not.toBe('none')
 		expect(state.linkOutlineWidth).toBe('2px')
 		expect(state.linkFocusRing).not.toBe('none')
-		expect(state.linkColor).toBe('rgb(17, 17, 17)')
+		expect(state.linkColor).not.toBe('rgb(17, 17, 17)')
+		expect(linkContrast.ratio).toBeGreaterThanOrEqual(4.5)
 	})
 
-	it('renders transformed transparent color artwork directly on the dark canvas', async () => {
+	it('renders transparent color artwork untouched on the dark canvas', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 420, height: 300 } })
 		const width = 112
@@ -1110,9 +1158,8 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			240,
 			`<img class="color-art" width="112" height="112" src="${dataUrl}" alt="Workflow">`,
 		)
+		await useDarkReader(page)
 		const state = await page.locator('ownmail-email').evaluate((host) => {
-			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
 			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.color-art')
 			const style = image ? getComputedStyle(image) : null
 			return { background: style?.backgroundColor ?? null, filter: style?.filter ?? null }
@@ -1123,7 +1170,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 
 		expect(state.background).toBe('rgba(0, 0, 0, 0)')
-		expect(state.filter).not.toBe('none')
+		expect(state.filter).toBe('none')
 		expect(renderedPixel[2]).toBeGreaterThan(renderedPixel[1])
 		expect(renderedPixel[1]).toBeGreaterThan(renderedPixel[0])
 		expect(renderedPixel[0]).toBeGreaterThan(66)
@@ -1147,10 +1194,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			240,
 			`<img class="dark-art" width="32" height="32" src="data:image/png;base64,${source.toString('base64')}" alt="Dark artwork">`,
 		)
-		await page.locator('ownmail-email').evaluate((host) => {
-			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
-		})
+		await useDarkReader(page)
 		await page.locator('ownmail-email .dark-art').evaluate((image) => (image as HTMLImageElement).decode())
 		await page.waitForFunction(() =>
 			document
@@ -1173,20 +1217,142 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			page,
 			fixtureUrl,
 			320,
-			'<p class="probe" style="font-size:32px;line-height:40px;margin:0">MMMM</p>',
+			'<p class="probe" style="font-size:32px;line-height:40px;margin:0;color:#111">MMMM</p>',
 		)
-		await page.locator('ownmail-email').evaluate((host) => {
-			document.body.style.background = 'rgb(17,24,39)'
-			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
-		})
-		await settleLayout(page)
+		await useDarkReader(page)
 		const contrast = await renderedContrast(await page.locator('ownmail-email').screenshot())
 		await page.close()
 
 		expect(contrast.background).toBeLessThan(0.03)
 		expect(contrast.brightest).toBeGreaterThan(0.6)
 		expect(contrast.ratio).toBeGreaterThanOrEqual(4.5)
+	})
+
+	it('remaps a light-only notification card while keeping its table rows and brand button', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 375, height: 1200 } })
+		await mountEmail(page, fixtureUrl, 343, readReaderFixture('ci-notification-card'))
+		await useDarkReader(page)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot?.querySelector<HTMLElement>('.email-root') as HTMLElement
+			const rows = Array.from(root.querySelectorAll('tr')).filter((row) => row.cells.length === 3)
+			const button = root.querySelector<HTMLAnchorElement>('.btn') as HTMLAnchorElement
+			const textLink = Array.from(root.querySelectorAll<HTMLAnchorElement>('a')).find(
+				(anchor) => !anchor.classList.contains('btn'),
+			) as HTMLAnchorElement
+			const hostRect = host.getBoundingClientRect()
+			return {
+				strategy: host.getAttribute('data-email-strategy'),
+				rowsIntact: rows.every((row) => {
+					const tops = Array.from(row.cells).map((cell) => Math.round(cell.getBoundingClientRect().top))
+					return (
+						getComputedStyle(row.cells[0] as HTMLElement).display === 'table-cell' && new Set(tops).size === 1
+					)
+				}),
+				rowCount: rows.length,
+				buttonBackground: getComputedStyle(button).backgroundColor,
+				buttonDecoration: getComputedStyle(button).textDecorationLine,
+				textLinkDecoration: getComputedStyle(textLink).textDecorationLine,
+				overflow: Array.from(root.querySelectorAll<HTMLElement>('*')).some(
+					(element) => element.getBoundingClientRect().right > hostRect.right + 0.5,
+				),
+				hostScrollWidth: host.scrollWidth,
+			}
+		})
+		const contrast = await renderedLightDarkContrast(await page.locator('ownmail-email').screenshot())
+		await page.close()
+
+		expect(state.strategy).toBe('remap')
+		expect(state.rowCount).toBeGreaterThanOrEqual(4)
+		expect(state.rowsIntact).toBe(true)
+		expect(state.buttonBackground).toBe('rgb(31, 136, 61)')
+		expect(state.buttonDecoration).toBe('none')
+		expect(state.textLinkDecoration).toBe('underline')
+		expect(state.overflow).toBe(false)
+		expect(state.hostScrollWidth).toBeLessThanOrEqual(344)
+		expect(contrast).toBeGreaterThanOrEqual(4.5)
+	})
+
+	it('keeps sender dark sections dark and turns the light canvas transparent', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 375, height: 1200 } })
+		await mountEmail(page, fixtureUrl, 343, readReaderFixture('report-canvas-dark-band'))
+		const events = page.evaluate(() => {
+			const host = document.querySelector('ownmail-email') as HTMLElement
+			return new Promise<unknown>((resolve) =>
+				host.addEventListener('email-canvas', (event) => resolve((event as CustomEvent).detail)),
+			)
+		})
+		await useDarkReader(page)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const root = host.shadowRoot?.querySelector<HTMLElement>('.email-root') as HTMLElement
+			const cells = Array.from(root.querySelectorAll<HTMLElement>('td'))
+			const band = cells.find((cell) => cell.textContent?.trim() === 'NEW ERRORS') as HTMLElement
+			const card = root.querySelector<HTMLElement>('table table') as HTMLElement
+			return {
+				band: getComputedStyle(band).backgroundColor,
+				body: getComputedStyle(root.querySelector('body') as HTMLElement).backgroundColor,
+				card: getComputedStyle(card).backgroundColor,
+				rowCells: Array.from(root.querySelectorAll<HTMLTableRowElement>('tr.row')).map((row) =>
+					Array.from(row.cells).map((cell) => getComputedStyle(cell).display),
+				),
+			}
+		})
+		const detail = await events
+		await page.close()
+
+		expect(state.band).toBe('rgb(38, 38, 38)')
+		expect(state.body).toBe('rgba(0, 0, 0, 0)')
+		expect(state.card).not.toBe('rgb(255, 255, 255)')
+		for (const cells of state.rowCells) expect(cells).toEqual(['table-cell', 'table-cell', 'table-cell'])
+		expect(detail).toMatchObject({ strategy: 'remap', canvas: null })
+	})
+
+	it('keeps light-matte artwork on full-bleed paper without clipping it', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 375, height: 1200 } })
+		await mountEmail(page, fixtureUrl, 343, readReaderFixture('light-matte-logo'))
+		await useDarkReader(page)
+		await page.waitForFunction(
+			() => document.querySelector('ownmail-email')?.getAttribute('data-email-strategy') === 'paper',
+		)
+		await settleLayout(page)
+		const state = await page.locator('ownmail-email').evaluate((host) => {
+			const image = host.shadowRoot?.querySelector('img') as HTMLImageElement
+			return {
+				imageRight: image.getBoundingClientRect().right,
+				hostRight: host.getBoundingClientRect().right,
+				canvas: host.style.getPropertyValue('--ownmail-email-canvas'),
+			}
+		})
+		const canvasPixel = await firstRenderedPixel(await page.locator('ownmail-email').screenshot())
+		await page.close()
+
+		expect(state.imageRight).toBeLessThanOrEqual(state.hostRight + 0.5)
+		expect(state.canvas).toBe('rgb(255, 255, 255)')
+		expect(canvasPixel).toEqual([255, 255, 255])
+	})
+
+	it('stops shrinking an original-layout email at the legibility floor and pans the rest', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		const page = await browser.newPage({ viewport: { width: 375, height: 800 } })
+		await mountEmail(
+			page,
+			fixtureUrl,
+			300,
+			'<table width="1200" style="width:1200px"><tr><td class="probe" style="font-size:16px">Fixed newsletter</td></tr></table>',
+			'original',
+		)
+		const metrics = await readMetrics(page)
+		const pan = await page.locator('ownmail-email').evaluate((host) => ({
+			pans: host.hasAttribute('data-email-pan'),
+			scrollable: host.scrollWidth > host.clientWidth,
+		}))
+		await page.close()
+
+		expect(metrics.scale).toBeCloseTo(0.8, 5)
+		expect((metrics.probe?.fontSize ?? 0) * metrics.scale).toBeGreaterThanOrEqual(12)
+		expect(pan).toEqual({ pans: true, scrollable: true })
 	})
 
 	it('makes no remote image request before opt-in and loads after consent', async () => {
@@ -1206,10 +1372,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 			375,
 			`<img class="remote probe" src="${controlledImagePath('tracker.gif')}" width="600" height="240">`,
 		)
-		await page.locator('ownmail-email').evaluate((host) => {
-			host.setAttribute('data-email-theme', 'dark')
-			host.setAttribute('data-dark-invert', '')
-		})
+		await useDarkReader(page)
 		const blocked = await page.locator('ownmail-email').evaluate((host) => {
 			const image = host.shadowRoot?.querySelector<HTMLImageElement>('.remote')
 			const style = image ? getComputedStyle(image) : null
@@ -1254,7 +1417,7 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(requests).toBe(1)
 		expect(loaded.background).toBe('rgba(0, 0, 0, 0)')
 		expect(loaded.display).not.toBe('none')
-		expect(loaded.filter).not.toBe('none')
+		expect(loaded.filter).toBe('none')
 		expect(new URL(loaded.src ?? fixtureUrl, fixtureUrl).searchParams.get('asset')).toBe('tracker.gif')
 	})
 
@@ -1359,8 +1522,8 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		await page.close()
 
 		expect(layoutStatuses, JSON.stringify({ before, after })).toBeGreaterThan(0)
-		expectHorizontallyContained(after)
-		expect(after.scale < before.scale || (after.probe?.width ?? 0) > (before.probe?.width ?? 0)).toBe(true)
+		expectReachableByPanning(after)
+		expect(after.scale).toBeLessThan(before.scale)
 		expect(after.host.height).toBeGreaterThan(0)
 	})
 })

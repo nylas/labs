@@ -189,4 +189,88 @@ describe('ThreadDisplayMenu', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		expect(screen.getByRole('button', { name: 'Always show from valid@example.com' })).toBeInTheDocument()
 	})
+
+	it('offers a remembered original-color choice for each HTML sender while colors are automatic', () => {
+		const onSenderOriginalColorsChange = vi.fn()
+		const messages = [
+			message('m1', 'Brand@Example.com'),
+			message('m2', 'brand@example.com'),
+			{ id: 'm3', from: [{ email: 'plain@example.com' }], body: 'Plain text only' },
+			message('m4'),
+			message('m5', 'news@example.com'),
+		]
+		const view = render(
+			<ThreadDisplayMenu
+				messages={messages}
+				statuses={new Map()}
+				layoutMode="readable"
+				colorMode="automatic"
+				showColorControl
+				senderTrustStatus={{ state: 'idle' }}
+				originalColorSenders={new Set(['news@example.com'])}
+				originalColorStatus="error"
+				onLayoutModeChange={vi.fn()}
+				onColorModeChange={vi.fn()}
+				onSenderOriginalColorsChange={onSenderOriginalColorsChange}
+				onShowThreadImages={vi.fn()}
+				onAlwaysShowImages={vi.fn()}
+				onTrustSender={vi.fn()}
+				onRetryImages={vi.fn()}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		const brand = screen.getByRole('button', { name: 'Always use original colors from brand@example.com' })
+		const news = screen.getByRole('button', { name: 'Always use original colors from news@example.com' })
+		expect(screen.queryByRole('button', { name: /plain@example.com/ })).toBeNull()
+		expect(brand).toHaveAttribute('aria-pressed', 'false')
+		expect(news).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t save that color choice. Try again.')
+		fireEvent.click(brand)
+		fireEvent.click(news)
+		expect(onSenderOriginalColorsChange).toHaveBeenNthCalledWith(1, 'brand@example.com', true)
+		expect(onSenderOriginalColorsChange).toHaveBeenNthCalledWith(2, 'news@example.com', false)
+
+		view.rerender(
+			<ThreadDisplayMenu
+				messages={messages}
+				statuses={new Map()}
+				layoutMode="readable"
+				colorMode="original"
+				showColorControl
+				senderTrustStatus={{ state: 'idle' }}
+				onLayoutModeChange={vi.fn()}
+				onColorModeChange={vi.fn()}
+				onSenderOriginalColorsChange={onSenderOriginalColorsChange}
+				onShowThreadImages={vi.fn()}
+				onAlwaysShowImages={vi.fn()}
+				onTrustSender={vi.fn()}
+				onRetryImages={vi.fn()}
+			/>,
+		)
+		expect(screen.queryByRole('button', { name: /Always use original colors/ })).toBeNull()
+	})
+
+	it('lists sender color choices with no remembered senders by default', () => {
+		render(
+			<ThreadDisplayMenu
+				messages={[message('m1', 'brand@example.com')]}
+				statuses={new Map()}
+				layoutMode="readable"
+				colorMode="automatic"
+				showColorControl
+				senderTrustStatus={{ state: 'idle' }}
+				onLayoutModeChange={vi.fn()}
+				onColorModeChange={vi.fn()}
+				onSenderOriginalColorsChange={vi.fn()}
+				onShowThreadImages={vi.fn()}
+				onAlwaysShowImages={vi.fn()}
+				onTrustSender={vi.fn()}
+				onRetryImages={vi.fn()}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		expect(
+			screen.getByRole('button', { name: 'Always use original colors from brand@example.com' }),
+		).toHaveAttribute('aria-pressed', 'false')
+	})
 })

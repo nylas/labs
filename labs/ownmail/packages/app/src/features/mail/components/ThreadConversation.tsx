@@ -7,12 +7,17 @@ import { labelBadgeClass } from '#shared/lib/color-tone'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
 import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
-import { trustSenderImages } from '../lib/image-sender-trust.js'
+import {
+	originalColorSenders,
+	setSenderOriginalColors,
+	trustSenderImages,
+} from '../lib/image-sender-trust.js'
 import { collapsedMessagePreview, messageHasHtml, threadLabels } from '../lib/mail-ui-model.js'
 import type { MailMessage, MailThread } from '../state/mail-queries.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { MessageBody } from './MessageBody.js'
+import { ThreadColumn } from './ThreadColumn.js'
 import { ThreadDisplayMenu } from './ThreadDisplayMenu.js'
 
 /**
@@ -34,7 +39,35 @@ function ThreadConversationController({ thread, messages }: { thread: MailThread
 		address?: string
 		state: 'idle' | 'loading' | 'error'
 	}>({ state: 'idle' })
+	const [originalSenders, setOriginalSenders] = useState<ReadonlySet<string>>(() => new Set())
+	const [originalColorStatus, setOriginalColorStatus] = useState<'idle' | 'error'>('idle')
 	const latestMessageId = messages.at(-1)?.id
+
+	useEffect(() => {
+		let active = true
+		void originalColorSenders().then((senders) => {
+			if (active) setOriginalSenders(new Set(senders))
+		})
+		return () => {
+			active = false
+		}
+	}, [])
+
+	const onSenderOriginalColorsChange = useCallback(async (address: string, enabled: boolean) => {
+		const update = (include: boolean) =>
+			setOriginalSenders((current) => {
+				const next = new Set(current)
+				if (include) next.add(address)
+				else next.delete(address)
+				return next
+			})
+		update(enabled)
+		setOriginalColorStatus('idle')
+		if (await setSenderOriginalColors(address, enabled)) return
+		update(!enabled)
+		setOriginalColorStatus('error')
+	}, [])
+
 	const onDisplayStatus = useCallback((messageId: string, status: EmailDisplayStatus | null) => {
 		setDisplayStatuses((current) => {
 			const next = new Map(current)
@@ -69,6 +102,9 @@ function ThreadConversationController({ thread, messages }: { thread: MailThread
 			darkenEmail={preferences.emailDarkMode}
 			loadRemoteImagesForThread={loadRemoteImagesForThread}
 			trustedDuringThisView={trustedDuringThisView}
+			originalColorSenders={originalSenders}
+			originalColorStatus={originalColorStatus}
+			onSenderOriginalColorsChange={(address, enabled) => void onSenderOriginalColorsChange(address, enabled)}
 			retryRevision={retryRevision}
 			senderTrustStatus={senderTrustStatus}
 			onDisplayStatus={onDisplayStatus}
@@ -91,6 +127,9 @@ function ThreadConversationContent({
 	darkenEmail,
 	loadRemoteImagesForThread,
 	trustedDuringThisView,
+	originalColorSenders,
+	originalColorStatus,
+	onSenderOriginalColorsChange,
 	retryRevision,
 	senderTrustStatus,
 	onDisplayStatus,
@@ -109,6 +148,9 @@ function ThreadConversationContent({
 	darkenEmail: boolean
 	loadRemoteImagesForThread: boolean
 	trustedDuringThisView: ReadonlySet<string>
+	originalColorSenders: ReadonlySet<string>
+	originalColorStatus: 'idle' | 'error'
+	onSenderOriginalColorsChange: (address: string, enabled: boolean) => void
 	retryRevision: number
 	senderTrustStatus: { address?: string; state: 'idle' | 'loading' | 'error' }
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
@@ -151,96 +193,107 @@ function ThreadConversationContent({
 	}
 
 	return (
-		<div data-slot="thread-conversation" className="min-h-full bg-muted dark:bg-background">
+		<div data-slot="thread-conversation" className="min-h-full bg-background">
 			<header
 				data-slot="thread-summary"
-				className="border-b border-border bg-muted px-4 py-3 dark:bg-background lg:px-8 xl:sticky xl:top-0 xl:z-10 xl:py-5"
+				className="border-b border-border bg-background py-3 xl:sticky xl:top-0 xl:z-10 xl:py-5"
 			>
-				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-2 xl:flex xl:flex-wrap xl:justify-between xl:gap-x-4 xl:gap-y-3">
-					<div className="flex min-w-0 flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:gap-x-3 xl:gap-y-2">
-						<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
-							{thread.subject || '(no subject)'}
-						</h1>
-						{labels.length > 0 ? (
-							<div className="flex min-w-0 flex-wrap gap-1.5">
-								{labels.map((label) => (
-									<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
-										{label.name}
-									</span>
-								))}
-							</div>
-						) : null}
+				<ThreadColumn>
+					<div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-2 xl:flex xl:flex-wrap xl:justify-between xl:gap-x-4 xl:gap-y-3">
+						<div className="flex min-w-0 flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:gap-x-3 xl:gap-y-2">
+							<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
+								{thread.subject || '(no subject)'}
+							</h1>
+							{labels.length > 0 ? (
+								<div className="flex min-w-0 flex-wrap gap-1.5">
+									{labels.map((label) => (
+										<span key={label.id} className={cn('text-xs', labelBadgeClass(label.tone))}>
+											{label.name}
+										</span>
+									))}
+								</div>
+							) : null}
+						</div>
+
+						<div className="flex min-w-0 shrink-0 items-center gap-0.5 xl:gap-1">
+							{hasHtmlMessages ? (
+								<ThreadDisplayMenu
+									messages={messages}
+									statuses={displayStatuses}
+									layoutMode={layoutMode}
+									colorMode={colorMode}
+									showColorControl={darkenEmail}
+									senderTrustStatus={senderTrustStatus}
+									originalColorSenders={originalColorSenders}
+									originalColorStatus={originalColorStatus}
+									onSenderOriginalColorsChange={onSenderOriginalColorsChange}
+									onLayoutModeChange={onLayoutModeChange}
+									onColorModeChange={onColorModeChange}
+									onShowThreadImages={onShowThreadImages}
+									onAlwaysShowImages={onAlwaysShowImages}
+									onTrustSender={onTrustSender}
+									onRetryImages={onRetryImages}
+								/>
+							) : null}
+							{messages.length > 1 ? (
+								<fieldset className="flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0 xl:gap-1">
+									<legend className="sr-only">Message display controls</legend>
+									<button
+										type="button"
+										onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
+										disabled={allMessagesOpen}
+										aria-label={`Expand all ${messages.length} messages`}
+										title="Expand all messages"
+										className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
+									>
+										<ChevronsDown className="h-4 w-4" aria-hidden="true" />
+									</button>
+									<button
+										type="button"
+										onClick={() => setOpenMessageIds(new Set())}
+										disabled={allMessagesClosed}
+										aria-label={`Collapse all ${messages.length} messages`}
+										title="Collapse all messages"
+										className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
+									>
+										<ChevronsUp className="h-4 w-4" aria-hidden="true" />
+									</button>
+								</fieldset>
+							) : null}
+						</div>
 					</div>
 
-					<div className="flex min-w-0 shrink-0 items-center gap-0.5 xl:gap-1">
-						{hasHtmlMessages ? (
-							<ThreadDisplayMenu
-								messages={messages}
-								statuses={displayStatuses}
-								layoutMode={layoutMode}
-								colorMode={colorMode}
-								showColorControl={darkenEmail}
-								senderTrustStatus={senderTrustStatus}
-								onLayoutModeChange={onLayoutModeChange}
-								onColorModeChange={onColorModeChange}
-								onShowThreadImages={onShowThreadImages}
-								onAlwaysShowImages={onAlwaysShowImages}
-								onTrustSender={onTrustSender}
-								onRetryImages={onRetryImages}
-							/>
-						) : null}
-						{messages.length > 1 ? (
-							<fieldset className="flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0 xl:gap-1">
-								<legend className="sr-only">Message display controls</legend>
-								<button
-									type="button"
-									onClick={() => setOpenMessageIds(new Set(messages.map((message) => message.id)))}
-									disabled={allMessagesOpen}
-									aria-label={`Expand all ${messages.length} messages`}
-									title="Expand all messages"
-									className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
-								>
-									<ChevronsDown className="h-4 w-4" aria-hidden="true" />
-								</button>
-								<button
-									type="button"
-									onClick={() => setOpenMessageIds(new Set())}
-									disabled={allMessagesClosed}
-									aria-label={`Collapse all ${messages.length} messages`}
-									title="Collapse all messages"
-									className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-40"
-								>
-									<ChevronsUp className="h-4 w-4" aria-hidden="true" />
-								</button>
-							</fieldset>
-						) : null}
-					</div>
-				</div>
-
-				{messages.length > 1 && threadAttachments.length > 0 ? (
-					<div
-						data-slot="thread-attachment-summary"
-						className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-muted-foreground xl:mt-4"
-					>
-						<Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
-						<span>
-							{threadAttachments.length} thread{' '}
-							{threadAttachments.length === 1 ? 'attachment' : 'attachments'}
-						</span>
-					</div>
-				) : null}
+					{messages.length > 1 && threadAttachments.length > 0 ? (
+						<div
+							data-slot="thread-attachment-summary"
+							className="mt-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-muted-foreground xl:mt-4"
+						>
+							<Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
+							<span>
+								{threadAttachments.length} thread{' '}
+								{threadAttachments.length === 1 ? 'attachment' : 'attachments'}
+							</span>
+						</div>
+					) : null}
+				</ThreadColumn>
 			</header>
 
-			<div className="space-y-3 px-3 py-4 sm:px-5 lg:px-8">
-				{messages.map((message) => (
+			<div data-slot="thread-messages" className="pb-10">
+				{messages.map((message, index) => (
 					<MessageBlock
 						key={message.id}
+						first={index === 0}
 						message={message}
 						open={openMessageIds.has(message.id)}
 						onToggle={() => toggleMessage(message.id)}
 						darkenEmail={darkenEmail}
 						layoutMode={layoutMode}
-						colorMode={colorMode}
+						colorMode={
+							colorMode === 'original' ||
+							originalColorSenders.has(message.from?.[0]?.email?.trim().toLowerCase() ?? '')
+								? 'original'
+								: 'automatic'
+						}
 						loadRemoteImagesForThread={loadRemoteImagesForThread}
 						loadRemoteImagesForSender={trustedDuringThisView.has(
 							message.from?.[0]?.email?.trim().toLowerCase() ?? '',
@@ -255,6 +308,7 @@ function ThreadConversationContent({
 }
 
 function MessageBlock({
+	first,
 	message,
 	open,
 	onToggle,
@@ -266,6 +320,7 @@ function MessageBlock({
 	retryRevision,
 	onDisplayStatus,
 }: {
+	first: boolean
 	message: MailMessage
 	open: boolean
 	onToggle: () => void
@@ -284,75 +339,86 @@ function MessageBlock({
 	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
 
 	return (
-		<article
-			data-slot="thread-message"
-			aria-labelledby={senderHeadingId}
-			className="rounded-xl border border-border bg-background px-3 py-4 shadow-xs sm:px-4"
-		>
-			<div className="flex min-w-0 flex-wrap items-start gap-x-3">
+		<article data-slot="thread-message" aria-labelledby={senderHeadingId}>
+			<ThreadColumn>
 				<div
-					data-slot="sender-avatar"
-					className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold text-foreground dark:bg-muted"
+					data-slot="message-header"
+					className={cn(
+						'flex min-w-0 flex-wrap items-start gap-x-3 pt-4',
+						!first && 'border-t border-border',
+					)}
 				>
-					{initials(fromLabel)}
-				</div>
-				<div className="min-w-0 flex-1 pt-1">
-					<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-						<h2
-							id={senderHeadingId}
-							className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
-						>
-							{fromLabel}
-						</h2>
-						{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
-						{message.date ? (
-							<ClientMessageTime
-								epochSeconds={message.date}
-								className="order-3 ml-auto hidden shrink-0 text-xs text-muted-foreground tabular-nums sm:inline-block"
-							/>
+					<div
+						data-slot="sender-avatar"
+						className={cn(
+							'flex shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-foreground',
+							open ? 'h-10 w-10 text-xs' : 'h-8 w-8 text-[11px]',
+						)}
+					>
+						{initials(fromLabel)}
+					</div>
+					<div className="min-w-0 flex-1 pt-1">
+						<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+							<h2
+								id={senderHeadingId}
+								className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
+							>
+								{fromLabel}
+							</h2>
+							{open ? <MessageDetails message={message} recipientLabel={recipients} /> : null}
+							{message.date ? (
+								<ClientMessageTime
+									epochSeconds={message.date}
+									className="order-3 ml-auto hidden shrink-0 text-xs text-muted-foreground tabular-nums sm:inline-block"
+								/>
+							) : null}
+						</div>
+						{!open ? (
+							<p className="mt-1 truncate text-sm text-muted-foreground">
+								{collapsedMessagePreview(message)}
+							</p>
 						) : null}
 					</div>
-					{!open ? (
-						<p className="mt-1 truncate text-sm text-muted-foreground">{collapsedMessagePreview(message)}</p>
-					) : null}
-				</div>
-				<div className="flex shrink-0 items-center gap-1">
-					{message.ownmailDraft !== true ? (
-						<a
-							data-slot="raw-email-download"
-							href={`/messages/${encodeURIComponent(message.id)}/download`}
-							download
-							aria-label={`Download raw email from ${fromLabel}`}
-							title="Download raw email"
+					<div className="flex shrink-0 items-center gap-1">
+						{message.ownmailDraft !== true ? (
+							<a
+								data-slot="raw-email-download"
+								href={`/messages/${encodeURIComponent(message.id)}/download`}
+								download
+								aria-label={`Download raw email from ${fromLabel}`}
+								title="Download raw email"
+								className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								<Download className="h-4 w-4" />
+							</a>
+						) : null}
+						<button
+							data-slot="message-toggle"
+							type="button"
+							onClick={onToggle}
 							className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							aria-expanded={open}
+							aria-controls={contentId}
+							aria-label={`${open ? 'Collapse' : 'Expand'} message from ${fromLabel}`}
+							title={`${open ? 'Collapse' : 'Expand'} message`}
 						>
-							<Download className="h-4 w-4" />
-						</a>
+							<ChevronDown className={cn('h-4 w-4', open && 'rotate-180')} />
+						</button>
+					</div>
+					{message.date ? (
+						<ClientMessageTime
+							epochSeconds={message.date}
+							className="mt-1 basis-full whitespace-nowrap pl-12 text-right text-xs leading-5 text-muted-foreground sm:hidden"
+						/>
 					) : null}
-					<button
-						data-slot="message-toggle"
-						type="button"
-						onClick={onToggle}
-						className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						aria-expanded={open}
-						aria-controls={contentId}
-						aria-label={`${open ? 'Collapse' : 'Expand'} message from ${fromLabel}`}
-						title={`${open ? 'Collapse' : 'Expand'} message`}
-					>
-						<ChevronDown className={cn('h-4 w-4', open && 'rotate-180')} />
-					</button>
 				</div>
-				{message.date ? (
-					<ClientMessageTime
-						epochSeconds={message.date}
-						className="mt-1 basis-full whitespace-nowrap pl-12 text-right text-xs leading-5 text-muted-foreground sm:hidden"
-					/>
-				) : null}
-			</div>
+			</ThreadColumn>
 
 			{open ? (
-				<div id={contentId} data-slot="expanded-message-content" className="mt-5 w-full min-w-0">
-					<CalendarInvitationCard message={message} />
+				<div id={contentId} data-slot="expanded-message-content" className="mt-3 w-full min-w-0">
+					<ThreadColumn>
+						<CalendarInvitationCard message={message} />
+					</ThreadColumn>
 					<MessageBody
 						message={message}
 						darkenEmail={darkenEmail}
@@ -363,9 +429,13 @@ function MessageBlock({
 						retryRevision={retryRevision}
 						onDisplayStatus={onDisplayStatus}
 					/>
-					<MessageAttachments message={message} />
+					<ThreadColumn>
+						<MessageAttachments message={message} />
+					</ThreadColumn>
 				</div>
-			) : null}
+			) : (
+				<div className="pb-3" />
+			)}
 		</article>
 	)
 }

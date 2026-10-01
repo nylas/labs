@@ -1,12 +1,13 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
 import { prepareEmailMessageContent, splitPlainQuotedHistory } from '../lib/email-message-content.js'
-import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
+import type { EmailCanvasDetail, EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
 import { ownMailDraftMarkdown } from '../lib/html-to-markdown.js'
 import { messageHasHtml } from '../lib/mail-ui-model.js'
 import { markdownToEmailHtml } from '../lib/markdown-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { type EmailDisplayStatus, EmailHtml } from './EmailHtml.js'
+import { ThreadColumn } from './ThreadColumn.js'
 
 export function MessageBody({
 	message,
@@ -104,35 +105,51 @@ function PreparedHtmlBody({
 		() => prepareEmailMessageContent(html, message.id, message.attachments ?? [], message.ownmailImageTokens),
 		[html, message.attachments, message.id, message.ownmailImageTokens],
 	)
+	const [canvas, setCanvas] = useState<EmailCanvasDetail | null>(null)
+	// The band extends the sender's canvas across the whole reading pane; the
+	// message itself stays on the thread column.
+	const band = canvas?.canvas ?? null
 	return (
 		<div
-			data-slot="html-email-content"
-			className={prepared.isProse ? 'w-full min-w-0 max-w-[72ch]' : 'w-full min-w-0'}
+			data-slot="email-canvas-band"
+			data-email-strategy={canvas?.strategy}
+			className={band ? 'w-full py-6' : 'w-full'}
+			style={band ? { backgroundColor: band } : undefined}
 		>
-			<EmailHtml
-				html={prepared.html}
-				messageId={message.id}
-				darken={darkenEmail}
-				senderAddress={message.from?.[0]?.email}
-				layoutMode={layoutMode}
-				colorMode={colorMode}
-				loadRemoteImagesForThread={loadRemoteImagesForThread}
-				loadRemoteImagesForSender={loadRemoteImagesForSender}
-				retryRevision={retryRevision}
-				onDisplayStatus={onDisplayStatus}
-			/>
+			<ThreadColumn designed={!prepared.isProse}>
+				<div
+					data-slot="html-email-content"
+					className={prepared.isProse ? 'w-full min-w-0 max-w-[72ch]' : 'w-full min-w-0'}
+				>
+					<EmailHtml
+						html={prepared.html}
+						messageId={message.id}
+						darken={darkenEmail}
+						senderAddress={message.from?.[0]?.email}
+						layoutMode={layoutMode}
+						colorMode={colorMode}
+						loadRemoteImagesForThread={loadRemoteImagesForThread}
+						loadRemoteImagesForSender={loadRemoteImagesForSender}
+						retryRevision={retryRevision}
+						onDisplayStatus={onDisplayStatus}
+						onCanvas={setCanvas}
+					/>
+				</div>
+			</ThreadColumn>
 		</div>
 	)
 }
 
 function HtmlBodyPlaceholder() {
 	return (
-		<div
-			data-slot="html-email-placeholder"
-			role="status"
-			aria-label="Loading email content"
-			className="min-h-24 min-w-0 max-w-full rounded-xl border border-border bg-muted/40"
-		/>
+		<ThreadColumn>
+			<div
+				data-slot="html-email-placeholder"
+				role="status"
+				aria-label="Loading email content"
+				className="min-h-24 min-w-0 max-w-full"
+			/>
+		</ThreadColumn>
 	)
 }
 
@@ -147,27 +164,29 @@ function PlainBody({ text }: { text: string }) {
 	const content = splitPlainQuotedHistory(text)
 	const paragraphs = content.visible ? content.visible.split(/\n{2,}/) : []
 	return (
-		<div data-slot="plain-email-content" className="w-full min-w-0">
-			<div data-slot="plain-email-prose" className="max-w-[72ch] space-y-3">
-				{paragraphs.map((paragraph) => (
-					<p
-						key={paragraph.slice(0, 48)}
-						className="whitespace-pre-wrap break-words text-base leading-relaxed text-foreground [overflow-wrap:anywhere]"
-					>
-						{paragraph}
-					</p>
-				))}
-				{content.quoted ? (
-					<details className="border-t border-border text-muted-foreground">
-						<summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-							Show quoted text
-						</summary>
-						<p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
-							{content.quoted}
+		<ThreadColumn>
+			<div data-slot="plain-email-content" className="w-full min-w-0">
+				<div data-slot="plain-email-prose" className="max-w-[72ch] space-y-3">
+					{paragraphs.map((paragraph) => (
+						<p
+							key={paragraph.slice(0, 48)}
+							className="whitespace-pre-wrap break-words text-base leading-relaxed text-foreground [overflow-wrap:anywhere]"
+						>
+							{paragraph}
 						</p>
-					</details>
-				) : null}
+					))}
+					{content.quoted ? (
+						<details className="border-t border-border text-muted-foreground">
+							<summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+								Show quoted text
+							</summary>
+							<p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
+								{content.quoted}
+							</p>
+						</details>
+					) : null}
+				</div>
 			</div>
-		</div>
+		</ThreadColumn>
 	)
 }

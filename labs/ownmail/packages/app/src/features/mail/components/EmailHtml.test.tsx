@@ -3,11 +3,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultUserPreferences, writeUserPreferences } from '#app/preferences/user-preferences'
 import {
+	EMAIL_CANVAS_EVENT,
 	EMAIL_ELEMENT_TAG,
 	EMAIL_LAYOUT_STATUS_EVENT,
 	EMAIL_REMOTE_IMAGES_EVENT,
 	LINK_PREVIEW_EVENT,
 } from '../lib/email-render.js'
+import { forgetRememberedEmails, rememberEmail, renderedEmailKey } from '../lib/email-render-memory.js'
 import { EmailHtml } from './EmailHtml.js'
 
 const { senderImagesTrustedMock } = vi.hoisted(() => ({ senderImagesTrustedMock: vi.fn() }))
@@ -17,6 +19,7 @@ afterEach(() => {
 	cleanup()
 	document.documentElement.classList.remove('dark')
 	localStorage.clear()
+	forgetRememberedEmails()
 })
 
 beforeEach(() => {
@@ -64,9 +67,8 @@ describe('EmailHtml', () => {
 		expect(screen.queryByText('https://preview.example.com/path')).toBeNull()
 	})
 
-	it('does not invert email in light mode', () => {
+	it('renders light mode with the original presentation', () => {
 		render(<EmailHtml html="<p>x</p>" messageId="m3" />)
-		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
 	})
 
@@ -78,7 +80,6 @@ describe('EmailHtml', () => {
 				messageId="m4"
 			/>,
 		)
-		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
 		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
 	})
 
@@ -90,30 +91,30 @@ describe('EmailHtml', () => {
 				messageId="m4-hostile"
 			/>,
 		)
-		expect(emailElement()).toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
 	})
 
 	it('auto-darkens by default in dark mode, including email with only a color-scheme declaration', () => {
 		document.documentElement.classList.add('dark')
 		render(<EmailHtml html='<meta name="color-scheme" content="light dark"><p>plain</p>' messageId="m5" />)
-		expect(emailElement()).toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
+		expect(emailElement()).toHaveAttribute('data-color-mode', 'automatic')
 	})
 
 	it('preserves original colors when account-level automatic darkening is off', () => {
 		document.documentElement.classList.add('dark')
 		render(<EmailHtml html="<p>plain</p>" messageId="m5-original" darken={false} />)
-		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
 	})
 
 	it('reacts to the app switching into dark mode after mount', async () => {
 		render(<EmailHtml html="<p>x</p>" messageId="m6" />)
-		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
 
 		act(() => {
 			document.documentElement.classList.add('dark')
 		})
-		await waitFor(() => expect(emailElement()).toHaveAttribute('data-dark-invert'))
-		expect(emailElement()).toHaveAttribute('data-email-theme', 'dark')
+		await waitFor(() => expect(emailElement()).toHaveAttribute('data-email-theme', 'dark'))
 	})
 
 	it('keeps remote images blocked until the thread controller opts in', async () => {
@@ -156,7 +157,41 @@ describe('EmailHtml', () => {
 		expect(emailElement()).toHaveAttribute('data-layout-mode', 'original')
 		expect(emailElement()).toHaveAttribute('data-image-mode', 'original')
 		expect(emailElement()).toHaveAttribute('data-email-theme', 'light')
-		expect(emailElement()).not.toHaveAttribute('data-dark-invert')
+		expect(emailElement()).toHaveAttribute('data-color-mode', 'original')
+	})
+
+	it('reports the chosen canvas and remembers the measured height for the next open', () => {
+		const onCanvas = vi.fn()
+		const view = render(<EmailHtml html="<p>Report</p>" messageId="m-canvas" onCanvas={onCanvas} />)
+		const detail = { strategy: 'original', canvas: 'rgb(238, 240, 243)', height: 640 }
+		act(() => {
+			emailElement().dispatchEvent(new CustomEvent(EMAIL_CANVAS_EVENT, { detail }))
+		})
+		expect(onCanvas).toHaveBeenCalledWith(detail)
+		act(() => {
+			emailElement().dispatchEvent(new CustomEvent(EMAIL_CANVAS_EVENT, { detail: { ...detail, height: 0 } }))
+		})
+		view.unmount()
+
+		const replayed = vi.fn()
+		render(<EmailHtml html="<p>Report</p>" messageId="m-canvas" onCanvas={replayed} />)
+		expect(replayed).toHaveBeenCalledWith(detail)
+		const wrapper = emailElement().parentElement as HTMLElement
+		expect(wrapper.style.minHeight).toBe('640px')
+		act(() => {
+			emailElement().dispatchEvent(new CustomEvent(EMAIL_CANVAS_EVENT, { detail }))
+		})
+		expect(wrapper.style.minHeight).toBe('')
+	})
+
+	it('reserves a remembered height without a placeholder box before the element is ready', () => {
+		rememberEmail(renderedEmailKey('m-reserved', 'light', 'automatic'), {
+			strategy: 'original',
+			canvas: null,
+			height: 300,
+		})
+		render(<EmailHtml html="<p>Reserved</p>" messageId="m-reserved" />)
+		expect((emailElement().parentElement as HTMLElement).style.minHeight).toBe('300px')
 	})
 
 	it('reports renderer status and retries failures when the thread revision advances', async () => {

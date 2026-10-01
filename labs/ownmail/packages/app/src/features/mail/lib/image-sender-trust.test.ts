@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	clearTrustedImageSenders,
 	createSenderTrustKeyStore,
+	originalColorSenders,
 	type SenderTrustKeyStore,
 	senderImagesTrusted,
+	setSenderOriginalColors,
 	trustSenderImages,
 } from './image-sender-trust.js'
 
@@ -165,5 +167,44 @@ describe('trusted image senders', () => {
 		await expect(senderImagesTrusted('sender-200@example.com', localStorage, keyStore)).resolves.toBe(true)
 		await expect(trustSenderImages('sender-200@example.com', localStorage, keyStore)).resolves.toBe(true)
 		expect(localStorage.getItem('ownmail:trusted-image-senders:v1')).toBeNull()
+	})
+})
+
+describe('original color senders', () => {
+	it('remembers and forgets senders in an encrypted list bound to its own storage key', async () => {
+		const keyStore = testKeyStore()
+		await expect(originalColorSenders(localStorage, keyStore)).resolves.toEqual([])
+		await expect(setSenderOriginalColors('Brand@Example.com', true, localStorage, keyStore)).resolves.toBe(
+			true,
+		)
+		await expect(setSenderOriginalColors('news@example.com', true, localStorage, keyStore)).resolves.toBe(
+			true,
+		)
+		await expect(originalColorSenders(localStorage, keyStore)).resolves.toEqual([
+			'news@example.com',
+			'brand@example.com',
+		])
+		const stored = localStorage.getItem('ownmail:original-color-senders:v1') ?? ''
+		expect(stored).not.toContain('example.com')
+
+		await expect(setSenderOriginalColors('brand@example.com', false, localStorage, keyStore)).resolves.toBe(
+			true,
+		)
+		await expect(originalColorSenders(localStorage, keyStore)).resolves.toEqual(['news@example.com'])
+		await expect(senderImagesTrusted('news@example.com', localStorage, keyStore)).resolves.toBe(false)
+
+		localStorage.setItem(STORAGE_KEY, stored)
+		await expect(senderImagesTrusted('news@example.com', localStorage, keyStore)).resolves.toBe(false)
+	})
+
+	it('fails closed for malformed senders and unavailable cryptography', async () => {
+		const unavailable: SenderTrustKeyStore = { getOrCreateKey: async () => null }
+		await expect(setSenderOriginalColors('not an address', true, localStorage, testKeyStore())).resolves.toBe(
+			false,
+		)
+		await expect(setSenderOriginalColors('a@example.com', true, localStorage, unavailable)).resolves.toBe(
+			false,
+		)
+		await expect(originalColorSenders(localStorage, unavailable)).resolves.toEqual([])
 	})
 })
