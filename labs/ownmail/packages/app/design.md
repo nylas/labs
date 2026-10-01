@@ -248,7 +248,9 @@ and renders exactly as before when the view is off.
   messages carry a `List-Unsubscribe` header, as message ids. Header values are
   untrusted and are never stored, logged or sent to the browser. The header
   counts like an unsubscribe link in the body; if the lookup fails, bodies
-  alone decide. The standard reader never requests headers.
+  alone decide. The standard reader never requests headers. The answer is a
+  query keyed by account and thread (`mailKeys.threadListUnsubscribe`) and kept
+  for the session, so a thread asks once.
 - Layout. In this view the thread display menu offers Clean or Original for
   designed mail; `emailLayoutMode: 'clean'` is stored for the former. The
   standard reader, and any older build, lays a stored `clean` out as Readable.
@@ -263,8 +265,10 @@ and renders exactly as before when the view is off.
 - First render and identity. The saved view is read synchronously, so a thread
   opens straight into it. While it is unknown (server render and hydration) the
   messages are the thread skeleton's placeholder block, never a guess. The
-  transcript is computed from the loaded thread with no request of its own, so
-  it has no pending state after the thread skeleton. The per-thread flip,
+  transcript shows that same block while its one request, the header lookup,
+  is pending for a thread it has not seen, so a message is never painted as a
+  bubble and then re-drawn as an article, and nothing shifts when it arrives.
+  The per-thread flip,
   "Show original" and the reply choice live under the thread's identity
   (`useIdentityState`), so nothing set on one thread shows on another.
 

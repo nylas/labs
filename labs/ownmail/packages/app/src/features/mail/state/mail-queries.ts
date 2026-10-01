@@ -161,6 +161,28 @@ export const mailKeys = {
 	threadDetails: () => [...mailKeys.all, 'thread'] as const,
 	threadDetail: (threadId: string) =>
 		[...mailKeys.all, 'thread', requireCacheId(threadId, 'thread')] as const,
+	/** Which messages of a thread carry a List-Unsubscribe header (Conversation view only). */
+	threadListUnsubscribe: (threadId: string) =>
+		[...mailKeys.all, 'thread-list-unsubscribe', requireCacheId(threadId, 'thread')] as const,
+}
+
+/**
+ * The ids of a thread's messages that declare themselves bulk mail. Headers do
+ * not change, so one answer per account and thread is kept for the session; a
+ * failed lookup is not retried, and the Conversation view then classifies on
+ * the message bodies alone.
+ */
+export function threadListUnsubscribeQueryOptions(
+	threadId: string,
+	fetchMessageIds: (threadId: string) => Promise<string[]>,
+) {
+	const safeThreadId = requireCacheId(threadId, 'thread')
+	return queryOptions({
+		queryKey: mailKeys.threadListUnsubscribe(safeThreadId),
+		queryFn: () => fetchMessageIds(safeThreadId),
+		staleTime: Number.POSITIVE_INFINITY,
+		retry: false,
+	})
 }
 
 export function foldersQueryOptions(fetchFolders: () => Promise<Folder[]>) {

@@ -12,6 +12,7 @@ import {
 	normalizeMailThreadFilters,
 	threadDetailQueryOptions,
 	threadListQueryOptions,
+	threadListUnsubscribeQueryOptions,
 	toMailDraft,
 	toMailFolder,
 	toMailMessage,
@@ -35,6 +36,23 @@ const draft: Draft = { ...message, id: 'd1' }
 const folder: Folder = { id: 'inbox', grant_id: 'must-not-enter-cache', name: 'Inbox' }
 
 describe('mail query cache boundaries', () => {
+	it('keeps the header lookup of a thread per account, asks once, and never retries a failure', async () => {
+		// The answer says which messages are bulk mail. It belongs to one inbox's
+		// thread: another account opening a thread with the same id must not read it.
+		const fetchIds = vi.fn(async (threadId: string) => [`${threadId}-newsletter`])
+		const options = threadListUnsubscribeQueryOptions('t1', fetchIds)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-list-unsubscribe', 't1'])
+		expect(mailKeys.threadListUnsubscribe('t1')).toEqual(options.queryKey)
+		expect(options.staleTime).toBe(Number.POSITIVE_INFINITY)
+		expect(options.retry).toBe(false)
+
+		const queryClient = new QueryClient()
+		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
+		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
+		expect(fetchIds).toHaveBeenCalledTimes(1)
+		expect(() => threadListUnsubscribeQueryOptions('bad\nid', fetchIds)).toThrow()
+	})
+
 	it('normalizes stable filters and query keys', () => {
 		expect(normalizeMailThreadFilters({ folderId: 'inbox', q: 'roadmap', starred: false })).toEqual({
 			folderId: 'inbox',

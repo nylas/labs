@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { type ComponentProps, type ReactNode, useEffect, useLayoutEffect, useMemo } from 'react'
 import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { Button } from '#shared/components/ui/button'
@@ -14,12 +15,13 @@ import {
 } from '../lib/conversation-model.js'
 import { senderImagesTrusted } from '../lib/image-sender-trust.js'
 import { replyAllDraftSearch, replyDraftSearch } from '../lib/mail-ui-model.js'
-import type { MailMessage } from '../state/mail-queries.js'
+import { type MailMessage, threadListUnsubscribeQueryOptions } from '../state/mail-queries.js'
 import { AttachmentLink } from './AttachmentLink.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
 import { CleanBlocks, LinkPreviewRegion } from './CleanBlocks.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { ThreadColumn } from './ThreadColumn.js'
+import { ThreadMessagesPlaceholder } from './ThreadMessagesPlaceholder.js'
 
 /** The existing reply entry points; the Conversation view never sends on its own. */
 export interface ConversationReply {
@@ -49,18 +51,40 @@ function MessageTime({ epochSeconds }: { epochSeconds: number }) {
 	)
 }
 
+/** Loaded on demand, so the standard reader never asks for message headers. */
+async function fetchListUnsubscribeIds(threadId: string): Promise<string[]> {
+	const { getThreadListUnsubscribe } = await import('../server/mail-functions.js')
+	return (await getThreadListUnsubscribe({ data: { threadId } })).messageIds
+}
+
+const NO_MESSAGE_IDS: readonly string[] = []
+
+/**
+ * The Conversation view of one thread. Which messages are bulk mail is one of
+ * its classification signals, looked up once per account and thread and cached.
+ * Until that answer is in, the transcript is the thread skeleton's placeholder:
+ * a message is never painted as a bubble and then re-drawn as an article. If
+ * the lookup fails, messages are classified on their bodies alone.
+ */
+export function ConversationTranscript(props: Omit<ComponentProps<typeof Transcript>, 'listUnsubscribeIds'>) {
+	const lookup = useQuery(threadListUnsubscribeQueryOptions(props.threadId, fetchListUnsubscribeIds))
+	if (lookup.isPending) return <ThreadMessagesPlaceholder />
+	return <Transcript {...props} listUnsubscribeIds={lookup.data ?? NO_MESSAGE_IDS} />
+}
+
 /**
  * A thread as a chat transcript. Each email is a bubble holding only what its
  * sender newly wrote; mail that does not fit a bubble, and any message switched
  * to "Show original", is rendered by the standard reader in the same stream.
  */
-export function ConversationTranscript({
+function Transcript({
 	threadId,
 	messages,
 	mailboxEmail,
 	loadRemoteImagesForThread,
 	trustedDuringThisView,
 	cleanDesigned,
+	listUnsubscribeIds,
 	onDisplayStatus,
 	renderOriginal,
 	reply,
@@ -73,6 +97,8 @@ export function ConversationTranscript({
 	trustedDuringThisView: ReadonlySet<string>
 	/** Designed mail becomes a clean article; false keeps the standard reader for it. */
 	cleanDesigned: boolean
+	/** Messages that carry a List-Unsubscribe header. */
+	listUnsubscribeIds: readonly string[]
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 	/** The standard reader's body for one message, with the thread's display settings. */
 	renderOriginal: (message: MailMessage) => ReactNode
@@ -101,25 +127,6 @@ export function ConversationTranscript({
 		}
 	}, [account, messages, setStoredTrust])
 
-	// One more classification signal, fetched only now that the view is on. Until
-	// it answers, and if it fails, messages are classified on their bodies alone.
-	const [listUnsubscribeIds, setListUnsubscribeIds] = useState<ReadonlySet<string>>(() => new Set())
-	useEffect(() => {
-		let active = true
-		// Loaded on demand, so the standard reader never asks for message headers.
-		import('../server/mail-functions.js')
-			.then(({ getThreadListUnsubscribe }) => getThreadListUnsubscribe({ data: { threadId } }))
-			.then(
-				(result) => {
-					if (active) setListUnsubscribeIds(new Set(result.messageIds))
-				},
-				() => {},
-			)
-		return () => {
-			active = false
-		}
-	}, [threadId])
-
 	const allowAll = preferences.remoteImagePolicy === 'always' || loadRemoteImagesForThread
 	const contents = useMemo(() => {
 		const map = new Map<string, { content: MessageContent; allowed: boolean }>()
@@ -127,7 +134,7 @@ export function ConversationTranscript({
 			const sender = senderKey(message)
 			const allowed = allowAll || trustedDuringThisView.has(sender) || storedTrust.has(sender)
 			map.set(message.id, {
-				content: messageContent(message, allowed, cleanDesigned, listUnsubscribeIds.has(message.id)),
+				content: messageContent(message, allowed, cleanDesigned, listUnsubscribeIds.includes(message.id)),
 				allowed,
 			})
 		}
