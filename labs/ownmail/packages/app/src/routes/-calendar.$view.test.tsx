@@ -350,6 +350,24 @@ describe('loadCalendarRouteData', () => {
 	})
 })
 
+describe('calendar pending view', () => {
+	it('reserves the sidebar column exactly as the loaded view will, so nothing shifts when content arrives', () => {
+		Route.useParams = vi.fn(() => ({ view: 'week' }))
+		Route.useSearch = vi.fn(() => ({ date: '2024-06-15' }))
+		const Pending = Route.options.pendingComponent
+		const first = render(<Pending />)
+		expect(screen.getByTestId('calendar-pending-header')).toHaveClass('lg:grid-cols-[16rem_minmax(0,1fr)]')
+		expect(screen.getByTestId('calendar-pending-sidebar')).toHaveClass('lg:block')
+		first.unmount()
+
+		// With the sidebar collapsed on this device, the pending view is collapsed too.
+		localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarSidebarCollapsed: true }))
+		render(<Pending />)
+		expect(screen.getByTestId('calendar-pending-header')).toHaveClass('lg:grid-cols-[2.75rem_minmax(0,1fr)]')
+		expect(screen.getByTestId('calendar-pending-sidebar')).not.toHaveClass('lg:block')
+	})
+})
+
 describe('CalendarViewRoutePage wrapper', () => {
 	it('prefetches the previous and next weeks so Previous/Next open without a fetch wait', async () => {
 		Route.useParams = vi.fn(() => ({ view: 'week' }))
@@ -1593,3 +1611,100 @@ describe('hidden calendars', () => {
 		expect(screen.getByRole('button', { name: /^Work/ })).toHaveAttribute('aria-pressed', 'false')
 	})
 })
+
+describe('calendar grid controls', () => {
+	const storedPreferences = () => JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')
+	const slot = () => screen.getByRole('button', { name: /^Create event at 9 AM on Saturday/ })
+
+	it('zooms the grid: every hour row, event box and the now line follow the chosen hour height', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T10:30:00'))
+		try {
+			render(<CalendarRouteScreen view="day" data={richData()} />)
+			expect(slot().style.height).toBe('52px')
+			fireEvent.click(screen.getByRole('button', { name: 'Grid zoom' }))
+			fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+			expect(slot().style.height).toBe('64px')
+			// Standup runs 9-10 AM: nine hours down, one hour tall less the 2px gap.
+			const standup = screen.getByRole('button', { name: /^Standup/ })
+			expect(standup.style.top).toBe(`${9 * 64}px`)
+			expect(standup.style.height).toBe(`${64 - 2}px`)
+			expect(screen.getByTestId('calendar-now-line').style.top).toBe(`${10.5 * 64}px`)
+			expect(storedPreferences().calendarHourHeight).toBe(64)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('keeps the hour at the top of the viewport when the zoom changes', () => {
+		render(<CalendarRouteScreen view="day" data={richData('2024-06-20')} />)
+		const body = screen.getByRole('region', { name: 'Calendar time grid' })
+		body.scrollTop = 10 * 52
+		fireEvent.click(screen.getByRole('button', { name: 'Grid zoom' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
+		expect(body.scrollTop).toBe(10 * 40)
+	})
+
+	it('restores the zoom this device chose on the next visit', async () => {
+		localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarHourHeight: 80 }))
+		render(<CalendarRouteScreen view="day" data={richData()} />)
+		await vi.waitFor(() => expect(slot().style.height).toBe('80px'))
+	})
+
+	it('keeps the zoom control in its own track so header and grid columns stay aligned', () => {
+		renderControlsWeek()
+		const header = screen.getByTestId('calendar-time-grid-header').firstElementChild as HTMLElement
+		const body = screen.getByTestId('calendar-time-grid-body').lastElementChild as HTMLElement
+		expect(header.style.gridTemplateColumns).toBe('3.5rem repeat(7, minmax(0, 1fr)) 2.75rem')
+		expect(body.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns)
+	})
+
+	it('adds and removes the second time zone from the gutter head, updating the ruler in place', () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ primaryTimezone: 'America/Toronto' }),
+		)
+		renderControlsWeek()
+		fireEvent.click(screen.getByRole('button', { name: /Add a second time zone$/ }))
+		fireEvent.change(screen.getByRole('combobox', { name: 'Second time zone' }), {
+			target: { value: 'Europe/London' },
+		})
+		expect(storedPreferences().secondaryTimezone).toBe('Europe/London')
+		expect(
+			screen.getByLabelText('Time ruler: Toronto primary time, London secondary time'),
+		).toBeInTheDocument()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Remove second time zone' }))
+		expect(storedPreferences().secondaryTimezone).toBe('')
+		expect(screen.getByLabelText('Time ruler: Toronto primary time')).toBeInTheDocument()
+	})
+
+	it('collapses the desktop sidebar from the top bar and remembers it on this device', () => {
+		const first = renderControlsWeek()
+		const sidebar = () => document.getElementById('calendar-sidebar') as HTMLElement
+		const toggle = screen.getByRole('button', { name: 'Hide calendar sidebar' })
+		expect(toggle).toHaveAttribute('aria-expanded', 'true')
+		expect(toggle).toHaveAttribute('aria-controls', 'calendar-sidebar')
+		expect(sidebar()).toHaveClass('lg:flex')
+
+		fireEvent.click(toggle)
+		// The state is carried by the name and aria-expanded, not by the icon alone.
+		const collapsed = screen.getByRole('button', { name: 'Show calendar sidebar' })
+		expect(collapsed).toHaveAttribute('aria-expanded', 'false')
+		expect(sidebar()).not.toHaveClass('lg:flex')
+		// The header column shrinks with it, so the title is not left indented.
+		expect(collapsed.parentElement?.parentElement).toHaveClass('lg:grid-cols-[2.75rem_minmax(0,1fr)]')
+		expect(storedPreferences().calendarSidebarCollapsed).toBe(true)
+		first.unmount()
+
+		renderControlsWeek()
+		expect(screen.getByRole('button', { name: 'Show calendar sidebar' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Show calendar sidebar' }))
+		expect(sidebar()).toHaveClass('lg:flex')
+		expect(storedPreferences().calendarSidebarCollapsed).toBe(false)
+	})
+})
+
+function renderControlsWeek() {
+	return render(<CalendarRouteScreen view="week" data={richData()} />)
+}

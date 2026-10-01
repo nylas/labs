@@ -6,6 +6,8 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	availableTimezones,
+	CALENDAR_HOUR_HEIGHTS,
+	DEFAULT_CALENDAR_HOUR_HEIGHT,
 	defaultUserPreferences,
 	displayNameFor,
 	hiddenCalendarIdsFor,
@@ -54,6 +56,8 @@ describe('user preferences', () => {
 			listDensity: 'condensed',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: 'UTC',
+			calendarHourHeight: 64,
+			calendarSidebarCollapsed: true,
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
 		})
 		expect(saved).toEqual({
@@ -67,6 +71,8 @@ describe('user preferences', () => {
 			listDensity: 'condensed',
 			primaryTimezone: 'UTC',
 			secondaryTimezone: '',
+			calendarHourHeight: 64,
+			calendarSidebarCollapsed: true,
 			hiddenCalendarsByAccount: { 'ada@example.com': ['cal-work', 'cal-home'] },
 		})
 		expect(readUserPreferences()).toEqual(saved)
@@ -94,6 +100,34 @@ describe('user preferences', () => {
 			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ listDensity }))
 			expect(readUserPreferences().listDensity).toBe(listDensity)
 		}
+	})
+
+	it('keeps the default hour height for stored zoom steps the grid does not offer', () => {
+		// Layout math divides by the hour height, so a tampered or outdated value
+		// (zero, negative, a string) must never reach the grid.
+		expect(defaultUserPreferences().calendarHourHeight).toBe(DEFAULT_CALENDAR_HOUR_HEIGHT)
+		for (const calendarHourHeight of [0, -52, 53, '64', null, Number.POSITIVE_INFINITY]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarHourHeight }))
+			expect(readUserPreferences().calendarHourHeight).toBe(DEFAULT_CALENDAR_HOUR_HEIGHT)
+		}
+		for (const calendarHourHeight of CALENDAR_HOUR_HEIGHTS) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarHourHeight }))
+			expect(readUserPreferences().calendarHourHeight).toBe(calendarHourHeight)
+		}
+	})
+
+	it('shows the calendar sidebar unless this device explicitly collapsed it', () => {
+		// Anything other than a stored `true` keeps the sidebar, so calendars stay reachable.
+		expect(defaultUserPreferences().calendarSidebarCollapsed).toBe(false)
+		for (const calendarSidebarCollapsed of ['true', 1, null]) {
+			window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarSidebarCollapsed }))
+			expect(readUserPreferences().calendarSidebarCollapsed).toBe(false)
+		}
+		window.localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ calendarSidebarCollapsed: true }),
+		)
+		expect(readUserPreferences().calendarSidebarCollapsed).toBe(true)
 	})
 
 	it('recovers safely from malformed storage and invalid preference shapes', () => {

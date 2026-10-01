@@ -1,7 +1,7 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Menu, Plus, Settings2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings2 } from 'lucide-react'
 import {
 	type CSSProperties,
 	useCallback,
@@ -15,18 +15,21 @@ import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRa
 import { CommandPalette, useCommandPaletteShortcut } from '#app/components/CommandPalette'
 import { MobileTabBar } from '#app/components/MobileTabBar'
 import {
+	CALENDAR_HEADER_COLLAPSED_GRID_CLASS,
 	CALENDAR_HEADER_GRID_CLASS,
 	CALENDAR_SIDEBAR_WIDTH_CLASS,
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
 } from '#app/config/layout'
 import {
+	type CalendarHourHeight,
 	hiddenCalendarIdsFor,
 	useUserPreferences,
 	useUserPreferencesReady,
 	withHiddenCalendarIds,
 } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { GridZoomControl, SecondaryTimezoneControl } from '#features/calendar/components/CalendarGridControls'
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
 import { EventModal } from '#features/calendar/components/EventModal'
 import {
@@ -55,7 +58,6 @@ import {
 	startOfWeek,
 	timedChipLines,
 	timedDayLayout,
-	timeZoneShortName,
 	upcomingAgenda,
 	viewRange,
 	ymd,
@@ -70,6 +72,7 @@ import {
 	eventRsvp,
 	eventRsvpLabel,
 } from '#features/calendar/lib/calendar-ui-model'
+import { rescaledScrollTop } from '#features/calendar/lib/calendar-zoom'
 import {
 	type CalendarRouteData,
 	calendarRouteRange,
@@ -115,6 +118,9 @@ const CREATE_BUTTON_CLASS =
 function CalendarPending() {
 	const { date, view } = { ...Route.useSearch(), ...Route.useParams() }
 	const info = useQueryClient().getQueryData(mailboxInfoQueryOptions().queryKey)
+	// The sidebar column follows the same device preference as the loaded view,
+	// so the title and grid do not move sideways when the content arrives.
+	const [{ calendarSidebarCollapsed: sidebarCollapsed }] = useUserPreferences()
 	return (
 		<div
 			data-testid="calendar-pending"
@@ -131,7 +137,13 @@ function CalendarPending() {
 					)}
 				>
 					<div className="h-11 w-11 shrink-0 border-r border-border lg:hidden" aria-hidden="true" />
-					<div className={cn('min-w-0 flex-1', CALENDAR_HEADER_GRID_CLASS)}>
+					<div
+						data-testid="calendar-pending-header"
+						className={cn(
+							'min-w-0 flex-1',
+							sidebarCollapsed ? CALENDAR_HEADER_COLLAPSED_GRID_CLASS : CALENDAR_HEADER_GRID_CLASS,
+						)}
+					>
 						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
 						<div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem_2.75rem] grid-rows-[2.75rem_2.75rem] items-stretch sm:flex">
 							<button
@@ -162,8 +174,10 @@ function CalendarPending() {
 					/>
 				) : null}
 				<div
+					data-testid="calendar-pending-sidebar"
 					className={cn(
-						'hidden shrink-0 border-r border-border bg-background lg:block',
+						'hidden shrink-0 border-r border-border bg-background',
+						!sidebarCollapsed && 'lg:block',
 						CALENDAR_SIDEBAR_WIDTH_CLASS,
 					)}
 					aria-hidden="true"
@@ -230,6 +244,7 @@ export function CalendarRouteScreen({
 	const mobileCalendarLayout = useMobileCalendarLayout()
 	const primaryTimezone = preferences.primaryTimezone
 	const secondaryTimezone = preferences.secondaryTimezone
+	const sidebarCollapsed = preferences.calendarSidebarCollapsed
 	const now = useMinuteClock()
 	const todayIso = ymd(calendarDateInTimeZone(now, primaryTimezone))
 	const hiddenCalendarIds = useMemo(
@@ -324,8 +339,31 @@ export function CalendarRouteScreen({
 					>
 						<Menu className="h-4 w-4" />
 					</button>
-					<div className={cn('min-w-0 flex-1', CALENDAR_HEADER_GRID_CLASS)}>
-						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
+					<div
+						className={cn(
+							'min-w-0 flex-1',
+							sidebarCollapsed ? CALENDAR_HEADER_COLLAPSED_GRID_CLASS : CALENDAR_HEADER_GRID_CLASS,
+						)}
+					>
+						<div className="hidden border-r border-border lg:flex">
+							<button
+								type="button"
+								onClick={() =>
+									savePreferences({ ...preferences, calendarSidebarCollapsed: !sidebarCollapsed })
+								}
+								aria-label={sidebarCollapsed ? 'Show calendar sidebar' : 'Hide calendar sidebar'}
+								title={sidebarCollapsed ? 'Show calendar sidebar' : 'Hide calendar sidebar'}
+								aria-expanded={!sidebarCollapsed}
+								aria-controls="calendar-sidebar"
+								className="touch-target-square flex size-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+							>
+								{sidebarCollapsed ? (
+									<PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+								) : (
+									<PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+								)}
+							</button>
+						</div>
 						<div
 							className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem_2.75rem] grid-rows-[2.75rem_2.75rem] items-stretch sm:flex"
 							data-testid="calendar-header-controls"
@@ -409,8 +447,10 @@ export function CalendarRouteScreen({
 					onOpenCommandPalette={openPalette}
 				/>
 				<aside
+					id="calendar-sidebar"
 					className={cn(
-						'hidden shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-4 lg:flex',
+						'hidden shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-4',
+						!sidebarCollapsed && 'lg:flex',
 						CALENDAR_SIDEBAR_WIDTH_CLASS,
 					)}
 				>
@@ -461,6 +501,13 @@ export function CalendarRouteScreen({
 							onPickEvent={setEditing}
 							timeZone={primaryTimezone}
 							secondaryTimezone={secondaryTimezone}
+							onSecondaryTimezoneChange={(zone) =>
+								savePreferences({ ...preferences, secondaryTimezone: zone })
+							}
+							hourHeight={preferences.calendarHourHeight}
+							onHourHeightChange={(calendarHourHeight) =>
+								savePreferences({ ...preferences, calendarHourHeight })
+							}
 							onRefresh={onRefresh}
 							onPickSlot={(date, hour, rect) => {
 								setNewStart(calendarSlotTime(date, hour, primaryTimezone))
@@ -1049,6 +1096,9 @@ function TimeGrid({
 	now,
 	timeZone,
 	secondaryTimezone,
+	onSecondaryTimezoneChange,
+	hourHeight,
+	onHourHeightChange,
 	onPickEvent,
 	onPickSlot,
 	onRefresh,
@@ -1061,11 +1111,15 @@ function TimeGrid({
 	now: Date
 	timeZone: string
 	secondaryTimezone: string
+	onSecondaryTimezoneChange: (timeZone: string) => void
+	hourHeight: CalendarHourHeight
+	onHourHeightChange: (hourHeight: CalendarHourHeight) => void
 	onPickEvent: (e: Event) => void
 	onPickSlot: (date: Date, hour: number, rect: Rect) => void
 	onRefresh?: () => Promise<unknown>
 }) {
-	const HOUR_PX = 52
+	// The hour height is the grid's zoom step, a device preference.
+	const HOUR_PX = hourHeight
 	// Render the full day so selections made in the event composer always
 	// remain visible after the calendar refreshes.
 	const START_HOUR = 0
@@ -1082,6 +1136,7 @@ function TimeGrid({
 	const coveredByNowBadge = (labelCentre: number, labelHeight: number) =>
 		todayIndex !== -1 && nowBadgeCoversLabel(nowOffset, labelCentre, labelHeight)
 	const scrollRef = useRef<HTMLDivElement>(null)
+	const drawnHourPx = useRef<number>(HOUR_PX)
 	const [activeSlot, setActiveSlot] = useState({ day: 0, hour: START_HOUR })
 	const [allDayExpanded, setAllDayExpanded] = useState(false)
 	const mobileLayout = useMobileCalendarLayout()
@@ -1091,7 +1146,9 @@ function TimeGrid({
 	const band = allDayBand(allDaySegments, allDayExpanded)
 	const allDayRowCount = band.rowCount
 	const hasAllDay = allDaySegments.length > 0
-	const dayGridTemplateColumns = days === 1 ? '3.5rem minmax(0, 1fr)' : '3.5rem repeat(7, minmax(0, 1fr))'
+	// Gutter, the day columns, then one 44px track whose head holds the zoom control.
+	const dayGridTemplateColumns = `3.5rem repeat(${days}, minmax(0, 1fr)) 2.75rem`
+	const dayColumnsSpan = `2 / span ${days}`
 	const mobileAgendaEvents = mobileLayout
 		? events
 				.filter(
@@ -1115,8 +1172,21 @@ function TimeGrid({
 			ymd(calendarDateInTimeZone(current, timeZone)),
 			calendarWallClockHour(current, timeZone),
 		)
-		if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (hour - START_HOUR) * HOUR_PX - 12)
+		if (scrollRef.current)
+			scrollRef.current.scrollTop = Math.max(0, (hour - START_HOUR) * drawnHourPx.current - 12)
 	}, [days, startIso, timeZone])
+
+	// Zooming keeps the hour at the top of the viewport where it is.
+	useEffect(() => {
+		if (drawnHourPx.current === HOUR_PX) return
+		if (scrollRef.current)
+			scrollRef.current.scrollTop = rescaledScrollTop(
+				scrollRef.current.scrollTop,
+				drawnHourPx.current,
+				HOUR_PX,
+			)
+		drawnHourPx.current = HOUR_PX
+	}, [HOUR_PX])
 
 	function moveSlot(dayIndex: number, hour: number, key: string) {
 		let nextDay = dayIndex
@@ -1204,11 +1274,11 @@ function TimeGrid({
 					data-testid="calendar-time-grid-header"
 				>
 					<div
-						className="grid border-b border-border pr-3"
+						className="grid border-b border-border"
 						style={{ gridTemplateColumns: dayGridTemplateColumns }}
 					>
 						<section
-							className="flex min-w-0 flex-col justify-end gap-0.5 px-1 py-2 text-right"
+							className="flex min-w-0"
 							style={{ gridColumn: 1, gridRow: 1 }}
 							aria-label={
 								secondaryTimezone
@@ -1216,20 +1286,12 @@ function TimeGrid({
 									: `Time ruler: ${timezoneCity(timeZone)} primary time`
 							}
 						>
-							<span
-								title={timezoneCity(timeZone)}
-								className="truncate text-[10px] font-semibold text-foreground"
-							>
-								{timeZoneShortName(timeZone, now)}
-							</span>
-							{secondaryTimezone ? (
-								<span
-									title={timezoneCity(secondaryTimezone)}
-									className="truncate text-[9px] text-muted-foreground"
-								>
-									{timeZoneShortName(secondaryTimezone, now)}
-								</span>
-							) : null}
+							<SecondaryTimezoneControl
+								primaryTimezone={timeZone}
+								secondaryTimezone={secondaryTimezone}
+								now={now}
+								onChange={onSecondaryTimezoneChange}
+							/>
 						</section>
 						{columns.map((day, dayIndex) => {
 							const isToday = dayIndex === todayIndex
@@ -1255,10 +1317,13 @@ function TimeGrid({
 								</div>
 							)
 						})}
+						<div className="flex items-center" style={{ gridColumn: days + 2, gridRow: 1 }}>
+							<GridZoomControl hourHeight={hourHeight} onChange={onHourHeightChange} />
+						</div>
 					</div>
 					{hasAllDay ? (
 						<div
-							className="grid gap-y-control border-b border-border py-hairline pr-3"
+							className="grid gap-y-control border-b border-border py-hairline"
 							data-testid="calendar-all-day-band"
 							style={{
 								gridTemplateColumns: dayGridTemplateColumns,
@@ -1321,7 +1386,7 @@ function TimeGrid({
 								<div
 									aria-hidden="true"
 									className="px-cluster text-xs text-muted-foreground"
-									style={{ gridColumn: '2 / -1', gridRow: allDayRowCount + 1 }}
+									style={{ gridColumn: dayColumnsSpan, gridRow: allDayRowCount + 1 }}
 								>
 									{allDayOverflow} more
 								</div>
@@ -1331,7 +1396,7 @@ function TimeGrid({
 									aria-expanded={allDayExpanded}
 									onClick={() => setAllDayExpanded((expanded) => !expanded)}
 									className="touch-target mx-control justify-self-start rounded-[5px] px-cluster py-control text-left text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
-									style={{ gridColumn: '2 / -1', gridRow: allDayRowCount + 1 }}
+									style={{ gridColumn: dayColumnsSpan, gridRow: allDayRowCount + 1 }}
 								>
 									{allDayExpanded ? 'Show fewer' : `${allDayOverflow} more`}
 								</button>
@@ -1348,7 +1413,7 @@ function TimeGrid({
 						<div
 							aria-hidden="true"
 							data-testid="calendar-now-line"
-							className="pointer-events-none absolute right-3 left-0 z-20 grid -translate-y-1/2 items-center"
+							className="pointer-events-none absolute inset-x-0 z-20 grid -translate-y-1/2 items-center"
 							style={{ top: nowOffset, gridTemplateColumns: dayGridTemplateColumns }}
 						>
 							<span
@@ -1358,7 +1423,7 @@ function TimeGrid({
 							>
 								{fmtTime(now, timeZone)}
 							</span>
-							<span className="h-px bg-today/45" style={{ gridColumn: '2 / -1', gridRow: 1 }} />
+							<span className="h-px bg-today/45" style={{ gridColumn: dayColumnsSpan, gridRow: 1 }} />
 							<span
 								data-testid="calendar-now-line-today"
 								className="h-0.5 bg-today"
@@ -1366,10 +1431,10 @@ function TimeGrid({
 							/>
 						</div>
 					)}
-					<div className="grid pr-3" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
+					<div className="grid" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
 						<div style={{ gridColumn: 1, gridRow: 1 }}>
 							{HOURS.map((hour) => (
-								<div key={hour} className="relative h-[52px]">
+								<div key={hour} className="relative" style={{ height: HOUR_PX }}>
 									<span
 										data-hour-label={hour}
 										className={cn(
@@ -1435,7 +1500,8 @@ function TimeGrid({
 												month: 'long',
 												day: 'numeric',
 											})}`}
-											className="block h-[52px] w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
+											style={{ height: HOUR_PX }}
+											className="block w-full cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/40"
 										/>
 									))}
 									{boxes.map(({ event, top, height, left, width }) => {
@@ -1536,7 +1602,7 @@ function ContinuousDayColumnRules({
 	return (
 		<div
 			aria-hidden="true"
-			className="pointer-events-none absolute inset-y-0 right-3 left-0 z-0 grid"
+			className="pointer-events-none absolute inset-0 z-0 grid"
 			style={{ gridTemplateColumns }}
 		>
 			{ruleGridColumns.map((gridColumn) => (
