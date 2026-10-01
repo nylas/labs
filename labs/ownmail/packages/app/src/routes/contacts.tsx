@@ -16,7 +16,11 @@ import {
 	filterContacts,
 	sortContacts,
 } from '#features/contacts/lib/contacts-model'
-import { flattenContactPages, useContactsPages } from '#features/contacts/state/contacts-state'
+import {
+	contactsInitialData,
+	flattenContactPages,
+	useContactsPages,
+} from '#features/contacts/state/contacts-state'
 import { getContacts } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
@@ -24,6 +28,7 @@ import { UNDER_MOBILE_BAR_CLASS } from '#shared/components/ui/glass'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { initials } from '#shared/lib/presentation'
+import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/contacts')({
@@ -62,6 +67,7 @@ function ContactsLayout() {
 		[contacts, nextCursor],
 	)
 	const contactsQuery = useContactsPages(initialPage)
+	const contactPages = seededData(contactsQuery.data, contactsInitialData(initialPage))
 	const { q } = Route.useSearch()
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -71,8 +77,8 @@ function ContactsLayout() {
 	return (
 		<ContactsShell
 			info={info}
-			contacts={flattenContactPages(contactsQuery.data)}
-			nextCursor={contactsQuery.hasNextPage ? contactsQuery.data.pages.at(-1)?.nextCursor : undefined}
+			contacts={flattenContactPages(contactPages)}
+			nextCursor={contactsQuery.hasNextPage ? contactPages.pages.at(-1)?.nextCursor : undefined}
 			loadingMore={contactsQuery.isFetchingNextPage}
 			loadMoreError={contactsQuery.isFetchNextPageError}
 			onLoadMore={loadMoreContacts}

@@ -1,5 +1,0 @@
----
-"@ownmail/app": patch
----
-
-OwnMail keeps each inbox's data and choices separate. Mail, calendar and contact data is stored per inbox, and if you switch inbox in another tab or sign in again, the open tab notices and reloads into the new inbox instead of mixing the two. The display name you save, the senders whose images you chose to load and the senders you keep in their original colours now apply only to the inbox you set them in; a name or sender list saved before this update is not carried over, so you may need to choose those senders once more. Your reading pane, email display, timezone and hidden-calendar choices are in place the moment the app opens, without first showing the defaults. When an action such as starring or archiving fails, only that change is undone and the list is refreshed, so mail that arrived in the meantime stays on screen. The mail search box, the contact list and the keyboard cursor in lists now show the right state the instant you move to another search, list or inbox, instead of briefly showing the previous one.

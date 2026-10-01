@@ -26,6 +26,7 @@ import { foldersQueryOptions } from '#features/mail/state/mail-queries'
 import { getFolders } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
+import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail')({
@@ -48,16 +49,21 @@ type MailInfo = {
 
 function MailLayout() {
 	const { info: initialInfo, folders: initialFolders } = Route.useLoaderData()
-	const { data: info } = useQuery({
+	const infoQuery = useQuery({
 		...mailboxInfoQueryOptions(),
 		initialData: initialInfo,
 		initialDataUpdatedAt: 0,
 	})
-	const { data: folders } = useQuery({
+	const foldersQuery = useQuery({
 		...foldersQueryOptions(() => getFolders()),
 		initialData: initialFolders,
 	})
-	return <MailRouteScreen info={info} folders={folders} />
+	return (
+		<MailRouteScreen
+			info={seededData(infoQuery.data, initialInfo)}
+			folders={seededData(foldersQuery.data, initialFolders)}
+		/>
+	)
 }
 
 export function MailRouteScreen({

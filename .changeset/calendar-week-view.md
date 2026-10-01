@@ -1,5 +1,0 @@
----
-"@ownmail/app": minor
----
-
-A clearer calendar week. Events that overlap now sit side by side instead of covering each other, and each event takes the colour of its own calendar. Tentative and unanswered invitations show a dashed outline, declined ones are struck through, and meetings that have ended fade back; each state is also announced to screen readers. The current time runs across the whole week with the time shown in the gutter, today's date gets its own marker, and the time column shows the short zone name (for example "EDT"). The all-day band shows three rows with a control to see the rest and marks events that continue beyond the visible days. The sidebar highlights the current week, groups calendars under your account, tags the default calendar, and labels hidden ones. The header shows the month and year with a single view dropdown. Busy calendars now load every event in the visible range rather than stopping at the first page, hidden calendars are no longer fetched, and the calendar says so if some events could not be loaded.

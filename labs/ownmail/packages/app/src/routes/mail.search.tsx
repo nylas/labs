@@ -53,6 +53,7 @@ import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/componen
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
 
 type PendingSearchThreadAction = 'archive' | 'restore' | 'delete' | 'star'
@@ -200,12 +201,22 @@ function SearchResults() {
 	const router = useRouter()
 	const queryClient = useQueryClient()
 	const filters = searchFilters(q, initial.folderId)
+	const seedFolders = initial.folders.map(toMailFolder)
+	const seedThreadList = {
+		pages: [
+			{
+				threads: initial.threads.map(toMailThread),
+				...(initial.nextCursor ? { nextCursor: initial.nextCursor } : {}),
+			},
+		],
+		pageParams: [undefined],
+	}
 	const foldersQuery = useQuery({
 		...foldersQueryOptions(
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated search screen and query-option tests */
 			() => getFolders(),
 		),
-		initialData: initial.folders.map(toMailFolder),
+		initialData: seedFolders,
 	})
 	const threadsQuery = useInfiniteQuery({
 		...threadListQueryOptions(
@@ -214,16 +225,9 @@ function SearchResults() {
 			(input) => getThreads({ data: input }),
 		),
 		enabled: hasSearchQuery,
-		initialData: {
-			pages: [
-				{
-					threads: initial.threads.map(toMailThread),
-					...(initial.nextCursor ? { nextCursor: initial.nextCursor } : {}),
-				},
-			],
-			pageParams: [undefined],
-		},
+		initialData: seedThreadList,
 	})
+	const threadPages = seededData(threadsQuery.data, seedThreadList).pages
 	const selectedQuery = useQuery({
 		...threadDetailQueryOptions(threadId ?? '__no-selected-thread__', (id) =>
 			getThreadMessages({ data: { threadId: id } }),
@@ -236,13 +240,13 @@ function SearchResults() {
 			hasSearchQuery
 				? ([
 						...new Map(
-							threadsQuery.data.pages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
+							threadPages.flatMap((page) => page.threads).map((thread) => [thread.id, thread]),
 						).values(),
 					] as Thread[])
 				: [],
-		[hasSearchQuery, threadsQuery.data.pages],
+		[hasSearchQuery, threadPages],
 	)
-	const folders = foldersQuery.data
+	const folders = seededData(foldersQuery.data, seedFolders)
 	const folderId = initial.folderId
 	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
 	const [preferences, savePreferences] = useUserPreferences()

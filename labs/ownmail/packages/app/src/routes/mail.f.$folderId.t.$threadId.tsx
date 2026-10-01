@@ -48,6 +48,7 @@ import { IconButton as ToolbarIconButton } from '#shared/components/ui/icon-butt
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
+import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
@@ -179,15 +180,16 @@ function ThreadView() {
 	const { folderId, threadId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
 	const queryClient = useQueryClient()
-	const { data: detail } = useQuery({
+	const seedDetail = normalizeInitialThreadDetail(initialDetail)
+	const detailQuery = useQuery({
 		...threadDetailQueryOptions(
 			threadId,
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
 			(id) => getThreadMessages({ data: { threadId: id } }),
 		),
-		initialData: normalizeInitialThreadDetail(initialDetail),
+		initialData: seedDetail,
 	})
-	const { thread, messages, mailboxEmail } = detail
+	const { thread, messages, mailboxEmail } = seededData(detailQuery.data, seedDetail)
 	const updateThread = useUpdateThreadMutation()
 	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()

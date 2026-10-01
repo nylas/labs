@@ -1,6 +1,6 @@
 {
 	"name": "@nylas-labs/cli-kit",
-	"version": "0.7.3",
+	"version": "0.8.0",
 	"description": "Nylas dashboard OAuth and device-flow auth (DPoP), domains REST, gateway GraphQL, and an edge-safe v3 API client",
 	"license": "MIT",
 	"repository": {

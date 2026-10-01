@@ -50,6 +50,7 @@ import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/componen
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
+import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail/f/$folderId')({
@@ -170,19 +171,21 @@ function FolderView() {
 			),
 		[folderId],
 	)
+	const seedThreadList = {
+		pages: [
+			{
+				threads: loaderData.threads,
+				...(loaderData.nextCursor ? { nextCursor: loaderData.nextCursor } : {}),
+			},
+		],
+		pageParams: [undefined],
+	}
 	const threadsQuery = useInfiniteQuery({
 		...threadListOptions,
-		initialData: {
-			pages: [
-				{
-					threads: loaderData.threads,
-					...(loaderData.nextCursor ? { nextCursor: loaderData.nextCursor } : {}),
-				},
-			],
-			pageParams: [undefined],
-		},
+		initialData: seedThreadList,
 		enabled: folderId !== 'drafts',
 	})
+	const threadPages = seededData(threadsQuery.data, seedThreadList).pages
 	useEffect(
 		() => () => {
 			void queryClient
@@ -194,8 +197,8 @@ function FolderView() {
 		},
 		[queryClient, threadListOptions.queryKey],
 	)
-	const threads = dedupeThreads(threadsQuery.data.pages.flatMap((page) => page.threads))
-	const nextCursor = threadsQuery.data.pages.at(-1)?.nextCursor
+	const threads = dedupeThreads(threadPages.flatMap((page) => page.threads))
+	const nextCursor = threadPages.at(-1)?.nextCursor
 
 	async function loadMoreThreads() {
 		try {
@@ -216,8 +219,8 @@ function FolderView() {
 	return (
 		<MailFolderRouteScreen
 			threads={threads}
-			drafts={draftsQuery.data}
-			folders={folderQuery.data as Awaited<ReturnType<typeof getFolders>>}
+			drafts={seededData(draftsQuery.data, loaderData.drafts)}
+			folders={seededData(folderQuery.data, loaderData.folders) as Awaited<ReturnType<typeof getFolders>>}
 			folderId={folderId}
 			baseFolderId={baseFolderId}
 			nextCursor={nextCursor}

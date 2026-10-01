@@ -1527,3 +1527,22 @@ describe('triage flow', () => {
 		expect(screen.getByRole('heading', { name: 'Loading conversation…' })).toBeTruthy()
 	})
 })
+
+describe('thread detail cache entry without data', () => {
+	it('keeps showing the loaded conversation when a seedless fetch replaces its cache entry', () => {
+		// A hover preload or a background refetch can recreate the detail entry
+		// while the reader is open. Such a fetch carries no loader seed, and React
+		// Query only applies `initialData` to an existing entry in an effect, so
+		// the next render sees no data. The reader must fall back to what the
+		// loader gave it instead of crashing on `undefined`.
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const { rerenderThread } = renderThread(loaderData(), {}, undefined, queryClient)
+		const queryKey = mailKeys.threadDetail('t1')
+		queryClient.removeQueries({ queryKey, exact: true })
+		void queryClient.fetchQuery({ queryKey, queryFn: () => new Promise(() => {}) })
+		expect(queryClient.getQueryData(queryKey)).toBeUndefined()
+
+		expect(() => rerenderThread()).not.toThrow()
+		expect(screen.getByRole('heading', { name: 'Hello' })).toBeTruthy()
+	})
+})
