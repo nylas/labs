@@ -122,6 +122,15 @@ the list toolbar or the command palette.
   The star's hit target is sized per density so it never extends into a
   neighbouring row.
 
+## Reading
+
+The subject is set at body size (16px Poppins semibold) and scrolls with the
+conversation as its first line. On desktop one row is pinned, the 44px toolbar,
+which also carries the thread's display actions; the reply field follows the
+last message. Message bodies default to 16px with a 1.6 line-height, which a
+sender's own styles override, and prose is held to a 72ch measure. Designed
+(table or layout) mail keeps the full column.
+
 ## Icon controls
 
 - Compact navigation and familiar toolbar actions use icons without repeated
