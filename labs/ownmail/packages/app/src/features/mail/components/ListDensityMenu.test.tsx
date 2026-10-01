@@ -82,14 +82,36 @@ describe('ListDensityMenu', () => {
 		expect(item('Default')).toHaveFocus()
 	})
 
-	it('closes on Escape or Tab without changing the density, and when clicking elsewhere', async () => {
+	it('lets Tab and Shift+Tab leave the open menu without trapping focus on the trigger', async () => {
 		const { onChange, trigger } = renderMenu()
-		for (const key of ['Escape', 'Tab']) {
+		for (const shiftKey of [false, true]) {
 			await userEvent.click(trigger)
-			fireEvent.keyDown(screen.getByRole('menu'), { key })
+			// fireEvent returns false when the handler cancelled the event. Cancelling Tab, or
+			// refocusing the trigger, would cost keyboard users an extra keystroke to move on.
+			const notCancelled = fireEvent.keyDown(screen.getByRole('menu'), { key: 'Tab', shiftKey })
+			expect(notCancelled).toBe(true)
 			expect(screen.queryByRole('menu')).toBeNull()
-			expect(trigger).toHaveFocus()
+			expect(trigger).not.toHaveFocus()
+			expect(trigger).toHaveAttribute('aria-expanded', 'false')
 		}
+		expect(onChange).not.toHaveBeenCalled()
+	})
+
+	it('moves focus on to the next toolbar control with a real Tab press', async () => {
+		const { trigger } = renderMenu()
+		await userEvent.click(trigger)
+		await userEvent.tab()
+		expect(screen.queryByRole('menu')).toBeNull()
+		expect(trigger).not.toHaveFocus()
+	})
+
+	it('closes on Escape without changing the density, and when clicking elsewhere', async () => {
+		const { onChange, trigger } = renderMenu()
+		await userEvent.click(trigger)
+		// Escape is a dismissal, so it is cancelled and focus returns to the trigger.
+		expect(fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })).toBe(false)
+		expect(screen.queryByRole('menu')).toBeNull()
+		expect(trigger).toHaveFocus()
 
 		await userEvent.click(trigger)
 		fireEvent.pointerDown(screen.getByRole('menuitemradio', { name: 'Compact' }))

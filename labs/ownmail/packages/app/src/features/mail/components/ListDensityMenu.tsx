@@ -63,7 +63,13 @@ export function ListDensityMenu({
 						: event.key === 'End'
 							? last
 							: undefined
-		if (event.key === 'Escape' || event.key === 'Tab') {
+		if (event.key === 'Tab') {
+			// Tab and Shift+Tab leave the menu: close it, but let the browser move
+			// focus to the next or previous control instead of pulling it back.
+			setOpen(false)
+			return
+		}
+		if (event.key === 'Escape') {
 			event.preventDefault()
 			event.stopPropagation()
 			close()
