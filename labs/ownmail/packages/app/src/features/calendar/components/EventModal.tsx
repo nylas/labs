@@ -628,7 +628,7 @@ export function EventModal({
 		>
 			<div
 				onPointerDown={startPanelDrag}
-				className="flex touch-auto items-center justify-between gap-3 border-b border-border px-5 pt-[calc(0.75rem+var(--safe-area-top))] pb-3 select-none sm:touch-none sm:pt-3"
+				className="flex touch-auto items-center justify-between gap-3 border-b border-border px-5 pt-[calc(1rem+var(--safe-area-top))] pb-4 select-none sm:touch-none sm:pt-4"
 			>
 				<div className="flex min-w-0 cursor-grab items-center gap-2 active:cursor-grabbing">
 					<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { ThreadColumn } from '#features/mail/components/ThreadColumn'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
@@ -41,6 +42,7 @@ import {
 } from '#features/mail/state/mail-queries'
 import { getThreadMessages, getThreads } from '#server/fns'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
+import { Toolbar } from '#shared/components/ui/toolbar'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
 import { cn } from '#shared/lib/utils'
 
@@ -118,16 +120,22 @@ function ThreadPending() {
 			aria-busy="true"
 			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 		>
-			<div className="h-14 shrink-0 border-b border-border" />
-			<div className="border-b border-border bg-muted px-4 py-3 dark:bg-background lg:px-8 xl:py-5">
-				<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
-					{subject || 'Loading conversation…'}
-				</h1>
+			<Toolbar />
+			<div className="border-b border-border bg-muted py-3 dark:bg-background xl:py-5">
+				<ThreadColumn>
+					<h1 className="min-w-0 font-display text-lg leading-6 font-semibold text-balance [overflow-wrap:anywhere] xl:text-xl xl:leading-normal 2xl:text-2xl">
+						{subject || 'Loading conversation…'}
+					</h1>
+				</ThreadColumn>
 			</div>
-			<div className="flex flex-col gap-3 px-4 py-5 lg:px-8" aria-hidden="true">
-				<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-				<div className="h-4 w-5/6 animate-pulse rounded bg-muted motion-reduce:animate-none" />
-				<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+			<div className="py-5" aria-hidden="true">
+				<ThreadColumn>
+					<div className="flex flex-col gap-3">
+						<div className="h-4 w-1/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+						<div className="h-4 w-5/6 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+						<div className="h-4 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+					</div>
+				</ThreadColumn>
 			</div>
 		</div>
 	)
@@ -378,7 +386,7 @@ function ThreadView() {
 			className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
-			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
+			<Toolbar className="gap-1 px-3">
 				<button
 					type="button"
 					onClick={goBackToList}
@@ -464,7 +472,7 @@ function ThreadView() {
 						</ActionButton>
 					</div>
 				) : null}
-			</div>
+			</Toolbar>
 			{error ? <ErrorBanner message={error} /> : null}
 
 			<ScrollArea key={threadId} aria-label="Thread conversation" className="min-h-0 flex-1">
@@ -477,7 +485,7 @@ function ThreadView() {
 					<button
 						type="button"
 						onClick={reply}
-						className="mx-5 my-3 hidden min-h-11 items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground md:flex lg:mx-8"
+						className="mx-4 my-3 hidden min-h-11 items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground sm:mx-6 md:flex xl:mx-8"
 					>
 						<Reply className="h-4 w-4 shrink-0" />
 						<span>Write a reply…</span>

@@ -125,6 +125,10 @@ describe('/settings', () => {
 
 	it('gives every editable text and select field a touch-friendly height', () => {
 		renderSettings(true)
+		// The in-content divider is the shared Section: 24px on both sides of its line.
+		expect(
+			screen.getByRole('combobox', { name: 'External images' }).closest('[data-slot="section"]'),
+		).toHaveClass('mt-section', 'border-t', 'pt-section')
 
 		const fixedHeightFields = [
 			screen.getByLabelText('Display name'),

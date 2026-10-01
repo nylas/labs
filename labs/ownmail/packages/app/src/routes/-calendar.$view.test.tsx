@@ -372,7 +372,12 @@ describe('CalendarViewRoutePage wrapper', () => {
 		render(<Page />)
 		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(3))
-		fireEvent.click(within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' }))
+		const sheetRefresh = within(screen.getByTestId('sheet')).getByRole('button', { name: 'Refresh calendar' })
+		// One separator above the section with 12px clearance, and no second line stacked beneath it.
+		const refreshRow = within(screen.getByTestId('sheet')).getByText('Refresh calendar').parentElement
+		expect(refreshRow?.className).not.toMatch(/\bborder-/)
+		expect(refreshRow?.parentElement).toHaveClass('border-t', 'pt-3')
+		fireEvent.click(sheetRefresh)
 		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(4))
 	})
 

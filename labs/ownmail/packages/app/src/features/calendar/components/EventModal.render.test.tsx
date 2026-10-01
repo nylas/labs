@@ -105,6 +105,13 @@ describe('EventModal — new event', () => {
 		expect(swatch?.parentElement).toHaveTextContent(/New event.+ calendar$/)
 		expect(dialog.firstElementChild).toContainElement(screen.getByRole('heading', { name: 'New event' }))
 		expect(dialog.querySelector('.w-full.h-1, .w-full.h-1\\.5')).toBeNull()
+		// The event dialog header uses the same 16px block padding as the other dialogs.
+		expect(screen.getByRole('heading', { name: 'New event' }).closest('.border-b')).toHaveClass(
+			'px-5',
+			'pb-4',
+			'sm:pt-4',
+			'pt-[calc(1rem+var(--safe-area-top))]',
+		)
 		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
 			'h-11',
 			'w-11',

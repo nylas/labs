@@ -1511,7 +1511,20 @@ describe('mail.compose attachments', () => {
 		expect(screen.getByText('attachment')).toBeInTheDocument()
 		expect(screen.getByText('big.txt')).toBeInTheDocument()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Remove ok.txt' }))
+		// Attachment pills are shared chips with no vertical padding of their own, 12px from the
+		// lines around the row, and the footer below uses the same 12px with its safe-area sum.
+		const remove = screen.getByRole('button', { name: 'Remove ok.txt' })
+		const chip = remove.closest('[data-slot="chip"]')
+		expect(chip).toHaveTextContent('ok.txt')
+		expect(chip?.className).not.toMatch(/\bp[ytb]-/)
+		expect(remove).toHaveClass('size-9', 'max-md:size-11')
+		expect(chip?.parentElement).toHaveClass('gap-cluster', 'border-t', 'py-3')
+		expect(screen.getByRole('button', { name: /Send/ }).parentElement).toHaveClass(
+			'pt-3',
+			'pb-[calc(0.75rem+var(--safe-area-bottom))]',
+			'md:pb-3',
+		)
+		fireEvent.click(remove)
 		await waitFor(() => expect(screen.queryByText('ok.txt')).not.toBeInTheDocument())
 	})
 

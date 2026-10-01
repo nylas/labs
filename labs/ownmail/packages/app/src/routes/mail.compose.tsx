@@ -65,6 +65,9 @@ import {
 } from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
+import { Chip, PillRow } from '#shared/components/ui/chip'
+import { IconButton } from '#shared/components/ui/icon-button'
+import { Toolbar } from '#shared/components/ui/toolbar'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { MailFolderRouteScreen } from './mail.f.$folderId.js'
@@ -826,8 +829,8 @@ function Compose() {
 			>
 				<div
 					className={cn(
-						'flex min-h-11 items-center justify-between bg-foreground px-3 pb-2.5 text-background md:rounded-t-xl md:pt-2.5',
-						minimized ? 'pt-2.5' : 'pt-[calc(0.625rem+var(--safe-area-top))]',
+						'flex min-h-11 items-center justify-between bg-foreground px-3 pb-3 text-background md:rounded-t-xl md:pt-3',
+						minimized ? 'pt-3' : 'pt-[calc(0.75rem+var(--safe-area-top))]',
 					)}
 				>
 					<div className="flex min-w-0 items-center gap-2">
@@ -925,32 +928,32 @@ function Compose() {
 						/>
 
 						{attachments.length ? (
-							<div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
+							<PillRow className="border-t border-border px-3 py-3">
 								{attachments.map((attachment, index) => (
-									<span
+									<Chip
 										key={attachment.clientId}
-										className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+										action={
+											<IconButton
+												label={`Remove ${attachment.filename}`}
+												disabled={closing}
+												onClick={() => removeAttachment(index)}
+												className="disabled:cursor-wait"
+											>
+												<X />
+											</IconButton>
+										}
 									>
 										<Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 										<span className="min-w-0 truncate">{attachment.filename}</span>
 										<span className="shrink-0 text-muted-foreground">
 											{formatSize(attachmentBytes(attachment))}
 										</span>
-										<button
-											type="button"
-											disabled={closing}
-											onClick={() => removeAttachment(index)}
-											aria-label={`Remove ${attachment.filename}`}
-											className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
-										>
-											<X className="h-3.5 w-3.5" />
-										</button>
-									</span>
+									</Chip>
 								))}
-							</div>
+							</PillRow>
 						) : null}
 						{error ? <ErrorBanner message={error} /> : null}
-						<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-2.5 pb-[calc(0.625rem+var(--safe-area-bottom))] md:pb-2.5">
+						<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))] md:pb-3">
 							<Button
 								type="button"
 								disabled={busy || attaching || closing}
@@ -1070,7 +1073,7 @@ function ComposeThreadBackdrop({
 
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-			<div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
+			<Toolbar className="gap-1 px-3">
 				<BackdropIcon
 					label={
 						pendingAction === 'archive'
@@ -1132,7 +1135,7 @@ function ComposeThreadBackdrop({
 						<Forward className="h-4 w-4" />
 					</BackdropAction>
 				</div>
-			</div>
+			</Toolbar>
 			{error ? (
 				<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
 					{error}

@@ -405,9 +405,9 @@ export function CalendarRouteScreen({
 					onNavigate={() => setSidebarOpen(false)}
 					showDestinations={false}
 				/>
-				<div className="border-t border-border px-3 pt-2">
+				<div className="border-t border-border px-3 pt-3">
 					{onRefresh ? (
-						<div className="flex items-center justify-between border-b border-border py-2 pl-1">
+						<div className="flex items-center justify-between py-2 pl-1">
 							<span className="text-sm font-medium text-foreground">Refresh calendar</span>
 							<RefreshButton onRefresh={onRefresh} label="Refresh calendar" />
 						</div>

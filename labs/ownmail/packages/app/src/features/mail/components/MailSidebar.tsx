@@ -12,6 +12,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
+import { CHROME_ROW_CLASS } from '#app/config/layout'
 import { cn } from '#shared/lib/utils'
 import {
 	labelBaseFolderId,
@@ -61,7 +62,12 @@ export function MailSidebar({
 				className,
 			)}
 		>
-			<div className={cn('flex shrink-0 items-center border-b border-border px-3', mobile ? 'h-16' : 'h-14')}>
+			<div
+				className={cn(
+					'flex shrink-0 items-center border-b border-border px-3',
+					mobile ? 'h-16' : CHROME_ROW_CLASS,
+				)}
+			>
 				<Link
 					to="/mail/compose"
 					search={composeSearch}
@@ -111,7 +117,7 @@ export function MailSidebar({
 				})}
 			</nav>
 
-			<div className="border-t border-border pt-2">
+			<div className="border-t border-border pt-3">
 				<div className={cn('flex items-center justify-between pb-1', mobile ? 'px-3' : 'px-4')}>
 					<p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Labels</p>
 					<button

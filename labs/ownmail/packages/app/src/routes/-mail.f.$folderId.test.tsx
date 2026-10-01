@@ -976,6 +976,12 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		const threadLink = screen.getByRole('link', { name: /Open Subject/ })
 		expect(threadLink).toHaveAttribute('data-active', 'true')
 		expect(threadLink).toHaveAttribute('aria-current', 'true')
+		// The list title and the row text share one 16px left edge, under the one toolbar height.
+		const listToolbar = screen.getByRole('heading', { level: 1 }).closest('[data-slot="toolbar"]')
+		const row = threadLink.closest('[data-nav-row]')
+		expect(listToolbar).toHaveClass('h-14', 'md:h-11', 'px-4')
+		expect(row).toHaveClass('px-4')
+		expect(row?.className).not.toMatch(/\bpl-/)
 		fireEvent.keyDown(window, { key: 'j' })
 		expect(threadLink.closest('[data-nav-row]')).toHaveAttribute('data-nav-cursor', 'true')
 	})

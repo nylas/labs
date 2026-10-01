@@ -24,6 +24,7 @@ import {
 } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { Button } from '#shared/components/ui/button'
+import { Section } from '#shared/components/ui/section'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { OWNMAIL_VERSION } from '#shared/lib/version'
@@ -290,7 +291,7 @@ function SettingsPage() {
 									</span>
 								</span>
 							</label>
-							<div className="mt-4 border-t border-border pt-4">
+							<Section>
 								<div className="flex items-center gap-2">
 									<Images className="h-4 w-4 text-muted-foreground" />
 									<label className="text-sm font-medium" htmlFor="settings-remote-images">
@@ -337,7 +338,7 @@ function SettingsPage() {
 										</span>
 									) : null}
 								</div>
-							</div>
+							</Section>
 							<label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
 								<input
 									type="checkbox"

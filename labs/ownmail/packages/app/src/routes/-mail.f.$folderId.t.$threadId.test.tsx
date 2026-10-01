@@ -815,6 +815,9 @@ describe('compose navigation', () => {
 		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
 		const desktopReply = screen.getByRole('button', { name: /Write a reply/ })
 		expect(desktopReply).toHaveClass('hidden', 'md:flex')
+		// The reply bar uses the reading column's 16 / 24 / 32px gutters.
+		expect(desktopReply).toHaveClass('mx-4', 'sm:mx-6', 'xl:mx-8')
+		expect(screen.getByTestId('thread-reader').firstElementChild).toHaveClass('h-14', 'md:h-11')
 		expect(desktopReply.parentElement).not.toHaveClass('border-t')
 
 		await user.click(reply)
@@ -1369,6 +1372,13 @@ describe('triage flow', () => {
 		)
 		expect(screen.getByRole('heading', { name: 'Quarterly plan' })).toBeTruthy()
 		expect(screen.getByTestId('thread-reader-pending').getAttribute('aria-busy')).toBe('true')
+		// The skeleton shares the loaded reader's toolbar and column gutters, so nothing shifts on load.
+		const pending = screen.getByTestId('thread-reader-pending')
+		expect(pending.firstElementChild).toHaveAttribute('data-slot', 'toolbar')
+		const columns = pending.querySelectorAll('[data-slot="thread-column"]')
+		expect(columns).toHaveLength(2)
+		expect(columns[0]).toContainElement(screen.getByRole('heading', { name: 'Quarterly plan' }))
+		for (const column of columns) expect(column.parentElement?.className).not.toMatch(/\bp[xlr]-/)
 		view.unmount()
 
 		Route.useParams = vi.fn(() => ({ folderId: 'inbox', threadId: 'uncached' }))

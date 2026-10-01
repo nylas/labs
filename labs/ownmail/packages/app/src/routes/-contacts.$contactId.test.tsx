@@ -110,6 +110,12 @@ describe('ContactDetailScreen', () => {
 
 	it('wires the back, edit, and delete-request controls', () => {
 		render(<ContactDetailScreen contact={full} confirmingDelete={false} deleteError={null} {...handlers} />)
+		// The actions divider is the shared Section: 24px on both sides of its line.
+		expect(screen.getByRole('button', { name: 'Edit' }).parentElement).toHaveClass(
+			'mt-section',
+			'border-t',
+			'pt-section',
+		)
 		fireEvent.click(screen.getByRole('button', { name: /All contacts/ }))
 		fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 		fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
