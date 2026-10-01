@@ -321,6 +321,20 @@ describe('stepDashboardAuth', () => {
 })
 
 describe('stepOrg', () => {
+	it('refuses to move a resumed project to another organization', async () => {
+		// The app and its keys live in the original org; re-homing the project would
+		// make every later call fail with an opaque authorization error.
+		const ctx = baseCtx({
+			project: baseProject({ orgPublicId: 'org-original' }),
+			auth: { ...baseCtx().auth, oauth: { refreshToken: 'refresh-1', sessionExpiresAt: 1 } },
+		} as never)
+
+		await expect(stepOrg(ctx)).rejects.toThrow(/different Nylas organization/)
+
+		expect(ctx.project.orgPublicId).toBe('org-original')
+		expect(markStep).not.toHaveBeenCalled()
+	})
+
 	it('takes the organization chosen on the consent page for an OAuth session', async () => {
 		// The server refuses switch-org on an exchanged session, so the picker must not run.
 		const currentSession = vi.fn()

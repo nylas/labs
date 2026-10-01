@@ -105,6 +105,11 @@ export async function stepOrg(ctx: StepContext): Promise<void> {
 	// An OAuth session is for the organization chosen on the consent page and cannot switch.
 	const consentedOrg = ctx.auth?.oauth ? ctx.auth.orgPublicId : undefined
 	if (consentedOrg) {
+		if (ctx.project.orgPublicId && ctx.project.orgPublicId !== consentedOrg) {
+			throw new Error(
+				'This app belongs to a different Nylas organization than the one you signed in to. Run `npx ownmail auth login`, choose the organization that owns this app, then retry.',
+			)
+		}
 		ctx.project.orgPublicId = consentedOrg
 		saveProject(ctx.project)
 		markStep(ctx.project, 'org')
