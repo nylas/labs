@@ -13,25 +13,26 @@ import {
 	isSupportedTimezone,
 	type UserPreferences,
 	useUserPreferences,
+	useUserPreferencesReady,
+	withDisplayName,
 } from '#app/preferences/user-preferences'
-import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { clearTrustedImageSenders } from '#features/mail/lib/image-sender-trust'
-import {
-	getAccountCapabilities,
-	getMailboxInfo,
-	resetMailboxPassword,
-	updateMailboxDisplayName,
-} from '#server/fns'
+import { getAccountCapabilities, resetMailboxPassword, updateMailboxDisplayName } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { Button } from '#shared/components/ui/button'
 import { Section } from '#shared/components/ui/section'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { OWNMAIL_VERSION } from '#shared/lib/version'
 
 export const Route = createFileRoute('/settings')({
-	loader: async () => {
-		const [info, capabilities] = await Promise.all([getMailboxInfo(), getAccountCapabilities()])
+	loader: async ({ context }) => {
+		const [info, capabilities] = await Promise.all([
+			ensureMailboxInfo(context.queryClient),
+			getAccountCapabilities(),
+		])
 		return { info, capabilities }
 	},
 	component: SettingsRoute,
@@ -41,6 +42,7 @@ type PasswordFeedback = { kind: 'success' | 'error'; message: string }
 type SettingsFeedback = { kind: 'success' | 'error'; message: string }
 
 function normalizeSettingsPreferences(
+	email: string,
 	displayName: string,
 	draft: UserPreferences,
 	fallbackPrimaryTimezone: string,
@@ -54,12 +56,8 @@ function normalizeSettingsPreferences(
 		draft.secondaryTimezone !== primaryTimezone
 			? draft.secondaryTimezone
 			: ''
-	return {
-		...draft,
-		displayName: displayName.trim(),
-		primaryTimezone,
-		secondaryTimezone,
-	}
+	// The name is saved for this mailbox only; other inboxes keep their own.
+	return withDisplayName({ ...draft, primaryTimezone, secondaryTimezone }, email, displayName)
 }
 
 function preferencesMatch(left: UserPreferences, right: UserPreferences): boolean {
@@ -70,6 +68,11 @@ function preferencesMatch(left: UserPreferences, right: UserPreferences): boolea
  * page by the active mailbox resets it when an in-app inbox switch completes. */
 function SettingsRoute() {
 	const { info } = Route.useLoaderData()
+	// The form shows this device's saved choices. Until they can be read, an
+	// empty page is shown rather than defaults that would change after hydration.
+	if (!useUserPreferencesReady()) {
+		return <div data-testid="settings-pending" aria-busy="true" className="h-dvh w-full bg-background" />
+	}
 	return <SettingsPage key={info.email} />
 }
 
@@ -77,7 +80,10 @@ function SettingsPage() {
 	const { info, capabilities } = Route.useLoaderData()
 	const queryClient = useQueryClient()
 	const [preferences, savePreferences] = useUserPreferences()
-	const [draft, setDraft] = useState<UserPreferences>(preferences)
+	// The draft edits one saved snapshot of the preferences. When that snapshot
+	// changes (a save here, or an edit in another tab) the draft starts again
+	// from it on the same render.
+	const [draft, setDraft] = useIdentityState<UserPreferences>([preferences], () => preferences)
 	const [displayName, setDisplayName] = useState(info.displayName ?? '')
 	const [persistedDisplayName, setPersistedDisplayName] = useState(info.displayName ?? '')
 	const [saveStatus, setSaveStatus] = useState<SettingsFeedback | null>(null)
@@ -93,9 +99,9 @@ function SettingsPage() {
 	const [navigationOpen, setNavigationOpen] = useState(false)
 	const timezones = useMemo(availableTimezones, [])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new preferences snapshot invalidates a save that is in flight
 	useEffect(() => {
 		settingsRevisionRef.current += 1
-		setDraft(preferences)
 	}, [preferences])
 
 	useEffect(() => {
@@ -111,10 +117,17 @@ function SettingsPage() {
 		}
 	}, [])
 
-	const normalizedDraft = normalizeSettingsPreferences(displayName, draft, preferences.primaryTimezone)
+	const draftDisplayName = displayName.trim()
+	const normalizedDraft = normalizeSettingsPreferences(
+		info.email,
+		displayName,
+		draft,
+		preferences.primaryTimezone,
+	)
 	const persistedSettings = normalizeSettingsPreferences(
+		info.email,
 		persistedDisplayName,
-		{ ...preferences, displayName: persistedDisplayName },
+		preferences,
 		preferences.primaryTimezone,
 	)
 	const hasSettingsChanges = !preferencesMatch(normalizedDraft, persistedSettings)
@@ -129,35 +142,33 @@ function SettingsPage() {
 
 	function clearSenderImageChoices() {
 		setImageChoiceStatus(
-			clearTrustedImageSenders()
+			clearTrustedImageSenders(info.email)
 				? { kind: 'success', message: 'Saved sender choices cleared.' }
 				: { kind: 'error', message: 'We could not clear saved sender choices. Try again.' },
 		)
 	}
 
 	async function save() {
-		if (savePendingRef.current || !normalizedDraft.displayName || !hasSettingsChanges) return
+		if (savePendingRef.current || !draftDisplayName || !hasSettingsChanges) return
 		savePendingRef.current = true
 		const revision = settingsRevisionRef.current
 		const snapshot = { ...normalizedDraft }
+		const snapshotDisplayName = draftDisplayName
 		setSaveStatus(null)
 		setSaving(true)
 		try {
 			const account =
-				snapshot.displayName === persistedDisplayName
+				snapshotDisplayName === persistedDisplayName
 					? { displayName: persistedDisplayName }
 					: await runTrackedWrite(queryClient, () =>
-							updateMailboxDisplayName({ data: { displayName: snapshot.displayName } }),
+							updateMailboxDisplayName({ data: { displayName: snapshotDisplayName } }),
 						)
 			if (settingsRevisionRef.current !== revision) return
 			queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, {
 				...info,
 				displayName: account.displayName,
 			})
-			savePreferences({
-				...snapshot,
-				displayName: account.displayName,
-			})
+			savePreferences(withDisplayName(snapshot, info.email, account.displayName))
 			setDisplayName(account.displayName)
 			setPersistedDisplayName(account.displayName)
 			setSaveStatus({ kind: 'success', message: 'Settings saved.' })
@@ -380,7 +391,7 @@ function SettingsPage() {
 								<Button
 									type="button"
 									onClick={save}
-									aria-disabled={saving || !normalizedDraft.displayName || !hasSettingsChanges}
+									aria-disabled={saving || !draftDisplayName || !hasSettingsChanges}
 									aria-busy={saving || undefined}
 									className="min-h-11 aria-disabled:pointer-events-none aria-disabled:opacity-50"
 								>

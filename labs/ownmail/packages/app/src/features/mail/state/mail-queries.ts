@@ -1,5 +1,6 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { type InfiniteData, infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
+import { accountScope } from '#app/lib/account-scope'
 import { requireValidMailSearchQuery } from '../lib/mail-search.js'
 
 const MAX_PROVIDER_ID_LENGTH = 1000
@@ -141,16 +142,25 @@ export function toMailThreadDetail(detail: {
 	}
 }
 
+/** Every mail key starts with `['mail', <account>]`, so one inbox's folders,
+ * lists and conversations can never be read as another's. The kind of entry
+ * and its argument follow at `MAIL_KEY_KIND` and `MAIL_KEY_ARGUMENT`. */
+export const MAIL_KEY_KIND = 2
+export const MAIL_KEY_ARGUMENT = 3
+
 export const mailKeys = {
-	all: ['mail'] as const,
-	folders: () => ['mail', 'folders'] as const,
-	drafts: () => ['mail', 'drafts'] as const,
-	draft: (draftId: string) => ['mail', 'draft', requireCacheId(draftId, 'draft')] as const,
-	threadLists: () => ['mail', 'threads'] as const,
+	get all() {
+		return ['mail', accountScope()] as const
+	},
+	folders: () => [...mailKeys.all, 'folders'] as const,
+	drafts: () => [...mailKeys.all, 'drafts'] as const,
+	draft: (draftId: string) => [...mailKeys.all, 'draft', requireCacheId(draftId, 'draft')] as const,
+	threadLists: () => [...mailKeys.all, 'threads'] as const,
 	threadList: (filters: MailThreadFilters = {}) =>
-		['mail', 'threads', normalizeMailThreadFilters(filters)] as const,
-	threadDetails: () => ['mail', 'thread'] as const,
-	threadDetail: (threadId: string) => ['mail', 'thread', requireCacheId(threadId, 'thread')] as const,
+		[...mailKeys.all, 'threads', normalizeMailThreadFilters(filters)] as const,
+	threadDetails: () => [...mailKeys.all, 'thread'] as const,
+	threadDetail: (threadId: string) =>
+		[...mailKeys.all, 'thread', requireCacheId(threadId, 'thread')] as const,
 }
 
 export function foldersQueryOptions(fetchFolders: () => Promise<Folder[]>) {

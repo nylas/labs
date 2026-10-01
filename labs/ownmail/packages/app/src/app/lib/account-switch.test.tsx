@@ -34,7 +34,9 @@ import { mailMutationTestApi } from '#features/mail/state/mail-mutations'
 import { mailKeys } from '#features/mail/state/mail-queries'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { AccountSwitchLoader } from '../components/AccountSwitchLoader.js'
+import { mailboxInfoQueryOptions } from '../query/mailbox-info.js'
 import { createOwnmailQueryClient } from '../query/query-provider.js'
+import { accountScope, observeAccount, resetAccountScope } from './account-scope.js'
 import {
 	ACCOUNT_SWITCH_BLOCKED_MESSAGE,
 	accountSwitchDestination,
@@ -93,6 +95,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup()
 	act(() => setSwitchingTo(null))
+	resetAccountScope()
 	vi.unstubAllGlobals()
 	vi.restoreAllMocks()
 	fetchMock.mockReset()
@@ -145,8 +148,10 @@ describe('useAccountSwitch', () => {
 	it('switches in place: no document reload, previous inbox data gone, same section reloaded', async () => {
 		router.pathname = '/calendar/week'
 		const client = new QueryClient()
-		client.setQueryData(mailKeys.folders(), [{ id: 'inbox', name: 'Ada inbox' }])
-		client.setQueryData(['calendar', 'range', 1, 2], { events: [{ id: 'ada-event' }] })
+		observeAccount(ada.email)
+		const adaFolders = mailKeys.folders()
+		client.setQueryData(adaFolders, [{ id: 'inbox', name: 'Ada inbox' }])
+		client.setQueryData(['calendar', ada.email, 'range', 1, 2], { events: [{ id: 'ada-event' }] })
 		// A lingering optimistic journal from Ada's inbox must not replay later.
 		const operation = await mailMutationTestApi
 			.managerFor(client)
@@ -157,6 +162,10 @@ describe('useAccountSwitch', () => {
 		const order: string[] = []
 		router.navigate.mockImplementation(async (options) => {
 			order.push(`navigate:${options.to}:${client.getQueryCache().getAll().length}`)
+			// A mailbox request from before the cookie rotated answers late...
+			observeAccount(ada.email)
+			// ...and the destination's loader caches the inbox the session now points at.
+			client.setQueryData(mailboxInfoQueryOptions().queryKey, { email: grace.email, appName: 'OwnMail' })
 		})
 		router.invalidate.mockImplementation(async () => order.push('invalidate'))
 
@@ -170,9 +179,12 @@ describe('useAccountSwitch', () => {
 		await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('ready:idle'))
 		expect(screen.queryByRole('status')).toBeNull()
 		expect(order).toEqual(['navigate:/calendar/week:0', 'invalidate'])
-		expect(client.getQueryCache().getAll()).toEqual([])
+		expect(client.getQueryData(adaFolders)).toBeUndefined()
 		expect(operation.commit()).toBe(true)
-		expect(client.getQueryData(mailKeys.folders())).toBeUndefined()
+		expect(client.getQueryData(adaFolders)).toBeUndefined()
+		// Keys built from here on belong to Grace, whatever order responses arrived in.
+		expect(accountScope()).toBe(grace.email)
+		expect(mailKeys.folders()).not.toEqual(adaFolders)
 		expect(assign).not.toHaveBeenCalled()
 	})
 

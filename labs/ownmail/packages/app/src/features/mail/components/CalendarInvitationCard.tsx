@@ -6,6 +6,7 @@ import type {
 	CalendarInvitationDetails,
 	InvitationWhen,
 } from '#features/calendar/server/calendar-invitation-fns'
+import { calendarKeys } from '#features/calendar/state/calendar-keys'
 import { cn } from '#shared/lib/utils'
 import type { MailMessage } from '../state/mail-queries.js'
 
@@ -32,7 +33,7 @@ export function CalendarInvitationCard({ message }: { message: MailMessage }) {
 
 function CalendarInvitationContent({ messageId, attachmentId }: { messageId: string; attachmentId: string }) {
 	const queryClient = useQueryClient()
-	const queryKey = ['calendar', 'invitation', messageId, attachmentId] as const
+	const queryKey = calendarKeys.invitation(messageId, attachmentId)
 	const invitation = useQuery({
 		queryKey,
 		queryFn: async () => {
@@ -64,7 +65,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 				if (current?.state !== 'ready') return current
 				return { ...current, status: receipt.status }
 			})
-			void queryClient.invalidateQueries({ queryKey: ['calendar', 'range'], refetchType: 'active' })
+			void queryClient.invalidateQueries({ queryKey: calendarKeys.ranges(), refetchType: 'active' })
 		},
 	})
 	const addInvitation = useMutation({
@@ -74,7 +75,7 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		},
 		onSuccess: (details) => {
 			queryClient.setQueryData<CalendarInvitationDetails>(queryKey, details)
-			void queryClient.invalidateQueries({ queryKey: ['calendar', 'range'], refetchType: 'active' })
+			void queryClient.invalidateQueries({ queryKey: calendarKeys.ranges(), refetchType: 'active' })
 		},
 	})
 

@@ -1,7 +1,16 @@
-import { MutationCache, QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
-import { useRouterState } from '@tanstack/react-router'
+import {
+	MutationCache,
+	QueryClient,
+	QueryClientProvider,
+	useQuery,
+	useQueryClient,
+} from '@tanstack/react-query'
+import { useRouter, useRouterState } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { assertAccountWritable } from '../lib/account-switch-status.js'
+import { onAccountChanged } from '../lib/account-scope.js'
+import { loadSwitchedAccount } from '../lib/account-switch.js'
+import { assertAccountWritable, readSwitchingTo, setSwitchingTo } from '../lib/account-switch-status.js'
+import { mailboxInfoQueryOptions } from './mailbox-info.js'
 
 const VERSION_POLL_INTERVAL_MS = 10_000
 const FALLBACK_REFRESH_INTERVAL_MS = 60_000
@@ -54,6 +63,7 @@ const SYNCED_PATH_PATTERN = /^\/(mail|contacts|calendar)(?:\/|$)/
 
 function ServerStateSync() {
 	const queryClient = useQueryClient()
+	const router = useRouter()
 	// Only entering or leaving the synchronized sections restarts polling.
 	// Depending on the full pathname would restart it on every thread open and
 	// repeat the initial full refetch, racing optimistic cache updates.
@@ -66,6 +76,21 @@ function ServerStateSync() {
 	// preserved watermark means re-entry sees no version change, so this flag
 	// re-arms them instead of leaving pre-change mail cached until the fallback.
 	const mailRevalidationCancelledRef = useRef(false)
+	// Watching the mailbox keeps it in every focus refetch and fallback refresh,
+	// which is how a session changed in another tab (or by signing in again) is
+	// noticed in this one.
+	useQuery({ ...mailboxInfoQueryOptions(), enabled: inApp })
+	useEffect(
+		() =>
+			onAccountChanged((email) => {
+				// The in-app switcher is already replacing the inbox.
+				if (readSwitchingTo() !== null) return
+				// From here the previous inbox is unmounted and writes are refused.
+				setSwitchingTo(email)
+				void loadSwitchedAccount(queryClient, router, router.state.location.pathname)
+			}),
+		[queryClient, router],
+	)
 	useEffect(() => {
 		if (!inApp) return
 		let stopped = false

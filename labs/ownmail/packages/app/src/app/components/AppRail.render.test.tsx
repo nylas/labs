@@ -2,6 +2,7 @@
 import { MutationObserver, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render as renderUi, screen, waitFor } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THEME_CHANGE_EVENT, THEME_STORAGE_KEY } from '../config/theme.js'
 import { setSwitchingTo } from '../lib/account-switch-status.js'
@@ -191,6 +192,53 @@ describe('AppRailNav', () => {
 			}),
 		).toBeInTheDocument()
 		expect(screen.queryByText(/Stale Browser Name/)).toBeNull()
+	})
+
+	it('never labels an inbox with the display name saved in another inbox', () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ displayNameByAccount: { 'grace@ownmail.com': 'Grace Hopper' } }),
+		)
+
+		// Ada's server account has no display name; Grace's saved one is not hers.
+		const ada = render(<AppRailNav email="ada@ownmail.com" active="mail" />)
+		expect(screen.getByRole('link', { name: 'Account settings for ada@ownmail.com' })).toHaveTextContent('A')
+		expect(screen.queryByText(/Grace/)).toBeNull()
+		ada.unmount()
+
+		render(<AppRailNav email="Grace@OwnMail.com" active="mail" />)
+		expect(
+			screen.getByRole('link', { name: 'Account settings for Grace Hopper · Grace@OwnMail.com' }),
+		).toHaveTextContent('GH')
+	})
+
+	it('ignores a display name saved before names were per-inbox', () => {
+		localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ displayName: 'Ada Lovelace' }))
+		render(<AppRailNav email="grace@ownmail.com" active="mail" />)
+
+		expect(screen.getByRole('link', { name: 'Account settings for grace@ownmail.com' })).toBeInTheDocument()
+		expect(screen.queryByText(/Ada Lovelace/)).toBeNull()
+	})
+
+	it('keeps the account mark blank on the server unless the server knows the name', () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ displayNameByAccount: { 'ada@ownmail.com': 'Zed Young' } }),
+		)
+		const mark = (html: string) => {
+			const host = document.createElement('div')
+			host.innerHTML = html
+			return host.querySelector('.app-rail-account-initials')?.textContent
+		}
+		const server = (ui: ReactElement) =>
+			renderToString(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
+
+		// The saved name cannot be read during server rendering. Initials taken
+		// from the email would change to the saved name's a moment after hydration.
+		expect(mark(server(<AppRailNav email="ada@ownmail.com" active="mail" />))).toBe('\u00a0')
+		expect(
+			mark(server(<AppRailNav email="ada@ownmail.com" displayName="Ada Lovelace" active="mail" />)),
+		).toBe('AL')
 	})
 
 	it('falls back to the bare email for the account settings label without a display name', () => {

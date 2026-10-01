@@ -1,5 +1,5 @@
 import { type QueryClient, useIsMutating, useQueryClient } from '@tanstack/react-query'
-import { useRouter, useRouterState } from '@tanstack/react-router'
+import { type AnyRouter, useRouter, useRouterState } from '@tanstack/react-router'
 import { type FormEvent, useCallback } from 'react'
 import { isCalView } from '#features/calendar/lib/calendar'
 import { resetCalendarConfirmedEffects } from '#features/calendar/state/calendar-state'
@@ -12,6 +12,8 @@ import {
 	MAIL_HOME_PATH,
 	SETTINGS_PATH,
 } from '../config/route-paths.js'
+import { mailboxInfoQueryOptions } from '../query/mailbox-info.js'
+import { resetAccountScope, setAccountScope } from './account-scope.js'
 import { readSwitchingTo, setSwitchingTo, useAccountSwitchStatus } from './account-switch-status.js'
 
 export type AccountSwitchTarget = { email: string; handle: string; active: boolean }
@@ -72,13 +74,46 @@ export function submitAccountSwitchNatively(handle: string): void {
 }
 
 /** Removes every client-side trace of the previous inbox, including optimistic
- * journals and confirmed-effect replays that live beside the query cache. */
+ * journals and confirmed-effect replays that live beside the query cache.
+ * Query keys are partitioned by account, so this is defence in depth: the next
+ * inbox could not read these entries even if they stayed. */
 export async function clearAccountScopedState(queryClient: QueryClient): Promise<void> {
 	await queryClient.cancelQueries()
 	resetMailOptimisticJournal(queryClient)
 	resetCalendarConfirmedEffects(queryClient)
 	resetContactConfirmedEffects(queryClient)
 	queryClient.clear()
+	// The next mailbox response names the account the tab now belongs to.
+	resetAccountScope()
+}
+
+/**
+ * Loads the inbox the session now points at, in the section the person was
+ * using. The caller has already announced the switch (`setSwitchingTo`), so
+ * the app is unmounted while this runs. Shared by the in-app switcher and by
+ * the reset that follows a session change made in another tab.
+ */
+export async function loadSwitchedAccount(
+	queryClient: QueryClient,
+	router: Pick<AnyRouter, 'navigate' | 'invalidate'>,
+	pathname: string,
+): Promise<void> {
+	const destination = accountSwitchDestination(pathname)
+	try {
+		await clearAccountScopedState(queryClient)
+		await router.navigate({ to: destination })
+		await router.invalidate()
+	} catch {
+		// The session already points at the next inbox; a document load is the
+		// only way left to guarantee nothing from the previous one renders.
+		documentNavigation.assign(destination)
+		return
+	}
+	// A mailbox request started before the session rotated may have answered
+	// in between. The cache was cleared after it was cancelled, so what the
+	// cache holds now is the next inbox: that, not arrival order, is the scope.
+	setAccountScope(queryClient.getQueryData(mailboxInfoQueryOptions().queryKey)?.email)
+	setSwitchingTo(null)
 }
 
 export function useAccountSwitch(accounts: readonly AccountSwitchTarget[]) {
@@ -104,18 +139,7 @@ export function useAccountSwitch(accounts: readonly AccountSwitchTarget[]) {
 				submitAccountSwitchNatively(target.handle)
 				return
 			}
-			const destination = accountSwitchDestination(pathname)
-			try {
-				await clearAccountScopedState(queryClient)
-				await router.navigate({ to: destination })
-				await router.invalidate()
-			} catch {
-				// The session already points at the next inbox; a document load is the
-				// only way left to guarantee nothing from the previous one renders.
-				documentNavigation.assign(destination)
-				return
-			}
-			setSwitchingTo(null)
+			await loadSwitchedAccount(queryClient, router, pathname)
 		},
 		[accounts, pathname, queryClient, router],
 	)

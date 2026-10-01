@@ -15,7 +15,11 @@ import {
 import { themeToggleLabel, toggleTheme } from '../config/theme.js'
 import { ACCOUNT_SWITCH_BLOCKED_MESSAGE, useAccountSwitch } from '../lib/account-switch.js'
 import { useThemeToggleState } from '../lib/use-theme-toggle-state.js'
-import { useUserPreferences } from '../preferences/user-preferences.js'
+import {
+	displayNameFor,
+	useUserPreferences,
+	useUserPreferencesReady,
+} from '../preferences/user-preferences.js'
 
 export type MailboxAccountOption = {
 	email: string
@@ -78,9 +82,14 @@ export function AppRailNav({
 }: AppRailNavProps) {
 	const { isDark, mounted } = useThemeToggleState()
 	const [preferences] = useUserPreferences()
+	const preferencesReady = useUserPreferencesReady()
 
-	const effectiveDisplayName = displayName || preferences.displayName
+	// The name saved on this device is this mailbox's own, never another's.
+	const effectiveDisplayName = displayName || displayNameFor(preferences, email)
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
+	// Until the saved name can be read, the mark stays blank instead of showing
+	// initials that would change a moment later.
+	const accountInitials = displayName || preferencesReady ? initials(effectiveDisplayName || email) : '\u00a0'
 
 	return (
 		<nav
@@ -141,7 +150,7 @@ export function AppRailNav({
 						aria-current={active === 'settings' ? 'page' : undefined}
 					>
 						<span className="app-rail-account-inner">
-							<span className="app-rail-account-initials">{initials(effectiveDisplayName || email)}</span>
+							<span className="app-rail-account-initials">{accountInitials}</span>
 						</span>
 					</Link>
 				</RailTooltip>
@@ -167,7 +176,7 @@ export function AppRailMobileNav({
 	const { isDark, mounted } = useThemeToggleState()
 	const [preferences] = useUserPreferences()
 
-	const effectiveDisplayName = displayName || preferences.displayName
+	const effectiveDisplayName = displayName || displayNameFor(preferences, email)
 	const accountLabel = effectiveDisplayName ? `${effectiveDisplayName} · ${email}` : email
 	const accountName = effectiveDisplayName || email
 

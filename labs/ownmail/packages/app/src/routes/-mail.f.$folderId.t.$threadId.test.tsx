@@ -24,6 +24,7 @@ const updateThreadState = vi.fn()
 const markThreadRead = vi.fn()
 const getThreads = vi.fn()
 vi.mock('#server/fns', () => ({
+	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
 	getThreads: (input: any) => getThreads(input),
 	getThreadMessages: (input: any) => getThreadMessages(input),
 	markThreadRead: (input: any) => markThreadRead(input),

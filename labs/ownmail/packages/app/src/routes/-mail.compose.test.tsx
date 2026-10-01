@@ -46,6 +46,7 @@ const markThreadRead = vi.fn(async ({ data }: any) => ({ thread: { id: data.thre
 const deleteDraft = vi.fn()
 const recipientInputMock = vi.hoisted(() => ({ keepDraftLocal: false }))
 vi.mock('#server/fns', () => ({
+	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
 	getDraft: (a: any) => getDraft(a),
 	getFolders: (a: any) => getFolders(a),
 	getThreads: (a: any) => getThreads(a),

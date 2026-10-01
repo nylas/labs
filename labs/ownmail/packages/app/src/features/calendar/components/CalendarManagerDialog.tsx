@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ResourceManagerDialog } from '#shared/components/ResourceManagerDialog'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { createCalendar, deleteCalendar, updateCalendar } from '../server/calendar-fns.js'
-import { applyCalendarResourceEffect } from '../state/calendar-state.js'
+import { applyCalendarResourceEffect, calendarKeys } from '../state/calendar-state.js'
 
 export function CalendarManagerDialog({
 	calendars,
@@ -17,7 +17,7 @@ export function CalendarManagerDialog({
 	const queryClient = useQueryClient()
 
 	function refresh() {
-		void queryClient.invalidateQueries({ queryKey: ['calendar'], refetchType: 'active' }).catch(
+		void queryClient.invalidateQueries({ queryKey: calendarKeys.all, refetchType: 'active' }).catch(
 			/* v8 ignore next -- background reconciliation cannot change a confirmed mutation result -- @preserve */
 			() => {},
 		)

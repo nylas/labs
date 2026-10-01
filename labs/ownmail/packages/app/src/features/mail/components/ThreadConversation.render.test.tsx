@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
 import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT } from '../lib/email-render'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversation'
@@ -23,9 +24,11 @@ afterEach(() => {
 	cleanup()
 	document.documentElement.classList.remove('dark')
 	localStorage.clear()
+	resetAccountScope()
 })
 
 beforeEach(() => {
+	setAccountScope('ada@ownmail.com')
 	trustSenderImagesMock.mockReset()
 	originalColorSendersMock.mockReset()
 	originalColorSendersMock.mockResolvedValue([])
@@ -259,7 +262,10 @@ describe('ThreadConversation rendering', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		fireEvent.click(await screen.findByRole('button', { name: 'Always show from sender@example.com' }))
 
-		await waitFor(() => expect(trustSenderImagesMock).toHaveBeenCalledWith('sender@example.com'))
+		// The choice is saved for this inbox only.
+		await waitFor(() =>
+			expect(trustSenderImagesMock).toHaveBeenCalledWith('sender@example.com', 'ada@ownmail.com'),
+		)
 		await waitFor(() => {
 			const images = [...rendered.container.querySelectorAll<HTMLElement>(EMAIL_ELEMENT_TAG)].map((element) =>
 				element.shadowRoot?.querySelector<HTMLImageElement>('img'),
@@ -462,12 +468,20 @@ describe('ThreadConversation rendering', () => {
 		expect(toggle).toHaveAttribute('aria-pressed', 'false')
 		fireEvent.click(toggle)
 
-		await waitFor(() => expect(setSenderOriginalColorsMock).toHaveBeenCalledWith('sender@example.com', true))
+		await waitFor(() =>
+			expect(setSenderOriginalColorsMock).toHaveBeenCalledWith('sender@example.com', true, 'ada@ownmail.com'),
+		)
 		await waitFor(() => expect(colorModes()).toEqual(['original', 'original']))
 		expect(toggle).toHaveAttribute('aria-pressed', 'true')
 
 		fireEvent.click(toggle)
-		await waitFor(() => expect(setSenderOriginalColorsMock).toHaveBeenCalledWith('sender@example.com', false))
+		await waitFor(() =>
+			expect(setSenderOriginalColorsMock).toHaveBeenCalledWith(
+				'sender@example.com',
+				false,
+				'ada@ownmail.com',
+			),
+		)
 		await waitFor(() => expect(colorModes()).toEqual(['automatic', 'automatic']))
 	})
 
@@ -505,7 +519,7 @@ describe('ThreadConversation rendering', () => {
 		const rendered = render(<ThreadConversation thread={thread('closing')} messages={[htmlMessage('m1')]} />)
 		rendered.unmount()
 		await act(async () => resolveSenders(['sender@example.com']))
-		expect(originalColorSendersMock).toHaveBeenCalledOnce()
+		expect(originalColorSendersMock).toHaveBeenCalledExactlyOnceWith('ada@ownmail.com')
 	})
 })
 

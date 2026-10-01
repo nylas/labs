@@ -11,23 +11,27 @@ const h = vi.hoisted(() => ({
 	pathname: '/contacts',
 	getContacts: vi.fn(),
 	getMailboxInfo: vi.fn(),
+	renderedContactIds: [] as string[],
 }))
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 	useNavigate: () => h.navigate,
 	useRouterState: (opts: any) => opts.select({ location: { pathname: h.pathname }, matches: [] }),
-	Link: ({ children, to, params, search, ...rest }: any) => (
-		<a
-			href={typeof to === 'string' ? to : '#'}
-			data-to={to}
-			data-params={JSON.stringify(params)}
-			data-search={JSON.stringify(search)}
-			{...rest}
-		>
-			{children}
-		</a>
-	),
+	Link: ({ children, to, params, search, ...rest }: any) => {
+		if (params?.contactId) h.renderedContactIds.push(params.contactId)
+		return (
+			<a
+				href={typeof to === 'string' ? to : '#'}
+				data-to={to}
+				data-params={JSON.stringify(params)}
+				data-search={JSON.stringify(search)}
+				{...rest}
+			>
+				{children}
+			</a>
+		)
+	},
 	Outlet: () => <div data-testid="outlet" />,
 }))
 
@@ -177,6 +181,35 @@ describe('ContactsShell', () => {
 		await waitFor(() => expect(screen.getByText('Cy')).toBeInTheDocument())
 		expect(h.getContacts).toHaveBeenCalledWith({ data: { pageToken: 'cursor-2' } })
 		expect(screen.queryByRole('button', { name: 'Load more contacts' })).not.toBeInTheDocument()
+	})
+
+	it('never paints one list’s paged-in contacts under another list or inbox, not even for one render', async () => {
+		h.getContacts.mockResolvedValue({ contacts: [{ id: 'c-cy', given_name: 'Cy' }] })
+		const view = shell({ nextCursor: 'cursor-2' })
+		fireEvent.click(screen.getByRole('button', { name: 'Load more contacts' }))
+		await waitFor(() => expect(screen.getByText('Cy')).toBeInTheDocument())
+
+		// Every render of a contact row is recorded, including renders that an
+		// effect would correct before anyone could query the DOM.
+		h.renderedContactIds.length = 0
+		const graceContacts: Contact[] = [{ id: 'c-gil', given_name: 'Gil' }]
+		view.rerender(
+			<QueryClientProvider client={new QueryClient()}>
+				<ContactsShell
+					info={{ email: 'grace@ownmail.com', appName: 'ownmail' }}
+					contacts={graceContacts}
+					query=""
+					onQueryChange={() => {}}
+				/>
+			</QueryClientProvider>,
+		)
+
+		// Cy was paged in for Ada's list. Resetting in an effect would have drawn
+		// Cy in Grace's list for one render first.
+		expect(h.renderedContactIds).toContain('c-gil')
+		expect(h.renderedContactIds).not.toContain('c-cy')
+		expect(screen.queryByText('Cy')).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Load more contacts' })).toBeNull()
 	})
 
 	it('deduplicates a contact returned on a later page', async () => {
@@ -433,10 +466,17 @@ describe('ContactsLayout wrapper', () => {
 	it('loads mailbox info and the first page of contacts, surfacing the cursor', async () => {
 		h.getMailboxInfo.mockResolvedValue(info)
 		h.getContacts.mockResolvedValue({ contacts, nextCursor: 'cursor-2' })
-		expect(await Route.options.loader()).toEqual({ info, contacts, nextCursor: 'cursor-2' })
+		expect(await Route.options.loader({ context: { queryClient: new QueryClient() } })).toEqual({
+			info,
+			contacts,
+			nextCursor: 'cursor-2',
+		})
 
 		h.getContacts.mockResolvedValue({ contacts })
-		expect(await Route.options.loader()).toEqual({ info, contacts })
+		expect(await Route.options.loader({ context: { queryClient: new QueryClient() } })).toEqual({
+			info,
+			contacts,
+		})
 	})
 
 	it('owns route pagination in the shared query cache', async () => {

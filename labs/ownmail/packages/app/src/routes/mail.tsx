@@ -13,7 +13,7 @@ import {
 	MAIL_HEADER_GRID_CLASS,
 	MAIL_SIDEBAR_WIDTH_CLASS,
 } from '#app/config/layout'
-import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { MailSearchBar } from '#features/mail/components/MailSearchBar'
 import { MailSidebar } from '#features/mail/components/MailSidebar'
 import {
@@ -25,14 +25,14 @@ import {
 import { foldersQueryOptions } from '#features/mail/state/mail-queries'
 import { getFolders } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { cn } from '#shared/lib/utils'
 
 export const Route = createFileRoute('/mail')({
 	loader: async ({ context }) => {
-		const [info, folders] = await Promise.all([
-			context.queryClient.ensureQueryData(mailboxInfoQueryOptions()),
-			context.queryClient.ensureQueryData(foldersQueryOptions(() => getFolders())),
-		])
+		// The mailbox comes first: the folder key is partitioned by account.
+		const info = await ensureMailboxInfo(context.queryClient)
+		const folders = await context.queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
 		return { info, folders }
 	},
 	staleTime: Number.POSITIVE_INFINITY,
@@ -96,7 +96,11 @@ export function MailRouteScreen({
 		[activeSearchFolderId, pathname, selectedSearchThreadId],
 	)
 	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
-	const [query, setQuery] = useState('')
+	// What the search box shows belongs to the route's query: another search or
+	// folder shows its own text on its first render, and typing edits only that.
+	const [query, setQuery] = useIdentityState([searchAwarePathname, routeSearchQuery], () =>
+		mailSearchInputValue(searchAwarePathname, routeSearchQuery),
+	)
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const openPalette = useCallback(() => setPaletteOpen(true), [])
@@ -106,10 +110,6 @@ export function MailRouteScreen({
 		document.getElementById('mail-search')?.focus()
 	}, [closePalette])
 	useCommandPaletteShortcut(openPalette)
-
-	useEffect(() => {
-		setQuery(mailSearchInputValue(searchAwarePathname, routeSearchQuery))
-	}, [routeSearchQuery, searchAwarePathname])
 
 	async function navigateSearch(nextQuery: string) {
 		const target = liveSearchTarget(

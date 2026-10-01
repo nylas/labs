@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
+import { accountKey } from '#shared/lib/account-key'
 
 export const USER_PREFERENCES_STORAGE_KEY = 'ownmail:user-preferences:v1'
 const MAX_DISPLAY_NAME_LENGTH = 120
 const MAX_HIDDEN_CALENDAR_IDS = 200
 const MAX_CALENDAR_ID_LENGTH = 1000
 const MAX_HIDDEN_CALENDAR_ACCOUNTS = 20
-const MAX_ACCOUNT_KEY_LENGTH = 320
+const MAX_DISPLAY_NAME_ACCOUNTS = 20
 
 export type RemoteImagePolicy = 'ask' | 'always'
 
@@ -23,7 +24,12 @@ export type ListDensity = 'default' | 'compact' | 'condensed'
 export const LIST_DENSITIES: readonly ListDensity[] = ['default', 'compact', 'condensed']
 
 export type UserPreferences = {
-	displayName: string
+	/**
+	 * The name each mailbox signs with, keyed by mailbox email. A name saved in
+	 * one inbox must never label another, so it is stored per account in the
+	 * same way as hidden calendars.
+	 */
+	displayNameByAccount: Record<string, string>
 	autoSaveContacts: boolean
 	emailDarkMode: boolean
 	emailLayoutMode: 'readable' | 'original'
@@ -67,7 +73,7 @@ export function availableTimezones(): string[] {
 
 export function defaultUserPreferences(): UserPreferences {
 	return {
-		displayName: '',
+		displayNameByAccount: {},
 		autoSaveContacts: true,
 		emailDarkMode: true,
 		emailLayoutMode: 'readable',
@@ -83,10 +89,42 @@ export function defaultUserPreferences(): UserPreferences {
 
 /** Normalized preference key for a mailbox; `undefined` when the email is unusable. */
 export function hiddenCalendarAccountKey(email: string): string | undefined {
-	const key = email.trim().toLowerCase()
-	return key.length > 0 && key.length <= MAX_ACCOUNT_KEY_LENGTH && key.includes('@') && !/[\r\n]/.test(key)
-		? key
-		: undefined
+	return accountKey(email)
+}
+
+function normalizeDisplayName(value: unknown): string {
+	return typeof value === 'string' ? value.trim().slice(0, MAX_DISPLAY_NAME_LENGTH) : ''
+}
+
+function normalizeDisplayNameByAccount(value: unknown): Record<string, string> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+	const entries: Array<[string, string]> = []
+	for (const [rawKey, rawName] of Object.entries(value)) {
+		const key = accountKey(rawKey)
+		const name = normalizeDisplayName(rawName)
+		if (key && name) entries.push([key, name])
+	}
+	// Keep the most recently written accounts when the stored map exceeds the cap.
+	return Object.fromEntries(entries.slice(-MAX_DISPLAY_NAME_ACCOUNTS))
+}
+
+/** The display name saved for one mailbox; empty when none was saved for it. */
+export function displayNameFor(preferences: UserPreferences, email: string): string {
+	const key = accountKey(email)
+	return key ? (preferences.displayNameByAccount[key] ?? '') : ''
+}
+
+/** Replaces one mailbox's display name, leaving other mailboxes untouched. */
+export function withDisplayName(preferences: UserPreferences, email: string, name: string): UserPreferences {
+	const key = accountKey(email)
+	if (!key) return preferences
+	const { [key]: _previous, ...others } = preferences.displayNameByAccount
+	const displayName = normalizeDisplayName(name)
+	// Re-inserting last marks this account as most recent for the account cap.
+	return {
+		...preferences,
+		displayNameByAccount: displayName ? { ...others, [key]: displayName } : others,
+	}
 }
 
 function normalizeHiddenCalendarIds(value: unknown): string[] {
@@ -134,8 +172,6 @@ function normalizePreferences(value: unknown): UserPreferences {
 	const defaults = defaultUserPreferences()
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults
 	const input = value as Partial<UserPreferences>
-	const displayName =
-		typeof input.displayName === 'string' ? input.displayName.trim().slice(0, MAX_DISPLAY_NAME_LENGTH) : ''
 	const primaryTimezone =
 		typeof input.primaryTimezone === 'string' && isSupportedTimezone(input.primaryTimezone)
 			? input.primaryTimezone
@@ -147,7 +183,11 @@ function normalizePreferences(value: unknown): UserPreferences {
 			? input.secondaryTimezone
 			: ''
 	return {
-		displayName,
+		// A single `displayName` from before per-account storage cannot be
+		// attributed to an inbox, so it is deliberately dropped rather than applied
+		// to whichever inbox happens to be active. The server-held name still
+		// labels the inbox; only this device's fallback copy is lost.
+		displayNameByAccount: normalizeDisplayNameByAccount(input.displayNameByAccount),
 		autoSaveContacts: input.autoSaveContacts !== false,
 		emailDarkMode: input.emailDarkMode !== false,
 		emailLayoutMode: input.emailLayoutMode === 'original' ? 'original' : 'readable',
@@ -168,16 +208,33 @@ function normalizePreferences(value: unknown): UserPreferences {
 	}
 }
 
-export function readUserPreferences(): UserPreferences {
-	/* v8 ignore next -- exercised during server rendering, outside jsdom's browser environment. -- @preserve */
-	if (typeof window === 'undefined') return defaultUserPreferences()
+/* One shared store: every component reads the same snapshot, synchronously, on
+ * its first client render. The parsed value is cached against the stored text
+ * so the snapshot keeps its identity until the stored text changes. */
+let snapshot: { stored: string | null; preferences: UserPreferences } | undefined
+
+function storedPreferences(): string | null {
 	try {
-		return normalizePreferences(
-			JSON.parse(window.localStorage.getItem(USER_PREFERENCES_STORAGE_KEY) ?? 'null'),
-		)
+		return window.localStorage.getItem(USER_PREFERENCES_STORAGE_KEY)
+	} catch {
+		return null
+	}
+}
+
+function parsePreferences(stored: string | null): UserPreferences {
+	try {
+		return normalizePreferences(JSON.parse(stored ?? 'null'))
 	} catch {
 		return defaultUserPreferences()
 	}
+}
+
+export function readUserPreferences(): UserPreferences {
+	/* v8 ignore next -- exercised during server rendering, outside jsdom's browser environment. -- @preserve */
+	if (typeof window === 'undefined') return serverPreferences()
+	const stored = storedPreferences()
+	if (snapshot?.stored !== stored) snapshot = { stored, preferences: parsePreferences(stored) }
+	return snapshot.preferences
 }
 
 export function writeUserPreferences(value: UserPreferences): UserPreferences {
@@ -186,10 +243,12 @@ export function writeUserPreferences(value: UserPreferences): UserPreferences {
 	if (typeof window !== 'undefined') {
 		try {
 			window.localStorage.setItem(USER_PREFERENCES_STORAGE_KEY, JSON.stringify(normalized))
-			window.dispatchEvent(new Event('ownmail:user-preferences'))
 		} catch {
 			// Preferences are an enhancement; private browsing/storage policies must not break mail.
+			// The choice still applies for this visit: it is held against whatever is stored.
+			snapshot = { stored: storedPreferences(), preferences: normalized }
 		}
+		window.dispatchEvent(new Event('ownmail:user-preferences'))
 	}
 	return normalized
 }
@@ -207,23 +266,58 @@ export function affectsUserPreferences(event: Event): boolean {
 	return event.key === null || event.key === USER_PREFERENCES_STORAGE_KEY
 }
 
+let serverSnapshot: UserPreferences | undefined
+
+/** The server cannot read this device's preferences. Its snapshot is the
+ * defaults, kept as one object so hydration sees a stable value; regions that
+ * would look different with the real values check `useUserPreferencesReady`
+ * and render a neutral placeholder instead of these. */
+function serverPreferences(): UserPreferences {
+	serverSnapshot ??= defaultUserPreferences()
+	return serverSnapshot
+}
+
+function subscribeToPreferences(onChange: () => void): () => void {
+	const update = (event: Event) => {
+		if (affectsUserPreferences(event)) onChange()
+	}
+	window.addEventListener('storage', update)
+	window.addEventListener('ownmail:user-preferences', update)
+	return () => {
+		window.removeEventListener('storage', update)
+		window.removeEventListener('ownmail:user-preferences', update)
+	}
+}
+
+function savePreferences(next: UserPreferences): void {
+	writeUserPreferences(next)
+}
+
+/**
+ * This device's preferences, read synchronously: the first client render
+ * already has the saved values, so nothing paints with a default and then
+ * flips. While rendering on the server and hydrating, the value is the
+ * defaults and `useUserPreferencesReady` is false.
+ */
 export function useUserPreferences(): [UserPreferences, (next: UserPreferences) => void] {
-	const [preferences, setPreferences] = useState(defaultUserPreferences)
+	const preferences = useSyncExternalStore(subscribeToPreferences, readUserPreferences, serverPreferences)
+	return [preferences, savePreferences]
+}
 
-	useEffect(() => {
-		const update = (event?: Event) => {
-			if (event && !affectsUserPreferences(event)) return
-			setPreferences(readUserPreferences())
-		}
-		update()
-		window.addEventListener('storage', update)
-		window.addEventListener('ownmail:user-preferences', update)
-		return () => {
-			window.removeEventListener('storage', update)
-			window.removeEventListener('ownmail:user-preferences', update)
-		}
-	}, [])
+const subscribeToNothing = () => () => {}
+const readyOnClient = () => true
+const notReadyOnServer = () => false
 
-	const save = useCallback((next: UserPreferences) => setPreferences(writeUserPreferences(next)), [])
-	return [preferences, save]
+/** False while rendering on the server and hydrating, when the preferences are
+ * not known yet. A region whose first paint depends on them renders a neutral
+ * placeholder until this is true. */
+export function useUserPreferencesReady(): boolean {
+	return useSyncExternalStore(subscribeToNothing, readyOnClient, notReadyOnServer)
+}
+
+export const userPreferencesTestApi = {
+	/** Drops the cached snapshot, as a fresh page load would. */
+	reset() {
+		snapshot = undefined
+	},
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
 import { defaultUserPreferences, writeUserPreferences } from '#app/preferences/user-preferences'
 import {
 	EMAIL_CANVAS_EVENT,
@@ -20,9 +21,11 @@ afterEach(() => {
 	document.documentElement.classList.remove('dark')
 	localStorage.clear()
 	forgetRememberedEmails()
+	resetAccountScope()
 })
 
 beforeEach(() => {
+	setAccountScope('ada@ownmail.com')
 	senderImagesTrustedMock.mockReset()
 	senderImagesTrustedMock.mockResolvedValue(false)
 })
@@ -333,7 +336,10 @@ describe('EmailHtml', () => {
 			/>,
 		)
 
-		await waitFor(() => expect(senderImagesTrustedMock).toHaveBeenCalledWith('remembered@example.com'))
+		// The question is whether this inbox trusts the sender, not any inbox on the device.
+		await waitFor(() =>
+			expect(senderImagesTrustedMock).toHaveBeenCalledWith('remembered@example.com', 'ada@ownmail.com'),
+		)
 		await waitFor(() =>
 			expect(emailElement().shadowRoot?.querySelector('.remote')).toHaveAttribute('src', CONTROLLED_IMAGE),
 		)

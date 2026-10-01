@@ -49,6 +49,7 @@ const getThreads = vi.fn()
 const listDrafts = vi.fn()
 const updateThreadState = vi.fn()
 vi.mock('#server/fns', () => ({
+	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
 	getFolders: () => getFolders(),
 	getThreads: (input: any) => getThreads(input),
 	listDrafts: () => listDrafts(),
