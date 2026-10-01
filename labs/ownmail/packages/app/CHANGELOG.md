@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.20.1
+
+### Patch Changes
+
+- cf79bdd: Upgrade TanStack dependencies to fix CVE-2026-102989
+
 ## 0.20.0
 
 ### Patch Changes
