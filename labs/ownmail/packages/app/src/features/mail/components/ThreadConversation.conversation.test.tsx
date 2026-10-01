@@ -340,12 +340,12 @@ describe('Show original', () => {
 		expect(document.querySelectorAll('[data-slot="conversation-card"]')).toHaveLength(0)
 	})
 
-	it('keeps designed mail in the standard reader, inside the stream, with its attachments', async () => {
+	it('keeps mail the clean view is unsure about in the standard reader, with its attachments', async () => {
 		renderThread([
 			{
 				id: 'receipt',
 				from: [{ email: 'billing@shop.example' }],
-				body: '<table width="600"><tr><td>Order 1042</td></tr></table>',
+				body: '<table width="600"><tr><th>Item</th></tr><tr><td>Order 1042</td></tr></table>',
 				attachments: [{ id: 'pdf', filename: 'receipt.pdf' }],
 			},
 		])
@@ -354,7 +354,7 @@ describe('Show original', () => {
 		expect(card).toHaveAttribute('aria-label', 'Message from billing@shop.example')
 		expect(await within(card).findByTitle('Email content receipt')).toBeInTheDocument()
 		// There is no bubble form of designed mail to go back to.
-		expect(within(card).queryByRole('button', { name: 'Show in conversation' })).toBeNull()
+		expect(within(card).queryByRole('button', { name: /Show (?:in conversation|clean view)/ })).toBeNull()
 		expect(within(card).getByRole('link', { name: /receipt\.pdf/ })).toBeInTheDocument()
 		expect(card.querySelector('time')).toBeNull()
 	})
@@ -364,7 +364,7 @@ describe('a message shown by the standard reader inside the stream', () => {
 	const designed = (id: string, from?: { email: string }): MailMessage => ({
 		id,
 		...(from ? { from: [from] } : {}),
-		body: `<table width="600"><tr><td>${id}</td></tr></table>`,
+		body: `<table width="600"><tr><th>${id}</th></tr></table>`,
 	})
 
 	it('keeps the colour choice the reader made for the thread or for that sender', async () => {
@@ -395,6 +395,130 @@ describe('a message shown by the standard reader inside the stream', () => {
 		expect(document.querySelector('[data-slot="conversation-reply-recipients"]')).toHaveTextContent(
 			'To no recipients yet',
 		)
+	})
+})
+
+describe('designed mail', () => {
+	const NEWSLETTER = `<table role="presentation" width="600"><tr><td style="font-size:26px">Issue 112</td></tr>
+		<tr><td>Three small utilities we kept using all month, and one we stopped. ${'More body copy. '.repeat(12)}</td></tr>
+		<tr><td><img src="${CONTROLLED_IMAGE}" alt="Desk" width="600" height="200"></td></tr>
+		<tr><td bgcolor="#1f5c3d"><a href="https://fieldnotes.example/112">Read the issue</a></td></tr>
+		<tr><td><a href="https://fieldnotes.example/unsubscribe">Unsubscribe</a></td></tr></table>`
+	const newsletter = (id: string, date?: number): MailMessage => ({
+		id,
+		from: [{ name: 'Fieldnotes Weekly', email: 'news@fieldnotes.example' }],
+		to: [SAM],
+		...(date ? { date } : {}),
+		body: NEWSLETTER,
+		attachments: [{ id: `${id}-pdf`, filename: 'issue.pdf' }],
+	})
+	const articles = () => [...document.querySelectorAll<HTMLElement>('[data-slot="conversation-article"]')]
+
+	it('appears in a chat as a full-width article card in app typography', () => {
+		renderThread([email('m1', INES, MONDAY, 'Did you see this?'), newsletter('news', MONDAY + 60)])
+		openConversation()
+
+		const article = articles()[0] as HTMLElement
+		expect(article).toHaveAttribute('aria-label', 'Message from Fieldnotes Weekly')
+		expect(within(article).getByRole('heading', { level: 2, name: 'Issue 112' })).toBeInTheDocument()
+		expect(within(article).getByRole('link', { name: 'Read the issue' })).toHaveAttribute('data-cta', 'true')
+		expect(within(article).getByRole('link', { name: 'Unsubscribe' })).toHaveAttribute(
+			'href',
+			'https://fieldnotes.example/unsubscribe',
+		)
+		expect(within(article).getByRole('link', { name: /issue\.pdf/ })).toBeInTheDocument()
+		// The sender's table never reaches the app DOM, and the text keeps the 72ch measure.
+		expect(article.querySelector('table')).toBeNull()
+		const card = article.querySelector('[data-slot="clean-blocks"]')?.parentElement as HTMLElement
+		expect(card).toHaveClass('max-w-[72ch]', 'border', 'border-border')
+		expect(card.className).not.toMatch(/border-[lrtbsexy]-/)
+		expect(runs()).toHaveLength(1)
+	})
+
+	it('opens as an article, not a chat, when the thread is only designed mail', () => {
+		renderThread([newsletter('one', MONDAY), newsletter('two')], {
+			reply: { onReply: vi.fn(), onReplyAll: vi.fn() },
+			children: <p>standard reply field</p>,
+		})
+		openConversation()
+
+		expect(articles()).toHaveLength(2)
+		expect(document.querySelector('[data-slot="conversation-participants"]')).toBeNull()
+		expect(document.querySelector('[data-slot="conversation-day"]')).toBeNull()
+		// No chat input under an article; the standard reply control stays.
+		expect(document.querySelector('[data-slot="conversation-reply"]')).toBeNull()
+		expect(screen.getByText('standard reply field')).toBeInTheDocument()
+		// On its own the article is the page, not a card.
+		const page = articles()[0]?.querySelector('[data-slot="clean-blocks"]')?.parentElement as HTMLElement
+		expect(page).toHaveClass('max-w-[72ch]')
+		expect(page).not.toHaveClass('border')
+		expect(articles()[0]?.querySelector('time')).not.toBeNull()
+		expect(articles()[1]?.querySelector('time')).toBeNull()
+	})
+
+	it('shows the original on request and returns to the clean view', async () => {
+		renderThread([newsletter('news', MONDAY)])
+		openConversation()
+		fireEvent.click(within(articles()[0] as HTMLElement).getByRole('button', { name: 'Show original' }))
+
+		expect(await screen.findByTitle('Email content news')).toBeInTheDocument()
+		expect(articles()).toHaveLength(0)
+		fireEvent.click(screen.getByRole('button', { name: 'Show clean view' }))
+		expect(articles()).toHaveLength(1)
+	})
+
+	it('offers Clean or Original layouts in the thread display menu, and remembers the choice', async () => {
+		renderThread([email('m1', INES, MONDAY, 'Did you see this?'), newsletter('news', MONDAY + 60)])
+		openConversation()
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+
+		expect(await screen.findByRole('button', { name: 'Clean' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.queryByRole('button', { name: 'Readable' })).toBeNull()
+		fireEvent.click(screen.getByRole('button', { name: 'Original' }))
+
+		expect(await screen.findByTitle('Email content news')).toHaveAttribute('data-layout-mode', 'original')
+		expect(articles()).toHaveLength(0)
+		expect(JSON.parse(localStorage.getItem(USER_PREFERENCES_STORAGE_KEY) ?? '{}').emailLayoutMode).toBe(
+			'original',
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Clean' }))
+		await waitFor(() => expect(articles()).toHaveLength(1))
+		expect(JSON.parse(localStorage.getItem(USER_PREFERENCES_STORAGE_KEY) ?? '{}').emailLayoutMode).toBe(
+			'clean',
+		)
+	})
+
+	it('offers the layout choice for an article that has no images to load', async () => {
+		renderThread([
+			{
+				id: 'notice',
+				from: [{ email: 'desk@venue.example' }],
+				body: `<table width="600"><tr><td>Room 4B is confirmed. ${'Details follow. '.repeat(12)}</td></tr></table>`,
+			},
+		])
+		openConversation()
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		expect(await screen.findByRole('button', { name: 'Clean' })).toHaveAttribute('aria-pressed', 'true')
+		expect(screen.queryByRole('button', { name: 'Show images in this thread' })).toBeNull()
+	})
+
+	it('lays a stored clean layout out as readable in the standard reader', async () => {
+		writeUserPreferences({ ...defaultUserPreferences(), emailLayoutMode: 'clean' })
+		renderThread([newsletter('news', MONDAY)])
+		// The standard reader has no clean layout: it shows the email as Readable.
+		expect(await screen.findByTitle('Email content news')).toHaveAttribute('data-layout-mode', 'readable')
+		expect(articles()).toHaveLength(0)
+	})
+
+	it('keeps article images behind the same consent as the standard reader', async () => {
+		renderThread([newsletter('news', MONDAY)])
+		openConversation()
+		expect(within(articles()[0] as HTMLElement).getByText('Image: Desk')).toBeInTheDocument()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
+		fireEvent.click(await screen.findByRole('button', { name: 'Show images in this thread' }))
+		expect(screen.getByRole('img', { name: 'Desk' })).toHaveAttribute('src', CONTROLLED_IMAGE)
 	})
 })
 

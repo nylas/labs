@@ -1,0 +1,136 @@
+{
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "heading",
+			"level": 1,
+			"spans": [
+				{
+					"text": "Daily Error Report"
+				}
+			]
+		},
+		{
+			"type": "heading",
+			"level": 2,
+			"spans": [
+				{
+					"text": "Wednesday, Sep 30, 2026, 10:06 PM GMT"
+				}
+			]
+		},
+		{
+			"type": "heading",
+			"level": 2,
+			"spans": [
+				{
+					"text": "team-example"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "NEW ERRORS"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "ERROR",
+					"bold": true
+				},
+				{
+					"text": " sync-worker"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "TimeoutError: upstream IMAP read timed out"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "412"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "ERROR",
+					"bold": true
+				},
+				{
+					"text": " api-gateway"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "429 Too Many Requests from provider"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "97"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "WARN",
+					"bold": true
+				},
+				{
+					"text": " webhooks"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Retry scheduled after 5xx"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "38"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Open report",
+					"href": "https://fixtures.invalid/report",
+					"cta": true
+				}
+			]
+		}
+	],
+	"hasRemoteImages": false,
+	"mailClass": "transactional"
+}

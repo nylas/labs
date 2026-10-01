@@ -60,6 +60,7 @@ export function ConversationTranscript({
 	mailboxEmail,
 	loadRemoteImagesForThread,
 	trustedDuringThisView,
+	cleanDesigned,
 	onDisplayStatus,
 	renderOriginal,
 	reply,
@@ -70,6 +71,8 @@ export function ConversationTranscript({
 	mailboxEmail?: string | undefined
 	loadRemoteImagesForThread: boolean
 	trustedDuringThisView: ReadonlySet<string>
+	/** Designed mail becomes a clean article; false keeps the standard reader for it. */
+	cleanDesigned: boolean
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 	/** The standard reader's body for one message, with the thread's display settings. */
 	renderOriginal: (message: MailMessage) => ReactNode
@@ -104,10 +107,10 @@ export function ConversationTranscript({
 		for (const message of messages) {
 			const sender = senderKey(message)
 			const allowed = allowAll || trustedDuringThisView.has(sender) || storedTrust.has(sender)
-			map.set(message.id, { content: messageContent(message, allowed), allowed })
+			map.set(message.id, { content: messageContent(message, allowed, cleanDesigned), allowed })
 		}
 		return map
-	}, [allowAll, messages, storedTrust, trustedDuringThisView])
+	}, [allowAll, cleanDesigned, messages, storedTrust, trustedDuringThisView])
 
 	const conversation = useMemo(
 		() =>
@@ -126,11 +129,14 @@ export function ConversationTranscript({
 	useLayoutEffect(() => {
 		const reported: string[] = []
 		for (const [messageId, { content, allowed }] of contents) {
-			if (content.kind !== 'blocks' || !content.hasRemoteImages || originalIds.has(messageId)) continue
+			if (content.kind === 'original' || originalIds.has(messageId)) continue
+			const article = content.kind === 'article'
+			if (!article && !content.hasRemoteImages) continue
 			reported.push(messageId)
 			onDisplayStatus(messageId, {
-				layoutAvailable: false,
-				remoteImages: { hasRemoteImages: true, loaded: allowed },
+				// An article can always be switched back to the original layout.
+				layoutAvailable: article,
+				remoteImages: content.hasRemoteImages ? { hasRemoteImages: true, loaded: allowed } : null,
 			})
 		}
 		return () => {
@@ -149,28 +155,33 @@ export function ConversationTranscript({
 		})
 
 	const lastMessage = messages.at(-1)
+	// A thread of only designed mail opens as an article, not a chat.
+	const chat = conversation.layout === 'chat'
 	return (
 		<div data-slot="conversation-view" className="flex min-h-0 flex-1 flex-col">
 			<LinkPreviewRegion
 				data-slot="conversation-transcript"
 				className="flex flex-1 flex-col gap-region pb-region"
 			>
-				<ThreadColumn>
-					<p data-slot="conversation-participants" className="text-sm text-muted-foreground">
-						{[conversation.participants, emailCount(messages.length)].filter(Boolean).join(' · ')}
-					</p>
-				</ThreadColumn>
+				{chat ? (
+					<ThreadColumn>
+						<p data-slot="conversation-participants" className="text-sm text-muted-foreground">
+							{[conversation.participants, emailCount(messages.length)].filter(Boolean).join(' · ')}
+						</p>
+					</ThreadColumn>
+				) : null}
 				{conversation.items.map((item) => (
 					<TranscriptItem
 						key={item.key}
 						item={item}
 						group={conversation.group}
+						chat={chat}
 						renderOriginal={renderOriginal}
 						onSetOriginal={setOriginal}
 					/>
 				))}
 			</LinkPreviewRegion>
-			{reply && lastMessage ? (
+			{reply && lastMessage && chat ? (
 				<ConversationReplyBar
 					threadId={threadId}
 					message={lastMessage}
@@ -189,11 +200,13 @@ export function ConversationTranscript({
 function TranscriptItem({
 	item,
 	group,
+	chat,
 	renderOriginal,
 	onSetOriginal,
 }: {
 	item: ConversationItem
 	group: boolean
+	chat: boolean
 	renderOriginal: (message: MailMessage) => ReactNode
 	onSetOriginal: (ids: string[], original: boolean) => void
 }) {
@@ -226,7 +239,7 @@ function TranscriptItem({
 						</p>
 						{item.restorable ? (
 							<Button variant="ghost" size="sm" onClick={() => onSetOriginal([message.id], false)}>
-								Show in conversation
+								{chat ? 'Show in conversation' : 'Show clean view'}
 							</Button>
 						) : null}
 					</div>
@@ -235,6 +248,41 @@ function TranscriptItem({
 				{renderOriginal(message)}
 				<ThreadColumn>
 					<BubbleAttachments message={message} className="mt-cluster" />
+				</ThreadColumn>
+			</article>
+		)
+	}
+
+	if (item.kind === 'article') {
+		const { message } = item
+		return (
+			<article data-slot="conversation-article" aria-label={`Message from ${item.label}`}>
+				<ThreadColumn>
+					{/* In a chat the article is a card in the stream; on its own it is the page. */}
+					<div
+						className={cn(
+							'flex min-w-0 max-w-[72ch] flex-col gap-hairline',
+							chat && 'rounded-lg border border-border bg-card p-region',
+						)}
+					>
+						<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-cluster">
+							<p className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+								<span className="font-semibold text-foreground">{item.label}</span>
+								{message.date ? (
+									<>
+										{' · '}
+										<MessageTime epochSeconds={message.date} />
+									</>
+								) : null}
+							</p>
+							<Button variant="ghost" size="sm" onClick={() => onSetOriginal([message.id], true)}>
+								Show original
+							</Button>
+						</div>
+						<CalendarInvitationCard message={message} />
+						<CleanBlocks blocks={item.blocks} />
+						<BubbleAttachments message={message} />
+					</div>
 				</ThreadColumn>
 			</article>
 		)

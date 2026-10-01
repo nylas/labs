@@ -206,7 +206,24 @@ and renders exactly as before when the view is off.
   a "Quoted text" disclosure that starts open. "Show original" on every run opens those emails
   in the standard reader inside the stream; it is held in memory only.
 - Attachments are chips in the bubble; calendar invitations are cards in the
-  stream. Designed mail (tables, layout) keeps the standard reader, full width.
+  stream.
+- Designed mail (newsletters, receipts, notifications) is an article card in
+  the stream: a uniform one-pixel border, the 72ch measure, app typography. A
+  thread that is only designed mail opens as an article, with no card border,
+  day separators, participants line or chat input.
+- Clean pipeline. Classify on body signals only (unsubscribe links, link
+  density, images per text, table nesting and `role=presentation`); strip
+  preheaders, hidden and zero-size content, tracking pixels and spacers, and a
+  stylesheet-hidden copy only when the same text remains elsewhere; read layout
+  tables in row order; normalise to the block model. Large styled lines become
+  headings and filled links become call-to-action buttons in `--primary`.
+- Confidence gate. The clean result is used only when it retains the visible
+  text (score 0.85 or more). A data table (`th`, `thead`, `caption`) or content
+  that is mostly images drops the score, and the message keeps the standard
+  reader. Nothing is hidden silently.
+- Layout. In this view the thread display menu offers Clean or Original for
+  designed mail; `emailLayoutMode: 'clean'` is stored for the former. The
+  standard reader, and any older build, lays a stored `clean` out as Readable.
 - Replying. A pinned input after the transcript names every recipient, taken
   from the same functions the composer is opened with, so the two can never
   disagree. The reply-all flow addresses everyone in To and sends no Cc, and the

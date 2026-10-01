@@ -1,0 +1,65 @@
+{
+	"kind": "article",
+	"blocks": [
+		{
+			"type": "heading",
+			"level": 2,
+			"spans": [
+				{
+					"text": "Confirm it is you"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Someone is signing in to your Lanternpost account from a new device. If this was you, enter the code shown at the bottom of this message on the sign-in screen."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "If it was not you, you can ignore this message and nobody will get in. You may also want to "
+				},
+				{
+					"text": "review your account security",
+					"href": "https://lanternpost.example/security"
+				},
+				{
+					"text": "."
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"spans": [
+				{
+					"text": "Your code is 482913 and it expires in 10 minutes. Lanternpost Ltd, 3 Mill Lane. "
+				},
+				{
+					"text": "Help",
+					"href": "https://lanternpost.example/help"
+				},
+				{
+					"text": " · "
+				},
+				{
+					"text": "Privacy",
+					"href": "https://lanternpost.example/privacy"
+				},
+				{
+					"text": " · "
+				},
+				{
+					"text": "Terms",
+					"href": "https://lanternpost.example/terms"
+				}
+			]
+		}
+	],
+	"hasRemoteImages": false,
+	"mailClass": "transactional"
+}

@@ -14,6 +14,7 @@ import {
 import { createPortal } from 'react-dom'
 import { accountScope } from '#app/lib/account-scope'
 import {
+	type EmailLayoutPreference,
 	type ThreadView,
 	useUserPreferences,
 	useUserPreferencesReady,
@@ -38,7 +39,7 @@ import { type ConversationReply, ConversationTranscript } from './ConversationTr
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { MessageBody } from './MessageBody.js'
 import { ThreadColumn } from './ThreadColumn.js'
-import { ThreadDisplayMenu } from './ThreadDisplayMenu.js'
+import { CONVERSATION_LAYOUT_OPTIONS, ThreadDisplayMenu } from './ThreadDisplayMenu.js'
 import { ThreadViewSwitch } from './ThreadViewSwitch.js'
 
 /** A pane toolbar renders an element with this id to host the thread's display actions. */
@@ -203,7 +204,8 @@ function ThreadConversationController({
 			onThreadViewChange={(view) => setViewOverride({ view, over: preferences.threadView })}
 			preferencesReady={preferencesReady}
 			displayStatuses={displayStatuses}
-			layoutMode={preferences.emailLayoutMode}
+			// `clean` belongs to the Conversation view; the standard reader lays it out as readable.
+			layoutMode={preferences.emailLayoutMode === 'original' ? 'original' : 'readable'}
 			colorMode={preferences.emailColorMode}
 			darkenEmail={preferences.emailDarkMode}
 			loadRemoteImagesForThread={loadRemoteImagesForThread}
@@ -273,7 +275,7 @@ function ThreadConversationContent({
 	retryRevision: number
 	senderTrustStatus: { address?: string; state: 'idle' | 'loading' | 'error' }
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
-	onLayoutModeChange: (mode: EmailLayoutMode) => void
+	onLayoutModeChange: (mode: EmailLayoutPreference) => void
 	onColorModeChange: (mode: EmailColorMode) => void
 	onShowThreadImages: () => void
 	onAlwaysShowImages: () => void
@@ -326,7 +328,12 @@ function ThreadConversationContent({
 					<ThreadDisplayMenu
 						messages={messages}
 						statuses={displayStatuses}
-						layoutMode={layoutMode}
+						{...(conversation
+							? {
+									layoutMode: layoutMode === 'original' ? 'original' : 'clean',
+									layoutOptions: CONVERSATION_LAYOUT_OPTIONS,
+								}
+							: { layoutMode })}
 						colorMode={colorMode}
 						showColorControl={darkenEmail}
 						senderTrustStatus={senderTrustStatus}
@@ -415,6 +422,7 @@ function ThreadConversationContent({
 					mailboxEmail={mailboxEmail}
 					loadRemoteImagesForThread={loadRemoteImagesForThread}
 					trustedDuringThisView={trustedDuringThisView}
+					cleanDesigned={layoutMode !== 'original'}
 					onDisplayStatus={onDisplayStatus}
 					reply={reply}
 					renderOriginal={(message) => (
