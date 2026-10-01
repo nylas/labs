@@ -327,6 +327,32 @@ the smaller WCAG 2.2 AA minimum.
 - Calendar popovers are non-modal: they take focus on open, close on Escape
   (returning focus to the trigger), on a click elsewhere, and when keyboard
   focus leaves.
+- Viewing an event is separate from editing it. On desktop layouts an event
+  opens in a details pane to the right of the grid: content in the flow, not an
+  overlay, with a show and hide toggle at the end of the top bar; whether it is
+  open is a device preference, and the pending view reserves it. Opening moves
+  focus into the pane, Escape or its close button hands focus back to the
+  event, and the shown event carries `aria-current` and a uniform ring. Mobile
+  layouts keep the bottom sheet. Both render the same read-only view; Edit
+  opens the editor, which is the only place an event's fields change.
+- Events in the day and week grid can be created, moved and resized by
+  dragging with a mouse, snapped to 15 minutes. Nothing is saved until the
+  drop: releasing outside the grid, pressing Escape, or losing the pointer
+  cancels. A drop updates the grid at once and is put back, with a visible
+  generic message, if the provider refuses it.
+- Every drag has a keyboard path. Creating: Enter on an hour slot opens the
+  editor. Moving: Alt with an arrow key (15 minutes, or one day). Resizing:
+  Shift and Alt with Up or Down. The adjustment is previewed and announced,
+  Enter saves it once, and Escape or moving focus away abandons it. Each event
+  box describes this through `aria-describedby`.
+- Touch and pen never start a drag, so the grid keeps scrolling; they change an
+  event's day and times in the editor. Read-only events, and events on
+  read-only calendars, cannot be moved or resized. A repeating occurrence moves
+  alone and the calendar says so; a series shown as one event cannot be dragged.
+  All-day events are not moved or resized in the time grid. Resize edges are
+  unfilled pointer areas, never a drawn bar.
+- A drag follows the pointer with no animation of its own, so reduced motion
+  needs nothing more than the global transition rule.
 - Email content may preserve sender styling inside the sanitizer-controlled
   message boundary; application chrome remains on this system.
 

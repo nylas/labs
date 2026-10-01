@@ -1465,3 +1465,126 @@ describe('EventModal — editing an existing event', () => {
 		resolveUpdate({ ok: true })
 	})
 })
+
+describe('EventModal — the editor beside the detail pane', () => {
+	function renderEditor(
+		overrides: Partial<Event> = {},
+		props: { startInEdit?: boolean } = { startInEdit: true },
+	) {
+		const onClose = vi.fn()
+		render(
+			<EventModal
+				event={timedEvent(overrides)}
+				defaultStart={defaultStart}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={onClose}
+				{...props}
+			/>,
+		)
+		return onClose
+	}
+
+	it('opens straight in the editor when asked, because the pane already showed the details', () => {
+		renderEditor()
+		expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Team Sync')
+		expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+	})
+
+	it('returns to the pane on Cancel instead of showing a second copy of the details', async () => {
+		const user = userEvent.setup()
+		const onClose = renderEditor()
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+		expect(onClose).toHaveBeenCalledWith(false)
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('closes the editor on Escape without saving', () => {
+		const onClose = renderEditor()
+		fireEvent.keyDown(document.body, { key: 'Escape' })
+		expect(onClose).toHaveBeenCalledWith(false)
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('closes the editor from its header close button', async () => {
+		const user = userEvent.setup()
+		const onClose = renderEditor()
+		await user.click(screen.getByRole('button', { name: 'Close' }))
+		expect(onClose).toHaveBeenCalledWith(false)
+	})
+
+	it('moves a timed event to another day from the editor, the path touch and keyboard use', async () => {
+		const user = userEvent.setup()
+		const onClose = renderEditor()
+		expect(screen.getByLabelText('Event date')).toHaveValue('2026-07-08')
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-07-10' } })
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
+		expect(updateEvent.mock.calls[0][0].data).toMatchObject({
+			startTime: Math.floor(new Date(2026, 6, 10, 10, 0, 0).getTime() / 1000),
+			endTime: Math.floor(new Date(2026, 6, 10, 11, 0, 0).getTime() / 1000),
+		})
+	})
+
+	it('refuses an impossible date rather than saving a guess', async () => {
+		const user = userEvent.setup()
+		renderEditor()
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '' } })
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		expect(await screen.findByText('Choose a valid event date.')).toBeInTheDocument()
+		expect(updateEvent).not.toHaveBeenCalled()
+	})
+
+	it('discards a changed date when editing is cancelled from the dialog view', async () => {
+		const user = userEvent.setup()
+		renderEditor({}, {})
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '2026-07-10' } })
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		expect(screen.getByLabelText('Event date')).toHaveValue('2026-07-08')
+	})
+
+	it('keeps the length of a resized event when only its title is edited', async () => {
+		const user = userEvent.setup()
+		// 10:15 to 12:45: two and a half hours on the 15-minute grid.
+		const start = Math.floor(new Date(2026, 6, 8, 10, 15, 0).getTime() / 1000)
+		const onClose = renderEditor({ when: { start_time: start, end_time: start + 150 * 60 } })
+		expect(screen.getByRole('combobox', { name: 'Start time' })).toHaveTextContent('10:15 AM')
+		expect(screen.getByRole('combobox', { name: 'End time' })).toHaveTextContent('12:45 PM')
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		await waitFor(() => expect(onClose).toHaveBeenCalledWith(true))
+		expect(updateEvent.mock.calls[0][0].data).toMatchObject({
+			startTime: start,
+			endTime: start + 150 * 60,
+		})
+	})
+})
+
+describe('EventModal — a range dragged out on the grid', () => {
+	it('opens the composer on the dragged length and saves exactly that range', async () => {
+		const user = userEvent.setup()
+		render(
+			<EventModal
+				event={null}
+				defaultStart={new Date(2026, 6, 8, 14, 15, 0)}
+				preserveDefaultStartTime
+				defaultDurationMinutes={45}
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		expect(screen.getByRole('combobox', { name: 'Start time' })).toHaveTextContent('2:15 PM')
+		expect(screen.getByRole('combobox', { name: 'End time' })).toHaveTextContent('3 PM')
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalled())
+		expect(createEvent.mock.calls[0][0].data).toMatchObject({
+			startTime: Math.floor(new Date(2026, 6, 8, 14, 15, 0).getTime() / 1000),
+			endTime: Math.floor(new Date(2026, 6, 8, 15, 0, 0).getTime() / 1000),
+		})
+	})
+})

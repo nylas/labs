@@ -49,6 +49,8 @@ export type UserPreferences = {
 	calendarHourHeight: CalendarHourHeight
 	/** Whether the desktop calendar sidebar is hidden on this device. */
 	calendarSidebarCollapsed: boolean
+	/** Whether the desktop event details pane is shown beside the calendar grid on this device. */
+	calendarDetailPaneOpen: boolean
 	/**
 	 * Calendars the person unchecked in the calendar sidebar, keyed by mailbox
 	 * email. Calendar ids are grant-scoped (every inbox has a `primary`), so a
@@ -95,6 +97,7 @@ export function defaultUserPreferences(): UserPreferences {
 		secondaryTimezone: '',
 		calendarHourHeight: DEFAULT_CALENDAR_HOUR_HEIGHT,
 		calendarSidebarCollapsed: false,
+		calendarDetailPaneOpen: false,
 		hiddenCalendarsByAccount: {},
 	}
 }
@@ -217,6 +220,7 @@ function normalizePreferences(value: unknown): UserPreferences {
 			? (input.calendarHourHeight as CalendarHourHeight)
 			: DEFAULT_CALENDAR_HOUR_HEIGHT,
 		calendarSidebarCollapsed: input.calendarSidebarCollapsed === true,
+		calendarDetailPaneOpen: input.calendarDetailPaneOpen === true,
 		// A flat `hiddenCalendarIds` list from before per-account storage cannot be
 		// attributed to an inbox, so it is deliberately dropped rather than applied
 		// to whichever inbox happens to be active.

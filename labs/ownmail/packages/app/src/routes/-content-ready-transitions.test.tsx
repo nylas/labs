@@ -667,8 +667,15 @@ describe('calendar date or view change', () => {
 		// while the draft is still up. Its dialog is a different event.
 		fireEvent.click(page().getByText('March standup').closest('button') as HTMLElement)
 
+		// On desktop the event opens in the details pane beside the grid.
+		const pane = await waitFor(() => page().getByRole('complementary', { name: 'Event details' }))
+		expect(pane).toHaveTextContent('March standup')
+		expect(pane).not.toHaveTextContent('Could not save the event')
+
+		// Editing it from the pane replaces the draft with that event's own editor.
+		fireEvent.click(within(pane).getByRole('button', { name: /Edit/ }))
 		const dialog = await waitFor(() => page().getByRole('dialog', { name: 'Event details' }))
-		expect(dialog).toHaveTextContent('March standup')
+		expect(dialog).toHaveTextContent('Save changes')
 		expect(dialog).not.toHaveTextContent('Could not save the event')
 	})
 })
