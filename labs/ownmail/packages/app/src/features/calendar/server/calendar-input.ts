@@ -1,5 +1,6 @@
 import { requireNylasProviderId } from '#server/ids'
 import { MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST } from '../lib/calendar.js'
+import { freeBusyEmail, MAX_FREE_BUSY_PEOPLE, MAX_FREE_BUSY_RANGE_SECONDS } from '../lib/free-busy.js'
 
 const MAX_EVENT_RANGE_SECONDS = 60 * 60 * 24 * 62
 const MAX_TITLE_LENGTH = 500
@@ -22,6 +23,13 @@ export type EventRangeInput = {
 	end: number
 	/** Calendars the user has hidden; their events are not fetched. A filter only, never a fetch target. */
 	hiddenCalendarIds?: string[]
+}
+
+/** An availability lookup: a time range in Unix seconds and the people to look up. */
+export type FreeBusyInput = {
+	start: number
+	end: number
+	emails: string[]
 }
 
 export type CreateEventInput = {
@@ -92,6 +100,27 @@ export function normalizeEventRangeInput(input: EventRangeInput): EventRangeInpu
 	if (end - start > MAX_EVENT_RANGE_SECONDS) throw new Error('Range too large')
 	const hiddenCalendarIds = normalizeHiddenCalendarIds(input.hiddenCalendarIds)
 	return { start, end, ...(hiddenCalendarIds.length ? { hiddenCalendarIds } : {}) }
+}
+
+/**
+ * Rejects the whole lookup when any part is out of bounds: there is no partial
+ * accept. Addresses are canonicalised and de-duplicated so equal requests are equal.
+ */
+export function normalizeFreeBusyInput(input: FreeBusyInput): FreeBusyInput {
+	if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid request')
+	const start = requireEpochSeconds(input.start, 'start')
+	const end = requireEpochSeconds(input.end, 'end')
+	requireValidRange(start, end)
+	if (end - start > MAX_FREE_BUSY_RANGE_SECONDS) throw new Error('Range too large')
+	if (!Array.isArray(input.emails) || input.emails.length === 0) throw new Error('Invalid people')
+	if (input.emails.length > MAX_FREE_BUSY_PEOPLE) throw new Error('Too many people')
+	const emails = input.emails.map((value) => {
+		const email = freeBusyEmail(value)
+		// The rejected value is not echoed: it may be an address.
+		if (!email) throw new Error('Invalid people')
+		return email
+	})
+	return { start, end, emails: [...new Set(emails)] }
 }
 
 function normalizeHiddenCalendarIds(value: string[] | undefined): string[] {

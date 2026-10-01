@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import {
 	type CSSProperties,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -44,6 +45,7 @@ import { GridZoomControl, SecondaryTimezoneControl } from '#features/calendar/co
 import { CalendarManagerDialog } from '#features/calendar/components/CalendarManagerDialog'
 import { EventDetails, type EventDetailsHandle } from '#features/calendar/components/EventDetails'
 import { EventModal } from '#features/calendar/components/EventModal'
+import { MeetWith } from '#features/calendar/components/MeetWith'
 import {
 	type AgendaEntry,
 	addDays,
@@ -96,6 +98,13 @@ import {
 	eventRsvpLabel,
 } from '#features/calendar/lib/calendar-ui-model'
 import { rescaledScrollTop } from '#features/calendar/lib/calendar-zoom'
+import {
+	busyBlockPersonIndex,
+	busyBlocks,
+	isBusyBlock,
+	type MeetWithPerson,
+	personColor,
+} from '#features/calendar/lib/free-busy'
 import { useCalendarDrag } from '#features/calendar/state/calendar-drag-state'
 import {
 	type CalendarRouteData,
@@ -106,6 +115,7 @@ import {
 	usePrefetchAdjacentCalendarRanges,
 	useRescheduleEventMutation,
 } from '#features/calendar/state/calendar-state'
+import { useFreeBusy } from '#features/calendar/state/free-busy-state'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
@@ -369,6 +379,37 @@ export function CalendarRouteScreen({
 		() => applyDragPreview(visibleEvents, drag.preview, calendar.id),
 		[calendar.id, drag.preview, visibleEvents],
 	)
+	// "Meet with": colleagues whose busy times are overlaid on the grid. Kept in
+	// the page only; it is not a preference and is never stored. The choice
+	// belongs to this inbox and does not survive a switch to another.
+	const [meetWith, setMeetWith] = useIdentityState<MeetWithPerson[]>([info.email], () => [])
+	const meetWithEmails = useMemo(() => meetWith.map((person) => person.email), [meetWith])
+	const firstColumn = gridColumns[0]
+	const freeBusyRange = useMemo(
+		() =>
+			firstColumn
+				? {
+						// A day on either side, because the display time zone is a client preference.
+						start: Math.floor(addDays(firstColumn, -1).getTime() / 1000),
+						end: Math.floor(addDays(firstColumn, gridColumns.length + 1).getTime() / 1000),
+					}
+				: null,
+		[firstColumn, gridColumns.length],
+	)
+	const freeBusy = useFreeBusy(meetWithEmails, freeBusyRange)
+	const busyEvents = useMemo(() => busyBlocks(meetWith, freeBusy.people), [freeBusy.people, meetWith])
+	const meetWithPanel = (
+		<MeetWith
+			people={meetWith}
+			results={freeBusy.people}
+			loading={freeBusy.loading}
+			error={freeBusy.error}
+			shownOnGrid={freeBusyRange !== null}
+			timeZone={primaryTimezone}
+			onChange={setMeetWith}
+			onRetry={() => void freeBusy.retry()}
+		/>
+	)
 
 	/** Viewing an event: the detail pane on desktop, the dialog on mobile layouts. */
 	const openEvent = useCallback(
@@ -613,6 +654,7 @@ export function CalendarRouteScreen({
 						onToggleCalendar={toggleCalendar}
 						onPickEvent={openEvent}
 						onManageCalendars={() => setManagingCalendars(true)}
+						meetWith={meetWithPanel}
 					/>
 				</aside>
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -659,6 +701,7 @@ export function CalendarRouteScreen({
 							days={currentView === 'week' ? 7 : 1}
 							start={currentView === 'week' ? startOfWeek(anchor) : anchor}
 							events={gridEvents}
+							busyEvents={busyEvents}
 							colors={colors}
 							calendars={calendars}
 							drag={drag}
@@ -803,6 +846,7 @@ export function CalendarRouteScreen({
 							setSidebarOpen(false)
 						}}
 						onManageCalendars={() => setManagingCalendars(true)}
+						meetWith={meetWithPanel}
 					/>
 				</div>
 			</Sheet>
@@ -833,6 +877,7 @@ function CalendarSidebarPanel({
 	onToggleCalendar,
 	onPickEvent,
 	onManageCalendars,
+	meetWith,
 	mobile = false,
 }: {
 	anchor: Date
@@ -848,6 +893,7 @@ function CalendarSidebarPanel({
 	onToggleCalendar: (calendarId: string) => void
 	onPickEvent: (event: Event) => void
 	onManageCalendars: () => void
+	meetWith: ReactNode
 	mobile?: boolean
 }) {
 	return (
@@ -912,6 +958,7 @@ function CalendarSidebarPanel({
 					})}
 				</div>
 			</section>
+			{meetWith}
 			<div className="rounded-lg border border-border bg-card p-3">
 				<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Up next today</p>
 				<div className="mt-2 flex flex-col gap-2">
@@ -1314,6 +1361,7 @@ function TimeGrid({
 	days,
 	start,
 	events,
+	busyEvents,
 	colors,
 	calendars,
 	drag,
@@ -1332,6 +1380,8 @@ function TimeGrid({
 	days: number
 	start: Date
 	events: Event[]
+	/** Colleagues' busy periods, laid out beside the events and never interactive. */
+	busyEvents: Event[]
 	colors: Map<string, EventColor>
 	calendars: Calendar[]
 	drag: ReturnType<typeof useCalendarDrag>
@@ -1691,7 +1741,7 @@ function TimeGrid({
 							))}
 						</div>
 						{columns.map((day, dayIndex) => {
-							const boxes = timedDayLayout(events, day, {
+							const boxes = timedDayLayout(busyEvents.length ? [...events, ...busyEvents] : events, day, {
 								startHour: START_HOUR,
 								endHour: GRID_END_HOUR,
 								hourHeight: HOUR_PX,
@@ -1743,6 +1793,25 @@ function TimeGrid({
 										const times = eventTimes(event)
 										/* v8 ignore next -- timedDayLayout only places events with parsed times -- @preserve */
 										if (!times) return null
+										if (isBusyBlock(event))
+											return (
+												// Decorative: it takes no pointer or focus, and the legend lists the same times in text.
+												<div
+													key={event.id}
+													aria-hidden="true"
+													data-busy-block={busyBlockPersonIndex(event)}
+													className="event-color busy-block pointer-events-none absolute z-[5] min-w-0 overflow-hidden rounded-[5px] px-control py-px text-[10px] leading-tight text-foreground"
+													style={{
+														...eventColorStyle(personColor(busyBlockPersonIndex(event))),
+														top,
+														height,
+														left: `calc(${left * 100}% + 2px)`,
+														width: `calc(${width * 100}% - 4px)`,
+													}}
+												>
+													<span className="block truncate">{event.title}</span>
+												</div>
+											)
 										const preview = isNewEventPreview(event)
 										const rsvp = eventRsvp(event, email)
 										const title = event.title || '(untitled)'

@@ -353,6 +353,22 @@ the smaller WCAG 2.2 AA minimum.
   unfilled pointer areas, never a drawn bar.
 - A drag follows the pointer with no animation of its own, so reduced motion
   needs nothing more than the global transition rule.
+- "Meet with…" overlays colleagues' busy times on the day and week grid. Each
+  busy period is a hatched tint with a uniform one-pixel border in that
+  person's hue (`.busy-block`), labelled with the person's name and laid out
+  beside the person's own events by the same column layout, never over them.
+  The blocks are decorative: they take no pointer or focus, so the hour slots
+  beneath stay usable. The sidebar legend carries the key (swatch, name, and
+  the state in words: busy times, none, not shared, or loading) and lists the
+  same times as text for assistive technology. Hatching and the name, not hue
+  alone, set a busy block apart from an event.
+- Availability is privacy-bounded: only busy and free times are requested,
+  never event details; at most five people and ten days per lookup; the chosen
+  people live in the page, belong to the inbox they were chosen in, and are
+  not stored. Lookups wait for the choice to settle and are cached per account,
+  range and guest list; a range not looked up yet shows no blocks rather than
+  the previous range's. A failure or rate limit shows one generic message with
+  an explicit "Try again".
 - Email content may preserve sender styling inside the sanitizer-controlled
   message boundary; application chrome remains on this system.
 

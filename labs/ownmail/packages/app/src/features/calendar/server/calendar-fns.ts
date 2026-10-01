@@ -9,16 +9,24 @@ import { signalLocalChange } from '#server/change-version'
 import { requireMailbox } from '#server/mailbox-boundary'
 import { isRenderableCalendarEvent } from '../lib/calendar.js'
 import {
+	FREE_BUSY_FAILED_MESSAGE,
+	FREE_BUSY_RATE_LIMITED_MESSAGE,
+	type FreeBusyPerson,
+	freeBusyPeople,
+} from '../lib/free-busy.js'
+import {
 	type CalendarIdInput,
 	type CalendarNameInput,
 	type CreateEventInput,
 	type EventIdInput,
 	type EventRangeInput,
+	type FreeBusyInput,
 	normalizeCalendarIdInput,
 	normalizeCalendarNameInput,
 	normalizeCreateEventInput,
 	normalizeEventIdInput,
 	normalizeEventRangeInput,
+	normalizeFreeBusyInput,
 	normalizeRsvpEventInput,
 	normalizeUpdateCalendarInput,
 	normalizeUpdateEventInput,
@@ -207,6 +215,35 @@ export const getEvents = createServerFn({ method: 'GET' })
 			return { calendar, calendars, events, truncated }
 		},
 	)
+
+/**
+ * Colleagues' busy times for the "Meet with" overlay. The lookup runs on the
+ * session's own grant and asks the provider for free/busy only, so no event
+ * title, guest list or location is requested, returned or stored. It is a POST
+ * so the addresses travel in the body, not in a URL, and nothing here is logged.
+ */
+export const getFreeBusy = createServerFn({ method: 'POST' })
+	.validator((input: FreeBusyInput) => normalizeFreeBusyInput(input))
+	.handler(async ({ data }): Promise<{ people: FreeBusyPerson[] }> => {
+		const { mailbox } = await requireMailbox()
+		try {
+			const response = await mailbox.getFreeBusy({
+				start_time: data.start,
+				end_time: data.end,
+				emails: data.emails,
+			})
+			// Only times for the people asked about leave the server.
+			return { people: freeBusyPeople(data.emails, response.data, { start: data.start, end: data.end }) }
+		} catch (err) {
+			if (err instanceof NylasApiError && (err.status === 401 || err.status === 403)) throw friendly(err)
+			// Provider detail is never passed on: it can name the address that failed.
+			throw new Error(
+				err instanceof NylasApiError && err.status === 429
+					? FREE_BUSY_RATE_LIMITED_MESSAGE
+					: FREE_BUSY_FAILED_MESSAGE,
+			)
+		}
+	})
 
 export const createEvent = createServerFn({ method: 'POST' })
 	.validator((input: CreateEventInput) => normalizeCreateEventInput(input))
