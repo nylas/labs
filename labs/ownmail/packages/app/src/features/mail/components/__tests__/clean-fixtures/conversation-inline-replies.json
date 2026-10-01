@@ -77,61 +77,32 @@
 				]
 			},
 			{
-				"type": "history",
-				"blocks": [
+				"type": "reference",
+				"text": "Could we use Thursday afternoon for the planning session?",
+				"author": "Tomas"
+			},
+			{
+				"type": "paragraph",
+				"spans": [
 					{
-						"type": "paragraph",
-						"spans": [
-							{
-								"text": "On 28/09/2026 09:40, Tomas Reyes wrote:"
-							}
-						]
-					},
+						"text": "Yes, Thursday from one works."
+					}
+				]
+			},
+			{
+				"type": "reference",
+				"text": "Also, the retro probably fits better on Friday.",
+				"author": "Tomas"
+			},
+			{
+				"type": "paragraph",
+				"spans": [
 					{
-						"type": "quote",
-						"blocks": [
-							{
-								"type": "paragraph",
-								"spans": [
-									{
-										"text": "Could we use Thursday afternoon for the planning session?"
-									}
-								]
-							}
-						]
-					},
-					{
-						"type": "paragraph",
-						"spans": [
-							{
-								"text": "Yes, Thursday from one works."
-							}
-						]
-					},
-					{
-						"type": "quote",
-						"blocks": [
-							{
-								"type": "paragraph",
-								"spans": [
-									{
-										"text": "Also, the retro probably fits better on Friday."
-									}
-								]
-							}
-						]
-					},
-					{
-						"type": "paragraph",
-						"spans": [
-							{
-								"text": "Friday at nine, before people leave."
-							}
-						]
+						"text": "Friday at nine, before people leave."
 					}
 				]
 			}
 		],
-		"unsure": true
+		"unsure": false
 	}
 }

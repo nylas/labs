@@ -122,6 +122,23 @@ function Block({ block, historyOpen }: { block: CleanBlock; historyOpen: boolean
 			)
 		case 'rule':
 			return <hr className="border-border" />
+		case 'signature':
+			return (
+				<div data-slot="clean-signature" className="text-sm text-muted-foreground">
+					<CleanBlocks blocks={block.blocks} historyOpen={historyOpen} />
+				</div>
+			)
+		case 'reference':
+			// A reply reference is a small filled pointer to the line being answered, not a side rail.
+			return (
+				<p
+					data-slot="clean-reference"
+					className="rounded-md bg-background/60 px-cluster py-control text-sm text-muted-foreground"
+				>
+					{block.author ? <span className="font-semibold">{block.author}: </span> : null}
+					{block.text}
+				</p>
+			)
 		case 'history':
 			return (
 				<details data-slot="clean-quoted-history" open={historyOpen} className="text-muted-foreground">

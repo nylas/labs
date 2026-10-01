@@ -200,11 +200,24 @@ and renders exactly as before when the view is off.
   markup is injected: content always passes the sanitizer first, links keep the
   reader's new-tab, no-opener, no-referrer handling and the target preview, and
   images stay behind the same consent and signed proxy as the standard reader.
-- Never hide silently. Trailing quoted history is left out of a bubble because
-  earlier bubbles show it. A forwarded message, text below a quote, answers
-  between quoted lines, or a message that is only a quote is shown in full with
-  a "Quoted text" disclosure that starts open. "Show original" on every run opens those emails
+- Never hide silently. A forwarded message, or a message with nothing new left
+  once repeats are folded, is shown in full with a "Quoted text" disclosure
+  that starts open. "Show original" on every run opens those emails
   in the standard reader inside the stream; it is held in memory only.
+- Thread pass. A bubble keeps only what the thread has not already shown,
+  matched on a fingerprint of the normalised text. Only a trailing run that
+  repeats an earlier message is folded; a trailing quote of something the
+  thread has not shown stays behind a closed "Quoted text" disclosure.
+  Signatures (a `-- ` line, the mail client's own signature marker, or a closing
+  block of contact details) are left out, unless text follows them.
+- Reply references. An answer written between or below quoted lines is shown
+  under a small filled reference to the line it answers, credited to whoever
+  wrote that line when the thread knows. A quote the thread has not shown stays
+  in full. References are fills, never a bar down one side.
+- System lines. Centred, muted lines between runs say what email hides in
+  headers: who was added, who was moved from To to Cc, and a changed subject.
+  They come only from comparing To, Cc and the subject of consecutive
+  messages; a plain reply-all moves nobody.
 - Attachments are chips in the bubble; calendar invitations are cards in the
   stream.
 - Designed mail (newsletters, receipts, notifications) is an article card in

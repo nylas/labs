@@ -222,6 +222,16 @@ function TranscriptItem({
 		)
 	}
 
+	if (item.kind === 'event') {
+		return (
+			<ThreadColumn>
+				<p data-slot="conversation-event" className="text-center text-xs font-medium text-muted-foreground">
+					{item.text}
+				</p>
+			</ThreadColumn>
+		)
+	}
+
 	if (item.kind === 'card') {
 		const { message } = item
 		return (
