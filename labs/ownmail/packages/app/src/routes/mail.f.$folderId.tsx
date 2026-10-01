@@ -1,10 +1,12 @@
 import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Loader2, Reply, Star } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
+import { ThreadListSkeleton } from '#features/mail/components/ThreadListSkeleton'
 import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
@@ -24,8 +26,10 @@ import {
 	draftsQueryOptions,
 	foldersQueryOptions,
 	type MailDraft,
+	type MailFolder,
 	type MailThread,
 	type MailThreadPage,
+	mailKeys,
 	threadListQueryOptions,
 } from '#features/mail/state/mail-queries'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
@@ -41,6 +45,7 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 	}),
 	loader: async ({ context, params }) => loadMailFolderData(params.folderId, context.queryClient),
 	component: FolderView,
+	pendingComponent: FolderPending,
 })
 
 export async function loadMailFolderData(folderId: string, queryClient: QueryClient) {
@@ -66,7 +71,44 @@ export async function loadMailFolderData(folderId: string, queryClient: QueryCli
 	}
 }
 
+/** Shown while another folder loads. It names the destination folder, which is
+ * already known, and never keeps the previous folder's rows, title or badge. */
+function FolderPending() {
+	const { folderId } = Route.useParams()
+	const queryClient = useQueryClient()
+	const [{ readingPane, listDensity }] = useUserPreferences()
+	const threadOpen = useRouterState({ select: (state) => state.location.pathname.includes('/t/') })
+	const layout = readingPaneLayout(readingPane, threadOpen)
+	return (
+		<div data-testid="folder-pending" aria-busy="true" className={layout.container}>
+			<section className={layout.list} data-density={listDensity}>
+				<Toolbar className="justify-between px-4">
+					<h1 className="font-display text-base font-semibold capitalize">
+						{mailFolderTitle(folderId, queryClient.getQueryData<MailFolder[]>(mailKeys.folders()))}
+					</h1>
+				</Toolbar>
+				<ThreadListSkeleton />
+			</section>
+			<section className={layout.reader} />
+		</div>
+	)
+}
+
 type MailFolderRouteData = Awaited<ReturnType<typeof loadMailFolderData>>
+
+/** List state owned by one folder and first page; see `MailFolderRouteScreen`. */
+type FolderListState = {
+	identity: string
+	extraThreads: MailThread[]
+	nextCursor: string | undefined
+	loadingMore: boolean
+	loadMoreError: boolean
+	cursor: number
+}
+
+function emptyFolderListState(identity: string, nextCursor: string | undefined): FolderListState {
+	return { identity, extraThreads: [], nextCursor, loadingMore: false, loadMoreError: false, cursor: -1 }
+}
 type ComposeThreadSearch = ReturnType<
 	typeof import('#features/mail/lib/mail-ui-model').composeBackdropThreadSearch
 >
@@ -202,15 +244,36 @@ export function MailFolderRouteScreen({
 }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const navigate = useNavigate()
-	const [extraThreads, setExtraThreads] = useState<MailThread[]>([])
-	const [nextCursor, setNextCursor] = useState(initialCursor)
-	const [localLoadingMore, setLocalLoadingMore] = useState(false)
-	const [localLoadMoreError, setLocalLoadMoreError] = useState(false)
-	const [cursor, setCursor] = useState(-1)
+	const folderIdentity = JSON.stringify([folderId, initialCursor])
+	// Paged-in rows, the pagination status and the keyboard cursor belong to one
+	// folder and first page. They are stored with that identity and read back
+	// only while it still matches, so another folder starts clean on its first
+	// render instead of being reset by an effect one render later.
+	const [storedList, setStoredList] = useState<FolderListState>(() =>
+		emptyFolderListState(folderIdentity, initialCursor),
+	)
+	const listState =
+		storedList.identity === folderIdentity ? storedList : emptyFolderListState(folderIdentity, initialCursor)
+	const updateList = useCallback(
+		(change: (current: FolderListState) => Partial<FolderListState>) =>
+			setStoredList((stored) => {
+				const current =
+					stored.identity === folderIdentity ? stored : emptyFolderListState(folderIdentity, initialCursor)
+				return { ...current, ...change(current) }
+			}),
+		[folderIdentity, initialCursor],
+	)
+	const { extraThreads, nextCursor, cursor } = listState
+	const localLoadingMore = listState.loadingMore
+	const localLoadMoreError = listState.loadMoreError
+	const setCursor = useCallback(
+		(next: number | ((current: number) => number)) =>
+			updateList((current) => ({ cursor: typeof next === 'function' ? next(current.cursor) : next })),
+		[updateList],
+	)
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
-	const loadMorePendingRef = useRef(false)
-	const folderIdentity = JSON.stringify([folderId, initialCursor])
+	const loadMorePendingRef = useRef<string | null>(null)
 	const folderGenerationRef = useRef({ identity: folderIdentity, generation: 0 })
 	if (folderGenerationRef.current.identity !== folderIdentity) {
 		folderGenerationRef.current = {
@@ -283,16 +346,6 @@ export function MailFolderRouteScreen({
 		[navItems, navigate],
 	)
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset paginated threads and the keyboard cursor when the folder changes
-	useEffect(() => {
-		loadMorePendingRef.current = false
-		setExtraThreads([])
-		setNextCursor(initialCursor)
-		setLocalLoadingMore(false)
-		setLocalLoadMoreError(false)
-		setCursor(-1)
-	}, [folderId, initialCursor])
-
 	// Keep the cursored row visible as it walks past the fold.
 	useEffect(() => {
 		if (cursor < 0) return
@@ -321,7 +374,7 @@ export function MailFolderRouteScreen({
 			row?.scrollIntoView({ block: 'nearest' })
 			row?.querySelector<HTMLElement>('.thread-row-link')?.focus()
 		})
-	}, [navItems, openThreadId])
+	}, [navItems, openThreadId, setCursor])
 
 	// Global list navigation: j/k or arrows move the cursor, Enter/o opens it.
 	// Skip while typing, while a dialog (command palette, compose, event) is up,
@@ -373,14 +426,14 @@ export function MailFolderRouteScreen({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, destinationThreadId, navItems, openItem, openThreadId])
+	}, [cursor, destinationThreadId, navItems, openItem, openThreadId, setCursor])
 
 	async function loadMore() {
-		if (!nextCursor || loadMorePendingRef.current || loadingMore || folderId === 'drafts') return
+		if (!nextCursor || loadMorePendingRef.current === folderIdentity || loadingMore || folderId === 'drafts')
+			return
 		const actionGeneration = folderGenerationRef.current.generation
-		loadMorePendingRef.current = true
-		setLocalLoadMoreError(false)
-		setLocalLoadingMore(true)
+		loadMorePendingRef.current = folderIdentity
+		updateList(() => ({ loadMoreError: false, loadingMore: true }))
 		try {
 			if (onLoadMore) {
 				await onLoadMore()
@@ -393,14 +446,18 @@ export function MailFolderRouteScreen({
 				},
 			})
 			if (folderGenerationRef.current.generation !== actionGeneration) return
-			setExtraThreads((current) => [...current, ...res.threads])
-			setNextCursor(res.nextCursor)
+			updateList((current) => ({
+				extraThreads: [...current.extraThreads, ...res.threads],
+				nextCursor: res.nextCursor,
+			}))
 		} catch {
-			if (folderGenerationRef.current.generation === actionGeneration) setLocalLoadMoreError(true)
+			if (folderGenerationRef.current.generation === actionGeneration) {
+				updateList(() => ({ loadMoreError: true }))
+			}
 		} finally {
 			if (folderGenerationRef.current.generation === actionGeneration) {
-				loadMorePendingRef.current = false
-				setLocalLoadingMore(false)
+				loadMorePendingRef.current = null
+				updateList(() => ({ loadingMore: false }))
 			}
 		}
 	}
@@ -433,6 +490,9 @@ export function MailFolderRouteScreen({
 	) : null
 	const threadList = (
 		<ScrollArea
+			// The scroll offset belongs to one folder; another folder starts at the top.
+			key={folderId}
+			scrollRestorationId={`mail-list:${folderId}`}
 			aria-label={`${folderTitle} thread list`}
 			viewportRef={listScrollRef}
 			className="min-h-0 flex-1"
@@ -502,7 +562,7 @@ export function MailFolderRouteScreen({
 			</section>
 			<section className={layout.reader}>
 				{hasThread ? (
-					(children ?? <Outlet />)
+					(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
 				) : (
 					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
@@ -572,19 +632,18 @@ function ThreadRow({
 	navActive: boolean
 	onUpdateThread?: (input: { threadId: string; starred: boolean }) => Promise<void>
 }) {
-	const [starred, setStarred] = useState(thread.starred)
-	const [starPending, setStarPending] = useState(false)
-
-	useEffect(() => {
-		setStarred(thread.starred)
-	}, [thread.starred])
+	// The star shown is the thread's own, except while a toggle is in flight.
+	// The requested value lives only for that request, so it can never outlive
+	// or disagree with the thread once the request settles.
+	const [requestedStar, setRequestedStar] = useState<boolean | null>(null)
+	const starPending = requestedStar !== null
+	const starred = requestedStar ?? Boolean(thread.starred)
 
 	async function toggleStar() {
 		/* v8 ignore next -- the star control is disabled while its request is pending -- @preserve */
 		if (starPending) return
 		const nextStarred = !starred
-		setStarred(nextStarred)
-		setStarPending(true)
+		setRequestedStar(nextStarred)
 		try {
 			if (onUpdateThread) await onUpdateThread({ threadId: thread.id, starred: nextStarred })
 			else {
@@ -593,13 +652,12 @@ function ThreadRow({
 				await updateThreadState({ data: { threadId: thread.id, starred: nextStarred } })
 			}
 		} catch {
-			/* v8 ignore next -- @preserve a failed optimistic mutation restores the rendered value before re-enabling the control */
-			setStarred(!nextStarred)
+			// The mutation gateway has already restored the cached thread.
 		} finally {
-			setStarPending(false)
+			setRequestedStar(null)
 		}
 	}
-	const optimisticThread = starred === thread.starred ? thread : { ...thread, starred }
+	const optimisticThread = starred === Boolean(thread.starred) ? thread : { ...thread, starred }
 	const className = cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')
 	const rowState = {
 		'data-active': active ? ('true' as const) : undefined,

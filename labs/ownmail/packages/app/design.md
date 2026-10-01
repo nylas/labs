@@ -84,6 +84,48 @@ warning while existing screens are migrated.
 - Focus feedback is immediate and never animated.
 - Hover styling is supplementary; every action has a tap and keyboard path.
 
+## Content-ready transitions
+
+Every region shows its own data, or a loader.
+
+1. Identity. Every screen region has a context identity: the account, plus an
+   entity id or filter key (folder, thread, contact, search query, date range
+   and view). A region renders only data fetched for its current identity.
+2. Allowed. Same account and same query key: show cached data while
+   refetching, keep rows during pagination, update in place on poll or webhook.
+   A pending view may show cached fields of the destination, such as its
+   subject.
+3. Forbidden. When any part of the identity changes, the region shows a
+   skeleton, a loader, or the new data. It never shows the previous identity's
+   content, including under a translucent or blurred cover. `placeholderData`
+   and `keepPreviousData` across differing keys are banned.
+4. Account partition. Every query key, optimistic journal and persisted
+   preference holding account-owned data includes the account identity.
+   Clearing the cache is defence in depth, not the mechanism. During a switch
+   the app content is unmounted, not covered.
+5. Routes. Every route whose loader depends on a param or search identity
+   declares a `pendingComponent`. Highlights and titles read the same source as
+   the content beside them.
+6. Local state. `useState` seeded from an entity, and entity-scoped UI state
+   (errors, confirmations, drafts, selection, scroll), lives under a key equal
+   to that identity. Syncing a prop into state with an effect is not a reset.
+7. First render is correct. Client preferences are read synchronously with
+   `useSyncExternalStore` and a server snapshot (the pattern in
+   `src/shared/components/ClientTime.tsx`), or the dependent region renders a
+   neutral placeholder. A default followed by a flip is a bug.
+8. Optimism and tests. Rollback touches only what the mutation changed and ends
+   with a refetch. Each identity-changing transition has a test with real route
+   components mounted, asserting no previous-identity text is in the DOM while
+   pending.
+
+Two router behaviours shape how clauses 5 and 6 are met. React keeps the
+children of a boundary that suspends again in the DOM, hidden, so a parent
+renders a child that has a `pendingComponent` through `ContentReadyOutlet`,
+which unmounts the previous child while the pending view is up. The router also
+carries a scrolled element's offset to whatever element replaces it, so a
+scroll area whose content has an identity names it with `scrollRestorationId`.
+The transition tests live in `src/routes/-content-ready-transitions.test.tsx`.
+
 ## Navigation
 
 - Desktop: persistent application rail.

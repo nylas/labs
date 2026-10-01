@@ -5,6 +5,10 @@ import { cn } from '#shared/lib/utils'
 type ScrollAreaProps = React.ComponentProps<'div'> & {
 	viewportClassName?: string
 	viewportRef?: React.Ref<HTMLElement>
+	/** Names the viewport for the router's scroll restoration. The router carries
+	 * an element's offset to whatever sits at the same place after a navigation;
+	 * an id tied to the content's identity keeps one list's offset off another. */
+	scrollRestorationId?: string
 	overflowIndicatorClassName?: string
 	'aria-label'?: string
 	'aria-describedby'?: string
@@ -35,6 +39,7 @@ export function ScrollArea({
 	className,
 	viewportClassName,
 	viewportRef,
+	scrollRestorationId,
 	overflowIndicatorClassName,
 	children,
 	'aria-label': ariaLabel,
@@ -168,6 +173,7 @@ export function ScrollArea({
 		>
 			<section
 				data-slot="scroll-area-viewport"
+				data-scroll-restoration-id={scrollRestorationId}
 				aria-label={ariaLabel}
 				aria-describedby={describedBy}
 				ref={setViewportRef}
