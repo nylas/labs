@@ -496,20 +496,28 @@ describe('toolbar actions', () => {
 	it('keeps mobile and tablet toolbar actions touch-friendly', () => {
 		renderThread()
 
-		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass(
-			'h-11',
-			'w-11',
-			'shrink-0',
-			'xl:hidden',
-		)
-		for (const label of ['Archive', 'Delete', 'Star', 'Mark unread']) {
-			expect(screen.getByRole('button', { name: label })).toHaveClass(
-				'h-11',
-				'w-11',
-				'shrink-0',
-				'xl:h-9',
-				'xl:w-9',
-			)
+		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
+		// One recipe for the whole row: the route's own actions, the reply group and
+		// the thread display actions are all the shared icon button, 36px with a fine
+		// pointer and 44px on narrow and touch screens, so no size is mixed in the row.
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		const buttons = [...toolbar.querySelectorAll('button')]
+		expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+			'Back to list',
+			'Archive',
+			'Delete',
+			'Star',
+			'Mark unread',
+			'Thread display',
+			'Expand all 3 messages',
+			'Collapse all 3 messages',
+			'Reply',
+			'Reply all',
+			'Forward',
+		])
+		for (const button of buttons) {
+			expect(button).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
+			expect(button.className).not.toMatch(/\b(?:xl:)?[hw]-(?:9|11)\b/)
 		}
 	})
 

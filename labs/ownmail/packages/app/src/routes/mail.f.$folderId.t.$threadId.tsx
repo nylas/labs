@@ -41,6 +41,7 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getThreadMessages, getThreads } from '#server/fns'
+import { IconButton as ToolbarIconButton } from '#shared/components/ui/icon-button'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
@@ -393,17 +394,13 @@ function ThreadView() {
 			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
 			<Toolbar className="gap-1 px-3">
-				<button
-					type="button"
+				<ToolbarIconButton
+					label="Back to list"
 					onClick={goBackToList}
-					aria-label="Back to list"
-					className={cn(
-						'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-						!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden',
-					)}
+					className={cn(!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden')}
 				>
-					<ArrowLeft className="h-5 w-5" />
-				</button>
+					<ArrowLeft className="size-5" />
+				</ToolbarIconButton>
 				<IconButton
 					label={
 						pendingAction === 'archive'
@@ -521,18 +518,12 @@ function IconButton({
 	loading?: boolean
 	children: React.ReactNode
 }) {
+	// Every control in the thread toolbar is the shared icon button, so the row
+	// is one size: 36px with a fine pointer, 44px on narrow and touch screens.
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={label}
-			title={label}
-			disabled={disabled}
-			aria-busy={loading || undefined}
-			className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 xl:h-9 xl:w-9"
-		>
+		<ToolbarIconButton label={label} onClick={onClick} disabled={disabled} aria-busy={loading || undefined}>
 			{children}
-		</button>
+		</ToolbarIconButton>
 	)
 }
 
@@ -546,15 +537,9 @@ function ActionButton({
 	children: React.ReactNode
 }) {
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={label}
-			title={label}
-			className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
-		>
+		<ToolbarIconButton label={label} onClick={onClick}>
 			{children}
-		</button>
+		</ToolbarIconButton>
 	)
 }
 
