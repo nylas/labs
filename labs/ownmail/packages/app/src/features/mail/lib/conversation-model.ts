@@ -115,8 +115,8 @@ export function rememberBlocks(shown: ShownBlock[], blocks: CleanBlock[], author
  * Whether a block of quoted history is the header a mail client put above a
  * quote, rather than something a person wrote. Wording alone is not enough: an
  * answer can begin "Date: Thursday works for me". So the block must also sit
- * where a header sits: it opens the history, or it is a lead-in directly above
- * a quote, or it is a group of two or more header lines.
+ * where a header sits: it opens the history, or it sits directly above a quote
+ * and is a lead-in or a From-first group of two or more header lines.
  */
 function isHeaderBlock(blocks: CleanBlock[], index: number): boolean {
 	const block = blocks[index] as CleanBlock
@@ -125,7 +125,10 @@ function isHeaderBlock(blocks: CleanBlock[], index: number): boolean {
 	const leadIn = LEAD_IN.test(lines.join(' '))
 	const headers = lines.every((line) => HEADER_LINE.test(line))
 	if (index === 0) return leadIn || headers
-	return (leadIn && blocks[index + 1]?.type === 'quote') || (headers && lines.length >= 2)
+	// Later in the history a header must sit directly above a quote, and a group
+	// of header lines must be a real one: two or more lines, starting with From.
+	const group = headers && lines.length >= 2 && /^from\s*:/i.test(lines[0] as string)
+	return blocks[index + 1]?.type === 'quote' && (leadIn || group)
 }
 
 /** Fingerprints of the lines of some blocks, without quote markers or lines too short to tell apart. */

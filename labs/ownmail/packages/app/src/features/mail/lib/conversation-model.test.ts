@@ -241,8 +241,8 @@ describe('bubbleContent', () => {
 		const below = bubbleContent([history(attribution, quote(EARLIER)), answer], shown())
 		expect(below.blocks.at(-1)).toEqual(answer)
 
-		// A real header still goes: a lead-in directly above a quote, and Outlook's
-		// group of header lines, wherever they sit in the history.
+		// A real header still goes: a lead-in, or Outlook's From-first group of
+		// header lines, directly above a quote.
 		const nested = bubbleContent(
 			[
 				text('See both below.'),
@@ -252,15 +252,30 @@ describe('bubbleContent', () => {
 					text('Agreed.'),
 					text('On Tue, Tomas Reyes wrote:'),
 					quote('Also, the retro probably fits better on Friday.'),
-					text('From: Ines\nSent: Monday'),
 					text('Fine.'),
+					text('From: Ines\nSent: Monday'),
+					quote(EARLIER),
+					// Header-like lines that do not start a real group, or are not above a quote, are answers.
+					text('Date: Thursday works\nSubject: fine too'),
+					quote(EARLIER),
+					text('From: my side this is fine\nSent: with thanks'),
 				),
 			],
 			shown(),
 		)
 		expect(
 			nested.blocks.map((block) => (block.type === 'paragraph' ? block.spans[0]?.text : block.type)),
-		).toEqual(['See both below.', 'reference', 'Agreed.', 'reference', 'Fine.'])
+		).toEqual([
+			'See both below.',
+			'reference',
+			'Agreed.',
+			'reference',
+			'Fine.',
+			'reference',
+			'Date: Thursday works\nSubject: fine too',
+			'reference',
+			'From: my side this is fine\nSent: with thanks',
+		])
 		// A lead-in that is not above a quote is just a sentence ending in "wrote:".
 		const sentence = text('This is what the venue wrote:')
 		expect(

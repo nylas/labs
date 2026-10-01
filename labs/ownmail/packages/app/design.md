@@ -213,7 +213,13 @@ and renders exactly as before when the view is off.
   repeats an earlier message is folded; a trailing quote of something the
   thread has not shown stays behind a closed "Quoted text" disclosure.
   Signatures (a `-- ` line, the mail client's own signature marker, or a closing
-  block of contact details) are left out, unless text follows them.
+  block with a name line, two contact lines and a phone number or email
+  address) are left out, unless text follows them. A closing list of links is
+  content and stays. A quote header ("On Mon, Ines wrote:", Outlook's
+  From/Sent group) is dropped only where a header sits: opening the history or
+  directly above a quote. Unquoted lines after a quote, in plain text too, are
+  new text. A test over the fixture corpus checks that every new word of every
+  message is on screen or the message is shown whole.
 - Reply references. An answer written between or below quoted lines is shown
   under a small filled reference to the line it answers, credited to whoever
   wrote that line when the thread knows. A quote the thread has not shown stays
@@ -237,7 +243,9 @@ and renders exactly as before when the view is off.
 - Data tables. A table is data only if its author marked it (`th`, `thead`,
   `caption`) or it is a regular grid of short text cells; it is then kept as a
   table that scrolls sideways rather than squeezing. A table that holds other
-  tables, or is `role=presentation`, is layout and is read in row order.
+  tables, or is `role=presentation`, is layout and is read in row order. A
+  table with merged cells (`colspan`, `rowspan`) is never kept as a table; if
+  its author marked it as data the message keeps the standard reader.
 - Boilerplate. Navigation rows, social rows and footers fold into one
   disclosure at the end of the article, labelled with what it holds ("Footer,
   6 links including Unsubscribe"). Blocks are scored on legal wording, a short
