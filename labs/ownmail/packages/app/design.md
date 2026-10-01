@@ -124,6 +124,8 @@ renders a child that has a `pendingComponent` through `ContentReadyOutlet`,
 which unmounts the previous child while the pending view is up. The router also
 carries a scrolled element's offset to whatever element replaces it, so a
 scroll area whose content has an identity names it with `scrollRestorationId`.
+State that must start again for another identity without remounting its
+component uses `useIdentityState` (`src/shared/hooks/use-identity-state.ts`).
 The transition tests live in `src/routes/-content-ready-transitions.test.tsx`.
 
 ## Navigation

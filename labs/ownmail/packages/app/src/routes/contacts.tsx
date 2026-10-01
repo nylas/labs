@@ -19,6 +19,7 @@ import { flattenContactPages, useContactsPages } from '#features/contacts/state/
 import { getContacts } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { initials } from '#shared/lib/presentation'
 import { cn } from '#shared/lib/utils'
@@ -36,6 +37,14 @@ export const Route = createFileRoute('/contacts')({
 	staleTime: 30_000,
 	component: ContactsLayout,
 })
+
+/** Pagination state owned by one inbox's loaded contact list; see `ContactsShell`. */
+type ContactsPaging = {
+	extra: Contact[]
+	nextCursor: string | undefined
+	loadingMore: boolean
+	loadMoreError: boolean
+}
 
 type ContactsInfo = {
 	email: string
@@ -96,16 +105,25 @@ export function ContactsShell({
 	onLoadMore?: () => Promise<unknown>
 	onRefresh?: () => Promise<unknown>
 }) {
-	const [extra, setExtra] = useState<Contact[]>([])
-	const [nextCursor, setNextCursor] = useState(initialCursor)
-	const [localLoadingMore, setLocalLoadingMore] = useState(false)
-	const [localLoadMoreError, setLocalLoadMoreError] = useState(false)
+	// Paged-in rows and the pagination status belong to one inbox and one loaded
+	// first page. A fresh loader run (after a mutation, or for another inbox)
+	// replaces `contacts`, and the paging state starts clean on that same render:
+	// stale or duplicated rows never paint, and a page that answers late for the
+	// previous list is dropped.
+	const [paging, setPaging] = useIdentityState<ContactsPaging>([info.email, contacts, initialCursor], () => ({
+		extra: [],
+		nextCursor: initialCursor,
+		loadingMore: false,
+		loadMoreError: false,
+	}))
+	const { extra, nextCursor } = paging
+	const localLoadingMore = paging.loadingMore
+	const localLoadMoreError = paging.loadMoreError
 	const loadingMore = Boolean(controlledLoadingMore || localLoadingMore)
 	const loadMoreFailed = !loadingMore && Boolean(controlledLoadMoreError || localLoadMoreError)
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [navigationOpen, setNavigationOpen] = useState(false)
-	const [cursor, setCursor] = useState(-1)
-	const loadMorePendingRef = useRef(false)
+	const loadMorePendingRef = useRef<number | null>(null)
 	const listScrollRef = useRef<HTMLUListElement>(null)
 	const listGenerationRef = useRef({ contacts, initialCursor, generation: 0 })
 	if (
@@ -123,29 +141,19 @@ export function ContactsShell({
 	const closePalette = useCallback(() => setPaletteOpen(false), [])
 	useCommandPaletteShortcut(openPalette)
 
-	// A fresh loader run (after a mutation) replaces `contacts`; drop the paged-in
-	// extras and reset the cursor so we don't show stale or duplicated rows. The
-	// `contacts` dep is the trigger even though the body doesn't read it.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when a new contacts page arrives
-	useEffect(() => {
-		loadMorePendingRef.current = false
-		setExtra([])
-		setNextCursor(initialCursor)
-		setLocalLoadingMore(false)
-		setLocalLoadMoreError(false)
-	}, [contacts, initialCursor])
-
 	const all = useMemo(() => sortContacts(dedupeContacts([...contacts, ...extra])), [contacts, extra])
 	const filtered = useMemo(() => filterContacts(all, query), [all, query])
 	// Preserve the active search when following a contact link so the list stays filtered.
 	const linkSearch = query ? { q: query } : {}
 
-	// Contacts is an arrow-key list as well as a set of ordinary tab stops.
-	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
-	useEffect(() => {
-		setCursor(selectedId ? filtered.findIndex((contact) => contact.id === selectedId) : -1)
-	}, [filtered, selectedId])
+	// Contacts is an arrow-key list as well as a set of ordinary tab stops. The
+	// keyboard cursor starts on the selected contact and belongs to that
+	// selection and list: another selection or filter starts from its own row.
+	const [cursor, setCursor] = useIdentityState([filtered, selectedId], () =>
+		selectedId ? filtered.findIndex((contact) => contact.id === selectedId) : -1,
+	)
 
+	/* v8 ignore start -- list navigation is exercised through the shared pure helpers -- @preserve */
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			const target = event.target as HTMLElement | null
@@ -181,31 +189,31 @@ export function ContactsShell({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, filtered])
+	}, [cursor, filtered, setCursor])
 	/* v8 ignore stop -- @preserve */
 
 	async function loadMore() {
-		if (!nextCursor || loadMorePendingRef.current || loadingMore) return
+		if (!nextCursor || loadMorePendingRef.current === listGenerationRef.current.generation || loadingMore)
+			return
 		const actionGeneration = listGenerationRef.current.generation
-		loadMorePendingRef.current = true
-		setLocalLoadMoreError(false)
-		setLocalLoadingMore(true)
+		loadMorePendingRef.current = actionGeneration
+		setPaging((current) => ({ ...current, loadMoreError: false, loadingMore: true }))
 		try {
 			if (onLoadMore) {
 				await onLoadMore()
 				return
 			}
 			const res = await getContacts({ data: { pageToken: nextCursor } })
-			if (listGenerationRef.current.generation !== actionGeneration) return
-			setExtra((prev) => [...prev, ...res.contacts])
-			setNextCursor(res.nextCursor)
+			setPaging((current) => ({
+				...current,
+				extra: [...current.extra, ...res.contacts],
+				nextCursor: res.nextCursor,
+			}))
 		} catch {
-			if (listGenerationRef.current.generation === actionGeneration) setLocalLoadMoreError(true)
+			setPaging((current) => ({ ...current, loadMoreError: true }))
 		} finally {
-			if (listGenerationRef.current.generation === actionGeneration) {
-				loadMorePendingRef.current = false
-				setLocalLoadingMore(false)
-			}
+			if (listGenerationRef.current.generation === actionGeneration) loadMorePendingRef.current = null
+			setPaging((current) => ({ ...current, loadingMore: false }))
 		}
 	}
 	const paginationControls = nextCursor ? (

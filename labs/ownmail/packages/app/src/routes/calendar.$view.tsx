@@ -82,6 +82,7 @@ import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
+import { useIdentityState } from '#shared/hooks/use-identity-state'
 import type { Rect } from '#shared/lib/modal-position'
 import { cn } from '#shared/lib/utils'
 
@@ -749,8 +750,8 @@ function MiniCalendar({
 	highlightWeek: boolean
 }) {
 	const [cursor, setCursor] = useState(() => new Date(refDate.getFullYear(), refDate.getMonth(), 1))
-	const [activeDay, setActiveDay] = useState(() => new Date(refDate))
-	useEffect(() => setActiveDay(new Date(refDate)), [refDate])
+	// The roving focus day belongs to the date the calendar is anchored on.
+	const [activeDay, setActiveDay] = useIdentityState([refDate], () => new Date(refDate))
 	const { start, end } = viewRange('month', cursor)
 	const days: Date[] = []
 	for (let day = new Date(start); day < end; day = addDays(day, 1)) days.push(new Date(day))
@@ -884,9 +885,9 @@ function MonthGrid({
 	const weeks = Array.from({ length: 6 }, (_, index) => days.slice(index * 7, index * 7 + 7))
 	const visibleDayIds = new Set(days.map(ymd))
 	const todayIso = ymd(calendarDateInTimeZone(new Date(), timeZone))
-	const [activeDay, setActiveDay] = useState(() => new Date(anchor))
+	// The roving focus day belongs to the month the grid is anchored on.
+	const [activeDay, setActiveDay] = useIdentityState([anchor], () => new Date(anchor))
 	const mobileLayout = useMobileCalendarLayout()
-	useEffect(() => setActiveDay(new Date(anchor)), [anchor])
 
 	const monthGrid = (
 		/* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: The native table structure provides the required row and cell ownership for this interactive ARIA grid. */
