@@ -315,6 +315,42 @@ describe('prose classification', () => {
 	})
 })
 
+describe('a signature laid out as a table', () => {
+	const WORDS = '<div>Shall we find a time this week to go over your project?</div>'
+	const SIGNATURE =
+		'<table cellpadding="0"><tr><td style="padding:8px"><img src="https://images.example.com/tomas.png" width="72"></td>' +
+		'<td style="padding:8px 0"><p>Tomas Reyes</p><p>Account Manager</p><p><a href="mailto:tomas@example.com">tomas@example.com</a></p></td></tr></table>'
+	const OPT_OUT = '<div>If you would rather not hear from me again, please let me know.</div>'
+
+	it('leaves a person’s message prose: the table signs it, it does not lay it out', () => {
+		expect(prepareEmailMessageContent(`${WORDS}${SIGNATURE}${OPT_OUT}`, 'm1').isProse).toBe(true)
+		// A second card, such as a colleague copied in the signature, changes nothing.
+		const second = SIGNATURE.replace('Tomas Reyes', 'Ines Carvalho').replace(/tomas@/g, 'ines@')
+		expect(prepareEmailMessageContent(`${WORDS}${SIGNATURE}<div>and</div>${second}`, 'm1').isProse).toBe(true)
+	})
+
+	it.each([
+		['a table that lays out the message itself', `<table><tr><td>${WORDS}</td></tr></table>${SIGNATURE}`],
+		['a nested layout table', `${WORDS}<table><tr><td>${SIGNATURE}</td></tr></table>`],
+		[
+			'a table with nobody to reach in it',
+			`${WORDS}<table><tr><td>Order 1042</td><td>Shipped</td></tr></table>`,
+		],
+		[
+			'a table too long to be a signature',
+			`${WORDS}${SIGNATURE.replace('Account Manager', 'Terms. '.repeat(60))}`,
+		],
+		['a contact card with no message above it', `${SIGNATURE}${OPT_OUT}`],
+		[
+			'more of the message below the table',
+			`${WORDS}${SIGNATURE}<div>${'More of the message. '.repeat(20)}</div>`,
+		],
+		['designed layout around the signature', `<div style="display:flex">${WORDS}</div>${SIGNATURE}`],
+	])('still treats %s as designed mail', (_label, html) => {
+		expect(prepareEmailMessageContent(html, 'm1').isProse).toBe(false)
+	})
+})
+
 describe('plaintext quoted history', () => {
 	it('splits a recognized reply lead-in followed by conventional quoting', () => {
 		expect(

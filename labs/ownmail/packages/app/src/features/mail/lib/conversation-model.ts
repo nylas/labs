@@ -57,8 +57,8 @@ export type ConversationItem =
 	/** A change email hides in headers: a person added, moved to Cc, a new subject. */
 	| { kind: 'event'; key: string; text: string }
 	| { kind: 'run'; key: string; label: string; mine: boolean; bubbles: ConversationBubble[] }
-	/** A message shown by the standard reader, across the full column. */
-	| { kind: 'card'; key: string; label: string; message: MailMessage; restorable: boolean }
+	/** A message shown by the standard reader, on its sender's side of a chat. */
+	| { kind: 'card'; key: string; label: string; mine: boolean; message: MailMessage; restorable: boolean }
 	/** Designed mail rendered natively by the clean pipeline. */
 	| { kind: 'article'; key: string; label: string; message: MailMessage; blocks: CleanBlock[] }
 
@@ -247,9 +247,50 @@ function isContactBlock(block: CleanBlock, sender: Person | undefined): boolean 
 }
 
 /**
+ * A signature whose lines arrive as separate blocks, as they do when it was
+ * laid out as a table: the sender's own name, then one short line per block.
+ * It runs to its last contact line, so a closing line that is not part of the
+ * signature (a booking link, an opt-out sentence) stays message text. A
+ * portrait directly above the name belongs to it. Returns the half-open range
+ * of the signature, or undefined when the lines do not add up to one.
+ */
+function splitSignature(
+	blocks: CleanBlock[],
+	end: number,
+	sender: Person | undefined,
+): [start: number, stop: number] | undefined {
+	const line = (index: number): string | undefined => {
+		const block = blocks[index] as CleanBlock
+		const text = block.type === 'paragraph' ? blocksText([block]) : '\n'
+		return text.includes('\n') || text.length > SIGNATURE_MAX_LINE_CHARS ? undefined : text
+	}
+	for (let name = 1; name < end; name += 1) {
+		const first = line(name)
+		if (first === undefined || !NAME_LINE.test(first) || !isSenderName(first, sender)) continue
+		const rest: string[] = []
+		for (let index = name + 1; index < end && rest.length < SIGNATURE_MAX_LINES - 1; index += 1) {
+			const text = line(index)
+			if (text === undefined) break
+			rest.push(text)
+		}
+		const lines = rest.slice(0, rest.findLastIndex((text) => CONTACT_LINE.test(text)) + 1)
+		if (
+			lines.filter((text) => CONTACT_LINE.test(text)).length < 2 ||
+			!lines.some((text) => PERSONAL_CONTACT.test(text))
+		) {
+			continue
+		}
+		const portrait = name > 1 && (blocks[name - 1] as CleanBlock).type === 'image'
+		return [portrait ? name - 1 : name, name + 1 + lines.length]
+	}
+	return undefined
+}
+
+/**
  * Find the signature when the sender's client did not mark one: everything
  * from a `-- ` line to the quoted history, or else a closing block that names
- * the sender and how to reach them.
+ * the sender and how to reach them, whether its lines share one block or each
+ * has its own.
  */
 function markSignatures(blocks: CleanBlock[], sender: Person | undefined): CleanBlock[] {
 	if (blocks.some((block) => block.type === 'signature')) return blocks
@@ -260,11 +301,12 @@ function markSignatures(blocks: CleanBlock[], sender: Person | undefined): Clean
 	)
 	// A lone contact block is the message, not a signature.
 	if (start === -1 && end > 1 && isContactBlock(blocks[end - 1] as CleanBlock, sender)) start = end - 1
-	if (start === -1) return blocks
+	const [from, to] = start === -1 ? (splitSignature(blocks, end, sender) ?? [-1, -1]) : [start, end]
+	if (from === -1) return blocks
 	return [
-		...blocks.slice(0, start),
-		{ type: 'signature', blocks: blocks.slice(start, end) },
-		...blocks.slice(end),
+		...blocks.slice(0, from),
+		{ type: 'signature', blocks: blocks.slice(from, to) },
+		...blocks.slice(to),
 	]
 }
 
@@ -476,6 +518,7 @@ export function buildConversation(messages: MailMessage[], options: Conversation
 				kind: 'card',
 				key: message.id,
 				label,
+				mine,
 				message,
 				restorable: content.kind !== 'original',
 			})

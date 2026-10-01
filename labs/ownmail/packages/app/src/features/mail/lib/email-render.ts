@@ -322,6 +322,16 @@ export function applyEmailColorMode(element: Element | null, mode: EmailColorMod
 	if (element) element.setAttribute('data-color-mode', mode)
 }
 
+/**
+ * Tell the element a message was last shown on paper, so a reopened message
+ * starts there instead of on the dark remap until its artwork is measured again.
+ */
+export function applyEmailKnownPaper(element: Element | null, paper: boolean): void {
+	if (!element) return
+	if (paper) element.setAttribute('data-email-paper', '')
+	else element.removeAttribute('data-email-paper')
+}
+
 /** Reflect the reader's compatibility layout choice onto the custom element. */
 export function applyEmailLayoutMode(element: Element | null, mode: EmailLayoutMode): void {
 	if (!element) return

@@ -446,6 +446,46 @@ describe('Show original', () => {
 		expect(document.querySelectorAll('[data-slot="conversation-card"]')).toHaveLength(0)
 	})
 
+	it('keeps a message on its sender’s side, at chat width, when the standard reader shows it', () => {
+		renderThread()
+		openConversation()
+		fireEvent.click(screen.getByRole('button', { name: 'Show original message from You' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show original messages from Tomas Reyes' }))
+
+		// The side says who wrote a message; switching to the original must not move it or widen it.
+		const cards = [...document.querySelectorAll<HTMLElement>('[data-slot="conversation-card"]')]
+		const mine = cards.filter((card) => card.getAttribute('aria-label') === 'Message from Sam Reader')
+		const theirs = cards.filter((card) => card.getAttribute('aria-label') === 'Message from Tomas Reyes')
+		expect(mine.map((card) => card.getAttribute('data-side'))).toEqual(['me'])
+		expect(theirs.map((card) => card.getAttribute('data-side'))).toEqual(['them', 'them'])
+		expect(within(mine[0] as HTMLElement).getByText('You')).toBeInTheDocument()
+		expect(within(theirs[0] as HTMLElement).getByText('Tomas Reyes')).toBeInTheDocument()
+
+		const bubbleWidth = [...(bubbles()[0] as HTMLElement).classList].find((name) => name.startsWith('max-w-'))
+		expect(bubbleWidth).toBe('max-w-[min(72ch,85%)]')
+		for (const card of cards) {
+			const body = card.querySelector('[data-slot="conversation-card-body"]') as HTMLElement
+			expect(body).toHaveClass(bubbleWidth as string, 'overflow-hidden', 'rounded-2xl')
+			expect(body).not.toBeEmptyDOMElement()
+		}
+	})
+
+	it('places mail the clean view is unsure about on its sender’s side of a chat, dated or not', () => {
+		renderThread([
+			email('hello', INES, MONDAY, 'Here is the receipt you asked about.'),
+			{
+				id: 'receipt',
+				from: [TOMAS],
+				body: '<table width="600"><tr><td><img alt="Order 1042" width="600" height="400"></td></tr></table>',
+			},
+		])
+		openConversation()
+		const card = document.querySelector('[data-slot="conversation-card"]') as HTMLElement
+		expect(card).toHaveAttribute('data-side', 'them')
+		expect(card.querySelector('[data-slot="conversation-card-body"]')).not.toBeNull()
+		expect(card.querySelector('time')).toBeNull()
+	})
+
 	it('keeps mail the clean view is unsure about in the standard reader, with its attachments', async () => {
 		renderThread([
 			{

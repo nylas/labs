@@ -39,6 +39,7 @@ const SYNTHETIC: ReadonlyArray<readonly [name: string, expected: Expected]> = [
 	['conversation-inline-replies', 'blocks'],
 	['conversation-text-below-quote', 'blocks'],
 	['conversation-text-below-signature', 'blocks'],
+	['conversation-table-signature', 'blocks'],
 	['clean-newsletter-layout-tables', 'article'],
 	['clean-transactional-notice', 'article'],
 	['clean-one-time-code', 'article'],

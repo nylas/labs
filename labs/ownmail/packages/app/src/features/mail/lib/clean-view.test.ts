@@ -487,6 +487,24 @@ describe('classifyMail', () => {
 		expect(classifyMail(bodyOf('<table><tr><td>Your receipt</td></tr></table>'), false)).toBe('transactional')
 	})
 
+	it('reads a message its sender signed as one-to-one mail, opt-out link or not', () => {
+		// Sales and support tools add an opt-out link, and often the header, to
+		// mail a person wrote to one reader. Signed by that person, it is their
+		// message in a conversation; it takes designed layout as well to be bulk.
+		const signature =
+			'<table><tr><td><p>Tomas Reyes</p><p><a href="mailto:tomas@example.com">tomas@example.com</a></p></td></tr></table>'
+		const optOut =
+			'<p>Rather not hear from me? <a href="https://example.com/opt-out?u=1">Let me know</a>.</p>'
+		const signed = bodyOf(`<p>${PROSE_FILLER}</p>${signature}${optOut}`)
+		expect(classifyMail(signed, true)).toBe('prose')
+		expect(classifyMail(signed, true, true)).toBe('prose')
+		// The same link under unsigned text is still a newsletter.
+		expect(classifyMail(bodyOf(`<p>${PROSE_FILLER}</p>${optOut}`), true)).toBe('newsletter')
+		// And a signature does not excuse mail that is also built like a newsletter.
+		const links = '<a href="https://example.com/a">One</a>'.repeat(6)
+		expect(classifyMail(bodyOf(`<p>Deals</p>${links}${signature}${optOut}`), false)).toBe('newsletter')
+	})
+
 	it('needs two bulk signals, so one stray signal never makes a newsletter', () => {
 		// An unsubscribe link alone is decisive: it counts double.
 		expect(

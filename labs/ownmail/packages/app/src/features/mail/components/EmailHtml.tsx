@@ -11,6 +11,7 @@ import {
 	applyEmailColorMode,
 	applyEmailHtml,
 	applyEmailImageMode,
+	applyEmailKnownPaper,
 	applyEmailLayoutMode,
 	applyEmailTheme,
 	applyRemoteImages,
@@ -167,6 +168,11 @@ export function EmailHtml({
 		const known = rememberedEmail(memoryKey)
 		if (known) canvasCallbackRef.current?.(known)
 	}, [memoryKey])
+
+	// Before the theme, colors and HTML below, so the element's first strategy already knows.
+	useLayoutEffect(() => {
+		if (ready) applyEmailKnownPaper(ref.current, rememberedEmail(memoryKey)?.strategy === 'paper')
+	}, [ready, memoryKey])
 
 	useLayoutEffect(() => {
 		if (ready) applyEmailLayoutMode(ref.current, layoutMode)

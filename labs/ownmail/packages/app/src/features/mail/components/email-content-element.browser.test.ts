@@ -1357,6 +1357,99 @@ describe.runIf(existsSync(chromium.executablePath()))('production email element 
 		expect(canvasPixel).toEqual([255, 255, 255])
 	})
 
+	it('settles on paper once and never flips back while its images reload', async () => {
+		if (!browser) throw new Error('Chromium failed to launch')
+		// A logo on an opaque white matte, and a photo that fills its frame.
+		const matte = await sharp({ create: { width: 300, height: 60, channels: 4, background: '#ffffff' } })
+			.composite([
+				{
+					input: await sharp({ create: { width: 200, height: 20, channels: 4, background: '#1d4ed8' } })
+						.png()
+						.toBuffer(),
+				},
+			])
+			.png()
+			.toBuffer()
+		const photo = await sharp({ create: { width: 300, height: 120, channels: 4, background: '#0f766e' } })
+			.png()
+			.toBuffer()
+		const page = await browser.newPage({ viewport: { width: 900, height: 900 } })
+		// The matte always arrives after the photo, so a measurement runs while the
+		// matte is still loading: the moment the reader used to forget what it saw.
+		await page.route('**/email-images/**', async (route) => {
+			const logo = new URL(route.request().url()).searchParams.get('asset') === 'logo.png'
+			await new Promise((resolve) => setTimeout(resolve, logo ? 120 : 20))
+			await route
+				.fulfill({
+					contentType: 'image/png',
+					body: logo ? matte : photo,
+					headers: { 'cache-control': 'no-store' },
+				})
+				.catch(() => {})
+		})
+		await mountEmail(
+			page,
+			fixtureUrl,
+			600,
+			`<body style="margin:0;background:#ffffff"><p>Hello</p>
+				<img src="${controlledImagePath('logo.png')}" width="300" height="60">
+				<img src="${controlledImagePath('photo.png')}" width="300" height="120"></body>`,
+		)
+		await useDarkReader(page)
+		await page.locator('ownmail-email').evaluate((host) => {
+			const seen: string[] = []
+			;(window as Window & { __strategies?: string[] }).__strategies = seen
+			new MutationObserver(() => seen.push(host.getAttribute('data-email-strategy') ?? '')).observe(host, {
+				attributes: true,
+				attributeFilter: ['data-email-strategy'],
+				attributeOldValue: true,
+			})
+			host.setAttribute('data-load-remote-images', '')
+		})
+		await page.waitForFunction(
+			() => document.querySelector('ownmail-email')?.getAttribute('data-email-strategy') === 'paper',
+		)
+		await page.waitForTimeout(1_200)
+		const settled = await page.evaluate(() => (window as Window & { __strategies?: string[] }).__strategies)
+
+		// The reader's colour choice round-trips without repainting the message dark.
+		await page.locator('ownmail-email').evaluate((host) => {
+			;(window as Window & { __strategies?: string[] }).__strategies?.splice(0)
+			host.setAttribute('data-color-mode', 'original')
+			host.setAttribute('data-image-mode', 'original')
+		})
+		await settleLayout(page)
+		await page.locator('ownmail-email').evaluate((host) => {
+			host.setAttribute('data-color-mode', 'automatic')
+			host.setAttribute('data-image-mode', 'automatic')
+		})
+		await page.waitForTimeout(600)
+		const toggled = await page.evaluate(() => (window as Window & { __strategies?: string[] }).__strategies)
+		const final = await page.locator('ownmail-email').getAttribute('data-email-strategy')
+
+		// A different message is not on paper until its own artwork says so...
+		const fresh = await page.locator('ownmail-email').evaluate(async (host) => {
+			;(host as HTMLElement & { emailHtml: string }).emailHtml = '<p>Plain words on the default canvas</p>'
+			for (let frame = 0; frame < 3; frame += 1) await new Promise(requestAnimationFrame)
+			return host.getAttribute('data-email-strategy')
+		})
+		// ...unless the reader last saw it there: then it opens on paper, before any image has loaded.
+		const reopened = await page.locator('ownmail-email').evaluate(async (host) => {
+			host.setAttribute('data-email-paper', '')
+			;(host as HTMLElement & { emailHtml: string }).emailHtml = '<p>Words above artwork not yet loaded</p>'
+			for (let frame = 0; frame < 3; frame += 1) await new Promise(requestAnimationFrame)
+			return host.getAttribute('data-email-strategy')
+		})
+		await page.close()
+
+		const afterPaper = (settled ?? []).slice((settled ?? []).indexOf('paper'))
+		expect(afterPaper).not.toContain('remap')
+		expect(toggled).not.toContain('remap')
+		expect(final).toBe('paper')
+		expect(fresh).toBe('remap')
+		expect(reopened).toBe('paper')
+	})
+
 	it('stops shrinking an original-layout email at the legibility floor and pans the rest', async () => {
 		if (!browser) throw new Error('Chromium failed to launch')
 		const page = await browser.newPage({ viewport: { width: 375, height: 800 } })
