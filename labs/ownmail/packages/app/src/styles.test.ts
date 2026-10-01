@@ -172,7 +172,7 @@ describe('mail list density styles', () => {
 
 	it('defines the Default three-line row once, with the unread dot as an in-flow leading cell', () => {
 		expect(outsideDensityBlock).toMatch(
-			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"dot lead who when"\s*"\. text text text";/,
+			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"dot lead who when"\s*"text text text text";/,
 		)
 		expect(styles).toMatch(/\.thread-row-dot\s*\{\s*grid-area: dot;/)
 		// The dot's track has no width: it sits in the row's 16px padding, so row text keeps the title's left edge.
@@ -186,6 +186,21 @@ describe('mail list density styles', () => {
 		expect(styles).toMatch(
 			/\.thread-row\[data-unread="true"\]:not\(\[data-active="true"\]\):not\(:has\(\[data-active="true"\]\)\)\s+\.thread-row-dot,/,
 		)
+	})
+
+	it('starts Default and Compact subject and snippet lines at the row edge the list title shares', () => {
+		// Default must look as it did before density existed: only the star and sender sit on
+		// line 1, and the text lines span from column 1, whose zero-width dot track begins at the
+		// row's 16px padding. Starting them at the star's column would tie them to the star's width.
+		const row = outsideDensityBlock.slice(outsideDensityBlock.indexOf('\n.thread-row {'))
+		const rowRule = row.slice(0, row.indexOf('}'))
+		expect(rowRule).toContain('grid-template-columns: 0 auto minmax(0, 1fr) auto;')
+		expect(rowRule).toMatch(/grid-template-areas:\s*"dot lead who when"\s*"text text text text";/)
+		expect(rowRule).not.toMatch(/"\. text/)
+		// Compact reuses the Default areas; only Condensed moves the text onto line 1.
+		const compactRow = densityBlock.slice(densityBlock.indexOf('[data-density="compact"] .thread-row {'))
+		expect(compactRow.slice(0, compactRow.indexOf('}'))).not.toContain('grid-template')
+		expect(densityBlock).toContain('grid-template-areas: "dot lead who text when";')
 	})
 
 	it('never lets touch or mobile layouts have mail rows under 48px', () => {

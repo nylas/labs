@@ -716,6 +716,8 @@
  * The row's own 16px inline padding (`px-4`) is the left edge shared with the
  * list title, so the unread dot's track has no width and the dot sits in that
  * padding; cells are spaced by their own margins instead of a column gap.
+ * Subject and snippet span every column from the first, so they start at that
+ * same 16px edge and never behind the star's track.
  */
 .thread-row {
 	position: relative;
@@ -723,7 +725,7 @@
 	grid-template-columns: 0 auto minmax(0, 1fr) auto;
 	grid-template-areas:
 		"dot lead who when"
-		". text text text";
+		"text text text text";
 	align-items: center;
 	row-gap: 0.25rem;
 	transition:
