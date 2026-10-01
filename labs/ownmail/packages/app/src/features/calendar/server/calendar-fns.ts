@@ -50,20 +50,41 @@ export const MAX_EVENT_PAGES_PER_CALENDAR = 10
 
 type Page = { data?: unknown; next_cursor?: unknown }
 
-/** Follows page tokens until the provider reports no further page or the ceiling is reached. */
+/** Keeps the first record for each id. Records without a usable id are left for the caller's validation. */
+function uniqueById<T>(items: T[]): T[] {
+	const seen = new Set<string>()
+	return items.filter((item) => {
+		const id = (item as { id?: unknown } | null)?.id
+		if (typeof id !== 'string') return true
+		if (seen.has(id)) return false
+		seen.add(id)
+		return true
+	})
+}
+
+/**
+ * Follows page tokens until the provider reports no further page, repeats a
+ * token it already gave, or the ceiling is reached. A repeated token would
+ * refetch a page already held, so the sequence stops there and is reported as
+ * incomplete instead of appending copies. Items are returned once per id.
+ */
 async function listAllPages<T>(
 	fetchPage: (pageToken: string | undefined) => Promise<Page>,
 	maxPages: number,
 ): Promise<{ items: T[]; truncated: boolean }> {
 	const items: T[] = []
+	const seenTokens = new Set<string>()
 	let pageToken: string | undefined
 	for (let page = 0; page < maxPages; page += 1) {
 		const response = await fetchPage(pageToken)
 		items.push(...listData<T>(response.data))
-		if (typeof response.next_cursor !== 'string' || !response.next_cursor) return { items, truncated: false }
-		pageToken = response.next_cursor
+		const next = response.next_cursor
+		if (typeof next !== 'string' || !next) return { items: uniqueById(items), truncated: false }
+		if (seenTokens.has(next)) break
+		seenTokens.add(next)
+		pageToken = next
 	}
-	return { items, truncated: true }
+	return { items: uniqueById(items), truncated: true }
 }
 
 async function primaryCalendar(): Promise<{
@@ -179,7 +200,8 @@ export const getEvents = createServerFn({ method: 'GET' })
 			})
 			// `request<T>()` cannot validate live JSON at runtime. Drop malformed entries at
 			// this external-data boundary so a single provider record cannot crash the calendar.
-			const events = results.flatMap((result) => result.items).filter(isRenderableCalendarEvent)
+			// An event id is a render key, so one returned under two calendars is kept once.
+			const events = uniqueById(results.flatMap((result) => result.items)).filter(isRenderableCalendarEvent)
 			// Never drop events silently: the grid shows a notice when a ceiling was reached.
 			const truncated = calendarsTruncated || results.some((result) => result.truncated)
 			return { calendar, calendars, events, truncated }
