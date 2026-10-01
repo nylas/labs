@@ -62,7 +62,7 @@ function Image({ image }: { image: CleanImage }) {
 	return <p>{image.href ? <SafeLink href={image.href}>{content}</SafeLink> : content}</p>
 }
 
-function Block({ block }: { block: CleanBlock }) {
+function Block({ block, historyOpen }: { block: CleanBlock; historyOpen: boolean }) {
 	switch (block.type) {
 		case 'heading': {
 			const Tag = HEADING_TAGS[block.level - 1] as (typeof HEADING_TAGS)[number]
@@ -96,7 +96,7 @@ function Block({ block }: { block: CleanBlock }) {
 			// Quotation is an indent and muted text, never a side rail.
 			return (
 				<blockquote className="pl-region text-muted-foreground">
-					<CleanBlocks blocks={block.blocks} />
+					<CleanBlocks blocks={block.blocks} historyOpen={historyOpen} />
 				</blockquote>
 			)
 		case 'image':
@@ -111,27 +111,37 @@ function Block({ block }: { block: CleanBlock }) {
 			return <hr className="border-border" />
 		case 'history':
 			return (
-				<details data-slot="clean-quoted-history" className="text-muted-foreground">
+				<details data-slot="clean-quoted-history" open={historyOpen} className="text-muted-foreground">
 					<summary className="flex min-h-11 cursor-pointer items-center rounded-sm text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
 						Quoted text
 					</summary>
 					<div className="pl-region">
-						<CleanBlocks blocks={block.blocks} />
+						<CleanBlocks blocks={block.blocks} historyOpen={historyOpen} />
 					</div>
 				</details>
 			)
 	}
 }
 
-/** Renders the clean block model in app typography. Every node is a React element. */
-export function CleanBlocks({ blocks }: { blocks: CleanBlock[] }) {
+/**
+ * Renders the clean block model in app typography. Every node is a React
+ * element. `historyOpen` starts quoted-text disclosures open: a message whose
+ * new content could not be told apart must show everything, not a closed fold.
+ */
+export function CleanBlocks({
+	blocks,
+	historyOpen = false,
+}: {
+	blocks: CleanBlock[]
+	historyOpen?: boolean
+}) {
 	return (
 		<div
 			data-slot="clean-blocks"
 			className="flex min-w-0 flex-col gap-hairline text-base leading-relaxed [overflow-wrap:anywhere]"
 		>
 			{keyed(blocks).map(({ key, item }) => (
-				<Block key={key} block={item} />
+				<Block key={key} block={item} historyOpen={historyOpen} />
 			))}
 		</div>
 	)

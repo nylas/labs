@@ -203,7 +203,7 @@ and renders exactly as before when the view is off.
 - Never hide silently. Trailing quoted history is left out of a bubble because
   earlier bubbles show it. A forwarded message, text below a quote, answers
   between quoted lines, or a message that is only a quote is shown in full with
-  a "Quoted text" disclosure. "Show original" on every run opens those emails
+  a "Quoted text" disclosure that starts open. "Show original" on every run opens those emails
   in the standard reader inside the stream; it is held in memory only.
 - Attachments are chips in the bubble; calendar invitations are cards in the
   stream. Designed mail (tables, layout) keeps the standard reader, full width.
