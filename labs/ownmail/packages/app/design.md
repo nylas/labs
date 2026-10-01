@@ -117,8 +117,8 @@ the list toolbar or the command palette.
   Default row, never under 48 pixels, and the toolbar control is hidden there
   because the choice has no effect. The gate is a CSS media query that is the
   exact complement of the touch-floor query, not script detection.
-- The unread dot is an in-flow leading cell that sits inside the row's 16-pixel
-  left padding, so row text keeps the left edge it shares with the list title.
+- The unread dot is an in-flow leading cell centred in the row's 16-pixel left
+  padding, so row text keeps the left edge it shares with the list title.
   The star's hit target is sized per density so it never extends into a
   neighbouring row.
 

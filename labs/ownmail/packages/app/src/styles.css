@@ -766,7 +766,12 @@
 .thread-row-dot {
 	grid-area: dot;
 	justify-self: end;
-	margin-right: 0.5rem;
+	/*
+	 * Its zero-width track ends at the row's 1rem left padding. This margin
+	 * centres the 5px dot in that gutter, clear of the pane border and of the
+	 * 2px keyboard-cursor outline.
+	 */
+	margin-right: calc((1rem - 5px) / 2);
 	width: 5px;
 	height: 5px;
 	border-radius: 50%;

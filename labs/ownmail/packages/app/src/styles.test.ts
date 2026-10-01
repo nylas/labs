@@ -175,6 +175,13 @@ describe('mail list density styles', () => {
 			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"dot lead who when"\s*"text text text text";/,
 		)
 		expect(styles).toMatch(/\.thread-row-dot\s*\{\s*grid-area: dot;/)
+		// The dot is centred in the row's 16px left gutter: hugging the pane border reads as
+		// touching the separator, and it must stay clear of the 2px keyboard-cursor outline.
+		expect(styles).toMatch(
+			/\.thread-row-dot\s*\{[^}]*justify-self: end;[^}]*margin-right: calc\(\(1rem - 5px\) \/ 2\);\s*width: 5px;\s*height: 5px;/,
+		)
+		// No density moves it: the same cell is centred on line 1, or on the single Condensed line.
+		expect(densityBlock).not.toContain('.thread-row-dot')
 		// The dot's track has no width: it sits in the row's 16px padding, so row text keeps the title's left edge.
 		expect(outsideDensityBlock).toMatch(
 			/\.thread-row\s*\{[^}]*grid-template-columns: 0 auto minmax\(0, 1fr\) auto;/,
