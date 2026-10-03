@@ -261,7 +261,9 @@ function TimezoneHead({
 			>
 				{city}
 			</span>
-			<span className="max-w-full truncate text-[10px] text-muted-foreground tabular-nums">{detail}</span>
+			<span className="max-w-full truncate text-[10px] text-muted-foreground font-data tabular-nums">
+				{detail}
+			</span>
 		</span>
 	)
 }

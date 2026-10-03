@@ -1185,7 +1185,7 @@ function MiniCalendar({
 							}}
 							data-mini-calendar-day={iso}
 							className={cn(
-								'flex h-7 items-center justify-center text-xs tabular-nums transition-colors',
+								'flex h-7 items-center justify-center text-xs font-data tabular-nums transition-colors',
 								inMonth ? 'text-foreground' : 'text-muted-foreground/60',
 								inWeek
 									? cn('bg-muted', day.getDay() === 0 && 'rounded-l-md', day.getDay() === 6 && 'rounded-r-md')
@@ -1301,7 +1301,7 @@ function MonthGrid({
 									<div className="pointer-events-none relative z-10 flex items-center justify-center">
 										<span
 											className={cn(
-												'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium tabular-nums',
+												'flex h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-xs font-medium font-data tabular-nums',
 												iso === todayIso && 'rounded-[5px] bg-today text-today-foreground',
 												iso !== todayIso && !inMonth && 'text-muted-foreground/60',
 												iso !== todayIso && inMonth && 'text-foreground',
@@ -1323,7 +1323,7 @@ function MonthGrid({
 														<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--event-c)]" />
 													) : null}
 													{!allDay ? (
-														<span className="shrink-0 tabular-nums text-muted-foreground">
+														<span className="shrink-0 font-data tabular-nums text-muted-foreground">
 															{fmtTime(times.start, timeZone)}
 														</span>
 													) : null}
@@ -1646,7 +1646,7 @@ function TimeGrid({
 									<span>{day.toLocaleDateString(undefined, { weekday: 'short' })}</span>
 									<span
 										className={cn(
-											'tabular-nums',
+											'font-data tabular-nums',
 											isToday && 'rounded-[5px] bg-today px-control text-today-foreground',
 										)}
 									>
@@ -1766,7 +1766,7 @@ function TimeGrid({
 									<span className="flex flex-1 justify-end">
 										<span
 											data-testid="calendar-now-badge-secondary"
-											className="mr-1 flex h-4 items-center rounded-sm border border-today bg-background px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-foreground tabular-nums"
+											className="mr-1 flex h-4 items-center rounded-sm border border-today bg-background px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-foreground font-data tabular-nums"
 										>
 											{fmtTime(now, secondaryTimezone)}
 										</span>
@@ -1775,7 +1775,7 @@ function TimeGrid({
 								<span className="flex flex-1 justify-end">
 									<span
 										data-testid="calendar-now-badge"
-										className="mr-1 flex h-4 items-center rounded-sm bg-today px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-today-foreground tabular-nums"
+										className="mr-1 flex h-4 items-center rounded-sm bg-today px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-today-foreground font-data tabular-nums"
 									>
 										{fmtTime(now, timeZone)}
 									</span>
@@ -1809,7 +1809,7 @@ function TimeGrid({
 														data-hour-label={`${hour}-secondary`}
 														title={secondary.outside ? 'Outside working hours there' : undefined}
 														className={cn(
-															'absolute -top-2 right-2 h-4 text-[11px] leading-4 whitespace-nowrap tabular-nums text-muted-foreground',
+															'absolute -top-2 right-2 h-4 text-[11px] leading-4 whitespace-nowrap font-data tabular-nums text-muted-foreground',
 															covered && 'invisible',
 														)}
 													>
@@ -1831,7 +1831,7 @@ function TimeGrid({
 											<span
 												data-hour-label={hour}
 												className={cn(
-													'absolute -top-2 right-2 h-4 text-[11px] leading-4 tabular-nums text-muted-foreground',
+													'absolute -top-2 right-2 h-4 text-[11px] leading-4 font-data tabular-nums text-muted-foreground',
 													covered && 'invisible',
 												)}
 											>

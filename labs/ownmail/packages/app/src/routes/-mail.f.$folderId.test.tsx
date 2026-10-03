@@ -65,9 +65,13 @@ vi.mock('#server/fns', () => ({
 // Each render of a row's date is counted, so tests can assert how many rows re-render.
 const listDateRenders = vi.hoisted(() => ({ count: 0 }))
 vi.mock('#shared/components/ClientTime', () => ({
-	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => {
+	ClientListDate: ({ epochSeconds, className }: { epochSeconds?: number; className?: string }) => {
 		listDateRenders.count += 1
-		return <time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
+		return (
+			<time data-epoch={epochSeconds ?? ''} className={className}>
+				{epochSeconds ? 'date' : ''}
+			</time>
+		)
 	},
 }))
 
@@ -75,7 +79,8 @@ vi.mock('#shared/components/ClientTime', () => ({
 // the highlighted row visible, so stub it to a no-op spy for these tests.
 Element.prototype.scrollIntoView = vi.fn()
 
-import { loadMailFolderData, MailFolderRouteScreen, Route } from './mail.f.$folderId.js'
+import { MailFolderRouteScreen } from './-mail-folder-screen.js'
+import { loadMailFolderData, Route } from './mail.f.$folderId.js'
 
 // Compose is app state: assert what the composer is asked to open, not a route.
 const composeApi = vi.hoisted(() => ({
@@ -648,8 +653,8 @@ describe('MailFolderRouteScreen — drafts', () => {
 		const row = screen.getByRole('button', { name: /Plan/ })
 		expect(row).toHaveClass('thread-row')
 		expect(row).toHaveAttribute('data-nav-row')
-		// Same cells as a conversation row: leading dot, then subject and snippet in one summary.
-		expect(row.firstElementChild).toHaveClass('thread-row-dot')
+		// Same cells as a conversation row: leading glyph, then subject and snippet in one summary.
+		expect(row.firstElementChild).toHaveClass('thread-row-lead')
 		const summary = container.querySelector('.thread-row-summary') as HTMLElement
 		expect(Array.from(summary.children).map((cell) => cell.textContent)).toEqual(['Plan', 'Notes'])
 		// Drafts have no star action, only the static glyph.
@@ -1099,19 +1104,39 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		}
 	})
 
-	it('keeps one row structure for every density: a leading unread dot, then subject and snippet together', () => {
+	// With no dot, unread must still read at a glance: the time takes the accent and
+	// the sender's weight steps up, so it never rests on one cue.
+	it('marks unread rows with an accent semibold time and a semibold sender', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[
+					thread({ id: 'new', subject: 'Fresh', unread: true, latest_message_received_date: 200 }),
+					thread({ id: 'old', subject: 'Seen', unread: false, latest_message_received_date: 100 }),
+				]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		const [fresh, seen] = Array.from(document.querySelectorAll<HTMLElement>('[data-nav-row]'))
+		expect(fresh?.querySelector('.thread-row-when time')).toHaveClass('text-cta-icon', 'font-semibold')
+		expect(fresh?.querySelector('.thread-row-sender')).toHaveClass('font-semibold')
+		expect(seen?.querySelector('.thread-row-when time')).not.toHaveClass('text-cta-icon')
+		expect(seen?.querySelector('.thread-row-sender')).toHaveClass('font-normal')
+	})
+
+	it('keeps one row structure for every density: a leading star, then subject and snippet together', () => {
 		const { container } = render(screenFor())
 		const row = container.querySelector('[data-nav-row]') as HTMLElement
 		// Density is pure CSS on these cells, so the markup must not vary by mode.
 		expect(Array.from(row.children).map((cell) => cell.className.split(' ')[0])).toEqual([
 			'thread-row-link',
-			'thread-row-dot',
 			'thread-row-lead',
 			'thread-row-sender',
 			'thread-row-when',
 			'thread-row-text',
 		])
-		expect(row.querySelector('.thread-row-dot')).toHaveAttribute('aria-hidden', 'true')
 		expect(row.querySelector('.thread-row-summary .thread-row-subject')).not.toBeNull()
 		expect(row.querySelector('.thread-row-summary .thread-row-snippet')).not.toBeNull()
 		expect(screen.getAllByRole('button', { name: /^(Star|Unstar)$/ })[0]).toHaveClass('thread-row-star')
@@ -1170,6 +1195,10 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 	const cursored = () =>
 		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
 
+	/** j/k open the conversation after the next paint; wait for that frame and task. */
+	const afterPaint = () =>
+		act(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))))
+
 	// j/k must answer within 100 ms on a long inbox. Re-rendering every row per
 	// key press is what broke that budget, so a cursor move may only re-render
 	// the row it leaves and the row it lands on.
@@ -1203,7 +1232,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		expect(cursored()).toHaveTextContent('First')
 	})
 
-	it('moves straight to the adjacent conversation with j/k while one is open', () => {
+	it('moves straight to the adjacent conversation with j/k while one is open', async () => {
 		routerState = {
 			location: { pathname: '/mail/f/inbox/t/t2' },
 			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't2' } }],
@@ -1211,12 +1240,14 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		renderInbox({ baseFolderId: 'work' })
 
 		fireEvent.keyDown(window, { key: 'j' })
+		await afterPaint()
 		expect(navigate).toHaveBeenLastCalledWith({
 			to: '/mail/f/$folderId/t/$threadId',
 			params: { folderId: 'inbox', threadId: 't3' },
 			search: { baseFolderId: 'work' },
 		})
 		fireEvent.keyDown(window, { key: 'k' })
+		await afterPaint()
 		expect(navigate).toHaveBeenLastCalledWith(
 			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't1' } }),
 		)
@@ -1226,7 +1257,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
-	it('keeps advancing on repeated j/k while the previous conversation is still loading', () => {
+	it('keeps advancing on repeated j/k while the previous conversation is still loading', async () => {
 		const committed = {
 			routeId: '/mail/f/$folderId/t/$threadId',
 			params: { folderId: 'inbox', threadId: 't1' },
@@ -1242,8 +1273,9 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 			} as RouterState
 		})
 		const view = renderInbox()
-		const press = (key: string) => {
+		const press = async (key: string) => {
 			fireEvent.keyDown(window, { key })
+			await afterPaint()
 			view.rerender(
 				<MailFolderRouteScreen
 					threads={threads}
@@ -1256,16 +1288,16 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		}
 
 		try {
-			press('j')
-			press('j')
-			press('k')
+			await press('j')
+			await press('j')
+			await press('k')
 			expect(navigate.mock.calls.map(([options]) => options.params.threadId)).toEqual(['t2', 't3', 't2'])
 		} finally {
 			navigate.mockReset()
 		}
 	})
 
-	it('continues from a clicked or history destination that is still loading', () => {
+	it('continues from a clicked or history destination that is still loading', async () => {
 		// Committed on t3, but the user clicked t1 (or went back) and it is loading.
 		routerState = {
 			location: { pathname: '/mail/f/inbox/t/t1' },
@@ -1274,12 +1306,13 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		} as RouterState
 		renderInbox()
 		fireEvent.keyDown(window, { key: 'j' })
+		await afterPaint()
 		expect(navigate).toHaveBeenLastCalledWith(
 			expect.objectContaining({ params: { folderId: 'inbox', threadId: 't2' } }),
 		)
 	})
 
-	it('falls back to the committed conversation when the loading location is not a thread', () => {
+	it('falls back to the committed conversation when the loading location is not a thread', async () => {
 		for (const pathname of ['/mail/f/inbox', '/mail/f/inbox/t/%E0%A4%A']) {
 			cleanup()
 			navigate.mockClear()
@@ -1292,10 +1325,36 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 			} as RouterState
 			renderInbox()
 			fireEvent.keyDown(window, { key: 'j' })
+			await afterPaint()
 			expect(navigate).toHaveBeenLastCalledWith(
 				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't2' } }),
 			)
 		}
+	})
+
+	// A key must answer within 100 ms however heavy the next conversation is: the
+	// cursor moves in the key's own frame, and the conversation opens after that
+	// paint. Presses that arrive first replace the pending open, so skimming with
+	// j renders only the conversation it stops on.
+	it('moves the cursor at once and opens only the last of several quick j/k presses', async () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/t1' },
+			matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 't1' } }],
+		} as RouterState
+		const view = renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()?.textContent).toContain('Second')
+		expect(navigate).not.toHaveBeenCalled()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()?.textContent).toContain('Third')
+		await afterPaint()
+		expect(navigate.mock.calls.map(([options]) => options.params.threadId)).toEqual(['t3'])
+		// An open still pending when the list goes away never fires.
+		navigate.mockClear()
+		fireEvent.keyDown(window, { key: 'k' })
+		view.unmount()
+		await afterPaint()
+		expect(navigate).not.toHaveBeenCalled()
 	})
 
 	it('stays on the edge conversation instead of wrapping', () => {

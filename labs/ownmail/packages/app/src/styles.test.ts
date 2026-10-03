@@ -24,6 +24,20 @@ describe('touch editing styles', () => {
 	})
 })
 
+describe('typefaces', () => {
+	// Manrope is the primary face; Inter is reserved for data. Each extra family
+	// is another file on the first paint's critical path, so no other face ships.
+	it('sets body and headings in Manrope, data in Inter, and declares no other web font', () => {
+		expect(tokens).toMatch(/--font-sans:\s*var\(--font-manrope\)/)
+		expect(tokens).toMatch(/--font-display: var\(--font-manrope\)/)
+		expect(tokens).toMatch(/--font-data: var\(--font-inter\)/)
+		const families = [...tokens.matchAll(/@font-face\s*\{\s*font-family: "([^"]+)"/g)].map(
+			(match) => match[1],
+		)
+		expect(families).toEqual(['Manrope', 'Manrope Fallback', 'Inter', 'Inter Fallback'])
+	})
+})
+
 describe('thread list rendering cost', () => {
 	it('lets off-screen thread rows skip style, layout and paint while keeping their measured height', () => {
 		const rowRule = /\.thread-row \{[^}]*\}/.exec(styles)?.[0] ?? ''
@@ -193,46 +207,31 @@ describe('mail list density styles', () => {
 	const densityBlock = styles.slice(densityStart, styles.indexOf('\n}\n', densityStart))
 	const outsideDensityBlock = styles.replace(densityBlock, '')
 
-	it('defines the Default three-line row once, with the unread dot as an in-flow leading cell', () => {
+	// design.md "List density": unread rows have no dot. The dot crowded the star and the
+	// pane edge; weight and the accent time carry unread instead (see ThreadRow).
+	it('defines the Default three-line row once, with no unread dot and the sender clear of the star', () => {
 		expect(outsideDensityBlock).toMatch(
-			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"dot lead who when"\s*"text text text text";/,
+			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"lead who when"\s*"text text text";/,
 		)
-		expect(styles).toMatch(/\.thread-row-dot\s*\{\s*grid-area: dot;/)
-		// The dot is centred in the row's 16px left gutter: hugging the pane border reads as
-		// touching the separator, and it must stay clear of the 2px keyboard-cursor outline.
-		expect(styles).toMatch(
-			/\.thread-row-dot\s*\{[^}]*justify-self: end;[^}]*margin-right: calc\(\(1rem - 8px\) \/ 2\);\s*width: 8px;\s*height: 8px;/,
-		)
-		// design.md "List density": an 8px accent dot, so unread reads at a glance in both themes.
-		expect(styles).toMatch(/\.thread-row-dot \{\s*\/\*[^*]*\*\/\s*background: var\(--cta-icon\);/)
-		// No density moves it: the same cell is centred on line 1, or on the single Condensed line.
-		expect(densityBlock).not.toContain('.thread-row-dot')
-		// The dot's track has no width: it sits in the row's 16px padding, so row text keeps the title's left edge.
-		expect(outsideDensityBlock).toMatch(
-			/\.thread-row\s*\{[^}]*grid-template-columns: 0 auto minmax\(0, 1fr\) auto;/,
-		)
+		expect(styles).not.toContain('.thread-row-dot')
 		expect(outsideDensityBlock).not.toMatch(/\.thread-row\s*\{[^}]*padding/)
-		// The dot used to be absolutely positioned for a three-line row; no pseudo-element may bring that back.
-		expect(styles).not.toMatch(/\.thread-row[^{]*::before\s*\{[^}]*position: absolute/)
-		// It still only fills on unread rows that are not the open conversation.
-		expect(styles).toMatch(
-			/\.thread-row\[data-unread="true"\]:not\(\[data-active="true"\]\):not\(:has\(\[data-active="true"\]\)\)\s+\.thread-row-dot,/,
-		)
+		// The star's 32px hover box reaches 8px past its icon; the sender starts 12px away.
+		expect(styles).toMatch(/\.thread-row-sender\s*\{[^}]*margin-left: 0\.75rem;/)
 	})
 
 	it('starts Default and Compact subject and snippet lines at the row edge the list title shares', () => {
 		// Default must look as it did before density existed: only the star and sender sit on
-		// line 1, and the text lines span from column 1, whose zero-width dot track begins at the
-		// row's 16px padding. Starting them at the star's column would tie them to the star's width.
+		// line 1, and the text lines span from column 1, the star's column, which begins at the
+		// row's 16px padding.
 		const row = outsideDensityBlock.slice(outsideDensityBlock.indexOf('\n.thread-row {'))
 		const rowRule = row.slice(0, row.indexOf('}'))
-		expect(rowRule).toContain('grid-template-columns: 0 auto minmax(0, 1fr) auto;')
-		expect(rowRule).toMatch(/grid-template-areas:\s*"dot lead who when"\s*"text text text text";/)
+		expect(rowRule).toContain('grid-template-columns: auto minmax(0, 1fr) auto;')
+		expect(rowRule).toMatch(/grid-template-areas:\s*"lead who when"\s*"text text text";/)
 		expect(rowRule).not.toMatch(/"\. text/)
 		// Compact reuses the Default areas; only Condensed moves the text onto line 1.
 		const compactRow = densityBlock.slice(densityBlock.indexOf('[data-density="compact"] .thread-row {'))
 		expect(compactRow.slice(0, compactRow.indexOf('}'))).not.toContain('grid-template')
-		expect(densityBlock).toContain('grid-template-areas: "dot lead who text when";')
+		expect(densityBlock).toContain('grid-template-areas: "lead who text when";')
 	})
 
 	it('never lets touch or mobile layouts have mail rows under 48px', () => {
@@ -261,7 +260,7 @@ describe('mail list density styles', () => {
 
 	it('puts sender, subject and snippet, and date on a single 34px line for Condensed', () => {
 		expect(densityBlock).toMatch(
-			/\[data-density="condensed"\] \.thread-row\s*\{\s*grid-template-columns: 0 auto minmax\(4\.5rem, 9rem\) minmax\(0, 1fr\) auto;\s*grid-template-areas: "dot lead who text when";\s*min-height: 2\.125rem;\s*padding-block: 0;/,
+			/\[data-density="condensed"\] \.thread-row\s*\{\s*grid-template-columns: auto minmax\(4\.5rem, 9rem\) minmax\(0, 1fr\) auto;\s*grid-template-areas: "lead who text when";\s*min-height: 2\.125rem;\s*padding-block: 0;/,
 		)
 	})
 

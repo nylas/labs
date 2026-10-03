@@ -241,7 +241,9 @@ function FolderCount({ count, active }: { count: number; active: boolean }) {
 		previous.current = count
 	}, [count])
 	return (
-		<span className={cn('text-xs tabular-nums', active ? 'text-foreground' : 'text-muted-foreground')}>
+		<span
+			className={cn('text-xs font-data tabular-nums', active ? 'text-foreground' : 'text-muted-foreground')}
+		>
 			<span key={count} className={changed ? 'count-tick' : undefined}>
 				{count}
 			</span>

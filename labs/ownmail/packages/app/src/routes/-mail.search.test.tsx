@@ -730,7 +730,7 @@ describe('/mail/search thread detail', () => {
 			await waitFor(() => expect(resultsList()).toHaveAttribute('data-density', 'compact'))
 			// Result rows are the shared thread row, so the density applies to them too.
 			expect(resultsList()?.querySelector('[data-nav-row]')).toHaveClass('thread-row')
-			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-dot')).not.toBeNull()
+			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-lead')).not.toBeNull()
 		} finally {
 			window.localStorage.clear()
 		}

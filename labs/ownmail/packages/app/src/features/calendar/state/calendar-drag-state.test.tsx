@@ -109,6 +109,20 @@ describe('reading the grid from the page', () => {
 })
 
 describe('dragging with the mouse', () => {
+	// A mouse reports up to 1000 moves a second, and each new preview re-renders
+	// the whole calendar page. Moves that snap to the slot already drawn must
+	// keep the same preview so React skips that work.
+	it('keeps the same preview while moves stay inside one snapped slot', () => {
+		const { result } = setup()
+		act(() => result.current.beginPointerDrag(press(SATURDAY_X, y(9.5)), 'move', standup))
+		pointer('pointermove', SATURDAY_X, y(10))
+		const drawn = result.current.preview
+		pointer('pointermove', SATURDAY_X, y(10) + 2)
+		expect(result.current.preview).toBe(drawn)
+		pointer('pointermove', SATURDAY_X, y(11))
+		expect(result.current.preview).not.toBe(drawn)
+	})
+
 	it('moves an event to the snapped time it is dropped on and saves once', () => {
 		const { result, onReschedule } = setup()
 		act(() => result.current.beginPointerDrag(press(SATURDAY_X, y(9.5)), 'move', standup))

@@ -59,7 +59,7 @@ function dayLabel(epochSeconds: number): string {
 
 function MessageTime({ epochSeconds }: { epochSeconds: number }) {
 	return (
-		<time dateTime={new Date(epochSeconds * 1000).toISOString()} className="tabular-nums">
+		<time dateTime={new Date(epochSeconds * 1000).toISOString()} className="font-data tabular-nums">
 			{timeLabel(epochSeconds)}
 		</time>
 	)

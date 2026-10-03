@@ -21,7 +21,10 @@ export function ClientListDate({ epochSeconds, className }: { epochSeconds?: num
 	if (!epochSeconds) return null
 
 	return (
-		<span className={cn('inline-block min-w-14 text-right tabular-nums', className)} suppressHydrationWarning>
+		<span
+			className={cn('inline-block min-w-14 text-right font-data tabular-nums', className)}
+			suppressHydrationWarning
+		>
 			{label || '\u00a0'}
 		</span>
 	)
@@ -39,7 +42,7 @@ export function ClientMessageTime({ epochSeconds, className }: { epochSeconds: n
 	return (
 		<time
 			dateTime={iso}
-			className={cn('inline-block min-w-40 whitespace-nowrap text-right tabular-nums', className)}
+			className={cn('inline-block min-w-40 whitespace-nowrap text-right font-data tabular-nums', className)}
 			suppressHydrationWarning
 		>
 			{label || '\u00a0'}

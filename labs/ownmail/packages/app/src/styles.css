@@ -741,10 +741,10 @@
 .thread-row {
 	position: relative;
 	display: grid;
-	grid-template-columns: 0 auto minmax(0, 1fr) auto;
+	grid-template-columns: auto minmax(0, 1fr) auto;
 	grid-template-areas:
-		"dot lead who when"
-		"text text text text";
+		"lead who when"
+		"text text text";
 	align-items: center;
 	row-gap: 0.25rem;
 	transition:
@@ -786,28 +786,6 @@
 	}
 }
 
-/* The unread dot is an in-flow leading cell, so it lines up with the sender at every density. */
-.thread-row-dot {
-	grid-area: dot;
-	justify-self: end;
-	/*
-	 * Its zero-width track ends at the row's 1rem left padding. This margin
-	 * centres the 8px dot in that gutter, clear of the pane border and of the
-	 * 2px keyboard-cursor outline.
-	 */
-	margin-right: calc((1rem - 8px) / 2);
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-}
-
-.thread-row[data-unread="true"]:not([data-active="true"]):not(:has([data-active="true"])) .thread-row-dot,
-.thread-row:has([data-unread="true"]):not([data-active="true"]):not(:has([data-active="true"]))
-	.thread-row-dot {
-	/* design.md "List density": the accent marks unread; weight and colour carry it too. */
-	background: var(--cta-icon);
-}
-
 .thread-row-lead {
 	grid-area: lead;
 	display: flex;
@@ -816,7 +794,8 @@
 
 .thread-row-sender {
 	grid-area: who;
-	margin-left: 0.5rem;
+	/* Clear of the star's 32px hover box, which reaches 8px past its 16px icon. */
+	margin-left: 0.75rem;
 }
 
 .thread-row-when {
@@ -891,8 +870,8 @@
 
 	/* Condensed, 34px: sender, subject and snippet, date on a single line. */
 	[data-density="condensed"] .thread-row {
-		grid-template-columns: 0 auto minmax(4.5rem, 9rem) minmax(0, 1fr) auto;
-		grid-template-areas: "dot lead who text when";
+		grid-template-columns: auto minmax(4.5rem, 9rem) minmax(0, 1fr) auto;
+		grid-template-areas: "lead who text when";
 		min-height: 2.125rem;
 		padding-block: 0;
 	}
