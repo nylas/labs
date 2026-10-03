@@ -556,6 +556,14 @@ export function timedChipLines(height: number): 1 | 2 {
 	return height >= TIMED_CHIP_TWO_LINE_MIN_HEIGHT ? 2 : 1
 }
 
+/** Events this long or shorter show only their title; the time stays in the accessible name. */
+export const TIMED_CHIP_TITLE_ONLY_MAX_MINUTES = 30
+
+/** Whether a timed chip draws its time: a short event has no room to spare, so it shows the title alone. */
+export function timedChipShowsTime(times: { start: Date; end: Date }): boolean {
+	return times.end.getTime() - times.start.getTime() > TIMED_CHIP_TITLE_ONLY_MAX_MINUTES * 60_000
+}
+
 /** Height of the now-line time badge in the gutter, in pixels. */
 export const NOW_BADGE_HEIGHT = 16
 
@@ -593,6 +601,59 @@ export function timeZoneShortName(timeZone: string, at: Date, locale?: string): 
 		.filter((part) => part.type === 'timeZoneName')
 		.map((part) => part.value)
 		.join('')
+}
+
+/** The city part of an IANA zone id, for people to read: "America/New_York" is "New York". */
+export function timezoneCity(timeZone: string): string {
+	return timeZone.replace(/^.*\//, '').replaceAll('_', ' ')
+}
+
+/** Minutes the zone's wall clock is ahead of UTC at an instant. */
+function timeZoneOffsetMinutes(timeZone: string, at: Date): number {
+	const wholeMinute = Math.floor(at.getTime() / 60_000) * 60_000
+	return Math.round((zonedTimeValue(new Date(wholeMinute), timeZone) - wholeMinute) / 60_000)
+}
+
+/**
+ * How far the second zone's clock is from the first's at an instant: "+5h",
+ * "−3h", "+5.5h", or "Same time". It follows the instant, so it changes when
+ * only one of the two zones moves to or from daylight saving time.
+ */
+export function timeZoneOffsetLabel(primaryTimezone: string, timeZone: string, at: Date): string {
+	const minutes = timeZoneOffsetMinutes(timeZone, at) - timeZoneOffsetMinutes(primaryTimezone, at)
+	if (minutes === 0) return 'Same time'
+	// A true minus sign, so "−3h" reads as a negative offset and not a hyphen.
+	return `${minutes > 0 ? '+' : '−'}${Number((Math.abs(minutes) / 60).toFixed(2))}h`
+}
+
+/** Working hours in a second zone run from 7 AM until 10 PM there; anything else is shaded. */
+export const WORKING_HOURS = { start: 7, end: 22 }
+
+/** True when an instant falls before 7 AM or from 10 PM in the zone, when someone there is unlikely to be working. */
+export function isOutsideWorkingHours(at: Date, timeZone: string): boolean {
+	const hour = zonedDateTime(at, timeZone).hour
+	return hour < WORKING_HOURS.start || hour >= WORKING_HOURS.end
+}
+
+/**
+ * The mark on the second ruler's hour label where that zone crosses midnight
+ * between two instants, so its times are not read as the column's day; null
+ * when it is the same date there. One day shown: the weekday it moves into
+ * ("Sat"). Several days share one ruler, so a weekday would be right for one
+ * column only; the mark then says how that date relates to the column's own.
+ */
+export function timeZoneDayChange(
+	previous: Date,
+	at: Date,
+	primaryTimezone: string,
+	timeZone: string,
+	days: number,
+): string | null {
+	if (zonedYmd(previous, timeZone) === zonedYmd(at, timeZone)) return null
+	if (days === 1) return new Intl.DateTimeFormat(undefined, { timeZone, weekday: 'short' }).format(at)
+	const offset = dayOffset(zonedYmd(at, primaryTimezone), zonedYmd(at, timeZone))
+	if (offset === 0) return 'Same day'
+	return offset > 0 ? 'Next day' : 'Prev day'
 }
 
 export function fmtTime(d: Date, timeZone?: CalendarTimeZone): string {

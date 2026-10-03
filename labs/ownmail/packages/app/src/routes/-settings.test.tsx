@@ -94,7 +94,13 @@ describe('/settings', () => {
 	it('opens the app navigation as a temporary sheet', () => {
 		renderSettings()
 		const navigationButton = screen.getByRole('button', { name: 'Open navigation' })
-		expect(navigationButton).toHaveClass('h-11', 'w-11', 'rounded-lg', 'disabled:pointer-events-none')
+		expect(navigationButton).toHaveClass(
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
+			'rounded-md',
+			'disabled:pointer-events-none',
+		)
 		expect(navigationButton).not.toHaveClass('border-r')
 		expect(screen.getByRole('heading', { name: 'Settings' }).parentElement).toHaveClass('gap-2', 'px-3')
 
@@ -127,10 +133,6 @@ describe('/settings', () => {
 
 	it('gives every editable text and select field a touch-friendly height', () => {
 		renderSettings(true)
-		// The in-content divider is the shared Section: 24px on both sides of its line.
-		expect(
-			screen.getByRole('combobox', { name: 'External images' }).closest('[data-slot="section"]'),
-		).toHaveClass('mt-section', 'border-t', 'pt-section')
 
 		const fixedHeightFields = [
 			screen.getByLabelText('Display name'),
@@ -171,6 +173,50 @@ describe('/settings', () => {
 		expect(updateMailboxDisplayName).toHaveBeenCalledWith({ data: { displayName: 'Grace' } })
 		expect(screen.getByLabelText('Display name')).toHaveValue('Grace')
 		setItem.mockRestore()
+	})
+
+	it('gives every settings section one heading recipe and keeps fields out of the section dividers', () => {
+		renderSettings(true)
+		const headings = screen.getAllByRole('heading', { level: 2 })
+		expect(headings.map((heading) => heading.textContent)).toEqual([
+			'Profile',
+			'Mail preferences',
+			'Password',
+			'Sign out',
+		])
+		// Same kind of thing, same look: one size, one icon slot, and the shared Section divider
+		// (24px on both sides of its line) for every section after the first.
+		for (const heading of headings) {
+			expect(heading).toHaveClass('font-display', 'text-lg', 'font-semibold')
+			expect(heading.parentElement?.querySelector('svg')).toBeInTheDocument()
+		}
+		for (const heading of headings.slice(1)) {
+			expect(heading.closest('[data-slot="section"]')).toHaveClass('mt-section', 'border-t', 'pt-section')
+		}
+		// External images is a field of Mail preferences, labelled like the other fields, not a sub-section.
+		const externalImages = screen.getByRole('combobox', { name: 'External images' })
+		expect(externalImages.closest('[data-slot="section"]')).toBe(headings[1].closest('[data-slot="section"]'))
+		expect(screen.getByText('External images')).toHaveClass('block', 'text-sm', 'font-medium')
+		expect(screen.getByText('Display name')).toHaveClass('block', 'text-sm', 'font-medium')
+	})
+
+	it('explains an idle save button and drops the hint once there is something to save', async () => {
+		renderSettings()
+		const save = screen.getByRole('button', { name: 'Save settings' })
+		// The button stays a real (focus-safe) disabled control and says why it is idle.
+		expect(save).toHaveAttribute('aria-disabled', 'true')
+		expect(save).toHaveAccessibleDescription('No changes to save')
+
+		fireEvent.click(screen.getByLabelText('Darken email content automatically'))
+		expect(save).toHaveAttribute('aria-disabled', 'false')
+		expect(save).not.toHaveAttribute('aria-describedby')
+		expect(screen.queryByText('No changes to save')).not.toBeInTheDocument()
+
+		fireEvent.click(save)
+		expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+		// The save result already explains the idle button; the hint does not repeat it.
+		expect(screen.queryByText('No changes to save')).not.toBeInTheDocument()
+		expect(save).not.toHaveAttribute('aria-describedby')
 	})
 
 	it('shows the running OwnMail version', () => {

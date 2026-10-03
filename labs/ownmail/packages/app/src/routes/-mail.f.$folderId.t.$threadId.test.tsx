@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID } from '#app/components/MobileTabBar'
@@ -35,8 +35,18 @@ vi.mock('#server/fns', () => ({
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
+import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { markdownToDraftBody } from '#features/mail/lib/html-to-markdown'
-import { ErrorBanner, Route } from './mail.f.$folderId.t.$threadId.js'
+import { ToastProvider } from '#shared/components/Toaster'
+import { Route } from './mail.f.$folderId.t.$threadId.js'
+
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
 
 afterEach(cleanup)
 beforeEach(() => {
@@ -109,7 +119,9 @@ function renderThread(
 	const Component = Route.options.component
 	const screen = () => (
 		<QueryClientProvider client={queryClient}>
-			<Component />
+			<ToastProvider>
+				<Component />
+			</ToastProvider>
 		</QueryClientProvider>
 	)
 	const rendered = render(screen())
@@ -507,12 +519,12 @@ describe('toolbar actions', () => {
 		renderThread()
 
 		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
-		// One recipe for the whole row: the route's own actions, the reply group and
-		// the thread display actions are all the shared icon button, 36px with a fine
-		// pointer and 44px on narrow and touch screens, so no size is mixed in the row.
+		// One height for the whole row: 36px with a fine pointer and 44px on narrow and
+		// touch screens. Every control is the shared icon button except Reply, the one
+		// labelled action in the respond group (design.md "Reading").
 		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
 		const buttons = [...toolbar.querySelectorAll('button')]
-		expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+		expect(buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent)).toEqual([
 			'Back to list',
 			'Archive',
 			'Delete',
@@ -527,10 +539,15 @@ describe('toolbar actions', () => {
 			'Reply all',
 			'Forward',
 		])
-		for (const button of buttons) {
+		const reply = screen.getByRole('button', { name: 'Reply' })
+		expect(reply).toHaveTextContent('Reply')
+		expect(reply).toHaveClass('h-9', 'max-md:min-h-11', '[@media(any-pointer:coarse)]:min-h-11')
+		for (const button of buttons.filter((button) => button !== reply)) {
 			expect(button).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
 			expect(button.className).not.toMatch(/\b(?:xl:)?[hw]-(?:9|11)\b/)
 		}
+		// The triage group is divided from the view group.
+		expect(within(toolbar).getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical')
 	})
 
 	it('hosts the thread display actions in the toolbar, ahead of the reply group', async () => {
@@ -565,6 +582,52 @@ describe('toolbar actions', () => {
 			expect.objectContaining({ to: '/mail/f/$folderId', params: { folderId: 'inbox' }, search: {} }),
 		)
 		expect(invalidate).not.toHaveBeenCalled()
+	})
+
+	describe('confirming a move', () => {
+		it('confirms an archive with an Undo that puts the conversation back where it was', async () => {
+			const user = userEvent.setup()
+			renderThread(loaderData({ thread: { id: 't1', subject: 'Hello', folders: ['inbox', 'work'] } }))
+			await user.click(screen.getByRole('button', { name: 'Archive' }))
+			expect(await screen.findByText('Archived')).toBeInTheDocument()
+			await user.click(screen.getByRole('button', { name: 'Undo' }))
+			await waitFor(() =>
+				expect(updateThreadState).toHaveBeenLastCalledWith({ data: { threadId: 't1', folder: 'inbox' } }),
+			)
+		})
+
+		it('says when an undo fails rather than leaving the reader guessing', async () => {
+			const user = userEvent.setup()
+			renderThread(loaderData({ thread: { id: 't1', subject: 'Hello', folders: ['inbox'] } }))
+			await user.click(screen.getByRole('button', { name: 'Delete' }))
+			expect(await screen.findByText('Moved to Trash')).toBeInTheDocument()
+			updateThreadState.mockRejectedValueOnce(new Error('offline'))
+			await user.click(screen.getByRole('button', { name: 'Undo' }))
+			expect(await screen.findByText('Could not undo. Try again from the folder.')).toBeInTheDocument()
+		})
+
+		it('names a return to the inbox and offers to send it back to the archive', async () => {
+			const user = userEvent.setup()
+			renderThread(
+				loaderData({ thread: { id: 't1', subject: 'Hello', folders: ['archive'] } }),
+				{},
+				{ folderId: 'archive', threadId: 't1' },
+			)
+			await user.click(screen.getByRole('button', { name: 'Return to inbox' }))
+			expect(await screen.findByText('Moved to Inbox')).toBeInTheDocument()
+			await user.click(screen.getByRole('button', { name: 'Undo' }))
+			await waitFor(() =>
+				expect(updateThreadState).toHaveBeenLastCalledWith({ data: { threadId: 't1', folder: 'archive' } }),
+			)
+		})
+
+		it('confirms without Undo when it cannot know where the conversation came from', async () => {
+			const user = userEvent.setup()
+			renderThread()
+			await user.click(screen.getByRole('button', { name: 'Archive' }))
+			expect(await screen.findByText('Archived')).toBeInTheDocument()
+			expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+		})
 	})
 
 	it('returns archived threads to the inbox instead of archiving them again', async () => {
@@ -635,6 +698,34 @@ describe('toolbar actions', () => {
 			thread: { id: 't1', starred: true, unread: false, folders: ['work'] },
 		})
 		await waitFor(() => expect(screen.getByRole('button', { name: 'Unstar' })).toBeInTheDocument())
+	})
+
+	it('grows the star once when starring, so the change is confirmed where the eye already is', async () => {
+		const user = userEvent.setup()
+		updateThreadState.mockResolvedValueOnce({
+			thread: { id: 't1', starred: true, unread: false, folders: ['work'] },
+		})
+		renderThread()
+		await user.click(screen.getByRole('button', { name: 'Star' }))
+		const unstar = await screen.findByRole('button', { name: 'Unstar' })
+		expect(unstar).toHaveClass('star-pop')
+		// The pop runs once: when it ends the class goes, so a re-render never replays it.
+		// jsdom has no AnimationEvent, so React listens for the prefixed event name.
+		act(() => {
+			unstar.dispatchEvent(new Event('webkitAnimationEnd', { bubbles: true }))
+			fireEvent.animationEnd(unstar)
+		})
+		expect(unstar).not.toHaveClass('star-pop')
+	})
+
+	it('never animates unstarring: removing a mark is not a confirmation', async () => {
+		const user = userEvent.setup()
+		renderThread(loaderData({ thread: { id: 't1', subject: 'Hi', starred: true, folders: [] } }))
+		await user.click(screen.getByRole('button', { name: 'Unstar' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', starred: false } }),
+		)
+		expect(document.querySelector('.star-pop')).toBeNull()
 	})
 
 	it('unstars a starred thread and labels the control accordingly', async () => {
@@ -812,15 +903,11 @@ describe('compose navigation', () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
 		await user.click(screen.getByRole('button', { name: 'Reply' }))
-		expect(navigate).toHaveBeenCalledWith(
+		expect(composeApi.openCompose).toHaveBeenCalledWith(
 			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({
-					folderId: 'inbox',
-					threadId: 't1',
-					replyToMessageId: 'mL',
-					to: 'reply@x.com',
-				}),
+				threadId: 't1',
+				replyToMessageId: 'mL',
+				to: 'reply@x.com',
 			}),
 		)
 	})
@@ -829,8 +916,8 @@ describe('compose navigation', () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
 		await user.click(screen.getByRole('button', { name: 'Reply all' }))
-		const call = navigate.mock.calls.find((c) => c[0]?.search?.replyToMessageId === 'mL')
-		const recipients: string = call?.[0].search.to
+		const call = composeApi.openCompose.mock.calls.find((c) => c[0]?.replyToMessageId === 'mL')
+		const recipients: string = call?.[0].to
 		expect(recipients).not.toContain('me@x.com')
 		expect(recipients).toContain('sender@x.com')
 		expect(recipients).toContain('other@x.com')
@@ -841,21 +928,18 @@ describe('compose navigation', () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
 		await user.click(screen.getByRole('button', { name: 'Forward' }))
-		const call = navigate.mock.calls.find((c) => c[0]?.to === '/mail/compose')
-		expect(call?.[0].search.body).toContain('Forwarded message')
-		expect(call?.[0].search.to).toBe('')
+		// A forward starts a new conversation, so it floats instead of sitting in this thread.
+		const call = composeApi.openCompose.mock.calls.find((c) => c[0]?.kind === 'forward')
+		expect(call?.[0].body).toContain('Forwarded message')
+		expect(call?.[0].to).toBe('')
+		expect(call?.[0].threadId).toBe('t1')
 	})
 
 	it('opens a reply from the inline "Write a reply" field after the last message', async () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
 		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
-		expect(navigate).toHaveBeenCalledWith(
-			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({ replyToMessageId: 'mL' }),
-			}),
-		)
+		expect(composeApi.openCompose).toHaveBeenCalledWith(expect.objectContaining({ replyToMessageId: 'mL' }))
 	})
 
 	it('replies from the Conversation view through the same compose flow, to everyone by default', async () => {
@@ -868,15 +952,12 @@ describe('compose navigation', () => {
 		await user.click(await screen.findByRole('button', { name: /^Reply to all…/ }))
 
 		// Everyone on the last message except the signed-in address.
-		expect(navigate).toHaveBeenLastCalledWith({
-			to: '/mail/compose',
-			search: {
-				folderId: 'inbox',
-				threadId: 't1',
-				to: 'reply@x.com, sender@x.com, other@x.com, cc@x.com',
-				subject: 'Re: ',
-				replyToMessageId: 'mL',
-			},
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith({
+			kind: 'reply',
+			threadId: 't1',
+			to: 'reply@x.com, sender@x.com, other@x.com, cc@x.com',
+			subject: 'Re: ',
+			replyToMessageId: 'mL',
 		})
 	})
 
@@ -919,34 +1000,25 @@ describe('compose navigation', () => {
 		])
 
 		await user.click(reply)
-		expect(navigate).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', to: 'reply@x.com' }),
-			}),
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ threadId: 't1', to: 'reply@x.com' }),
 		)
 
 		replyAll.focus()
 		await user.keyboard('{Enter}')
-		const replyAllCall = navigate.mock.calls.at(-1)?.[0]
+		const replyAllCall = composeApi.openCompose.mock.calls.at(-1)?.[0]
 		expect(replyAllCall).toEqual(
-			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', replyToMessageId: 'mL' }),
-			}),
+			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: 'mL' }),
 		)
-		expect(replyAllCall.search.to).toContain('sender@x.com')
-		expect(replyAllCall.search.to).not.toContain('me@x.com')
+		expect(replyAllCall?.to).toContain('sender@x.com')
+		expect(replyAllCall?.to).not.toContain('me@x.com')
 
 		forward.focus()
 		await user.keyboard(' ')
-		expect(navigate).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', to: '' }),
-			}),
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ threadId: 't1', to: '' }),
 		)
-		expect(navigate.mock.calls.at(-1)?.[0].search.body).toContain('Forwarded message')
+		expect(composeApi.openCompose.mock.calls.at(-1)?.[0].body).toContain('Forwarded message')
 	})
 
 	it('hides the reply affordances entirely when the thread has no messages', () => {
@@ -963,6 +1035,47 @@ describe('compose navigation', () => {
 })
 
 // --- keyboard shortcuts -------------------------------------------------
+
+describe('replying in the thread', () => {
+	afterEach(() => {
+		composeApi.composing = null
+	})
+
+	it('makes room under the last message for its own reply, in place of the reply field', () => {
+		composeApi.composing = { kind: 'reply', threadId: 't1' }
+		renderThread()
+		// The composer portals into this slot; the thread offers it under its own id.
+		const slot = document.querySelector('[data-slot="inline-composer"]')
+		expect(slot).not.toBeNull()
+		expect(composeApi.registerInlineSlot).toHaveBeenCalledWith('t1', slot)
+		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+	})
+
+	it('keeps the reply field for a reply that belongs to another thread, or for a new message', () => {
+		composeApi.composing = { kind: 'reply', threadId: 'other' }
+		const view = renderThread()
+		expect(document.querySelector('[data-slot="inline-composer"]')).toBeNull()
+		expect(screen.getByRole('button', { name: /Write a reply/ })).toBeInTheDocument()
+		view.unmount()
+		composeApi.composing = { kind: 'new' }
+		renderThread()
+		expect(document.querySelector('[data-slot="inline-composer"]')).toBeNull()
+	})
+
+	it('leaves keys typed in the composer to the composer, so Escape there never closes the thread', () => {
+		renderThread()
+		const composer = document.createElement('div')
+		composer.className = 'compose-panel'
+		const send = document.createElement('button')
+		composer.append(send)
+		document.body.append(composer)
+		fireEvent.keyDown(send, { key: 'Escape' })
+		fireEvent.keyDown(send, { key: 'e' })
+		expect(navigate).not.toHaveBeenCalled()
+		expect(updateThreadState).not.toHaveBeenCalled()
+		composer.remove()
+	})
+})
 
 describe('keyboard shortcuts', () => {
 	it('leaves keys pressed inside an open menu to that menu', async () => {
@@ -1010,11 +1123,8 @@ describe('keyboard shortcuts', () => {
 		expect(navigate).not.toHaveBeenCalled()
 
 		await user.keyboard('{Enter}')
-		expect(navigate).toHaveBeenCalledWith(
-			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({ folderId: 'inbox', threadId: 't1', replyToMessageId: 'm2' }),
-			}),
+		expect(composeApi.openCompose).toHaveBeenCalledWith(
+			expect.objectContaining({ threadId: 't1', replyToMessageId: 'm2' }),
 		)
 	})
 
@@ -1026,15 +1136,11 @@ describe('keyboard shortcuts', () => {
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'r' })
 		})
-		expect(navigate).toHaveBeenCalledWith(
+		expect(composeApi.openCompose).toHaveBeenCalledWith(
 			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({
-					folderId: 'inbox',
-					threadId: 't1',
-					replyToMessageId: 'm2',
-					to: 'carol@x.com',
-				}),
+				threadId: 't1',
+				replyToMessageId: 'm2',
+				to: 'carol@x.com',
 			}),
 		)
 	})

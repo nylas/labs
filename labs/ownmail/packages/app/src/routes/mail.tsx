@@ -1,6 +1,6 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { useQuery } from '@tanstack/react-query'
-import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Menu, Pencil } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav, type MailboxAccountOption } from '#app/components/AppRail'
@@ -14,16 +14,18 @@ import {
 	MAIL_SIDEBAR_WIDTH_CLASS,
 } from '#app/config/layout'
 import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
+import { useCompose } from '#features/mail/components/ComposeProvider'
 import { MailSearchBar } from '#features/mail/components/MailSearchBar'
 import { MailSidebar } from '#features/mail/components/MailSidebar'
 import {
 	activeMailSidebarFolderId,
-	composeSearchFromMailLocation,
+	latestDraftSummary,
 	liveSearchTarget,
 	mailSearchInputValue,
+	sidebarFolderCount,
 } from '#features/mail/lib/mail-ui-model'
-import { foldersQueryOptions } from '#features/mail/state/mail-queries'
-import { getFolders } from '#server/fns'
+import { draftsQueryOptions, foldersQueryOptions } from '#features/mail/state/mail-queries'
+import { getFolders, listDrafts } from '#server/fns'
 import { Sheet } from '#shared/components/Sheet'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { seededData } from '#shared/lib/seeded-data'
@@ -58,10 +60,17 @@ function MailLayout() {
 		...foldersQueryOptions(() => getFolders()),
 		initialData: initialFolders,
 	})
+	const folders = seededData(foldersQuery.data, initialFolders)
+	// Only ask for drafts when the Drafts folder says there are some.
+	const draftsQuery = useQuery({
+		...draftsQueryOptions(() => listDrafts()),
+		enabled: sidebarFolderCount(folders, 'drafts') > 0,
+	})
 	return (
 		<MailRouteScreen
 			info={seededData(infoQuery.data, initialInfo)}
-			folders={seededData(foldersQuery.data, initialFolders)}
+			folders={folders}
+			latestDraft={latestDraftSummary(draftsQuery.data)}
 		/>
 	)
 }
@@ -70,14 +79,17 @@ export function MailRouteScreen({
 	info,
 	folders,
 	defaultFolderId,
+	latestDraft,
 	children,
 }: {
 	info: MailInfo
 	folders: Folder[]
 	defaultFolderId?: string
+	latestDraft?: { id: string; subject: string }
 	children?: ReactNode
 }) {
 	const navigate = useNavigate()
+	const { openCompose } = useCompose()
 	const pathname = useRouterState({ select: (state) => state.location.pathname })
 	const isSearchRoute = useRouterState({
 		select: (state) => state.matches.some((match) => match.routeId === '/mail/search'),
@@ -97,10 +109,6 @@ export function MailRouteScreen({
 	const labelBaseFolder =
 		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
 	const activeSearchFolderId = currentFolderId ?? searchScopeFolderId
-	const composeSearch = useMemo(
-		() => composeSearchFromMailLocation(pathname, activeSearchFolderId, selectedSearchThreadId),
-		[activeSearchFolderId, pathname, selectedSearchThreadId],
-	)
 	const searchAwarePathname = isSearchRoute ? '/mail/search' : pathname
 	// What the search box shows belongs to the route's query: another search or
 	// folder shows its own text on its first render, and typing edits only that.
@@ -157,19 +165,16 @@ export function MailRouteScreen({
 			}
 			if (event.key.toLowerCase() === 'c') {
 				event.preventDefault()
-				navigate({
-					to: '/mail/compose',
-					search: composeSearch,
-				})
+				void openCompose({ kind: 'new' })
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [composeSearch, navigate])
+	}, [openCompose])
 
 	const sidebarProps = {
 		folders,
-		composeSearch,
+		latestDraft,
 		currentFolderId,
 		baseFolderId: labelBaseFolder,
 		onNavigate: () => setSidebarOpen(false),
@@ -219,10 +224,6 @@ export function MailRouteScreen({
 									onSubmit={navigateSearch}
 								/>
 							</div>
-							<div className="hidden shrink-0 items-center px-3 text-xs text-muted-foreground xl:flex">
-								<kbd className="kbd">C</kbd>
-								<span className="ml-1.5">compose</span>
-							</div>
 						</div>
 					</div>
 				</header>
@@ -260,14 +261,14 @@ export function MailRouteScreen({
 			<CommandPalette open={paletteOpen} onClose={closePalette} onFocusSearch={focusSearch} />
 
 			{hasThreadActions ? null : (
-				<Link
-					to="/mail/compose"
-					search={composeSearch}
-					className="fab md:hidden"
+				<button
+					type="button"
+					onClick={() => void openCompose({ kind: 'new' })}
+					className="fab glass-panel md:hidden"
 					aria-label="Compose message"
 				>
-					<Pencil className="h-5 w-5" strokeWidth={2.5} />
-				</Link>
+					<Pencil className="h-5 w-5" strokeWidth={2} />
+				</button>
 			)}
 		</div>
 	)

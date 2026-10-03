@@ -61,7 +61,7 @@ export function EventDetailsHeader({
 				disabled={busy}
 				aria-label="Close"
 				className={cn(
-					'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted',
+					'flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted',
 					FOCUS_RING_CLASS,
 				)}
 			>

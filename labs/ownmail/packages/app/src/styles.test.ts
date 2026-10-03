@@ -193,8 +193,10 @@ describe('mail list density styles', () => {
 		// The dot is centred in the row's 16px left gutter: hugging the pane border reads as
 		// touching the separator, and it must stay clear of the 2px keyboard-cursor outline.
 		expect(styles).toMatch(
-			/\.thread-row-dot\s*\{[^}]*justify-self: end;[^}]*margin-right: calc\(\(1rem - 5px\) \/ 2\);\s*width: 5px;\s*height: 5px;/,
+			/\.thread-row-dot\s*\{[^}]*justify-self: end;[^}]*margin-right: calc\(\(1rem - 8px\) \/ 2\);\s*width: 8px;\s*height: 8px;/,
 		)
+		// design.md "List density": an 8px accent dot, so unread reads at a glance in both themes.
+		expect(styles).toMatch(/\.thread-row-dot \{\s*\/\*[^*]*\*\/\s*background: var\(--cta-icon\);/)
 		// No density moves it: the same cell is centred on line 1, or on the single Condensed line.
 		expect(densityBlock).not.toContain('.thread-row-dot')
 		// The dot's track has no width: it sits in the row's 16px padding, so row text keeps the title's left edge.

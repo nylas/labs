@@ -36,6 +36,14 @@ function unique(values: readonly string[] | undefined): string[] {
 	return [...new Set(values ?? [])]
 }
 
+/** The system folder a conversation would leave on a move, so Undo can move it back. Starred and
+ * Drafts are views, not places a conversation is moved out of. */
+export function systemFolderBeforeMove(folders: readonly string[] | undefined): string | undefined {
+	return folders?.find(
+		(folderId) => SYSTEM_FOLDER_IDS.has(folderId) && folderId !== 'starred' && folderId !== 'drafts',
+	)
+}
+
 export function threadFoldersAfterCacheMove(
 	currentFolders: readonly string[] | undefined,
 	targetFolderId: string,

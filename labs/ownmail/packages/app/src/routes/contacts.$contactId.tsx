@@ -11,6 +11,7 @@ import {
 	useContact,
 	useDeleteContactMutation,
 } from '#features/contacts/state/contacts-state'
+import { useCompose } from '#features/mail/components/ComposeProvider'
 import { getContact } from '#server/fns'
 import { Section } from '#shared/components/ui/section'
 import { seededData } from '#shared/lib/seeded-data'
@@ -66,6 +67,7 @@ function ContactDetail({ loadedContact }: { loadedContact: Contact }) {
 	const contact = seededData(useContact(loadedContact.id, loadedContact).data, loadedContact)
 	const { q, edit, delete: deleteRequested } = Route.useSearch()
 	const navigate = useNavigate()
+	const { openCompose } = useCompose()
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const [deleting, setDeleting] = useState(false)
 	const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -107,7 +109,7 @@ function ContactDetail({ loadedContact }: { loadedContact: Contact }) {
 				deleteError={deleteError}
 				onBack={() => navigate({ to: '/contacts', search })}
 				onEdit={openEdit}
-				onNewEmail={(to) => navigate({ to: '/mail/compose', search: { to } })}
+				onNewEmail={(to) => void openCompose({ kind: 'new', to })}
 				onRequestDelete={() => setConfirmingDelete(true)}
 				onCancelDelete={() => {
 					setConfirmingDelete(false)

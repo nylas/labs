@@ -84,7 +84,7 @@ export function ReadingPaneMenu({
 				aria-expanded={open}
 				aria-controls={open ? menuId : undefined}
 				onClick={() => setOpen((isOpen) => !isOpen)}
-				className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(any-pointer:coarse)]:h-11 [@media(any-pointer:coarse)]:w-11"
+				className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(any-pointer:coarse)]:h-11 [@media(any-pointer:coarse)]:w-11"
 			>
 				<CurrentIcon className="h-4 w-4" />
 			</button>

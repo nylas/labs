@@ -218,13 +218,19 @@ describe('ContactModal — create', () => {
 		expect(emailType).toHaveClass('h-11')
 		expectFocusFallback(emailType)
 		const close = screen.getByRole('button', { name: 'Close' })
-		expect(close).toHaveClass('h-11', 'w-11')
+		expect(close).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
 		expectFocusFallback(close)
 		const addEmail = screen.getByRole('button', { name: 'Add email' })
 		expect(addEmail).toHaveClass('min-h-11')
 		expectFocusFallback(addEmail)
 		const removeEmail = screen.getByRole('button', { name: 'Remove email 1' })
-		expect(removeEmail).toHaveClass('h-11', 'w-11', 'self-end', 'sm:self-auto')
+		expect(removeEmail).toHaveClass(
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
+			'self-end',
+			'sm:self-auto',
+		)
 		expectFocusFallback(removeEmail)
 		const cancel = screen.getByRole('button', { name: 'Cancel' })
 		expect(cancel).toHaveClass('min-h-11')
@@ -238,7 +244,7 @@ describe('ContactModal — create', () => {
 		expect(phoneType).toHaveClass('h-11')
 		expectFocusFallback(phoneType)
 		const removePhone = screen.getByRole('button', { name: 'Remove phone 1' })
-		expect(removePhone).toHaveClass('h-11', 'w-11')
+		expect(removePhone).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
 		expectFocusFallback(removePhone)
 
 		fireEvent.change(screen.getByLabelText('First name', { selector: 'input' }), {
@@ -520,7 +526,11 @@ describe('ContactModal — dismissal', () => {
 		render(<ContactModal contact={null} onClose={vi.fn()} />)
 		expect(screen.getByRole('button', { name: 'Add email' })).toHaveClass('min-h-11')
 		expect(screen.getByLabelText('Email 1 type')).toHaveClass('h-11')
-		expect(screen.getByRole('button', { name: 'Remove email 1' })).toHaveClass('h-11', 'w-11')
+		expect(screen.getByRole('button', { name: 'Remove email 1' })).toHaveClass(
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
+		)
 	})
 
 	it('treats whitespace and transient blank rows as pristine', () => {

@@ -4,12 +4,14 @@ import {
 	contactDisplayName,
 	contactFormsEqual,
 	contactIdFromPath,
+	contactInitial,
 	contactPrimaryEmail,
 	contactSubtitle,
 	contactToForm,
 	emptyContactForm,
 	filterContacts,
 	formToFields,
+	groupContactsByInitial,
 	removeAt,
 	replaceAt,
 	sortContacts,
@@ -66,6 +68,45 @@ describe('sortContacts', () => {
 		]
 		expect(sortContacts(input).map((c) => c.id)).toEqual(['a', 'b'])
 		expect(input.map((c) => c.id)).toEqual(['b', 'a'])
+	})
+})
+
+describe('contactInitial', () => {
+	it('files a name under its first letter, uppercased', () => {
+		expect(contactInitial({ ...base, given_name: 'bea' })).toBe('B')
+	})
+
+	it('drops accents so a letter never gets a second heading beside its plain form', () => {
+		expect(contactInitial({ ...base, given_name: 'Émile' })).toBe('E')
+	})
+
+	it('files names that do not start with a letter under "#"', () => {
+		expect(contactInitial({ ...base, company_name: '3M' })).toBe('#')
+		expect(contactInitial({ ...base, emails: [{ email: '+ops@x.com' }] })).toBe('#')
+	})
+})
+
+describe('groupContactsByInitial', () => {
+	it("keeps the sorted order and each contact's flat position for the keyboard cursor", () => {
+		const sorted = sortContacts([
+			{ ...base, id: 'eve', given_name: 'Eve' },
+			{ ...base, id: '3m', company_name: '3M' },
+			{ ...base, id: 'emile', given_name: 'Émile' },
+			{ ...base, id: 'ada', given_name: 'Ada' },
+		])
+		const groups = groupContactsByInitial(sorted)
+		// One "E" heading: Émile and Eve sort together, so they file together.
+		expect(groups.map((group) => group.initial)).toEqual(['#', 'A', 'E'])
+		expect(groups.flatMap((group) => group.entries.map((entry) => [entry.contact.id, entry.index]))).toEqual([
+			['3m', 0],
+			['ada', 1],
+			['emile', 2],
+			['eve', 3],
+		])
+	})
+
+	it('has no groups for an empty list', () => {
+		expect(groupContactsByInitial([])).toEqual([])
 	})
 })
 

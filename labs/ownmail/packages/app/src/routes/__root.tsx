@@ -16,8 +16,10 @@ import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
 import { useAccountSwitchStatus } from '#app/lib/account-switch-status'
 import type { OwnmailRouterContext } from '#app/query/query-provider'
+import { ComposeProvider } from '#features/mail/components/ComposeProvider'
 import { platform } from '#server/platform'
 import { DEFAULT_SITE_NAME, siteNameFromEnv } from '#server/site-config'
+import { ToastProvider } from '#shared/components/Toaster'
 import appCss from '../styles.css?url'
 
 const rootState = createServerFn({ method: 'GET' }).handler(async () => {
@@ -126,7 +128,16 @@ function RootComponent() {
 				<NavigationProgress />
 				<RouteAnnouncer />
 				{/* The previous inbox is unmounted, never covered, while the next one loads. */}
-				{switchingTo ? <AccountSwitchLoader email={switchingTo} /> : <Outlet />}
+				<ToastProvider>
+					{/* Compose belongs to one inbox: a switch unmounts it with everything else. */}
+					{switchingTo ? (
+						<AccountSwitchLoader email={switchingTo} />
+					) : (
+						<ComposeProvider>
+							<Outlet />
+						</ComposeProvider>
+					)}
+				</ToastProvider>
 				<Scripts />
 			</body>
 		</html>

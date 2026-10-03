@@ -417,4 +417,12 @@ describe('RecipientInput', () => {
 
 		expect(screen.getByText('jordan@acme.com')).toBeInTheDocument()
 	})
+
+	it("lets a row that draws its own focus ring switch the field's ring off", () => {
+		render(<RecipientInput value="" onChange={() => {}} label="To" inputClassName="focus-visible:ring-0" />)
+		const field = screen.getByRole('combobox', { name: 'To' })
+		// tailwind-merge keeps one ring rule, so the field never draws a second ring inside its row.
+		expect(field).toHaveClass('focus-visible:ring-0')
+		expect(field).not.toHaveClass('focus-visible:ring-[3px]')
+	})
 })

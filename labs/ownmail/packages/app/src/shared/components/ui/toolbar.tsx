@@ -26,3 +26,13 @@ export function Toolbar({
 		/>
 	)
 }
+
+/** Divides a toolbar's groups of actions, such as the reader's triage, view and respond groups. */
+export function ToolbarSeparator({ className }: { className?: string }) {
+	return (
+		<hr
+			aria-orientation="vertical"
+			className={cn('mx-cluster h-5 w-px shrink-0 border-0 bg-border', className)}
+		/>
+	)
+}

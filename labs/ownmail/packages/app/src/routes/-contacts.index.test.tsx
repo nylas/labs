@@ -22,21 +22,15 @@ function renderRoute(search: { q?: string } = {}) {
 afterEach(cleanup)
 
 describe('ContactsIndex', () => {
-	it('prompts the user to pick a contact and links to create, carrying the search', () => {
+	it('prompts the user to pick a contact and points to the one create action in the list', () => {
 		renderRoute({ q: 'ada' })
-		expect(screen.getByText('Select a contact to see their details.')).toBeInTheDocument()
-		const link = screen.getByRole('link', { name: /New contact/ })
-		expect(link).toHaveAttribute('data-to', '/contacts/new')
-		expect(link).toHaveAttribute('data-search', JSON.stringify({ q: 'ada' }))
-		expect(link).toHaveClass('min-h-11')
-	})
-
-	it('links to create with no search when none is active', () => {
-		renderRoute()
-		expect(screen.getByRole('link', { name: /New contact/ })).toHaveAttribute(
-			'data-search',
-			JSON.stringify({}),
-		)
+		expect(
+			screen.getByText('Select a contact to see their details, or add one with New contact.'),
+		).toBeInTheDocument()
+		// "New contact" lives once, at the top of the contact list; a second copy
+		// here would be a duplicate CTA (design.md "CTA voice").
+		expect(screen.queryByRole('link')).toBeNull()
+		expect(screen.queryByRole('button')).toBeNull()
 	})
 
 	it('validates the q search param', () => {

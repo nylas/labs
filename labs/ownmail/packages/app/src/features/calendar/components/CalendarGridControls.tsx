@@ -9,7 +9,7 @@ import { Button } from '#shared/components/ui/button'
 import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { cn } from '#shared/lib/utils'
-import { timeZoneShortName } from '../lib/calendar.js'
+import { fmtTime, timeZoneOffsetLabel, timeZoneShortName, timezoneCity } from '../lib/calendar.js'
 import { hourHeightLabel, stepHourHeight } from '../lib/calendar-zoom.js'
 
 // Panel glass: these open from the day header and float over the grid.
@@ -149,13 +149,11 @@ export function GridZoomControl({
 	)
 }
 
-function timezoneCity(timeZone: string): string {
-	return timeZone.replace(/^.*\//, '').replaceAll('_', ' ')
-}
-
 /**
  * The time gutter's head. It names the zone or zones the ruler shows and opens a
- * popover to add, change, or remove the second one.
+ * popover to add, change, or remove the second one. With a second zone it heads
+ * both hour columns in the order they are drawn: the second zone with its
+ * offset from the first, then the first with its abbreviation.
  */
 export function SecondaryTimezoneControl({
 	primaryTimezone,
@@ -172,42 +170,43 @@ export function SecondaryTimezoneControl({
 	const selectId = useId()
 	const primaryName = timeZoneShortName(primaryTimezone, now)
 	const secondaryName = secondaryTimezone ? timeZoneShortName(secondaryTimezone, now) : ''
+	const offset = secondaryTimezone ? timeZoneOffsetLabel(primaryTimezone, secondaryTimezone, now) : ''
 	return (
-		<div ref={popover.containerRef} className="relative flex min-w-0">
+		<div ref={popover.containerRef} className="relative flex min-w-0 flex-1">
 			<button
 				ref={popover.triggerRef}
 				type="button"
 				aria-label={
 					secondaryTimezone
-						? `Time zones: ${primaryName} and ${secondaryName}. Change second time zone`
+						? `Time zones: ${timezoneCity(primaryTimezone)} ${primaryName} and ${timezoneCity(secondaryTimezone)} ${secondaryName}, ${offset}. Change second time zone`
 						: `Time zone: ${primaryName}. Add a second time zone`
 				}
 				aria-haspopup="dialog"
 				aria-expanded={popover.open}
 				onClick={() => popover.setOpen((open) => !open)}
-				className="touch-target flex min-h-11 w-full min-w-0 flex-col items-end justify-center gap-px px-control text-right transition-colors hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+				className="touch-target flex min-h-11 w-full min-w-0 items-center justify-end text-right transition-colors hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
 			>
-				<span
-					title={timezoneCity(primaryTimezone)}
-					className="max-w-full truncate text-[10px] font-semibold text-foreground"
-				>
-					{primaryName}
-				</span>
 				{secondaryTimezone ? (
-					<span
-						title={timezoneCity(secondaryTimezone)}
-						className="max-w-full truncate text-[9px] text-muted-foreground"
-					>
-						{secondaryName}
-					</span>
+					<>
+						<TimezoneHead city={timezoneCity(secondaryTimezone)} detail={offset} />
+						<TimezoneHead city={timezoneCity(primaryTimezone)} detail={primaryName} primary />
+					</>
 				) : (
-					<Plus className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+					<span className="flex min-w-0 flex-col items-end gap-px px-control">
+						<span
+							title={timezoneCity(primaryTimezone)}
+							className="max-w-full truncate text-[10px] font-semibold text-foreground"
+						>
+							{primaryName}
+						</span>
+						<Plus className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+					</span>
 				)}
 			</button>
 			{popover.open ? (
 				<GridPopover
 					label="Second time zone"
-					className="left-0 flex w-64 flex-col gap-cluster"
+					className="left-0 flex w-72 flex-col gap-cluster"
 					panelRef={popover.panelRef}
 					onClose={popover.close}
 					onLeave={popover.leave}
@@ -219,6 +218,7 @@ export function SecondaryTimezoneControl({
 						id={selectId}
 						primaryTimezone={primaryTimezone}
 						secondaryTimezone={secondaryTimezone}
+						now={now}
 						onChange={onChange}
 					/>
 					{secondaryTimezone ? (
@@ -240,21 +240,57 @@ export function SecondaryTimezoneControl({
 	)
 }
 
+/** One hour column's head: the city, with its offset or abbreviation beneath. */
+function TimezoneHead({
+	city,
+	detail,
+	primary = false,
+}: {
+	city: string
+	detail: string
+	primary?: boolean
+}) {
+	return (
+		<span className="flex min-w-0 flex-1 flex-col items-end px-control">
+			<span
+				title={city}
+				className={cn(
+					'max-w-full truncate text-[10px] font-semibold',
+					primary ? 'text-foreground' : 'text-muted-foreground',
+				)}
+			>
+				{city}
+			</span>
+			<span className="max-w-full truncate text-[10px] text-muted-foreground tabular-nums">{detail}</span>
+		</span>
+	)
+}
+
 function SecondaryTimezoneSelect({
 	id,
 	primaryTimezone,
 	secondaryTimezone,
+	now,
 	onChange,
 }: {
 	id: string
 	primaryTimezone: string
 	secondaryTimezone: string
+	now: Date
 	onChange: (secondaryTimezone: string) => void
 }) {
 	// The second zone must differ from the first, so the first is not offered.
+	// Each zone shows the time there now and its offset, so it can be chosen by
+	// what its clock says rather than by its id alone.
 	const timezones = useMemo(
-		() => availableTimezones().filter((timezone) => timezone !== primaryTimezone),
-		[primaryTimezone],
+		() =>
+			availableTimezones()
+				.filter((timezone) => timezone !== primaryTimezone)
+				.map((timezone) => ({
+					timezone,
+					label: `${timezone} · ${fmtTime(now, timezone)} · ${timeZoneOffsetLabel(primaryTimezone, timezone, now)}`,
+				})),
+		[now, primaryTimezone],
 	)
 	return (
 		<select
@@ -268,9 +304,9 @@ function SecondaryTimezoneSelect({
 			className="h-11 w-full rounded-md border border-border bg-card px-2 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring"
 		>
 			<option value="">None</option>
-			{timezones.map((timezone) => (
+			{timezones.map(({ timezone, label }) => (
 				<option key={timezone} value={timezone}>
-					{timezone}
+					{label}
 				</option>
 			))}
 		</select>

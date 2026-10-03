@@ -138,7 +138,7 @@ export function ResourceManagerDialog({
 						onClick={requestClose}
 						disabled={busy}
 						aria-label="Close"
-						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
+						className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50"
 					>
 						<X className="h-4 w-4" />
 					</button>

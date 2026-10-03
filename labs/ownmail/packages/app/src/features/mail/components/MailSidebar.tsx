@@ -12,8 +12,7 @@ import {
 	Star,
 	Trash2,
 } from 'lucide-react'
-import { useState } from 'react'
-import { CHROME_ROW_CLASS } from '#app/config/layout'
+import { useEffect, useRef, useState } from 'react'
 import type { ManagedResourceAction } from '#shared/components/ResourceManagerDialog'
 import {
 	ContextMenu,
@@ -22,6 +21,7 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import { PRIMARY_ACTION_CLASS, PrimaryActionContent } from '#shared/components/ui/primary-action'
 import { cn } from '#shared/lib/utils'
 import {
 	labelBaseFolderId,
@@ -30,6 +30,7 @@ import {
 	MAIL_FOLDERS,
 	sidebarFolderCount,
 } from '../lib/mail-ui-model.js'
+import { useCompose } from './ComposeProvider.js'
 import { FolderManagerDialog } from './FolderManagerDialog.js'
 
 const FOLDER_ICONS: Record<string, LucideIcon> = {
@@ -43,16 +44,17 @@ const FOLDER_ICONS: Record<string, LucideIcon> = {
 
 export function MailSidebar({
 	folders,
-	composeSearch,
 	currentFolderId,
 	baseFolderId,
 	onNavigate,
 	onFolderDeleted,
+	latestDraft,
 	className,
 	mobile = false,
 }: {
 	folders: Folder[]
-	composeSearch: { folderId?: string; threadId?: string }
+	/** The most recent saved draft, offered as "Resume" under Compose. */
+	latestDraft?: { id: string; subject: string }
 	currentFolderId?: string
 	baseFolderId?: string
 	onNavigate?: () => void
@@ -62,6 +64,7 @@ export function MailSidebar({
 }) {
 	const labels = folders.filter(isCustomFolder)
 	const navigate = useNavigate()
+	const { openCompose } = useCompose()
 	// null: closed. The label menu opens the manager on that label's own form.
 	const [folderManager, setFolderManager] = useState<{ initialAction?: ManagedResourceAction } | null>(null)
 
@@ -73,29 +76,40 @@ export function MailSidebar({
 				className,
 			)}
 		>
-			<div
-				className={cn(
-					'flex shrink-0 items-center border-b border-border px-3',
-					mobile ? 'h-16' : CHROME_ROW_CLASS,
-				)}
-			>
-				<Link
-					to="/mail/compose"
-					search={composeSearch}
-					onClick={onNavigate}
-					className={cn(
-						'touch-target flex w-full items-center justify-center gap-2 border border-border text-sm font-medium transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-						mobile
-							? 'min-h-12 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 active:translate-y-px'
-							: 'h-9 bg-background text-foreground hover:bg-muted',
-					)}
+			{/* design.md "Spacing" clause 7: one inset column, no separator under the create action. */}
+			<div className="flex shrink-0 flex-col p-hairline">
+				<button
+					type="button"
+					onClick={() => {
+						onNavigate?.()
+						void openCompose({ kind: 'new' })
+					}}
+					aria-keyshortcuts="C"
+					className={cn(PRIMARY_ACTION_CLASS, mobile && 'min-h-12')}
 				>
-					<Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-					Compose
-				</Link>
+					<PrimaryActionContent icon={Pencil} label="Compose" shortcut="C" />
+				</button>
+				{latestDraft ? (
+					<button
+						type="button"
+						onClick={() => {
+							onNavigate?.()
+							void openCompose({ kind: 'draft', draftId: latestDraft.id })
+						}}
+						className={cn(
+							'press touch-target mt-control flex min-w-0 items-center gap-control rounded-md px-cluster text-xs text-muted-foreground hover:bg-muted hover:text-foreground',
+							mobile ? 'min-h-12' : 'h-8',
+						)}
+					>
+						<span className="shrink-0">Resume</span>{' '}
+						<span className="min-w-0 truncate font-medium text-foreground">
+							{latestDraft.subject || '(no subject)'}
+						</span>
+					</button>
+				) : null}
 			</div>
 
-			<nav className={cn('flex flex-col', mobile ? 'gap-0.5 px-2 py-2' : 'py-1')} aria-label="Mail folders">
+			<nav className="flex flex-col px-hairline" aria-label="Mail folders">
 				{MAIL_FOLDERS.map((folder) => {
 					/* v8 ignore next -- every MAIL_FOLDERS id has a FOLDER_ICONS entry; the ?? Inbox fallback is unreachable defensive code -- @preserve */
 					const Icon = FOLDER_ICONS[folder.id] ?? Inbox
@@ -109,42 +123,37 @@ export function MailSidebar({
 							onClick={onNavigate}
 							aria-current={active ? 'page' : undefined}
 							className={cn(
-								'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
-								mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
+								'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] press',
+								'rounded-md px-cluster',
+								mobile ? 'min-h-12' : 'h-9',
 								active ? 'nav-item-active' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
 							)}
 						>
 							<Icon className="h-4 w-4 shrink-0" />
 							<span className="flex-1 text-left">{folder.label}</span>
-							{count > 0 ? (
-								<span
-									className={cn('text-xs tabular-nums', active ? 'text-foreground' : 'text-muted-foreground')}
-								>
-									{count}
-								</span>
-							) : null}
+							{count > 0 ? <FolderCount count={count} active={active} /> : null}
 						</Link>
 					)
 				})}
 			</nav>
 
-			<div className="border-t border-border pt-3">
-				<div className={cn('flex items-center justify-between pb-1', mobile ? 'px-3' : 'px-4')}>
+			<div className="mt-cluster border-t border-border px-hairline pt-hairline">
+				<div className="flex items-center justify-between pb-control pl-cluster">
 					<p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Labels</p>
 					<button
 						type="button"
 						onClick={() => setFolderManager({})}
 						aria-label="Manage folders"
 						className={cn(
-							'touch-target-square flex items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:ring-[3px] focus-visible:ring-ring',
-							mobile ? 'h-11 w-11' : 'h-8 w-8',
+							'touch-target-square flex items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press focus-visible:ring-[3px] focus-visible:ring-ring',
+							mobile ? 'size-11' : 'size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11',
 						)}
 					>
 						<Settings2 className="h-4 w-4" />
 					</button>
 				</div>
 				{labels.length > 0 ? (
-					<div className={cn('flex flex-col', mobile && 'gap-0.5 px-2')}>
+					<div className="flex flex-col">
 						{labels.map((label, index) => {
 							const active = currentFolderId === label.id
 							const nextFolderId = labelToggleFolderId(currentFolderId, label.id, baseFolderId)
@@ -162,8 +171,9 @@ export function MailSidebar({
 											onClick={onNavigate}
 											aria-current={active ? 'page' : undefined}
 											className={cn(
-												'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:translate-y-px',
-												mobile ? 'min-h-12 rounded-lg px-3' : 'h-9 px-4',
+												'touch-target relative flex items-center gap-3 whitespace-nowrap text-sm transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] press',
+												'rounded-md px-cluster',
+												mobile ? 'min-h-12' : 'h-9',
 												active
 													? 'nav-item-active'
 													: 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -208,7 +218,7 @@ export function MailSidebar({
 						})}
 					</div>
 				) : (
-					<p className={cn('py-2 text-xs text-muted-foreground', mobile ? 'px-3' : 'px-4')}>No labels yet.</p>
+					<p className="px-cluster py-2 text-xs text-muted-foreground">No labels yet.</p>
 				)}
 			</div>
 			{folderManager ? (
@@ -220,6 +230,22 @@ export function MailSidebar({
 				/>
 			) : null}
 		</aside>
+	)
+}
+
+/** A folder count; a change while it is on screen drops the new number in (design.md "Motion" clause 7). */
+function FolderCount({ count, active }: { count: number; active: boolean }) {
+	const previous = useRef(count)
+	const changed = previous.current !== count
+	useEffect(() => {
+		previous.current = count
+	}, [count])
+	return (
+		<span className={cn('text-xs tabular-nums', active ? 'text-foreground' : 'text-muted-foreground')}>
+			<span key={count} className={changed ? 'count-tick' : undefined}>
+				{count}
+			</span>
+		</span>
 	)
 }
 

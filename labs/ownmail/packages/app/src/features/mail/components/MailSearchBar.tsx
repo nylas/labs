@@ -152,7 +152,7 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 						<X className="h-4 w-4" aria-hidden="true" />
 					</button>
 				) : (
-					<kbd className="kbd mr-1 hidden sm:inline-flex">/</kbd>
+					<kbd className="kbd shortcut-hint mr-1">/</kbd>
 				)}
 				<button
 					type="button"

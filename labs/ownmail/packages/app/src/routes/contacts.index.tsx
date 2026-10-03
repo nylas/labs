@@ -1,5 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import { createFileRoute } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/contacts/')({
 	validateSearch: (search): { q?: string } =>
@@ -8,17 +7,12 @@ export const Route = createFileRoute('/contacts/')({
 })
 
 function ContactsIndex() {
-	const { q } = Route.useSearch()
+	// The create action lives at the top of the contact list beside this pane.
 	return (
 		<div className="hidden h-full flex-col items-center justify-center gap-3 p-8 text-center md:flex">
-			<p className="text-sm text-muted-foreground">Select a contact to see their details.</p>
-			<Link
-				to="/contacts/new"
-				search={q ? { q } : {}}
-				className="flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:brightness-105 active:scale-[0.98]"
-			>
-				<Plus className="h-4 w-4" /> New contact
-			</Link>
+			<p className="text-sm text-muted-foreground">
+				Select a contact to see their details, or add one with New contact.
+			</p>
 		</div>
 	)
 }

@@ -141,10 +141,34 @@ describe('second time zone control', () => {
 			target: { value: 'Europe/London' },
 		})
 		expect(onChange).toHaveBeenCalledWith('Europe/London')
+		// The head names both zones by city as well as abbreviation, and how far apart they are.
 		// The short name depends on the runtime's locale data (BST or GMT+1).
 		expect(
-			screen.getByRole('button', { name: /^Time zones: EDT and (BST|GMT\+1)\. Change second time zone$/ }),
+			screen.getByRole('button', {
+				name: /^Time zones: Toronto EDT and London (BST|GMT\+1), \+5h\. Change second time zone$/,
+			}),
 		).toBeInTheDocument()
+	})
+
+	it('heads the two hour columns in drawing order: the second zone with its offset, then the first with its abbreviation', () => {
+		render(<Zones initial="Europe/Lisbon" />)
+		const trigger = screen.getByRole('button', { name: /Change second time zone/ })
+		const heads = [...trigger.children].map((head) => head.textContent)
+		expect(heads).toEqual(['Lisbon+5h', 'TorontoEDT'])
+	})
+
+	it('lists each candidate zone with its time there now and its offset, to choose by clock rather than id', () => {
+		render(<Zones initial="" />)
+		fireEvent.click(screen.getByRole('button', { name: /Add a second time zone/ }))
+		const select = screen.getByRole('combobox', { name: 'Second time zone' })
+		// 12:00 UTC is 1 PM in Lisbon in June and 8 AM in Toronto.
+		expect(within(select).getByRole('option', { name: 'Europe/Lisbon · 1 PM · +5h' })).toHaveValue(
+			'Europe/Lisbon',
+		)
+		expect(
+			within(select).getByRole('option', { name: 'America/New_York · 8 AM · Same time' }),
+		).toBeInTheDocument()
+		expect(within(select).getByRole('option', { name: 'America/Vancouver · 5 AM · −3h' })).toBeInTheDocument()
 	})
 
 	it('never offers the primary zone, since a second ruler equal to the first shows nothing new', () => {

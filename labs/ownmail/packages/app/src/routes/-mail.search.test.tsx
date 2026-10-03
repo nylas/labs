@@ -52,6 +52,14 @@ vi.mock('#server/fns', () => fns)
 
 import { Route } from './mail.search.js'
 
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
+
 function renderRoute(
 	client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }),
 ) {
@@ -66,6 +74,7 @@ function renderRoute(
 afterEach(cleanup)
 beforeEach(() => {
 	vi.clearAllMocks()
+	composeApi.composing = null
 	h.location = { pathname: '/mail/search' }
 	h.navigate.mockResolvedValue(undefined)
 	h.invalidate.mockResolvedValue(undefined)
@@ -741,7 +750,12 @@ describe('/mail/search thread detail', () => {
 		})
 
 		renderRoute()
-		expect(screen.getByRole('link', { name: 'Back to list' })).toHaveClass('h-11', 'w-11', 'xl:hidden')
+		expect(screen.getByRole('link', { name: 'Back to list' })).toHaveClass(
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
+			'xl:hidden',
+		)
 
 		// The shared reader (same component as the folder thread view) shows the subject,
 		// label chip, and the last message's HTML body via the iframe renderer.
@@ -749,20 +763,32 @@ describe('/mail/search thread detail', () => {
 		expect(screen.getAllByText('Work').length).toBeGreaterThan(0)
 		expect(screen.getByTitle('Email content m3')).toBeTruthy()
 
-		// Reply / Reply all / Forward each route to the composer for the latest message.
+		// Reply / Reply all / Forward each open the composer over the reader, on the latest message.
+		// Replies are written in the thread; a forward starts a new conversation.
 		await user.click(screen.getByRole('button', { name: 'Reply' }))
-		await user.click(screen.getByRole('button', { name: 'Reply all' }))
-		await user.click(screen.getByRole('button', { name: 'Forward' }))
-		// The desktop inline reply affordance also routes to the composer.
-		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
-		await waitFor(() =>
-			expect(h.navigate).toHaveBeenCalledWith(
-				expect.objectContaining({
-					to: '/mail/compose',
-					search: expect.objectContaining({ threadId: 'th1', replyToMessageId: 'm3' }),
-				}),
-			),
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', threadId: 'th1', replyToMessageId: 'm3' }),
 		)
+		await user.click(screen.getByRole('button', { name: 'Reply all' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', threadId: 'th1', replyToMessageId: 'm3' }),
+		)
+		await user.click(screen.getByRole('button', { name: 'Forward' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				kind: 'forward',
+				threadId: 'th1',
+				body: expect.stringContaining('Forwarded message'),
+			}),
+		)
+		// The desktop inline reply affordance opens the same reply.
+		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', threadId: 'th1', replyToMessageId: 'm3' }),
+		)
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(4)
+		// Compose opens in place: the search reader is not left.
+		expect(h.navigate).not.toHaveBeenCalled()
 
 		// Archive leaves the thread (state update + navigate back to the list, no mask).
 		await user.click(screen.getByLabelText('Archive'))
@@ -1216,32 +1242,30 @@ describe('/mail/search thread detail', () => {
 		expect(desktopReply.parentElement).not.toHaveClass('border-t')
 
 		await user.click(reply)
-		expect(h.navigate).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({
-					folderId: 'inbox',
-					threadId: 'th-mobile',
-					replyToMessageId: 'm-mobile',
-				}),
-			}),
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', threadId: 'th-mobile', replyToMessageId: 'm-mobile' }),
 		)
 
+		// Reply all answers everyone on the message except the mailbox owner.
 		await user.click(replyAll)
-		const replyAllCall = h.navigate.mock.calls.at(-1)?.[0]
-		expect(replyAllCall.search.to).toContain('sender@x.com')
-		expect(replyAllCall.search.to).toContain('other@x.com')
-		expect(replyAllCall.search.to).toContain('cc@x.com')
-		expect(replyAllCall.search.to).not.toContain('me@x.com')
+		const replyAllCall = composeApi.openCompose.mock.calls.at(-1)?.[0] as unknown as Record<string, string>
+		expect(replyAllCall).toMatchObject({ kind: 'reply', threadId: 'th-mobile', replyToMessageId: 'm-mobile' })
+		expect(replyAllCall.to).toContain('sender@x.com')
+		expect(replyAllCall.to).toContain('other@x.com')
+		expect(replyAllCall.to).toContain('cc@x.com')
+		expect(replyAllCall.to).not.toContain('me@x.com')
 
+		// A forward starts with no recipient and quotes the message.
 		await user.click(forward)
-		expect(h.navigate).toHaveBeenLastCalledWith(
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({
-				to: '/mail/compose',
-				search: expect.objectContaining({ folderId: 'inbox', threadId: 'th-mobile', to: '' }),
+				kind: 'forward',
+				threadId: 'th-mobile',
+				to: '',
+				body: expect.stringContaining('Forwarded message'),
 			}),
 		)
-		expect(h.navigate.mock.calls.at(-1)?.[0].search.body).toContain('Forwarded message')
+		expect(h.navigate).not.toHaveBeenCalled()
 	})
 
 	it('marks an unread selected result read once and hides reply actions without messages', async () => {
@@ -1524,11 +1548,10 @@ describe('/mail/search row context menu', () => {
 		choose(name)
 
 		await waitFor(() =>
-			expect(h.navigate).toHaveBeenCalledWith({
-				to: '/mail/compose',
-				search: { folderId: 'inbox', threadId: 'other', ...response },
-			}),
+			// Reply and reply-all are both written in the result's thread.
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'reply', threadId: 'other', ...response }),
 		)
+		expect(h.navigate).not.toHaveBeenCalled()
 		expect(fns.getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 'other' } })
 	})
 
@@ -1543,15 +1566,16 @@ describe('/mail/search row context menu', () => {
 		await openMenu('Other result')
 		choose('Forward')
 
-		await waitFor(() => expect(h.navigate).toHaveBeenCalled())
-		const { search } = h.navigate.mock.calls[0][0]
-		expect(search).toMatchObject({
-			folderId: 'inbox',
+		await waitFor(() => expect(composeApi.openCompose).toHaveBeenCalled())
+		// A forward starts a new conversation from the result, with no recipient yet.
+		expect(composeApi.openCompose).toHaveBeenCalledWith({
+			kind: 'forward',
 			threadId: 'other',
 			to: '',
 			subject: 'Fwd: Other result',
+			body: expect.stringContaining('Forwarded message'),
 		})
-		expect(search.body).toContain('Forwarded message')
+		expect(h.navigate).not.toHaveBeenCalled()
 	})
 
 	it('reports on the row when the thread has no message to answer or cannot be loaded', async () => {
