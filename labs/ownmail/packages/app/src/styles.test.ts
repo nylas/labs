@@ -24,6 +24,14 @@ describe('touch editing styles', () => {
 	})
 })
 
+describe('thread list rendering cost', () => {
+	it('lets off-screen thread rows skip style, layout and paint while keeping their measured height', () => {
+		const rowRule = /\.thread-row \{[^}]*\}/.exec(styles)?.[0] ?? ''
+		expect(rowRule).toContain('content-visibility: auto;')
+		expect(rowRule).toContain('contain-intrinsic-size: auto 76px;')
+	})
+})
+
 describe('navigation progress styles', () => {
 	it('keeps pending navigation visible without motion when reduced motion is requested', () => {
 		expect(styles).toMatch(

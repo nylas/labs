@@ -1,5 +1,5 @@
 import type { Event } from '@nylas-labs/cli-kit/v3'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CALENDAR_HOME_PATH } from '#app/config/route-paths'
 import {
 	ALL_DAY_COLLAPSED_ROWS,
@@ -1097,6 +1097,26 @@ describe('now badge and gutter hour labels', () => {
 				nowBadgeCoversLabel((minute / 60) * 52, ...hourLabel(hour)),
 			)
 			expect(hidden.length).toBeLessThanOrEqual(1)
+		}
+	})
+})
+
+describe('time-zone conversion cost', () => {
+	// A week view converts thousands of instants per render. Building an ICU
+	// formatter per conversion made opening the calendar block input for
+	// hundreds of milliseconds, so a time zone's formatter must be built once.
+	it('reuses one formatter per time zone across conversions', () => {
+		const construct = vi.spyOn(Intl, 'DateTimeFormat')
+		try {
+			for (let hour = 0; hour < 50; hour++) {
+				calendarDateInTimeZone(new Date(Date.UTC(2024, 5, 15, hour)), 'Asia/Kolkata')
+			}
+			expect(construct.mock.calls.length).toBeLessThanOrEqual(1)
+			expect(calendarDateInTimeZone(new Date(Date.UTC(2024, 5, 15, 20)), 'Asia/Kolkata')).toEqual(
+				new Date(2024, 5, 16),
+			)
+		} finally {
+			construct.mockRestore()
 		}
 	})
 })

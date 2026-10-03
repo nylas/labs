@@ -62,10 +62,13 @@ vi.mock('#server/fns', () => ({
 
 // ClientListDate depends on a mount effect + locale formatting; stub it to a stable
 // marker so list assertions stay deterministic.
+// Each render of a row's date is counted, so tests can assert how many rows re-render.
+const listDateRenders = vi.hoisted(() => ({ count: 0 }))
 vi.mock('#shared/components/ClientTime', () => ({
-	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => (
-		<time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
-	),
+	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => {
+		listDateRenders.count += 1
+		return <time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
+	},
 }))
 
 // jsdom doesn't implement scrollIntoView; the keyboard cursor calls it to keep
@@ -1166,6 +1169,21 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 
 	const cursored = () =>
 		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
+
+	// j/k must answer within 100 ms on a long inbox. Re-rendering every row per
+	// key press is what broke that budget, so a cursor move may only re-render
+	// the row it leaves and the row it lands on.
+	it('re-renders only the two rows whose cursor state changes when j moves the cursor', () => {
+		const manyThreads = Array.from({ length: 40 }, (_, index) =>
+			thread({ id: `many-${index}`, subject: `Thread ${index}`, latest_message_received_date: 1000 - index }),
+		)
+		renderInbox({ threads: manyThreads })
+		fireEvent.keyDown(window, { key: 'j' })
+		const before = listDateRenders.count
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toHaveTextContent('Thread 1')
+		expect(listDateRenders.count - before).toBe(2)
+	})
 
 	it("starts the keyboard cursor fresh in another folder instead of carrying the last folder's position", () => {
 		const view = renderInbox()

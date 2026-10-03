@@ -171,16 +171,30 @@ export function isRenderableCalendarEvent(value: unknown): value is Event {
 
 type ZonedDateTime = { year: number; month: number; day: number; hour: number; minute: number }
 
+// Building a formatter resolves locale and time-zone data through ICU and costs
+// far more than formatting with one; a week view converts thousands of instants
+// per render, so each time zone's formatter is built once and reused.
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>()
+
+function zonedFormatter(timeZone: string): Intl.DateTimeFormat {
+	let formatter = zonedFormatters.get(timeZone)
+	if (!formatter) {
+		formatter = new Intl.DateTimeFormat('en-US', {
+			timeZone,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			hourCycle: 'h23',
+		})
+		zonedFormatters.set(timeZone, formatter)
+	}
+	return formatter
+}
+
 function zonedDateTime(date: Date, timeZone: string): ZonedDateTime {
-	const values = new Intl.DateTimeFormat('en-US', {
-		timeZone,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit',
-		hour: '2-digit',
-		minute: '2-digit',
-		hourCycle: 'h23',
-	}).formatToParts(date)
+	const values = zonedFormatter(timeZone).formatToParts(date)
 	const part = (type: Intl.DateTimeFormatPartTypes) =>
 		Number(values.find((value) => value.type === type)?.value)
 	return {
