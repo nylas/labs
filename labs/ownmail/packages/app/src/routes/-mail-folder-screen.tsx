@@ -221,6 +221,31 @@ function LoadedMailFolderRouteScreen({
 		[navItems, navigate, openCompose],
 	)
 
+	// j/k with a conversation open: the cursor moves (and paints) at once, and the
+	// conversation opens in a task after that paint, so the key answers within
+	// 100 ms however heavy the next thread is. Presses that land before the open
+	// runs replace it, so holding j skims the list without rendering every thread.
+	const openItemRef = useRef(openItem)
+	openItemRef.current = openItem
+	const pendingOpenRef = useRef<{ index: number; token: number } | null>(null)
+	const scheduleOpen = useCallback((index: number) => {
+		const token = (pendingOpenRef.current?.token ?? 0) + 1
+		pendingOpenRef.current = { index, token }
+		requestAnimationFrame(() => {
+			setTimeout(() => {
+				if (pendingOpenRef.current?.token !== token) return
+				pendingOpenRef.current = null
+				openItemRef.current(index)
+			}, 0)
+		})
+	}, [])
+	useEffect(
+		() => () => {
+			pendingOpenRef.current = null
+		},
+		[],
+	)
+
 	// Keep the cursored row visible as it walks past the fold.
 	useEffect(() => {
 		if (cursor < 0) return
@@ -280,16 +305,20 @@ function LoadedMailFolderRouteScreen({
 			if (!action) return
 			// With a conversation open, j/k move straight to the adjacent
 			// conversation instead of only moving the list cursor.
+			// A press before the last one's conversation has opened continues from it.
 			const fromThreadId = destinationThreadId ?? openThreadId
-			const openIndex =
-				fromThreadId && (event.key === 'j' || event.key === 'k')
-					? navItems.findIndex((item) => 'threadId' in item && item.threadId === fromThreadId)
-					: -1
+			const isStep = event.key === 'j' || event.key === 'k'
+			const openIndex = !isStep
+				? -1
+				: (pendingOpenRef.current?.index ??
+					(fromThreadId
+						? navItems.findIndex((item) => 'threadId' in item && item.threadId === fromThreadId)
+						: -1))
 			if (openIndex >= 0) {
 				event.preventDefault()
 				const nextIndex = moveCursor(openIndex, event.key === 'j' ? 1 : -1, navItems.length)
 				setCursor(nextIndex)
-				if (nextIndex !== openIndex) openItem(nextIndex)
+				if (nextIndex !== openIndex) scheduleOpen(nextIndex)
 				return
 			}
 			event.preventDefault()
@@ -310,7 +339,7 @@ function LoadedMailFolderRouteScreen({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, destinationThreadId, navItems, openItem, openThreadId, setCursor])
+	}, [cursor, destinationThreadId, navItems, openItem, openThreadId, scheduleOpen, setCursor])
 
 	async function loadMore() {
 		if (!nextCursor || loadMorePendingRef.current === folderIdentity || loadingMore || folderId === 'drafts')
