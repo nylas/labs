@@ -1,5 +1,19 @@
 # @ownmail/app
 
+## 0.21.0
+
+### Minor Changes
+
+- 1dd9c88: Compose is no longer a page. One composer opens over whatever is on screen, from any module, and a reply is written inline under the last message of its thread. Opening another composer saves and closes the current one, sending confirms with a toast instead of leaving for Sent, and focus returns to whatever opened it. Old `/mail/compose` links still open the composer.
+- 8e01fbc: Set OwnMail in Manrope throughout, with Inter for times, dates, counts and calendar numbers. Poppins is no longer shipped, so each page loads three fewer font files. Unread mail no longer uses a dot: unread rows show the time in the green accent, and the sender and subject in semibold. The star now sits clear of the sender instead of crowding it.
+- 1dd9c88: Refresh the OwnMail interface. Each module's sidebar now opens with one quiet create action (Compose, New event, New contact) in an inset column, icon buttons share one size, and the dark theme gains a slight green tint. Unread mail is marked with an 8px accent dot, the reader toolbar is grouped with a labelled Reply, and archive or delete is confirmed in a toast with Undo while the rows below slide into the gap. Motion follows new press and spring tokens and respects reduced motion. The calendar labels time zones by city, shades the second zone's off-hours, shows the current time in both, and keeps short and past events readable. Contacts are grouped by letter, and Settings uses one heading style.
+
+### Patch Changes
+
+- 8e01fbc: Pressing j or k with a conversation open now moves the list highlight at once, and the conversation opens right after. Long or heavily designed emails no longer delay the key press. Holding j skims the list and opens only the conversation you stop on.
+- 8e01fbc: Fix arrow-key navigation in Contacts, which reset on every re-render and did nothing. Typing in mail search now re-renders only the search box, Contacts rows re-render only when their own state changes, and dragging a calendar event re-renders only when it crosses into a new time slot. The mail and contacts screens are now loaded only on the pages that show them.
+- f1fbd93: Make OwnMail respond faster. Moving through a long inbox with j and k, opening a conversation, and opening the composer now each paint within 100 ms on a 4× slowed CPU. Each page loads about a quarter less JavaScript at startup, because the calendar screen and the composer are fetched only when needed, and the composer is warmed while the browser is idle. Opening the calendar no longer blocks input for a quarter of a second.
+
 ## 0.20.2
 
 ### Patch Changes
