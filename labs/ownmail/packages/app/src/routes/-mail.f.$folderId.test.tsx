@@ -65,9 +65,13 @@ vi.mock('#server/fns', () => ({
 // Each render of a row's date is counted, so tests can assert how many rows re-render.
 const listDateRenders = vi.hoisted(() => ({ count: 0 }))
 vi.mock('#shared/components/ClientTime', () => ({
-	ClientListDate: ({ epochSeconds }: { epochSeconds?: number }) => {
+	ClientListDate: ({ epochSeconds, className }: { epochSeconds?: number; className?: string }) => {
 		listDateRenders.count += 1
-		return <time data-epoch={epochSeconds ?? ''}>{epochSeconds ? 'date' : ''}</time>
+		return (
+			<time data-epoch={epochSeconds ?? ''} className={className}>
+				{epochSeconds ? 'date' : ''}
+			</time>
+		)
 	},
 }))
 
@@ -649,8 +653,8 @@ describe('MailFolderRouteScreen — drafts', () => {
 		const row = screen.getByRole('button', { name: /Plan/ })
 		expect(row).toHaveClass('thread-row')
 		expect(row).toHaveAttribute('data-nav-row')
-		// Same cells as a conversation row: leading dot, then subject and snippet in one summary.
-		expect(row.firstElementChild).toHaveClass('thread-row-dot')
+		// Same cells as a conversation row: leading glyph, then subject and snippet in one summary.
+		expect(row.firstElementChild).toHaveClass('thread-row-lead')
 		const summary = container.querySelector('.thread-row-summary') as HTMLElement
 		expect(Array.from(summary.children).map((cell) => cell.textContent)).toEqual(['Plan', 'Notes'])
 		// Drafts have no star action, only the static glyph.
@@ -1100,19 +1104,39 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		}
 	})
 
-	it('keeps one row structure for every density: a leading unread dot, then subject and snippet together', () => {
+	// With no dot, unread must still read at a glance: the time takes the accent and
+	// the sender's weight steps up, so it never rests on one cue.
+	it('marks unread rows with an accent semibold time and a semibold sender', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[
+					thread({ id: 'new', subject: 'Fresh', unread: true, latest_message_received_date: 200 }),
+					thread({ id: 'old', subject: 'Seen', unread: false, latest_message_received_date: 100 }),
+				]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		const [fresh, seen] = Array.from(document.querySelectorAll<HTMLElement>('[data-nav-row]'))
+		expect(fresh?.querySelector('.thread-row-when time')).toHaveClass('text-cta-icon', 'font-semibold')
+		expect(fresh?.querySelector('.thread-row-sender')).toHaveClass('font-semibold')
+		expect(seen?.querySelector('.thread-row-when time')).not.toHaveClass('text-cta-icon')
+		expect(seen?.querySelector('.thread-row-sender')).toHaveClass('font-normal')
+	})
+
+	it('keeps one row structure for every density: a leading star, then subject and snippet together', () => {
 		const { container } = render(screenFor())
 		const row = container.querySelector('[data-nav-row]') as HTMLElement
 		// Density is pure CSS on these cells, so the markup must not vary by mode.
 		expect(Array.from(row.children).map((cell) => cell.className.split(' ')[0])).toEqual([
 			'thread-row-link',
-			'thread-row-dot',
 			'thread-row-lead',
 			'thread-row-sender',
 			'thread-row-when',
 			'thread-row-text',
 		])
-		expect(row.querySelector('.thread-row-dot')).toHaveAttribute('aria-hidden', 'true')
 		expect(row.querySelector('.thread-row-summary .thread-row-subject')).not.toBeNull()
 		expect(row.querySelector('.thread-row-summary .thread-row-snippet')).not.toBeNull()
 		expect(screen.getAllByRole('button', { name: /^(Star|Unstar)$/ })[0]).toHaveClass('thread-row-star')

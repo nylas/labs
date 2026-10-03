@@ -22,8 +22,10 @@ tokens.
 
 ## Typography
 
-- Display: Manrope, variable weight 200–800.
-- Body: Poppins, weights 400–700.
+- Display and body: Manrope, variable weight 200–800. Manrope is the primary
+  face for all UI text.
+- Data: Inter, variable weight 400–700, with tabular figures (`font-data
+  tabular-nums`), for times, dates, counts and calendar numerals.
 - Mono: the platform UI monospace stack, limited to shortcuts and code.
 - Display tracking: `-0.02em`.
 - Mobile editable text: never below 16px, preventing iOS focus zoom.
@@ -205,11 +207,11 @@ the list toolbar or the command palette.
   Default row, never under 48 pixels, and the toolbar control is hidden there
   because the choice has no effect. The gate is a CSS media query that is the
   exact complement of the touch-floor query, not script detection.
-- The unread dot is an 8-pixel accent (`--primary` in light, the green accent
-  in dark) in an in-flow leading cell centred in the row's 16-pixel left
-  padding, so row text keeps the left edge it shares with the list title.
-  Unread rows also set the sender, subject and time in the foreground at a
-  heavier weight, so the dot is never the only signal.
+- Unread rows have no marker of their own. The sender and subject are set in
+  the foreground at semibold, and the time turns the green accent
+  (`--cta-icon`) at semibold, where the eye checks for recency. Read rows set
+  the sender at regular weight. Row text keeps the 16-pixel left edge it shares
+  with the list title, and the sender sits 12 pixels clear of the star.
   The star's hit target is sized per density so it never extends into a
   neighbouring row.
 
@@ -231,7 +233,7 @@ The reader's toolbar holds three groups divided by a separator: triage
 display options), and respond at the end. Reply is the one labelled button in
 the respond group; Reply all and Forward stay icons beside it.
 
-The subject is set at body size (16px Poppins semibold) and scrolls with the
+The subject is set at body size (16px Manrope semibold) and scrolls with the
 conversation as its first line. On desktop one row is pinned, the 44px toolbar,
 which also carries the thread's display actions; the reply field follows the
 last message. Message bodies default to 16px with a 1.6 line-height, which a

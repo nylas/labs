@@ -561,7 +561,7 @@ const MessageBlock = memo(function MessageBlock({
 										{message.date ? (
 											<ClientMessageTime
 												epochSeconds={message.date}
-												className="order-3 ml-auto hidden shrink-0 text-[13px] text-muted-foreground tabular-nums sm:inline-block"
+												className="order-3 ml-auto hidden shrink-0 text-[13px] text-muted-foreground font-data tabular-nums sm:inline-block"
 											/>
 										) : null}
 									</div>
@@ -869,7 +869,7 @@ function MessageDetails({ message, recipientLabel }: { message: MailMessage; rec
 						{message.date ? (
 							<div className="contents">
 								<dt className="font-medium text-foreground">Date</dt>
-								<dd className="text-muted-foreground tabular-nums">
+								<dd className="text-muted-foreground font-data tabular-nums">
 									<ClientMessageTime epochSeconds={message.date} />
 								</dd>
 							</div>

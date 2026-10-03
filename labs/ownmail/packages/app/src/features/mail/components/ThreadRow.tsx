@@ -32,7 +32,7 @@ export function threadRowLinkLabel(thread: MailThread, folderId: string) {
 }
 
 /**
- * The cells every thread-list row shares: unread dot, leading action, sender,
+ * The cells every thread-list row shares: leading action, sender,
  * date, then subject and snippet. `.thread-row` arranges them as three lines
  * (Default), two lines (Compact), or one line (Condensed).
  */
@@ -57,12 +57,11 @@ export function ThreadRowLayout({
 }) {
 	return (
 		<>
-			<span aria-hidden="true" className="thread-row-dot pointer-events-none relative z-10" />
 			<span className="thread-row-lead pointer-events-none relative z-10">{leading}</span>
 			<span
 				className={cn(
 					'thread-row-sender pointer-events-none relative z-10 min-w-0 truncate text-sm',
-					unread ? 'font-semibold text-foreground' : 'font-medium text-foreground/90',
+					unread ? 'font-semibold text-foreground' : 'font-normal text-foreground/90',
 				)}
 			>
 				{sender}
@@ -72,7 +71,11 @@ export function ThreadRowLayout({
 				{epochSeconds ? (
 					<ClientListDate
 						epochSeconds={epochSeconds}
-						className="shrink-0 text-xs tabular-nums text-muted-foreground"
+						// Unread is carried by weight and by the time in the accent: no separate marker.
+						className={cn(
+							'shrink-0 text-xs font-data tabular-nums',
+							unread ? 'font-semibold text-cta-icon' : 'text-muted-foreground',
+						)}
 					/>
 				) : null}
 			</span>

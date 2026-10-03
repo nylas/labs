@@ -20,51 +20,30 @@
 }
 
 @font-face {
-	font-family: "Poppins";
+	font-family: "Inter";
 	font-style: normal;
-	font-weight: 400;
+	font-weight: 400 700;
 	font-display: swap;
-	src: url("/fonts/poppins-latin-400.woff2") format("woff2");
+	src: url("/fonts/inter-latin.woff2") format("woff2");
 }
 
 @font-face {
-	font-family: "Poppins";
-	font-style: normal;
-	font-weight: 500;
-	font-display: swap;
-	src: url("/fonts/poppins-latin-500.woff2") format("woff2");
-}
-
-@font-face {
-	font-family: "Poppins";
-	font-style: normal;
-	font-weight: 600;
-	font-display: swap;
-	src: url("/fonts/poppins-latin-600.woff2") format("woff2");
-}
-
-@font-face {
-	font-family: "Poppins";
-	font-style: normal;
-	font-weight: 700;
-	font-display: swap;
-	src: url("/fonts/poppins-latin-700.woff2") format("woff2");
-}
-
-@font-face {
-	font-family: "Poppins Fallback";
+	font-family: "Inter Fallback";
 	src: local("Arial");
-	ascent-override: 93.62%;
-	descent-override: 31.21%;
-	line-gap-override: 8.92%;
-	size-adjust: 112.16%;
+	ascent-override: 90.44%;
+	descent-override: 22.52%;
+	line-gap-override: 0%;
+	size-adjust: 107.12%;
 }
 
 @theme inline {
+	/* Manrope is the one voice for body, UI and headings; Inter sets data (times,
+	 * dates, counts), where its tabular figures line up. */
 	--font-sans:
-		var(--font-poppins), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+		var(--font-manrope), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
 		sans-serif;
 	--font-display: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+	--font-data: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 	--font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
 	--color-background: var(--background);
@@ -124,7 +103,7 @@
 
 :root {
 	color-scheme: light;
-	--font-poppins: "Poppins", "Poppins Fallback", ui-sans-serif, system-ui, sans-serif;
+	--font-inter: "Inter", "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
 	--font-manrope: "Manrope", "Manrope Fallback", ui-sans-serif, system-ui, sans-serif;
 	--font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
