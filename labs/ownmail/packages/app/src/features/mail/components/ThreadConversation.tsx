@@ -1,6 +1,7 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · genre: modern-minimal · theme: Quiet */
 import { ChevronDown, ChevronsDown, ChevronsUp, Download, MoreHorizontal, Paperclip } from 'lucide-react'
 import {
+	memo,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type ReactNode,
 	useCallback,
@@ -314,14 +315,16 @@ function ThreadConversationContent({
 	const allMessagesClosed = messages.every((message) => !openMessageIds.has(message.id))
 	const hasHtmlMessages = messages.some(messageHasHtml)
 
-	function toggleMessage(messageId: string) {
+	// Stable, so memoized message blocks skip re-rendering when only thread-level
+	// state changes (each remote image settling reports a new display status).
+	const toggleMessage = useCallback((messageId: string) => {
 		setOpenMessageIds((current) => {
 			const next = new Set(current)
 			if (next.has(messageId)) next.delete(messageId)
 			else next.add(messageId)
 			return next
 		})
-	}
+	}, [])
 
 	const conversation = threadView === 'conversation'
 	const viewSwitch = <ThreadViewSwitch value={threadView} onChange={onThreadViewChange} />
@@ -463,7 +466,7 @@ function ThreadConversationContent({
 							first={index === 0}
 							message={message}
 							open={openMessageIds.has(message.id)}
-							onToggle={() => toggleMessage(message.id)}
+							onToggle={toggleMessage}
 							darkenEmail={darkenEmail}
 							layoutMode={layoutMode}
 							colorMode={
@@ -487,7 +490,7 @@ function ThreadConversationContent({
 	)
 }
 
-function MessageBlock({
+const MessageBlock = memo(function MessageBlock({
 	first,
 	message,
 	open,
@@ -503,7 +506,7 @@ function MessageBlock({
 	first: boolean
 	message: MailMessage
 	open: boolean
-	onToggle: () => void
+	onToggle: (messageId: string) => void
 	darkenEmail: boolean
 	layoutMode: EmailLayoutMode
 	colorMode: EmailColorMode
@@ -514,6 +517,8 @@ function MessageBlock({
 }) {
 	const contentId = useId()
 	const senderHeadingId = useId()
+	const messageId = message.id
+	const toggle = useCallback(() => onToggle(messageId), [onToggle, messageId])
 	const from = message.from?.[0]
 	const fromLabel = from?.name || from?.email || '(unknown sender)'
 	const recipients = message.to?.map((person) => person.name || person.email).join(', ') || 'me'
@@ -566,7 +571,7 @@ function MessageBlock({
 										<button
 											data-slot="message-expand"
 											type="button"
-											onClick={onToggle}
+											onClick={toggle}
 											aria-label={`Expand message from ${fromLabel}`}
 											className="mt-1 block w-full truncate rounded-sm text-left text-sm text-muted-foreground before:absolute before:inset-0 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 										>
@@ -579,7 +584,7 @@ function MessageBlock({
 									messageOpen={open}
 									contentId={contentId}
 									downloadHref={downloadHref}
-									onToggle={onToggle}
+									onToggle={toggle}
 								/>
 								{message.date ? (
 									<ClientMessageTime
@@ -590,7 +595,7 @@ function MessageBlock({
 							</div>
 						</ContextMenuTrigger>
 						<ContextMenuContent aria-label={`Actions for message from ${fromLabel}`}>
-							<ContextMenuItem onSelect={() => onToggle()}>
+							<ContextMenuItem onSelect={toggle}>
 								<ChevronDown className={cn(open && 'rotate-180')} aria-hidden="true" />
 								{open ? 'Collapse message' : 'Expand message'}
 							</ContextMenuItem>
@@ -632,7 +637,7 @@ function MessageBlock({
 			)}
 		</article>
 	)
-}
+})
 
 const messageActionClass =
 	'flex min-h-11 w-full items-center gap-3 whitespace-nowrap rounded-md px-3 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring'

@@ -750,6 +750,11 @@
 	transition:
 		background-color 120ms ease,
 		box-shadow 120ms ease;
+	/* Rows off screen skip style, layout and paint; `auto` remembers each row's
+	 * last rendered height so the scrollbar stays put. Every row decoration is
+	 * inset (outline-offset -2px, ring-inset), so paint containment clips nothing. */
+	content-visibility: auto;
+	contain-intrinsic-size: auto 76px;
 }
 
 .thread-row:hover {

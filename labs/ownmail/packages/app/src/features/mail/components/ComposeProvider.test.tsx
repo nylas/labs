@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mailKeys } from '#features/mail/state/mail-queries'
 import { ToastProvider } from '#shared/components/Toaster'
 
@@ -55,8 +55,13 @@ vi.mock('./MarkdownEditor.js', () => ({
 	),
 }))
 
-import { ComposeProvider, type ComposeRequest, useCompose } from './ComposeProvider.js'
+import { ComposeProvider, type ComposeRequest, loadComposeWindow, useCompose } from './ComposeProvider.js'
 
+// The app warms the composer code while idle, so these tests start from that
+// state; opening before it has loaded is covered in ComposeProvider.lazy.test.tsx.
+beforeAll(async () => {
+	await loadComposeWindow()
+})
 afterEach(() => {
 	cleanup()
 })

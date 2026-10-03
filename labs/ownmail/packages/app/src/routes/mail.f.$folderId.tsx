@@ -1,7 +1,7 @@
 import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { FileText, Loader2, Reply, Star, Trash2 } from 'lucide-react'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
@@ -210,6 +210,27 @@ function FolderView() {
 		}
 	}
 
+	// Stable callbacks let memoized rows skip re-rendering when only the cursor
+	// or the open thread changes; `mutateAsync` is stable for a mutation's lifetime.
+	const { mutateAsync: updateThreadAsync } = updateThread
+	const { mutateAsync: deleteDraftAsync } = deleteDraft
+	const onUpdateThread = useCallback(
+		(input: ThreadUpdateInput) => updateThreadAsync(input).then(() => undefined),
+		[updateThreadAsync],
+	)
+	const onDiscardDraft = useCallback(
+		(draftId: string) => deleteDraftAsync(draftId).then(() => undefined),
+		[deleteDraftAsync],
+	)
+	const onRespondToThread = useCallback(
+		async ({ threadId, kind }: { threadId: string; kind: ThreadResponseKind }) => {
+			// The reader's own path: the thread's last message, in the composer.
+			const response = await threadResponseSearch(queryClient, threadId, kind)
+			await openCompose({ kind: composeKindForResponse(kind), threadId, ...response })
+		},
+		[openCompose, queryClient],
+	)
+
 	async function refreshThreads() {
 		const activeListRefresh =
 			folderId === 'drafts'
@@ -230,13 +251,9 @@ function FolderView() {
 			loadMoreError={threadsQuery.isFetchNextPageError}
 			onLoadMore={loadMoreThreads}
 			onRefresh={refreshThreads}
-			onUpdateThread={(input) => updateThread.mutateAsync(input).then(() => undefined)}
-			onDiscardDraft={(draftId) => deleteDraft.mutateAsync(draftId).then(() => undefined)}
-			onRespondToThread={async ({ threadId, kind }) => {
-				// The reader's own path: the thread's last message, in the composer.
-				const response = await threadResponseSearch(queryClient, threadId, kind)
-				await openCompose({ kind: composeKindForResponse(kind), threadId, ...response })
-			}}
+			onUpdateThread={onUpdateThread}
+			onDiscardDraft={onDiscardDraft}
+			onRespondToThread={onRespondToThread}
 		/>
 	)
 }
@@ -679,7 +696,8 @@ function focusNavRow(row: HTMLElement | undefined) {
 	;(row?.querySelector<HTMLElement>('.thread-row-link') ?? row)?.focus()
 }
 
-function DraftRow({
+// Memoized: a cursor move re-renders only the row it leaves and the row it lands on.
+const DraftRow = memo(function DraftRow({
 	draft,
 	navActive,
 	onDiscardDraft,
@@ -738,9 +756,10 @@ function DraftRow({
 			</ContextMenuContent>
 		</ContextMenu>
 	)
-}
+})
 
-function ThreadRow({
+// Memoized: a cursor move or navigation re-renders only the rows whose props change.
+const ThreadRow = memo(function ThreadRow({
 	thread,
 	folderId,
 	baseFolderId,
@@ -871,4 +890,4 @@ function ThreadRow({
 			</div>
 		</ThreadRowMenu>
 	)
-}
+})

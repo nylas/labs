@@ -212,7 +212,8 @@ vi.mock('#features/calendar/components/CalendarManagerDialog', () => ({
 	),
 }))
 
-import { CalendarRouteScreen, loadCalendarRouteData, Route } from './calendar.$view.js'
+import { CalendarRouteScreen } from './-calendar-view-screen.js'
+import { loadCalendarRouteData, Route } from './calendar.$view.js'
 
 // ---- fixtures -------------------------------------------------------------
 
