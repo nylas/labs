@@ -74,13 +74,17 @@ import {
 	isCalendarDate,
 	isCalView,
 	isNewEventPreview,
+	isOutsideWorkingHours,
 	isPastEvent,
 	moveCalendarDay,
 	nowBadgeCoversLabel,
 	shiftAnchor,
 	startOfWeek,
 	timedChipLines,
+	timedChipShowsTime,
 	timedDayLayout,
+	timeZoneDayChange,
+	timezoneCity,
 	upcomingAgenda,
 	viewRange,
 	ymd,
@@ -141,6 +145,7 @@ import {
 	GlassPanelScope,
 	UNDER_MOBILE_BAR_CLASS,
 } from '#shared/components/ui/glass'
+import { PRIMARY_ACTION_ICON_CLASS, PrimaryAction } from '#shared/components/ui/primary-action'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
@@ -164,10 +169,12 @@ export const Route = createFileRoute('/calendar/$view')({
 
 export { loadCalendarRouteData }
 
-/** The header's Create control. The pending view draws the same box, disabled,
- * so the title beside it sits where it will when the grid arrives. */
-const CREATE_BUTTON_CLASS =
-	'touch-target-square col-start-1 row-start-1 flex size-11 shrink-0 items-center justify-center gap-1.5 border-r border-border text-sm font-medium sm:w-auto sm:justify-start sm:px-3'
+/** The top bar's start cell while the sidebar is hidden (in its sheet, or
+ * collapsed on desktop): the icon-only New event action, after the toggle that
+ * brings the sidebar back. The pending view draws the same cell so the title
+ * beside it sits where it will when the grid arrives. */
+const CREATE_CELL_CLASS =
+	'col-start-1 row-start-1 flex shrink-0 items-center gap-control border-r border-border px-control'
 
 /** The details pane's width, shared with the pending view so the grid keeps its width while loading. */
 const DETAIL_PANE_WIDTH_CLASS = 'w-72 xl:w-80'
@@ -206,17 +213,18 @@ function CalendarPending() {
 							sidebarCollapsed ? CALENDAR_HEADER_COLLAPSED_GRID_CLASS : CALENDAR_HEADER_GRID_CLASS,
 						)}
 					>
-						<div className="hidden border-r border-border lg:block" aria-hidden="true" />
+						{sidebarCollapsed ? null : (
+							<div className="hidden border-r border-border lg:block" aria-hidden="true" />
+						)}
 						<div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem_2.75rem] grid-rows-[2.75rem_2.75rem] items-stretch sm:flex">
-							<button
-								type="button"
-								disabled
-								className={cn(CREATE_BUTTON_CLASS, 'text-muted-foreground')}
-								aria-label="Create"
+							<div
+								data-testid="calendar-pending-create-cell"
+								className={cn(CREATE_CELL_CLASS, !sidebarCollapsed && 'lg:hidden')}
+								aria-hidden="true"
 							>
-								<Plus className="h-4 w-4" strokeWidth={2} />
-								<span className="hidden md:inline">Create</span>
-							</button>
+								{sidebarCollapsed ? <span className="hidden size-11 shrink-0 lg:block" /> : null}
+								<span className="size-9 shrink-0" />
+							</div>
 							<div className="col-start-2 row-start-1 flex min-w-0 items-center border-r border-border px-3 sm:flex-1">
 								<h1 className="truncate font-display text-base font-bold tracking-[-0.02em] sm:text-xl">
 									{calendarTitle(calendarRouteRange(view, date).anchor)}
@@ -343,6 +351,11 @@ export function CalendarRouteScreen({
 		(open: boolean) => savePreferences({ ...readUserPreferences(), calendarDetailPaneOpen: open }),
 		[savePreferences],
 	)
+	const setSidebarCollapsed = useCallback(
+		(collapsed: boolean) =>
+			savePreferences({ ...readUserPreferences(), calendarSidebarCollapsed: collapsed }),
+		[savePreferences],
+	)
 	const now = useMinuteClock()
 	const todayIso = ymd(calendarDateInTimeZone(now, primaryTimezone))
 	const hiddenCalendarIds = useMemo(
@@ -355,6 +368,15 @@ export function CalendarRouteScreen({
 	const currentView = view
 	const currentAnchorIso = anchorIso
 	const anchor = useMemo(() => new Date(`${currentAnchorIso}T00:00:00`), [currentAnchorIso])
+	/** New event, from the sidebar or the top bar: a one-hour draft on the shown date, in the editor. */
+	const openNewEvent = useCallback(() => {
+		setNewStart(anchor)
+		setNewDurationMinutes(60)
+		setNewStartIsSlot(false)
+		setComposerAnchor(null)
+		setEditInEditor(false)
+		setEditing('new')
+	}, [anchor])
 	const visibleEvents = useMemo(
 		() => filterEventsByCalendars(eventPreview ? [...events, eventPreview] : events, hiddenCalendarIds),
 		[events, eventPreview, hiddenCalendarIds],
@@ -583,45 +605,33 @@ export function CalendarRouteScreen({
 							sidebarCollapsed ? CALENDAR_HEADER_COLLAPSED_GRID_CLASS : CALENDAR_HEADER_GRID_CLASS,
 						)}
 					>
-						<div className="hidden border-r border-border lg:flex">
-							<button
-								type="button"
-								onClick={() =>
-									savePreferences({ ...preferences, calendarSidebarCollapsed: !sidebarCollapsed })
-								}
-								aria-label={sidebarCollapsed ? 'Show calendar sidebar' : 'Hide calendar sidebar'}
-								title={sidebarCollapsed ? 'Show calendar sidebar' : 'Hide calendar sidebar'}
-								aria-expanded={!sidebarCollapsed}
-								aria-controls="calendar-sidebar"
-								className="touch-target-square flex size-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
-							>
-								{sidebarCollapsed ? (
-									<PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-								) : (
-									<PanelLeftClose className="h-4 w-4" aria-hidden="true" />
-								)}
-							</button>
-						</div>
+						{/* Over the sidebar, an empty cell keeps the title on the grid's edge; collapsed, the sidebar has no column. */}
+						{sidebarCollapsed ? null : (
+							<div className="hidden border-r border-border lg:block" aria-hidden="true" />
+						)}
 						<div
 							className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem_2.75rem] grid-rows-[2.75rem_2.75rem] items-stretch sm:flex"
 							data-testid="calendar-header-controls"
 						>
-							<button
-								type="button"
-								onClick={() => {
-									setNewStart(anchor)
-									setNewDurationMinutes(60)
-									setNewStartIsSlot(false)
-									setComposerAnchor(null)
-									setEditInEditor(false)
-									setEditing('new')
-								}}
-								className={cn(CREATE_BUTTON_CLASS, 'text-foreground transition-colors hover:bg-muted/60')}
-								aria-label="Create"
+							{/* The sidebar holds New event; while it is hidden, the icon-only form sits here. */}
+							<div
+								data-testid="calendar-header-create-cell"
+								className={cn(CREATE_CELL_CLASS, !sidebarCollapsed && 'lg:hidden')}
 							>
-								<Plus className="h-4 w-4" strokeWidth={2} />
-								<span className="hidden md:inline">Create</span>
-							</button>
+								{sidebarCollapsed ? (
+									<SidebarToggle collapsed onToggle={() => setSidebarCollapsed(false)} />
+								) : null}
+								<button
+									type="button"
+									onClick={openNewEvent}
+									aria-label="New event"
+									title="New event"
+									aria-keyshortcuts="N"
+									className={PRIMARY_ACTION_ICON_CLASS}
+								>
+									<Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+								</button>
+							</div>
 							<div className="col-start-2 row-start-1 flex min-w-0 items-center border-r border-border px-3 sm:flex-1">
 								<h1 className="truncate font-display text-base font-bold tracking-[-0.02em] sm:text-xl">
 									{title}
@@ -710,12 +720,15 @@ export function CalendarRouteScreen({
 				<aside
 					id="calendar-sidebar"
 					className={cn(
-						'hidden shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-background px-4 py-4',
+						'hidden shrink-0 flex-col overflow-y-auto border-r border-border bg-background',
 						!sidebarCollapsed && 'lg:flex',
 						CALENDAR_SIDEBAR_WIDTH_CLASS,
 					)}
 				>
 					<CalendarSidebarPanel
+						onNewEvent={openNewEvent}
+						// Collapsed, the toggle that brings the sidebar back is in the top bar.
+						onCollapse={sidebarCollapsed ? undefined : () => setSidebarCollapsed(true)}
 						mobile={mobileCalendarLayout}
 						anchor={anchor}
 						view={currentView}
@@ -907,14 +920,20 @@ export function CalendarRouteScreen({
 					onNavigate={() => setSidebarOpen(false)}
 					showDestinations={false}
 				/>
-				<div className="border-t border-border px-3 pt-3">
-					{onRefresh ? (
-						<div className="flex items-center justify-between py-2 pl-1">
-							<span className="text-sm font-medium text-foreground">Refresh calendar</span>
-							<RefreshButton onRefresh={onRefresh} label="Refresh calendar" />
-						</div>
-					) : null}
+				<div className="border-t border-border">
 					<CalendarSidebarPanel
+						onNewEvent={() => {
+							setSidebarOpen(false)
+							openNewEvent()
+						}}
+						refresh={
+							onRefresh ? (
+								<div className="flex items-center justify-between py-2 pl-1">
+									<span className="text-sm font-medium text-foreground">Refresh calendar</span>
+									<RefreshButton onRefresh={onRefresh} label="Refresh calendar" />
+								</div>
+							) : null
+						}
 						mobile
 						anchor={anchor}
 						view={currentView}
@@ -970,8 +989,16 @@ function CalendarSidebarPanel({
 	onPickEvent,
 	onManageCalendars,
 	meetWith,
+	onNewEvent,
+	onCollapse,
+	refresh,
 	mobile = false,
 }: {
+	onNewEvent: () => void
+	/** Collapses the desktop sidebar; the sheet on mobile layouts has no such toggle. */
+	onCollapse?: () => void
+	/** The sheet's refresh row, under the create action. */
+	refresh?: ReactNode
 	anchor: Date
 	view: CalView
 	email: string
@@ -989,126 +1016,168 @@ function CalendarSidebarPanel({
 	mobile?: boolean
 }) {
 	return (
-		<div className="flex flex-col gap-5 px-1 py-2">
-			<MiniCalendar
-				refDate={anchor}
-				todayIso={todayIso}
-				onPick={onPickDate}
-				mobile={mobile}
-				highlightWeek={view === 'week'}
-			/>
-			<section aria-label={`Calendars for ${email}`}>
-				<div className="mb-1 flex items-center justify-between gap-2">
-					<p className="min-w-0 truncate text-xs text-muted-foreground" title={email}>
-						{email}
-					</p>
-					<button
-						type="button"
-						onClick={() => onManageCalendars()}
-						aria-label="Manage calendars"
-						className="touch-target-square flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
-					>
-						<Settings2 className="h-4 w-4" />
-					</button>
-				</div>
-				<div className="flex flex-col gap-0.5">
-					{calendars.map((cal) => {
-						const hidden = hiddenCalendarIds.has(cal.id)
-						const name = cal.name || 'Calendar'
-						// The tag is part of the name, so "hidden" is announced, not only drawn.
-						const tag = hidden ? 'hidden' : cal.is_primary ? 'Default' : null
-						return (
-							// The menu holds the row's own toggle and what the calendar manager allows.
-							<ContextMenu key={cal.id}>
-								<ContextMenuTrigger asChild>
-									<button
-										type="button"
-										aria-label={tag ? `${name}, ${tag}` : name}
-										aria-pressed={!hidden}
-										onClick={() => onToggleCalendar(cal.id)}
-										style={eventColorProps(cal, colors)}
-										className="event-color touch-target flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
-									>
-										<span
-											aria-hidden="true"
-											className={cn(
-												'size-[11px] shrink-0 rounded-[3px] bg-[var(--event-c)]',
-												hidden && 'opacity-40',
-											)}
-										/>
-										<span
-											className={cn(
-												'min-w-0 truncate text-left',
-												hidden ? 'text-muted-foreground' : 'text-foreground',
-											)}
+		<div className="flex flex-col">
+			{/* design.md "Spacing" clause 7: one inset column, no separator under the create action. */}
+			<div className="flex shrink-0 flex-col p-hairline">
+				<PrimaryAction
+					icon={Plus}
+					label="New event"
+					shortcut="N"
+					onClick={onNewEvent}
+					className={cn(mobile && 'min-h-12')}
+				/>
+			</div>
+			<div className="flex flex-col gap-5 px-hairline pb-hairline">
+				{refresh}
+				<MiniCalendar
+					refDate={anchor}
+					todayIso={todayIso}
+					onPick={onPickDate}
+					mobile={mobile}
+					highlightWeek={view === 'week'}
+					headerAction={onCollapse ? <SidebarToggle collapsed={false} onToggle={onCollapse} /> : null}
+				/>
+				<section aria-label={`Calendars for ${email}`}>
+					<div className="mb-1 flex items-center justify-between gap-2">
+						<p className="min-w-0 truncate text-xs text-muted-foreground" title={email}>
+							{email}
+						</p>
+						<button
+							type="button"
+							onClick={() => onManageCalendars()}
+							aria-label="Manage calendars"
+							className="touch-target-square flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring"
+						>
+							<Settings2 className="h-4 w-4" />
+						</button>
+					</div>
+					<div className="flex flex-col gap-0.5">
+						{calendars.map((cal) => {
+							const hidden = hiddenCalendarIds.has(cal.id)
+							const name = cal.name || 'Calendar'
+							// The tag is part of the name, so "hidden" is announced, not only drawn.
+							const tag = hidden ? 'hidden' : cal.is_primary ? 'Default' : null
+							return (
+								// The menu holds the row's own toggle and what the calendar manager allows.
+								<ContextMenu key={cal.id}>
+									<ContextMenuTrigger asChild>
+										<button
+											type="button"
+											aria-label={tag ? `${name}, ${tag}` : name}
+											aria-pressed={!hidden}
+											onClick={() => onToggleCalendar(cal.id)}
+											style={eventColorProps(cal, colors)}
+											className="event-color touch-target flex items-center gap-2 rounded-md px-cluster py-1.5 text-sm transition-colors hover:bg-muted"
 										>
-											{name}
+											<span
+												aria-hidden="true"
+												className={cn(
+													'size-[11px] shrink-0 rounded-[3px] bg-[var(--event-c)]',
+													hidden && 'opacity-40',
+												)}
+											/>
+											<span
+												className={cn(
+													'min-w-0 truncate text-left',
+													hidden ? 'text-muted-foreground' : 'text-foreground',
+												)}
+											>
+												{name}
+											</span>
+											{tag ? (
+												<span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{tag}</span>
+											) : null}
+										</button>
+									</ContextMenuTrigger>
+									<ContextMenuContent aria-label={`Actions for ${name}`}>
+										<ContextMenuItem onSelect={() => onToggleCalendar(cal.id)}>
+											{hidden ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
+											{hidden ? 'Show calendar' : 'Hide calendar'}
+										</ContextMenuItem>
+										<ContextMenuSeparator />
+										<ContextMenuItem
+											disabled={Boolean(cal.read_only)}
+											onSelect={() => onManageCalendars({ kind: 'edit', id: cal.id })}
+										>
+											<Pencil aria-hidden="true" />
+											Rename…
+										</ContextMenuItem>
+										<ContextMenuItem
+											variant="destructive"
+											disabled={Boolean(cal.read_only || cal.is_primary)}
+											onSelect={() => onManageCalendars({ kind: 'delete', id: cal.id })}
+										>
+											<Trash2 aria-hidden="true" />
+											Delete…
+										</ContextMenuItem>
+									</ContextMenuContent>
+								</ContextMenu>
+							)
+						})}
+					</div>
+				</section>
+				{meetWith}
+				<div className="rounded-lg border border-border bg-card p-3">
+					<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Up next today</p>
+					<div className="mt-2 flex flex-col gap-2">
+						{agenda.length === 0 ? (
+							<p className="text-sm text-muted-foreground">Nothing left today.</p>
+						) : (
+							agenda.slice(0, 4).map(({ event, start, inProgress }) => (
+								<button
+									key={event.id}
+									type="button"
+									onClick={() => onPickEvent(event)}
+									className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted"
+								>
+									<span
+										className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', EVENT_SWATCH_CLASS)}
+										style={eventColorProps(event, colors)}
+									/>
+									<span className="min-w-0">
+										<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
+										<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+											{inProgress ? (
+												<span className="rounded-sm bg-primary/10 px-1 font-semibold text-primary">Now</span>
+											) : null}
+											{fmtAgendaTime(start, timeZone)}
 										</span>
-										{tag ? (
-											<span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{tag}</span>
-										) : null}
-									</button>
-								</ContextMenuTrigger>
-								<ContextMenuContent aria-label={`Actions for ${name}`}>
-									<ContextMenuItem onSelect={() => onToggleCalendar(cal.id)}>
-										{hidden ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
-										{hidden ? 'Show calendar' : 'Hide calendar'}
-									</ContextMenuItem>
-									<ContextMenuSeparator />
-									<ContextMenuItem
-										disabled={Boolean(cal.read_only)}
-										onSelect={() => onManageCalendars({ kind: 'edit', id: cal.id })}
-									>
-										<Pencil aria-hidden="true" />
-										Rename…
-									</ContextMenuItem>
-									<ContextMenuItem
-										variant="destructive"
-										disabled={Boolean(cal.read_only || cal.is_primary)}
-										onSelect={() => onManageCalendars({ kind: 'delete', id: cal.id })}
-									>
-										<Trash2 aria-hidden="true" />
-										Delete…
-									</ContextMenuItem>
-								</ContextMenuContent>
-							</ContextMenu>
-						)
-					})}
-				</div>
-			</section>
-			{meetWith}
-			<div className="rounded-lg border border-border bg-card p-3">
-				<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Up next today</p>
-				<div className="mt-2 flex flex-col gap-2">
-					{agenda.length === 0 ? (
-						<p className="text-sm text-muted-foreground">Nothing left today.</p>
-					) : (
-						agenda.slice(0, 4).map(({ event, start, inProgress }) => (
-							<button
-								key={event.id}
-								type="button"
-								onClick={() => onPickEvent(event)}
-								className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted"
-							>
-								<span
-									className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', EVENT_SWATCH_CLASS)}
-									style={eventColorProps(event, colors)}
-								/>
-								<span className="min-w-0">
-									<span className="block truncate text-sm font-medium">{event.title || '(untitled)'}</span>
-									<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-										{inProgress ? (
-											<span className="rounded-sm bg-primary/10 px-1 font-semibold text-primary">Now</span>
-										) : null}
-										{fmtAgendaTime(start, timeZone)}
 									</span>
-								</span>
-							</button>
-						))
-					)}
+								</button>
+							))
+						)}
+					</div>
 				</div>
 			</div>
 		</div>
+	)
+}
+
+/** The desktop sidebar's collapse toggle: quiet, at the right of the mini-month
+ * header while the sidebar is shown, and at the start of the top bar while it
+ * is collapsed. Its name and `aria-expanded` carry the state, not the icon. */
+function SidebarToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+	const label = collapsed ? 'Show calendar sidebar' : 'Hide calendar sidebar'
+	return (
+		<button
+			type="button"
+			onClick={onToggle}
+			aria-label={label}
+			title={label}
+			aria-expanded={!collapsed}
+			aria-controls="calendar-sidebar"
+			className={cn(
+				'touch-target-square size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none',
+				// Collapsing is a desktop layout; mobile layouts keep the sidebar in its sheet.
+				collapsed ? 'hidden lg:flex' : 'flex',
+			)}
+		>
+			{collapsed ? (
+				<PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+			) : (
+				<PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+			)}
+		</button>
 	)
 }
 
@@ -1173,12 +1242,15 @@ function MiniCalendar({
 	onPick,
 	mobile,
 	highlightWeek,
+	headerAction,
 }: {
 	refDate: Date
 	todayIso: string
 	onPick: (date: Date) => void
 	mobile: boolean
 	highlightWeek: boolean
+	/** A control at the right of the month header: the sidebar's collapse toggle. */
+	headerAction?: ReactNode
 }) {
 	const [cursor, setCursor] = useState(() => new Date(refDate.getFullYear(), refDate.getMonth(), 1))
 	// The roving focus day belongs to the date the calendar is anchored on.
@@ -1209,15 +1281,15 @@ function MiniCalendar({
 	return (
 		<div>
 			<div className="mb-2 flex items-center justify-between">
-				<span className="text-sm font-semibold">
+				<span className="min-w-0 truncate text-sm font-semibold whitespace-nowrap">
 					{cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
 				</span>
-				<div className="flex items-center gap-1">
+				<div className="flex shrink-0 items-center">
 					<button
 						type="button"
 						aria-label="Previous month"
 						onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-						className="touch-target-square flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+						className="touch-target-square flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
 					>
 						<ChevronLeft className="h-4 w-4" />
 					</button>
@@ -1225,10 +1297,11 @@ function MiniCalendar({
 						type="button"
 						aria-label="Next month"
 						onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-						className="touch-target-square flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+						className="touch-target-square flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
 					>
 						<ChevronRight className="h-4 w-4" />
 					</button>
+					{headerAction}
 				</div>
 			</div>
 			{/* biome-ignore lint/a11y/useSemanticElements: The date picker uses ARIA grid keyboard navigation with roving tab stops. */}
@@ -1549,7 +1622,29 @@ function TimeGrid({
 	const allDayRowCount = band.rowCount
 	const hasAllDay = allDaySegments.length > 0
 	// Gutter, the day columns, then one 44px track whose head holds the zoom control.
-	const dayGridTemplateColumns = `3.5rem repeat(${days}, minmax(0, 1fr)) 2.75rem`
+	// A second zone gets its own hour column inside the gutter track, before the first's.
+	const dayGridTemplateColumns = `${secondaryTimezone ? '7rem' : '3.5rem'} repeat(${days}, minmax(0, 1fr)) 2.75rem`
+	// One ruler serves every column, so the second zone's hours are read off the first column's day.
+	const rulerDay = columns[0] ?? start
+	const secondaryHours = secondaryTimezone
+		? HOURS.map((hour) => {
+				const at = calendarSlotTime(rulerDay, hour, timeZone)
+				return {
+					time: fmtTime(at, secondaryTimezone),
+					outside: isOutsideWorkingHours(at, secondaryTimezone),
+					dayChange:
+						hour === START_HOUR
+							? null
+							: timeZoneDayChange(
+									calendarSlotTime(rulerDay, hour - 1, timeZone),
+									at,
+									timeZone,
+									secondaryTimezone,
+									days,
+								),
+				}
+			})
+		: null
 	const dayColumnsSpan = `2 / span ${days}`
 	const mobileAgendaEvents = mobileLayout
 		? events
@@ -1827,12 +1922,26 @@ function TimeGrid({
 							className="pointer-events-none absolute inset-x-0 z-20 grid -translate-y-1/2 items-center"
 							style={{ top: nowOffset, gridTemplateColumns: dayGridTemplateColumns }}
 						>
-							<span
-								data-testid="calendar-now-badge"
-								className="mr-1 flex h-4 items-center justify-self-end rounded-sm bg-today px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-today-foreground tabular-nums"
-								style={{ gridColumn: 1, gridRow: 1 }}
-							>
-								{fmtTime(now, timeZone)}
+							{/* The current time in each ruler: the first in the today colour, the second a quieter outline. */}
+							<span className="flex" style={{ gridColumn: 1, gridRow: 1 }}>
+								{secondaryTimezone ? (
+									<span className="flex flex-1 justify-end">
+										<span
+											data-testid="calendar-now-badge-secondary"
+											className="mr-1 flex h-4 items-center rounded-sm border border-today bg-background px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-foreground tabular-nums"
+										>
+											{fmtTime(now, secondaryTimezone)}
+										</span>
+									</span>
+								) : null}
+								<span className="flex flex-1 justify-end">
+									<span
+										data-testid="calendar-now-badge"
+										className="mr-1 flex h-4 items-center rounded-sm bg-today px-1 text-[10px] leading-none font-semibold whitespace-nowrap text-today-foreground tabular-nums"
+									>
+										{fmtTime(now, timeZone)}
+									</span>
+								</span>
 							</span>
 							<span className="h-px bg-today/45" style={{ gridColumn: dayColumnsSpan, gridRow: 1 }} />
 							<span
@@ -1844,31 +1953,56 @@ function TimeGrid({
 					)}
 					<div className="grid select-none" style={{ gridTemplateColumns: dayGridTemplateColumns }}>
 						<div style={{ gridColumn: 1, gridRow: 1 }}>
-							{HOURS.map((hour) => (
-								<div key={hour} className="relative" style={{ height: HOUR_PX }}>
-									<span
-										data-hour-label={hour}
-										className={cn(
-											'absolute -top-2 right-2 h-4 text-[11px] leading-4 tabular-nums text-muted-foreground',
-											// The now badge takes this label's place; hiding keeps the layout still.
-											coveredByNowBadge((hour - START_HOUR) * HOUR_PX, 16) && 'invisible',
-										)}
-									>
-										{hour === START_HOUR ? '' : fmtHour(hour)}
-									</span>
-									{secondaryTimezone && hour !== START_HOUR ? (
-										<span
-											data-hour-label={`${hour}-secondary`}
-											className={cn(
-												'absolute top-2 right-2 h-3 text-[9px] leading-3 tabular-nums text-muted-foreground/70',
-												coveredByNowBadge((hour - START_HOUR) * HOUR_PX + 14, 12) && 'invisible',
-											)}
-										>
-											{fmtTime(calendarSlotTime(columns[0] ?? start, hour, timeZone), secondaryTimezone)}
-										</span>
-									) : null}
-								</div>
-							))}
+							{HOURS.map((hour) => {
+								// The now badges take these labels' place; hiding keeps the layout still.
+								const covered = coveredByNowBadge((hour - START_HOUR) * HOUR_PX, 16)
+								const secondary = secondaryHours?.[hour - START_HOUR]
+								return (
+									<div key={hour} className="flex" style={{ height: HOUR_PX }}>
+										{secondary ? (
+											<div
+												data-secondary-hour={hour}
+												data-outside-working-hours={secondary.outside ? '' : undefined}
+												// Shaded where it is before 7 AM or from 10 PM in the second zone.
+												className={cn('relative flex-1', secondary.outside && 'bg-muted')}
+											>
+												{hour === START_HOUR ? null : (
+													<span
+														data-hour-label={`${hour}-secondary`}
+														title={secondary.outside ? 'Outside working hours there' : undefined}
+														className={cn(
+															'absolute -top-2 right-2 h-4 text-[11px] leading-4 whitespace-nowrap tabular-nums text-muted-foreground',
+															covered && 'invisible',
+														)}
+													>
+														{secondary.dayChange ? (
+															// Where the second zone crosses midnight, the day it moves into sits above the time.
+															<span className="absolute right-0 bottom-full text-[10px] leading-3 font-semibold text-foreground">
+																{secondary.dayChange}
+															</span>
+														) : null}
+														{secondary.time}
+														{secondary.outside ? (
+															<span className="sr-only">, outside working hours there</span>
+														) : null}
+													</span>
+												)}
+											</div>
+										) : null}
+										<div className="relative flex-1">
+											<span
+												data-hour-label={hour}
+												className={cn(
+													'absolute -top-2 right-2 h-4 text-[11px] leading-4 tabular-nums text-muted-foreground',
+													covered && 'invisible',
+												)}
+											>
+												{hour === START_HOUR ? '' : fmtHour(hour)}
+											</span>
+										</div>
+									</div>
+								)
+							})}
 						</div>
 						{columns.map((day, dayIndex) => {
 							const boxes = timedDayLayout(busyEvents.length ? [...events, ...busyEvents] : events, day, {
@@ -1974,9 +2108,11 @@ function TimeGrid({
 											const movable = eventDragBlock(event, calendars) === null
 											// An event that runs past midnight is resized from the day each edge is drawn on.
 											const edges = eventEdgesOnDay(event, day, timeZone)
+											// An event of 30 minutes or less shows its title alone; the time is in its name.
+											const showsTime = timedChipShowsTime(times)
 											// A short chip is one centred line (title, then start time) so no glyph
 											// is clipped; a taller one stacks the title over the time range.
-											const twoLines = timedChipLines(height) === 2
+											const twoLines = showsTime && timedChipLines(height) === 2
 											const className = cn(
 												'event-color event-chip absolute z-10 flex min-w-0 overflow-hidden rounded-[5px] px-cluster text-left transition-shadow',
 												twoLines ? 'flex-col py-control' : 'items-center gap-control py-0',
@@ -1996,9 +2132,11 @@ function TimeGrid({
 													>
 														{title}
 													</span>
-													<span className="min-w-0 truncate text-[11px] leading-4 opacity-75">
-														{fmtTime(times.start, timeZone)}
-													</span>
+													{showsTime ? (
+														<span className="min-w-0 truncate text-[11px] leading-4 opacity-75">
+															{fmtTime(times.start, timeZone)}
+														</span>
+													) : null}
 												</>
 											)
 											if (mobileLayout)
@@ -2110,8 +2248,4 @@ function fmtHour(hour: number): string {
 	const period = normalizedHour >= 12 ? 'PM' : 'AM'
 	const displayHour = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12
 	return `${displayHour} ${period}`
-}
-
-function timezoneCity(timeZone: string): string {
-	return timeZone.replace(/^.*\//, '').replaceAll('_', ' ')
 }

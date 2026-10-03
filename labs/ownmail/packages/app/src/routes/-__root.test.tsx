@@ -24,11 +24,24 @@ vi.mock('@tanstack/react-start', () => ({
 }))
 
 vi.mock('../styles.css?url', () => ({ default: '/assets/styles.css' }))
+// The composer is exercised by its own suites; the root only has to mount it around the page.
+vi.mock('#features/mail/components/ComposeProvider', () => ({
+	ComposeProvider: ({ children }: { children: React.ReactNode }) => (
+		<div data-testid="compose-provider">{children}</div>
+	),
+}))
 
 const platform = vi.fn()
 vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
 import { Route } from './__root.js'
+
+/** The route announcer; the toast region beside it is a second, separate status region. */
+function routeAnnouncer(): HTMLElement {
+	return screen
+		.getAllByRole('status')
+		.find((region) => !region.classList.contains('toast-region')) as HTMLElement
+}
 
 afterEach(() => {
 	routerState.isLoading = false
@@ -107,23 +120,23 @@ describe('root route', () => {
 		routerState.isLoading = true
 		routerState.pathname = '/calendar/week'
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('')
+		expect(routeAnnouncer()).toHaveTextContent('')
 
 		routerState.isLoading = false
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('Calendar loaded')
+		expect(routeAnnouncer()).toHaveTextContent('Calendar loaded')
 
 		routerState.pathname = '/contacts/abc'
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('Contacts loaded')
+		expect(routeAnnouncer()).toHaveTextContent('Contacts loaded')
 
 		routerState.pathname = '/settings'
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('Settings loaded')
+		expect(routeAnnouncer()).toHaveTextContent('Settings loaded')
 
 		routerState.pathname = '/mail/f/inbox'
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('Mail loaded')
+		expect(routeAnnouncer()).toHaveTextContent('Mail loaded')
 	})
 
 	it('does not repeat announcements when only search state changes', () => {
@@ -131,10 +144,10 @@ describe('root route', () => {
 		const { rerender } = render(<RootComponent />)
 		routerState.pathname = '/contacts'
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('Contacts loaded')
+		expect(routeAnnouncer()).toHaveTextContent('Contacts loaded')
 
 		rerender(<RootComponent />)
-		expect(screen.getByRole('status')).toHaveTextContent('Contacts loaded')
+		expect(routeAnnouncer()).toHaveTextContent('Contacts loaded')
 	})
 
 	it('renders a not-found page with a route back home so bad URLs are recoverable, not a dead end', () => {

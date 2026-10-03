@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // A single mutable router state drives every useRouterState selector so tests can
@@ -38,9 +38,11 @@ vi.mock('@tanstack/react-start/server', () => ({
 
 const getFolders = vi.fn()
 const getMailboxInfo = vi.fn()
+const listDrafts = vi.fn()
 vi.mock('#server/fns', () => ({
 	getFolders: () => getFolders(),
 	getMailboxInfo: () => getMailboxInfo(),
+	listDrafts: () => listDrafts(),
 }))
 
 // Child chrome is exercised by its own suites; stub each to a minimal, inspectable shell.
@@ -91,6 +93,7 @@ vi.mock('#features/mail/components/MailSidebar', () => ({
 			data-folder={props.currentFolderId ?? ''}
 			data-base={props.baseFolderId ?? ''}
 			data-mobile={props.mobile ? 'yes' : 'no'}
+			data-latest-draft={props.latestDraft?.subject ?? ''}
 		>
 			<button type="button" onClick={props.onNavigate}>
 				sidebar-nav
@@ -123,6 +126,14 @@ vi.mock('#features/mail/lib/mail-ui-model', async (importOriginal) => {
 
 import { liveSearchTarget } from '#features/mail/lib/mail-ui-model'
 import { MailRouteScreen, Route } from './mail.js'
+
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
 
 const info = { email: 'ada@example.com', displayName: 'Ada', appName: 'OwnMail' }
 
@@ -180,6 +191,39 @@ describe('/mail loader + layout', () => {
 		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-active', 'mail')
 	})
 
+	it('offers the latest draft to resume, and only asks for drafts when the Drafts folder has some', async () => {
+		listDrafts.mockResolvedValue([
+			{ id: 'd1', subject: 'Old', date: 1 },
+			{ id: 'd2', subject: 'Re: Q3 roadmap', date: 2 },
+		])
+		Route.useLoaderData = vi.fn(() => ({
+			info,
+			folders: [{ id: 'drafts', total_count: 2 }] as unknown as Folder[],
+		}))
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient()}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		await waitFor(() =>
+			expect(screen.getAllByTestId('sidebar')[0]).toHaveAttribute('data-latest-draft', 'Re: Q3 roadmap'),
+		)
+		expect(listDrafts).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not fetch drafts for an empty Drafts folder', () => {
+		Route.useLoaderData = vi.fn(() => ({ info, folders: [] as Folder[] }))
+		const Component = Route.options.component
+		render(
+			<QueryClientProvider client={new QueryClient()}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		expect(listDrafts).not.toHaveBeenCalled()
+		expect(screen.getAllByTestId('sidebar')[0]).toHaveAttribute('data-latest-draft', '')
+	})
+
 	it('renders current observed mailbox info instead of stale infinite-route loader data', () => {
 		Route.useLoaderData = vi.fn(() => ({ info, folders: [] as Folder[] }))
 		const queryClient = new QueryClient()
@@ -209,7 +253,7 @@ describe('MailRouteScreen — layout wiring', () => {
 			},
 		)
 		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-context', 'thread')
-		expect(screen.queryByRole('link', { name: 'Compose message' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Compose message' })).toBeNull()
 
 		direct.unmount()
 		renderScreen(
@@ -232,7 +276,7 @@ describe('MailRouteScreen — layout wiring', () => {
 			},
 		)
 		expect(screen.getByTestId('mobile-tabs')).toHaveAttribute('data-context', 'primary')
-		expect(screen.getByRole('link', { name: 'Compose message' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Compose message' })).toBeInTheDocument()
 	})
 
 	it('recovers to Inbox only when the deleted folder is active', () => {
@@ -327,10 +371,12 @@ describe('MailRouteScreen — layout wiring', () => {
 	})
 })
 
-describe('MailRouteScreen — compose link', () => {
-	it('renders the compose FAB as a real URL (never masked)', () => {
+describe('MailRouteScreen — compose button', () => {
+	it('opens a new message over the list from the mobile compose button, without leaving the page', () => {
 		renderScreen()
-		expect(screen.getByRole('link', { name: 'Compose message' })).toHaveAttribute('data-mask', 'no')
+		fireEvent.click(screen.getByRole('button', { name: 'Compose message' }))
+		expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'new' })
+		expect(navigate).not.toHaveBeenCalled()
 	})
 })
 
@@ -416,24 +462,10 @@ describe('MailRouteScreen — keyboard shortcuts', () => {
 		fireEvent.keyDown(window, { key: '/' })
 		expect(document.activeElement).toBe(searchInput())
 
+		// "c" opens a new message where you are: the list or the conversation stays on screen.
 		fireEvent.keyDown(window, { key: 'c' })
-		expect(navigate).toHaveBeenCalledWith({ to: '/mail/compose', search: { folderId: 'inbox' } })
-	})
-
-	it('carries a selected search thread id into the compose target', () => {
-		renderScreen({}, { location: { pathname: '/mail/f/inbox', search: { threadId: 't5' } } })
-		fireEvent.keyDown(window, { key: 'c' })
-		expect(navigate).toHaveBeenCalledWith({
-			to: '/mail/compose',
-			search: { folderId: 'inbox', threadId: 't5' },
-		})
-	})
-
-	it('composes via a real URL with no mask on the "c" shortcut', () => {
-		renderScreen({}, { location: { pathname: '/mail/f/inbox', search: {} } })
-		fireEvent.keyDown(window, { key: 'c' })
-		expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/compose' }))
-		expect(navigate).toHaveBeenCalledWith(expect.not.objectContaining({ mask: expect.anything() }))
+		expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'new' })
+		expect(navigate).not.toHaveBeenCalled()
 	})
 
 	it('ignores shortcuts while typing in a field or with a modifier or key repeat', () => {

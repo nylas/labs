@@ -2,6 +2,7 @@
 import { Link } from '@tanstack/react-router'
 import { Calendar, ChevronRight, Command, Mail, Moon, Plus, Sun, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
+import { SwapIcon } from '#shared/components/SwapIcon'
 import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#shared/components/ui/tooltip'
 import { initials } from '#shared/lib/presentation'
@@ -135,7 +136,13 @@ export function AppRailNav({
 					</a>
 				</RailTooltip>
 				<RailButton onClick={toggleTheme} ariaLabel={themeToggleLabel(mounted, isDark)}>
-					{mounted && isDark ? <Sun className="h-[17px] w-[17px]" /> : <Moon className="h-[17px] w-[17px]" />}
+					<SwapIcon swapKey={mounted && isDark ? 'sun' : 'moon'}>
+						{mounted && isDark ? (
+							<Sun className="h-[17px] w-[17px]" />
+						) : (
+							<Moon className="h-[17px] w-[17px]" />
+						)}
+					</SwapIcon>
 				</RailButton>
 				<RailButton onClick={onOpenCommandPalette} ariaLabel="Open command palette" shortcut="⌘K">
 					<Command className="h-[17px] w-[17px]" />
@@ -189,7 +196,7 @@ export function AppRailMobileNav({
 				aria-label={`Account settings for ${accountLabel}`}
 				aria-current={active === 'settings' ? 'page' : undefined}
 				className={cn(
-					'group flex min-h-16 min-w-0 items-center gap-3 rounded-lg px-3 text-left text-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted/60 active:translate-y-px',
+					'group flex min-h-16 min-w-0 items-center gap-3 rounded-lg px-3 text-left text-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted/60 press',
 					active === 'settings' && 'bg-sidebar-accent text-sidebar-accent-foreground',
 				)}
 			>
@@ -397,7 +404,7 @@ function AccountSwitcher({
 }
 
 const MOBILE_NAV_ITEM_CLASS =
-	'flex min-h-12 w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 text-sm font-medium text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50'
+	'flex min-h-12 w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 text-sm font-medium text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50'
 
 function RailLink({
 	to,

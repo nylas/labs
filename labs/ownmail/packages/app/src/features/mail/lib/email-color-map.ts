@@ -37,8 +37,8 @@ export const MIN_TEXT_CONTRAST = 4.5
 const NEUTRAL_CHROMA = 0.035
 const DEGREES = Math.PI / 180
 
-/** OwnMail's dark `--background` token (`oklch(0.12 0.006 165)`), in sRGB. */
-export const DARK_READER_GROUND: RgbColor = fromOklch({ lightness: 0.12, chroma: 0.006, hue: 165 * DEGREES })
+/** OwnMail's dark `--background` token (`oklch(0.12 0.012 165)`), in sRGB. */
+export const DARK_READER_GROUND: RgbColor = fromOklch({ lightness: 0.12, chroma: 0.012, hue: 165 * DEGREES })
 
 /** The light canvas email is authored for when a sender paints none. */
 export const DEFAULT_EMAIL_CANVAS: RgbColor = { red: 255, green: 255, blue: 255, alpha: 1 }

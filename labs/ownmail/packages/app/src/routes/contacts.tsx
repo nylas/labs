@@ -14,6 +14,7 @@ import {
 	contactIdFromPath,
 	contactSubtitle,
 	filterContacts,
+	groupContactsByInitial,
 	sortContacts,
 } from '#features/contacts/lib/contacts-model'
 import {
@@ -21,10 +22,16 @@ import {
 	flattenContactPages,
 	useContactsPages,
 } from '#features/contacts/state/contacts-state'
+import { useCompose } from '#features/mail/components/ComposeProvider'
 import { getContacts } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import { Sheet } from '#shared/components/Sheet'
 import { UNDER_MOBILE_BAR_CLASS } from '#shared/components/ui/glass'
+import {
+	PRIMARY_ACTION_CLASS,
+	PRIMARY_ACTION_ICON_CLASS,
+	PrimaryActionContent,
+} from '#shared/components/ui/primary-action'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { initials } from '#shared/lib/presentation'
@@ -275,21 +282,34 @@ export function ContactsShell({
 				<ul
 					ref={listScrollRef}
 					className={cn(
-						'min-h-0 flex-1 overflow-y-auto py-1',
+						// The create action above already ends in a 12px gap, so the list adds none on top.
+						'min-h-0 flex-1 overflow-y-auto pb-1',
 						// The list runs beneath the tab bar unless the pagination row sits below it.
 						!paginationControls && [UNDER_MOBILE_BAR_CLASS, '[--under-mobile-bar-gap:0.25rem]'],
 					)}
 				>
-					{filtered.map((contact, index) => (
-						<li key={contact.id}>
-							<ContactListItem
-								contact={contact}
-								active={contact.id === selectedId}
-								keyboardActive={cursor === index}
-								search={linkSearch}
-							/>
-						</li>
-					))}
+					{/* The letter headings are visual only: the list holds one item per contact,
+					    already in name order, and arrow keys move over `data-contact-id` rows. */}
+					{groupContactsByInitial(filtered).map((group) => [
+						<li
+							key={`initial-${group.initial}`}
+							role="presentation"
+							aria-hidden="true"
+							className="px-hairline pt-cluster pb-control text-[11px] first:pt-0 font-medium tracking-wide text-muted-foreground uppercase"
+						>
+							{group.initial}
+						</li>,
+						...group.entries.map(({ contact, index }) => (
+							<li key={contact.id}>
+								<ContactListItem
+									contact={contact}
+									active={contact.id === selectedId}
+									keyboardActive={cursor === index}
+									search={linkSearch}
+								/>
+							</li>
+						)),
+					])}
 				</ul>
 				{paginationControls}
 			</>
@@ -327,15 +347,18 @@ export function ContactsShell({
 						/>
 					</div>
 					{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh contacts" /> : null}
-					<Link
-						to="/contacts/new"
-						search={linkSearch}
-						aria-label="New contact"
-						className="flex min-h-11 shrink-0 items-center gap-2 border-l border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
-					>
-						<Plus className="h-4 w-4" />
-						<span className="hidden md:inline">New contact</span>
-					</Link>
+					{/* design.md "CTA voice": while the list pane (and its create action) is
+					    hidden — a phone reading a contact — the icon-only form sits here. */}
+					<div className={cn('flex shrink-0 items-center pr-hairline', selectedId ? 'md:hidden' : 'hidden')}>
+						<Link
+							to="/contacts/new"
+							search={linkSearch}
+							aria-label="New contact"
+							className={PRIMARY_ACTION_ICON_CLASS}
+						>
+							<Plus className="h-4 w-4" aria-hidden="true" />
+						</Link>
+					</div>
 				</header>
 			</div>
 
@@ -350,6 +373,13 @@ export function ContactsShell({
 						(filtered.length === 0 || paginationControls) && UNDER_MOBILE_BAR_CLASS,
 					)}
 				>
+					{/* The list pane is the contacts sidebar (design.md "Spacing" clause 7, "CTA
+					    voice"): the create action is its first thing, inset, with no separator. */}
+					<div className="flex shrink-0 flex-col p-hairline">
+						<Link to="/contacts/new" search={linkSearch} className={PRIMARY_ACTION_CLASS}>
+							<PrimaryActionContent icon={Plus} label="New contact" />
+						</Link>
+					</div>
 					{onRefresh ? (
 						<PullToRefresh
 							onRefresh={onRefresh}
@@ -432,6 +462,7 @@ function ContactListItem({
 	const name = contactDisplayName(contact)
 	const subtitle = contactSubtitle(contact)
 	const navigate = useNavigate()
+	const { openCompose } = useCompose()
 	const openContact = (flags: { edit?: true; delete?: true } = {}) =>
 		navigate({
 			to: '/contacts/$contactId',
@@ -443,7 +474,7 @@ function ContactListItem({
 			contact={contact}
 			onOpen={() => openContact()}
 			onEdit={() => openContact({ edit: true })}
-			onNewEmail={(to) => navigate({ to: '/mail/compose', search: { to } })}
+			onNewEmail={(to) => void openCompose({ kind: 'new', to })}
 			// Deleting is confirmed on the contact's own page.
 			onRequestDelete={() => openContact({ delete: true })}
 		>

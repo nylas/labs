@@ -102,6 +102,8 @@
 	--color-event-rose: var(--event-rose);
 	--color-today: var(--today);
 	--color-today-foreground: var(--today-fg);
+	--color-cta-line: var(--cta-line);
+	--color-cta-icon: var(--cta-icon);
 
 	--radius-sm: calc(var(--radius) * 0.75);
 	--radius-md: var(--radius);
@@ -130,6 +132,10 @@
 	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 	--dur-fast: 120ms;
 	--dur-medium: 220ms;
+	/* design.md "Motion": a press settles without bouncing; the spring overshoots once and is used only for starring. */
+	--dur-press: 130ms;
+	--ease-press: cubic-bezier(0.3, 0.9, 0.4, 1);
+	--ease-spring: cubic-bezier(0.28, 1.4, 0.36, 1);
 	--safe-area-top: env(safe-area-inset-top, 0px);
 	--safe-area-right: env(safe-area-inset-right, 0px);
 	--safe-area-bottom: env(safe-area-inset-bottom, 0px);
@@ -183,6 +189,9 @@
 	--sidebar-accent-foreground: oklch(0.145 0.008 165);
 	--sidebar-border: oklch(0.91 0.003 145);
 	--sidebar-ring: oklch(0.44 0.085 158);
+	/* The module create action (design.md "CTA voice"): an outline with the accent on its icon only. */
+	--cta-line: oklch(0.87 0.006 150);
+	--cta-icon: oklch(0.44 0.085 158);
 	font-family: var(--font-sans);
 }
 
@@ -194,17 +203,17 @@
 
 .dark {
 	color-scheme: dark;
-	--background: oklch(0.12 0.006 165);
+	--background: oklch(0.12 0.012 165);
 	--foreground: oklch(0.96 0.004 150);
-	--card: oklch(0.16 0.007 165);
+	--card: oklch(0.16 0.012 165);
 	--card-foreground: oklch(0.96 0.004 150);
-	--popover: oklch(0.16 0.007 165);
+	--popover: oklch(0.16 0.012 165);
 	--popover-foreground: oklch(0.96 0.004 150);
 	--primary: oklch(0.96 0.004 150);
-	--primary-foreground: oklch(0.12 0.006 165);
-	--secondary: oklch(0.22 0.008 165);
+	--primary-foreground: oklch(0.12 0.012 165);
+	--secondary: oklch(0.22 0.014 165);
 	--secondary-foreground: oklch(0.96 0.004 150);
-	--muted: oklch(0.22 0.008 165);
+	--muted: oklch(0.22 0.014 165);
 	--muted-foreground: oklch(0.65 0.01 155);
 	--accent: oklch(0.26 0.04 160);
 	--accent-foreground: oklch(0.92 0.06 158);
@@ -224,12 +233,14 @@
 	--glass-bg: color-mix(in oklch, var(--card) 89%, transparent);
 	--glass-line: oklch(1 0 0 / 12%);
 	--glass-shadow: 0 8px 24px oklch(0 0 0 / 40%);
-	--sidebar: oklch(0.1 0.006 165);
+	--sidebar: oklch(0.1 0.012 165);
 	--sidebar-foreground: oklch(0.9 0.006 150);
 	--sidebar-primary: oklch(0.96 0.004 150);
-	--sidebar-primary-foreground: oklch(0.1 0.006 165);
+	--sidebar-primary-foreground: oklch(0.1 0.012 165);
 	--sidebar-accent: oklch(0.24 0.04 160);
 	--sidebar-accent-foreground: oklch(0.9 0.06 158);
 	--sidebar-border: oklch(1 0 0 / 8%);
 	--sidebar-ring: oklch(0.88 0.01 150);
+	--cta-line: oklch(1 0 0 / 14%);
+	--cta-icon: oklch(0.8 0.11 158);
 }

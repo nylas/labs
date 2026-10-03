@@ -10,6 +10,7 @@ import {
 	reduceMailCacheEntry,
 	safeSentMessage,
 	sentThreadFromMessage,
+	systemFolderBeforeMove,
 	threadFoldersAfterCacheMove,
 	updateDrafts,
 	updateFolderCounts,
@@ -562,5 +563,17 @@ describe('mail optimistic transaction journal', () => {
 			id: 'm1',
 			thread_id: 't1',
 		})
+	})
+})
+
+describe('systemFolderBeforeMove', () => {
+	it('names the place a conversation leaves, so Undo can put it back there', () => {
+		expect(systemFolderBeforeMove(['work', 'inbox'])).toBe('inbox')
+		expect(systemFolderBeforeMove(['archive', 'work'])).toBe('archive')
+	})
+
+	it('ignores views and labels, which a move does not take a conversation out of', () => {
+		expect(systemFolderBeforeMove(['starred', 'drafts', 'work'])).toBeUndefined()
+		expect(systemFolderBeforeMove(undefined)).toBeUndefined()
 	})
 })

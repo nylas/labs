@@ -193,7 +193,7 @@ export function RefreshButton({
 				disabled={busy}
 				aria-label={busy ? `Refreshing ${label.toLowerCase()}` : label}
 				className={cn(
-					'touch-target-square flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px disabled:cursor-wait disabled:opacity-50',
+					'touch-target-square flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press disabled:cursor-wait disabled:opacity-50',
 					className,
 				)}
 			>

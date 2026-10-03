@@ -186,7 +186,7 @@ describe('RefreshButton', () => {
 		const button = screen.getByRole('button', { name: 'Refresh contacts' })
 		fireEvent.click(button)
 		expect(onRefresh).toHaveBeenCalledOnce()
-		expect(button).toHaveClass('h-11', 'w-11')
+		expect(button).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
 
 		rerender(<RefreshButton onRefresh={onRefresh} label="Refresh contacts" refreshing />)
 		expect(screen.getByRole('button', { name: 'Refreshing refresh contacts' })).toBeDisabled()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MailThread } from '../state/mail-queries.js'
-import { adjacentThreadId } from './mail-ui-model.js'
+import { adjacentThreadId, latestDraftSummary } from './mail-ui-model.js'
 
 const thread = (id: string, received: number) =>
 	({ id, latest_message_received_date: received }) as MailThread
@@ -35,5 +35,24 @@ describe('adjacentThreadId', () => {
 		expect(adjacentThreadId(threads, 'missing')).toBeUndefined()
 		expect(adjacentThreadId([thread('only', 1)], 'only')).toBeUndefined()
 		expect(adjacentThreadId([{ id: 'a' } as MailThread, { id: 'b' } as MailThread], 'a')).toBe('b')
+	})
+})
+
+describe('latestDraftSummary', () => {
+	it('picks the most recently saved draft, so Resume reopens what was written last', () => {
+		expect(
+			latestDraftSummary([
+				{ id: 'old', subject: 'Old', date: 10 },
+				{ id: 'new', subject: '  Re: Q3 roadmap  ', date: 30 },
+				{ id: 'undated', subject: 'No date' },
+			]),
+		).toEqual({ id: 'new', subject: 'Re: Q3 roadmap' })
+	})
+
+	it('treats a missing subject as empty and a missing list as no draft', () => {
+		expect(latestDraftSummary([{ id: 'a' }, { id: 'b', date: 1 }])).toEqual({ id: 'b', subject: '' })
+		expect(latestDraftSummary([{ id: 'only' }])).toEqual({ id: 'only', subject: '' })
+		expect(latestDraftSummary([])).toBeUndefined()
+		expect(latestDraftSummary(undefined)).toBeUndefined()
 	})
 })

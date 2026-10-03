@@ -42,6 +42,14 @@ vi.mock('#features/contacts/components/ContactModal', () => ({
 
 import { ContactDetailScreen, Route } from './contacts.$contactId.js'
 
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
+
 function render(ui: ReactElement) {
 	return testingRender(
 		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -225,7 +233,7 @@ describe('ContactDetailRoute wrapper', () => {
 
 			await openMenu()
 			choose('New email')
-			expect(h.navigate).toHaveBeenLastCalledWith({ to: '/mail/compose', search: { to: 'ada@x.com' } })
+			expect(composeApi.openCompose).toHaveBeenLastCalledWith({ kind: 'new', to: 'ada@x.com' })
 		})
 
 		it('asks for confirmation before deleting, exactly like the Delete button', async () => {

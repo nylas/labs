@@ -661,7 +661,12 @@ describe('calendar date or view change', () => {
 		serveEvents(new Promise(() => {}))
 		calendarFns.createEvent.mockRejectedValue(new Error('offline'))
 		await mountApp('/calendar/month?date=2026-03-02')
-		fireEvent.click(page().getByRole('button', { name: 'Create' }))
+		// The create action is New event, at the top of the calendar sidebar.
+		fireEvent.click(
+			within(document.getElementById('calendar-sidebar') as HTMLElement).getByRole('button', {
+				name: 'New event',
+			}),
+		)
 		fireEvent.click(page().getByRole('button', { name: 'Save event' }))
 		await waitFor(() => expect(pageText()).toContain('Could not save the event'))
 

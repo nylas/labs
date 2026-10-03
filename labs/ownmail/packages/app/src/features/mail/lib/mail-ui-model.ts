@@ -35,6 +35,17 @@ export function sidebarFolderCount(folders: Folder[], folderId: string): number 
 	return folder.unread_count ?? 0
 }
 
+/** The draft offered as "Resume" under Compose: the most recently saved one. */
+export function latestDraftSummary(
+	drafts: { id: string; subject?: string; date?: number }[] | undefined,
+): { id: string; subject: string } | undefined {
+	let latest: { id: string; subject?: string; date?: number } | undefined
+	for (const draft of drafts ?? []) {
+		if (!latest || (draft.date ?? 0) > (latest.date ?? 0)) latest = draft
+	}
+	return latest ? { id: latest.id, subject: latest.subject?.trim() ?? '' } : undefined
+}
+
 export function mailFolderTitle(folderId: string, folders: Folder[] = []): string {
 	const systemFolder = MAIL_FOLDERS.find((folder) => folder.id === folderId)
 	if (systemFolder) return systemFolder.label
@@ -606,96 +617,4 @@ export function activeMailSidebarFolderId(pathname: string, scopedFolderId?: str
 
 export function mailSearchInputValue(pathname: string, routeQuery?: string): string {
 	return pathname.startsWith('/mail/search') ? (routeQuery ?? '') : ''
-}
-
-/**
- * When the composer is closed, prefer a real browser back so the compose
- * history entry is popped instead of pushing another entry (which would let
- * the browser Back button re-open the composer). Only safe when a prior
- * in-app entry exists — otherwise the caller navigates explicitly.
- */
-export function shouldUseBrowserBackForComposeClose(historyState: unknown): boolean {
-	if (!historyState || typeof historyState !== 'object') return false
-	const index = (historyState as { __TSR_index?: unknown }).__TSR_index
-	return typeof index === 'number' && index > 0
-}
-
-export function composeSearchFromMailLocation(
-	pathname: string,
-	folderId?: string,
-	selectedThreadId?: string,
-): { folderId?: string; threadId?: string } {
-	const match = pathname.match(/^\/mail\/f\/([^/]+)\/t\/([^/]+)/)
-	if (match?.[1] && match[2]) {
-		return { folderId: decodeURIComponent(match[1]), threadId: decodeURIComponent(match[2]) }
-	}
-	return {
-		...(folderId ? { folderId } : {}),
-		...(selectedThreadId ? { threadId: selectedThreadId } : {}),
-	}
-}
-
-export function composeBackdropThreadSearch(input: {
-	folderId: string
-	threadId: string
-	draftId?: string
-	replyToMessageId?: string
-	to?: string
-	subject?: string
-	body?: string
-}): {
-	folderId: string
-	threadId: string
-	draft?: string
-	replyToMessageId?: string
-	to?: string
-	subject?: string
-	body?: string
-} {
-	return {
-		folderId: input.folderId,
-		threadId: input.threadId,
-		...(input.draftId ? { draft: input.draftId } : {}),
-		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
-		...(input.to ? { to: input.to } : {}),
-		...(input.subject ? { subject: input.subject } : {}),
-		...(input.body ? { body: input.body } : {}),
-	}
-}
-
-export function composeBackdropReplySearch(input: {
-	folderId: string
-	threadId: string
-	message: MailMessage
-}): ReturnType<typeof composeBackdropThreadSearch> {
-	return composeBackdropThreadSearch({
-		folderId: input.folderId,
-		threadId: input.threadId,
-		...replyDraftSearch(input.message),
-	})
-}
-
-export function composeBackdropListSearch(input: {
-	folderId: string
-	draftId?: string
-	replyToMessageId?: string
-	to?: string
-	subject?: string
-	body?: string
-}): {
-	folderId: string
-	draft?: string
-	replyToMessageId?: string
-	to?: string
-	subject?: string
-	body?: string
-} {
-	return {
-		folderId: input.folderId,
-		...(input.draftId ? { draft: input.draftId } : {}),
-		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
-		...(input.to ? { to: input.to } : {}),
-		...(input.subject ? { subject: input.subject } : {}),
-		...(input.body ? { body: input.body } : {}),
-	}
 }

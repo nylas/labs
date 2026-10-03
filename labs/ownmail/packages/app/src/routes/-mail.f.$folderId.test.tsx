@@ -74,6 +74,14 @@ Element.prototype.scrollIntoView = vi.fn()
 
 import { loadMailFolderData, MailFolderRouteScreen, Route } from './mail.f.$folderId.js'
 
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
+
 const thread = (over: Partial<Thread> & { id: string }): Thread =>
 	({
 		grant_id: 'g',
@@ -90,6 +98,7 @@ const loaderQueryClient = () =>
 afterEach(() => {
 	cleanup()
 	vi.clearAllMocks()
+	composeApi.composing = null
 	window.localStorage.clear()
 	routerState = { location: { pathname: '/mail/f/inbox' }, matches: [] }
 })
@@ -429,6 +438,16 @@ describe('MailFolderRouteScreen — thread list', () => {
 		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})
 
+	it('keeps the empty reader quiet while the composer is open over it', () => {
+		// The "press C to compose" prompt would only sit under the window it describes.
+		composeApi.composing = { kind: 'new' }
+		const { container } = render(
+			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
+		)
+		expect(screen.queryByText('Select a conversation')).toBeNull()
+		expect(container.querySelector('section div.hidden.xl\\:flex.bg-background')).toBeEmptyDOMElement()
+	})
+
 	it('sorts threads newest-first and surfaces the authoritative folder unread count badge', () => {
 		const { container } = render(
 			<MailFolderRouteScreen
@@ -623,7 +642,7 @@ describe('MailFolderRouteScreen — drafts', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		const row = screen.getByRole('link')
+		const row = screen.getByRole('button', { name: /Plan/ })
 		expect(row).toHaveClass('thread-row')
 		expect(row).toHaveAttribute('data-nav-row')
 		// Same cells as a conversation row: leading dot, then subject and snippet in one summary.
@@ -634,7 +653,7 @@ describe('MailFolderRouteScreen — drafts', () => {
 		expect(screen.queryByRole('button', { name: 'Star' })).toBeNull()
 	})
 
-	it('links drafts to the composer with the draft id', () => {
+	it('reopens a draft in the composer over the list instead of leaving the folder', () => {
 		routerState = { location: { pathname: '/mail/f/drafts' }, matches: [] }
 		render(
 			<MailFolderRouteScreen
@@ -645,10 +664,10 @@ describe('MailFolderRouteScreen — drafts', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		const link = screen.getByRole('link')
-		expect(link).toHaveAttribute('data-mask', 'no')
-		expect(link).toHaveAttribute('href', '/mail/compose')
-		expect(link).toHaveAttribute('data-search', JSON.stringify({ draft: 'd1', folderId: 'drafts' }))
+		// Compose is a window over the page, not a route: the drafts list stays behind it.
+		fireEvent.click(screen.getByRole('button', { name: /a@b.com.*Hi/ }))
+		expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd1' })
+		expect(navigate).not.toHaveBeenCalled()
 	})
 })
 
@@ -986,7 +1005,7 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 		expect(link).toHaveAttribute('data-search', JSON.stringify({ baseFolderId: 'inbox' }))
 	})
 
-	it('marks the selected row active in both reader and compose list modes', () => {
+	it('marks the selected row active and current, on the shared list toolbar edge', () => {
 		const props = {
 			threads: [thread({ id: 't1' })],
 			drafts: [],
@@ -995,14 +1014,10 @@ describe('MailFolderRouteScreen — thread pane + realtime', () => {
 			nextCursor: undefined,
 			activeThreadId: 't1',
 		}
-		const { unmount } = render(<MailFolderRouteScreen {...props} />)
-		expect(screen.getByRole('link', { name: /Open Subject/ })).toHaveAttribute('data-active', 'true')
-		// Selection is a fill, so the open row must also be announced as current.
-		expect(screen.getByRole('link', { name: /Open Subject/ })).toHaveAttribute('aria-current', 'true')
-		unmount()
-		render(<MailFolderRouteScreen {...props} composeThreadSearch={(threadId) => ({ to: [threadId] })} />)
+		render(<MailFolderRouteScreen {...props} />)
 		const threadLink = screen.getByRole('link', { name: /Open Subject/ })
 		expect(threadLink).toHaveAttribute('data-active', 'true')
+		// Selection is a fill, so the open row must also be announced as current.
 		expect(threadLink).toHaveAttribute('aria-current', 'true')
 		// The list title and the row text share one 16px left edge, under the one toolbar height.
 		const listToolbar = screen.getByRole('heading', { level: 1 }).closest('[data-slot="toolbar"]')
@@ -1151,6 +1166,24 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 
 	const cursored = () =>
 		document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]') ?? undefined
+
+	it("starts the keyboard cursor fresh in another folder instead of carrying the last folder's position", () => {
+		const view = renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toHaveTextContent('Second')
+		view.rerender(
+			<MailFolderRouteScreen
+				threads={threads}
+				drafts={[]}
+				folders={[]}
+				folderId="work"
+				nextCursor={undefined}
+			/>,
+		)
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toHaveTextContent('First')
+	})
 
 	it('moves straight to the adjacent conversation with j/k while one is open', () => {
 		routerState = {
@@ -1372,15 +1405,16 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		const firstDraft = screen.getByRole('link', { name: /a@b.com.*One/ })
+		const firstDraft = screen.getByRole('button', { name: /a@b.com.*One/ })
 		firstDraft.focus()
 		fireEvent.keyDown(firstDraft, { key: 'ArrowDown' })
 		expect(document.activeElement).toHaveTextContent('Two')
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
-		expect(navigate).toHaveBeenCalledWith({
-			to: '/mail/compose',
-			search: { draft: 'd2', folderId: 'drafts' },
-		})
+		// Enter reopens the cursored draft over the list, as a click would.
+		expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd2' })
+		// The list owns Enter on a focused draft button: no second open from its native click.
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(1)
+		expect(navigate).not.toHaveBeenCalled()
 	})
 })
 
@@ -1461,9 +1495,10 @@ describe('MailFolderRouteScreen — context menus', () => {
 		expect(onUpdateThread).toHaveBeenLastCalledWith({ threadId: 't2', unread: true })
 	})
 
-	it('does not pull the user out of the composer when the highlighted row behind it is archived', async () => {
+	it('does not navigate when a highlighted row that is not the routed reader is archived', async () => {
 		const onUpdateThread = vi.fn().mockResolvedValue(undefined)
-		renderInbox({ activeThreadId: 't1', composeThreadSearch: (threadId) => ({ threadId }), onUpdateThread })
+		// Highlighted (activeThreadId) but not open in the reader: there is no reader to close.
+		renderInbox({ activeThreadId: 't1', onUpdateThread })
 
 		await openMenu('First')
 		choose('Archive')
@@ -1505,7 +1540,7 @@ describe('MailFolderRouteScreen — context menus', () => {
 		expect(item.querySelector('svg')).not.toBeNull()
 	})
 
-	it('opens the conversation, or the composer behind which the list sits', async () => {
+	it('opens the conversation in the reader from the row menu', async () => {
 		renderInbox({ baseFolderId: 'work' })
 		const menu = await openMenu('Third')
 		expect(within(menu).getByText('Enter')).toHaveClass('kbd')
@@ -1515,12 +1550,6 @@ describe('MailFolderRouteScreen — context menus', () => {
 			params: { folderId: 'inbox', threadId: 't3' },
 			search: { baseFolderId: 'work' },
 		})
-
-		cleanup()
-		renderInbox({ composeThreadSearch: (threadId) => ({ threadId }) })
-		await openMenu('First')
-		choose('Open')
-		expect(navigate).toHaveBeenLastCalledWith({ to: '/mail/compose', search: { threadId: 't1' } })
 	})
 
 	it('disables the row actions while one is in flight and recovers after a failure', async () => {
@@ -1677,18 +1706,17 @@ describe('MailFolderRouteScreen — context menus', () => {
 		await openMenu('First')
 		choose('Reply')
 
+		// The reply opens in the composer over the list, answering the thread's last message.
 		await waitFor(() =>
-			expect(navigate).toHaveBeenCalledWith({
-				to: '/mail/compose',
-				search: {
-					folderId: 'inbox',
-					threadId: 't1',
-					to: 'ada@example.com',
-					subject: 'Re: First',
-					replyToMessageId: 'm2',
-				},
+			expect(composeApi.openCompose).toHaveBeenCalledWith({
+				kind: 'reply',
+				threadId: 't1',
+				to: 'ada@example.com',
+				subject: 'Re: First',
+				replyToMessageId: 'm2',
 			}),
 		)
+		expect(navigate).not.toHaveBeenCalled()
 		expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } })
 	})
 
@@ -1751,18 +1779,16 @@ describe('MailFolderRouteScreen — context menus', () => {
 			const onDiscardDraft = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
 			renderDrafts({ onDiscardDraft })
 
-			fireEvent.contextMenu(screen.getByRole('link', { name: /a@b.com.*One/ }))
+			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
 			await screen.findByRole('menu', { name: 'Actions for draft One' })
 			choose('Open draft')
-			expect(navigate).toHaveBeenCalledWith({
-				to: '/mail/compose',
-				search: { draft: 'd1', folderId: 'drafts' },
-			})
+			// "Open draft" reopens it over the list, the same as clicking the row.
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd1' })
 			await menuClosed()
 
 			// A failed discard is rolled back by the mutation; the menu stays usable.
 			for (const _attempt of [1, 2]) {
-				fireEvent.contextMenu(screen.getByRole('link', { name: /c@d.com/ }))
+				fireEvent.contextMenu(screen.getByRole('button', { name: /c@d.com/ }))
 				await screen.findByRole('menu', { name: 'Actions for draft (no subject)' })
 				expect(screen.getByRole('menuitem', { name: 'Discard draft' })).toHaveAttribute(
 					'data-variant',
@@ -1781,25 +1807,25 @@ describe('MailFolderRouteScreen — context menus', () => {
 			renderDrafts()
 			fireEvent.keyDown(window, { key: 'j' })
 			fireEvent.keyDown(window, { key: 'ContextMenu' })
-			// A draft row is its own link.
-			expect(screen.getByRole('link', { name: /a@b.com.*One/ })).toHaveFocus()
+			// A draft row is its own button.
+			expect(screen.getByRole('button', { name: /a@b.com.*One/ })).toHaveFocus()
 		})
 
 		it('says on the draft row, in the composer wording, when it could not be discarded', async () => {
 			renderDrafts({ onDiscardDraft: vi.fn().mockRejectedValue(new Error('provider detail')) })
-			const draft = screen.getByRole('link', { name: /c@d.com/ })
+			const draft = screen.getByRole('button', { name: /c@d.com/ })
 			fireEvent.contextMenu(draft)
 			await screen.findByRole('menu')
 			choose('Discard draft')
 			const alert = await screen.findByRole('alert')
 			expect(alert).toHaveTextContent('Could not discard the draft. Check your connection, then try again.')
 			expect(draft).toContainElement(alert)
-			expect(screen.getByRole('link', { name: /a@b.com.*One/ })).not.toContainElement(alert)
+			expect(screen.getByRole('button', { name: /a@b.com.*One/ })).not.toContainElement(alert)
 		})
 
 		it('shows Discard as unavailable where the list cannot delete drafts', async () => {
 			renderDrafts()
-			fireEvent.contextMenu(screen.getByRole('link', { name: /a@b.com.*One/ }))
+			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
 			await screen.findByRole('menu')
 			expect(screen.getByRole('menuitem', { name: 'Discard draft' })).toHaveAttribute('aria-disabled', 'true')
 		})
@@ -1817,7 +1843,7 @@ describe('MailFolderRouteScreen — context menus', () => {
 					<Component />
 				</QueryClientProvider>,
 			)
-			fireEvent.contextMenu(screen.getByRole('link', { name: /a@b.com.*One/ }))
+			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
 			await screen.findByRole('menu')
 			choose('Discard draft')
 			await waitFor(() => expect(deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd1' } }))

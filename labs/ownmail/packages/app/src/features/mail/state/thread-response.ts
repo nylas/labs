@@ -5,6 +5,11 @@ import { threadDetailQueryOptions } from './mail-queries.js'
 
 export type ThreadResponseKind = 'reply' | 'reply-all' | 'forward'
 
+/** A reply or reply-all is written in its thread; a forward starts a new conversation. */
+export function composeKindForResponse(kind: ThreadResponseKind): 'reply' | 'forward' {
+	return kind === 'forward' ? 'forward' : 'reply'
+}
+
 /**
  * The composer search for answering a thread from its list row. A row carries
  * no messages, so the thread is loaded through the same detail query the

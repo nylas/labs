@@ -88,7 +88,7 @@ describe('Sheet', () => {
 	it('closes when the header close button is clicked', () => {
 		const { onClose } = renderSheet()
 		const close = screen.getByRole('button', { name: 'Close navigation' })
-		expect(close).toHaveClass('h-11', 'w-11')
+		expect(close).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
 		fireEvent.click(close)
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})

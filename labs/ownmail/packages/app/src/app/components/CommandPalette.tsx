@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { Calendar, Mail, Moon, Pencil, Search, Sun, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCompose } from '#features/mail/components/ComposeProvider'
 import { LIST_DENSITY_OPTIONS } from '#features/mail/components/ListDensityMenu'
 import { READING_PANE_OPTIONS } from '#features/mail/components/ReadingPaneMenu'
 import { THREAD_VIEW_OPTIONS } from '#features/mail/components/ThreadViewSwitch'
@@ -49,6 +50,7 @@ export function CommandPalette({
 		[onClose],
 	)
 
+	const { openCompose } = useCompose()
 	const commands = useMemo<Command[]>(() => {
 		const list: Command[] = [
 			{
@@ -56,7 +58,7 @@ export function CommandPalette({
 				label: 'Compose new message',
 				hint: 'C',
 				icon: <Pencil className="h-4 w-4" />,
-				run: () => navigate({ to: '/mail/compose' }),
+				run: () => void openCompose({ kind: 'new' }),
 			},
 			{
 				id: 'search',
@@ -116,7 +118,7 @@ export function CommandPalette({
 			},
 		]
 		return list
-	}, [isDark, mounted, navigate, onFocusSearch, preferences, savePreferences])
+	}, [isDark, mounted, navigate, onFocusSearch, openCompose, preferences, savePreferences])
 
 	const filtered = useMemo(() => {
 		const needle = query.trim().toLowerCase()
@@ -213,7 +215,7 @@ export function CommandPalette({
 						type="button"
 						onClick={onClose}
 						aria-label="Close command palette"
-						className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
+						className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring press forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 					>
 						<X className="h-4 w-4" aria-hidden="true" />
 					</button>

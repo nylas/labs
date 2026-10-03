@@ -113,8 +113,9 @@ describe('EventModal — new event', () => {
 			'pt-[calc(1rem+var(--safe-area-top))]',
 		)
 		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
-			'h-11',
-			'w-11',
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'focus-visible:ring-offset-2',
@@ -898,8 +899,9 @@ describe('EventModal — existing event', () => {
 		}
 		const close = screen.getByRole('button', { name: 'Close' })
 		expect(close).toHaveClass(
-			'h-11',
-			'w-11',
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
 			'focus-visible:ring-[3px]',
 			'focus-visible:ring-ring',
 			'focus-visible:ring-offset-2',

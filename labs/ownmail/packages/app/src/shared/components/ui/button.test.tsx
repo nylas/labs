@@ -39,6 +39,9 @@ describe('Button', () => {
 			'[@media(any-pointer:coarse)]:min-h-11',
 			'[@media(any-pointer:coarse)]:min-w-11',
 		)
+		// design.md "Motion" clause 2: a press scales through the shared `press` recipe and never nudges down.
+		expect(button).toHaveClass('press')
+		expect(button.className).not.toContain('translate-y-px')
 		expect(button).not.toHaveClass('focus-visible:ring-ring/40')
 		expect(button).not.toHaveClass('transition-all')
 	})

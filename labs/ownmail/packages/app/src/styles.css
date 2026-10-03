@@ -125,11 +125,11 @@
 	transition:
 		background-color var(--dur-fast) var(--ease-out),
 		color var(--dur-fast) var(--ease-out),
-		transform var(--dur-fast) var(--ease-out);
+		scale var(--dur-press) var(--ease-press);
 }
 
 .mobile-tab:active {
-	transform: translateY(1px);
+	scale: 0.97;
 }
 
 .mobile-tab-active {
@@ -283,6 +283,16 @@
 	}
 }
 
+/* design.md "CTA voice": a create action's shortcut is for keyboards; touch-first layouts hide it. */
+@media (max-width: 48rem), (any-pointer: coarse) {
+	.primary-action-shortcut,
+	.shortcut-hint,
+	/* Outranks `.kbd`'s own display, which sits later in this file. */
+	.kbd.shortcut-hint {
+		display: none;
+	}
+}
+
 .kbd {
 	display: inline-flex;
 	align-items: center;
@@ -347,7 +357,7 @@
 	transition:
 		background-color var(--dur-fast) var(--ease-out),
 		color var(--dur-fast) var(--ease-out),
-		transform var(--dur-fast) var(--ease-out);
+		scale var(--dur-press) var(--ease-press);
 }
 
 .mail-search-icon-button:focus-visible {
@@ -358,7 +368,7 @@
 .mail-search-icon-button:active {
 	background: var(--muted);
 	color: var(--foreground);
-	transform: translateY(1px);
+	scale: 0.97;
 }
 
 .mail-search-icon-button[aria-pressed="true"] {
@@ -388,7 +398,7 @@
 	transition:
 		background-color var(--dur-fast) var(--ease-out),
 		color var(--dur-fast) var(--ease-out),
-		transform var(--dur-fast) var(--ease-out),
+		scale var(--dur-press) var(--ease-press),
 		opacity var(--dur-fast) var(--ease-out);
 }
 
@@ -398,7 +408,7 @@
 }
 
 .mail-search-submit:active {
-	transform: translateY(1px);
+	scale: 0.97;
 }
 
 .mail-search-submit:disabled {
@@ -567,32 +577,23 @@
 	}
 }
 
+/* The mobile compose action floats over the list, so it is panel glass with the create action's accent icon. */
 .fab {
 	position: fixed;
 	right: 1rem;
 	bottom: calc(var(--mobile-tab-bar-height) + var(--safe-area-bottom) + 0.75rem);
 	z-index: 40;
 	display: flex;
-	height: 2.75rem;
-	width: 2.75rem;
+	height: 3rem;
+	width: 3rem;
 	align-items: center;
 	justify-content: center;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	background: var(--foreground);
-	color: var(--background);
-	transition:
-		background-color var(--dur-fast) var(--ease-out),
-		transform var(--dur-fast) var(--ease-out);
-}
-
-.fab:hover {
-	background: color-mix(in oklch, var(--foreground), transparent 12%);
+	color: var(--cta-icon);
+	transition: scale var(--dur-press) var(--ease-press);
 }
 
 .fab:active {
-	background: color-mix(in oklch, var(--foreground), transparent 20%);
-	transform: translateY(1px);
+	scale: 0.97;
 }
 
 .row-selected {
@@ -659,7 +660,7 @@
 	transition:
 		background-color 140ms ease,
 		color 140ms ease,
-		transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+		scale var(--dur-press) var(--ease-press);
 }
 
 .app-rail-item:hover {
@@ -668,7 +669,7 @@
 }
 
 .app-rail-item:active {
-	transform: scale(0.96);
+	scale: 0.97;
 }
 
 .app-rail-item-active {
@@ -786,19 +787,20 @@
 	justify-self: end;
 	/*
 	 * Its zero-width track ends at the row's 1rem left padding. This margin
-	 * centres the 5px dot in that gutter, clear of the pane border and of the
+	 * centres the 8px dot in that gutter, clear of the pane border and of the
 	 * 2px keyboard-cursor outline.
 	 */
-	margin-right: calc((1rem - 5px) / 2);
-	width: 5px;
-	height: 5px;
+	margin-right: calc((1rem - 8px) / 2);
+	width: 8px;
+	height: 8px;
 	border-radius: 50%;
 }
 
 .thread-row[data-unread="true"]:not([data-active="true"]):not(:has([data-active="true"])) .thread-row-dot,
 .thread-row:has([data-unread="true"]):not([data-active="true"]):not(:has([data-active="true"]))
 	.thread-row-dot {
-	background: color-mix(in oklch, var(--foreground), transparent 25%);
+	/* design.md "List density": the accent marks unread; weight and colour carry it too. */
+	background: var(--cta-icon);
 }
 
 .thread-row-lead {
@@ -1010,8 +1012,10 @@
 	opacity: 0.7;
 }
 
+/* Past events recede through a lighter tint; the title keeps full foreground contrast. */
 .event-chip[data-past] {
-	opacity: 0.5;
+	background-color: color-mix(in oklab, var(--event-c) 12%, var(--card));
+	border-color: color-mix(in oklab, var(--event-c) 35%, var(--card));
 }
 
 /*
@@ -1102,6 +1106,10 @@
 	max-height: 100dvh;
 	width: 100%;
 	max-width: none;
+}
+
+/* A full-screen editor has no corners; the glass recipe's radius belongs to the floating window only. */
+.compose-panel.glass-panel {
 	border-radius: 0;
 }
 
@@ -1112,23 +1120,65 @@
 	max-height: 2.75rem;
 }
 
+/* Panel glass (design.md "Glass layer"): from md the window floats 16px clear of the screen edges. */
 @media (min-width: 48rem) {
 	.compose-panel {
-		inset: auto 1rem 0 auto;
+		inset: auto 1rem 1rem auto;
 		width: min(30rem, calc(100vw - 2rem));
-		max-height: calc(100dvh - 1rem);
-		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+		max-height: calc(100dvh - 2rem);
+		/* design.md "Motion" clause 3: it is readable at once and then settles into place. */
+		animation:
+			panel-fade-in var(--dur-fast) ease,
+			panel-rise-in var(--dur-medium) var(--ease-out);
+	}
+
+	.compose-panel.glass-panel {
+		border-radius: var(--glass-radius);
 	}
 
 	.compose-panel[data-minimized="false"] {
-		height: min(32rem, calc(100dvh - 1rem));
+		height: min(32rem, calc(100dvh - 2rem));
 	}
 
 	.compose-panel[data-minimized="true"] {
-		bottom: 0;
+		bottom: 1rem;
 		height: 2.75rem;
 		max-height: 2.75rem;
 	}
+}
+
+@keyframes panel-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes panel-rise-in {
+	from {
+		translate: 0 8px;
+		scale: 0.98;
+	}
+	to {
+		translate: 0 0;
+		scale: 1;
+	}
+}
+
+/* An inline reply (design.md "Reading"): a card in the thread's flow, on the plane, not glass. */
+.compose-panel.compose-panel-inline {
+	position: static;
+	inset: auto;
+	width: 100%;
+	max-width: none;
+	height: min(24rem, 60dvh);
+	max-height: none;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--card);
+	animation: content-fade-in var(--dur-fast) ease;
 }
 
 @media (max-width: 48rem), (any-pointer: coarse) {
@@ -1322,10 +1372,135 @@
 	}
 }
 
+/* design.md "Motion" clause 2: a press scales down and settles; it never nudges. */
+.press {
+	transition-property: background-color, border-color, color, opacity, filter, scale;
+	transition-duration:
+		var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-press);
+	transition-timing-function:
+		var(--ease-out), var(--ease-out), var(--ease-out), var(--ease-out), var(--ease-out), var(--ease-press);
+}
+
+.press:active:not(:disabled, [aria-disabled="true"]) {
+	scale: 0.97;
+}
+
+/* The toast region: bottom centre, above the mobile tab bar and the home indicator. */
+.toast-region {
+	position: fixed;
+	left: 50%;
+	bottom: calc(var(--safe-area-bottom) + 1rem);
+	z-index: 60;
+	translate: -50% 0;
+	pointer-events: none;
+}
+
+@media (max-width: 48rem) {
+	.toast-region {
+		bottom: calc(var(--mobile-tab-bar-height) + var(--safe-area-bottom) + 0.75rem);
+	}
+}
+
+.toast {
+	min-height: 2.75rem;
+	padding: 0.25rem 0.25rem 0.25rem 1rem;
+	pointer-events: auto;
+	white-space: nowrap;
+	animation:
+		panel-fade-in var(--dur-fast) ease,
+		panel-rise-in var(--dur-medium) var(--ease-out);
+}
+
+.toast:not(:has(button)) {
+	padding-right: 1rem;
+}
+
+/* Clause 1: the exit is shorter than the entrance. */
+.toast[data-leaving="true"] {
+	opacity: 0;
+	translate: 0 4px;
+	transition:
+		opacity var(--dur-fast) var(--ease-in),
+		translate var(--dur-fast) var(--ease-in);
+}
+
+/* design.md "Motion" clause 7: a count that changes on screen drops the new number in. */
+@keyframes count-tick {
+	from {
+		opacity: 0;
+		translate: 0 -60%;
+	}
+	to {
+		opacity: 1;
+		translate: 0 0;
+	}
+}
+
+.count-tick {
+	display: inline-block;
+	animation: count-tick var(--dur-medium) var(--ease-out);
+}
+
+/* Clause 4: the one spring. Starring grows the star; unstarring does not move. */
+@keyframes star-pop {
+	from {
+		scale: 0.6;
+	}
+	to {
+		scale: 1;
+	}
+}
+
+.star-pop svg {
+	animation: star-pop 280ms var(--ease-spring);
+}
+
+/* Clause 6: an icon that changes in place rotates in, so it reads as the same control. */
+@keyframes icon-swap {
+	from {
+		opacity: 0;
+		rotate: -60deg;
+		scale: 0.7;
+	}
+	to {
+		opacity: 1;
+		rotate: 0deg;
+		scale: 1;
+	}
+}
+
+.icon-swap svg {
+	animation: icon-swap var(--dur-medium) var(--ease-in-out);
+}
+
+/* Clause 8: a newly opened conversation fades in and never slides. */
+@keyframes content-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.content-fade-in {
+	animation: content-fade-in var(--dur-fast) ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.navigation-progress-bar {
 		width: 100%;
 		animation: none;
+	}
+
+	/* A press is spatial movement: reduced motion keeps the colour change only. */
+	.press:active:not(:disabled, [aria-disabled="true"]),
+	.mobile-tab:active,
+	.mail-search-icon-button:active,
+	.mail-search-submit:active,
+	.fab:active,
+	.app-rail-item:active {
+		scale: none;
 	}
 
 	*,

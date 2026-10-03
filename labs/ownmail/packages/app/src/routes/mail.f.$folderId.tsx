@@ -5,6 +5,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
+import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadListSkeleton } from '#features/mail/components/ThreadListSkeleton'
@@ -35,7 +36,11 @@ import {
 	mailKeys,
 	threadListQueryOptions,
 } from '#features/mail/state/mail-queries'
-import { type ThreadResponseKind, threadResponseSearch } from '#features/mail/state/thread-response'
+import {
+	composeKindForResponse,
+	type ThreadResponseKind,
+	threadResponseSearch,
+} from '#features/mail/state/thread-response'
 import { getFolders, getThreads, listDrafts, updateThreadState } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
 import {
@@ -49,6 +54,7 @@ import {
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
+import { useFlipList } from '#shared/hooks/use-flip-list'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
@@ -137,10 +143,6 @@ function emptyFolderListState(identity: string, nextCursor: string | undefined):
 	return { identity, extraThreads: [], nextCursor, loadingMore: false, loadMoreError: false, cursor: -1 }
 }
 type ThreadUpdateInput = { threadId: string; starred?: boolean } & ThreadRowUpdate
-type ComposeThreadSearch = ReturnType<
-	typeof import('#features/mail/lib/mail-ui-model').composeBackdropThreadSearch
->
-
 function FolderView() {
 	const loaderData = Route.useLoaderData()
 	const { folderId } = Route.useParams()
@@ -148,7 +150,7 @@ function FolderView() {
 	const updateThread = useUpdateThreadMutation()
 	const deleteDraft = useDeleteDraftMutation()
 	const queryClient = useQueryClient()
-	const navigate = useNavigate()
+	const { openCompose } = useCompose()
 	const folderQuery = useQuery({
 		...foldersQueryOptions(
 			/* v8 ignore next -- @preserve production query wiring is covered through the isolated route screen and query-option tests */
@@ -233,7 +235,7 @@ function FolderView() {
 			onRespondToThread={async ({ threadId, kind }) => {
 				// The reader's own path: the thread's last message, in the composer.
 				const response = await threadResponseSearch(queryClient, threadId, kind)
-				await navigate({ to: '/mail/compose', search: { folderId, threadId, ...response } })
+				await openCompose({ kind: composeKindForResponse(kind), threadId, ...response })
 			}}
 		/>
 	)
@@ -280,7 +282,6 @@ function LoadedMailFolderRouteScreen({
 	onDiscardDraft,
 	onRespondToThread,
 	activeThreadId,
-	composeThreadSearch,
 	children,
 }: MailFolderRouteData & {
 	folderId: string
@@ -293,11 +294,11 @@ function LoadedMailFolderRouteScreen({
 	onDiscardDraft?: (draftId: string) => Promise<void>
 	onRespondToThread?: (input: { threadId: string; kind: ThreadResponseKind }) => Promise<void>
 	activeThreadId?: string
-	composeThreadSearch?: (threadId: string) => ComposeThreadSearch
 	children?: ReactNode
 }) {
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const navigate = useNavigate()
+	const { openCompose, composing } = useCompose()
 	const folderIdentity = JSON.stringify([folderId, initialCursor])
 	// Paged-in rows, the pagination status and the keyboard cursor belong to one
 	// folder and first page. They are stored with that identity and read back
@@ -370,6 +371,8 @@ function LoadedMailFolderRouteScreen({
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
+	// Rows that stay slide into the gap a removed row leaves (design.md "Motion" clause 5).
+	useFlipList(listScrollRef, sortedThreads.map((thread) => thread.id).join(' '))
 	const unreadCount = folderCount(folders, folderId)
 
 	// The keyboard cursor walks a flat list of the rows actually on screen —
@@ -388,7 +391,7 @@ function LoadedMailFolderRouteScreen({
 			const item = navItems[index]
 			if (!item) return
 			if ('draftId' in item) {
-				navigate({ to: '/mail/compose', search: { draft: item.draftId, folderId: 'drafts' } })
+				void openCompose({ kind: 'draft', draftId: item.draftId })
 				return
 			}
 			navigate({
@@ -397,7 +400,7 @@ function LoadedMailFolderRouteScreen({
 				search: item.search,
 			})
 		},
-		[navItems, navigate],
+		[navItems, navigate, openCompose],
 	)
 
 	// Keep the cursored row visible as it walks past the fold.
@@ -451,8 +454,9 @@ function LoadedMailFolderRouteScreen({
 				return
 			}
 			// Keep nested row actions and unrelated links in control of their keys,
-			// but let a focused thread row continue list navigation.
-			if (target?.closest?.('button, select') || (target?.closest?.('a') && focusedRowIndex < 0)) return
+			// but let a focused thread row (or draft row, itself a button) continue list navigation.
+			const control = target?.closest?.('button, select')
+			if ((control && control !== focusedRow) || (target?.closest?.('a') && focusedRowIndex < 0)) return
 			if (document.querySelector('[role="dialog"]')) return
 			const action = listNavAction(event.key)
 			if (!action) return
@@ -586,7 +590,6 @@ function LoadedMailFolderRouteScreen({
 							active={thread.id === activeThreadId}
 							open={thread.id === routedThreadId}
 							onRespondToThread={onRespondToThread}
-							composeSearch={composeThreadSearch?.(thread.id)}
 							navActive={cursor === index}
 							onUpdateThread={onUpdateThread}
 						/>
@@ -635,6 +638,10 @@ function LoadedMailFolderRouteScreen({
 			<section className={layout.reader}>
 				{hasThread ? (
 					(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
+				) : composing ? (
+					// Behind the open composer the empty reader stays quiet: its "press C to
+					// compose" prompt would only be covered by the window it describes.
+					<div className="hidden min-w-0 flex-1 bg-background xl:flex" />
 				) : (
 					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
 						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
@@ -681,16 +688,16 @@ function DraftRow({
 	navActive: boolean
 	onDiscardDraft?: (draftId: string) => Promise<void>
 }) {
-	const navigate = useNavigate()
-	const search = { draft: draft.id, folderId: 'drafts' }
+	const { openCompose } = useCompose()
+	const openDraft = () => void openCompose({ kind: 'draft', draftId: draft.id })
 	// A failed discard belongs to this draft: rows are keyed by draft id.
 	const [discardError, setDiscardError] = useState<string | null>(null)
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
-				<Link
-					to="/mail/compose"
-					search={search}
+				<button
+					type="button"
+					onClick={openDraft}
 					data-nav-row=""
 					data-nav-cursor={navActive ? 'true' : undefined}
 					className={THREAD_ROW_CLASS}
@@ -703,10 +710,10 @@ function DraftRow({
 						snippet={draft.snippet}
 					/>
 					<ThreadRowError message={discardError} />
-				</Link>
+				</button>
 			</ContextMenuTrigger>
 			<ContextMenuContent aria-label={`Actions for draft ${draft.subject || '(no subject)'}`}>
-				<ContextMenuItem aria-keyshortcuts="Enter" onSelect={() => navigate({ to: '/mail/compose', search })}>
+				<ContextMenuItem aria-keyshortcuts="Enter" onSelect={openDraft}>
 					<FileText aria-hidden="true" />
 					Open draft
 					<ContextMenuShortcut>Enter</ContextMenuShortcut>
@@ -739,7 +746,6 @@ function ThreadRow({
 	baseFolderId,
 	active,
 	open,
-	composeSearch,
 	navActive,
 	onUpdateThread,
 	onRespondToThread,
@@ -751,7 +757,6 @@ function ThreadRow({
 	/** Whether this row's conversation is open in the reader beside the list
 	 * (not merely highlighted behind the composer, where there is no reader to close). */
 	open: boolean
-	composeSearch?: ComposeThreadSearch
 	navActive: boolean
 	onUpdateThread?: (input: ThreadUpdateInput) => Promise<void>
 	onRespondToThread?: (input: { threadId: string; kind: ThreadResponseKind }) => Promise<void>
@@ -777,8 +782,7 @@ function ThreadRow({
 	}
 
 	function openThread() {
-		if (composeSearch) navigate({ to: '/mail/compose', search: composeSearch })
-		else navigate({ to: '/mail/f/$folderId/t/$threadId', params: { folderId, threadId: thread.id }, search })
+		navigate({ to: '/mail/f/$folderId/t/$threadId', params: { folderId, threadId: thread.id }, search })
 	}
 
 	const updateFromMenu = (input: ThreadRowUpdate) =>
@@ -842,35 +846,9 @@ function ThreadRow({
 		onUpdate: updateFromMenu,
 	}
 
-	if (composeSearch) {
-		return (
-			<ThreadRowMenu {...menu}>
-				<div className={className} tabIndex={-1} {...rowState}>
-					<Link
-						to="/mail/compose"
-						search={composeSearch}
-						aria-label={threadRowLinkLabel(optimisticThread, folderId)}
-						className={THREAD_ROW_LINK_CLASS}
-						aria-current={active ? 'true' : undefined}
-						data-active={active ? 'true' : undefined}
-						data-nav-cursor={navActive ? 'true' : undefined}
-						data-unread={optimisticThread.unread ? 'true' : undefined}
-					/>
-					<ThreadRowContent
-						thread={optimisticThread}
-						folderId={folderId}
-						onToggleStar={toggleStar}
-						starPending={starPending}
-					/>
-					<ThreadRowError message={actionError} />
-				</div>
-			</ThreadRowMenu>
-		)
-	}
-
 	return (
 		<ThreadRowMenu {...menu}>
-			<div className={className} tabIndex={-1} {...rowState}>
+			<div className={className} tabIndex={-1} {...rowState} data-flip-id={thread.id}>
 				<Link
 					to="/mail/f/$folderId/t/$threadId"
 					params={{ folderId, threadId: thread.id }}

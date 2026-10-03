@@ -6,10 +6,6 @@ import {
 	activeMailSidebarFolderId,
 	calendarTone,
 	collapsedMessagePreview,
-	composeBackdropListSearch,
-	composeBackdropReplySearch,
-	composeBackdropThreadSearch,
-	composeSearchFromMailLocation,
 	draftRecipientList,
 	draftRecipientName,
 	eventChipClass,
@@ -36,7 +32,6 @@ import {
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
 	searchListSearch,
-	shouldUseBrowserBackForComposeClose,
 	sidebarFolderCount,
 	threadLabels,
 	threadRouteFolderId,
@@ -335,79 +330,6 @@ describe('ui-model mail helpers', () => {
 		expect(mailSearchInputValue('/mail/search', 'roadmap')).toBe('roadmap')
 		expect(mailSearchInputValue('/mail/search', undefined)).toBe('')
 		expect(mailSearchInputValue('/mail/f/inbox', 'roadmap')).toBe('')
-	})
-
-	it('only uses browser back for compose close after in-app route navigation', () => {
-		expect(shouldUseBrowserBackForComposeClose({ __TSR_index: 1 })).toBe(true)
-		expect(shouldUseBrowserBackForComposeClose({ __TSR_index: 0 })).toBe(false)
-		expect(shouldUseBrowserBackForComposeClose({})).toBe(false)
-		expect(shouldUseBrowserBackForComposeClose(null)).toBe(false)
-	})
-
-	it('keeps the reference backdrop context when opening compose', () => {
-		expect(composeSearchFromMailLocation('/mail/f/sent', 'sent')).toEqual({ folderId: 'sent' })
-		expect(composeSearchFromMailLocation('/mail/f/work', 'work')).toEqual({ folderId: 'work' })
-		expect(composeSearchFromMailLocation('/mail/f/inbox/t/thread-roadmap', 'inbox')).toEqual({
-			folderId: 'inbox',
-			threadId: 'thread-roadmap',
-		})
-		expect(composeSearchFromMailLocation('/mail/search', 'inbox', 'thread-roadmap')).toEqual({
-			folderId: 'inbox',
-			threadId: 'thread-roadmap',
-		})
-		expect(
-			composeBackdropThreadSearch({
-				folderId: 'inbox',
-				threadId: 'thread-travel',
-				draftId: 'draft-1',
-				replyToMessageId: 'msg-1',
-				to: 'grace@example.com',
-				subject: 'Re: Q3 roadmap',
-			}),
-		).toEqual({
-			folderId: 'inbox',
-			threadId: 'thread-travel',
-			draft: 'draft-1',
-			replyToMessageId: 'msg-1',
-			to: 'grace@example.com',
-			subject: 'Re: Q3 roadmap',
-		})
-		expect(composeBackdropThreadSearch({ folderId: 'inbox', threadId: 'thread-without-draft' })).toEqual({
-			folderId: 'inbox',
-			threadId: 'thread-without-draft',
-		})
-		expect(
-			composeBackdropListSearch({
-				folderId: 'inbox',
-				draftId: 'draft-1',
-				replyToMessageId: 'msg-1',
-				to: 'grace@example.com',
-				subject: 'Re: Q3 roadmap',
-			}),
-		).toEqual({
-			folderId: 'inbox',
-			draft: 'draft-1',
-			replyToMessageId: 'msg-1',
-			to: 'grace@example.com',
-			subject: 'Re: Q3 roadmap',
-		})
-		expect(
-			composeBackdropReplySearch({
-				folderId: 'work',
-				threadId: 'thread-roadmap',
-				message: {
-					id: 'msg-1',
-					subject: 'Q3 roadmap',
-					from: [{ email: 'grace@example.com' }],
-				} as Message,
-			}),
-		).toEqual({
-			folderId: 'work',
-			threadId: 'thread-roadmap',
-			replyToMessageId: 'msg-1',
-			to: 'grace@example.com',
-			subject: 'Re: Q3 roadmap',
-		})
 	})
 })
 

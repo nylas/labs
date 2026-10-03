@@ -2,8 +2,15 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CHROME_ROW_CLASS } from '#app/config/layout'
 import { MailSidebar } from './MailSidebar.js'
+
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('./ComposeProvider.js', () => ({ useCompose: () => composeApi }))
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -60,8 +67,6 @@ describe('MailSidebar', () => {
 		render(
 			<MailSidebar
 				folders={folders}
-				composeSearch={{ folderId: 'inbox' }}
-				composeMask={{ to: '/' }}
 				folderMask={{ to: '/' }}
 				currentFolderId="inbox"
 				onNavigate={onNavigate}
@@ -82,7 +87,7 @@ describe('MailSidebar', () => {
 	})
 
 	it('renders custom labels, highlights the active label, and falls back to id when unnamed', () => {
-		render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="work" baseFolderId="inbox" />)
+		render(<MailSidebar folders={folders} currentFolderId="work" baseFolderId="inbox" />)
 		expect(screen.getByText('Labels')).toBeInTheDocument()
 		const work = screen.getByRole('link', { name: 'Work' })
 		expect(work).toHaveClass('nav-item-active')
@@ -93,48 +98,50 @@ describe('MailSidebar', () => {
 
 	it('keeps folder management discoverable when there are no custom folders', () => {
 		const systemOnly = [{ id: 'inbox', system_folder: true }] as unknown as Folder[]
-		render(<MailSidebar folders={systemOnly} composeSearch={{}} />)
+		render(<MailSidebar folders={systemOnly} />)
 		expect(screen.getByText('Labels')).toBeInTheDocument()
 		expect(screen.getByText('No labels yet.')).toBeInTheDocument()
 	})
 
 	it('uses larger touch targets only in the mobile navigation sheet', () => {
-		const view = render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" mobile />)
-		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('min-h-12')
-		expect(screen.getByRole('link', { name: 'Compose' }).parentElement).toHaveClass('h-16')
+		const view = render(<MailSidebar folders={folders} currentFolderId="inbox" mobile />)
+		expect(screen.getByRole('button', { name: 'Compose' })).toHaveClass('min-h-12')
 		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('min-h-12', 'nav-item-active')
 		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('min-h-12')
-		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass('h-11', 'w-11')
+		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass('size-11')
 
-		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="work" mobile />)
+		view.rerender(<MailSidebar folders={folders} currentFolderId="work" mobile />)
 		expect(screen.getByRole('link', { name: 'Work' })).toHaveClass('nav-item-active')
 
-		view.rerender(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" />)
-		expect(screen.getByRole('link', { name: 'Compose' })).toHaveClass('touch-target', 'h-9')
-		// Desktop uses the one 44px toolbar height; the labels section clears its separator by 12px.
-		expect(screen.getByRole('link', { name: 'Compose' }).parentElement).toHaveClass(CHROME_ROW_CLASS)
-		expect(screen.getByRole('link', { name: 'Compose' }).parentElement).not.toHaveClass('h-14', 'h-16')
-		expect(screen.getByText('Labels').closest('.border-t')).toHaveClass('pt-3')
+		view.rerender(<MailSidebar folders={folders} currentFolderId="inbox" />)
+		const compose = screen.getByRole('button', { name: 'Compose' })
+		expect(compose).toHaveClass('touch-target', 'h-9', 'border-cta-line')
+		expect(compose).not.toHaveClass('min-h-12')
+		// design.md "Spacing" clause 7: the create action is inset 12px on every side, with no
+		// separator boxing it in; the folder rows share that inset and are rounded like it.
+		expect(compose.parentElement).toHaveClass('p-hairline')
+		expect(compose.parentElement).not.toHaveClass('border-b')
+		expect(screen.getByRole('navigation', { name: 'Mail folders' })).toHaveClass('px-hairline')
+		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('rounded-md', 'px-cluster')
+		// The labels section clears its separator by 12px.
+		expect(screen.getByText('Labels').closest('.border-t')).toHaveClass('pt-hairline')
 		expect(screen.getByRole('link', { name: /Inbox/ })).toHaveClass('touch-target', 'h-9')
 		expect(screen.getByRole('button', { name: 'Manage folders' })).toHaveClass(
 			'touch-target-square',
-			'h-8',
-			'w-8',
+			'size-9',
+			'max-md:size-11',
 		)
 
 		view.rerender(
-			<MailSidebar
-				folders={[{ id: 'inbox', system_folder: true }] as unknown as Folder[]}
-				composeSearch={{}}
-				mobile
-			/>,
+			<MailSidebar folders={[{ id: 'inbox', system_folder: true }] as unknown as Folder[]} mobile />,
 		)
-		expect(screen.getByText('No labels yet.')).toHaveClass('px-3')
+		// The empty note sits on the rows' text edge in the sheet as on desktop.
+		expect(screen.getByText('No labels yet.')).toHaveClass('px-cluster')
 	})
 
 	it('opens and closes folder management and reports deletion to the route', () => {
 		const onFolderDeleted = vi.fn()
-		render(<MailSidebar folders={folders} composeSearch={{}} onFolderDeleted={onFolderDeleted} />)
+		render(<MailSidebar folders={folders} onFolderDeleted={onFolderDeleted} />)
 		fireEvent.click(screen.getByRole('button', { name: 'Manage folders' }))
 		expect(screen.getByRole('dialog', { name: 'Folder manager' })).toHaveAttribute(
 			'data-initial-action',
@@ -154,9 +161,7 @@ describe('MailSidebar', () => {
 
 		it('opens the folder manager on that label, where rename and delete are confirmed', async () => {
 			const onNavigate = vi.fn()
-			render(
-				<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" onNavigate={onNavigate} />,
-			)
+			render(<MailSidebar folders={folders} currentFolderId="inbox" onNavigate={onNavigate} />)
 
 			await openLabelMenu('Work')
 			const remove = screen.getByRole('menuitem', { name: 'Delete…' })
@@ -183,7 +188,7 @@ describe('MailSidebar', () => {
 		it('opens the label like its link does, and has nothing to open when it is already open', async () => {
 			const onNavigate = vi.fn()
 			const { unmount } = render(
-				<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" onNavigate={onNavigate} />,
+				<MailSidebar folders={folders} currentFolderId="inbox" onNavigate={onNavigate} />,
 			)
 			await openLabelMenu('Work')
 			fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
@@ -196,21 +201,72 @@ describe('MailSidebar', () => {
 			unmount()
 
 			navigate.mockClear()
-			render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="work" />)
+			render(<MailSidebar folders={folders} currentFolderId="work" />)
 			await openLabelMenu('Work')
 			expect(screen.getByRole('menuitem', { name: 'Open' })).toHaveAttribute('aria-disabled', 'true')
 
 			cleanup()
-			render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="starred" />)
+			render(<MailSidebar folders={folders} currentFolderId="starred" />)
 			await openLabelMenu('Work')
 			fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
 			expect(navigate).toHaveBeenCalledTimes(1)
 		})
 
 		it('gives standard folders no menu: the folder manager cannot change them', () => {
-			render(<MailSidebar folders={folders} composeSearch={{}} currentFolderId="inbox" />)
+			render(<MailSidebar folders={folders} currentFolderId="inbox" />)
 			expect(fireEvent.contextMenu(screen.getByRole('link', { name: /Inbox/ }))).toBe(true)
 			expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 		})
+	})
+
+	describe('Resume draft', () => {
+		it('offers the latest draft under Compose, so an unfinished message is one click away', () => {
+			const onNavigate = vi.fn()
+			render(
+				<MailSidebar
+					folders={folders}
+					latestDraft={{ id: 'draft-1', subject: 'Re: Q3 roadmap' }}
+					onNavigate={onNavigate}
+				/>,
+			)
+			const resume = screen.getByRole('button', { name: 'Resume Re: Q3 roadmap' })
+			fireEvent.click(resume)
+			// It reopens that saved draft over the current page, and closes the mobile sheet.
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'draft-1' })
+			expect(onNavigate).toHaveBeenCalledTimes(1)
+		})
+
+		it('names a draft without a subject instead of showing an empty row', () => {
+			render(<MailSidebar folders={folders} latestDraft={{ id: 'draft-2', subject: '' }} mobile />)
+			expect(screen.getByRole('button', { name: 'Resume (no subject)' })).toHaveClass('min-h-12')
+		})
+
+		it('shows nothing extra when there is no draft', () => {
+			render(<MailSidebar folders={folders} />)
+			expect(screen.queryByRole('button', { name: /^Resume/ })).not.toBeInTheDocument()
+		})
+	})
+
+	describe('folder counts', () => {
+		it('animates a count only when it changes on screen, never on first paint', () => {
+			const view = render(<MailSidebar folders={folders} currentFolderId="inbox" />)
+			expect(screen.getByText('3')).not.toHaveClass('count-tick')
+			const updated = folders.map((folder) =>
+				folder.id === 'inbox' ? { ...folder, unread_count: 4 } : folder,
+			)
+			view.rerender(<MailSidebar folders={updated} currentFolderId="inbox" />)
+			expect(screen.getByText('4')).toHaveClass('count-tick')
+			view.rerender(<MailSidebar folders={updated} currentFolderId="sent" />)
+			expect(screen.getByText('4')).not.toHaveClass('count-tick')
+		})
+	})
+
+	it('opens a new message over the current page instead of navigating to a compose page', () => {
+		const onNavigate = vi.fn()
+		render(<MailSidebar folders={folders} onNavigate={onNavigate} />)
+		fireEvent.click(screen.getByRole('button', { name: 'Compose' }))
+		expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'new' })
+		expect(onNavigate).toHaveBeenCalledTimes(1)
+		expect(navigate).not.toHaveBeenCalled()
 	})
 })

@@ -64,6 +64,11 @@ such as `gap-cluster`, `px-hairline`, and `mt-section`.
 6. No improvised values. Half steps, arbitrary values and negative margins are
    allowed only inside shared primitives and safe-area sums. Never two separator
    lines closer than 16px.
+7. Inset sidebars. A module sidebar is one inset column: its create action and
+   its navigation rows sit `hairline` (12px) from both sidebar edges, and the
+   create action has the same 12px above and below it. There is no separator
+   under the create action. Rows are rounded like any other plane control, and
+   icons, dots and section labels share one left edge.
 
 The toolbar height is 44px on desktop and 56px on a phone, defined once as
 `--toolbar-height` in `src/tokens.css`. `TOOLBAR_HEIGHT_CLASS` in
@@ -75,15 +80,51 @@ warning while existing screens are migrated.
 
 ## Motion
 
+Motion says what changed and where it went. Nothing moves for decoration.
+
 - Enter: `--ease-out`; exit: `--ease-in`; state changes: `--ease-in-out`.
 - Micro feedback: `--dur-fast`; sheets and route surfaces: `--dur-medium`.
 - Animate transform and opacity only for spatial transitions.
 - Reduced motion removes spatial movement and keeps functional feedback.
 
+| Token | Value | Use |
+| --- | --- | --- |
+| `--dur-press` | 130ms | Button press |
+| `--ease-press` | `cubic-bezier(0.3, 0.9, 0.4, 1)` | A press settles without overshoot |
+| `--ease-spring` | `cubic-bezier(0.28, 1.4, 0.36, 1)` | One overshoot. Starring only |
+
+1. Split timing. Opacity runs on `--dur-fast`, position and scale on
+   `--dur-medium`, so a surface is readable almost at once and then settles.
+   Exits are shorter than entrances.
+2. Press. Buttons and rail items scale to 0.97 over `--dur-press` with
+   `--ease-press`. Nothing nudges down by a pixel.
+3. Panels. A floating panel (composer, dialogs, popovers) fades in while it
+   rises 8px from a 0.98 scale, and leaves over `--dur-fast` with `--ease-in`.
+   Menus do not animate ("Context menus").
+4. One spring. Starring a conversation grows the star from 0.6 with
+   `--ease-spring`. Unstarring does not move. No other surface bounces.
+5. Removal. When a row leaves a list (archive, delete, move), the rows that
+   stay slide into the gap with a transform from where they were
+   (`useFlipList`). Row height never animates.
+6. State swaps. An icon that changes in place (the theme toggle) rotates in
+   from -60 degrees with a fade over `--dur-medium` and `--ease-in-out`
+   (`SwapIcon`), so it reads as the same control in a new state. A pressed
+   state that moves between buttons (the view switch) does not animate.
+7. Changing counts. A folder count that changes while it is on screen drops in
+   from above over `--dur-medium`.
+8. Identity changes fade. A newly opened conversation fades in over
+   `--dur-fast` and never slides ("Content-ready transitions").
+
 ## Microinteractions stance
 
 - Silent success when the result is already visible.
 - Optimistic state with generic rollback errors.
+- Saving that leaves nothing on screen says so in place: the composer shows
+  "Saved" beside its title once the autosave has finished.
+- A move that takes a conversation off screen (archive, delete, return to
+  inbox) is confirmed in a toast, with Undo when the folder it left is known.
+  One toast at a time, panel glass, bottom centre, announced politely
+  (`ToastProvider`); a failed undo says so in the same place.
 - Focus feedback is immediate and never animated.
 - Hover styling is supplementary; every action has a tap and keyboard path.
 
@@ -164,12 +205,31 @@ the list toolbar or the command palette.
   Default row, never under 48 pixels, and the toolbar control is hidden there
   because the choice has no effect. The gate is a CSS media query that is the
   exact complement of the touch-floor query, not script detection.
-- The unread dot is an in-flow leading cell centred in the row's 16-pixel left
+- The unread dot is an 8-pixel accent (`--primary` in light, the green accent
+  in dark) in an in-flow leading cell centred in the row's 16-pixel left
   padding, so row text keeps the left edge it shares with the list title.
+  Unread rows also set the sender, subject and time in the foreground at a
+  heavier weight, so the dot is never the only signal.
   The star's hit target is sized per density so it never extends into a
   neighbouring row.
 
 ## Reading
+
+Compose is app state, not a page. `ComposeProvider` (at the app root, under
+the account) holds one composer and opens it over whatever is on screen, in
+any module: Compose, the `c` shortcut, Resume, a draft row, a contact's "New
+email". Opening another first closes the open one, saving its draft; a failed
+save keeps it open. A reply or reply all is written in its thread, under the
+last message, when that thread is on screen (`registerInlineSlot`); a new
+message, a forward, or a reply whose thread is not open floats as panel glass.
+On a phone every composer is the full-screen editor. Closing returns focus to
+whatever opened it. `/mail/compose` survives only to turn old links into an
+open composer.
+
+The reader's toolbar holds three groups divided by a separator: triage
+(archive, delete, star, unread), view (the Messages / Conversation switch and
+display options), and respond at the end. Reply is the one labelled button in
+the respond group; Reply all and Forward stay icons beside it.
 
 The subject is set at body size (16px Poppins semibold) and scrolls with the
 conversation as its first line. On desktop one row is pinned, the 44px toolbar,
@@ -359,6 +419,17 @@ Context Menu on the Radix primitives the other shared components use.
    the menu and returns focus to the row. A touch long press opens it. Keys,
    clicks and touches inside a menu do not reach the page shortcuts or
    gestures behind it. Menus do not animate.
+
+## Shape
+
+1. Two radii carry the layers: 6px (`--radius`) for the plane and its controls,
+   12px (`--glass-radius`) for panel glass.
+2. Full-width rows and bars that run edge to edge are square.
+3. A shape inside another uses the outer radius minus the gap between them,
+   never less than 2px: a focus ring inset 4px inside a 12px panel is 8px; a
+   key hint inside a button is 3px.
+4. Fully round is kept for identity: avatars, dots, label chips and counts.
+   Buttons are never fully round.
 
 ## Borders and accents
 
@@ -571,7 +642,14 @@ the smaller WCAG 2.2 AA minimum.
 
 ## CTA voice
 
-- Primary: compact filled action with a specific verb.
+- Primary submission (Send, Save in an editor): compact filled action with a
+  specific verb.
+- Module create action (Compose, New event, New contact): `PrimaryAction`, the
+  first thing in the module's sidebar. A 36px outline in `--cta-line` with the
+  accent only on its icon (`--cta-icon`), foreground text at medium weight, and
+  its shortcut as plain muted text at the end. The shortcut hint is hidden on
+  touch-first devices. When the sidebar is hidden, an icon-only version sits
+  in the top bar.
 - Secondary: quiet border or text action.
 - Labels remain one line and keep their accessible name when icon-only.
 
@@ -608,9 +686,17 @@ the smaller WCAG 2.2 AA minimum.
 - The time gutter's head is a button naming the zone or zones shown. It opens a
   small non-modal popover to add, change, or remove the second time zone; the
   value is validated before it is stored and can never equal the primary zone.
-- The desktop calendar sidebar collapses from a toggle at the start of the top
-  bar, remembered per device. The toggle's name and `aria-expanded` carry the
-  state; mobile keeps the sidebar in its sheet.
+  With a second zone, the gutter shows two columns, each headed by its city:
+  the second zone with its offset from the first ("Lisbon +5h"), the first with
+  its abbreviation ("Toronto EDT"). Hours before 7 AM and from 10 PM in the
+  second zone are shaded and say so in their name, its hour labels mark the
+  day where it crosses midnight, and the now line shows the current time in
+  both columns. The popover lists each zone with its local time and offset.
+- The desktop calendar sidebar collapses from a quiet toggle in the mini-month
+  header, remembered per device. When it is collapsed, the start of the top bar
+  shows the toggle to bring it back and an icon-only New event action. The
+  toggle's name and `aria-expanded` carry the state; mobile keeps the sidebar
+  in its sheet.
 - Calendar popovers are non-modal: they take focus on open, close on Escape
   (returning focus to the trigger), on a click elsewhere, and when keyboard
   focus leaves.

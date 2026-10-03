@@ -88,6 +88,14 @@ vi.mock('#server/fns', () => ({
 
 import { ContactsShell, Route } from './contacts.js'
 
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
+
 function render(ui: ReactElement) {
 	return testingRender(
 		<QueryClientProvider
@@ -111,6 +119,10 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+const createActions = () => screen.getAllByRole('link', { name: 'New contact' })
+const paneCreateAction = () => createActions().find((link) => !link.closest('header')) as HTMLElement
+const headerCreateAction = () => createActions().find((link) => link.closest('header')) as HTMLElement
 
 function shell(overrides: Partial<Parameters<typeof ContactsShell>[0]> = {}) {
 	return render(
@@ -170,8 +182,55 @@ describe('ContactsShell', () => {
 
 	it('links "New contact" to the create route with the active search', () => {
 		shell({ query: 'ada' })
-		const newLink = screen.getAllByRole('link').find((el) => el.getAttribute('data-to') === '/contacts/new')
-		expect(newLink).toHaveAttribute('data-search', JSON.stringify({ q: 'ada' }))
+		const newLinks = screen
+			.getAllByRole('link')
+			.filter((el) => el.getAttribute('data-to') === '/contacts/new')
+		// The list pane's action and the top bar's icon-only fallback; both keep the search.
+		expect(newLinks).toHaveLength(2)
+		for (const link of newLinks) expect(link).toHaveAttribute('data-search', JSON.stringify({ q: 'ada' }))
+	})
+
+	it('puts the create action first in the list pane, inset, as the module primary action', () => {
+		shell()
+		const create = paneCreateAction()
+		// design.md "CTA voice": the outline primary action, not a toolbar button.
+		expect(create).toHaveClass('border-cta-line')
+		expect(create.closest('header')).toBeNull()
+		// design.md "Spacing" clause 7: 12px on every side and no separator beneath it.
+		const inset = create.parentElement as HTMLElement
+		expect(inset).toHaveClass('p-hairline')
+		expect(inset).not.toHaveClass('border-b')
+		expect(inset.parentElement?.firstElementChild).toBe(inset)
+		// No shortcut exists for creating a contact, so none is advertised.
+		expect(create).not.toHaveAttribute('aria-keyshortcuts')
+		expect(create.querySelector('kbd')).toBeNull()
+	})
+
+	it('keeps the create action when there are no contacts to list', () => {
+		shell({ contacts: [] })
+		expect(screen.getByText('No contacts yet.')).toBeInTheDocument()
+		expect(paneCreateAction()).toBeInTheDocument()
+	})
+
+	it('files contacts under letter headings without adding list items or cursor stops', () => {
+		const people: Contact[] = [
+			{ id: 'c-ada', given_name: 'Ada' },
+			{ id: 'c-3m', company_name: '3M' },
+			{ id: 'c-amy', given_name: 'Amy' },
+			{ id: 'c-bea', given_name: 'Bea' },
+		]
+		h.pathname = '/contacts/c-bea'
+		shell({ contacts: people, selectedId: 'c-bea' })
+		const list = screen.getByRole('list')
+		const headings = Array.from(list.querySelectorAll('[aria-hidden="true"][role="presentation"]'))
+		// Name order is kept: "#" sorts first, then one heading per letter.
+		expect(headings.map((heading) => heading.textContent)).toEqual(['#', 'A', 'B'])
+		expect(headings[0]).toHaveClass('uppercase', 'tracking-wide', 'text-muted-foreground')
+		// Assistive tech sees one item per contact; headings are not items.
+		expect(screen.getAllByRole('listitem')).toHaveLength(people.length)
+		// The cursor counts contacts only: Bea is fourth even with three headings above her.
+		const bea = screen.getAllByRole('link').find((link) => link.textContent?.includes('Bea'))
+		expect(bea).toHaveAttribute('data-nav-cursor', 'true')
 	})
 
 	it('pages in more contacts and drops the button when the cursor is exhausted', async () => {
@@ -399,9 +458,27 @@ describe('ContactsShell', () => {
 		expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
 	})
 
-	it('gives the mobile create action a name and preserves the search focus ring', () => {
-		shell()
-		expect(screen.getByRole('link', { name: 'New contact' })).toBeInTheDocument()
+	it('lets a phone user reading a contact start a new one from the top bar', () => {
+		h.pathname = '/contacts/c-ada'
+		shell({ query: 'ada', selectedId: 'c-ada' })
+		// On a phone the list pane, and the create action in it, is hidden while a
+		// contact is open, so the icon-only form takes its place (design.md "CTA voice").
+		const create = headerCreateAction()
+		expect(create.parentElement).toHaveClass('md:hidden')
+		expect(create.parentElement).not.toHaveClass('hidden')
+		expect(create).toHaveClass('border-cta-line')
+		expect(create).toHaveAttribute('data-to', '/contacts/new')
+		expect(create).toHaveAttribute('data-search', JSON.stringify({ q: 'ada' }))
+	})
+
+	it('keeps the toolbar to search and refresh, and preserves the search focus ring', () => {
+		shell({ onRefresh: vi.fn().mockResolvedValue(undefined) })
+		const header = screen.getByRole('banner')
+		// The create action lives in the list pane; with the pane showing, the top bar
+		// never repeats it (its icon-only fallback is hidden at every width).
+		expect(headerCreateAction().parentElement).toHaveClass('hidden')
+		expect(headerCreateAction().parentElement).not.toHaveClass('md:hidden')
+		expect(header).toContainElement(screen.getByRole('button', { name: 'Refresh contacts' }))
 		expect(screen.getByRole('searchbox', { name: 'Search contacts' })).toHaveClass('min-h-11')
 		expect(screen.getByRole('searchbox', { name: 'Search contacts' })).not.toHaveClass('outline-none')
 	})
@@ -641,7 +718,7 @@ describe('contact row context menu', () => {
 
 		await openMenu('Ada Lovelace')
 		choose('New email')
-		expect(h.navigate).toHaveBeenLastCalledWith({ to: '/mail/compose', search: { to: 'ada@x.com' } })
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith({ kind: 'new', to: 'ada@x.com' })
 	})
 
 	it('puts focus on the cursored contact for the ContextMenu key and Shift+F10', () => {

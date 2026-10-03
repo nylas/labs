@@ -16,6 +16,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
+import { useCompose } from '#features/mail/components/ComposeProvider'
+import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
 import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
@@ -28,7 +30,7 @@ import {
 	threadNeighbours,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
-import { findCachedThread } from '#features/mail/state/mail-cache'
+import { findCachedThread, systemFolderBeforeMove } from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
 	openThreadDetail,
@@ -43,10 +45,12 @@ import {
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
 import { getThreadMessages, getThreads } from '#server/fns'
+import { useToast } from '#shared/components/Toaster'
+import { Button } from '#shared/components/ui/button'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { IconButton as ToolbarIconButton } from '#shared/components/ui/icon-button'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
-import { Toolbar } from '#shared/components/ui/toolbar'
+import { Toolbar, ToolbarSeparator } from '#shared/components/ui/toolbar'
 import { useHorizontalSwipe } from '#shared/hooks/use-horizontal-swipe'
 import { seededData } from '#shared/lib/seeded-data'
 import { cn } from '#shared/lib/utils'
@@ -198,6 +202,8 @@ function ThreadView() {
 	// control reads the same source as the conversation beside it.
 	const starred = Boolean(thread.starred)
 	const [pendingAction, setPendingAction] = useState<PendingThreadAction | null>(null)
+	// design.md "Motion" clause 4: starring (never unstarring) grows the star once.
+	const [starPop, setStarPop] = useState(false)
 	const goBackToList = useCallback(
 		() =>
 			navigate({
@@ -211,34 +217,55 @@ function ThreadView() {
 	const lastMessage = messages.at(-1)
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
+	// Replies open in this thread, under the last message; a forward floats (design.md "Reading").
+	const { openCompose, composing, registerInlineSlot } = useCompose()
+	const replyingHere = composing?.kind === 'reply' && composing.threadId === threadId
+	const inlineSlotRef = useCallback(
+		(slot: HTMLDivElement | null) => registerInlineSlot(threadId, slot),
+		[registerInlineSlot, threadId],
+	)
 	const reply = useCallback(() => {
 		/* v8 ignore next -- every exposed reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		navigate({
-			to: '/mail/compose',
-			search: { folderId, threadId, ...replyDraftSearch(lastMessage) },
-		})
-	}, [folderId, lastMessage, navigate, threadId])
+		void openCompose({ kind: 'reply', threadId, ...replyDraftSearch(lastMessage) })
+	}, [lastMessage, openCompose, threadId])
 	const replyAll = useCallback(() => {
 		/* v8 ignore next -- every exposed reply-all entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		navigate({
-			to: '/mail/compose',
-			search: {
-				folderId,
-				threadId,
-				...replyAllDraftSearch(lastMessage, mailboxEmail),
-			},
-		})
-	}, [folderId, lastMessage, mailboxEmail, navigate, threadId])
+		void openCompose({ kind: 'reply', threadId, ...replyAllDraftSearch(lastMessage, mailboxEmail) })
+	}, [lastMessage, mailboxEmail, openCompose, threadId])
 	const forward = useCallback(() => {
 		/* v8 ignore next -- every exposed forward entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		navigate({
-			to: '/mail/compose',
-			search: { folderId, threadId, ...forwardDraftSearch(lastMessage) },
-		})
-	}, [folderId, lastMessage, navigate, threadId])
+		void openCompose({ kind: 'forward', threadId, ...forwardDraftSearch(lastMessage) })
+	}, [lastMessage, openCompose, threadId])
+
+	const { showToast } = useToast()
+	// A move takes the conversation off screen, so it is confirmed with a way back
+	// (design.md "Microinteractions stance"). Undo returns it to the folder it left.
+	const confirmMove = useCallback(
+		(action: PendingThreadAction, target: string) => {
+			const from = systemFolderBeforeMove(thread.folders)
+			const message =
+				action === 'delete' ? 'Moved to Trash' : target === 'inbox' ? 'Moved to Inbox' : 'Archived'
+			showToast({
+				message,
+				...(from && from !== target
+					? {
+							action: {
+								label: 'Undo',
+								onAction: () => {
+									updateThread
+										.mutateAsync({ threadId, folder: from })
+										.catch(() => showToast({ message: 'Could not undo. Try again from the folder.' }))
+								},
+							},
+						}
+					: {}),
+			})
+		},
+		[showToast, thread.folders, threadId, updateThread],
+	)
 
 	const act = useCallback(
 		async (
@@ -264,6 +291,7 @@ function ThreadView() {
 					: undefined
 			try {
 				await updateThread.mutateAsync({ threadId, ...input }).finally(settleMutation)
+				if (input.folder) confirmMove(action, input.folder)
 				const nextThreadId = await nextThread
 				if (nextThreadId) {
 					await navigate({
@@ -285,13 +313,30 @@ function ThreadView() {
 				setPendingAction(null)
 			}
 		},
-		[baseFolderId, folderId, navigate, pendingAction, queryClient, readingPane, threadId, updateThread],
+		[
+			baseFolderId,
+			confirmMove,
+			folderId,
+			navigate,
+			pendingAction,
+			queryClient,
+			readingPane,
+			threadId,
+			updateThread,
+		],
 	)
+
+	const toggleStar = useCallback(() => {
+		setStarPop(!starred)
+		act('star', { starred: !starred })
+	}, [act, starred])
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			// An open menu owns its keys: typeahead letters and Escape stay inside it.
 			if (event.target instanceof Element && event.target.closest('[role="menu"]')) return
+			// So does the composer, inline in this thread or floating over it.
+			if (event.target instanceof Element && event.target.closest('.compose-panel')) return
 			const key = event.key.toLowerCase()
 			if (key === 'r') {
 				const isModified = event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
@@ -322,7 +367,7 @@ function ThreadView() {
 			}
 			if (key === 's') {
 				event.preventDefault()
-				act('star', { starred: !starred })
+				toggleStar()
 			}
 			if (key === 'u') {
 				event.preventDefault()
@@ -339,7 +384,7 @@ function ThreadView() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, baseFolderId, folderId, isArchived, lastMessage, navigate, reply, starred])
+	}, [act, baseFolderId, folderId, isArchived, lastMessage, navigate, reply, toggleStar])
 
 	// Server-rendered deep links skip the client loader, so the reader marks the
 	// thread read once per open. Later unread states (for example "Mark unread"
@@ -416,7 +461,9 @@ function ThreadView() {
 					}
 					disabled={pendingAction !== null}
 					loading={pendingAction === 'star'}
-					onClick={() => act('star', { starred: !starred })}
+					onClick={toggleStar}
+					className={cn(starPop && starred && 'star-pop')}
+					onAnimationEnd={() => setStarPop(false)}
 				>
 					{pendingAction === 'star' ? (
 						<Loader2 className="h-4 w-4 animate-spin" />
@@ -437,12 +484,15 @@ function ThreadView() {
 					)}
 				</IconButton>
 
-				<div id={THREAD_TOOLBAR_ACTIONS_ID} className="ml-auto flex items-center gap-1" />
+				{/* design.md "Reading": triage, then view, then respond at the end. */}
+				<ToolbarSeparator className="hidden md:block" />
+				<div id={THREAD_TOOLBAR_ACTIONS_ID} className="flex items-center gap-1" />
 				{lastMessage ? (
-					<div className="hidden items-center gap-1 sm:flex">
-						<ActionButton label="Reply" onClick={reply}>
-							<Reply className="h-4 w-4" />
-						</ActionButton>
+					<div className="ml-auto hidden items-center gap-1 sm:flex">
+						<Button type="button" variant="outline" onClick={reply} title="Reply (R)" className="shadow-none">
+							<Reply className="h-4 w-4" aria-hidden="true" />
+							Reply
+						</Button>
 						<ActionButton label="Reply all" onClick={replyAll}>
 							<ReplyAll className="h-4 w-4" />
 						</ActionButton>
@@ -465,7 +515,8 @@ function ThreadView() {
 				scrollRestorationId={`thread:${threadId}`}
 				aria-label="Thread conversation"
 				viewportClassName={cn(!error && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
-				className="min-h-0 flex-1"
+				// A newly opened conversation fades in and never slides (design.md "Motion" clause 8).
+				className="content-fade-in min-h-0 flex-1"
 			>
 				<ThreadConversation
 					thread={thread}
@@ -473,7 +524,11 @@ function ThreadView() {
 					mailboxEmail={mailboxEmail}
 					{...(lastMessage ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
 				>
-					{lastMessage ? (
+					{lastMessage && replyingHere ? (
+						<ThreadColumn>
+							<div data-slot="inline-composer" ref={inlineSlotRef} />
+						</ThreadColumn>
+					) : lastMessage ? (
 						<ThreadColumn>
 							<button
 								ref={inlineReplyRef}
@@ -502,18 +557,29 @@ function IconButton({
 	onClick,
 	disabled = false,
 	loading = false,
+	className,
+	onAnimationEnd,
 	children,
 }: {
 	label: string
 	onClick?: () => void
 	disabled?: boolean
 	loading?: boolean
+	className?: string
+	onAnimationEnd?: () => void
 	children: React.ReactNode
 }) {
 	// Every control in the thread toolbar is the shared icon button, so the row
 	// is one size: 36px with a fine pointer, 44px on narrow and touch screens.
 	return (
-		<ToolbarIconButton label={label} onClick={onClick} disabled={disabled} aria-busy={loading || undefined}>
+		<ToolbarIconButton
+			label={label}
+			onClick={onClick}
+			disabled={disabled}
+			aria-busy={loading || undefined}
+			className={className}
+			onAnimationEnd={onAnimationEnd}
+		>
 			{children}
 		</ToolbarIconButton>
 	)
@@ -532,14 +598,5 @@ function ActionButton({
 		<ToolbarIconButton label={label} onClick={onClick}>
 			{children}
 		</ToolbarIconButton>
-	)
-}
-
-export function ErrorBanner({ message }: { message: string }) {
-	const isQuota = message.startsWith('QUOTA:')
-	return (
-		<p role="alert" className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-			{isQuota ? message.slice(6).trim() : message}
-		</p>
 	)
 }

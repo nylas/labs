@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THEME_STORAGE_KEY } from '../config/theme.js'
 import { CommandPalette, useCommandPaletteShortcut } from './CommandPalette.js'
 
+// Compose is app state: assert what the composer is asked to open, not a route.
+const composeApi = vi.hoisted(() => ({
+	openCompose: vi.fn(async () => {}),
+	composing: null as { kind: string; threadId?: string } | null,
+	registerInlineSlot: vi.fn(),
+}))
+vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => composeApi }))
+
 const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -101,7 +109,7 @@ describe('CommandPalette', () => {
 		render(<CommandPalette open={true} onClose={onClose} />)
 		// Index 0 is "Compose new message".
 		fireEvent.keyDown(screen.getByLabelText('Filter commands'), { key: 'Enter' })
-		expect(navigateSpy).toHaveBeenCalledWith({ to: '/mail/compose' })
+		expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'new' })
 		expect(onClose).toHaveBeenCalledTimes(1)
 	})
 
@@ -237,7 +245,12 @@ describe('CommandPalette', () => {
 		const onClose = vi.fn()
 		render(<CommandPalette open={true} onClose={onClose} />)
 		const close = screen.getByRole('button', { name: 'Close command palette' })
-		expect(close).toHaveClass('h-11', 'w-11', 'focus-visible:ring-ring')
+		expect(close).toHaveClass(
+			'size-9',
+			'max-md:size-11',
+			'[@media(any-pointer:coarse)]:size-11',
+			'focus-visible:ring-ring',
+		)
 		await waitFor(() => expect(screen.getByLabelText('Filter commands')).toHaveFocus())
 		await user.tab()
 		expect(close).toHaveFocus()

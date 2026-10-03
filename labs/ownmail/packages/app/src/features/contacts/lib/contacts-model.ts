@@ -53,6 +53,34 @@ export function sortContacts(contacts: Contact[]): Contact[] {
 	)
 }
 
+/**
+ * The letter a contact is filed under: the first letter of its display name
+ * with accents removed, so "Émile" files under "E" beside "Eve" exactly as
+ * `sortContacts` orders them. Names that start with anything else file under "#".
+ */
+export function contactInitial(contact: Contact): string {
+	const first = contactDisplayName(contact).normalize('NFD').replace(/\p{M}/gu, '').charAt(0)
+	return /\p{L}/u.test(first) ? first.toLocaleUpperCase() : '#'
+}
+
+export type ContactGroup = {
+	initial: string
+	/** Each contact with its position in the flat list, which the keyboard cursor counts in. */
+	entries: { contact: Contact; index: number }[]
+}
+
+/** Splits an already sorted list into runs that share an initial, keeping its order. */
+export function groupContactsByInitial(contacts: Contact[]): ContactGroup[] {
+	const groups: ContactGroup[] = []
+	contacts.forEach((contact, index) => {
+		const initial = contactInitial(contact)
+		const last = groups.at(-1)
+		if (last?.initial === initial) last.entries.push({ contact, index })
+		else groups.push({ initial, entries: [{ contact, index }] })
+	})
+	return groups
+}
+
 export function filterContacts(contacts: Contact[], query: string): Contact[] {
 	const needle = query.trim().toLowerCase()
 	if (!needle) return contacts

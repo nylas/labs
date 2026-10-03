@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ymd } from '#features/calendar/lib/calendar'
+import { PRIMARY_ACTION_ICON_CLASS } from '#shared/components/ui/primary-action'
 
 function render(ui: ReactElement) {
 	return testingRender(
@@ -214,6 +215,13 @@ vi.mock('#features/calendar/components/CalendarManagerDialog', () => ({
 import { CalendarRouteScreen, loadCalendarRouteData, Route } from './calendar.$view.js'
 
 // ---- fixtures -------------------------------------------------------------
+
+/** The New event action at the top of the desktop sidebar, the module's create action. */
+function sidebarNewEvent() {
+	return within(document.getElementById('calendar-sidebar') as HTMLElement).getByRole('button', {
+		name: 'New event',
+	})
+}
 
 const e = (iso: string) => Math.floor(new Date(iso).getTime() / 1000)
 
@@ -431,12 +439,19 @@ describe('calendar pending view', () => {
 		const first = render(<Pending />)
 		expect(screen.getByTestId('calendar-pending-header')).toHaveClass('lg:grid-cols-[16rem_minmax(0,1fr)]')
 		expect(screen.getByTestId('calendar-pending-sidebar')).toHaveClass('lg:block')
+		// New event lives in the sidebar on desktop, so the top bar's create cell is a mobile-only placeholder.
+		expect(screen.getByTestId('calendar-pending-create-cell')).toHaveClass('lg:hidden')
 		first.unmount()
 
-		// With the sidebar collapsed on this device, the pending view is collapsed too.
+		// With the sidebar collapsed on this device, the pending view is collapsed too: no
+		// sidebar column at all, and the create cell keeps room for the toggle and the icon action.
 		localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ calendarSidebarCollapsed: true }))
 		render(<Pending />)
-		expect(screen.getByTestId('calendar-pending-header')).toHaveClass('lg:grid-cols-[2.75rem_minmax(0,1fr)]')
+		const header = screen.getByTestId('calendar-pending-header')
+		expect(header.className).not.toMatch(/lg:grid-cols-/)
+		expect(header.children).toHaveLength(1)
+		expect(screen.getByTestId('calendar-pending-create-cell')).not.toHaveClass('lg:hidden')
+		expect(screen.getByTestId('calendar-pending-create-cell').children).toHaveLength(2)
 		expect(screen.getByTestId('calendar-pending-sidebar')).not.toHaveClass('lg:block')
 	})
 
@@ -558,7 +573,11 @@ describe('CalendarViewRoutePage wrapper', () => {
 		// One separator above the section with 12px clearance, and no second line stacked beneath it.
 		const refreshRow = within(screen.getByTestId('sheet')).getByText('Refresh calendar').parentElement
 		expect(refreshRow?.className).not.toMatch(/\bborder-/)
-		expect(refreshRow?.parentElement).toHaveClass('border-t', 'pt-3')
+		// The section's one separator sits above the New event action, which is the first thing
+		// in it; the refresh row follows in the same inset column with no line of its own.
+		const section = refreshRow?.closest('.border-t') as HTMLElement
+		expect(section.querySelector('button')).toHaveAccessibleName('New event')
+		expect(refreshRow?.parentElement).toHaveClass('px-hairline')
 		fireEvent.click(sheetRefresh)
 		await vi.waitFor(() => expect(h.getEvents).toHaveBeenCalledTimes(4))
 	})
@@ -610,10 +629,16 @@ describe('week view + header navigation', () => {
 		expect(controls.closest('.app-chrome-row')).toHaveClass('calendar-chrome-row')
 		expect(controls).toHaveClass('grid', 'min-w-0', 'sm:flex')
 		expect(screen.getByRole('heading', { level: 1 })).toBeVisible()
-		expect(screen.getByRole('button', { name: 'Create' })).toHaveClass(
-			'size-11',
-			'sm:w-auto',
-			'touch-target-square',
+		// The sidebar is in its sheet on a phone, so the icon-only New event stays in the top bar,
+		// with a full touch target, and is dropped from the top bar only where the sidebar shows.
+		const createCell = screen.getByTestId('calendar-header-create-cell')
+		expect(createCell).toHaveClass('lg:hidden')
+		expect(within(createCell).getByRole('button', { name: 'New event' })).toHaveClass(
+			...PRIMARY_ACTION_ICON_CLASS.split(' '),
+		)
+		expect(within(createCell).getByRole('button', { name: 'New event' })).toHaveAttribute(
+			'aria-keyshortcuts',
+			'N',
 		)
 		expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('size-11', 'sm:w-auto', 'touch-target')
 		expect(screen.getByRole('button', { name: 'Previous' })).toHaveClass('size-11', 'touch-target-square')
@@ -966,10 +991,12 @@ describe('week view time grid', () => {
 		const untitled = screen.getByRole('button', { name: /^\(untitled\)/ })
 		expect(untitled.textContent).not.toContain('–')
 		// A chip too short for two lines is one centred line with no block padding, so the
-		// title is never cut off: title first, then the start time.
+		// title is never cut off. An event of 30 minutes or less has room for its title only:
+		// its time is not drawn, but it stays in the name read out for it.
 		expect(untitled).toHaveClass('items-center', 'py-0')
 		expect(untitled).not.toHaveClass('flex-col')
-		expect(untitled).toHaveTextContent(/^\(untitled\)11 AM$/)
+		expect(untitled).toHaveTextContent(/^\(untitled\)$/)
+		expect(untitled).toHaveAccessibleName(expect.stringContaining('11 AM'))
 		expect(untitled.querySelector('[data-chip-title]')).toHaveClass('leading-4', 'truncate')
 		expect(standup).toHaveClass('flex-col', 'py-control')
 	})
@@ -986,10 +1013,59 @@ describe('week view time grid', () => {
 		)
 		renderWeek()
 		const ruler = await screen.findByLabelText('Time ruler: Toronto primary time, London secondary time')
-		// Short zone names, not the first word of the city ("New" for New York).
-		expect(ruler).toHaveTextContent(/E[SD]T/)
-		expect(ruler).toHaveTextContent(/GMT|BST/)
-		expect(ruler).not.toHaveTextContent('Toronto')
+		// Each hour column is headed by its whole city: the second zone with its offset
+		// from the first, the first with its abbreviation.
+		// The offset follows today's date: +4h in the weeks only one of the two observes daylight time.
+		expect(ruler).toHaveTextContent(/^London\+[45]hTorontoE[SD]T$/)
+	})
+
+	it('draws the second zone as its own hour column before the first, shading hours no one there is working', () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(new Date('2024-06-15T14:30:00Z'))
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ primaryTimezone: 'America/Toronto', secondaryTimezone: 'Europe/Lisbon' }),
+		)
+		render(<CalendarRouteScreen view="day" data={richData('2024-06-15')} />)
+		act(() => {
+			vi.advanceTimersByTime(0)
+		})
+		// The gutter track doubles so the day columns keep their own tracks and line up.
+		const header = screen.getByTestId('calendar-time-grid-header').firstElementChild as HTMLElement
+		const body = screen.getByTestId('calendar-time-grid-body').lastElementChild as HTMLElement
+		expect(header.style.gridTemplateColumns).toBe('7rem repeat(1, minmax(0, 1fr)) 2.75rem')
+		expect(body.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns)
+		const label = (key: string) => document.querySelector(`[data-hour-label="${key}"]`) as HTMLElement
+		// 9 AM in Toronto is 2 PM in Lisbon, a working hour: plain.
+		expect(label('9-secondary')).toHaveTextContent(/^2 PM$/)
+		expect(label('9-secondary').parentElement).not.toHaveAttribute('data-outside-working-hours')
+		// 1 AM in Toronto is 6 AM in Lisbon, and 5 PM is 10 PM there: both shaded, and both say why.
+		for (const hour of [1, 17]) {
+			expect(label(`${hour}-secondary`).parentElement).toHaveClass('bg-muted')
+			expect(label(`${hour}-secondary`)).toHaveAttribute('title', 'Outside working hours there')
+			expect(label(`${hour}-secondary`)).toHaveTextContent(/, outside working hours there$/)
+		}
+		// Lisbon reaches midnight at 7 PM in Toronto: that label names the day it moves into.
+		expect(label('19-secondary')).toHaveTextContent(/^Sun12 AM/)
+		expect(label('18-secondary')).toHaveTextContent(/^11 PM/)
+		// The now line reads the current time in both columns, the first in the today colour.
+		expect(screen.getByTestId('calendar-now-badge')).toHaveTextContent('10:30 AM')
+		expect(screen.getByTestId('calendar-now-badge')).toHaveClass('bg-today', 'text-today-foreground')
+		expect(screen.getByTestId('calendar-now-badge-secondary')).toHaveTextContent('3:30 PM')
+		expect(screen.getByTestId('calendar-now-badge-secondary')).toHaveClass('border-today')
+		expect(screen.getByTestId('calendar-now-badge-secondary')).not.toHaveClass('bg-today')
+	})
+
+	it('marks a week ruler’s midnight relative to each column, since one weekday would fit only the first', () => {
+		localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ primaryTimezone: 'America/Toronto', secondaryTimezone: 'Europe/Lisbon' }),
+		)
+		render(<CalendarRouteScreen view="week" data={richData('2024-06-15')} />)
+		expect(document.querySelector('[data-hour-label="19-secondary"]')).toHaveTextContent(/^Next day12 AM/)
+		// Hours are shown at the zoom step's height in both columns, so their rows line up.
+		const secondaryRow = document.querySelector('[data-secondary-hour="9"]')?.parentElement as HTMLElement
+		expect(secondaryRow.style.height).toBe('52px')
 	})
 
 	it('hides an event that falls outside the selected calendar day', () => {
@@ -1495,15 +1571,47 @@ describe('event editor', () => {
 
 	it('seeds the editor from the create button using the primary calendar name', () => {
 		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		// The sidebar's create action names the key that does the same thing.
+		expect(sidebarNewEvent()).toHaveAttribute('aria-keyshortcuts', 'N')
+		fireEvent.click(sidebarNewEvent())
 		const modal = screen.getByTestId('event-modal')
 		expect(modal.dataset.event).toBe('new')
 		expect(modal.dataset.calendarName).toBe('Primary Cal')
+		// A one-hour draft on the date being shown, not tied to a slot.
+		expect(modal.dataset).toMatchObject({
+			defaultStart: new Date('2024-06-15T00:00:00').toISOString(),
+			defaultDurationMinutes: '60',
+		})
+	})
+
+	it('starts a new event from the sheet on mobile layouts, closing the sheet so the editor is not covered', () => {
+		renderWeek()
+		fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+		const sheet = screen.getByTestId('sheet')
+		// The create action is the first control in the sheet's calendar section, above the refresh row.
+		expect(
+			within(sheet).getAllByRole('button', { name: /New event|Refresh calendar/ })[0],
+		).toHaveAccessibleName('New event')
+		fireEvent.click(within(sheet).getByRole('button', { name: 'New event' }))
+		expect(screen.queryByTestId('sheet')).toBeNull()
+		expect(screen.getByTestId('event-modal').dataset.event).toBe('new')
+	})
+
+	it('starts a new event from the top bar the same way while the sidebar is hidden', () => {
+		renderWeek()
+		fireEvent.click(
+			within(screen.getByTestId('calendar-header-create-cell')).getByRole('button', { name: 'New event' }),
+		)
+		expect(screen.getByTestId('event-modal').dataset).toMatchObject({
+			event: 'new',
+			defaultStart: new Date('2024-06-15T00:00:00').toISOString(),
+			defaultDurationMinutes: '60',
+		})
 	})
 
 	it('renders a live composer draft alongside saved events with preview styling', () => {
 		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(sidebarNewEvent())
 		fireEvent.click(screen.getByRole('button', { name: 'show-live-preview' }))
 
 		const preview = screen.getByRole('button', { name: /Live draft/ })
@@ -1529,7 +1637,7 @@ describe('event editor', () => {
 
 	it('closes after the editor reports a cached change', () => {
 		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(sidebarNewEvent())
 		fireEvent.click(screen.getByText('close-changed'))
 		expect(screen.queryByTestId('event-modal')).toBeNull()
 		expect(h.invalidate).not.toHaveBeenCalled()
@@ -1537,7 +1645,7 @@ describe('event editor', () => {
 
 	it('does not revalidate when the editor closes unchanged', () => {
 		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(sidebarNewEvent())
 		fireEvent.click(screen.getByText('close-unchanged'))
 		expect(screen.queryByTestId('event-modal')).toBeNull()
 		expect(h.invalidate).not.toHaveBeenCalled()
@@ -1789,21 +1897,40 @@ describe('calendar grid controls', () => {
 		expect(screen.getByLabelText('Time ruler: Toronto primary time')).toBeInTheDocument()
 	})
 
-	it('collapses the desktop sidebar from the top bar and remembers it on this device', () => {
+	it('collapses the desktop sidebar from the mini-month header and brings it back from the top bar, remembered on this device', () => {
 		const first = renderControlsWeek()
 		const sidebar = () => document.getElementById('calendar-sidebar') as HTMLElement
-		const toggle = screen.getByRole('button', { name: 'Hide calendar sidebar' })
+		const createCell = () => screen.getByTestId('calendar-header-create-cell')
+		// While the sidebar shows, its quiet toggle sits beside the mini-month's own controls,
+		// and the top bar has neither a toggle nor a second New event on desktop.
+		const toggle = within(sidebar()).getByRole('button', { name: 'Hide calendar sidebar' })
+		expect(toggle.parentElement).toContainElement(
+			within(sidebar()).getByRole('button', { name: 'Next month' }),
+		)
+		expect(toggle).toHaveAttribute('title', 'Hide calendar sidebar')
 		expect(toggle).toHaveAttribute('aria-expanded', 'true')
 		expect(toggle).toHaveAttribute('aria-controls', 'calendar-sidebar')
 		expect(sidebar()).toHaveClass('lg:flex')
+		expect(createCell()).toHaveClass('lg:hidden')
+		expect(within(createCell()).queryByRole('button', { name: /calendar sidebar/ })).toBeNull()
 
 		fireEvent.click(toggle)
 		// The state is carried by the name and aria-expanded, not by the icon alone.
-		const collapsed = screen.getByRole('button', { name: 'Show calendar sidebar' })
+		expect(within(sidebar()).queryByRole('button', { name: /calendar sidebar/ })).toBeNull()
+		const collapsed = within(createCell()).getByRole('button', { name: 'Show calendar sidebar' })
 		expect(collapsed).toHaveAttribute('aria-expanded', 'false')
+		expect(collapsed).toHaveAttribute('title', 'Show calendar sidebar')
 		expect(sidebar()).not.toHaveClass('lg:flex')
-		// The header column shrinks with it, so the title is not left indented.
-		expect(collapsed.parentElement?.parentElement).toHaveClass('lg:grid-cols-[2.75rem_minmax(0,1fr)]')
+		// The top bar starts with the toggle and then the icon-only New event, shown on desktop too.
+		expect(createCell()).not.toHaveClass('lg:hidden')
+		expect([...createCell().children].map((child) => child.getAttribute('aria-label'))).toEqual([
+			'Show calendar sidebar',
+			'New event',
+		])
+		// The sidebar's header column goes with it, so the title is not left indented.
+		const headerGrid = screen.getByTestId('calendar-header-controls').parentElement as HTMLElement
+		expect(headerGrid.className).not.toMatch(/lg:grid-cols-/)
+		expect(headerGrid.children).toHaveLength(1)
 		expect(storedPreferences().calendarSidebarCollapsed).toBe(true)
 		first.unmount()
 
@@ -2129,7 +2256,8 @@ describe('dragging events in the time grid', () => {
 		fireEvent.pointerDown(slot, { ...mouse, clientX: X, clientY: y(14.1) })
 		move(X, y(15.4))
 		// The range being dragged out is drawn as a draft.
-		expect(screen.getByRole('button', { name: /^New event/ })).toBeDisabled()
+		// The draft chip's name carries its range, which sets it apart from the New event action.
+		expect(screen.getByRole('button', { name: /^New event, / })).toBeDisabled()
 		release(X, y(15.4))
 		// The click that ends the drag on the slot must not replace the range with the slot's hour.
 		fireEvent.click(slot)
@@ -2541,7 +2669,7 @@ describe('context menus', () => {
 
 	it('gives a draft preview no menu: there is nothing saved to act on', () => {
 		renderWeek()
-		fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+		fireEvent.click(sidebarNewEvent())
 		fireEvent.click(screen.getByRole('button', { name: 'show-live-preview' }))
 		const preview = screen.getByRole('button', { name: /Live draft/ })
 		expect(fireEvent.contextMenu(preview, { clientX: 10, clientY: 10 })).toBe(true)

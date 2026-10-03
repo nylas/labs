@@ -20,6 +20,7 @@ import {
 	hiddenCalendarIdsForRequest,
 	initialTimeGridScrollHour,
 	isCalView,
+	isOutsideWorkingHours,
 	isPastEvent,
 	isRenderableCalendarEvent,
 	MAX_HIDDEN_CALENDAR_IDS_PER_REQUEST,
@@ -28,12 +29,17 @@ import {
 	nowBadgeCoversLabel,
 	shiftAnchor,
 	startOfWeek,
+	TIMED_CHIP_TITLE_ONLY_MAX_MINUTES,
 	TIMED_CHIP_TWO_LINE_MIN_HEIGHT,
 	timedChipLines,
+	timedChipShowsTime,
 	timedDayLayout,
 	timedEventLayout,
 	timedEventsOnDay,
+	timeZoneDayChange,
+	timeZoneOffsetLabel,
 	timeZoneShortName,
+	timezoneCity,
 	upcomingAgenda,
 	viewRange,
 	ymd,
@@ -847,6 +853,72 @@ describe('time gutter zone label', () => {
 	})
 })
 
+describe('second time zone ruler', () => {
+	const summer = new Date('2026-07-15T12:00:00Z')
+
+	it('heads each ruler with a whole city name, not an id fragment', () => {
+		expect(timezoneCity('Europe/Lisbon')).toBe('Lisbon')
+		expect(timezoneCity('America/New_York')).toBe('New York')
+		expect(timezoneCity('America/Argentina/Buenos_Aires')).toBe('Buenos Aires')
+		expect(timezoneCity('UTC')).toBe('UTC')
+	})
+
+	it('says how far the second clock is from the first, ahead or behind, so a reader can convert at a glance', () => {
+		expect(timeZoneOffsetLabel('America/Toronto', 'Europe/Lisbon', summer)).toBe('+5h')
+		// A true minus sign, so the offset is not read as a dash.
+		expect(timeZoneOffsetLabel('America/Toronto', 'America/Vancouver', summer)).toBe('−3h')
+		expect(timeZoneOffsetLabel('Europe/London', 'Asia/Kolkata', summer)).toBe('+4.5h')
+		expect(timeZoneOffsetLabel('Asia/Kolkata', 'Asia/Kathmandu', summer)).toBe('+0.25h')
+		expect(timeZoneOffsetLabel('America/Toronto', 'America/New_York', summer)).toBe('Same time')
+	})
+
+	it('follows the instant, so the offset changes when only one zone observes daylight saving time', () => {
+		// Toronto moves to EDT on 8 March 2026; Lisbon waits until 29 March.
+		expect(timeZoneOffsetLabel('America/Toronto', 'Europe/Lisbon', new Date('2026-03-20T12:00:00Z'))).toBe(
+			'+4h',
+		)
+		expect(timeZoneOffsetLabel('America/Toronto', 'Europe/Lisbon', new Date('2026-01-15T12:00:00Z'))).toBe(
+			'+5h',
+		)
+	})
+
+	it('shades hours before 7 AM and from 10 PM in that zone, when someone there is unlikely to be working', () => {
+		const lisbon = (time: string) =>
+			isOutsideWorkingHours(new Date(`2026-07-15T${time}:00+01:00`), 'Europe/Lisbon')
+		expect(lisbon('06:59')).toBe(true)
+		expect(lisbon('07:00')).toBe(false)
+		expect(lisbon('21:59')).toBe(false)
+		expect(lisbon('22:00')).toBe(true)
+		expect(lisbon('00:00')).toBe(true)
+	})
+
+	it('names the day a second zone moves into when it crosses midnight, and nothing otherwise', () => {
+		// 6 PM and 7 PM on Friday in Toronto are 11 PM Friday and midnight Saturday in Lisbon.
+		const sixPm = new Date('2026-07-17T22:00:00Z')
+		const sevenPm = new Date('2026-07-17T23:00:00Z')
+		expect(timeZoneDayChange(sixPm, sevenPm, 'America/Toronto', 'Europe/Lisbon', 1)).toMatch(/^Sat/)
+		expect(timeZoneDayChange(sixPm, sevenPm, 'America/Toronto', 'America/New_York', 1)).toBeNull()
+	})
+
+	it('says how the date relates to the column when one ruler serves a whole week, since a weekday fits one column only', () => {
+		const sixPm = new Date('2026-07-17T22:00:00Z')
+		const sevenPm = new Date('2026-07-17T23:00:00Z')
+		expect(timeZoneDayChange(sixPm, sevenPm, 'America/Toronto', 'Europe/Lisbon', 7)).toBe('Next day')
+		// 2 AM and 3 AM on Friday in Toronto are 11 PM Thursday and midnight Friday in Vancouver.
+		const twoAm = new Date('2026-07-17T06:00:00Z')
+		const threeAm = new Date('2026-07-17T07:00:00Z')
+		expect(timeZoneDayChange(twoAm, threeAm, 'America/Toronto', 'America/Vancouver', 7)).toBe('Same day')
+		// 11 PM and midnight in Toronto are 8 PM and 9 PM in Los Angeles: no crossing, no mark.
+		const elevenPm = new Date('2026-07-17T03:00:00Z')
+		const midnight = new Date('2026-07-17T04:00:00Z')
+		expect(timeZoneDayChange(elevenPm, midnight, 'America/Toronto', 'America/Los_Angeles', 7)).toBeNull()
+		// 25 hours apart: Pago Pago reaches Friday when Kiritimati is already on Saturday.
+		const before = new Date('2026-07-17T10:00:00Z')
+		const after = new Date('2026-07-17T11:00:00Z')
+		expect(timeZoneDayChange(before, after, 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 7)).toBe('Prev day')
+	})
+})
+
 describe('all-day band', () => {
 	const weekStart = startOfWeek(new Date('2026-07-08T12:00:00'))
 	const columns = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
@@ -969,6 +1041,16 @@ describe('timed chip text fit', () => {
 		// 15 minutes is the 20px minimum chip; 30 and 45 minutes are still too short for two lines.
 		expect([15, 30, 45].map((minutes) => timedChipLines(heightOf(minutes)))).toEqual([1, 1, 1])
 		expect(timedChipLines(TIMED_CHIP_TWO_LINE_MIN_HEIGHT - 1)).toBe(1)
+	})
+
+	it('drops the time from events of 30 minutes or less, whose chip has room only for the title', () => {
+		const lasting = (minutes: number) => ({
+			start: new Date('2026-07-15T09:00:00Z'),
+			end: new Date(Date.parse('2026-07-15T09:00:00Z') + minutes * 60_000),
+		})
+		expect(TIMED_CHIP_TITLE_ONLY_MAX_MINUTES).toBe(30)
+		expect([5, 15, 30].map((minutes) => timedChipShowsTime(lasting(minutes)))).toEqual([false, false, false])
+		expect([31, 45, 60].map((minutes) => timedChipShowsTime(lasting(minutes)))).toEqual([true, true, true])
 	})
 
 	it('stacks the title over the time range from an hour-long event upwards', () => {

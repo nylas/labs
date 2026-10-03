@@ -22,6 +22,8 @@ type RecipientInputProps = {
 	onEdit?: () => void
 	placeholder?: string
 	className?: string
+	/** Extra classes for the text field, e.g. when its row draws the focus ring instead. */
+	inputClassName?: string
 	id?: string
 	label?: string
 	disabled?: boolean
@@ -36,6 +38,7 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 		onEdit,
 		placeholder,
 		className,
+		inputClassName,
 		id = 'recipient-input',
 		label = 'Recipients',
 		disabled = false,
@@ -175,7 +178,7 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 							aria-label={`Remove ${token}`}
 							onPointerDown={(event) => event.preventDefault()}
 							onClick={() => removeAt(index)}
-							className="touch-target-square flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px max-md:min-h-11 max-md:min-w-11 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11 disabled:cursor-not-allowed disabled:opacity-50 forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
+							className="touch-target-square flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring press max-md:min-h-11 max-md:min-w-11 [@media(any-pointer:coarse)]:min-h-11 [@media(any-pointer:coarse)]:min-w-11 disabled:cursor-not-allowed disabled:opacity-50 forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 						>
 							<X className="h-3 w-3" />
 						</button>
@@ -193,7 +196,10 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 						setOpen(false)
 					}}
 					placeholder={tokens.length ? '' : (placeholder ?? 'To (comma-separated)')}
-					className="min-h-0 w-auto min-w-[8rem] flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-[3px] focus-visible:ring-ring [@media(any-pointer:coarse)]:min-h-11"
+					className={cn(
+						'min-h-0 w-auto min-w-[8rem] flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-[3px] focus-visible:ring-ring [@media(any-pointer:coarse)]:min-h-11',
+						inputClassName,
+					)}
 					type="email"
 					inputMode="email"
 					autoComplete="off"

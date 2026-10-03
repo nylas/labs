@@ -2,7 +2,15 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Check, Images, KeyRound, LogOut, Menu, Settings as SettingsIcon, UserRound } from 'lucide-react'
+import {
+	Check,
+	KeyRound,
+	LogOut,
+	type LucideIcon,
+	Menu,
+	Settings as SettingsIcon,
+	UserRound,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRailLogo, AppRailMobileNav, AppRailNav } from '#app/components/AppRail'
 import { MobileTabBar } from '#app/components/MobileTabBar'
@@ -132,6 +140,8 @@ function SettingsPage() {
 		preferences.primaryTimezone,
 	)
 	const hasSettingsChanges = !preferencesMatch(normalizedDraft, persistedSettings)
+	// A save result already explains why the button is idle, so the hint waits until it clears.
+	const showNoChangesHint = !hasSettingsChanges && !saveStatus
 
 	function update(next: Partial<UserPreferences>) {
 		/* v8 ignore next -- Disabled preference controls make this guard defense-in-depth. @preserve */
@@ -234,7 +244,7 @@ function SettingsPage() {
 					<button
 						type="button"
 						onClick={() => setNavigationOpen(true)}
-						className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted/60 hover:text-foreground active:translate-y-px focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:hidden"
+						className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted/60 hover:text-foreground press focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:hidden"
 						aria-label="Open navigation"
 					>
 						<Menu className="h-4 w-4" />
@@ -251,12 +261,9 @@ function SettingsPage() {
 					active="settings"
 				/>
 				<main className={cn('min-w-0 flex-1 overflow-y-auto', UNDER_MOBILE_BAR_CLASS)}>
-					<div className="mx-auto w-full max-w-2xl space-y-7 px-5 py-7 sm:px-8">
+					<div className="mx-auto w-full max-w-2xl px-5 py-7 sm:px-8">
 						<section>
-							<div className="flex items-center gap-2">
-								<UserRound className="h-5 w-5 text-muted-foreground" />
-								<h2 className="font-display text-lg font-semibold">Profile</h2>
-							</div>
+							<SectionHeading icon={UserRound}>Profile</SectionHeading>
 							<p className="mt-1 text-sm text-muted-foreground">
 								Set the account name shown in {info.appName} and on messages you send.
 							</p>
@@ -282,11 +289,8 @@ function SettingsPage() {
 							/>
 						</section>
 
-						<section className="border-t border-border pt-6">
-							<div className="flex items-center gap-2">
-								<SettingsIcon className="h-5 w-5 text-muted-foreground" />
-								<h2 className="font-display text-lg font-semibold">Mail preferences</h2>
-							</div>
+						<Section>
+							<SectionHeading icon={SettingsIcon}>Mail preferences</SectionHeading>
 							<label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
 								<input
 									type="checkbox"
@@ -303,13 +307,10 @@ function SettingsPage() {
 									</span>
 								</span>
 							</label>
-							<Section>
-								<div className="flex items-center gap-2">
-									<Images className="h-4 w-4 text-muted-foreground" />
-									<label className="text-sm font-medium" htmlFor="settings-remote-images">
-										External images
-									</label>
-								</div>
+							<div className="mt-4">
+								<label className="block text-sm font-medium" htmlFor="settings-remote-images">
+									External images
+								</label>
 								<select
 									id="settings-remote-images"
 									value={draft.remoteImagePolicy}
@@ -318,7 +319,7 @@ function SettingsPage() {
 										update({ remoteImagePolicy: event.target.value === 'always' ? 'always' : 'ask' })
 									}
 									aria-describedby="settings-remote-images-help"
-									className="mt-2 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+									className="mt-1 h-11 w-full rounded-md border border-border bg-card px-3 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
 								>
 									<option value="ask">Ask before showing</option>
 									<option value="always">Always show</option>
@@ -334,7 +335,7 @@ function SettingsPage() {
 										type="button"
 										disabled={saving}
 										onClick={clearSenderImageChoices}
-										className="inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+										className="inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
 									>
 										Clear saved senders
 									</button>
@@ -350,7 +351,7 @@ function SettingsPage() {
 										</span>
 									) : null}
 								</div>
-							</Section>
+							</div>
 							<label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3">
 								<input
 									type="checkbox"
@@ -393,12 +394,18 @@ function SettingsPage() {
 									type="button"
 									onClick={save}
 									aria-disabled={saving || !draftDisplayName || !hasSettingsChanges}
+									aria-describedby={showNoChangesHint ? 'settings-no-changes' : undefined}
 									aria-busy={saving || undefined}
 									className="min-h-11 aria-disabled:pointer-events-none aria-disabled:opacity-50"
 								>
 									<Check className="h-4 w-4" />
 									{saving ? 'Saving…' : 'Save settings'}
 								</Button>
+								{showNoChangesHint ? (
+									<span id="settings-no-changes" className="text-sm text-muted-foreground">
+										No changes to save
+									</span>
+								) : null}
 								{saveStatus ? (
 									<span
 										className={cn(
@@ -411,13 +418,10 @@ function SettingsPage() {
 									</span>
 								) : null}
 							</div>
-						</section>
+						</Section>
 
-						<section className="border-t border-border pt-6">
-							<div className="flex items-center gap-2">
-								<KeyRound className="h-5 w-5 text-muted-foreground" />
-								<h2 className="font-display text-lg font-semibold">Password</h2>
-							</div>
+						<Section>
+							<SectionHeading icon={KeyRound}>Password</SectionHeading>
 							{capabilities.passwordResetEnabled ? (
 								<form className="mt-4 space-y-4" onSubmit={changePassword}>
 									<p className="text-sm text-muted-foreground">
@@ -475,14 +479,12 @@ function SettingsPage() {
 									Password changes are disabled by your administrator.
 								</p>
 							)}
-						</section>
+						</Section>
 
-						<p className="border-t border-border pt-6 text-xs text-muted-foreground">
-							OwnMail v{OWNMAIL_VERSION}
-						</p>
+						<Section className="text-xs text-muted-foreground">OwnMail v{OWNMAIL_VERSION}</Section>
 
-						<section className="border-t border-border pt-6">
-							<h2 className="font-display text-lg font-semibold">Sign out</h2>
+						<Section>
+							<SectionHeading icon={LogOut}>Sign out</SectionHeading>
 							<p className="mt-1 text-sm text-muted-foreground">
 								End your session on this device. Your connected inboxes and settings will be preserved.
 							</p>
@@ -492,7 +494,7 @@ function SettingsPage() {
 									Sign out
 								</Button>
 							</form>
-						</section>
+						</Section>
 					</div>
 				</main>
 			</div>
@@ -508,6 +510,16 @@ function SettingsPage() {
 					showDestinations={false}
 				/>
 			</Sheet>
+		</div>
+	)
+}
+
+/** The one heading recipe for every top-level settings section. */
+function SectionHeading({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
+	return (
+		<div className="flex items-center gap-2">
+			<Icon className="h-5 w-5 text-muted-foreground" />
+			<h2 className="font-display text-lg font-semibold">{children}</h2>
 		</div>
 	)
 }

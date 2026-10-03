@@ -56,7 +56,7 @@ export function Sheet({
 						type="button"
 						onClick={onClose}
 						aria-label={`Close ${title.toLowerCase()}`}
-						className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring active:translate-y-px forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
+						className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring press forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 					>
 						<X className="h-4 w-4" />
 					</button>

@@ -5,6 +5,7 @@ import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Tra
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
+import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
@@ -47,7 +48,11 @@ import {
 	toMailThread,
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
-import { type ThreadResponseKind, threadResponseSearch } from '#features/mail/state/thread-response'
+import {
+	composeKindForResponse,
+	type ThreadResponseKind,
+	threadResponseSearch,
+} from '#features/mail/state/thread-response'
 import { getFolders, getThreadMessages, getThreads } from '#server/fns'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { Toolbar } from '#shared/components/ui/toolbar'
@@ -490,6 +495,7 @@ function SearchThreadRow({
 	const folderId = threadRouteFolderId(thread)
 	const updateThread = useUpdateThreadMutation()
 	const router = useRouter()
+	const { openCompose } = useCompose()
 	const queryClient = useQueryClient()
 	const resultSearch = { q, ...(searchFolderId ? { folderId: searchFolderId } : {}) }
 	// Menu actions and their failure belong to this row's thread: rows are keyed by thread id.
@@ -523,7 +529,7 @@ function SearchThreadRow({
 	const respond = (kind: ThreadResponseKind) =>
 		runRowAction(async () => {
 			const response = await threadResponseSearch(queryClient, thread.id, kind)
-			await router.navigate({ to: '/mail/compose', search: { folderId, threadId: thread.id, ...response } })
+			await openCompose({ kind: composeKindForResponse(kind), threadId: thread.id, ...response })
 		})
 	// The star shown is the thread's own, except while a toggle is in flight.
 	const [requestedStar, setRequestedStar] = useState<boolean | null>(null)
@@ -595,8 +601,8 @@ function SearchThreadDetail({
 }) {
 	const [{ readingPane }] = useUserPreferences()
 	const router = useRouter()
+	const { openCompose } = useCompose()
 	const updateThread = useUpdateThreadMutation()
-	const routeFolderId = threadRouteFolderId(selected.thread)
 	const lastMessage = selected.messages.at(-1)
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
@@ -618,38 +624,21 @@ function SearchThreadDetail({
 	const reply = () => {
 		/* v8 ignore next -- every exposed search reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		router.navigate({
-			to: '/mail/compose',
-			search: {
-				folderId: routeFolderId,
-				threadId: selected.thread.id,
-				...replyDraftSearch(lastMessage),
-			},
-		})
+		void openCompose({ kind: 'reply', threadId: selected.thread.id, ...replyDraftSearch(lastMessage) })
 	}
 	const replyAll = () => {
 		/* v8 ignore next -- every exposed search reply-all entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		router.navigate({
-			to: '/mail/compose',
-			search: {
-				folderId: routeFolderId,
-				threadId: selected.thread.id,
-				...replyAllDraftSearch(lastMessage, selected.mailboxEmail),
-			},
+		void openCompose({
+			kind: 'reply',
+			threadId: selected.thread.id,
+			...replyAllDraftSearch(lastMessage, selected.mailboxEmail),
 		})
 	}
 	const forward = () => {
 		/* v8 ignore next -- every exposed search forward entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		router.navigate({
-			to: '/mail/compose',
-			search: {
-				folderId: routeFolderId,
-				threadId: selected.thread.id,
-				...forwardDraftSearch(lastMessage),
-			},
-		})
+		void openCompose({ kind: 'forward', threadId: selected.thread.id, ...forwardDraftSearch(lastMessage) })
 	}
 
 	useEffect(() => {
@@ -707,7 +696,7 @@ function SearchThreadDetail({
 					search={searchList}
 					aria-label="Back to list"
 					className={cn(
-						'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+						'flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
 						!readingPaneLayout(readingPane, true).wideBackControl && 'xl:hidden',
 					)}
 				>
@@ -845,7 +834,7 @@ function IconButton({
 			disabled={disabled && !loading}
 			aria-disabled={disabled || undefined}
 			aria-busy={loading || undefined}
-			className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 xl:h-9 xl:w-9"
+			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 xl:h-9 xl:w-9"
 		>
 			{children}
 		</button>
@@ -867,7 +856,7 @@ function ActionButton({
 			onClick={onClick}
 			aria-label={label}
 			title={label}
-			className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
+			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
 		>
 			{children}
 		</button>
