@@ -192,7 +192,15 @@ export function useCalendarDrag(options: CalendarDragOptions) {
 				}
 				const slot = slotAt(move.clientX, move.clientY)
 				// Outside the grid the preview holds its last position; releasing there cancels.
-				if (slot) setPreview({ eventId: session.event?.id ?? null, range: rangeAt(session, slot) })
+				if (!slot) return
+				const eventId = session.event?.id ?? null
+				const range = rangeAt(session, slot)
+				// Ranges snap to slots, so most moves land on the preview already drawn.
+				// Keeping that state skips the page re-render, and with nothing written to
+				// the DOM the next move's geometry read does not force a layout.
+				setPreview((current) =>
+					current?.eventId === eventId && sameRange(current.range, range) ? current : { eventId, range },
+				)
 			}
 			const onUp = (up: PointerEvent) => {
 				const session = pointer.current as PointerSession

@@ -86,7 +86,8 @@ vi.mock('#server/fns', () => ({
 	getMailboxInfo: () => h.getMailboxInfo(),
 }))
 
-import { ContactsShell, Route } from './contacts.js'
+import { ContactsShell } from './-contacts-screen.js'
+import { Route } from './contacts.js'
 
 // Compose is app state: assert what the composer is asked to open, not a route.
 const composeApi = vi.hoisted(() => ({
@@ -519,6 +520,28 @@ describe('ContactsLayout wrapper', () => {
 			'Could not refresh. Check your connection, then try again.',
 		)
 		expect(screen.queryByText(/provider-secret-detail/)).toBeNull()
+	})
+
+	// The shell keys its keyboard cursor on the list's identity. The route used to
+	// pass a freshly flattened array on every render, so any re-render of the
+	// route (router or query updates) reset the cursor and arrow keys did nothing.
+	it('keeps the arrow-key cursor when the route re-renders with the same contacts', () => {
+		h.pathname = '/contacts'
+		Route.useLoaderData = vi.fn(() => ({ info, contacts, nextCursor: undefined }))
+		Route.useSearch = vi.fn(() => ({}))
+		const Page = Route.options.component
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const tree = () => (
+			<QueryClientProvider client={client}>
+				<Page />
+			</QueryClientProvider>
+		)
+		const view = testingRender(tree())
+		fireEvent.keyDown(window, { key: 'ArrowDown' })
+		view.rerender(tree())
+		fireEvent.keyDown(window, { key: 'ArrowDown' })
+		const cursored = document.querySelector('[data-contact-id][data-nav-cursor="true"]')
+		expect(cursored).toHaveAttribute('data-contact-id', contacts[1]?.id)
 	})
 
 	it('pushes a typed query into the URL', () => {

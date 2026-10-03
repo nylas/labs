@@ -23,7 +23,7 @@ vi.mock('#server/fns', () => ({
 	getContact: (args: any) => h.getContact(args),
 }))
 
-vi.mock('./contacts.js', () => ({
+vi.mock('#features/contacts/components/ContactAvatar', () => ({
 	ContactAvatar: (props: any) => <span data-testid="avatar">{props.name}</span>,
 }))
 
@@ -40,7 +40,8 @@ vi.mock('#features/contacts/components/ContactModal', () => ({
 	),
 }))
 
-import { ContactDetailScreen, Route } from './contacts.$contactId.js'
+import { ContactDetailScreen } from './-contact-detail-screen.js'
+import { Route } from './contacts.$contactId.js'
 
 // Compose is app state: assert what the composer is asked to open, not a route.
 const composeApi = vi.hoisted(() => ({

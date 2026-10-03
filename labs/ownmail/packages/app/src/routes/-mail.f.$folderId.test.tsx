@@ -75,7 +75,8 @@ vi.mock('#shared/components/ClientTime', () => ({
 // the highlighted row visible, so stub it to a no-op spy for these tests.
 Element.prototype.scrollIntoView = vi.fn()
 
-import { loadMailFolderData, MailFolderRouteScreen, Route } from './mail.f.$folderId.js'
+import { MailFolderRouteScreen } from './-mail-folder-screen.js'
+import { loadMailFolderData, Route } from './mail.f.$folderId.js'
 
 // Compose is app state: assert what the composer is asked to open, not a route.
 const composeApi = vi.hoisted(() => ({

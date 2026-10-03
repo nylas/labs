@@ -64,10 +64,13 @@ vi.mock('#app/components/AppRail', () => ({
 	),
 }))
 
+// Counts renders of the shell's chrome, so tests can assert what a keystroke re-renders.
+const chromeRenders = vi.hoisted(() => ({ count: 0 }))
 vi.mock('#app/components/MobileTabBar', () => ({
-	MobileTabBar: ({ active, context }: { active: string; context?: string }) => (
-		<nav data-testid="mobile-tabs" data-active={active} data-context={context ?? 'primary'} />
-	),
+	MobileTabBar: ({ active, context }: { active: string; context?: string }) => {
+		chromeRenders.count += 1
+		return <nav data-testid="mobile-tabs" data-active={active} data-context={context ?? 'primary'} />
+	},
 }))
 
 const paletteShortcut = vi.fn()
@@ -125,7 +128,8 @@ vi.mock('#features/mail/lib/mail-ui-model', async (importOriginal) => {
 })
 
 import { liveSearchTarget } from '#features/mail/lib/mail-ui-model'
-import { MailRouteScreen, Route } from './mail.js'
+import { MailRouteScreen } from './-mail-screen.js'
+import { Route } from './mail.js'
 
 // Compose is app state: assert what the composer is asked to open, not a route.
 const composeApi = vi.hoisted(() => ({
@@ -381,6 +385,18 @@ describe('MailRouteScreen — compose button', () => {
 })
 
 describe('MailRouteScreen — search navigation', () => {
+	// Typing must answer within 100 ms. The search text used to live in the
+	// shell, so every keystroke re-rendered the rail, both sidebars and the
+	// command palette; now only the search box re-renders.
+	it('re-renders only the search box, not the shell around it, on each keystroke', () => {
+		renderScreen()
+		const before = chromeRenders.count
+		fireEvent.change(searchInput(), { target: { value: 'h' } })
+		fireEvent.change(searchInput(), { target: { value: 'he' } })
+		expect(searchInput().value).toBe('he')
+		expect(chromeRenders.count).toBe(before)
+	})
+
 	it('navigates to search results scoped to the current folder on submit', () => {
 		renderScreen()
 		fireEvent.change(searchInput(), { target: { value: 'hello' } })

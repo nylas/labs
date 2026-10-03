@@ -409,14 +409,14 @@ function SearchResults() {
 							</p>
 						</div>
 					) : (
-						sortedThreads.map((thread) => (
+						sortedThreads.map((thread, index) => (
 							<SearchThreadRow
 								key={thread.id}
 								thread={thread}
 								q={q}
 								searchFolderId={folderId}
 								active={thread.id === threadId}
-								keyboardActive={cursor === sortedThreads.indexOf(thread)}
+								keyboardActive={cursor === index}
 							/>
 						))
 					)}
