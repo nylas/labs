@@ -1,5 +1,14 @@
 # @ownmail/app
 
+## 0.21.1
+
+### Patch Changes
+
+- b4d5b1b: Stream authenticated mailbox startup, remove redundant session work, and add anonymous performance diagnostics.
+- c2d85c6: Prevent previous-account content from reappearing after switching inboxes by retiring router caches and awaiting replacement loaders.
+- d3d4607: Add finger-following mobile back feedback and restore warm inbox interaction immediately on history navigation.
+- a466a24: Diagnose image proxy failures safely and bound remote image and attachment transfers.
+
 ## 0.21.0
 
 ### Minor Changes
