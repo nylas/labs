@@ -113,6 +113,31 @@ afterEach(() => {
 })
 
 describe('loadMailFolderData', () => {
+	it('reveals the retained list as soon as history returns to its folder, before old matches settle', () => {
+		const committed = { routeId: '/mail/f/$folderId/t/$threadId' }
+		routerState = { location: { pathname: '/mail/f/inbox/t/t1' }, matches: [committed] }
+		const props = {
+			threads: [thread({ id: 't1', subject: 'Retained' })],
+			drafts: [],
+			folders: [],
+			folderId: 'inbox',
+			nextCursor: undefined,
+		}
+		const view = render(<MailFolderRouteScreen {...props} />)
+		const list = screen.getByText('Retained').closest('[data-mail-list]')
+		expect(list).toHaveClass('hidden')
+		routerState = { location: { pathname: '/mail/f/inbox' }, matches: [committed], isLoading: true }
+		view.rerender(<MailFolderRouteScreen {...props} />)
+		expect(screen.getByText('Retained').closest('[data-mail-list]')).toBe(list)
+		expect(list).not.toHaveClass('hidden')
+		expect(screen.queryByTestId('thread-outlet')).toBeNull()
+		fireEvent.click(screen.getByRole('link', { name: /Open Retained/ }))
+		// Other folder identities must not reveal this folder while their loader waits.
+		routerState = { location: { pathname: '/mail/f/sent' }, matches: [committed], isLoading: true }
+		view.rerender(<MailFolderRouteScreen {...props} />)
+		expect(list).toHaveClass('hidden')
+	})
+
 	it('streams a folder placeholder while concurrent folder and thread requests resolve', async () => {
 		let resolveFolders!: (value: any[]) => void
 		let resolveThreads!: (value: any) => void

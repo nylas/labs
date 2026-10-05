@@ -158,13 +158,22 @@ function LoadedMailFolderRouteScreen({
 		}
 	}
 	const hasThreadRoute = useRouterState({
-		select: (state) =>
-			state.location.pathname.includes('/t/') ||
-			state.matches.some(
-				/* v8 ignore next -- @preserve the direct pathname arm covers the mounted nested-thread route in screen tests */
-				(match) => match.routeId === '/mail/f/$folderId/t/$threadId',
-			),
+		select: (state) => {
+			// History updates location before committed matches. Reveal the retained list
+			// immediately only when returning to this exact folder; other identities keep
+			// their existing pending boundary and cannot expose the previous folder's rows.
+			if (state.location.pathname === `/mail/f/${encodeURIComponent(folderId)}`) return false
+			return (
+				state.location.pathname.includes('/t/') ||
+				state.matches.some((match) => match.routeId === '/mail/f/$folderId/t/$threadId')
+			)
+		},
 	})
+	useEffect(() => {
+		if (hasThreadRoute) return
+		const frame = requestAnimationFrame(() => window.dispatchEvent(new Event('ownmail:list-ready')))
+		return () => cancelAnimationFrame(frame)
+	}, [hasThreadRoute])
 	const routedThreadId = useRouterState({
 		select: (state) =>
 			(
@@ -451,8 +460,8 @@ function LoadedMailFolderRouteScreen({
 	)
 
 	return (
-		<div className={layout.container}>
-			<section className={layout.list} data-density={preferences.listDensity}>
+		<div className={layout.container} data-mail-panes>
+			<section className={layout.list} data-mail-list data-density={preferences.listDensity}>
 				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					<div className="flex items-center gap-1">
@@ -485,7 +494,7 @@ function LoadedMailFolderRouteScreen({
 					threadList
 				)}
 			</section>
-			<section className={layout.reader}>
+			<section className={layout.reader} data-mail-reader>
 				{hasThread ? (
 					(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
 				) : composing ? (

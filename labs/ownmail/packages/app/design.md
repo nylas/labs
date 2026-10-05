@@ -115,7 +115,11 @@ Motion says what changed and where it went. Nothing moves for decoration.
 7. Changing counts. A folder count that changes while it is on screen drops in
    from above over `--dur-medium`.
 8. Identity changes fade. A newly opened conversation fades in over
-   `--dur-fast` and never slides ("Content-ready transitions").
+   `--dur-fast` ("Content-ready transitions"). On narrow touch screens, the
+   back gesture follows the finger horizontally and reveals the retained list.
+   Releasing commits immediately once the distance threshold is met; cancellation
+   returns within 120ms, with no settling animation under reduced motion. Browser
+   edge gestures, vertical scrolling, and pinch zoom keep their native behavior.
 
 ## Microinteractions stance
 

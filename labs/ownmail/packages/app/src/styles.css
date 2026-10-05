@@ -1672,3 +1672,37 @@
 		scroll-padding-bottom: var(--mobile-bar-inset);
 	}
 }
+
+/* User-controlled motion: the reader follows the finger while the retained list
+   is visible underneath. Keep wide reading panes and native scrolling unchanged. */
+@media (max-width: 1279px) {
+	[data-mail-panes] {
+		position: relative;
+		overflow: hidden;
+	}
+	[data-mail-panes]:has([data-swipe-active]) > [data-mail-list] {
+		display: flex;
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+	}
+	[data-mail-reader]:has([data-swipe-active]) {
+		background: transparent;
+		position: relative;
+		z-index: 1;
+	}
+	.reader-swipe-feedback {
+		transform: translateX(var(--reader-swipe-x, 0px));
+		transition: transform 120ms ease-out;
+	}
+	.reader-swipe-feedback[data-swipe-active] {
+		transition: none;
+		box-shadow: -8px 0 24px rgb(0 0 0 / 0.15);
+		will-change: transform;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.reader-swipe-feedback {
+		transition: none;
+	}
+}

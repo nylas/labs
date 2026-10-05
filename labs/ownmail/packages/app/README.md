@@ -122,3 +122,15 @@ only inside one HTTP request; optional display-name lookup moves off the initial
 path, and folder/thread requests start concurrently. No private mailbox data is
 persisted in a service-worker cache. Evaluate that additional caching only after
 these measurements identify a remaining startup bottleneck.
+
+Warm list returns emit `navigation_ready` from the back/popstate event to the
+next frame after the retained list renders. BFCache restores report when the
+list is visible again. These are readiness observations, not proof that a later
+user input met its latency target. Verify on the physical iPhone in both Safari
+and the installed PWA: open a thread, scroll, return by gesture and browser Back,
+and immediately open another row. Target <=100 ms for a warm return; confirm
+scroll retention, cancellation, vertical scrolling, pinch zoom, reduced motion,
+and that switching folders/accounts never reveals stale rows. The first 24 px
+are reserved for browser edge navigation outside standalone mode. In-app Back
+replaces the reader entry and retains scroll rather than adding another reader/
+list cycle to browser history.

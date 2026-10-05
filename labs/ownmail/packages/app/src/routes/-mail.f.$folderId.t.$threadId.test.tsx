@@ -774,9 +774,9 @@ describe('toolbar actions', () => {
 	it('navigates back to the list after a deliberate rightward reader swipe', () => {
 		renderThread(loaderData(), { baseFolderId: 'starred' })
 		const reader = screen.getByTestId('thread-reader')
-		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
-		fireEvent.touchMove(reader, { touches: [{ clientX: 50, clientY: 52 }] })
-		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 90, clientY: 55 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 50, clientY: 50 }] })
+		fireEvent.touchMove(reader, { touches: [{ clientX: 90, clientY: 52 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 130, clientY: 55 }] })
 		expect(navigate).toHaveBeenCalledWith(
 			expect.objectContaining({
 				to: '/mail/f/$folderId',
@@ -794,13 +794,13 @@ describe('toolbar actions', () => {
 	it('ignores short, vertical, and interactive-control reader swipes', () => {
 		renderThread()
 		const reader = screen.getByTestId('thread-reader')
-		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
-		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 60, clientY: 52 }] })
-		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
-		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 180 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 50, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 52 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 50, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 140, clientY: 180 }] })
 		const back = screen.getByRole('button', { name: 'Back to list' })
-		fireEvent.touchStart(back, { touches: [{ clientX: 10, clientY: 50 }] })
-		fireEvent.touchEnd(back, { changedTouches: [{ clientX: 100, clientY: 52 }] })
+		fireEvent.touchStart(back, { touches: [{ clientX: 50, clientY: 50 }] })
+		fireEvent.touchEnd(back, { changedTouches: [{ clientX: 140, clientY: 52 }] })
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
@@ -809,29 +809,29 @@ describe('toolbar actions', () => {
 		const reader = screen.getByTestId('thread-reader')
 		fireEvent.touchStart(reader, {
 			touches: [
-				{ clientX: 10, clientY: 50 },
-				{ clientX: 20, clientY: 50 },
+				{ clientX: 50, clientY: 50 },
+				{ clientX: 60, clientY: 50 },
 			],
 		})
-		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 50 }] })
-		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 140, clientY: 50 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 50, clientY: 50 }] })
 		fireEvent.touchCancel(reader)
-		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 100, clientY: 50 }] })
-		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchEnd(reader, { changedTouches: [{ clientX: 140, clientY: 50 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 50, clientY: 50 }] })
 		fireEvent.touchMove(reader, {
 			touches: [
-				{ clientX: 10, clientY: 50 },
-				{ clientX: 20, clientY: 50 },
+				{ clientX: 50, clientY: 50 },
+				{ clientX: 60, clientY: 50 },
 			],
 		})
 		fireEvent.touchEnd(reader, {
 			touches: [],
-			changedTouches: [{ clientX: 100, clientY: 50 }],
+			changedTouches: [{ clientX: 140, clientY: 50 }],
 		})
-		fireEvent.touchStart(reader, { touches: [{ clientX: 10, clientY: 50 }] })
+		fireEvent.touchStart(reader, { touches: [{ clientX: 50, clientY: 50 }] })
 		fireEvent.touchEnd(reader, {
-			touches: [{ clientX: 20, clientY: 50 }],
-			changedTouches: [{ clientX: 100, clientY: 50 }],
+			touches: [{ clientX: 60, clientY: 50 }],
+			changedTouches: [{ clientX: 140, clientY: 50 }],
 		})
 		expect(navigate).not.toHaveBeenCalled()
 	})

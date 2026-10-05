@@ -1,12 +1,13 @@
 import { createRouter } from '@tanstack/react-router'
 import { observeAccount } from '#app/lib/account-scope'
+import { rememberReaderHistory } from '#app/lib/reader-history'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { createOwnmailQueryClient, OwnmailQueryProvider } from '#app/query/query-provider'
 import { routeTree } from './routeTree.gen'
 
 export function getRouter() {
 	const queryClient = createOwnmailQueryClient()
-	return createRouter({
+	const router = createRouter({
 		routeTree,
 		context: { queryClient },
 		// Query keys are partitioned by account. The server tells the browser
@@ -23,6 +24,8 @@ export function getRouter() {
 		defaultPendingMinMs: 0,
 		defaultPendingMs: 0,
 	})
+	rememberReaderHistory(router)
+	return router
 }
 
 declare module '@tanstack/react-router' {

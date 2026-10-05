@@ -837,3 +837,62 @@ describe('glass layer budget', () => {
 		expect(visibleOnDesktop.length).toBeLessThanOrEqual(3)
 	})
 })
+
+describe('warm history restoration', () => {
+	it('restores the same interactive list and scroll position without awaiting server work', async () => {
+		fns.getThreads.mockResolvedValue({ threads: [thread('inbox-1', 'Warm history subject')] })
+		fns.getThreadMessages.mockResolvedValue(detail('inbox-1', 'Warm history subject'))
+		const { router } = await mountApp('/mail/f/inbox')
+		const list = document.querySelector('[data-mail-list]')
+		const scroll = list?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
+		scroll.scrollTop = 120
+		await act(async () => {
+			await router.navigate({
+				to: '/mail/f/$folderId/t/$threadId',
+				params: { folderId: 'inbox', threadId: 'inbox-1' },
+			})
+		})
+		expect(page().getByTestId('thread-reader')).toBeInTheDocument()
+		fns.getThreads.mockClear().mockReturnValue(new Promise(() => {}))
+		fns.getFolders.mockClear().mockReturnValue(new Promise(() => {}))
+		await act(async () => {
+			router.history.back()
+			await new Promise((resolve) => setTimeout(resolve, 30))
+		})
+		expect(document.querySelector('[data-mail-list]')).toBe(list)
+		expect(list).not.toHaveClass('hidden')
+		expect(scroll.scrollTop).toBe(120)
+		expect(page().queryByTestId('thread-reader')).toBeNull()
+		expect(fns.getThreads).not.toHaveBeenCalled()
+		expect(fns.getFolders).not.toHaveBeenCalled()
+		await act(async () => {
+			fireEvent.click(page().getByRole('link', { name: /Open Warm history subject/ }))
+		})
+		expect(page().getByTestId('thread-reader')).toBeInTheDocument()
+	})
+})
+
+it('uses the existing list history entry when returning from a reader', async () => {
+	fns.getThreads.mockResolvedValue({ threads: [thread('inbox-1', 'History subject')] })
+	fns.getThreadMessages.mockResolvedValue(detail('inbox-1', 'History subject'))
+	const { router } = await mountApp('/mail/f/sent')
+	await act(async () => {
+		await router.navigate({ to: '/mail/f/$folderId', params: { folderId: 'inbox' } })
+	})
+	const listIndex = router.state.location.state.__TSR_index
+	await act(async () => {
+		fireEvent.click(page().getByRole('link', { name: /Open History subject/ }))
+	})
+	expect(page().getByTestId('thread-reader')).toBeInTheDocument()
+	await act(async () => {
+		fireEvent.click(page().getByRole('button', { name: 'Back to list' }))
+		await new Promise((resolve) => setTimeout(resolve, 30))
+	})
+	expect(router.state.location.pathname).toBe('/mail/f/inbox')
+	expect(router.state.location.state.__TSR_index).toBe(listIndex)
+	await act(async () => {
+		router.history.back()
+		await new Promise((resolve) => setTimeout(resolve, 30))
+	})
+	expect(router.state.location.pathname).toBe('/mail/f/sent')
+})
