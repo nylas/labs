@@ -3,6 +3,7 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { LookupFunction } from 'node:net'
 import { Readable } from 'node:stream'
+import { ignoreCleanupFailure, OperationFailure, untilAborted } from '#server/diagnostics'
 
 const MAX_REDIRECTS = 3
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -63,7 +64,7 @@ interface ImageMetadata {
 }
 
 function imageError(): Error {
-	return new Error('Image unavailable')
+	return new OperationFailure('processing', 'processing')
 }
 
 function valueAt(values: Uint8Array | Uint32Array, index: number): number {
@@ -190,7 +191,7 @@ async function validatedImageRequest(
 	try {
 		url = new URL(value)
 	} catch {
-		throw imageError()
+		throw new OperationFailure('invalid_url', 'dns')
 	}
 	if (
 		!['http:', 'https:'].includes(url.protocol) ||
@@ -199,7 +200,7 @@ async function validatedImageRequest(
 		url.href.length > 4_096 ||
 		(url.port && url.port !== (url.protocol === 'https:' ? '443' : '80'))
 	) {
-		throw imageError()
+		throw new OperationFailure('invalid_url', 'dns')
 	}
 	const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
 	if (
@@ -208,14 +209,18 @@ async function validatedImageRequest(
 		hostname === 'localhost' ||
 		/\.(?:localhost|local|internal|home\.arpa)$/i.test(hostname)
 	) {
-		throw imageError()
+		throw new OperationFailure('invalid_url', 'dns')
 	}
 	if (blockedOrigin) {
 		const blocked = new URL(blockedOrigin)
-		if (url.origin === blocked.origin) throw imageError()
+		if (url.origin === blocked.origin) throw new OperationFailure('invalid_url', 'dns')
 	}
-	const addresses = await resolveHost(hostname)
-	if (addresses.length === 0 || addresses.some((address) => !publicIpAddress(address))) throw imageError()
+	const addresses = await resolveHost(hostname).catch(() => {
+		throw new OperationFailure('dns', 'dns')
+	})
+	if (addresses.length === 0) throw new OperationFailure('dns', 'dns')
+	if (addresses.some((address) => !publicIpAddress(address)))
+		throw new OperationFailure('blocked_address', 'dns')
 	return {
 		addresses: [...new Set(addresses)].sort((first, second) => {
 			const family = Number(Boolean(ipv4Parts(second))) - Number(Boolean(ipv4Parts(first)))
@@ -294,24 +299,28 @@ async function defaultImageFetcher(
 	/* v8 ignore stop -- @preserve */
 }
 
-async function limitedBody(response: Response, signal: AbortSignal): Promise<Uint8Array> {
+export async function limitedImageBody(response: Response, signal: AbortSignal): Promise<Uint8Array> {
 	const declared = Number(response.headers.get('content-length'))
-	if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) throw imageError()
-	if (!response.body) throw imageError()
+	if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+		void response.body?.cancel().catch(ignoreCleanupFailure)
+		throw new OperationFailure('size_limit', 'body')
+	}
+	if (!response.body) throw new OperationFailure('missing_body', 'body')
 	const reader = response.body.getReader()
 	const chunks: Uint8Array[] = []
 	let length = 0
 	try {
 		while (true) {
 			/* v8 ignore next -- fetch aborts the active read; this guard covers runtimes that deliver one final chunk after abort -- @preserve */
-			if (signal.aborted) throw imageError()
-			const { done, value } = await reader.read()
+			if (signal.aborted) throw new OperationFailure('timeout', 'body')
+			const { done, value } = await untilAborted(reader.read(), signal, 'body')
 			if (done) break
 			length += value.length
-			if (length > MAX_IMAGE_BYTES) throw imageError()
+			if (length > MAX_IMAGE_BYTES) throw new OperationFailure('size_limit', 'body')
 			chunks.push(value)
 		}
 	} finally {
+		void reader.cancel().catch(ignoreCleanupFailure)
 		reader.releaseLock()
 	}
 	const bytes = new Uint8Array(length)
@@ -337,44 +346,65 @@ export async function fetchRemoteImage(
 	const controller = new AbortController()
 	const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 	try {
-		let validated = await validatedImageRequest(value, resolveHost, options.blockedOrigin)
+		let validated = await untilAborted(
+			validatedImageRequest(value, resolveHost, options.blockedOrigin),
+			controller.signal,
+			'dns',
+		)
 		for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-			const response = await fetcher(
-				validated.url.toString(),
-				{
-					method: 'GET',
-					headers: { Accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.9' },
-					redirect: 'manual',
-					credentials: 'omit',
-					referrerPolicy: 'no-referrer',
-					signal: controller.signal,
-				},
-				validated.addresses,
+			const response = await untilAborted(
+				fetcher(
+					validated.url.toString(),
+					{
+						method: 'GET',
+						headers: { Accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.9' },
+						redirect: 'manual',
+						credentials: 'omit',
+						referrerPolicy: 'no-referrer',
+						signal: controller.signal,
+					},
+					validated.addresses,
+				),
+				controller.signal,
+				'fetch',
 			)
 			if ([301, 302, 303, 307, 308].includes(response.status)) {
-				if (redirects === MAX_REDIRECTS) throw imageError()
+				void response.body?.cancel().catch(ignoreCleanupFailure)
+				if (redirects === MAX_REDIRECTS) throw new OperationFailure('redirect', 'fetch')
 				const location = response.headers.get('location')
-				if (!location) throw imageError()
-				validated = await validatedImageRequest(
-					new URL(location, validated.url).toString(),
-					resolveHost,
-					options.blockedOrigin,
+				if (!location) throw new OperationFailure('redirect', 'fetch')
+				validated = await untilAborted(
+					validatedImageRequest(
+						new URL(location, validated.url).toString(),
+						resolveHost,
+						options.blockedOrigin,
+					),
+					controller.signal,
+					'dns',
 				)
 				continue
 			}
-			if (!response.ok || response.status !== 200) throw imageError()
-			const bytes = await limitedBody(response, controller.signal)
+			if (response.status !== 200) {
+				void response.body?.cancel().catch(ignoreCleanupFailure)
+				throw new OperationFailure('upstream_status', 'fetch', response.status)
+			}
+			const bytes = await limitedImageBody(response, controller.signal)
 			// Revalidate every answer after transfer so a hostname that has moved to a
 			// private or mixed address set still fails closed. Do not require the public
 			// set to be identical: large CDNs routinely rotate otherwise valid edge pools,
 			// and exact equality made their images fail nondeterministically.
-			await validatedImageRequest(validated.url.toString(), resolveHost, options.blockedOrigin)
+			await untilAborted(
+				validatedImageRequest(validated.url.toString(), resolveHost, options.blockedOrigin),
+				controller.signal,
+				'dns',
+			)
 			return bytes
 		}
 		/* v8 ignore next -- the bounded loop always returns a 200 response or throws on its final redirect -- @preserve */
 		throw imageError()
-	} catch {
-		throw imageError()
+	} catch (error) {
+		if (error instanceof OperationFailure) throw error
+		throw new OperationFailure('transport', 'fetch')
 	} finally {
 		clearTimeout(timeout)
 	}

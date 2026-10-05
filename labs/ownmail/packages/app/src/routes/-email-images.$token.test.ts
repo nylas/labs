@@ -1,3 +1,4 @@
+import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -12,7 +13,8 @@ const mocks = vi.hoisted(() => ({
 	verifyEmailImageSource: vi.fn(),
 }))
 
-vi.mock('#features/mail/server/email-image-proxy', () => ({
+vi.mock('#features/mail/server/email-image-proxy', async (importOriginal) => ({
+	...(await importOriginal<typeof import('#features/mail/server/email-image-proxy')>()),
 	fetchRemoteImage: mocks.fetchRemoteImage,
 	processEmailImage: mocks.processEmailImage,
 }))
@@ -179,4 +181,46 @@ describe('email image route', () => {
 		expect(response.status).toBe(404)
 		expect(await response.text()).toBe('Image unavailable')
 	})
+})
+
+it('correlates failures from token verification without exposing secrets', async () => {
+	const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+	mocks.verifyEmailImageSource.mockRejectedValue(new Error('signed-token-secret'))
+	const response = await request()
+	expect(response.status).toBe(404)
+	const id = response.headers.get('X-Request-ID')
+	expect(id).toMatch(/^[a-f0-9-]{36}$/)
+	expect(log).toHaveBeenCalledWith(expect.stringContaining(id as string))
+	expect(JSON.stringify(log.mock.calls)).not.toContain('signed-token-secret')
+	log.mockRestore()
+})
+
+it('bounds attachment downloads that never return headers', async () => {
+	vi.useFakeTimers()
+	try {
+		mocks.verifyEmailImageSource.mockResolvedValue({ kind: 'attachment', attachmentId: 'a', messageId: 'm' })
+		mocks.nylas.mockResolvedValue({ forGrant: () => ({ downloadAttachment: () => new Promise(() => {}) }) })
+		const pending = request()
+		await vi.advanceTimersByTimeAsync(8_000)
+		expect((await pending).status).toBe(404)
+	} finally {
+		vi.useRealTimers()
+	}
+})
+
+it('records the status of SDK attachment failures without provider details', async () => {
+	const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+	mocks.verifyEmailImageSource.mockResolvedValue({ kind: 'attachment', attachmentId: 'a', messageId: 'm' })
+	mocks.nylas.mockResolvedValue({
+		forGrant: () => ({
+			downloadAttachment: vi.fn().mockRejectedValue(new NylasApiError('private-provider-details', 403)),
+		}),
+	})
+	const response = await request()
+	expect(response.status).toBe(404)
+	expect(await response.text()).toBe('Image unavailable')
+	expect(log).toHaveBeenCalledWith(expect.stringContaining('"code":"upstream_status"'))
+	expect(log).toHaveBeenCalledWith(expect.stringContaining('"status":403'))
+	expect(JSON.stringify(log.mock.calls)).not.toContain('private-provider-details')
+	log.mockRestore()
 })

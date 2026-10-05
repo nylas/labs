@@ -2,6 +2,7 @@ import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { redirect } from '@tanstack/react-router'
 import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '#app/config/route-paths'
+import { diagnostic } from './diagnostics.js'
 import { mailboxFromRequest } from './nylas.js'
 
 export async function requireMailbox() {
@@ -19,6 +20,12 @@ export async function requireMailbox() {
  * keeping quota errors recognizable so the UI can show plan-limit banners.
  */
 export function friendly(err: unknown): Error {
+	diagnostic({
+		event: 'mailbox.failed',
+		stage: 'mailbox',
+		code: 'provider',
+		status: err instanceof NylasApiError ? err.status : undefined,
+	})
 	if (err instanceof NylasApiError) {
 		if (err.status === 401 || err.status === 403)
 			return new Error('Your mailbox session expired. Sign in again and retry.')
