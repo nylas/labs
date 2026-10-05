@@ -277,6 +277,110 @@ describe('/mail/search results list', () => {
 		}))
 	})
 
+	it('selects only loaded search results, toggles by keyboard without opening, and restores focus after triage', async () => {
+		Route.useSearch = vi.fn(() => ({ q: 'hello' }))
+		const user = userEvent.setup()
+		const { container } = renderRoute()
+		await user.click(screen.getByRole('button', { name: 'Select messages' }))
+		const all = screen.getByRole('checkbox', { name: 'Select all loaded conversations' })
+		expect(document.activeElement).toBe(all)
+		const row = screen.getByRole('button', { name: 'Toggle selection for Hello there' })
+		row.focus()
+		await user.keyboard(' ')
+		expect(screen.getByText('1 selected')).toBeTruthy()
+		await user.keyboard('{Enter}')
+		expect(screen.getByText('0 selected')).toBeTruthy()
+		await user.click(screen.getByRole('checkbox', { name: 'Select Hello there' }))
+		expect(screen.getByText('1 selected')).toBeTruthy()
+		await user.click(screen.getByRole('button', { name: 'Toggle selection for (no subject)' }))
+		expect(screen.getByText('2 selected')).toBeTruthy()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(h.navigate).not.toHaveBeenCalled()
+		await user.click(all)
+		expect(screen.getByText('4 selected')).toBeTruthy()
+		await user.click(screen.getByRole('button', { name: 'Mark selected as read' }))
+		await waitFor(() => expect(screen.getByText('0 selected')).toBeTruthy())
+		expect(fns.updateThreadState.mock.calls.map(([arg]: any) => arg.data)).toEqual([
+			{ threadId: 't1', unread: false },
+			{ threadId: 't0', unread: false },
+			{ threadId: 't3', unread: false },
+			{ threadId: 't2', unread: false },
+		])
+		expect(fns.getThreads).not.toHaveBeenCalled()
+		expect(document.activeElement).toBe(all)
+		expect(container.querySelector('[data-navigation-region="mail-list"]')).toBeTruthy()
+		await user.click(screen.getByRole('button', { name: 'Done selecting' }))
+		expect(screen.getByRole('button', { name: 'Select messages' })).toBeTruthy()
+	})
+
+	it('keeps failed results selected for retry while successful search actions are not repeated', async () => {
+		Route.useSearch = vi.fn(() => ({ q: 'hello' }))
+		const seed = Route.useLoaderData()
+		fns.getThreads.mockResolvedValue({ threads: seed.threads })
+		Route.useLoaderData = vi.fn(() => ({ ...seed, folderId: undefined }))
+		let finish: (() => void) | undefined
+		fns.updateThreadState
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finish = () => resolve({ thread: { id: 't1', unread: false, folders: ['inbox', 'work'] } })
+					}),
+			)
+			.mockRejectedValueOnce(new Error('private provider failure'))
+		renderRoute()
+		fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hello there' }))
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Older thread' }))
+		const action = screen.getByRole('button', { name: 'Mark selected as read' })
+		fireEvent.click(action)
+		fireEvent.click(action)
+		await waitFor(() => expect(finish).toBeTypeOf('function'))
+		expect(action).toHaveProperty('disabled', true)
+		expect(screen.getByRole('button', { name: 'Done selecting' })).toHaveProperty('disabled', true)
+		await act(async () => finish?.())
+		expect(fns.updateThreadState.mock.calls.map(([arg]: any) => arg.data.threadId)).toEqual(['t1', 't0'])
+		expect(screen.queryByRole('alert')?.textContent).toContain('1 conversation')
+		await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+		expect(screen.getByRole('alert').textContent).not.toContain('private provider')
+		expect(screen.getByRole('checkbox', { name: 'Select Older thread' })).toHaveProperty('checked', true)
+		fireEvent.click(action)
+		await waitFor(() => expect(screen.getByText('0 selected')).toBeTruthy())
+		expect(fns.updateThreadState.mock.calls.map(([arg]: any) => arg.data.threadId)).toEqual([
+			't1',
+			't0',
+			't0',
+		])
+	})
+
+	it('resets selection when the query or folder scope changes even if result ids overlap', () => {
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		const view = renderRoute(client)
+		const select = () => {
+			fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+			fireEvent.click(screen.getByRole('checkbox', { name: 'Select all loaded conversations' }))
+			expect(screen.getByText('4 selected')).toBeTruthy()
+		}
+		const refresh = () => {
+			const Comp = Route.options.component as () => JSX.Element
+			view.rerender(
+				<QueryClientProvider client={client}>
+					<Comp />
+				</QueryClientProvider>,
+			)
+		}
+		select()
+		Route.useSearch = vi.fn(() => ({ q: 'different' }))
+		refresh()
+		expect(screen.queryByRole('group', { name: 'Bulk mail selection' })).toBeNull()
+		select()
+		const previous = Route.useLoaderData()
+		Route.useLoaderData = vi.fn(() => ({ ...previous, folderId: 'inbox' }))
+		refresh()
+		expect(screen.queryByRole('group', { name: 'Bulk mail selection' })).toBeNull()
+		expect(fns.updateThreadState).not.toHaveBeenCalled()
+	})
+
 	it('renders scoped results with an unread badge and a placeholder detail pane', () => {
 		const { container } = renderRoute()
 

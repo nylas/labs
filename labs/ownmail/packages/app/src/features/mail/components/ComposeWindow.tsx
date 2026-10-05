@@ -18,6 +18,7 @@ import { saveComposeRecipients } from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
 import { Chip, PillRow } from '#shared/components/ui/chip'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
@@ -135,7 +136,7 @@ export function ComposeWindow({
 	const draft = seed.kind === 'draft' ? seed.draft : null
 	const reply = seed.kind === 'draft' ? null : seed
 	const queryClient = useQueryClient()
-	const saveDraftMutation = useSaveDraftMutation()
+	const { mutateAsync: saveDraft } = useSaveDraftMutation()
 	const sendDraftMutation = useSendDraftMutation()
 	const deleteDraftMutation = useDeleteDraftMutation()
 	const [to, setTo] = useState(draft?.to?.map((person) => person.email).join(', ') ?? reply?.to ?? '')
@@ -145,8 +146,18 @@ export function ComposeWindow({
 	const [body, setBody] = useState(draftBody)
 	const initialFocusTarget = useRef(composeFocusTarget({ to, subject, isReply: Boolean(replyToMessageId) }))
 	const [busy, setBusy] = useState(false)
+	const [confirmation, setConfirmation] = useState<'discard' | 'send' | null>(null)
+	const confirmationRef = useRef<'discard' | 'send' | null>(null)
+	const confirmationReturnFocus = useRef<HTMLElement | null>(null)
+	const confirmationCancelRef = useRef<HTMLButtonElement>(null)
+	const manualSaving = useRef(false)
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const [autosaveFailed, setAutosaveFailed] = useState(false)
+	const [recipientDraft, setRecipientDraft] = useState(to)
+	const draftRevision = useRef(0)
+	const savedSnapshot = useRef<DraftPersistenceInput | null>(null)
+	const initialDraft = useRef(draft)
 	const [error, setError] = useState<string | null>(null)
 	const [recipientError, setRecipientError] = useState<string | null>(null)
 	const dirty = useRef(false)
@@ -168,17 +179,41 @@ export function ComposeWindow({
 	const [savingDraft, setSavingDraft] = useState(false)
 	const mobileCompose = useMobileComposePresentation()
 	const [preferences] = useUserPreferences()
+	const currentRecipients = useCallback(
+		() => recipientInputRef.current?.getCurrentValue() ?? recipientDraft,
+		[recipientDraft],
+	)
 
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
 	useEffect(() => {
-		setBody(seedToMarkdown(draftBody))
+		const decodedBody = seedToMarkdown(draftBody)
+		if (initialDraft.current) {
+			savedSnapshot.current = {
+				to: initialDraft.current.to?.map((person) => person.email).join(', ') ?? '',
+				subject: initialDraft.current.subject ?? '',
+				body: decodedBody,
+				attachments: [],
+			}
+		}
+		setBody(decodedBody)
 	}, [draftBody])
 	const navigateAfterClose = onClosed
 
+	const requestConfirmation = useCallback((action: 'discard' | 'send') => {
+		confirmationReturnFocus.current = document.activeElement as HTMLElement | null
+		confirmationRef.current = action
+		setConfirmation(action)
+	}, [])
+
+	function dismissConfirmation() {
+		confirmationRef.current = null
+		setConfirmation(null)
+	}
+
 	const persistDraft = useCallback(
-		async ({ to, subject, body, attachments, replyToMessageId }: DraftPersistenceInput) => {
-			const savedDraft = await saveDraftMutation.mutateAsync({
+		async ({ to, subject, body, attachments, replyToMessageId }: DraftPersistenceInput, revision: number) => {
+			const savedDraft = await saveDraft({
 				...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
 				to,
 				subject,
@@ -188,18 +223,24 @@ export function ComposeWindow({
 				...(replyToMessageId ? { replyToMessageId } : {}),
 			})
 			draftIdRef.current = savedDraft.draftId
-			dirty.current = false
-			setSaved(true)
+			savedSnapshot.current = { to, subject, body, attachments, replyToMessageId }
+			// A slower save must not mark text typed since it started as safely stored.
+			if (revision === draftRevision.current) {
+				dirty.current = false
+				setSaved(true)
+				setAutosaveFailed(false)
+			}
 			return savedDraft.draftId
 		},
-		[saveDraftMutation],
+		[saveDraft],
 	)
 
 	const queueDraftPersistence = useCallback(
 		(input: DraftPersistenceInput) => {
+			const revision = draftRevision.current
 			draftQueuePending.current += 1
 			setSavingDraft(true)
-			const queued = draftQueue.current.then(() => persistDraft(input))
+			const queued = draftQueue.current.then(() => persistDraft(input, revision))
 			draftQueue.current = queued.then(
 				() => undefined,
 				() => undefined,
@@ -220,10 +261,18 @@ export function ComposeWindow({
 	)
 
 	const close = useCallback(async () => {
-		if (closingRef.current || submitting.current || discarding.current) return
+		if (
+			closingRef.current ||
+			submitting.current ||
+			discarding.current ||
+			manualSaving.current ||
+			confirmationRef.current
+		)
+			return
 
-		const hasVisibleDraft = Boolean(to || subject || body || attachmentsRef.current.length)
-		if (!hasVisibleDraft && !attachingRef.current) {
+		const currentTo = currentRecipients()
+		const hasVisibleDraft = Boolean(currentTo || subject || body || attachmentsRef.current.length)
+		if (!hasVisibleDraft && !draftIdRef.current && !attachingRef.current) {
 			navigateAfterClose()
 			return
 		}
@@ -242,7 +291,7 @@ export function ComposeWindow({
 			// attachment that just finished reading (a failed read returned above).
 			await draftQueue.current
 			await queueDraftPersistence({
-				to,
+				to: currentTo,
 				subject,
 				body,
 				attachments: attachmentsRef.current,
@@ -254,33 +303,62 @@ export function ComposeWindow({
 			closingRef.current = false
 			setClosing(false)
 		}
-	}, [body, navigateAfterClose, queueDraftPersistence, replyToMessageId, subject, to])
+	}, [body, navigateAfterClose, queueDraftPersistence, replyToMessageId, subject, currentRecipients])
 
 	// Autosave a draft 3s after the last edit.
 	useEffect(() => {
+		draftRevision.current += 1
+		const currentTo = currentRecipients()
+		const snapshot = savedSnapshot.current
+		if (
+			draftQueuePending.current === 0 &&
+			snapshot &&
+			snapshot.to === currentTo &&
+			snapshot.subject === subject &&
+			snapshot.body === body &&
+			snapshot.attachments.length === attachments.length &&
+			snapshot.attachments.every((attachment, index) => attachment === attachments[index])
+		) {
+			dirty.current = false
+			setSaved(true)
+			setAutosaveFailed(false)
+			return
+		}
 		dirty.current = true
+		setSaved(false)
 		const timer = setTimeout(async () => {
 			if (
 				submitting.current ||
 				discarding.current ||
 				!dirty.current ||
-				(!to && !subject && !body && attachments.length === 0)
+				(!currentTo && !subject && !body && attachments.length === 0 && !draftIdRef.current)
 			)
 				return
 			try {
-				await queueDraftPersistence({ to, subject, body, attachments, replyToMessageId })
+				await queueDraftPersistence({ to: currentTo, subject, body, attachments, replyToMessageId })
 			} catch {
-				// autosave is best-effort
+				setAutosaveFailed(true)
 			}
 		}, 3000)
 		return () => clearTimeout(timer)
-	}, [to, subject, body, attachments, replyToMessageId, queueDraftPersistence])
+	}, [subject, body, attachments, replyToMessageId, queueDraftPersistence, currentRecipients])
 
 	useEffect(() => {
-		if (!saved) return
-		const timer = setTimeout(() => setSaved(false), 2500)
-		return () => clearTimeout(timer)
-	}, [saved])
+		function warnUnsaved(event: BeforeUnloadEvent) {
+			const currentTo = currentRecipients()
+			const hasContent = Boolean(currentTo || subject || body || attachmentsRef.current.length)
+			if (
+				(dirty.current && (hasContent || draftIdRef.current)) ||
+				draftQueuePending.current > 0 ||
+				attachingRef.current
+			) {
+				event.preventDefault()
+				event.returnValue = ''
+			}
+		}
+		window.addEventListener('beforeunload', warnUnsaved)
+		return () => window.removeEventListener('beforeunload', warnUnsaved)
+	}, [body, subject, currentRecipients])
 
 	async function addAttachments(files: FileList | null) {
 		if (!files?.length) return
@@ -329,82 +407,111 @@ export function ComposeWindow({
 		dirty.current = true
 	}
 
-	const submit = useCallback(async () => {
-		const currentTo = recipientInputRef.current?.getCurrentValue() ?? to
-		const recipientValidation = validateRecipientEmails(currentTo, { required: true })
-		if (recipientValidation.error) {
-			setRecipientError(
-				recipientValidation.error === 'required'
-					? 'Add at least one recipient before sending.'
-					: 'Enter a valid email address for each recipient before sending.',
+	const submit = useCallback(
+		async (allowEmptySubject = false) => {
+			if (
+				submitting.current ||
+				discarding.current ||
+				closingRef.current ||
+				attachingRef.current ||
+				manualSaving.current ||
+				confirmationRef.current
 			)
-			setError(null)
-			focusComposeTarget('compose-to')
-			return
-		}
-
-		setRecipientError(null)
-		if (currentTo !== to) setTo(currentTo)
-		submitting.current = true
-		setBusy(true)
-		setError(null)
-		try {
-			const id = await queueDraftPersistence({
-				to: currentTo,
-				subject,
-				body,
-				attachments: attachmentsRef.current,
-				replyToMessageId,
-			})
-			await sendDraftMutation.mutateAsync({
-				draftId: id,
-				to: currentTo,
-				subject,
-				// The editor holds markdown; outgoing mail carries inline-styled HTML.
-				body: markdownToEmailHtml(body),
-				// The provider draft was just saved with the current attachments.
-				// sendDraft restores them server-side, avoiding duplicate files.
-				...(replyToMessageId ? { replyToMessageId } : {}),
-			})
-			if (preferences.autoSaveContacts) {
-				void runTrackedWrite(queryClient, () =>
-					saveComposeRecipients({
-						data: {
-							emails: recipientValidation.emails,
-						},
-					}),
+				return
+			const currentTo = currentRecipients()
+			const recipientValidation = validateRecipientEmails(currentTo, { required: true })
+			if (recipientValidation.error) {
+				setRecipientError(
+					recipientValidation.error === 'required'
+						? 'Add at least one recipient before sending.'
+						: 'Enter a valid email address for each recipient before sending.',
 				)
-					.then((receipt) => {
-						for (const contact of receipt.contacts) {
-							applyContactEffect(queryClient, { type: 'created', contact })
-						}
-					})
-					.catch(() => undefined)
+				setError(null)
+				focusComposeTarget('compose-to')
+				return
 			}
-			onSent()
-		} catch {
-			setError('Could not send your message. Check your connection, then try again.')
-			setBusy(false)
-			submitting.current = false
-		}
-	}, [
-		body,
-		onSent,
-		preferences.autoSaveContacts,
-		queryClient,
-		queueDraftPersistence,
-		replyToMessageId,
-		sendDraftMutation,
-		subject,
-		to,
-	])
+
+			setRecipientError(null)
+			if (currentTo !== to) setTo(currentTo)
+			if (!subject.trim() && !allowEmptySubject) {
+				requestConfirmation('send')
+				return
+			}
+			submitting.current = true
+			setBusy(true)
+			setError(null)
+			try {
+				const id = await queueDraftPersistence({
+					to: currentTo,
+					subject,
+					body,
+					attachments: attachmentsRef.current,
+					replyToMessageId,
+				})
+				await sendDraftMutation.mutateAsync({
+					draftId: id,
+					to: currentTo,
+					subject,
+					// The editor holds markdown; outgoing mail carries inline-styled HTML.
+					body: markdownToEmailHtml(body),
+					// The provider draft was just saved with the current attachments.
+					// sendDraft restores them server-side, avoiding duplicate files.
+					...(replyToMessageId ? { replyToMessageId } : {}),
+				})
+				if (preferences.autoSaveContacts) {
+					void runTrackedWrite(queryClient, () =>
+						saveComposeRecipients({
+							data: {
+								emails: recipientValidation.emails,
+							},
+						}),
+					)
+						.then((receipt) => {
+							for (const contact of receipt.contacts) {
+								applyContactEffect(queryClient, { type: 'created', contact })
+							}
+						})
+						.catch(() => undefined)
+				}
+				onSent()
+			} catch {
+				setError('Could not send your message. Check your connection, then try again.')
+				setBusy(false)
+				submitting.current = false
+			}
+		},
+		[
+			body,
+			onSent,
+			currentRecipients,
+			preferences.autoSaveContacts,
+			queryClient,
+			queueDraftPersistence,
+			replyToMessageId,
+			requestConfirmation,
+			sendDraftMutation,
+			subject,
+			to,
+		],
+	)
 
 	const saveNow = useCallback(async () => {
+		if (
+			submitting.current ||
+			discarding.current ||
+			closingRef.current ||
+			attachingRef.current ||
+			manualSaving.current ||
+			confirmationRef.current
+		)
+			return
+		manualSaving.current = true
 		setBusy(true)
 		setError(null)
+		setAutosaveFailed(false)
 		try {
 			await queueDraftPersistence({
-				to,
+				to: currentRecipients(),
 				subject,
 				body,
 				attachments: attachmentsRef.current,
@@ -413,11 +520,33 @@ export function ComposeWindow({
 		} catch (error) {
 			setError(draftSaveErrorMessage(error))
 		} finally {
+			manualSaving.current = false
 			setBusy(false)
 		}
-	}, [body, queueDraftPersistence, replyToMessageId, subject, to])
+	}, [body, queueDraftPersistence, replyToMessageId, subject, currentRecipients])
 
-	async function discard() {
+	async function discard(confirmed = false) {
+		if (
+			submitting.current ||
+			discarding.current ||
+			closingRef.current ||
+			attachingRef.current ||
+			manualSaving.current ||
+			confirmationRef.current
+		)
+			return
+		if (
+			!confirmed &&
+			(to.trim() ||
+				recipientInputRef.current?.getCurrentValue().trim() ||
+				subject.trim() ||
+				body.trim() ||
+				attachmentsRef.current.length ||
+				draft?.attachments?.length)
+		) {
+			requestConfirmation('discard')
+			return
+		}
 		discarding.current = true
 		setBusy(true)
 		setError(null)
@@ -435,7 +564,7 @@ export function ComposeWindow({
 
 	useEffect(() => {
 		const timer = setTimeout(() => {
-			focusComposeTarget(initialFocusTarget.current)
+			if (!confirmationRef.current) focusComposeTarget(initialFocusTarget.current)
 			// Inline in a thread, the whole card comes into view, Send included.
 			composePanelRef.current?.scrollIntoView?.({ block: 'nearest' })
 		}, 0)
@@ -443,7 +572,7 @@ export function ComposeWindow({
 	}, [])
 
 	useEffect(() => {
-		if (!mobileCompose || minimized) return
+		if (!mobileCompose || minimized || confirmation) return
 		function trapMobileComposeFocus(event: KeyboardEvent) {
 			if (event.key !== 'Tab') return
 			const panel = composePanelRef.current
@@ -468,10 +597,11 @@ export function ComposeWindow({
 		}
 		document.addEventListener('keydown', trapMobileComposeFocus)
 		return () => document.removeEventListener('keydown', trapMobileComposeFocus)
-	}, [minimized, mobileCompose])
+	}, [confirmation, minimized, mobileCompose])
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
+			if (confirmationRef.current) return
 			if (!composePanelRef.current?.contains(event.target as Node) || event.defaultPrevented) return
 			const target = event.target as HTMLElement | null
 			const isTyping =
@@ -540,7 +670,11 @@ export function ComposeWindow({
 			>
 				<div className="flex min-w-0 items-center gap-2">
 					<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
-					{busy ? <span className="text-xs shrink-0 text-muted-foreground">Sending…</span> : null}
+					{busy ? (
+						<span className="text-xs shrink-0 text-muted-foreground">
+							{submitting.current ? 'Sending…' : discarding.current ? 'Discarding…' : 'Saving…'}
+						</span>
+					) : null}
 					{!busy && attaching ? (
 						<span className="text-xs shrink-0 text-muted-foreground">Attaching…</span>
 					) : null}
@@ -550,13 +684,27 @@ export function ComposeWindow({
 					{!busy && !attaching && !closing && !savingDraft && saved ? (
 						<span className="text-xs shrink-0 text-muted-foreground">Saved</span>
 					) : null}
+					{!busy &&
+					!attaching &&
+					!closing &&
+					!savingDraft &&
+					!saved &&
+					(recipientDraft || to || subject || body || attachments.length || draftIdRef.current) ? (
+						<span className="text-xs shrink-0 text-muted-foreground">Unsaved changes</span>
+					) : null}
 				</div>
 				<div className="flex items-center gap-1">
 					<Button
 						type="button"
 						variant="ghost"
 						size="icon"
-						onClick={() => setMinimized((value) => !value)}
+						onClick={() => {
+							// Preserve an uncommitted recipient before its field unmounts.
+							const recipients = currentRecipients()
+							setTo(recipients)
+							setRecipientDraft(recipients)
+							setMinimized((value) => !value)
+						}}
 						aria-label={minimized ? 'Restore composer' : 'Minimize composer'}
 						aria-expanded={!minimized}
 						className={cn(
@@ -573,13 +721,54 @@ export function ComposeWindow({
 						size="icon"
 						onClick={() => void close()}
 						disabled={busy || closing}
-						aria-label="Close"
+						aria-label="Save and close"
+						title="Save and close"
 						className="flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
 					>
 						<X className="h-4 w-4" />
 					</Button>
 				</div>
 			</div>
+
+			<Dialog open={confirmation !== null} onOpenChange={dismissConfirmation}>
+				<DialogContent
+					className="p-6"
+					aria-describedby="compose-confirmation-description"
+					onOpenAutoFocus={(event) => {
+						event.preventDefault()
+						confirmationCancelRef.current?.focus()
+					}}
+					onCloseAutoFocus={(event) => {
+						event.preventDefault()
+						if (!submitting.current && !discarding.current) confirmationReturnFocus.current?.focus()
+					}}
+				>
+					<DialogTitle className="text-base font-semibold">
+						{confirmation === 'discard' ? 'Discard this draft?' : 'Send without a subject?'}
+					</DialogTitle>
+					<p id="compose-confirmation-description" className="mt-2 text-sm text-muted-foreground">
+						{confirmation === 'discard'
+							? 'Your message and attachments will be deleted. This cannot be undone.'
+							: 'A subject helps your recipients recognize and find your message.'}
+					</p>
+					<div className="mt-6 flex flex-wrap justify-end gap-2">
+						<Button ref={confirmationCancelRef} variant="outline" onClick={dismissConfirmation}>
+							{confirmation === 'discard' ? 'Keep draft' : 'Keep editing'}
+						</Button>
+						<Button
+							variant={confirmation === 'discard' ? 'destructive' : 'default'}
+							onClick={() => {
+								const action = confirmationRef.current
+								dismissConfirmation()
+								if (action === 'discard') void discard(true)
+								else if (action === 'send') void submit(true)
+							}}
+						>
+							{confirmation === 'discard' ? 'Discard permanently' : 'Send without subject'}
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
 
 			{!minimized ? (
 				<>
@@ -592,12 +781,15 @@ export function ComposeWindow({
 									id="compose-to"
 									value={to}
 									onChange={setTo}
-									onEdit={() => setRecipientError(null)}
+									onEdit={() => {
+										setRecipientError(null)
+										setRecipientDraft(currentRecipients())
+									}}
 									placeholder="recipient@email.com"
 									className="flex-1"
 									// The row draws the one focus ring, as the subject row does.
 									inputClassName="compose-field focus-visible:ring-0"
-									disabled={closing}
+									disabled={busy || closing}
 									invalid={Boolean(recipientError)}
 									describedBy={recipientError ? 'compose-recipient-error' : undefined}
 								/>
@@ -616,7 +808,7 @@ export function ComposeWindow({
 							<input
 								id="compose-subject"
 								value={subject}
-								disabled={closing}
+								disabled={busy || closing}
 								onChange={(event) => setSubject(event.target.value)}
 								className="compose-field h-12 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-wait disabled:opacity-60"
 							/>
@@ -627,7 +819,7 @@ export function ComposeWindow({
 						id="compose-body"
 						value={body}
 						onChange={setBody}
-						readOnly={closing}
+						readOnly={busy || closing}
 						className="min-h-0 flex-1"
 					/>
 
@@ -639,7 +831,7 @@ export function ComposeWindow({
 									action={
 										<IconButton
 											label={`Remove ${attachment.filename}`}
-											disabled={closing}
+											disabled={busy || closing}
 											onClick={() => removeAttachment(index)}
 											className="disabled:cursor-wait"
 										>
@@ -657,15 +849,26 @@ export function ComposeWindow({
 						</PillRow>
 					) : null}
 					{error ? <ErrorBanner message={error} /> : null}
+					{autosaveFailed ? (
+						<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2">
+							<p role="alert" className="min-w-0 flex-1 text-sm text-destructive">
+								Draft not saved. Keep this window open and try again.
+							</p>
+							<Button variant="outline" disabled={busy || attaching || closing} onClick={saveNow}>
+								Retry save
+							</Button>
+						</div>
+					) : null}
 					<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))] md:pb-3">
 						<Button
 							type="button"
 							disabled={busy || attaching || closing}
-							onClick={submit}
+							onClick={() => void submit()}
 							aria-keyshortcuts="Meta+Enter Control+Enter"
 							className="font-semibold"
 						>
-							<Send className="h-4 w-4" /> {attaching ? 'Attaching...' : busy ? 'Sending...' : 'Send'}
+							<Send className="h-4 w-4" />{' '}
+							{attaching ? 'Attaching...' : submitting.current ? 'Sending...' : 'Send'}
 						</Button>
 						<span className="shortcut-hint text-xs text-muted-foreground" aria-hidden="true">
 							⌘↵
@@ -677,7 +880,7 @@ export function ComposeWindow({
 							onClick={saveNow}
 							aria-label="Save draft"
 						>
-							<Save className="h-4 w-4" /> <span className="hidden md:inline">Save draft</span>
+							<Save className="h-4 w-4" /> <span>Save draft</span>
 						</Button>
 						<Button
 							type="button"
@@ -706,7 +909,7 @@ export function ComposeWindow({
 							variant="ghost"
 							size="icon"
 							disabled={busy || attaching || closing}
-							onClick={discard}
+							onClick={() => void discard()}
 							aria-label="Discard draft"
 							className="ml-auto hover:text-destructive"
 						>

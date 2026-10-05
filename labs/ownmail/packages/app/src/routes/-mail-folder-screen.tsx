@@ -3,7 +3,9 @@ import { FileText, Loader2, Reply, Star, Trash2 } from 'lucide-react'
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
+import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import {
@@ -24,8 +26,10 @@ import {
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import type { MailDraft, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
+import { useBulkTriage } from '#features/mail/state/use-bulk-triage'
 import { getThreads, updateThreadState } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
+import { Button } from '#shared/components/ui/button'
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -34,6 +38,7 @@ import {
 	ContextMenuShortcut,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
@@ -120,6 +125,37 @@ function LoadedMailFolderRouteScreen({
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const navigate = useNavigate()
 	const { openCompose, composing } = useCompose()
+	// This state survives optimistic removal of the row, including rollback on failure.
+	const [discardTarget, setDiscardTarget] = useState<MailDraft | null>(null)
+	const [discardError, setDiscardError] = useState<string | null>(null)
+	const [discardPending, setDiscardPending] = useState(false)
+	const discardPendingRef = useRef(false)
+	const discardReturnFocus = useRef<HTMLElement | null>(null)
+	const discardReturnId = useRef<string | undefined>(undefined)
+	const discardCancelRef = useRef<HTMLButtonElement>(null)
+	const requestDiscard = useCallback((draft: MailDraft, row: HTMLElement | null) => {
+		discardReturnFocus.current = row
+		discardReturnId.current = draft.id
+		setDiscardError(null)
+		setDiscardTarget(draft)
+	}, [])
+
+	async function confirmDiscard() {
+		if (!discardTarget || !onDiscardDraft || discardPendingRef.current) return
+		discardPendingRef.current = true
+		setDiscardPending(true)
+		setDiscardError(null)
+		try {
+			await onDiscardDraft(discardTarget.id)
+			setDiscardTarget(null)
+		} catch {
+			setDiscardError('Could not discard the draft. Check your connection, then try again.')
+		} finally {
+			discardPendingRef.current = false
+			setDiscardPending(false)
+		}
+	}
+
 	const folderIdentity = JSON.stringify([folderId, initialCursor])
 	// Paged-in rows, the pagination status and the keyboard cursor belong to one
 	// folder and first page. They are stored with that identity and read back
@@ -201,6 +237,15 @@ function LoadedMailFolderRouteScreen({
 		() => [...threads].sort((a, b) => (threadTimestamp(b) ?? 0) - (threadTimestamp(a) ?? 0)),
 		[threads],
 	)
+	const selection = useBulkTriage({
+		identity: folderId,
+		threads: sortedThreads,
+		update: async (input) => {
+			if (onUpdateThread) await onUpdateThread(input)
+			else await updateThreadState({ data: input })
+		},
+	})
+
 	// Rows that stay slide into the gap a removed row leaves (design.md "Motion" clause 5).
 	useFlipList(listScrollRef, sortedThreads.map((thread) => thread.id).join(' '))
 	const unreadCount = folderCount(folders, folderId)
@@ -293,6 +338,7 @@ function LoadedMailFolderRouteScreen({
 	// or when a modifier is held so app/browser shortcuts keep working.
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
+			if (selection.selecting) return
 			const target = event.target instanceof HTMLElement ? event.target : null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
@@ -351,7 +397,16 @@ function LoadedMailFolderRouteScreen({
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, destinationThreadId, navItems, openItem, openThreadId, scheduleOpen, setCursor])
+	}, [
+		cursor,
+		destinationThreadId,
+		navItems,
+		openItem,
+		openThreadId,
+		scheduleOpen,
+		selection.selecting,
+		setCursor,
+	])
 
 	async function loadMore() {
 		if (!nextCursor || loadMorePendingRef.current === folderIdentity || loadingMore || folderId === 'drafts')
@@ -420,7 +475,7 @@ function LoadedMailFolderRouteScreen({
 			scrollRestorationId={`mail-list:${folderId}`}
 			aria-label={`${folderTitle} thread list`}
 			viewportRef={listScrollRef}
-			viewportClassName={cn(UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
+			viewportClassName={cn(!selection.selecting && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
 			className="min-h-0 flex-1"
 		>
 			{folderId === 'drafts' ? (
@@ -432,7 +487,7 @@ function LoadedMailFolderRouteScreen({
 							key={draft.id}
 							draft={draft}
 							navActive={cursor === index}
-							onDiscardDraft={onDiscardDraft}
+							onRequestDiscard={onDiscardDraft ? requestDiscard : undefined}
 						/>
 					))
 				)
@@ -451,6 +506,15 @@ function LoadedMailFolderRouteScreen({
 							onRespondToThread={onRespondToThread}
 							navActive={cursor === index}
 							onUpdateThread={onUpdateThread}
+							selection={
+								selection.selecting
+									? {
+											checked: selection.selectedIds.includes(thread.id),
+											disabled: selection.pending,
+											onToggle: () => selection.toggle(thread.id),
+										}
+									: undefined
+							}
 						/>
 					))}
 					{paginationControls}
@@ -461,30 +525,86 @@ function LoadedMailFolderRouteScreen({
 
 	return (
 		<div className={layout.container} data-mail-panes>
+			<Dialog
+				open={discardTarget !== null}
+				onOpenChange={(open) => {
+					if (!open && !discardPendingRef.current) setDiscardTarget(null)
+				}}
+			>
+				<DialogContent
+					className="p-6"
+					aria-describedby="draft-discard-description"
+					aria-busy={discardPending}
+					onOpenAutoFocus={(event) => {
+						event.preventDefault()
+						discardCancelRef.current?.focus()
+					}}
+					onCloseAutoFocus={(event) => {
+						event.preventDefault()
+						if (discardReturnFocus.current?.isConnected) discardReturnFocus.current.focus()
+						else {
+							const rows = [...(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? [])]
+							focusNavRow(rows.find((row) => row.dataset.draftId === discardReturnId.current) ?? rows[0])
+						}
+					}}
+				>
+					<DialogTitle className="text-base font-semibold">Discard this draft?</DialogTitle>
+					<p id="draft-discard-description" className="mt-2 break-words text-sm text-muted-foreground">
+						“{discardTarget?.subject || '(no subject)'}” and its attachments will be deleted. This cannot be
+						undone.
+					</p>
+					{discardError ? <ErrorBanner message={discardError} /> : null}
+					<div className="mt-6 flex flex-wrap justify-end gap-2">
+						<Button
+							ref={discardCancelRef}
+							variant="outline"
+							disabled={discardPending}
+							onClick={() => setDiscardTarget(null)}
+						>
+							Keep draft
+						</Button>
+						<Button variant="destructive" disabled={discardPending} onClick={() => void confirmDiscard()}>
+							{discardPending ? 'Discarding…' : 'Discard permanently'}
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
 			<section
 				className={layout.list}
 				data-mail-list
 				data-navigation-region="mail-list"
 				data-density={preferences.listDensity}
 			>
-				<Toolbar pinned className="justify-between px-4">
-					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
-					<div className="flex items-center gap-1">
-						{unreadCount > 0 ? (
-							<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-								{unreadCount}
-							</span>
-						) : null}
-						{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
-						<ListDensityMenu
-							value={preferences.listDensity}
-							onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
-						/>
-						<ReadingPaneMenu
-							value={preferences.readingPane}
-							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
-						/>
-					</div>
+				<Toolbar
+					pinned={!selection.selecting}
+					className={cn('justify-between px-4', selection.selecting && 'h-auto min-h-12 py-2')}
+				>
+					{selection.selecting ? (
+						<BulkMailToolbar selection={selection} />
+					) : (
+						<>
+							<h1 className="min-w-0 truncate font-display text-base font-semibold capitalize">
+								{folderTitle}
+							</h1>
+							<div className="flex items-center gap-1">
+								{unreadCount > 0 ? (
+									<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+										{unreadCount}
+									</span>
+								) : null}
+								{folderId !== 'drafts' ? <BulkMailToolbar selection={selection} /> : null}
+								{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
+								<ListDensityMenu
+									value={preferences.listDensity}
+									onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
+								/>
+								<ReadingPaneMenu
+									value={preferences.readingPane}
+									onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
+								/>
+							</div>
+						</>
+					)}
 				</Toolbar>
 
 				{onRefresh ? (
@@ -547,20 +667,26 @@ function focusNavRow(row: HTMLElement | undefined) {
 const DraftRow = memo(function DraftRow({
 	draft,
 	navActive,
-	onDiscardDraft,
+	onRequestDiscard,
 }: {
 	draft: MailDraft
 	navActive: boolean
-	onDiscardDraft?: (draftId: string) => Promise<void>
+	onRequestDiscard?: (draft: MailDraft, row: HTMLElement | null) => void
 }) {
 	const { openCompose } = useCompose()
 	const openDraft = () => void openCompose({ kind: 'draft', draftId: draft.id })
-	// A failed discard belongs to this draft: rows are keyed by draft id.
-	const [discardError, setDiscardError] = useState<string | null>(null)
+	const rowRef = useRef<HTMLButtonElement>(null)
+	const openingConfirmation = useRef(false)
 	return (
-		<ContextMenu>
+		<ContextMenu
+			onOpenChange={(open) => {
+				if (open) openingConfirmation.current = false
+			}}
+		>
 			<ContextMenuTrigger asChild>
 				<button
+					ref={rowRef}
+					data-draft-id={draft.id}
 					type="button"
 					onClick={openDraft}
 					data-nav-row=""
@@ -574,27 +700,26 @@ const DraftRow = memo(function DraftRow({
 						subject={draft.subject}
 						snippet={draft.snippet}
 					/>
-					<ThreadRowError message={discardError} />
 				</button>
 			</ContextMenuTrigger>
-			<ContextMenuContent aria-label={`Actions for draft ${draft.subject || '(no subject)'}`}>
+			<ContextMenuContent
+				aria-label={`Actions for draft ${draft.subject || '(no subject)'}`}
+				onCloseAutoFocus={(event) => {
+					if (openingConfirmation.current) event.preventDefault()
+				}}
+			>
 				<ContextMenuItem aria-keyshortcuts="Enter" onSelect={openDraft}>
 					<FileText aria-hidden="true" />
 					Open draft
 					<ContextMenuShortcut>Enter</ContextMenuShortcut>
 				</ContextMenuItem>
 				<ContextMenuSeparator />
-				{/* The composer discards without a confirmation; so does this. The
-				    optimistic removal is rolled back by the mutation if it fails,
-				    and the row says so in the composer's words. */}
 				<ContextMenuItem
 					variant="destructive"
-					disabled={!onDiscardDraft}
+					disabled={!onRequestDiscard}
 					onSelect={() => {
-						setDiscardError(null)
-						void onDiscardDraft?.(draft.id).catch(() =>
-							setDiscardError('Could not discard the draft. Check your connection, then try again.'),
-						)
+						openingConfirmation.current = true
+						onRequestDiscard?.(draft, rowRef.current)
 					}}
 				>
 					<Trash2 aria-hidden="true" />
@@ -615,8 +740,10 @@ const ThreadRow = memo(function ThreadRow({
 	navActive,
 	onUpdateThread,
 	onRespondToThread,
+	selection,
 }: {
 	thread: MailThread
+	selection?: { checked: boolean; disabled: boolean; onToggle: () => void }
 	folderId: string
 	baseFolderId?: string
 	active?: boolean
@@ -701,7 +828,7 @@ const ThreadRow = memo(function ThreadRow({
 	const menu = {
 		thread: optimisticThread,
 		folderId,
-		busy: busy || starPending,
+		busy: busy || starPending || Boolean(selection),
 		// The folder reader's shortcuts act on the conversation open beside the list.
 		readerShortcuts: open,
 		onOpen: openThread,
@@ -715,23 +842,35 @@ const ThreadRow = memo(function ThreadRow({
 	return (
 		<ThreadRowMenu {...menu}>
 			<div className={className} tabIndex={-1} {...rowState} data-flip-id={thread.id}>
-				<Link
-					to="/mail/f/$folderId/t/$threadId"
-					params={{ folderId, threadId: thread.id }}
-					search={baseFolderId ? { baseFolderId } : {}}
-					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
-					className={THREAD_ROW_LINK_CLASS}
-					activeProps={{ 'data-active': 'true' }}
-					aria-current={active ? 'true' : undefined}
-					data-active={active ? 'true' : undefined}
-					data-nav-cursor={navActive ? 'true' : undefined}
-					data-unread={optimisticThread.unread ? 'true' : undefined}
-				/>
+				{selection ? (
+					<button
+						type="button"
+						className={THREAD_ROW_LINK_CLASS}
+						aria-label={`Toggle selection for ${thread.subject || '(no subject)'}`}
+						aria-pressed={selection.checked}
+						disabled={selection.disabled}
+						onClick={selection.onToggle}
+					/>
+				) : (
+					<Link
+						to="/mail/f/$folderId/t/$threadId"
+						params={{ folderId, threadId: thread.id }}
+						search={baseFolderId ? { baseFolderId } : {}}
+						aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+						className={THREAD_ROW_LINK_CLASS}
+						activeProps={{ 'data-active': 'true' }}
+						aria-current={active ? 'true' : undefined}
+						data-active={active ? 'true' : undefined}
+						data-nav-cursor={navActive ? 'true' : undefined}
+						data-unread={optimisticThread.unread ? 'true' : undefined}
+					/>
+				)}
 				<ThreadRowContent
 					thread={optimisticThread}
 					folderId={folderId}
 					onToggleStar={toggleStar}
 					starPending={starPending}
+					selection={selection}
 				/>
 				<ThreadRowError message={actionError} />
 			</div>

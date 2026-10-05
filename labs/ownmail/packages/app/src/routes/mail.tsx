@@ -4,6 +4,7 @@ import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-i
 import { latestDraftSummary, sidebarFolderCount } from '#features/mail/lib/mail-ui-model'
 import { draftsQueryOptions, foldersQueryOptions } from '#features/mail/state/mail-queries'
 import { getFolders, listDrafts } from '#server/fns'
+import { useMounted } from '#shared/components/ClientTime'
 import { seededData } from '#shared/lib/seeded-data'
 import { MailRouteScreen } from './-mail-screen'
 
@@ -46,6 +47,7 @@ function LoadedMailLayout({
 	initialInfo: Awaited<ReturnType<typeof ensureMailboxInfo>>
 	initialFolders: Awaited<ReturnType<typeof getFolders>>
 }) {
+	const mounted = useMounted()
 	const infoQuery = useQuery({
 		...mailboxInfoQueryOptions(),
 		initialData: initialInfo,
@@ -65,7 +67,9 @@ function LoadedMailLayout({
 		<MailRouteScreen
 			info={seededData(infoQuery.data, initialInfo)}
 			folders={folders}
-			latestDraft={latestDraftSummary(draftsQuery.data)}
+			// A child draft route may seed the server cache before this layout renders.
+			// The optional shortcut waits for hydration because that cache is not serialized.
+			latestDraft={mounted ? latestDraftSummary(draftsQuery.data) : undefined}
 		/>
 	)
 }

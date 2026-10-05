@@ -15,9 +15,11 @@ const saveDraft = vi.fn()
 const saveComposeRecipients = vi.fn()
 const sendDraft = vi.fn()
 const deleteDraft = vi.fn()
-const recipientInputMock = vi.hoisted(() => ({ keepDraftLocal: false }))
+const recipientInputMock = vi.hoisted(() => ({ keepDraftLocal: false, real: false }))
+const searchContacts = vi.fn()
 vi.mock('#server/fns', () => ({
 	saveDraft: (a: any) => saveDraft(a),
+	searchContacts: (a: any) => searchContacts(a),
 	saveComposeRecipients: (a: any) => saveComposeRecipients(a),
 	sendDraft: (a: any) => sendDraft(a),
 	deleteDraft: (a: any) => deleteDraft(a),
@@ -30,38 +32,48 @@ vi.mock('#server/fns', () => ({
 // composer must read it through the imperative `getCurrentValue` seam on send.
 vi.mock('#shared/components/RecipientInput', async () => {
 	const React = await vi.importActual<typeof import('react')>('react')
+	const actual = await vi.importActual<typeof import('#shared/components/RecipientInput')>(
+		'#shared/components/RecipientInput',
+	)
+	const MockRecipientInput = React.forwardRef(function MockRecipientInput(
+		{ id, value, onChange, onEdit, placeholder, disabled, invalid, describedBy, inputClassName }: any,
+		ref,
+	) {
+		const [localDraft, setLocalDraft] = React.useState<string | null>(null)
+		const currentValue = React.useRef(value)
+		currentValue.current = localDraft ?? value
+		React.useImperativeHandle(ref, () => ({ getCurrentValue: () => currentValue.current }), [])
+		return (
+			<input
+				id={id}
+				className={inputClassName}
+				aria-label="To"
+				aria-invalid={invalid || undefined}
+				aria-describedby={describedBy}
+				value={localDraft ?? value}
+				placeholder={placeholder}
+				disabled={disabled}
+				onChange={
+					disabled
+						? undefined
+						: (event) => {
+								currentValue.current = event.target.value
+								if (recipientInputMock.keepDraftLocal) setLocalDraft(event.target.value)
+								else onChange(event.target.value)
+								onEdit?.()
+							}
+				}
+			/>
+		)
+	})
 	return {
-		RecipientInput: React.forwardRef(function MockRecipientInput(
-			{ id, value, onChange, onEdit, placeholder, disabled, invalid, describedBy, inputClassName }: any,
-			ref,
-		) {
-			const [localDraft, setLocalDraft] = React.useState<string | null>(null)
-			const currentValue = React.useRef(value)
-			currentValue.current = localDraft ?? value
-			React.useImperativeHandle(ref, () => ({ getCurrentValue: () => currentValue.current }), [])
-			return (
-				<input
-					id={id}
-					className={inputClassName}
-					aria-label="To"
-					aria-invalid={invalid || undefined}
-					aria-describedby={describedBy}
-					value={localDraft ?? value}
-					placeholder={placeholder}
-					disabled={disabled}
-					onChange={
-						disabled
-							? undefined
-							: (event) => {
-									currentValue.current = event.target.value
-									if (recipientInputMock.keepDraftLocal) setLocalDraft(event.target.value)
-									else onChange(event.target.value)
-									onEdit?.()
-								}
-					}
-				/>
-			)
-		}),
+		RecipientInput: React.forwardRef((props: any, ref) =>
+			recipientInputMock.real ? (
+				<actual.RecipientInput {...props} ref={ref as any} label="To" />
+			) : (
+				<MockRecipientInput {...props} ref={ref} />
+			),
+		),
 	}
 })
 // The markdown editor is a unit of its own (see MarkdownEditor.render.test.tsx);
@@ -90,6 +102,8 @@ afterEach(() => {
 beforeEach(() => {
 	vi.clearAllMocks()
 	recipientInputMock.keepDraftLocal = false
+	recipientInputMock.real = false
+	searchContacts.mockResolvedValue([])
 	window.localStorage.removeItem('ownmail:user-preferences:v1')
 	saveDraft.mockResolvedValue({ draftId: 'new-draft', created: true })
 	saveComposeRecipients.mockResolvedValue({ contacts: [] })
@@ -316,7 +330,7 @@ describe('ComposeWindow window controls', () => {
 		expect(panel).toHaveClass('max-md:pr-[env(safe-area-inset-right)]')
 		expect(panel).toHaveClass('max-md:pl-[env(safe-area-inset-left)]')
 		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden', 'md:flex')
-		expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
+		expect(screen.getByRole('button', { name: 'Save and close' })).toHaveClass(
 			'size-9',
 			'max-md:size-11',
 			'[@media(any-pointer:coarse)]:size-11',
@@ -408,7 +422,7 @@ describe('ComposeWindow window controls', () => {
 		expect(screen.getByLabelText('To')).toHaveClass('compose-field', 'focus-visible:ring-0')
 		expect(screen.getByLabelText('To')).not.toHaveClass('focus-visible:ring-[3px]')
 
-		for (const name of ['Minimize composer', 'Close']) {
+		for (const name of ['Minimize composer', 'Save and close']) {
 			const control = screen.getByRole('button', { name })
 			expect(control).toHaveAttribute('data-slot', 'button')
 			expect(control).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
@@ -455,7 +469,7 @@ describe('ComposeWindow window controls', () => {
 describe('ComposeWindow close', () => {
 	it('closes an empty composer at once, without creating an empty draft', async () => {
 		const { onClosed } = renderWindow()
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1))
 		expect(saveDraft).not.toHaveBeenCalled()
 	})
@@ -466,7 +480,7 @@ describe('ComposeWindow close', () => {
 		const { onClosed } = renderWindow()
 		fireEvent.change(bodyField(), { target: { value: 'Latest draft text' } })
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 
 		await waitFor(() =>
 			expect(saveDraft).toHaveBeenCalledWith({
@@ -489,7 +503,7 @@ describe('ComposeWindow close', () => {
 		fireEvent.change(subject, { target: { value: 'Before close' } })
 		fireEvent.change(body, { target: { value: 'Before close body' } })
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 
 		await waitFor(() => expect(screen.getByText('Saving…')).toBeInTheDocument())
 		expect(recipient).toBeDisabled()
@@ -516,7 +530,7 @@ describe('ComposeWindow close', () => {
 		saveDraft.mockRejectedValueOnce(new Error('offline'))
 		const { onClosed } = renderWindow({ seed: fieldsSeed({ subject: 'Keep me' }) })
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'Could not save the draft. Your changes are still here; check your connection and try again.',
@@ -584,6 +598,7 @@ describe('ComposeWindow close', () => {
 		deleteDraft.mockReturnValueOnce(removal.promise)
 		const { onClosed, handle } = renderWindow({ seed: draftSeed({ id: 'd0', subject: 'Bin me' }) })
 		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
 		await waitFor(() => expect(deleteDraft).toHaveBeenCalled())
 
 		await act(async () => {
@@ -607,7 +622,7 @@ describe('ComposeWindow close', () => {
 		fireEvent.change(fileInput(container), { target: { files: [pending] } })
 		await screen.findByRole('button', { name: 'Attaching...' })
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		expect(saveDraft).not.toHaveBeenCalled()
 		read.resolve(new Uint8Array([1, 2, 3]).buffer)
 
@@ -623,7 +638,7 @@ describe('ComposeWindow close', () => {
 		fireEvent.change(fileInput(container), { target: { files: [pending] } })
 		await screen.findByRole('button', { name: 'Attaching...' })
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		read.reject(new Error('read failed'))
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -637,7 +652,7 @@ describe('ComposeWindow close', () => {
 describe('ComposeWindow keyboard', () => {
 	it('closes on Escape from the window itself', async () => {
 		const { onClosed } = renderWindow({ seed: fieldsSeed({ subject: 'Hi' }) })
-		fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Escape' })
+		fireEvent.keyDown(screen.getByRole('button', { name: 'Save and close' }), { key: 'Escape' })
 		await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1))
 		// Escape is the same close: the draft is kept.
 		expect(saveDraft).toHaveBeenCalledWith({ data: { to: '', subject: 'Hi', body: '' } })
@@ -1262,7 +1277,7 @@ describe('ComposeWindow autosave', () => {
 		expect(saveDraft).not.toHaveBeenCalled()
 	})
 
-	it('autosaves content after the idle delay and briefly shows "Saved"', async () => {
+	it('autosaves content after the idle delay and keeps an accurate Saved status', async () => {
 		vi.useFakeTimers()
 		saveDraft.mockResolvedValue({ draftId: 'saved-1' })
 		renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: 'Hi', body: 'draft body' }) })
@@ -1277,11 +1292,14 @@ describe('ComposeWindow autosave', () => {
 		})
 		expect(screen.getByText('Saved')).toBeInTheDocument()
 
-		// The "Saved" hint clears itself after a short delay.
+		// Saved remains visible until there is another edit.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(2500)
 		})
+		expect(screen.getByText('Saved')).toBeInTheDocument()
+		fireEvent.change(bodyField(), { target: { value: 'New unsaved content' } })
 		expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+		expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
 	})
 
 	it('keeps the reply reference when autosaving a reply', async () => {
@@ -1325,7 +1343,7 @@ describe('ComposeWindow autosave', () => {
 		expect(payload.attachments).toHaveLength(1)
 	})
 
-	it('swallows autosave failures so a transient error never interrupts editing', async () => {
+	it('reports autosave failures without interrupting editing or exposing provider details', async () => {
 		vi.useFakeTimers()
 		saveDraft.mockRejectedValue(new Error('offline'))
 		renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: 'Hi', body: 'body' }) })
@@ -1334,7 +1352,9 @@ describe('ComposeWindow autosave', () => {
 		})
 		expect(saveDraft).toHaveBeenCalled()
 		expect(screen.queryByText('Saved')).not.toBeInTheDocument()
-		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(screen.getByRole('alert')).toHaveTextContent('Draft not saved.')
+		expect(screen.getByRole('button', { name: 'Retry save' })).toBeEnabled()
+		expect(bodyField()).not.toHaveAttribute('readonly')
 	})
 
 	it('queues a send behind an in-flight autosave so both update one draft, not two', async () => {
@@ -1394,5 +1414,406 @@ describe('ComposeWindow autosave', () => {
 		})
 		expect(screen.queryByText('Saving…')).not.toBeInTheDocument()
 		expect(screen.getByText('Saved')).toBeInTheDocument()
+	})
+})
+
+describe('ComposeWindow compose safeguards', () => {
+	it('keeps draft fields and attachments when cancelling discard, and restores focus', async () => {
+		const { container, onClosed } = renderWindow({
+			seed: fieldsSeed({ to: 'a@b.com', subject: 'Keep', body: 'Keep body' }),
+		})
+		fireEvent.change(fileInput(container), { target: { files: [new File(['important'], 'keep.txt')] } })
+		await screen.findByText('keep.txt')
+		const discardButton = screen.getByRole('button', { name: 'Discard draft' })
+		discardButton.focus()
+		fireEvent.click(discardButton)
+		const dialog = screen.getByRole('dialog', { name: 'Discard this draft?' })
+		expect(dialog).toHaveAccessibleDescription(
+			'Your message and attachments will be deleted. This cannot be undone.',
+		)
+		expect(screen.getByRole('button', { name: 'Keep draft' })).toHaveFocus()
+		expect(deleteDraft).not.toHaveBeenCalled()
+		fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+		await waitFor(() => expect(discardButton).toHaveFocus())
+		expect(screen.getByLabelText('To')).toHaveValue('a@b.com')
+		expect(screen.getByLabelText('Subject')).toHaveValue('Keep')
+		expect(bodyField()).toHaveValue('Keep body')
+		expect(screen.getByText('keep.txt')).toBeInTheDocument()
+		expect(onClosed).not.toHaveBeenCalled()
+	})
+
+	it('protects an attachment-only draft and a locally typed recipient from discard', async () => {
+		recipientInputMock.keepDraftLocal = true
+		const { container } = renderWindow()
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: 'unfinished' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		expect(screen.getByRole('dialog', { name: 'Discard this draft?' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: '' } })
+		fireEvent.change(fileInput(container), { target: { files: [new File(['x'], 'only.txt')] } })
+		await screen.findByText('only.txt')
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		expect(screen.getByRole('dialog', { name: 'Discard this draft?' })).toBeInTheDocument()
+	})
+
+	it('deletes a nonempty saved draft only after confirmation and prevents duplicate deletion', async () => {
+		const removal = deferred<unknown>()
+		deleteDraft.mockReturnValueOnce(removal.promise)
+		const { onClosed } = renderWindow({ seed: draftSeed({ id: 'd1', subject: 'Delete me', body: 'Body' }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		expect(deleteDraft).not.toHaveBeenCalled()
+		const confirm = screen.getByRole('button', { name: 'Discard permanently' })
+		act(() => {
+			fireEvent.click(confirm)
+			fireEvent.click(confirm)
+		})
+		await waitFor(() => expect(deleteDraft).toHaveBeenCalledTimes(1))
+		expect(deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd1' } })
+		expect(screen.getByText('Discarding…')).toBeInTheDocument()
+		expect(onClosed).not.toHaveBeenCalled()
+		await act(async () => {
+			removal.resolve({ removedDraftId: 'd1' })
+		})
+		expect(onClosed).toHaveBeenCalledTimes(1)
+	})
+
+	it('preserves nonempty draft after confirmed deletion fails and allows retry', async () => {
+		deleteDraft.mockRejectedValueOnce(new Error('internal secret'))
+		const { onClosed } = renderWindow({ seed: draftSeed({ id: 'd1', subject: 'Keep me', body: 'Body' }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Could not discard the draft.')
+		expect(screen.queryByText('internal secret')).not.toBeInTheDocument()
+		expect(bodyField()).toHaveValue('Body')
+		expect(screen.getByLabelText('Subject')).toHaveValue('Keep me')
+		expect(onClosed).not.toHaveBeenCalled()
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
+		await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1))
+	})
+
+	it('closes an empty draft immediately without a confirmation', async () => {
+		const { onClosed } = renderWindow()
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1))
+		expect(screen.queryByRole('dialog', { name: 'Discard this draft?' })).not.toBeInTheDocument()
+		expect(deleteDraft).not.toHaveBeenCalled()
+	})
+
+	it('checks an empty subject after valid recipients and lets the user keep editing', async () => {
+		const { onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: '  ', body: 'Body' }) })
+		await waitFor(() => expect(screen.getByLabelText('Subject')).toHaveFocus())
+		const send = screen.getByRole('button', { name: 'Send' })
+		send.focus()
+		fireEvent.click(send)
+		expect(screen.getByRole('dialog', { name: 'Send without a subject?' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus()
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+		fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+		await waitFor(() => expect(send).toHaveFocus())
+		expect(bodyField()).toHaveValue('Body')
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Now titled' } })
+		fireEvent.click(send)
+		await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+		expect(sendDraft.mock.calls[0][0].data.subject).toBe('Now titled')
+	})
+
+	it('supports keyboard confirmation cancellation on mobile without escaping the modal', async () => {
+		mockMobileViewport()
+		renderWindow({ seed: fieldsSeed({ to: 'a@b.com', body: 'Body' }) })
+		await waitFor(() => expect(screen.getByLabelText('Subject')).toHaveFocus())
+		bodyField().focus()
+		fireEvent.keyDown(bodyField(), { key: 'Enter', ctrlKey: true })
+		const cancel = screen.getByRole('button', { name: 'Keep editing' })
+		expect(cancel).toHaveFocus()
+		fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true })
+		expect(screen.getByRole('button', { name: 'Send without subject' })).toHaveFocus()
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+		await waitFor(() => expect(bodyField()).toHaveFocus())
+		expect(screen.queryByRole('dialog', { name: 'Send without a subject?' })).not.toBeInTheDocument()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
+	it('sends once after empty-subject confirmation, preserving body and attachments', async () => {
+		const sending = deferred<unknown>()
+		sendDraft.mockReturnValueOnce(sending.promise)
+		const { container, onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', body: 'Body' }) })
+		fireEvent.change(fileInput(container), { target: { files: [new File(['x'], 'send.txt')] } })
+		await screen.findByText('send.txt')
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		const confirm = screen.getByRole('button', { name: 'Send without subject' })
+		act(() => {
+			fireEvent.click(confirm)
+			fireEvent.click(confirm)
+		})
+		await waitFor(() => expect(sendDraft).toHaveBeenCalledTimes(1))
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({
+			subject: '',
+			body: markdownToDraftBody('Body'),
+			attachments: [{ filename: 'send.txt' }],
+		})
+		expect(screen.getByLabelText('Subject')).toBeDisabled()
+		expect(bodyField()).toHaveAttribute('readonly')
+		await act(async () => {
+			sending.resolve({ removedDraftId: 'new-draft' })
+		})
+		expect(onSent).toHaveBeenCalledTimes(1)
+	})
+
+	it('retains an untitled message and attachments after send failure', async () => {
+		sendDraft.mockRejectedValueOnce(new Error('internal failure'))
+		const { container, onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', body: 'Body' }) })
+		fireEvent.change(fileInput(container), { target: { files: [new File(['x'], 'retry.txt')] } })
+		await screen.findByText('retry.txt')
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Send without subject' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Could not send your message.')
+		expect(bodyField()).toHaveValue('Body')
+		expect(screen.getByText('retry.txt')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+		expect(onSent).not.toHaveBeenCalled()
+	})
+
+	it('does not offer empty-subject confirmation until recipients are valid', () => {
+		renderWindow({ seed: fieldsSeed({ to: 'invalid', body: 'Body' }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address')
+		expect(screen.queryByRole('dialog', { name: 'Send without a subject?' })).not.toBeInTheDocument()
+	})
+})
+
+describe('ComposeWindow rapid input safety', () => {
+	it('starts only one send when activation arrives twice before React updates the button', async () => {
+		const { onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: 'Hi', body: 'Body' }) })
+		const send = screen.getByRole('button', { name: 'Send' })
+		act(() => {
+			send.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			send.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+		await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+		expect(sendDraft).toHaveBeenCalledTimes(1)
+	})
+
+	it('starts only one manual save when activation arrives twice before React updates the button', async () => {
+		renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: 'Hi', body: 'Body' }) })
+		const save = screen.getByRole('button', { name: 'Save draft' })
+		act(() => {
+			save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+		await screen.findByText('Saved')
+		expect(saveDraft).toHaveBeenCalledTimes(1)
+	})
+
+	it('keeps one discard checkpoint and its safe initial focus when requested immediately after mount', async () => {
+		vi.useFakeTimers()
+		renderWindow({ seed: fieldsSeed({ body: 'Body' }) })
+		const discard = screen.getByRole('button', { name: 'Discard draft' })
+		act(() => {
+			discard.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			discard.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		expect(screen.getAllByRole('dialog', { name: 'Discard this draft?' })).toHaveLength(1)
+		expect(screen.getByRole('button', { name: 'Keep draft' })).toHaveFocus()
+		expect(deleteDraft).not.toHaveBeenCalled()
+	})
+})
+
+describe('ComposeWindow reliable autosave', () => {
+	function reloadWouldWarn() {
+		const event = new Event('beforeunload', { cancelable: true })
+		window.dispatchEvent(event)
+		return event.defaultPrevented
+	}
+
+	it('does not let an earlier autosave clear newer text or cancel its pending save', async () => {
+		vi.useFakeTimers()
+		const first = deferred<{ draftId: string }>()
+		const second = deferred<{ draftId: string }>()
+		saveDraft.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+		renderWindow({ seed: fieldsSeed({ subject: 'Original', body: 'First text' }) })
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		fireEvent.change(bodyField(), { target: { value: 'Newest text' } })
+		await act(async () => first.resolve({ draftId: 'one-draft' }))
+		expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+		expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft).toHaveBeenCalledTimes(2)
+		expect(saveDraft.mock.calls[1][0].data).toMatchObject({
+			draftId: 'one-draft',
+			body: markdownToDraftBody('Newest text'),
+		})
+		await act(async () => second.resolve({ draftId: 'one-draft' }))
+		expect(screen.getByText('Saved')).toBeInTheDocument()
+		expect(reloadWouldWarn()).toBe(false)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000)
+		})
+		expect(saveDraft).toHaveBeenCalledTimes(2)
+	})
+
+	it('retries an autosave failure with the latest visible content', async () => {
+		vi.useFakeTimers()
+		saveDraft
+			.mockRejectedValueOnce(new Error('private provider details'))
+			.mockResolvedValue({ draftId: 'retry' })
+		renderWindow({ seed: fieldsSeed({ body: 'First text' }) })
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(screen.getByRole('alert')).toHaveTextContent('Draft not saved.')
+		expect(screen.queryByText('private provider details')).not.toBeInTheDocument()
+		fireEvent.change(bodyField(), { target: { value: 'Newest text' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Retry save' }))
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		expect(saveDraft.mock.calls[1][0].data.body).toBe(markdownToDraftBody('Newest text'))
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		expect(screen.getByText('Saved')).toBeInTheDocument()
+	})
+
+	it('protects a pending save and unsaved edits but not an empty or saved composer on reload', async () => {
+		vi.useFakeTimers()
+		const pending = deferred<{ draftId: string }>()
+		saveDraft.mockReturnValueOnce(pending.promise)
+		renderWindow()
+		expect(reloadWouldWarn()).toBe(false)
+		fireEvent.change(bodyField(), { target: { value: 'Keep this' } })
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => pending.resolve({ draftId: 'saved' }))
+		expect(reloadWouldWarn()).toBe(false)
+		fireEvent.change(bodyField(), { target: { value: '' } })
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.calls[1][0].data).toMatchObject({ draftId: 'saved', to: '', subject: '', body: '' })
+		expect(reloadWouldWarn()).toBe(false)
+	})
+
+	it('keeps a saved draft pristine until edited and saves reversions made during an older save', async () => {
+		vi.useFakeTimers()
+		renderWindow({ seed: draftSeed({ id: 'existing', subject: 'Original', body: 'Body' }) })
+		expect(reloadWouldWarn()).toBe(false)
+		expect(screen.getByText('Saved')).toBeInTheDocument()
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft).not.toHaveBeenCalled()
+		const pending = deferred<{ draftId: string }>()
+		saveDraft.mockReturnValueOnce(pending.promise).mockResolvedValue({ draftId: 'existing' })
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Temporary' } })
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Original' } })
+		await act(async () => pending.resolve({ draftId: 'existing' }))
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.calls[1][0].data.subject).toBe('Original')
+		expect(reloadWouldWarn()).toBe(false)
+	})
+
+	it('autosaves and manually saves recipients that are still being typed as chips', async () => {
+		vi.useFakeTimers()
+		recipientInputMock.keepDraftLocal = true
+		renderWindow()
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: 'first@example.com' } })
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.calls[0][0].data.to).toBe('first@example.com')
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: 'next@example.com' } })
+		fireEvent.keyDown(screen.getByLabelText('To'), { key: 's', ctrlKey: true })
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		expect(saveDraft.mock.calls[1][0].data.to).toBe('next@example.com')
+		expect(reloadWouldWarn()).toBe(false)
+	})
+	it('saves cleared content before closing an existing draft', async () => {
+		const { onClosed } = renderWindow({ seed: draftSeed({ id: 'existing', body: 'Erase this' }) })
+		fireEvent.change(bodyField(), { target: { value: '' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
+		await waitFor(() => expect(onClosed).toHaveBeenCalledOnce())
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({
+			draftId: 'existing',
+			to: '',
+			subject: '',
+			body: '',
+		})
+	})
+
+	it('autosaves actual chip typing, commits, removals, and autocomplete without stale recipients', async () => {
+		vi.useFakeTimers()
+		recipientInputMock.real = true
+		renderWindow()
+		const to = screen.getByRole('combobox', { name: 'To' })
+		fireEvent.change(to, { target: { value: 'first@example.com' } })
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('first@example.com')
+		fireEvent.keyDown(to, { key: 'Enter' })
+		fireEvent.change(to, { target: { value: 'second@example.com' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Remove first@example.com' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Minimize composer' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Restore composer' }))
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('second@example.com')
+		const restoredTo = screen.getByRole('combobox', { name: 'To' })
+		searchContacts.mockResolvedValue([{ email: 'picked@example.com', name: 'Picked' }])
+		fireEvent.change(restoredTo, { target: { value: 'pick' } })
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(250)
+		})
+		fireEvent.click(screen.getByRole('option', { name: /Picked/ }))
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('second@example.com, picked@example.com')
+		expect(reloadWouldWarn()).toBe(false)
+	})
+	it('preserves uncommitted recipients through minimize, autosave, restore, and close', async () => {
+		vi.useFakeTimers()
+		recipientInputMock.real = true
+		const { onClosed } = renderWindow()
+		fireEvent.click(screen.getByRole('button', { name: 'Minimize composer' }))
+		expect(reloadWouldWarn()).toBe(false)
+		fireEvent.click(screen.getByRole('button', { name: 'Restore composer' }))
+		fireEvent.change(screen.getByRole('combobox', { name: 'To' }), { target: { value: 'typed@example.com' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Minimize composer' }))
+		expect(reloadWouldWarn()).toBe(true)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000)
+		})
+		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('typed@example.com')
+		fireEvent.click(screen.getByRole('button', { name: 'Restore composer' }))
+		expect(screen.getByRole('button', { name: 'Remove typed@example.com' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		expect(onClosed).toHaveBeenCalledOnce()
+		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('typed@example.com')
 	})
 })
