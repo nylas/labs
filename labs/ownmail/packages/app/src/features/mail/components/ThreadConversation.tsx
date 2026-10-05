@@ -395,7 +395,7 @@ function ThreadConversationContent({
 			<header data-slot="thread-summary" className="bg-background pt-3">
 				<ThreadColumn>
 					<div className="flex min-w-0 items-start justify-between gap-x-2">
-						<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+						<div data-navigation-content="" className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
 							<h1 className="min-w-0 font-sans text-base leading-6 font-semibold tracking-normal [overflow-wrap:anywhere]">
 								{thread.subject || '(no subject)'}
 							</h1>
@@ -460,29 +460,31 @@ function ThreadConversationContent({
 				</ConversationTranscript>
 			) : (
 				<div data-slot="thread-messages" className="pt-cluster pb-10">
-					{messages.map((message, index) => (
-						<MessageBlock
-							key={message.id}
-							first={index === 0}
-							message={message}
-							open={openMessageIds.has(message.id)}
-							onToggle={toggleMessage}
-							darkenEmail={darkenEmail}
-							layoutMode={layoutMode}
-							colorMode={
-								colorMode === 'original' ||
-								originalColorSenders.has(message.from?.[0]?.email?.trim().toLowerCase() ?? '')
-									? 'original'
-									: 'automatic'
-							}
-							loadRemoteImagesForThread={loadRemoteImagesForThread}
-							loadRemoteImagesForSender={trustedDuringThisView.has(
-								message.from?.[0]?.email?.trim().toLowerCase() ?? '',
-							)}
-							retryRevision={retryRevision}
-							onDisplayStatus={onDisplayStatus}
-						/>
-					))}
+					<div data-slot="thread-message-stream" data-navigation-content="">
+						{messages.map((message, index) => (
+							<MessageBlock
+								key={message.id}
+								first={index === 0}
+								message={message}
+								open={openMessageIds.has(message.id)}
+								onToggle={toggleMessage}
+								darkenEmail={darkenEmail}
+								layoutMode={layoutMode}
+								colorMode={
+									colorMode === 'original' ||
+									originalColorSenders.has(message.from?.[0]?.email?.trim().toLowerCase() ?? '')
+										? 'original'
+										: 'automatic'
+								}
+								loadRemoteImagesForThread={loadRemoteImagesForThread}
+								loadRemoteImagesForSender={trustedDuringThisView.has(
+									message.from?.[0]?.email?.trim().toLowerCase() ?? '',
+								)}
+								retryRevision={retryRevision}
+								onDisplayStatus={onDisplayStatus}
+							/>
+						))}
+					</div>
 					{children}
 				</div>
 			)}
@@ -550,7 +552,10 @@ const MessageBlock = memo(function MessageBlock({
 									{initials(fromLabel)}
 								</div>
 								<div className="relative min-w-0 flex-1">
-									<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+									<div
+										data-navigation-content=""
+										className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1"
+									>
 										<h2
 											id={senderHeadingId}
 											className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"

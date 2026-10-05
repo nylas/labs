@@ -186,6 +186,18 @@ describe('committed navigation motion', () => {
 		},
 	)
 
+	it('fades the subject and message stream together without fading sibling reply controls', () => {
+		const messages = document.createElement('div')
+		messages.dataset.navigationContent = ''
+		messages.animate = animate
+		const reply = document.createElement('button')
+		surface.append(messages, reply)
+		stop = observeNavigationMotion(router)
+		navigate(reader, location('/mail/f/inbox/t/two'))
+		expect(animate.mock.contexts).toEqual([content, messages])
+		expect(animate.mock.calls[0]).toEqual(animate.mock.calls[1])
+	})
+
 	it('never falls back to fading the toolbar when pending content is absent or cannot animate', () => {
 		stop = observeNavigationMotion(router)
 		content.remove()

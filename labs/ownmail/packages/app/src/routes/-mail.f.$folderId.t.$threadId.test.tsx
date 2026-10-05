@@ -228,8 +228,8 @@ describe('thread header', () => {
 		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
 		expect(toolbar).toHaveClass('h-(--toolbar-height)', 'shrink-0')
 		expect(viewport).not.toContainElement(toolbar)
-		const motionContent = viewport.closest('[data-navigation-content]')
-		expect(motionContent).toContainElement(header)
+		const motionContent = heading.closest('[data-navigation-content]')
+		expect(motionContent).toContainElement(heading)
 		expect(motionContent).not.toContainElement(toolbar)
 		// The toolbar is bar glass over the reader, and the conversation scrolls beneath it.
 		expect(toolbar).toHaveClass('glass-bar', 'absolute', 'top-0')
@@ -941,7 +941,9 @@ describe('compose navigation', () => {
 	it('opens a reply from the inline "Write a reply" field after the last message', async () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
-		await user.click(screen.getByRole('button', { name: /Write a reply/ }))
+		const inlineReply = screen.getByRole('button', { name: /Write a reply/ })
+		expect(inlineReply.closest('[data-navigation-content]')).toBeNull()
+		await user.click(inlineReply)
 		expect(composeApi.openCompose).toHaveBeenCalledWith(expect.objectContaining({ replyToMessageId: 'mL' }))
 	})
 
@@ -952,7 +954,12 @@ describe('compose navigation', () => {
 		// The pinned input takes the place of the inline field; it never sends itself.
 		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
 
-		await user.click(await screen.findByRole('button', { name: /^Reply to all…/ }))
+		const pinnedReply = await screen.findByRole('button', { name: /^Reply to all…/ })
+		expect(pinnedReply.closest('[data-navigation-content]')).toBeNull()
+		expect(document.querySelector('[data-slot="conversation-transcript"]')).toHaveAttribute(
+			'data-navigation-content',
+		)
+		await user.click(pinnedReply)
 
 		// Everyone on the last message except the signed-in address.
 		expect(composeApi.openCompose).toHaveBeenLastCalledWith({

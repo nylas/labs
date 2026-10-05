@@ -509,12 +509,11 @@ function ThreadView() {
 
 			<ScrollArea
 				key={threadId}
-				data-navigation-content=""
 				// The reading position belongs to one conversation.
 				scrollRestorationId={`thread:${threadId}`}
 				aria-label="Thread conversation"
 				viewportClassName={cn(!error && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
-				// Navigation fades this content, keeping the toolbar and response controls steady.
+				// Motion targets the subject and messages inside, leaving response controls steady.
 				className="min-h-0 flex-1"
 			>
 				<ThreadConversation

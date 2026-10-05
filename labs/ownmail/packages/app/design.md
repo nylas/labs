@@ -161,8 +161,9 @@ with no animated settling under reduced motion.
 
 Implementation: `NavigationMotion` observes the router's committed-render event
 and animates the named `data-navigation-region` using the Web Animations API.
-Mail readers fade only the inner `data-navigation-content`, so the icon toolbar
-and its glass backdrop remain fully opaque. Entering or leaving a single-pane
+Mail readers fade the subject and message stream marked `data-navigation-content`
+together. The icon toolbar, its glass backdrop, inline reply entry and pinned
+Conversation reply bar remain fully opaque. Entering or leaving a single-pane
 reader still uses the pane for spatial movement; peer thread changes never do.
 It does not add wrappers, remount panes, keep outgoing DOM, or take snapshots.
 The existing `ContentReadyOutlet` remains responsible for identity isolation.

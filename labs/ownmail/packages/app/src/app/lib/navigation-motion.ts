@@ -80,12 +80,14 @@ export function observeNavigationMotion(router: AnyRouter) {
 		const easing = tokens.getPropertyValue('--ease-out').trim() || 'ease-out'
 		// The reader's persistent controls must not dim on every thread change.
 		// Fade only its content; a pending reader without content needs no fade.
-		const content =
+		const contents =
 			motion.region === 'mail-reader'
-				? surface.querySelector<HTMLElement>('[data-navigation-content]')
-				: surface
-		if (content && typeof content.animate === 'function') {
-			animations.push(content.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: fast, easing }))
+				? surface.querySelectorAll<HTMLElement>('[data-navigation-content]')
+				: [surface]
+		for (const content of contents) {
+			if (typeof content.animate === 'function') {
+				animations.push(content.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: fast, easing }))
+			}
 		}
 		if (motion.direction && window.matchMedia(`(width < ${motion.breakpoint}px)`).matches) {
 			const distance = tokens.getPropertyValue('--motion-navigation-distance').trim() || '12px'
