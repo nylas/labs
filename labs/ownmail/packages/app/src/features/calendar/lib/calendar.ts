@@ -248,8 +248,7 @@ function firstValidTimeAfterGap(target: number, timeZone: string, before: number
 	return new Date(upper)
 }
 
-/** Converts a display-zone wall-clock slot into an instant for timezone reference labels. */
-export function calendarSlotTime(day: Date, hour: number, timeZone: string): Date {
+function resolveCalendarSlot(day: Date, hour: number, timeZone: string) {
 	const wholeHour = Math.floor(hour)
 	const minute = Math.round((hour - wholeHour) * 60)
 	const target = Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), wholeHour, minute)
@@ -268,6 +267,21 @@ export function calendarSlotTime(day: Date, hour: number, timeZone: string): Dat
 		instant,
 		localTime: zonedTimeValue(new Date(instant), timeZone),
 	}))
+	return { target, resolved }
+}
+
+/** Every exact instant for a local slot: none during a gap, two during a repeated hour. */
+export function calendarSlotOccurrences(day: Date, hour: number, timeZone: string): Date[] {
+	const { target, resolved } = resolveCalendarSlot(day, hour, timeZone)
+	return resolved
+		.filter(({ localTime }) => localTime === target)
+		.sort((a, b) => a.instant - b.instant)
+		.map(({ instant }) => new Date(instant))
+}
+
+/** Converts a display-zone wall-clock slot into an instant for timezone reference labels. */
+export function calendarSlotTime(day: Date, hour: number, timeZone: string): Date {
+	const { target, resolved } = resolveCalendarSlot(day, hour, timeZone)
 	const exact = resolved
 		.filter(({ localTime }) => localTime === target)
 		.sort((a, b) => a.instant - b.instant)[0]

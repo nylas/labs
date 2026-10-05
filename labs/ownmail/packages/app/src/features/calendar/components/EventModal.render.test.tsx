@@ -459,7 +459,7 @@ describe('EventModal — new event', () => {
 		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '' } })
 		await user.click(screen.getByRole('button', { name: 'Save event' }))
 
-		expect(screen.getByText('Choose a valid event date.')).toBeInTheDocument()
+		expect(screen.getByRole('alert')).toHaveTextContent('Choose a valid event date.')
 		expect(createEvent).not.toHaveBeenCalled()
 	})
 
@@ -1570,7 +1570,7 @@ describe('EventModal — the editor beside the detail pane', () => {
 		renderEditor()
 		fireEvent.change(screen.getByLabelText('Event date'), { target: { value: '' } })
 		await user.click(screen.getByRole('button', { name: 'Save changes' }))
-		expect(await screen.findByText('Choose a valid event date.')).toBeInTheDocument()
+		expect(await screen.findByRole('alert')).toHaveTextContent('Choose a valid event date.')
 		expect(updateEvent).not.toHaveBeenCalled()
 	})
 
@@ -1930,7 +1930,7 @@ describe('EventModal — validation boundaries', () => {
 				onClose={vi.fn()}
 			/>,
 		)
-		expect(screen.getByRole('combobox', { name: 'End time' })).toHaveTextContent('1 AM (+2 days)')
+		expect(screen.getByRole('combobox', { name: 'End time' })).toHaveTextContent('1 AM')
 		expect(screen.getByText('1560 minutes · Ends 2 days later')).toBeInTheDocument()
 	})
 
@@ -1953,5 +1953,155 @@ describe('EventModal — validation boundaries', () => {
 		activeElement.mockRestore()
 		await user.click(screen.getByRole('button', { name: 'Discard changes' }))
 		expect(onClose).toHaveBeenCalledWith(false)
+	})
+})
+
+describe('EventModal — international scheduling clarity', () => {
+	function renderZoned(start = '2026-11-01T05:30:00Z', editing = false) {
+		const instant = new Date(start)
+		render(
+			<EventModal
+				event={
+					editing
+						? timedEvent({
+								when: { start_time: instant.getTime() / 1000, end_time: instant.getTime() / 1000 + 3600 },
+							} as Partial<Event>)
+						: null
+				}
+				defaultStart={instant}
+				preserveDefaultStartTime
+				timeZone="America/Toronto"
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				startInEdit={editing}
+				onClose={vi.fn()}
+			/>,
+		)
+	}
+
+	it.each([0, 1])(
+		'requires an explicit repeated-hour choice and saves occurrence %s exactly',
+		async (index) => {
+			const user = userEvent.setup()
+			renderZoned()
+			expect(screen.getByText('Times shown in America/Toronto · Eastern Time')).toBeInTheDocument()
+			expect(screen.getByRole('combobox', { name: 'Start occurrence' })).toHaveValue('')
+			await user.click(screen.getByRole('button', { name: 'Save event' }))
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Choose which occurrence of the repeated time you mean.',
+			)
+			expect(createEvent).not.toHaveBeenCalled()
+			const startTime = new Date(index === 0 ? '2026-11-01T05:30:00Z' : '2026-11-01T06:30:00Z').getTime()
+			await user.selectOptions(screen.getByRole('combobox', { name: 'Start occurrence' }), String(startTime))
+			expect(screen.getByText('60 minutes')).toBeInTheDocument()
+			await user.click(screen.getByRole('button', { name: 'Save event' }))
+			await waitFor(() => expect(createEvent).toHaveBeenCalledOnce())
+			expect(createEvent.mock.calls[0][0].data).toMatchObject({
+				startTime: startTime / 1000,
+				endTime: startTime / 1000 + 3600,
+			})
+		},
+	)
+
+	it('requires a choice when an ordinary event is moved into a repeated hour', async () => {
+		const user = userEvent.setup()
+		renderZoned('2026-11-01T15:00:00Z', true)
+		await user.click(screen.getByRole('combobox', { name: 'Start time' }))
+		await user.click(await screen.findByRole('option', { name: '1:30 AM', exact: true }))
+		expect(screen.getByRole('combobox', { name: 'Start time' })).toHaveAttribute('aria-invalid', 'true')
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		expect(updateEvent).not.toHaveBeenCalled()
+		await user.selectOptions(
+			screen.getByRole('combobox', { name: 'Start occurrence' }),
+			String(new Date('2026-11-01T06:30:00Z').getTime()),
+		)
+		await user.click(screen.getByRole('button', { name: 'Save changes' }))
+		await waitFor(() => expect(updateEvent).toHaveBeenCalledOnce())
+		expect(updateEvent.mock.calls[0][0].data).toMatchObject({
+			startTime: new Date('2026-11-01T06:30:00Z').getTime() / 1000,
+			endTime: new Date('2026-11-01T07:30:00Z').getTime() / 1000,
+		})
+	})
+
+	it('preselects an existing second occurrence and restores that selection after cancelling edits', async () => {
+		const user = userEvent.setup()
+		const start = new Date('2026-11-01T06:30:00Z').getTime()
+		render(
+			<EventModal
+				event={timedEvent({
+					when: { start_time: start / 1000, end_time: start / 1000 + 3600 },
+				} as Partial<Event>)}
+				defaultStart={defaultStart}
+				timeZone="America/Toronto"
+				calendarId="cal1"
+				calendarName="Work"
+				calendars={calendars}
+				onClose={vi.fn()}
+			/>,
+		)
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		expect(screen.getByRole('combobox', { name: 'Start occurrence' })).toHaveValue(String(start))
+		await user.selectOptions(
+			screen.getByRole('combobox', { name: 'Start occurrence' }),
+			String(start - 3600_000),
+		)
+		await user.click(screen.getByRole('button', { name: 'Cancel', exact: true }))
+		await user.click(screen.getByRole('button', { name: 'Discard changes' }))
+		await user.click(screen.getByRole('button', { name: /Edit/ }))
+		expect(screen.getByRole('combobox', { name: 'Start occurrence' })).toHaveValue(String(start))
+		expect(screen.getByText('60 minutes')).toBeInTheDocument()
+	})
+
+	it('creates a valid event whose later occurrence ends before its starting wall-clock label', async () => {
+		const user = userEvent.setup()
+		renderZoned('2026-11-01T05:45:00Z')
+		await user.selectOptions(
+			screen.getByRole('combobox', { name: 'Start occurrence' }),
+			String(new Date('2026-11-01T05:45:00Z').getTime()),
+		)
+		await user.click(screen.getByRole('combobox', { name: 'End time' }))
+		await user.click(await screen.findByRole('option', { name: '1:15 AM', exact: true }))
+		expect(screen.getByRole('combobox', { name: 'End occurrence' })).toHaveValue('')
+		await user.selectOptions(
+			screen.getByRole('combobox', { name: 'End occurrence' }),
+			String(new Date('2026-11-01T06:15:00Z').getTime()),
+		)
+		expect(screen.getByText('30 minutes')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalledOnce())
+		expect(createEvent.mock.calls[0][0].data.endTime - createEvent.mock.calls[0][0].data.startTime).toBe(1800)
+	})
+
+	it.each([false, true])(
+		'makes an overnight end date explicit and saves it (editing=%s)',
+		async (editing) => {
+			const user = userEvent.setup()
+			renderZoned('2026-07-08T13:00:00Z', editing)
+			fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-07-09' } })
+			await user.click(screen.getByRole('combobox', { name: 'End time' }))
+			await user.click(await screen.findByRole('option', { name: '1 AM', exact: true }))
+			expect(screen.getByLabelText('End date')).toHaveValue('2026-07-09')
+			expect(screen.getByText('960 minutes · Ends 1 day later')).toBeInTheDocument()
+			await user.click(screen.getByRole('button', { name: editing ? 'Save changes' : 'Save event' }))
+			const mutation = editing ? updateEvent : createEvent
+			await waitFor(() => expect(mutation).toHaveBeenCalledOnce())
+			expect(mutation.mock.calls[0][0].data.endTime).toBe(new Date('2026-07-09T05:00:00Z').getTime() / 1000)
+		},
+	)
+
+	it('blocks empty and backwards end dates and allows correction without losing content', async () => {
+		const user = userEvent.setup()
+		renderZoned('2026-07-08T13:00:00Z')
+		fireEvent.change(screen.getByLabelText('End date'), { target: { value: '' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		expect(screen.getByRole('alert')).toHaveTextContent('Choose a valid end date.')
+		fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-07-07' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		expect(screen.getByRole('alert')).toHaveTextContent('Choose an end time after the start time.')
+		expect(createEvent).not.toHaveBeenCalled()
+		fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-07-08' } })
+		await user.click(screen.getByRole('button', { name: 'Save event' }))
+		await waitFor(() => expect(createEvent).toHaveBeenCalledOnce())
 	})
 })

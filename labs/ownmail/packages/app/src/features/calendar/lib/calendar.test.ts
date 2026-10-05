@@ -8,6 +8,7 @@ import {
 	allDayEventSegments,
 	calendarDateInTimeZone,
 	calendarKeyAction,
+	calendarSlotOccurrences,
 	calendarSlotTime,
 	calendarWallClockHour,
 	DEFAULT_CALENDAR_VIEW,
@@ -17,8 +18,10 @@ import {
 	filterEventsByCalendars,
 	fmtAgendaTime,
 	fmtTime,
+	formatFullDate,
 	hiddenCalendarIdsForRequest,
 	initialTimeGridScrollHour,
+	isCalendarDate,
 	isCalView,
 	isOutsideWorkingHours,
 	isPastEvent,
@@ -1118,5 +1121,23 @@ describe('time-zone conversion cost', () => {
 		} finally {
 			construct.mockRestore()
 		}
+	})
+})
+
+describe('explicit calendar dates and timezone occurrences', () => {
+	it('returns no instant for a skipped hour and both instants for a repeated hour', () => {
+		expect(calendarSlotOccurrences(new Date(2026, 2, 8), 2.5, 'America/Toronto')).toEqual([])
+		expect(
+			calendarSlotOccurrences(new Date(2026, 10, 1), 1.5, 'America/Toronto').map((date) =>
+				date.toISOString(),
+			),
+		).toEqual(['2026-11-01T05:30:00.000Z', '2026-11-01T06:30:00.000Z'])
+	})
+	it('validates and labels explicit dates, including a midnight time', () => {
+		expect(isCalendarDate('2026-07-08')).toBe(true)
+		expect(isCalendarDate('2026-02-30')).toBe(false)
+		expect(fmtAgendaTime(new Date(2026, 6, 8, 9, 5))).toBe('9:05')
+		expect(fmtTime(new Date(2026, 6, 8, 0))).toBe('12 AM')
+		expect(formatFullDate(new Date(2026, 6, 8), true)).toBe('Wednesday, July 8, 2026')
 	})
 })
