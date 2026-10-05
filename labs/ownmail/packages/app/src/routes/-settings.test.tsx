@@ -657,7 +657,11 @@ describe('/settings', () => {
 
 it('loads the full provider name after a mail bootstrap before saving preferences', async () => {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-	queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, { email: info.email, appName: info.appName })
+	queryClient.setQueryData(
+		mailboxInfoQueryOptions().queryKey,
+		{ email: info.email, appName: info.appName },
+		{ updatedAt: 0 },
+	)
 	const data = await Route.options.loader({ context: { queryClient } })
 	expect(data.info.displayName).toBe('Ada')
 	renderSettings(false, data.info, queryClient)

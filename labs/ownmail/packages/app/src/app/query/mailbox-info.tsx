@@ -22,12 +22,17 @@ export const mailboxInfoQueryOptions = () =>
 /** Resolves the mailbox before a loader builds account-partitioned query keys. */
 export function ensureMailboxInfo(queryClient: QueryClient, bootstrap = false) {
 	// Full-profile consumers must not reuse the abbreviated mail bootstrap result.
-	if (!bootstrap) return queryClient.fetchQuery({ ...mailboxInfoQueryOptions(), staleTime: 0 })
+	if (!bootstrap) return queryClient.fetchQuery(mailboxInfoQueryOptions())
 	return queryClient.ensureQueryData({
 		...mailboxInfoQueryOptions(),
-		queryFn: async () => {
+		queryKey: ['account', 'mailbox-info-bootstrap'],
+		queryFn: async ({ signal }) => {
 			const info = await getMailboxInfo({ data: { bootstrap: true } })
 			observeAccount(info.email)
+			// Seed identity immediately, but keep this abbreviated profile stale.
+			if (!signal.aborted && !queryClient.getQueryData(mailboxInfoQueryOptions().queryKey)) {
+				queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, info, { updatedAt: 0 })
+			}
 			return info
 		},
 	})
