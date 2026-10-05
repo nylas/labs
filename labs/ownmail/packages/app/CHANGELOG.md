@@ -1,5 +1,11 @@
 # @ownmail/app
 
+## 0.21.2
+
+### Patch Changes
+
+- 6c77cb1: Make navigation feel continuous with restrained pane transitions, matched navigation-sheet dismissal, and reduced-motion support without delaying content or retaining outgoing mailbox data.
+
 ## 0.21.1
 
 ### Patch Changes
