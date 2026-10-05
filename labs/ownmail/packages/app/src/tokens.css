@@ -111,6 +111,7 @@
 	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 	--dur-fast: 120ms;
 	--dur-medium: 220ms;
+	--motion-navigation-distance: 12px;
 	/* design.md "Motion": a press settles without bouncing; the spring overshoots once and is used only for starring. */
 	--dur-press: 130ms;
 	--ease-press: cubic-bezier(0.3, 0.9, 0.4, 1);

@@ -114,12 +114,94 @@ Motion says what changed and where it went. Nothing moves for decoration.
    state that moves between buttons (the view switch) does not animate.
 7. Changing counts. A folder count that changes while it is on screen drops in
    from above over `--dur-medium`.
-8. Identity changes fade. A newly opened conversation fades in over
-   `--dur-fast` ("Content-ready transitions"). On narrow touch screens, the
-   back gesture follows the finger horizontally and reveals the retained list.
+8. Navigation. The incoming region fades from 60% to full opacity over
+   `--dur-fast`; only list/detail depth changes add a 12px horizontal settle
+   over `--dur-medium` on single-pane layouts. Desktop detail changes and peer
+   destinations only fade. See "Navigation choreography" below. On narrow
+   touch screens, the back gesture follows the finger and reveals the retained list.
    Releasing commits immediately once the distance threshold is met; cancellation
    returns within 120ms, with no settling animation under reduced motion. Browser
    edge gestures, vertical scrolling, and pinch zoom keep their native behavior.
+
+## Navigation choreography
+
+The experience should acknowledge every change of place without making the
+person wait. Chrome remains the visual anchor. One arriving content region
+moves at a time; rows never cascade in. The 120ms fade, 220ms settle, and 12px
+travel are OwnMail design choices using the existing tokens, not universal
+perceptual thresholds. The incoming content begins at 60% opacity to soften
+the replacement while avoiding a blank flash.
+
+| Journey | Treatment | What stays stable |
+| --- | --- | --- |
+| Mail / Calendar / Contacts / Settings | Incoming pane fades, no horizontal travel | Header, rail, bottom navigation |
+| Folder or search identity changes | Destination skeleton immediately; committed result fades | Mail navigation and destination title |
+| List → thread or contact, single pane | Incoming detail fades and settles from 12px to the right | App chrome |
+| Detail → list, single pane | Returning list fades and settles from 12px to the left | Retained list scroll and existing focus restoration |
+| Thread → thread or contact → contact | Detail fades only | List and navigation |
+| Calendar date or view changes | New grid fades only | Header geometry and side panels |
+| Navigation sheet open / close | 24px entrance, short reverse exit; backdrop fades | Underlying destination |
+| Committed swipe-back | Existing finger-following transition only | Native gesture behavior and retained list |
+| Initial render, same identity refresh, pagination | No route animation | Reading position and startup speed |
+| Account switch | Immediate removal and existing neutral loader | Account isolation |
+
+Mail uses its 1280px reading-pane breakpoint; contacts use 768px. No layout
+properties animate. Routing, loading, focus and scroll restoration never wait
+for animation. A new navigation or interaction cancels in-progress effects;
+the destination is immediately usable. A slow request shows its existing
+pending state and progress indication, then reveals only the arriving data.
+No minimum loading or animation duration is added.
+
+Reduced motion skips all route effects and sheet animations. Changing the OS
+preference during an animation cancels it. Functional loading and route
+announcements remain. Unsupported animation APIs fall back to the same
+immediate navigation. Gesture-driven motion remains controlled by the finger,
+with no animated settling under reduced motion.
+
+Implementation: `NavigationMotion` observes the router's committed-render event
+and animates the named `data-navigation-region` using the Web Animations API.
+It does not add wrappers, remount panes, keep outgoing DOM, or take snapshots.
+The existing `ContentReadyOutlet` remains responsible for identity isolation.
+Sheets use Radix's CSS animation lifecycle so dismissal can finish before the
+sheet unmounts; account and route unmounts still remove it immediately.
+
+### Research and decisions (October 2026)
+
+- [Microsoft Fluent 2 — Motion](https://fluent2.microsoft.design/motion):
+  top-level transitions use quick fades so peers do not acquire an unintended
+  spatial hierarchy. Motion stays with the region in focus. This informs the
+  peer/depth distinction and the decision to leave chrome stationary.
+- [IBM Carbon — Motion](https://v10.carbondesignsystem.com/guidelines/motion/overview/):
+  task-focused motion is subtle and efficient; duration varies with travel,
+  and curves avoid bounce and sudden stops. OwnMail adopts that restrained
+  approach for repeated mail triage. This is the archived v10 guidance, used
+  for its design principles rather than current package APIs.
+- [Google Material — Duration and easing](https://m1.material.io/motion/duration-easing.html):
+  repeated transitions should stay short, entrances decelerate, and exits can
+  be shorter. Its historical duration examples are context-dependent; OwnMail
+  keeps its existing timing scale instead of importing the mobile examples
+  wholesale.
+- [W3C — Animation from interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html):
+  nonessential interaction motion must be disableable for SC 2.3.3 (AAA).
+  OwnMail honors the OS preference, including live changes, and keeps semantic
+  progress feedback independent of animation.
+- [web.dev — High-performance animations](https://web.dev/articles/animations-guide):
+  prefer opacity and transform-family properties; avoid layout/paint work and
+  speculative permanent `will-change` layers. The implementation uses opacity
+  and translation, without animating dimensions or adding a motion dependency.
+- [Chrome — Same-document view transitions](https://developer.chrome.com/docs/web-platform/view-transitions/same-document):
+  the API captures old/new snapshots and defaults to crossfading them. That
+  is useful in many apps, but an outgoing mailbox snapshot conflicts with
+  OwnMail's strict identity policy. Incoming-only effects preserve that policy.
+- [Radix — Animation](https://www.radix-ui.com/primitives/docs/guides/animation):
+  CSS keyframe exits defer primitive unmounting. This supplies sheet dismissal
+  without an application timeout or custom focus-management layer.
+
+Verification must cover cached and delayed navigation, rapid interruption,
+browser Back/Forward, sidebar dismissal/reopening, reduced motion (including a
+live toggle), scroll/focus retention, split panes, and account isolation. Inspect
+320/375/414/768px layouts plus a wide desktop. Automated checks supplement
+visual review; timings are design choices to validate with actual use.
 
 ## Microinteractions stance
 

@@ -14,6 +14,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { skipNextNavigationMotion } from '#app/lib/navigation-motion'
 import { returnToPreviousFolder } from '#app/lib/reader-history'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
@@ -217,7 +218,10 @@ function ThreadView() {
 			resetScroll: false,
 		})
 	}, [baseFolderId, folderId, navigate, router])
-	const swipeHandlers = useHorizontalSwipe(goBackToList, true)
+	const swipeHandlers = useHorizontalSwipe(() => {
+		skipNextNavigationMotion(router)
+		goBackToList()
+	}, true)
 	const lastMessage = messages.at(-1)
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
@@ -509,8 +513,8 @@ function ThreadView() {
 				scrollRestorationId={`thread:${threadId}`}
 				aria-label="Thread conversation"
 				viewportClassName={cn(!error && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
-				// A newly opened conversation fades in and never slides (design.md "Motion" clause 8).
-				className="content-fade-in min-h-0 flex-1"
+				// The containing pane owns navigation motion; do not fade the body a second time.
+				className="min-h-0 flex-1"
 			>
 				<ThreadConversation
 					thread={thread}

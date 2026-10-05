@@ -260,7 +260,10 @@ function SettingsPage() {
 					accounts={info.accounts}
 					active="settings"
 				/>
-				<main className={cn('min-w-0 flex-1 overflow-y-auto', UNDER_MOBILE_BAR_CLASS)}>
+				<main
+					data-navigation-region="settings"
+					className={cn('min-w-0 flex-1 overflow-y-auto', UNDER_MOBILE_BAR_CLASS)}
+				>
 					<div className="mx-auto w-full max-w-2xl px-5 py-7 sm:px-8">
 						<section>
 							<SectionHeading icon={UserRound}>Profile</SectionHeading>

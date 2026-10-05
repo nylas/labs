@@ -461,7 +461,12 @@ function LoadedMailFolderRouteScreen({
 
 	return (
 		<div className={layout.container} data-mail-panes>
-			<section className={layout.list} data-mail-list data-density={preferences.listDensity}>
+			<section
+				className={layout.list}
+				data-mail-list
+				data-navigation-region="mail-list"
+				data-density={preferences.listDensity}
+			>
 				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{folderTitle}</h1>
 					<div className="flex items-center gap-1">
@@ -494,7 +499,7 @@ function LoadedMailFolderRouteScreen({
 					threadList
 				)}
 			</section>
-			<section className={layout.reader} data-mail-reader>
+			<section className={layout.reader} data-mail-reader data-navigation-region="mail-reader">
 				{hasThread ? (
 					(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
 				) : composing ? (

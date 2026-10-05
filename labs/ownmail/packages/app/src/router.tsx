@@ -1,4 +1,5 @@
 import { createRouter } from '@tanstack/react-router'
+import { NavigationMotion } from '#app/components/NavigationMotion'
 import { observeAccount } from '#app/lib/account-scope'
 import { rememberReaderHistory } from '#app/lib/reader-history'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
@@ -18,7 +19,12 @@ export function getRouter() {
 		}),
 		hydrate: (dehydrated: { accountEmail?: unknown }) => observeAccount(dehydrated.accountEmail),
 		/* v8 ignore next -- the wrapper executes only inside TanStack Start's router runtime -- @preserve */
-		InnerWrap: ({ children }) => <OwnmailQueryProvider client={queryClient}>{children}</OwnmailQueryProvider>,
+		InnerWrap: ({ children }) => (
+			<OwnmailQueryProvider client={queryClient}>
+				<NavigationMotion />
+				{children}
+			</OwnmailQueryProvider>
+		),
 		defaultPreload: 'intent',
 		scrollRestoration: true,
 		defaultPendingMinMs: 0,
