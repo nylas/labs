@@ -2113,3 +2113,93 @@ describe('MailFolderRouteScreen — context menus', () => {
 		})
 	})
 })
+
+describe('MailFolderRouteScreen bulk triage', () => {
+	const rows = [
+		{ id: 'bulk-one', subject: 'Bulk one', unread: true, folders: ['inbox'] },
+		{ id: 'bulk-two', subject: 'Bulk two', unread: true, folders: ['inbox'] },
+	] as unknown as Thread[]
+	function bulkScreen(onUpdateThread = vi.fn().mockResolvedValue(undefined), folderId = 'inbox') {
+		return (
+			<MailFolderRouteScreen
+				threads={rows}
+				drafts={[]}
+				folders={[]}
+				folderId={folderId}
+				nextCursor="unseen-page"
+				onUpdateThread={onUpdateThread}
+			/>
+		)
+	}
+	it('selects rows without navigation and acts on all loaded messages, not unseen pages', async () => {
+		const update = vi.fn().mockResolvedValue(undefined)
+		render(bulkScreen(update))
+		fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+		const first = screen.getByRole('checkbox', { name: 'Select Bulk one' })
+		first.focus()
+		await userEvent.keyboard(' ')
+		expect(first).toBeChecked()
+		fireEvent.click(screen.getByRole('button', { name: 'Toggle selection for Bulk two' }))
+		expect(screen.getByRole('checkbox', { name: 'Select Bulk two' })).toBeChecked()
+		expect(navigate).not.toHaveBeenCalled()
+		expect(screen.getByRole('checkbox', { name: 'Select all loaded conversations' })).toBeChecked()
+		fireEvent.click(screen.getByRole('button', { name: 'Archive selected' }))
+		await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
+		expect(update.mock.calls).toEqual([
+			[{ threadId: 'bulk-one', folder: 'archive' }],
+			[{ threadId: 'bulk-two', folder: 'archive' }],
+		])
+		expect(getThreads).not.toHaveBeenCalled()
+		await waitFor(() =>
+			expect(screen.getByRole('checkbox', { name: 'Select all loaded conversations' })).toHaveFocus(),
+		)
+	})
+	it('resets selection when changing folders and supports the isolated mutation fallback', async () => {
+		const view = render(
+			<MailFolderRouteScreen
+				threads={rows}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bulk one' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Mark selected as unread' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 'bulk-one', unread: true } }),
+		)
+		view.rerender(bulkScreen(undefined, 'archive'))
+		expect(screen.getByRole('button', { name: 'Select messages' })).toBeInTheDocument()
+		expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+	})
+})
+
+describe('mail selection keyboard semantics', () => {
+	it('uses named checkboxes and native row buttons for an untitled conversation', async () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[{ id: 'untitled', folders: ['inbox'] }] as Thread[]}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+		const checkbox = screen.getByRole('checkbox', { name: 'Select (no subject)' })
+		fireEvent.click(checkbox.closest('label') as HTMLLabelElement)
+		expect(checkbox).toBeChecked()
+		const row = screen.getByRole('button', { name: 'Toggle selection for (no subject)' })
+		row.focus()
+		await userEvent.keyboard('{Enter}')
+		expect(checkbox).not.toBeChecked()
+		await userEvent.keyboard(' ')
+		expect(checkbox).toBeChecked()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'o' })
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(navigate).not.toHaveBeenCalled()
+	})
+})

@@ -130,6 +130,7 @@ vi.mock('#features/mail/lib/mail-ui-model', async (importOriginal) => {
 	return { ...actual, liveSearchTarget: vi.fn((...args: any[]) => (actual.liveSearchTarget as any)(...args)) }
 })
 
+import { useSetMailSelectionActions } from '#features/mail/components/MailSelectionActions'
 import { liveSearchTarget } from '#features/mail/lib/mail-ui-model'
 import { mailKeys } from '#features/mail/state/mail-queries'
 import { MailRouteScreen } from './-mail-screen.js'
@@ -588,4 +589,34 @@ describe('MailRouteScreen — keyboard shortcuts', () => {
 		expect(navigate).not.toHaveBeenCalled()
 		field.remove()
 	})
+})
+
+function SelectionHarness() {
+	const setActions = useSetMailSelectionActions()
+	return (
+		<>
+			<button type="button" onClick={() => setActions(<span>Bulk actions</span>)}>
+				Start selection
+			</button>
+			<button type="button" onClick={() => setActions(null)}>
+				End selection
+			</button>
+		</>
+	)
+}
+
+it('suppresses the floating composer during bulk selection and resets selection on mailbox switch', () => {
+	const view = renderScreen({ children: <SelectionHarness /> })
+	expect(screen.getByRole('button', { name: 'Compose message' })).toBeInTheDocument()
+	fireEvent.click(screen.getByRole('button', { name: 'Start selection' }))
+	expect(screen.queryByRole('button', { name: 'Compose message' })).not.toBeInTheDocument()
+	fireEvent.click(screen.getByRole('button', { name: 'End selection' }))
+	expect(screen.getByRole('button', { name: 'Compose message' })).toBeInTheDocument()
+	fireEvent.click(screen.getByRole('button', { name: 'Start selection' }))
+	view.rerender(
+		<MailRouteScreen info={{ ...info, email: 'different@example.com' }} folders={[]}>
+			<SelectionHarness />
+		</MailRouteScreen>,
+	)
+	expect(screen.getByRole('button', { name: 'Compose message' })).toBeInTheDocument()
 })

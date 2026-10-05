@@ -129,32 +129,47 @@ export function ThreadRowContent({
 	folderId,
 	onToggleStar,
 	starPending = false,
+	selection,
 }: {
 	thread: MailThread
 	folderId: string
 	onToggleStar: () => void
 	starPending?: boolean
+	selection?: { checked: boolean; disabled: boolean; onToggle: () => void }
 }) {
 	return (
 		<ThreadRowLayout
 			leading={
-				<button
-					type="button"
-					disabled={starPending}
-					onClick={(event) => {
-						event.preventDefault()
-						event.stopPropagation()
-						onToggleStar()
-					}}
-					aria-label={thread.starred ? 'Unstar' : 'Star'}
-					aria-busy={starPending || undefined}
-					className={cn(
-						'thread-row-star touch-target-square pointer-events-auto relative z-20 -m-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted press focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-wait disabled:opacity-50 lg:-m-2 lg:h-8 lg:w-8',
-						STAR_HOVER_CLASS,
-					)}
-				>
-					<Star aria-hidden="true" className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
-				</button>
+				selection ? (
+					<label className="pointer-events-auto relative z-20 -m-3 inline-flex h-11 w-11 cursor-pointer items-center justify-center">
+						<input
+							type="checkbox"
+							checked={selection.checked}
+							disabled={selection.disabled}
+							onChange={selection.onToggle}
+							aria-label={`Select ${thread.subject || '(no subject)'}`}
+							className="h-4 w-4 accent-primary"
+						/>
+					</label>
+				) : (
+					<button
+						type="button"
+						disabled={starPending}
+						onClick={(event) => {
+							event.preventDefault()
+							event.stopPropagation()
+							onToggleStar()
+						}}
+						aria-label={thread.starred ? 'Unstar' : 'Star'}
+						aria-busy={starPending || undefined}
+						className={cn(
+							'thread-row-star touch-target-square pointer-events-auto relative z-20 -m-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted press focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-wait disabled:opacity-50 lg:-m-2 lg:h-8 lg:w-8',
+							STAR_HOVER_CLASS,
+						)}
+					>
+						<Star aria-hidden="true" className={cn('h-4 w-4', thread.starred && STAR_FILLED_CLASS)} />
+					</button>
+				)
 			}
 			sender={
 				<>

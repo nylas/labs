@@ -4,6 +4,7 @@
  */
 import { Link } from '@tanstack/react-router'
 import { Calendar, Mail, Settings, Users } from 'lucide-react'
+import { useMailSelectionActions } from '#features/mail/components/MailSelectionActions'
 import { GLASS_BAR_BOTTOM_EDGE, GLASS_BAR_CLASS } from '#shared/components/ui/glass'
 import { cn } from '#shared/lib/utils'
 import {
@@ -31,14 +32,19 @@ export function MobileTabBar({
 	active: MobileTab
 	context?: 'primary' | 'thread'
 }) {
+	const selectionActions = useMailSelectionActions()
 	return (
 		<div
 			data-slot="mobile-bottom-bar"
-			data-context={context}
+			data-context={selectionActions ? 'selection' : context}
 			{...GLASS_BAR_BOTTOM_EDGE}
 			className={cn('mobile-tab-bar md:hidden', GLASS_BAR_CLASS)}
 		>
-			{context === 'primary' ? (
+			{selectionActions ? (
+				<div role="toolbar" aria-label="Selected mail actions" className="mobile-primary-tabs">
+					{selectionActions}
+				</div>
+			) : context === 'primary' ? (
 				<nav aria-label="Primary mobile" className="mobile-primary-tabs">
 					{TABS.map((tab) => {
 						const Icon = tab.icon

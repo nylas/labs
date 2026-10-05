@@ -18,6 +18,10 @@ import {
 } from '#app/config/layout'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { MailSearchBar } from '#features/mail/components/MailSearchBar'
+import {
+	MailSelectionActionsProvider,
+	useHasMailSelectionActions,
+} from '#features/mail/components/MailSelectionActions'
 import { MailSidebar } from '#features/mail/components/MailSidebar'
 import {
 	activeMailSidebarFolderId,
@@ -35,7 +39,15 @@ type MailInfo = {
 	accounts?: MailboxAccountOption[]
 }
 
-export function MailRouteScreen({
+export function MailRouteScreen(props: Parameters<typeof MailRouteScreenContent>[0]) {
+	return (
+		<MailSelectionActionsProvider key={props.info.email}>
+			<MailRouteScreenContent {...props} />
+		</MailSelectionActionsProvider>
+	)
+}
+
+function MailRouteScreenContent({
 	info,
 	folders,
 	defaultFolderId,
@@ -65,6 +77,7 @@ export function MailRouteScreen({
 		[defaultFolderId, pathname, searchScopeFolderId],
 	)
 	const selectedSearchThreadId = typeof searchParams.threadId === 'string' ? searchParams.threadId : undefined
+	const hasSelectionActions = useHasMailSelectionActions()
 	const hasThreadActions = isThreadRoute || (isSearchRoute && Boolean(selectedSearchThreadId))
 	const labelBaseFolder =
 		typeof searchParams.baseFolderId === 'string' ? searchParams.baseFolderId : undefined
@@ -215,7 +228,7 @@ export function MailRouteScreen({
 
 			<CommandPalette open={paletteOpen} onClose={closePalette} onFocusSearch={focusSearch} />
 
-			{hasThreadActions ? null : (
+			{hasThreadActions || hasSelectionActions ? null : (
 				<button
 					type="button"
 					onClick={() => void openCompose({ kind: 'new' })}
