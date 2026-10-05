@@ -85,3 +85,44 @@ it('ignores invalid measurements and unsupported entry types', () => {
 	monitorPerformance(true)()
 	expect(fetch).not.toHaveBeenCalled()
 })
+it('measures warm back and BFCache restoration when the visible list becomes ready', () => {
+	const fetch = setup()
+	vi.stubGlobal('PerformanceObserver', undefined)
+	let now = 100
+	vi.spyOn(performance, 'now').mockImplementation(() => now)
+	let frame: FrameRequestCallback | undefined
+	const cancel = vi.fn()
+	vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => {
+		frame = fn
+		return 1
+	})
+	vi.stubGlobal('cancelAnimationFrame', cancel)
+	const stop = monitorPerformance(true)
+	window.dispatchEvent(new Event('ownmail:list-ready'))
+	window.dispatchEvent(new PopStateEvent('popstate'))
+	now = 130
+	window.dispatchEvent(new Event('ownmail:list-ready'))
+	window.dispatchEvent(new Event('ownmail:back'))
+	now = 150
+	window.dispatchEvent(new Event('ownmail:list-ready'))
+	window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }))
+	expect(frame).toBeUndefined()
+	window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+	frame?.(150)
+	const list = document.createElement('section')
+	list.setAttribute('data-mail-list', '')
+	document.body.append(list)
+	vi.spyOn(list, 'getClientRects').mockReturnValue([{}] as any)
+	window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+	now = 165
+	frame?.(165)
+	expect(
+		fetch.mock.calls
+			.map(([, options]) => JSON.parse(options.body))
+			.filter((report) => report.metric === 'navigation_ready')
+			.map((report) => report.value),
+	).toEqual([30, 20, 15])
+	stop()
+	expect(cancel).toHaveBeenCalledWith(1)
+	list.remove()
+})

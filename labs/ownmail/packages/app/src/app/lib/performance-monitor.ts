@@ -44,6 +44,28 @@ export function monitorPerformance(
 	const pagehide = () => {
 		if (lcp > 0) report('lcp', lcp)
 	}
+	let navigationStarted: number | undefined
+	let restoreFrame: number | undefined
+	const navigationStart = () => {
+		navigationStarted = performance.now()
+		sent.delete('navigation_ready')
+	}
+	const listReady = () => {
+		if (navigationStarted === undefined) return
+		report('navigation_ready', performance.now() - navigationStarted)
+		navigationStarted = undefined
+	}
+	const pageshow = (event: PageTransitionEvent) => {
+		if (!event.persisted) return
+		navigationStart()
+		restoreFrame = requestAnimationFrame(() => {
+			if (document.querySelector('[data-mail-list]')?.getClientRects().length) listReady()
+		})
+	}
+	window.addEventListener('popstate', navigationStart)
+	window.addEventListener('ownmail:back', navigationStart)
+	window.addEventListener('ownmail:list-ready', listReady)
+	window.addEventListener('pageshow', pageshow)
 	const failed = () => report('client_error', 1)
 	const syncFailed = () => report('sync_failed', 1)
 	inboxReady()
@@ -54,6 +76,11 @@ export function monitorPerformance(
 	window.addEventListener('pagehide', pagehide)
 	document.addEventListener('visibilitychange', hidden)
 	return () => {
+		if (restoreFrame !== undefined) cancelAnimationFrame(restoreFrame)
+		window.removeEventListener('popstate', navigationStart)
+		window.removeEventListener('ownmail:back', navigationStart)
+		window.removeEventListener('ownmail:list-ready', listReady)
+		window.removeEventListener('pageshow', pageshow)
 		observer?.disconnect()
 		window.removeEventListener('ownmail:inbox-ready', inboxReady)
 		window.removeEventListener('error', failed)
