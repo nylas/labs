@@ -1,7 +1,9 @@
 import type { Calendar, Event } from '@nylas-labs/cli-kit/v3'
+import { useBlocker, useRouter } from '@tanstack/react-router'
 import { AlertTriangle, CalendarDays, GripVertical, X } from 'lucide-react'
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { RecipientInput } from '#shared/components/RecipientInput'
+import { Button } from '#shared/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { GLASS_PANEL_FROM_SM_CLASS, GlassPanelScope } from '#shared/components/ui/glass'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#shared/components/ui/select'
@@ -118,7 +120,106 @@ export function EventModal({
 	const [selectedCalendarId, setSelectedCalendarId] = useState(calendarId)
 	const [editing, setEditing] = useState(startInEdit)
 	const [busy, setBusy] = useState(false)
+	const savingRef = useRef(false)
 	const [error, setError] = useState<string | null>(null)
+	const [confirmDiscard, setConfirmDiscard] = useState(false)
+	const router = useRouter({ warn: false })
+	const cancelNavigation = useRef<(() => void) | null>(null)
+	const discardAction = useRef<(() => void) | null>(null)
+	const scheduleChanged =
+		startHour !== initialHours.startHour || endHour !== initialHours.endHour || eventDate !== ymd(initialDate)
+	// Persisted instants disambiguate the repeated hour when clocks move back.
+	const durationMinutes =
+		times && !scheduleChanged
+			? (times.end.getTime() - times.start.getTime()) / 60_000
+			: (calendarSlotTime(dateFromInput(eventDate), endHour, timeZone).getTime() -
+					calendarSlotTime(dateFromInput(eventDate), startHour, timeZone).getTime()) /
+				60_000
+	const invalidTimeRange = (!times || scheduleChanged) && endHour <= startHour
+	const dirty =
+		title !== (event?.title ?? '') ||
+		location !== (event?.location ?? '') ||
+		description !== (event?.description ?? '') ||
+		Boolean(guests) ||
+		scheduleChanged ||
+		allDay !== (times?.allDay ?? false) ||
+		repeat !== 'none' ||
+		selectedCalendarId !== calendarId
+	const discardFocus = useRef<HTMLElement | null>(null)
+	const requestDiscard = useCallback(
+		(action: () => void) => {
+			if (busy || savingRef.current) return
+			if (!dirty) {
+				action()
+				return
+			}
+			discardFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+			discardAction.current = action
+			setConfirmDiscard(true)
+		},
+		[busy, dirty],
+	)
+
+	function changeStartHour(hour: number) {
+		const day = dateFromInput(eventDate)
+		const duration = Math.max(60_000, durationMinutes * 60_000)
+		const nextStart = calendarSlotTime(day, hour, timeZone)
+		const nextEnd = new Date(nextStart.getTime() + duration)
+		setEndHour(eventHours({ start: nextStart, end: nextEnd }, timeZone).endHour)
+		setStartHour(hour)
+		setError(null)
+	}
+
+	function dismissDiscard() {
+		setConfirmDiscard(false)
+		cancelNavigation.current?.()
+		cancelNavigation.current = null
+	}
+
+	function confirmNavigation(): Promise<boolean> {
+		if (savingRef.current) return Promise.resolve(true)
+		return new Promise((resolve) => {
+			cancelNavigation.current?.()
+			cancelNavigation.current = () => resolve(true)
+			requestDiscard(() => {
+				cancelNavigation.current = null
+				resolve(false)
+			})
+		})
+	}
+
+	useEffect(() => () => cancelNavigation.current?.(), [])
+	const discardConfirmation = (
+		<Dialog open={confirmDiscard} onOpenChange={dismissDiscard}>
+			<DialogContent
+				aria-describedby="event-discard-description"
+				className="p-5"
+				onCloseAutoFocus={(focusEvent) => {
+					focusEvent.preventDefault()
+					if (discardFocus.current?.isConnected) discardFocus.current.focus()
+				}}
+			>
+				<DialogTitle className="text-lg font-semibold">Discard event changes?</DialogTitle>
+				<p id="event-discard-description" className="mt-hairline text-sm text-muted-foreground">
+					Your unsaved changes will be lost.
+				</p>
+				<div className="mt-section flex justify-end gap-cluster">
+					<Button variant="outline" onClick={dismissDiscard}>
+						Keep editing
+					</Button>
+					<Button
+						variant="destructive"
+						onClick={() => {
+							setConfirmDiscard(false)
+							discardAction.current?.()
+						}}
+					>
+						Discard changes
+					</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
+	)
 	const titleInputRef = useRef<HTMLInputElement>(null)
 	const detailsRef = useRef<EventDetailsHandle>(null)
 	// Set when the editor hands back to the read-only view, so focus returns to Edit.
@@ -172,11 +273,12 @@ export function EventModal({
 	useEffect(() => {
 		if (event) return
 		function onKey(keyEvent: KeyboardEvent) {
-			if (keyEvent.key === 'Escape' && !busy) onClose(false)
+			if (keyEvent.key === 'Escape' && !keyEvent.defaultPrevented && !busy && !confirmDiscard)
+				requestDiscard(() => onClose(false))
 		}
 		window.addEventListener('keydown', onKey)
 		return () => window.removeEventListener('keydown', onKey)
-	}, [busy, event, onClose])
+	}, [busy, event, onClose, requestDiscard, confirmDiscard])
 
 	const colors = calendarColors(calendars)
 	const selectedCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId) ?? calendars[0]
@@ -186,7 +288,7 @@ export function EventModal({
 	)
 	const colorStyle = event ? eventColorStyle(eventColor(event, colors)) : selectedColorStyle
 	const previewEvent = useMemo(() => {
-		if (event || !isDateInput(eventDate)) return null
+		if (event || !isDateInput(eventDate) || (!allDay && endHour <= startHour)) return null
 		const selectedId = selectedCalendar?.id ?? calendarId
 		const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
 		const when = allDay
@@ -197,11 +299,7 @@ export function EventModal({
 						calendarSlotTime(dateFromInput(eventDate), startHour, timeZone).getTime() / 1000,
 					),
 					end_time: Math.floor(
-						calendarSlotTime(
-							dateFromInput(eventDate),
-							Math.max(endHour, startHour + TIME_STEP_HOURS),
-							timeZone,
-						).getTime() / 1000,
+						calendarSlotTime(dateFromInput(eventDate), endHour, timeZone).getTime() / 1000,
 					),
 				}
 		return {
@@ -232,6 +330,7 @@ export function EventModal({
 	useEffect(() => () => onDraftChange?.(null), [onDraftChange])
 
 	async function save() {
+		if (savingRef.current) return
 		if (!isDateInput(eventDate)) {
 			setError('Choose a valid event date.')
 			return
@@ -247,6 +346,15 @@ export function EventModal({
 			setError('Include the event date weekday in the repeating schedule.')
 			return
 		}
+		if (!allDay && endHour <= startHour) {
+			setError('Choose an end time after the start time.')
+			return
+		}
+		if (!allDay && !validEditorRange(dateFromInput(eventDate), startHour, endHour, timeZone)) {
+			setError('Choose times that exist in this time zone. Daylight saving time may skip this hour.')
+			return
+		}
+		savingRef.current = true
 		setBusy(true)
 		setError(null)
 		try {
@@ -254,11 +362,7 @@ export function EventModal({
 				calendarSlotTime(dateFromInput(eventDate), startHour, timeZone).getTime() / 1000,
 			)
 			const endTime = Math.floor(
-				calendarSlotTime(
-					dateFromInput(eventDate),
-					Math.max(endHour, startHour + TIME_STEP_HOURS),
-					timeZone,
-				).getTime() / 1000,
+				calendarSlotTime(dateFromInput(eventDate), endHour, timeZone).getTime() / 1000,
 			)
 			const participants = valueToTokens(guests)
 			const recurrence = repeat === 'none' ? undefined : recurrenceFromForm(repeat, weekdays)
@@ -274,36 +378,51 @@ export function EventModal({
 			onClose(true)
 		} catch {
 			setError('Could not save the event. Check your connection, then try again.')
+			savingRef.current = false
 			setBusy(false)
 		}
 	}
 
 	async function saveEdit() {
+		if (savingRef.current) return
 		/* v8 ignore next -- saveEdit() is only wired to the edit form, which renders only when event is present -- @preserve */
 		if (!event) return
 		if (!allDay && !isDateInput(eventDate)) {
 			setError('Choose a valid event date.')
 			return
 		}
+		if (!allDay && (!event || scheduleChanged) && endHour <= startHour) {
+			setError('Choose an end time after the start time.')
+			return
+		}
+		if (
+			!allDay &&
+			(!event || scheduleChanged) &&
+			!validEditorRange(dateFromInput(eventDate), startHour, endHour, timeZone)
+		) {
+			setError('Choose times that exist in this time zone. Daylight saving time may skip this hour.')
+			return
+		}
+		savingRef.current = true
 		setBusy(true)
 		setError(null)
 		try {
 			const eventDay = dateFromInput(eventDate)
 			const startTime = Math.floor(calendarSlotTime(eventDay, startHour, timeZone).getTime() / 1000)
-			const endTime = Math.floor(
-				calendarSlotTime(eventDay, Math.max(endHour, startHour + TIME_STEP_HOURS), timeZone).getTime() / 1000,
-			)
+			const endTime = Math.floor(calendarSlotTime(eventDay, endHour, timeZone).getTime() / 1000)
 			await updateMutation.mutateAsync({
 				eventId: event.id,
 				calendarId: event.calendar_id ?? calendarId,
 				title: title.trim() || 'Untitled event',
 				location,
 				description,
-				...(allDay ? {} : { startTime, endTime }),
+				// Keep provider precision, overnight spans and ambiguous DST instants when only text changes.
+				...(!allDay && scheduleChanged ? { startTime, endTime } : {}),
 			})
 			onClose(true)
 		} catch {
 			setError('Could not save the event. Check your connection, then try again.')
+			savingRef.current = false
 			setBusy(false)
 		}
 	}
@@ -347,7 +466,7 @@ export function EventModal({
 				onOpenChange={(next) => {
 					/* v8 ignore else -- @preserve the controlled open dialog only requests dismissal; busy or open requests are intentional no-ops */
 					if (!next && !busy) {
-						if (editing) onClose(false)
+						if (editing) requestDiscard(() => onClose(false))
 						else detailsRef.current?.requestClose()
 					}
 				}}
@@ -362,7 +481,7 @@ export function EventModal({
 								colorStyle={colorStyle}
 								variant="dialog"
 								busy={busy}
-								onClose={() => onClose(false)}
+								onClose={() => requestDiscard(() => onClose(false))}
 							/>
 							<div className="space-y-4 px-5 py-4">
 								<input
@@ -394,7 +513,9 @@ export function EventModal({
 									startHour={startHour}
 									endHour={endHour}
 									allDay={allDay}
-									onStartHour={setStartHour}
+									durationMinutes={durationMinutes}
+									invalidTimeRange={invalidTimeRange}
+									onStartHour={changeStartHour}
 									onEndHour={setEndHour}
 									location={location}
 									onLocation={setLocation}
@@ -402,13 +523,15 @@ export function EventModal({
 									onDescription={setDescription}
 								/>
 								{error ? (
-									<p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+									<p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+										{error}
+									</p>
 								) : null}
 							</div>
 							<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))]">
 								<button
 									type="button"
-									onClick={cancelEdit}
+									onClick={() => requestDiscard(cancelEdit)}
 									disabled={busy}
 									className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid"
 								>
@@ -440,6 +563,8 @@ export function EventModal({
 							onDeleted={() => onClose(true)}
 						/>
 					)}
+					{discardConfirmation}
+					{router ? <EventNavigationGuard dirty={dirty || busy} onNavigate={confirmNavigation} /> : null}
 				</DialogContent>
 			</Dialog>
 		)
@@ -482,7 +607,7 @@ export function EventModal({
 					</div>
 					<button
 						type="button"
-						onClick={() => onClose(false)}
+						onClick={() => requestDiscard(() => onClose(false))}
 						disabled={busy}
 						aria-label="Close"
 						className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
@@ -549,7 +674,9 @@ export function EventModal({
 							startHour={startHour}
 							endHour={endHour}
 							allDay={allDay}
-							onStartHour={setStartHour}
+							durationMinutes={durationMinutes}
+							invalidTimeRange={invalidTimeRange}
+							onStartHour={changeStartHour}
 							onEndHour={setEndHour}
 						/>
 					</section>
@@ -622,7 +749,7 @@ export function EventModal({
 				<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-5 pt-3 pb-[calc(0.75rem+var(--safe-area-bottom))] sm:pb-3">
 					<button
 						type="button"
-						onClick={() => onClose(false)}
+						onClick={() => requestDiscard(() => onClose(false))}
 						disabled={busy}
 						className="min-h-11 rounded-lg px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:cursor-not-allowed disabled:opacity-50"
 					>
@@ -638,23 +765,30 @@ export function EventModal({
 					</button>
 				</div>
 			</div>
+			{discardConfirmation}
+			{router ? <EventNavigationGuard dirty={dirty || busy} onNavigate={confirmNavigation} /> : null}
 		</GlassPanelScope>
 	)
 }
 
 function EventTimeFields({
+	invalidTimeRange,
+	durationMinutes,
 	startHour,
 	endHour,
 	allDay,
 	onStartHour,
 	onEndHour,
 }: {
+	invalidTimeRange: boolean
+	durationMinutes: number
 	startHour: number
 	endHour: number
 	allDay: boolean
 	onStartHour: (hour: number) => void
 	onEndHour: (hour: number) => void
 }) {
+	const timeHintId = useId()
 	if (allDay)
 		return <p className="text-sm text-muted-foreground">This event will appear across the full day.</p>
 	return (
@@ -666,29 +800,43 @@ function EventTimeFields({
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{START_TIME_OPTIONS.map((hour) => (
-							<SelectItem key={hour} value={String(hour)}>
-								{formatDecimalHour(hour)}
-							</SelectItem>
-						))}
+						{[...new Set([...START_TIME_OPTIONS, startHour])]
+							.sort((a, b) => a - b)
+							.map((hour) => (
+								<SelectItem key={hour} value={String(hour)}>
+									{formatDecimalHour(hour)}
+								</SelectItem>
+							))}
 					</SelectContent>
 				</Select>
 			</div>
 			<div className="space-y-1.5">
 				<span className="text-xs font-medium text-muted-foreground">Ends</span>
 				<Select value={String(endHour)} onValueChange={(value) => onEndHour(Number(value))}>
-					<SelectTrigger aria-label="End time" className="h-11 w-full bg-background">
+					<SelectTrigger
+						aria-label="End time"
+						aria-invalid={invalidTimeRange || undefined}
+						aria-describedby={timeHintId}
+						className="h-11 w-full bg-background"
+					>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{END_TIME_OPTIONS.map((hour) => (
-							<SelectItem key={hour} value={String(hour)}>
-								{formatDecimalHour(hour)}
-							</SelectItem>
-						))}
+						{[...new Set([...END_TIME_OPTIONS, endHour])]
+							.sort((a, b) => a - b)
+							.map((hour) => (
+								<SelectItem key={hour} value={String(hour)}>
+									{formatDecimalHour(hour)}
+								</SelectItem>
+							))}
 					</SelectContent>
 				</Select>
 			</div>
+			<p id={timeHintId} className="col-span-2 text-xs text-muted-foreground" aria-live="polite">
+				{invalidTimeRange
+					? 'End time must be after start time.'
+					: `${Math.round(durationMinutes)} minutes${endHour >= 24 ? ` · Ends ${Math.floor(endHour / 24)} day${endHour >= 48 ? 's' : ''} later` : ''}`}
+			</p>
 		</div>
 	)
 }
@@ -735,6 +883,8 @@ function EventDetailsFields({
 
 /** Editable time / location / description fields shared by create and edit. */
 function EventFields({
+	invalidTimeRange,
+	durationMinutes,
 	startHour,
 	endHour,
 	allDay,
@@ -745,6 +895,8 @@ function EventFields({
 	description,
 	onDescription,
 }: {
+	invalidTimeRange: boolean
+	durationMinutes: number
 	startHour: number
 	endHour: number
 	allDay: boolean
@@ -758,6 +910,8 @@ function EventFields({
 	return (
 		<>
 			<EventTimeFields
+				invalidTimeRange={invalidTimeRange}
+				durationMinutes={durationMinutes}
 				startHour={startHour}
 				endHour={endHour}
 				allDay={allDay}
@@ -889,21 +1043,38 @@ export function eventInitialHours(
 	const startHour = decimalHour(start, timeZone)
 	const normalizedStartHour =
 		(preserveStartTime ? startHour >= 0 : startHour >= 7) && startHour < 24 ? nearestTimeStep(startHour) : 9
-	return { startHour: normalizedStartHour, endHour: Math.min(24, normalizedStartHour + durationHours) }
+	const day = calendarDateInTimeZone(start, timeZone)
+	const normalizedStart = timeZone
+		? calendarSlotTime(day, normalizedStartHour, timeZone)
+		: new Date(
+				day.getFullYear(),
+				day.getMonth(),
+				day.getDate(),
+				Math.floor(normalizedStartHour),
+				Math.round((normalizedStartHour % 1) * 60),
+			)
+	return eventHours(
+		{ start: normalizedStart, end: new Date(normalizedStart.getTime() + durationHours * 3_600_000) },
+		timeZone,
+	)
 }
 
 /**
- * The editor's start and end for an existing event, on the 15-minute options.
- * An end past midnight is shown as the end of the start day.
+ * Preserve provider wall-clock minutes and the end date, including overnight events.
+ * Text-only edits omit timestamps entirely, preserving seconds and DST disambiguation.
  */
 export function eventHours(
 	times: { start: Date; end: Date },
 	timeZone?: string,
 ): { startHour: number; endHour: number } {
-	const startHour = nearestTimeStep(decimalHour(times.start, timeZone))
-	const durationHours = (times.end.getTime() - times.start.getTime()) / 3_600_000
-	const endHour = Math.round((startHour + durationHours) / TIME_STEP_HOURS) * TIME_STEP_HOURS
-	return { startHour, endHour: Math.min(24, Math.max(endHour, startHour + TIME_STEP_HOURS)) }
+	const startHour = decimalHour(times.start, timeZone)
+	const startDate = calendarDateInTimeZone(times.start, timeZone)
+	const endDate = calendarDateInTimeZone(times.end, timeZone)
+	const days =
+		(Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) -
+			Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate())) /
+		86_400_000
+	return { startHour, endHour: decimalHour(times.end, timeZone) + days * 24 }
 }
 
 function nearestTimeStep(hour: number): number {
@@ -916,7 +1087,26 @@ function formatDecimalHour(hour: number): string {
 	const minute = Math.round((hour - rawWholeHour) * 60)
 	const period = wholeHour >= 12 ? 'PM' : 'AM'
 	const displayHour = wholeHour % 12 === 0 ? 12 : wholeHour % 12
-	return minute === 0
-		? `${displayHour} ${period}`
-		: `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+	const time =
+		minute === 0 ? `${displayHour} ${period}` : `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+	return hour > 24 ? `${time} (+${Math.floor(hour / 24)} day${hour >= 48 ? 's' : ''})` : time
+}
+
+/** Reject nonexistent local times instead of silently normalizing across a DST gap. */
+export function validEditorRange(day: Date, startHour: number, endHour: number, timeZone: string): boolean {
+	const start = calendarSlotTime(day, startHour, timeZone)
+	const end = calendarSlotTime(day, endHour, timeZone)
+	const matches = (instant: Date, hour: number) => {
+		const expectedDay = new Date(day.getFullYear(), day.getMonth(), day.getDate() + Math.floor(hour / 24))
+		return (
+			ymd(calendarDateInTimeZone(instant, timeZone)) === ymd(expectedDay) &&
+			Math.abs(calendarWallClockHour(instant, timeZone) - (hour % 24)) < 1 / 120
+		)
+	}
+	return end > start && matches(start, startHour) && matches(end, endHour)
+}
+
+function EventNavigationGuard({ dirty, onNavigate }: { dirty: boolean; onNavigate: () => Promise<boolean> }) {
+	useBlocker({ shouldBlockFn: onNavigate, disabled: !dirty, enableBeforeUnload: dirty })
+	return null
 }

@@ -2,6 +2,8 @@
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { hydrateRoot } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // A single mutable router state drives every useRouterState selector so tests can
@@ -129,6 +131,7 @@ vi.mock('#features/mail/lib/mail-ui-model', async (importOriginal) => {
 })
 
 import { liveSearchTarget } from '#features/mail/lib/mail-ui-model'
+import { mailKeys } from '#features/mail/state/mail-queries'
 import { MailRouteScreen } from './-mail-screen.js'
 import { Route } from './mail.js'
 
@@ -262,6 +265,61 @@ describe('/mail loader + layout', () => {
 		)
 		expect(listDrafts).not.toHaveBeenCalled()
 		expect(screen.getAllByTestId('sidebar')[0]).toHaveAttribute('data-latest-draft', '')
+	})
+
+	it('hydrates with a fresh query cache before exposing the server-cached draft shortcut', async () => {
+		const drafts = [{ id: 'd1', subject: 'Saved before reload', date: 1 }]
+		Route.useLoaderData = vi.fn(() => ({
+			info,
+			folders: [{ id: 'drafts', total_count: 1 }] as unknown as Folder[],
+		}))
+		getMailboxInfo.mockResolvedValue(info)
+		let resolveDrafts!: (value: typeof drafts) => void
+		listDrafts.mockReturnValue(
+			new Promise<typeof drafts>((resolve) => {
+				resolveDrafts = resolve
+			}),
+		)
+		const serverClient = new QueryClient()
+		serverClient.setQueryData(mailKeys.drafts(), drafts)
+		const browserClient = new QueryClient()
+		const Component = Route.options.component
+		const container = document.createElement('div')
+		container.innerHTML = renderToString(
+			<QueryClientProvider client={serverClient}>
+				<Component />
+			</QueryClientProvider>,
+		)
+		document.body.append(container)
+		// The server can already see the child loader's draft cache, while the browser cannot.
+		expect(container.querySelector('[data-testid="sidebar"]')).toHaveAttribute('data-latest-draft', '')
+		const onRecoverableError = vi.fn()
+		let root!: ReturnType<typeof hydrateRoot>
+		try {
+			await act(async () => {
+				root = hydrateRoot(
+					container,
+					<QueryClientProvider client={browserClient}>
+						<Component />
+					</QueryClientProvider>,
+					{ onRecoverableError },
+				)
+			})
+			expect(onRecoverableError).not.toHaveBeenCalled()
+			await act(async () => resolveDrafts(drafts))
+			await waitFor(() =>
+				expect(container.querySelector('[data-testid="sidebar"]')).toHaveAttribute(
+					'data-latest-draft',
+					'Saved before reload',
+				),
+			)
+			expect(onRecoverableError).not.toHaveBeenCalled()
+		} finally {
+			await act(async () => root?.unmount())
+			container.remove()
+			serverClient.clear()
+			browserClient.clear()
+		}
 	})
 
 	it('renders current observed mailbox info instead of stale infinite-route loader data', () => {

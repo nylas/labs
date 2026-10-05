@@ -7,6 +7,7 @@ import {
 	eventHours,
 	eventInitialHours,
 	NEW_EVENT_HOURS,
+	validEditorRange,
 } from './EventModal.js'
 
 describe('EventModal helpers', () => {
@@ -31,10 +32,10 @@ describe('EventModal helpers', () => {
 			startHour: 14.25,
 			endHour: 15,
 		})
-		// A range that reaches the end of the day stops at midnight.
+		// A range crossing midnight keeps the requested duration.
 		expect(eventInitialHours(new Date('2026-07-08T23:00:00'), true, undefined, 2)).toEqual({
 			startHour: 23,
-			endHour: 24,
+			endHour: 25,
 		})
 	})
 
@@ -42,12 +43,15 @@ describe('EventModal helpers', () => {
 		const at = (time: string) => new Date(`2026-07-08T${time}:00`)
 		// A resized two-and-a-quarter-hour event keeps its end.
 		expect(eventHours({ start: at('09:15'), end: at('11:30') })).toEqual({ startHour: 9.25, endHour: 11.5 })
-		// Off-grid provider times land on the nearest 15-minute option, never a zero length.
-		expect(eventHours({ start: at('09:07'), end: at('09:10') })).toEqual({ startHour: 9, endHour: 9.25 })
-		// An event running past midnight is shown to the end of its start day.
+		// Existing provider times stay exact, including off-grid minutes.
+		expect(eventHours({ start: at('09:07'), end: at('09:10') })).toEqual({
+			startHour: 9 + 7 / 60,
+			endHour: 9 + 10 / 60,
+		})
+		// An event running past midnight retains its end date.
 		expect(eventHours({ start: at('23:00'), end: new Date('2026-07-09T01:00:00') })).toEqual({
 			startHour: 23,
-			endHour: 24,
+			endHour: 25,
 		})
 		expect(
 			eventHours(
@@ -79,12 +83,12 @@ describe('EventModal helpers', () => {
 		})
 		expect(eventInitialHours(new Date('2026-07-08T23:45:00'), true)).toEqual({
 			startHour: 23.75,
-			endHour: 24,
+			endHour: 24.75,
 		})
 		// The last selectable start leaves room for a 15-minute event.
 		expect(eventInitialHours(new Date('2026-07-08T23:58:00'), true)).toEqual({
 			startHour: 23.75,
-			endHour: 24,
+			endHour: 24.75,
 		})
 	})
 
@@ -109,5 +113,40 @@ describe('EventModal helpers', () => {
 		expect(EVENT_COMPOSER_PANEL_CLASS).toContain('event-composer-panel')
 		expect(eventComposerMaxHeight(100)).toBe('calc(100dvh - 108px)')
 		expect(eventComposerMaxHeight(-20)).toBe('calc(100dvh - 8px)')
+	})
+})
+
+describe('event editor time boundaries', () => {
+	it('supports next-day and multi-day end hours without truncation', () => {
+		const date = new Date(2026, 6, 8)
+		expect(validEditorRange(date, 23, 25, 'America/Toronto')).toBe(true)
+		expect(validEditorRange(date, 23, 49, 'America/Toronto')).toBe(true)
+	})
+
+	it('rejects nonexistent spring-forward times but accepts a range spanning the change', () => {
+		const date = new Date(2026, 2, 8)
+		expect(validEditorRange(date, 2.25, 3.25, 'America/Toronto')).toBe(false)
+		expect(validEditorRange(date, 1.5, 2.5, 'America/Toronto')).toBe(false)
+		expect(validEditorRange(date, 1.5, 3.5, 'America/Toronto')).toBe(true)
+	})
+
+	it('preserves wall-clock values across fall-back rather than deriving them from elapsed hours', () => {
+		expect(
+			eventHours(
+				{ start: new Date('2026-11-01T04:30:00Z'), end: new Date('2026-11-01T07:30:00Z') },
+				'America/Toronto',
+			),
+		).toEqual({ startHour: 0.5, endHour: 2.5 })
+	})
+})
+
+it('preserves a new meeting duration across midnight and spring-forward', () => {
+	expect(eventInitialHours(new Date('2026-07-09T03:30:00Z'), true, 'America/Toronto')).toEqual({
+		startHour: 23.5,
+		endHour: 24.5,
+	})
+	expect(eventInitialHours(new Date('2026-03-08T06:30:00Z'), true, 'America/Toronto')).toEqual({
+		startHour: 1.5,
+		endHour: 3.5,
 	})
 })
