@@ -43,7 +43,49 @@ try {
 			`Authenticated mailbox SSR returned ${response.status} ${response.statusText || ''} with ${body.length} bytes.`,
 		)
 	}
-	console.log('OwnMail authenticated mailbox SSR smoke test passed.')
+	// Different requests must render their own layout before any JavaScript runs.
+	for (const density of ['compact', 'condensed']) {
+		const preferences = encodeURIComponent(
+			JSON.stringify([
+				1,
+				'horizontal',
+				density,
+				'messages',
+				'readable',
+				'automatic',
+				true,
+				52,
+				false,
+				false,
+				'UTC',
+				'',
+				true,
+				'ask',
+			]),
+		)
+		const personalized = await fetch(`${origin}/mail/f/inbox`, {
+			headers: { Cookie: `ownmail_session=authenticated; ownmail-ui-v1=${preferences}` },
+			signal: AbortSignal.timeout(10_000),
+		})
+		const html = await personalized.text()
+		if (personalized.status !== 200 || !html.includes(`data-density="${density}"`)) {
+			throw new Error(`Mailbox SSR did not render the saved ${density} density.`)
+		}
+		if (personalized.headers.get('cache-control') !== 'private, no-store') {
+			throw new Error('Personalized mailbox HTML must not be cached.')
+		}
+	}
+	const neutral = await fetch(`${origin}/mail/f/inbox`, {
+		headers: { Cookie: 'ownmail_session=authenticated; ownmail-ui-v1=malformed' },
+		signal: AbortSignal.timeout(10_000),
+	})
+	const neutralHtml = await neutral.text()
+	if (neutral.status !== 200 || /data-density="(?:compact|condensed)"/.test(neutralHtml)) {
+		throw new Error(
+			'Mailbox SSR reused another request’s preferences or rejected a malformed cookie unsafely.',
+		)
+	}
+	console.log('OwnMail authenticated mailbox and request-scoped preference SSR smoke tests passed.')
 } catch (error) {
 	const logs = output.join('').trim()
 	if (logs) process.stderr.write(`${logs}\n`)

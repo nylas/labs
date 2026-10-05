@@ -23,6 +23,7 @@ vi.mock('@tanstack/react-start', () => ({
 }))
 vi.mock('@tanstack/react-start/server', () => ({
 	getRequest: () => new Request('http://ownmail.local/'),
+	setResponseHeader: vi.fn(),
 }))
 vi.mock('#server/platform', () => ({
 	platform: async () => ({ env: {} }),

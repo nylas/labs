@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const routerState = vi.hoisted(() => ({ isLoading: false, pathname: '/' }))
 
 vi.mock('@tanstack/react-router', () => ({
-	createRootRouteWithContext: () => (opts: any) => ({ options: opts }),
+	createRootRouteWithContext: () => (opts: any) => ({
+		options: opts,
+		useLoaderData: () => ({ preferences: null }),
+	}),
 	HeadContent: () => null,
 	Outlet: () => null,
 	Scripts: () => null,
@@ -23,6 +26,14 @@ vi.mock('@tanstack/react-start', () => ({
 	createServerFn: () => ({ handler: (fn: () => unknown) => fn }),
 }))
 
+const request = vi.hoisted(() => ({ cookie: '' }))
+const setResponseHeader = vi.hoisted(() => vi.fn())
+vi.mock('@tanstack/react-start/server', () => ({
+	getRequest: () =>
+		new Request('http://ownmail.local/', { headers: request.cookie ? { cookie: request.cookie } : {} }),
+	setResponseHeader,
+}))
+
 vi.mock('../styles.css?url', () => ({ default: '/assets/styles.css' }))
 // The composer is exercised by its own suites; the root only has to mount it around the page.
 vi.mock('#features/mail/components/ComposeProvider', () => ({
@@ -34,6 +45,8 @@ vi.mock('#features/mail/components/ComposeProvider', () => ({
 const platform = vi.fn()
 vi.mock('#server/platform', () => ({ platform: () => platform() }))
 
+import { encodePreferenceCookie, USER_PREFERENCES_COOKIE } from '#app/preferences/preference-cookie'
+import { defaultUserPreferences } from '#app/preferences/user-preferences'
 import { Route } from './__root.js'
 
 /** The route announcer; the toast region beside it is a second, separate status region. */
@@ -44,6 +57,7 @@ function routeAnnouncer(): HTMLElement {
 }
 
 afterEach(() => {
+	request.cookie = ''
 	routerState.isLoading = false
 	routerState.pathname = '/'
 	cleanup()
@@ -59,7 +73,7 @@ describe('root route', () => {
 
 	it('loads the validated deployment site name for document metadata', async () => {
 		platform.mockResolvedValue({ env: { OWNMAIL_SITE_NAME: 'Acme Mail' } })
-		expect(await Route.options.loader()).toEqual({ siteName: 'Acme Mail' })
+		expect(await Route.options.loader()).toEqual({ siteName: 'Acme Mail', preferences: null })
 	})
 
 	it('declares document metadata so every page ships consistent SEO and PWA head tags', () => {
@@ -70,6 +84,17 @@ describe('root route', () => {
 		expect(head.links).toContainEqual({ rel: 'manifest', href: '/manifest.webmanifest' })
 		// The stylesheet link resolves through the bundler's ?url import.
 		expect(head.links.some((l: any) => l.rel === 'stylesheet')).toBe(true)
+	})
+
+	it('loads this request’s cookie and keeps personalized HTML and server responses out of shared caches', async () => {
+		platform.mockResolvedValue({ env: {} })
+		const preferences = { ...defaultUserPreferences(), listDensity: 'compact' as const }
+		request.cookie = `${USER_PREFERENCES_COOKIE}=${encodePreferenceCookie(preferences)}`
+		expect(await Route.options.loader()).toMatchObject({ preferences })
+		expect(setResponseHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store')
+		expect(Route.options.headers()).toEqual({ 'Cache-Control': 'private, no-store' })
+		request.cookie = ''
+		expect(await Route.options.loader()).toMatchObject({ preferences: null })
 	})
 
 	it('uses the configured site name in document and installed-app titles', () => {

@@ -19,8 +19,8 @@ import { ACCOUNT_SWITCH_BLOCKED_MESSAGE, useAccountSwitch } from '../lib/account
 import { useThemeToggleState } from '../lib/use-theme-toggle-state.js'
 import {
 	displayNameFor,
+	useLocalPreferencesReady,
 	useUserPreferences,
-	useUserPreferencesReady,
 } from '../preferences/user-preferences.js'
 
 export type MailboxAccountOption = {
@@ -84,7 +84,7 @@ export function AppRailNav({
 }: AppRailNavProps) {
 	const { isDark, mounted } = useThemeToggleState()
 	const [preferences] = useUserPreferences()
-	const preferencesReady = useUserPreferencesReady()
+	const preferencesReady = useLocalPreferencesReady()
 
 	// The name saved on this device is this mailbox's own, never another's.
 	const effectiveDisplayName = displayName || displayNameFor(preferences, email)

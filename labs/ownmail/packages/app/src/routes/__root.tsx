@@ -8,6 +8,7 @@ import {
 	useRouterState,
 } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
+import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { Compass } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { AccountSwitchLoader } from '#app/components/AccountSwitchLoader'
@@ -16,6 +17,8 @@ import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
 import { useAccountSwitchStatus } from '#app/lib/account-switch-status'
 import { monitorPerformance } from '#app/lib/performance-monitor'
+import { readPreferenceCookie } from '#app/preferences/preference-cookie'
+import { UserPreferencesProvider } from '#app/preferences/user-preferences'
 import type { OwnmailRouterContext } from '#app/query/query-provider'
 import { ComposeProvider } from '#features/mail/components/ComposeProvider'
 import { platform } from '#server/platform'
@@ -25,11 +28,16 @@ import appCss from '../styles.css?url'
 
 const rootState = createServerFn({ method: 'GET' }).handler(async () => {
 	const { env } = await platform()
-	return { siteName: siteNameFromEnv(env) }
+	setResponseHeader('Cache-Control', 'private, no-store')
+	return {
+		siteName: siteNameFromEnv(env),
+		preferences: readPreferenceCookie(getRequest().headers.get('cookie') ?? ''),
+	}
 })
 
 export const Route = createRootRouteWithContext<OwnmailRouterContext>()({
 	loader: async () => rootState(),
+	headers: () => ({ 'Cache-Control': 'private, no-store' }),
 	staleTime: Number.POSITIVE_INFINITY,
 	head: (context) => {
 		const siteName = context?.loaderData?.siteName ?? DEFAULT_SITE_NAME
@@ -149,8 +157,9 @@ function StartupPending() {
 function RootComponent() {
 	useEffect(() => monitorPerformance(), [])
 	const switchingTo = useAccountSwitchStatus()
+	const { preferences } = Route.useLoaderData()
 	return (
-		<>
+		<UserPreferencesProvider initialPreferences={preferences}>
 			<NavigationProgress />
 			<RouteAnnouncer />
 			{/* The previous inbox is unmounted, never covered, while the next one loads. */}
@@ -164,7 +173,7 @@ function RootComponent() {
 					</ComposeProvider>
 				)}
 			</ToastProvider>
-		</>
+		</UserPreferencesProvider>
 	)
 }
 
