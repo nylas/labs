@@ -155,7 +155,7 @@ function SearchPending() {
 	const threads = hasSearchQuery ? cachedSearchThreads(queryClient, q, folderId) : undefined
 	return (
 		<div data-testid="search-pending" aria-busy="true" className={layout.container}>
-			<section className={layout.list} data-density={listDensity}>
+			<section data-navigation-region="mail-list" className={layout.list} data-density={listDensity}>
 				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">
 						{folderId
@@ -183,7 +183,7 @@ function SearchPending() {
 					<ThreadListSkeleton />
 				)}
 			</section>
-			<section className={layout.reader}>
+			<section data-navigation-region="mail-reader" className={layout.reader}>
 				{selectedThreadId ? (
 					<ThreadReaderSkeleton subject={findCachedThread(queryClient, selectedThreadId)?.subject} />
 				) : null}
@@ -349,7 +349,11 @@ function SearchResults() {
 
 	return (
 		<div className={layout.container}>
-			<section className={layout.list} data-density={preferences.listDensity}>
+			<section
+				data-navigation-region="mail-list"
+				className={layout.list}
+				data-density={preferences.listDensity}
+			>
 				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
 					<div className="flex items-center gap-1">
@@ -453,7 +457,7 @@ function SearchResults() {
 					) : null}
 				</div>
 			</section>
-			<section className={layout.reader}>
+			<section data-navigation-region="mail-reader" className={layout.reader}>
 				{selected ? (
 					<SearchThreadDetail
 						key={JSON.stringify([selected.thread.id, q, folderId ?? null])}

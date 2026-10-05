@@ -319,6 +319,7 @@ export function ContactsShell({
 				<AppRailNav {...railNavProps} />
 
 				<div
+					data-navigation-region="contact-list"
 					className={cn(
 						'flex w-full shrink-0 flex-col overflow-hidden border-r border-border bg-background md:w-80',
 						selectedId && 'hidden md:flex',
@@ -347,6 +348,7 @@ export function ContactsShell({
 				</div>
 
 				<div
+					data-navigation-region="contact-detail"
 					className={cn(
 						'min-w-0 flex-1 overflow-y-auto',
 						UNDER_MOBILE_BAR_CLASS,

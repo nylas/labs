@@ -590,7 +590,10 @@ export function CalendarRouteScreen({
 						meetWith={meetWithPanel}
 					/>
 				</aside>
-				<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+				<div
+					data-navigation-region="calendar"
+					className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background"
+				>
 					{truncated ? (
 						<p
 							role="status"

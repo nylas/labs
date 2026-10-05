@@ -1060,19 +1060,35 @@
 }
 
 .dialog-overlay[data-state="open"] {
-	animation: fade-in var(--dur-medium) var(--ease-out);
+	animation: fade-in var(--dur-fast) var(--ease-out);
 }
 
 .dialog-content[data-presentation="bottom-sheet"][data-state="open"] {
 	animation: bottom-sheet-in var(--dur-medium) var(--ease-out);
 }
 
-.dialog-content[data-presentation="side"][data-side="left"][data-state="open"] {
-	animation: side-sheet-left-in var(--dur-medium) var(--ease-out);
+.dialog-content[data-presentation="side"][data-side="left"] {
+	--sheet-offset: calc(-1 * var(--spacing-section));
 }
 
-.dialog-content[data-presentation="side"][data-side="right"][data-state="open"] {
-	animation: side-sheet-right-in var(--dur-medium) var(--ease-out);
+.dialog-content[data-presentation="side"][data-side="right"] {
+	--sheet-offset: var(--spacing-section);
+}
+
+/* Navigation has an arrival and a dismissal. Radix retains closed sheets only
+   until the CSS exit finishes; route/account unmounts still remove them at once. */
+.dialog-content[data-presentation="side"][data-state="open"] {
+	animation:
+		fade-in var(--dur-fast) var(--ease-out),
+		navigation-sheet-in var(--dur-medium) var(--ease-out);
+}
+
+.dialog-content[data-presentation="side"][data-state="closed"] {
+	animation: navigation-sheet-out var(--dur-fast) var(--ease-in) both;
+}
+
+.dialog-overlay:has(~ .dialog-content[data-presentation="side"])[data-state="closed"] {
+	animation: navigation-overlay-out var(--dur-fast) var(--ease-in) both;
 }
 
 .event-composer-panel {
@@ -1248,17 +1264,22 @@
 	}
 }
 
-@keyframes side-sheet-left-in {
+@keyframes navigation-sheet-in {
 	from {
-		opacity: 0;
-		transform: translateX(-1.5rem);
+		translate: var(--sheet-offset) 0;
 	}
 }
 
-@keyframes side-sheet-right-in {
-	from {
+@keyframes navigation-sheet-out {
+	to {
 		opacity: 0;
-		transform: translateX(1.5rem);
+		translate: var(--sheet-offset) 0;
+	}
+}
+
+@keyframes navigation-overlay-out {
+	to {
+		opacity: 0;
 	}
 }
 
@@ -1457,7 +1478,8 @@
 	animation: icon-swap var(--dur-medium) var(--ease-in-out);
 }
 
-/* Clause 8: a newly opened conversation fades in and never slides. */
+/* In-place content reveal for the inline composer. Route motion is coordinated
+   after the destination commits by app/lib/navigation-motion.ts. */
 @keyframes content-fade-in {
 	from {
 		opacity: 0;
@@ -1467,13 +1489,15 @@
 	}
 }
 
-.content-fade-in {
-	animation: content-fade-in var(--dur-fast) ease;
-}
-
 @media (prefers-reduced-motion: reduce) {
 	.navigation-progress-bar {
 		width: 100%;
+		animation: none;
+	}
+
+	.dialog-content[data-presentation="side"][data-state],
+	.dialog-overlay[data-state],
+	.dialog-overlay[data-state]:has(~ .dialog-content[data-presentation="side"]) {
 		animation: none;
 	}
 
