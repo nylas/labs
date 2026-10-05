@@ -2,7 +2,7 @@ import type { PerformanceReport } from '#shared/lib/performance-report'
 
 /** Small, sampled reports; never include paths, LCP text, error messages, or resource URLs. */
 export function monitorPerformance(
-	sampled = (crypto.getRandomValues(new Uint32Array(1))[0] ?? 1) % 10 === 0,
+	sampled = (crypto.getRandomValues(new Uint32Array(1))[0] ?? 0xffffffff) < 0x1_0000_0000 / 10,
 ): () => void {
 	if (!sampled || typeof performance.getEntriesByType !== 'function') return () => {}
 	const sent = new Set<PerformanceReport['metric']>()

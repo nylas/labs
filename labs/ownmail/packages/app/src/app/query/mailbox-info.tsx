@@ -24,8 +24,8 @@ export function ensureMailboxInfo(queryClient: QueryClient, bootstrap = false) {
 	// Full-profile consumers must not reuse the abbreviated mail bootstrap result.
 	if (!bootstrap) return queryClient.fetchQuery(mailboxInfoQueryOptions())
 	return queryClient.ensureQueryData({
-		...mailboxInfoQueryOptions(),
 		queryKey: ['account', 'mailbox-info-bootstrap'],
+		staleTime: 30_000,
 		queryFn: async ({ signal }) => {
 			const info = await getMailboxInfo({ data: { bootstrap: true } })
 			observeAccount(info.email)

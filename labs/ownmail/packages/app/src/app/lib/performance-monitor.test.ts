@@ -17,7 +17,7 @@ it('skips unsampled and unsupported browsers', () => {
 	monitorPerformance(false)()
 	vi.stubGlobal('performance', {})
 	monitorPerformance(true)()
-	vi.spyOn(crypto, 'getRandomValues').mockReturnValue(new Uint32Array([1]) as any)
+	vi.spyOn(crypto, 'getRandomValues').mockReturnValue(new Uint32Array([0xffffffff]) as any)
 	monitorPerformance()()
 	vi.mocked(crypto.getRandomValues).mockReturnValue(new Uint32Array([]) as any)
 	monitorPerformance()()
