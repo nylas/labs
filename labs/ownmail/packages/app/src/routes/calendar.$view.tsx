@@ -9,7 +9,7 @@ import {
 	CHROME_ROW_CLASS,
 	CHROME_ROW_SHELL_CLASS,
 } from '#app/config/layout'
-import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
+import { useLocalPreferencesReady, useUserPreferences } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { type CalView, isCalendarDate, isCalView } from '#features/calendar/lib/calendar'
 import {
@@ -152,7 +152,7 @@ function CalendarViewRoutePage() {
 	// The grid is drawn in the saved timezone and without the calendars hidden
 	// on this device. Until those can be read, the grid stays empty rather than
 	// showing events at times, or from calendars, that change after hydration.
-	if (!useUserPreferencesReady()) return <CalendarPending />
+	if (!useLocalPreferencesReady()) return <CalendarPending />
 
 	return (
 		<CalendarRouteScreen

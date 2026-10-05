@@ -20,8 +20,8 @@ import {
 	availableTimezones,
 	isSupportedTimezone,
 	type UserPreferences,
+	useLocalPreferencesReady,
 	useUserPreferences,
-	useUserPreferencesReady,
 	withDisplayName,
 } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
@@ -79,7 +79,7 @@ function SettingsRoute() {
 	const { info } = Route.useLoaderData()
 	// The form shows this device's saved choices. Until they can be read, an
 	// empty page is shown rather than defaults that would change after hydration.
-	if (!useUserPreferencesReady()) {
+	if (!useLocalPreferencesReady()) {
 		return <div data-testid="settings-pending" aria-busy="true" className="h-dvh w-full bg-background" />
 	}
 	return <SettingsPage key={info.email} />

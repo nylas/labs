@@ -5,8 +5,8 @@ import { accountScope } from '#app/lib/account-scope'
 import {
 	hiddenCalendarIdsFor,
 	readUserPreferences,
+	useLocalPreferencesReady,
 	useUserPreferences,
-	useUserPreferencesReady,
 } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo, mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import {
@@ -222,7 +222,7 @@ export function useCalendarRouteData(
 export function useHiddenCalendarIdsForRequest(email: string, loaderIds: readonly string[]): string[] {
 	// The one shared preference store: no second subscription to keep in step.
 	const [preferences] = useUserPreferences()
-	const ready = useUserPreferencesReady()
+	const ready = useLocalPreferencesReady()
 	const key = hiddenCalendarsKey(
 		ready ? hiddenCalendarIdsForRequest(hiddenCalendarIdsFor(preferences, email)) : loaderIds,
 	)

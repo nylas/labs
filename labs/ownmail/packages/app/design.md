@@ -241,10 +241,14 @@ Every region shows its own data, or a loader.
 6. Local state. `useState` seeded from an entity, and entity-scoped UI state
    (errors, confirmations, drafts, selection, scroll), lives under a key equal
    to that identity. Syncing a prop into state with an effect is not a reset.
-7. First render is correct. Client preferences are read synchronously with
-   `useSyncExternalStore` and a server snapshot (the pattern in
-   `src/shared/components/ClientTime.tsx`), or the dependent region renders a
-   neutral placeholder. A default followed by a flip is a bug.
+7. First render is correct. Bounded device preferences travel in a validated,
+   versioned cookie. The root loader supplies a request-scoped snapshot to
+   `useSyncExternalStore`, so SSR and hydration use the same layout. Cookie
+   values take precedence over legacy localStorage; the first legacy visit
+   migrates automatically. Account names and hidden-calendar maps stay local,
+   and regions depending on them keep a neutral placeholder until ready.
+   Personalized HTML is private and not cacheable. A default followed by a flip
+   is a bug.
 8. Optimism and tests. Rollback touches only what the mutation changed and ends
    with a refetch. Each identity-changing transition has a test with real route
    components mounted, asserting no previous-identity text is in the DOM while
