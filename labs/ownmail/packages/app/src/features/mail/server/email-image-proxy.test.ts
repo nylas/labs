@@ -658,3 +658,84 @@ describe('image classification and safe variants', () => {
 		expect((await processEmailImage(opaque, 'automatic', 'dark')).classification).toBe('unknown')
 	})
 })
+
+describe('image failure diagnostics and deadlines', () => {
+	it('preserves upstream denial status without retaining URL or error body', async () => {
+		await expect(
+			fetchRemoteImage('https://images.example/private-token', {
+				resolveHost: async () => ['8.8.8.8'],
+				fetcher: async () => new Response('sensitive body', { status: 403 }),
+			}),
+		).rejects.toMatchObject({
+			code: 'upstream_status',
+			stage: 'fetch',
+			status: 403,
+			message: 'Image unavailable',
+		})
+	})
+	it('bounds DNS even when the resolver never settles', async () => {
+		vi.useFakeTimers()
+		try {
+			const result = expect(
+				fetchRemoteImage('https://images.example/logo', {
+					resolveHost: () => new Promise(() => {}),
+				}),
+			).rejects.toMatchObject({ code: 'timeout', stage: 'dns' })
+			await vi.advanceTimersByTimeAsync(8_000)
+			await result
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+	it('bounds stalled response bodies and cancels their streams', async () => {
+		vi.useFakeTimers()
+		const cancel = vi.fn()
+		try {
+			const result = expect(
+				fetchRemoteImage('https://images.example/logo', {
+					resolveHost: async () => ['8.8.8.8'],
+					fetcher: async () => new Response(new ReadableStream({ cancel })),
+				}),
+			).rejects.toMatchObject({ code: 'timeout', stage: 'body' })
+			await vi.advanceTimersByTimeAsync(8_000)
+			await result
+			expect(cancel).toHaveBeenCalled()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
+it('classifies resolver and transport rejections without exposing their messages', async () => {
+	await expect(
+		fetchRemoteImage('https://images.example/a', {
+			resolveHost: async () => {
+				throw new Error('secret')
+			},
+		}),
+	).rejects.toMatchObject({ code: 'dns' })
+	await expect(
+		fetchRemoteImage('https://images.example/a', {
+			resolveHost: async () => ['8.8.8.8'],
+			fetcher: async () => {
+				throw new Error('secret')
+			},
+		}),
+	).rejects.toMatchObject({ code: 'transport' })
+})
+it('contains cancellation failures when refusing an oversized stream', async () => {
+	await expect(
+		fetchRemoteImage('https://images.example/a', {
+			resolveHost: async () => ['8.8.8.8'],
+			fetcher: async () =>
+				new Response(
+					new ReadableStream({
+						cancel() {
+							throw new Error('secret')
+						},
+					}),
+					{ headers: { 'Content-Length': '999999999' } },
+				),
+		}),
+	).rejects.toMatchObject({ code: 'size_limit' })
+})

@@ -74,3 +74,27 @@ your hosting provider's secret manager.
 ## License
 
 [MIT](https://github.com/nylas/labs/blob/main/LICENSE)
+
+### Diagnosing slow loads and unavailable images
+
+Cloudflare Workers Observability is enabled by the deployment template. In the
+Worker's Observability view, filter structured console events by `event`:
+`image.failed`, `mailbox.failed`, or `session.failed`. Failed image responses
+include an `X-Request-ID`; filter `requestId` by that value to correlate the
+failure without copying the signed image URL. Events include the release,
+failure stage, bounded reason code, duration, and upstream HTTP status when
+available. Public errors remain generic.
+
+Image reasons distinguish token validation, DNS, blocked destinations, transport,
+upstream status, redirect limits, size limits, timeouts, and processing. For a
+reported sender (for example a Google account notification), first identify the
+actual image host privately and reproduce through the deployed Worker. An email
+sender address alone does not identify its image host or prove provider blocking.
+Never paste signed image URLs, token payloads, email HTML, or response bodies into
+logs or bug reports. Remote transfers and inline attachment reads are bounded by
+8 seconds and 8 MiB; tracking protection and destination checks remain active.
+
+Platform invocation logs may capture request URLs independently of application
+logging. Signed image paths contain sensitive data: restrict access and retention
+and disable invocation URL logging where required. Application events intentionally
+omit URLs, cookies, account identifiers, and arbitrary exception messages.

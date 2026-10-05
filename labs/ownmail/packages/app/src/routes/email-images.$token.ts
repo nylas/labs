@@ -3,13 +3,20 @@ import {
 	type EmailImageMode,
 	type EmailImageTheme,
 	fetchRemoteImage,
+	limitedImageBody,
 	processEmailImage,
 } from '#features/mail/server/email-image-proxy'
 import { verifyEmailImageSource } from '#features/mail/server/email-image-sources'
+import {
+	type DiagnosticStage,
+	diagnostic,
+	ignoreCleanupFailure,
+	OperationFailure,
+	untilAborted,
+} from '#server/diagnostics'
 import { nylas } from '#server/nylas'
 import { getSession } from '#server/session'
 
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 const TRANSPARENT_TRACKING_PIXEL = Uint8Array.from(
 	atob(
 		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==',
@@ -54,46 +61,60 @@ async function attachmentBytes(
 	attachmentId: string,
 	messageId: string,
 ): Promise<Uint8Array> {
-	const response = await (await nylas()).forGrant(grantId).downloadAttachment(attachmentId, messageId)
-	const declared = Number(response.headers.get('content-length'))
-	if (!response.ok || !response.body || (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES)) {
-		throw new Error('Image unavailable')
+	const controller = new AbortController()
+	const timer = setTimeout(() => controller.abort(), 8_000)
+	try {
+		const response = await untilAborted(
+			(await nylas()).forGrant(grantId).downloadAttachment(attachmentId, messageId),
+			controller.signal,
+			'fetch',
+		)
+		if (!response.ok) {
+			void response.body?.cancel().catch(ignoreCleanupFailure)
+			throw new OperationFailure('upstream_status', 'fetch', response.status)
+		}
+		return await limitedImageBody(response, controller.signal)
+	} finally {
+		clearTimeout(timer)
 	}
-	const bytes = new Uint8Array(await response.arrayBuffer())
-	if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error('Image unavailable')
-	return bytes
 }
 
 export const Route = createFileRoute('/email-images/$token')({
 	server: {
 		handlers: {
 			GET: async ({ request, params }) => {
-				const session = await getSession(request)
-				if (!session) {
-					return new Response('Unauthorized', {
-						status: 401,
-						headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
-					})
-				}
-				const url = new URL(request.url)
-				const mode = requestedMode(url)
-				const theme = requestedTheme(url)
-				if (!mode || !theme) {
-					return new Response('Bad request', {
-						status: 400,
-						headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
-					})
-				}
-
-				const source = await verifyEmailImageSource(params.token)
-				if (!source) return unavailable()
-				if (source.kind === 'remote' && source.trackingHint) return trackingResponse()
-
+				const requestId = crypto.randomUUID()
+				const started = performance.now()
+				let stage: DiagnosticStage = 'session'
 				try {
+					const session = await getSession(request)
+					if (!session) {
+						return new Response('Unauthorized', {
+							status: 401,
+							headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+						})
+					}
+					const url = new URL(request.url)
+					const mode = requestedMode(url)
+					const theme = requestedTheme(url)
+					if (!mode || !theme) {
+						return new Response('Bad request', {
+							status: 400,
+							headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+						})
+					}
+
+					stage = 'token'
+					const source = await verifyEmailImageSource(params.token)
+					if (!source) throw new OperationFailure('invalid_token', 'token')
+					if (source.kind === 'remote' && source.trackingHint) return trackingResponse()
+
+					stage = 'fetch'
 					const bytes =
 						source.kind === 'remote'
 							? await fetchRemoteImage(source.url, { blockedOrigin: url.origin })
 							: await attachmentBytes(session.grantId, source.attachmentId, source.messageId)
+					stage = 'processing'
 					const processed = await processEmailImage(bytes, mode, theme)
 					if (processed.classification === 'tracking') return trackingResponse()
 					return new Response(processed.bytes.slice().buffer, {
@@ -106,10 +127,22 @@ export const Route = createFileRoute('/email-images/$token')({
 							'Cross-Origin-Resource-Policy': 'same-origin',
 							'X-Content-Type-Options': 'nosniff',
 							'X-OwnMail-Image-Class': processed.classification,
+							'X-Request-ID': requestId,
+							'Server-Timing': `image;dur=${Math.round(performance.now() - started)}`,
 						},
 					})
-				} catch {
-					return unavailable()
+				} catch (error) {
+					diagnostic({
+						event: 'image.failed',
+						requestId,
+						stage: error instanceof OperationFailure ? error.stage : stage,
+						code: error instanceof OperationFailure ? error.code : 'unknown',
+						status: error instanceof OperationFailure ? error.status : undefined,
+						durationMs: performance.now() - started,
+					})
+					const response = unavailable()
+					response.headers.set('X-Request-ID', requestId)
+					return response
 				}
 			},
 		},
