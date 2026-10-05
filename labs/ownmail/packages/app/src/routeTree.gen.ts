@@ -18,6 +18,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ApiDiagnosticsRouteImport } from './routes/api.diagnostics'
 import { Route as ApiVersionRouteImport } from './routes/api.version'
 import { Route as AttachmentsAttachmentIdRouteImport } from './routes/attachments.$attachmentId'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
@@ -79,6 +80,11 @@ const MailRoute = MailRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDiagnosticsRoute = ApiDiagnosticsRouteImport.update({
+  id: '/api/diagnostics',
+  path: '/api/diagnostics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiVersionRoute = ApiVersionRouteImport.update({
@@ -178,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
   '/settings': typeof SettingsRoute
+  '/api/diagnostics': typeof ApiDiagnosticsRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -203,6 +210,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/settings': typeof SettingsRoute
+  '/api/diagnostics': typeof ApiDiagnosticsRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -232,6 +240,7 @@ export interface FileRoutesById {
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRouteWithChildren
   '/settings': typeof SettingsRoute
+  '/api/diagnostics': typeof ApiDiagnosticsRoute
   '/api/version': typeof ApiVersionRoute
   '/attachments/$attachmentId': typeof AttachmentsAttachmentIdRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -262,6 +271,7 @@ export interface FileRouteTypes {
     | '/logout'
     | '/mail'
     | '/settings'
+    | '/api/diagnostics'
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
@@ -287,6 +297,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/settings'
+    | '/api/diagnostics'
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
@@ -315,6 +326,7 @@ export interface FileRouteTypes {
     | '/logout'
     | '/mail'
     | '/settings'
+    | '/api/diagnostics'
     | '/api/version'
     | '/attachments/$attachmentId'
     | '/auth/callback'
@@ -344,6 +356,7 @@ export interface RootRouteChildren {
   LogoutRoute: typeof LogoutRoute
   MailRoute: typeof MailRouteWithChildren
   SettingsRoute: typeof SettingsRoute
+  ApiDiagnosticsRoute: typeof ApiDiagnosticsRoute
   ApiVersionRoute: typeof ApiVersionRoute
   AttachmentsAttachmentIdRoute: typeof AttachmentsAttachmentIdRoute
   EmailImagesTokenRoute: typeof EmailImagesTokenRoute
@@ -414,6 +427,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/diagnostics': {
+      id: '/api/diagnostics'
+      path: '/api/diagnostics'
+      fullPath: '/api/diagnostics'
+      preLoaderRoute: typeof ApiDiagnosticsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/version': {
@@ -618,6 +638,7 @@ const rootRouteChildren: RootRouteChildren = {
   LogoutRoute: LogoutRoute,
   MailRoute: MailRouteWithChildren,
   SettingsRoute: SettingsRoute,
+  ApiDiagnosticsRoute: ApiDiagnosticsRoute,
   ApiVersionRoute: ApiVersionRoute,
   AttachmentsAttachmentIdRoute: AttachmentsAttachmentIdRoute,
   EmailImagesTokenRoute: EmailImagesTokenRoute,
@@ -629,10 +650,11 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

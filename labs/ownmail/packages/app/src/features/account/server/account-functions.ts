@@ -3,31 +3,47 @@ import { getRequest } from '@tanstack/react-start/server'
 import { friendly, requireMailbox } from '#server/mailbox-boundary'
 import { nylas } from '#server/nylas'
 import { platform, usingDevMocks } from '#server/platform'
+import { timeOperation } from '#server/request-context'
 import { sessionAccountSummaries } from '#server/session'
 import { siteNameFromEnv } from '#server/site-config'
 
 const MAX_DISPLAY_NAME_LENGTH = 120
 
-export const getMailboxInfo = createServerFn({ method: 'GET' }).handler(async () => {
-	const { platform } = await import('#server/platform')
-	const { env } = await platform()
-	const { email, displayName: devDisplayName, grantId } = await requireMailbox()
-	let displayName = devDisplayName
-	if (!(await usingDevMocks())) {
-		try {
-			displayName = displayNameFromGrantResponse(await (await nylas()).getGrant(grantId), grantId)
-		} catch (err) {
-			throw friendly(err)
-		}
-	}
-	const accounts = await sessionAccountSummaries(getRequest())
-	return {
-		email,
-		...(displayName ? { displayName } : {}),
-		appName: siteNameFromEnv(env),
-		accounts: accounts ?? [],
-	}
-})
+export const getMailboxInfo = createServerFn({ method: 'GET' })
+	.validator((input: { bootstrap?: boolean } | undefined) => {
+		if (input === undefined) return { bootstrap: false }
+		if (
+			!input ||
+			typeof input !== 'object' ||
+			Array.isArray(input) ||
+			Object.keys(input).some((key) => key !== 'bootstrap') ||
+			typeof input.bootstrap !== 'boolean'
+		)
+			throw new Error('Invalid request')
+		return input
+	})
+	.handler(async ({ data }) =>
+		timeOperation('mailbox_info', async () => {
+			const { platform } = await import('#server/platform')
+			const { env } = await platform()
+			const { email, displayName: devDisplayName, grantId } = await requireMailbox()
+			let displayName = devDisplayName
+			if (!data?.bootstrap && !(await usingDevMocks())) {
+				try {
+					displayName = displayNameFromGrantResponse(await (await nylas()).getGrant(grantId), grantId)
+				} catch (err) {
+					throw friendly(err)
+				}
+			}
+			const accounts = await sessionAccountSummaries(getRequest())
+			return {
+				email,
+				...(displayName ? { displayName } : {}),
+				appName: siteNameFromEnv(env),
+				accounts: accounts ?? [],
+			}
+		}),
+	)
 
 function normalizeDisplayNameInput(input: unknown): { displayName: string } {
 	if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid display name')

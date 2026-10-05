@@ -11,6 +11,7 @@
  * with SESSION_SECRET.
  */
 import { platform } from './platform.js'
+import { forgetRequestSession, requestSession, timeOperation } from './request-context.js'
 
 const COOKIE_NAME = 'ownmail_session'
 const CONNECT_STATE_COOKIE = 'ownmail_connect_state'
@@ -301,7 +302,11 @@ export function hasReferenceDevSessionCookie(request: Request): boolean {
 	return cookieValue(request, COOKIE_NAME) === 'authenticated'
 }
 
-export async function getSession(request: Request): Promise<Session | null> {
+export function getSession(request: Request): Promise<Session | null> {
+	return requestSession(request, () => timeOperation('session', () => readSession(request)))
+}
+
+async function readSession(request: Request): Promise<Session | null> {
 	const value = cookieValue(request, COOKIE_NAME)
 	if (!value) return null
 	const [first, sig] = value.split('.')
@@ -310,7 +315,7 @@ export async function getSession(request: Request): Promise<Session | null> {
 
 	const { kv } = await platform()
 	if (kv) {
-		const raw = await kv.get(`session:${first}`)
+		const raw = await timeOperation('session_kv', () => kv.get(`session:${first}`))
 		if (!raw) return null
 		try {
 			const parsed = JSON.parse(raw) as Partial<StoredSession> & Partial<Session>
@@ -356,6 +361,7 @@ export async function getSession(request: Request): Promise<Session | null> {
 }
 
 export async function destroySession(request: Request): Promise<void> {
+	forgetRequestSession(request)
 	const { kv } = await platform()
 	if (!kv) return // stateless sessions die with the cleared cookie
 	// Fail closed on anything we did not sign. `/logout` is reachable unauthenticated,

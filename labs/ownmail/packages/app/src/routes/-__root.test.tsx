@@ -51,6 +51,12 @@ afterEach(() => {
 })
 
 describe('root route', () => {
+	it('gives the initial shell an accessible loading message', () => {
+		const Pending = Route.options.pendingComponent
+		render(<Pending />)
+		expect(screen.getByRole('status')).toHaveTextContent('Opening your mailbox')
+	})
+
 	it('loads the validated deployment site name for document metadata', async () => {
 		platform.mockResolvedValue({ env: { OWNMAIL_SITE_NAME: 'Acme Mail' } })
 		expect(await Route.options.loader()).toEqual({ siteName: 'Acme Mail' })
@@ -73,9 +79,13 @@ describe('root route', () => {
 	})
 
 	it('renders the html shell with the anti-flash theme bootstrap so dark mode applies before hydration', () => {
-		const RootComponent = Route.options.component
+		const RootComponent = Route.options.shellComponent
 		// React hoists the <html>/<head>/<body> shell onto the real document.
-		render(<RootComponent />)
+		render(
+			<RootComponent>
+				<div />
+			</RootComponent>,
+		)
 		const script = document.head.querySelector('script')
 		expect(script?.innerHTML).toContain("localStorage.getItem('theme')")
 		// Both theme-color metas ship so the browser chrome matches light and dark.

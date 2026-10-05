@@ -1,6 +1,8 @@
 import { type GrantScopedClient, NylasV3Client } from '@nylas-labs/cli-kit/v3'
 import { createDevMailbox, devMailboxEmail, devMailboxName } from './dev-mocks.js'
+import { diagnostic } from './diagnostics.js'
 import { platform, usingDevMocks } from './platform.js'
+import { currentRequestId, timeOperation } from './request-context.js'
 import { getSession, type Session, slideSessionExpiry } from './session.js'
 import { OWNMAIL_USER_AGENT } from './usage-attribution.js'
 
@@ -58,12 +60,9 @@ export async function mailboxFromRequest(request: Request): Promise<{
  */
 async function slideRefreshCookie(request: Request, session: Session): Promise<string | null> {
 	try {
-		return await slideSessionExpiry(request, session)
-	} catch (error) {
-		// Name only, never the message: store errors can echo back key material.
-		console.error('OwnMail session refresh failed', {
-			error: error instanceof Error ? error.name : typeof error,
-		})
+		return await timeOperation('renewal', () => slideSessionExpiry(request, session))
+	} catch {
+		diagnostic({ event: 'session.failed', stage: 'renewal', code: 'session', requestId: currentRequestId() })
 		return null
 	}
 }

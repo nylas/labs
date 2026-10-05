@@ -2,7 +2,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { FileText, Loader2, Reply, Star, Trash2 } from 'lucide-react'
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
-import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
+import { useUserPreferences } from '#app/preferences/user-preferences'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
@@ -40,7 +40,6 @@ import { Toolbar } from '#shared/components/ui/toolbar'
 import { useFlipList } from '#shared/hooks/use-flip-list'
 import { edgeCursor, isContextMenuKey, listNavAction, moveCursor } from '#shared/lib/list-nav'
 import { cn } from '#shared/lib/utils'
-import { MailFolderPlaceholder } from './-mail-folder-placeholder'
 import type { loadMailFolderData } from './mail.f.$folderId'
 
 type MailFolderRouteData = Awaited<ReturnType<typeof loadMailFolderData>>
@@ -75,13 +74,8 @@ export function dedupeThreads<T extends { id: string }>(threads: T[]): T[] {
 
 type MailFolderRouteScreenProps = Parameters<typeof LoadedMailFolderRouteScreen>[0]
 
-/** The list and reader are laid out by the reading-pane preference, which the
- * server cannot know. Until it can be read, the folder shows its placeholder
- * instead of a default split that would rearrange after hydration. */
+/** Server-render real rows using stable preference defaults; hydration applies saved layout. */
 export function MailFolderRouteScreen(props: MailFolderRouteScreenProps) {
-	if (!useUserPreferencesReady()) {
-		return <MailFolderPlaceholder folderId={props.folderId} folders={props.folders} />
-	}
 	return <LoadedMailFolderRouteScreen {...props} />
 }
 
@@ -114,6 +108,15 @@ function LoadedMailFolderRouteScreen({
 	activeThreadId?: string
 	children?: ReactNode
 }) {
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => {
+			if (!performance.getEntriesByName?.('ownmail:inbox-ready').length) {
+				performance.mark?.('ownmail:inbox-ready')
+				window.dispatchEvent(new Event('ownmail:inbox-ready'))
+			}
+		})
+		return () => cancelAnimationFrame(frame)
+	}, [])
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const navigate = useNavigate()
 	const { openCompose, composing } = useCompose()

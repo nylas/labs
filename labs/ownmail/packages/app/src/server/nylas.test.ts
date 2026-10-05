@@ -155,7 +155,7 @@ describe('mailboxFromRequest()', () => {
 		slideSessionExpiryMock.mockRejectedValue(new Error('KV write quota exceeded'))
 		const scoped = { scoped: true }
 		forGrant.mockReturnValue(scoped)
-		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const consoleError = vi.spyOn(console, 'info').mockImplementation(() => {})
 		const { mailboxFromRequest } = await import('./nylas.js')
 
 		const result = await mailboxFromRequest(req())
@@ -164,7 +164,7 @@ describe('mailboxFromRequest()', () => {
 		// No cookie to send, but the request goes through on the existing deadline.
 		expect(result).not.toHaveProperty('refreshCookie')
 		// Operators still hear about it — without the message, which can echo key material.
-		expect(consoleError).toHaveBeenCalledWith('OwnMail session refresh failed', { error: 'Error' })
+		expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('session.failed'))
 		consoleError.mockRestore()
 	})
 
@@ -174,11 +174,11 @@ describe('mailboxFromRequest()', () => {
 		slideSessionExpiryMock.mockRejectedValue('upstash: 429')
 		const scoped = { scoped: true }
 		forGrant.mockReturnValue(scoped)
-		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const consoleError = vi.spyOn(console, 'info').mockImplementation(() => {})
 		const { mailboxFromRequest } = await import('./nylas.js')
 
 		expect((await mailboxFromRequest(req()))?.grantId).toBe('grant-xyz')
-		expect(consoleError).toHaveBeenCalledWith('OwnMail session refresh failed', { error: 'string' })
+		expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('session.failed'))
 		consoleError.mockRestore()
 	})
 })

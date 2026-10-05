@@ -21,5 +21,12 @@ export const mailboxInfoQueryOptions = () =>
 
 /** Resolves the mailbox before a loader builds account-partitioned query keys. */
 export function ensureMailboxInfo(queryClient: QueryClient) {
-	return queryClient.ensureQueryData(mailboxInfoQueryOptions())
+	return queryClient.ensureQueryData({
+		...mailboxInfoQueryOptions(),
+		queryFn: async () => {
+			const info = await getMailboxInfo({ data: { bootstrap: true } })
+			observeAccount(info.email)
+			return info
+		},
+	})
 }

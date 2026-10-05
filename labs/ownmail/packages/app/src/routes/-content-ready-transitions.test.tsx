@@ -305,15 +305,15 @@ describe('first render', () => {
 		})
 	})
 
-	it('renders the folder placeholder on the server, not a default split that rearranges after hydration', async () => {
+	it('renders actual inbox rows on the server before preference hydration', async () => {
 		fns.getThreads.mockResolvedValue({ threads: [thread('inbox-1', 'Inbox only subject')] })
 
 		const html = await serverHtml('/mail/f/inbox')
 
 		// The folders around the list do not depend on a preference and are real.
 		expect(html.getByRole('heading', { level: 1 })).toHaveTextContent('Inbox')
-		expect(html.queryByTestId('thread-list-skeleton')).not.toBeNull()
-		expect(html.queryByText('Inbox only subject')).toBeNull()
+		expect(html.queryByTestId('thread-list-skeleton')).toBeNull()
+		expect(html.queryByText('Inbox only subject')).not.toBeNull()
 
 		// In the browser the saved layout is there on the first render.
 		await mountApp('/mail/f/inbox')
