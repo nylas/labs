@@ -11,9 +11,10 @@ import { getMailboxInfo } from '#server/fns'
 export const mailboxInfoQueryOptions = () =>
 	queryOptions({
 		queryKey: ['account', 'mailbox-info'] as const,
-		queryFn: async () => {
+		queryFn: async ({ signal }) => {
 			const info = await getMailboxInfo()
-			observeAccount(info.email)
+			// A cancelled request may still resolve after the cookie rotates.
+			if (!signal.aborted) observeAccount(info.email)
 			return info
 		},
 		staleTime: 30_000,
@@ -28,7 +29,8 @@ export function ensureMailboxInfo(queryClient: QueryClient, bootstrap = false) {
 		staleTime: 30_000,
 		queryFn: async ({ signal }) => {
 			const info = await getMailboxInfo({ data: { bootstrap: true } })
-			observeAccount(info.email)
+			// A cancelled request may still resolve after the cookie rotates.
+			if (!signal.aborted) observeAccount(info.email)
 			// Seed identity immediately, but keep this abbreviated profile stale.
 			if (!signal.aborted && !queryClient.getQueryData(mailboxInfoQueryOptions().queryKey)) {
 				queryClient.setQueryData(mailboxInfoQueryOptions().queryKey, info, { updatedAt: 0 })
