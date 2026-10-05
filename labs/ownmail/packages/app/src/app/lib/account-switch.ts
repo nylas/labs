@@ -95,14 +95,20 @@ export async function clearAccountScopedState(queryClient: QueryClient): Promise
  */
 export async function loadSwitchedAccount(
 	queryClient: QueryClient,
-	router: Pick<AnyRouter, 'navigate' | 'invalidate'>,
+	router: Pick<AnyRouter, 'navigate' | 'invalidate' | 'clearCache'>,
 	pathname: string,
 ): Promise<void> {
 	const destination = accountSwitchDestination(pathname)
 	try {
+		// Router loader data has its own cache, independent of TanStack Query.
+		// Retire preloads and inactive matches before they can seed another account.
+		router.clearCache()
 		await clearAccountScopedState(queryClient)
-		await router.navigate({ to: destination })
-		await router.invalidate()
+		await router.navigate({ to: destination, replace: true })
+		// Default invalidation is stale-while-revalidate: awaiting it alone can
+		// unmount the switch loader while the committed matches still contain A.
+		// Force a blocking reload before allowing any account content to remount.
+		await router.invalidate({ sync: true, forcePending: true })
 	} catch {
 		// The session already points at the next inbox; a document load is the
 		// only way left to guarantee nothing from the previous one renders.

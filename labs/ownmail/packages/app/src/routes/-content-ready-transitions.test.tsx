@@ -180,6 +180,75 @@ afterEach(async () => {
 })
 
 describe('account switch', () => {
+	it.each(['/mail/f/inbox', '/mail/f/inbox/t/ada-1'])(
+		'keeps old account rows absent throughout a slow switch from %s',
+		async (path) => {
+			fns.getFolders.mockResolvedValue([
+				{ id: 'inbox', name: 'Inbox' },
+				{ id: 'sent', name: 'Sent' },
+				{ id: 'ada-label', name: 'Ada private label' },
+			])
+			fns.getThreads.mockResolvedValue({ threads: [thread('ada-1', 'Ada private subject')] })
+			fns.getThreadMessages.mockResolvedValue(detail('ada-1', 'Ada private subject'))
+			const { router, queryClient } = await mountApp(path)
+			await router.preloadRoute({ to: '/mail/f/$folderId', params: { folderId: 'sent' } })
+			const auth = hold<Response>()
+			const inbox = hold<unknown>()
+			fetchMock.mockImplementation(async (url: string) =>
+				url === '/auth' ? auth.promise : new Response('{}', { status: 500 }),
+			)
+			fireEvent.submit(
+				document.querySelector(`form[action="/auth"]:has(input[value="${GRACE_HANDLE}"])`) as HTMLFormElement,
+			)
+			await waitFor(() => expect(pageText()).toContain('Switching to'))
+			const frames: string[] = []
+			const observer = new MutationObserver(() => frames.push(pageText()))
+			observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+			try {
+				fns.getMailboxInfo.mockResolvedValue({ email: GRACE, appName: 'OwnMail', accounts: accounts(GRACE) })
+				fns.getFolders.mockResolvedValue([
+					{ id: 'inbox', name: 'Inbox' },
+					{ id: 'sent', name: 'Sent' },
+				])
+				fns.getThreads.mockReturnValue(inbox.promise)
+				await act(async () => {
+					auth.resolve(new Response(null, { status: 204 }))
+					await new Promise((resolve) => setTimeout(resolve, 60))
+				})
+				expect(pageText()).toContain('Switching to')
+				expect(pageText()).not.toContain('Ada private')
+				await act(async () => {
+					inbox.resolve({ threads: [thread('grace-1', 'Grace new subject')] })
+				})
+				await waitFor(() => expect(pageText()).toContain('Grace new subject'))
+				expect(frames.every((frame) => !frame.includes('Ada private'))).toBe(true)
+				expect(
+					JSON.stringify(
+						queryClient
+							.getQueryCache()
+							.getAll()
+							.map((query) => query.state.data),
+					),
+				).not.toContain('Ada private')
+				const sent = hold<unknown>()
+				fns.getThreads.mockReturnValue(sent.promise)
+				await navigateUntilPending(
+					() => router.navigate({ to: '/mail/f/$folderId', params: { folderId: 'sent' } }),
+					'folder-pending',
+				)
+				expect(pageText()).not.toContain('Ada private')
+				await act(async () =>
+					sent.resolve({ threads: [thread('grace-sent', 'Grace sent subject', ['sent'])] }),
+				)
+				await waitFor(() => expect(pageText()).toContain('Grace sent subject'))
+				expect(frames.every((frame) => !frame.includes('Ada private'))).toBe(true)
+			} finally {
+				observer.disconnect()
+				inbox.resolve({ threads: [] })
+			}
+		},
+	)
+
 	it('unmounts the previous inbox instead of covering it, and never re-seeds its data into the next inbox', async () => {
 		fns.getFolders.mockResolvedValue([
 			{ id: 'inbox', name: 'Inbox', unread_count: 12 },

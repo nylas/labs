@@ -11,12 +11,14 @@ const routerState = vi.hoisted(() => ({
 	pathname: '/',
 	navigate: vi.fn(async (_options: { to: string }) => {}),
 	invalidate: vi.fn(async () => {}),
+	clearCache: vi.fn(),
 }))
 vi.mock('@tanstack/react-router', () => ({
 	useRouter: () => ({
 		state: { location: { pathname: routerState.pathname } },
 		navigate: routerState.navigate,
 		invalidate: routerState.invalidate,
+		clearCache: routerState.clearCache,
 	}),
 	useRouterState: (options: { select: (state: { location: { pathname: string } }) => unknown }) =>
 		options.select({ location: { pathname: routerState.pathname } }),
