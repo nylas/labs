@@ -72,7 +72,7 @@ export const Route = createFileRoute('/mail/search')({
 	loaderDeps: ({ search }) => ({ q: search.q, folderId: search.folderId, threadId: search.threadId }),
 	loader: async ({ context, deps, preload }) => {
 		// The mailbox comes first: the detail key is partitioned by account.
-		await ensureMailboxInfo(context.queryClient)
+		await ensureMailboxInfo(context.queryClient, true)
 		const hasSearchQuery = deps.q.trim().length > 0
 		const emptyResults: Awaited<ReturnType<typeof getThreads>> = { threads: [] }
 		const [folders, res, selected] = await Promise.all([

@@ -31,7 +31,7 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 	loader: async ({ context, params }) => {
 		// Authenticate before streaming any mailbox content. Client transitions retain
 		// their established pending semantics; only initial SSR defers the slow data.
-		await ensureMailboxInfo(context.queryClient)
+		await ensureMailboxInfo(context.queryClient, true)
 		const data = loadMailFolderData(params.folderId, context.queryClient)
 		return typeof window === 'undefined' ? { deferred: data } : await data
 	},
@@ -41,7 +41,7 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 
 export async function loadMailFolderData(folderId: string, queryClient: QueryClient) {
 	// The mailbox comes first: every key below is partitioned by account.
-	await ensureMailboxInfo(queryClient)
+	await ensureMailboxInfo(queryClient, true)
 	const foldersPromise = queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
 	// Start both requests after account resolution; observe both rejections immediately.
 	if (folderId === 'drafts') {

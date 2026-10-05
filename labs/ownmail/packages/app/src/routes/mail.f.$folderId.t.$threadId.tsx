@@ -61,7 +61,7 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	}),
 	loader: async ({ context, params, preload }) => {
 		// The mailbox comes first: the detail key is partitioned by account.
-		await ensureMailboxInfo(context.queryClient)
+		await ensureMailboxInfo(context.queryClient, true)
 		const options = threadDetailQueryOptions(params.threadId, (threadId) =>
 			getThreadMessages({ data: { threadId } }),
 		)

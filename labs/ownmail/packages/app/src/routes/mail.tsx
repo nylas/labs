@@ -10,7 +10,7 @@ import { MailRouteScreen } from './-mail-screen'
 export const Route = createFileRoute('/mail')({
 	loader: async ({ context }) => {
 		// The mailbox comes first: the folder key is partitioned by account.
-		const info = await ensureMailboxInfo(context.queryClient)
+		const info = await ensureMailboxInfo(context.queryClient, true)
 		const pending = context.queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
 		const folders = typeof window === 'undefined' ? pending : await pending
 		return { info, folders }

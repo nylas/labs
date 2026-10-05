@@ -20,7 +20,9 @@ export const mailboxInfoQueryOptions = () =>
 	})
 
 /** Resolves the mailbox before a loader builds account-partitioned query keys. */
-export function ensureMailboxInfo(queryClient: QueryClient) {
+export function ensureMailboxInfo(queryClient: QueryClient, bootstrap = false) {
+	// Full-profile consumers must not reuse the abbreviated mail bootstrap result.
+	if (!bootstrap) return queryClient.fetchQuery({ ...mailboxInfoQueryOptions(), staleTime: 0 })
 	return queryClient.ensureQueryData({
 		...mailboxInfoQueryOptions(),
 		queryFn: async () => {
