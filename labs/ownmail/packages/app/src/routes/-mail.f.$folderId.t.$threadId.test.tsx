@@ -228,6 +228,9 @@ describe('thread header', () => {
 		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
 		expect(toolbar).toHaveClass('h-(--toolbar-height)', 'shrink-0')
 		expect(viewport).not.toContainElement(toolbar)
+		const motionContent = viewport.closest('[data-navigation-content]')
+		expect(motionContent).toContainElement(header)
+		expect(motionContent).not.toContainElement(toolbar)
 		// The toolbar is bar glass over the reader, and the conversation scrolls beneath it.
 		expect(toolbar).toHaveClass('glass-bar', 'absolute', 'top-0')
 		expect(screen.getByTestId('thread-reader')).toHaveClass('relative')

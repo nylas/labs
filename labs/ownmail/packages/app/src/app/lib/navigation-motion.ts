@@ -78,8 +78,15 @@ export function observeNavigationMotion(router: AnyRouter) {
 		const fast = Number.parseFloat(tokens.getPropertyValue('--dur-fast')) || 120
 		const medium = Number.parseFloat(tokens.getPropertyValue('--dur-medium')) || 220
 		const easing = tokens.getPropertyValue('--ease-out').trim() || 'ease-out'
-		// Keep the arriving text legible from its first frame; no white flash, no input gate.
-		animations.push(surface.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: fast, easing }))
+		// The reader's persistent controls must not dim on every thread change.
+		// Fade only its content; a pending reader without content needs no fade.
+		const content =
+			motion.region === 'mail-reader'
+				? surface.querySelector<HTMLElement>('[data-navigation-content]')
+				: surface
+		if (content && typeof content.animate === 'function') {
+			animations.push(content.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: fast, easing }))
+		}
 		if (motion.direction && window.matchMedia(`(width < ${motion.breakpoint}px)`).matches) {
 			const distance = tokens.getPropertyValue('--motion-navigation-distance').trim() || '12px'
 			animations.push(

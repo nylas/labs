@@ -786,6 +786,7 @@ function SearchThreadDetail({
 			<div
 				// The reading position belongs to one conversation.
 				data-scroll-restoration-id={`thread:${selected.thread.id}`}
+				data-navigation-content=""
 				className={cn(
 					'min-h-0 flex-1 overflow-y-auto',
 					!error && UNDER_PINNED_BAR_CLASS,
