@@ -405,6 +405,11 @@ describe('ThreadConversation rendering', () => {
 		const messageSurfaces = container.querySelectorAll('[data-slot="thread-message"]')
 
 		expect(messageSurfaces).toHaveLength(2)
+		const fades = container.querySelectorAll('[data-navigation-content]')
+		expect(fades).toHaveLength(2)
+		for (const fade of fades) {
+			expect(fade.querySelector('[data-navigation-content]')).toBeNull()
+		}
 		for (const surface of messageSurfaces) {
 			expect(surface).not.toHaveClass('rounded-xl', 'border', 'shadow-xs')
 		}

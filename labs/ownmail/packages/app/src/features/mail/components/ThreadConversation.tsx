@@ -552,10 +552,7 @@ const MessageBlock = memo(function MessageBlock({
 									{initials(fromLabel)}
 								</div>
 								<div className="relative min-w-0 flex-1">
-									<div
-										data-navigation-content=""
-										className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1"
-									>
+									<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
 										<h2
 											id={senderHeadingId}
 											className="order-1 min-w-0 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
