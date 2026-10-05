@@ -871,3 +871,28 @@ describe('warm history restoration', () => {
 		expect(page().getByTestId('thread-reader')).toBeInTheDocument()
 	})
 })
+
+it('uses the existing list history entry when returning from a reader', async () => {
+	fns.getThreads.mockResolvedValue({ threads: [thread('inbox-1', 'History subject')] })
+	fns.getThreadMessages.mockResolvedValue(detail('inbox-1', 'History subject'))
+	const { router } = await mountApp('/mail/f/sent')
+	await act(async () => {
+		await router.navigate({ to: '/mail/f/$folderId', params: { folderId: 'inbox' } })
+	})
+	const listIndex = router.state.location.state.__TSR_index
+	await act(async () => {
+		fireEvent.click(page().getByRole('link', { name: /Open History subject/ }))
+	})
+	expect(page().getByTestId('thread-reader')).toBeInTheDocument()
+	await act(async () => {
+		fireEvent.click(page().getByRole('button', { name: 'Back to list' }))
+		await new Promise((resolve) => setTimeout(resolve, 30))
+	})
+	expect(router.state.location.pathname).toBe('/mail/f/inbox')
+	expect(router.state.location.state.__TSR_index).toBe(listIndex)
+	await act(async () => {
+		router.history.back()
+		await new Promise((resolve) => setTimeout(resolve, 30))
+	})
+	expect(router.state.location.pathname).toBe('/mail/f/sent')
+})

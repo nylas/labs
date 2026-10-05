@@ -1,6 +1,6 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import {
 	Archive,
 	ArrowLeft,
@@ -14,6 +14,7 @@ import {
 	Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { returnToPreviousFolder } from '#app/lib/reader-history'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { useCompose } from '#features/mail/components/ComposeProvider'
@@ -197,6 +198,7 @@ function ThreadView() {
 	const updateThread = useUpdateThreadMutation()
 	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()
+	const router = useRouter()
 	const [error, setError] = useState<string | null>(null)
 	// The optimistic mutation writes the star into the cached thread, so the
 	// control reads the same source as the conversation beside it.
@@ -206,6 +208,7 @@ function ThreadView() {
 	const [starPop, setStarPop] = useState(false)
 	const goBackToList = useCallback(() => {
 		window.dispatchEvent(new Event('ownmail:back'))
+		if (returnToPreviousFolder(router, folderId)) return
 		return navigate({
 			to: '/mail/f/$folderId',
 			params: { folderId },
@@ -213,7 +216,7 @@ function ThreadView() {
 			replace: true,
 			resetScroll: false,
 		})
-	}, [baseFolderId, folderId, navigate])
+	}, [baseFolderId, folderId, navigate, router])
 	const swipeHandlers = useHorizontalSwipe(goBackToList, true)
 	const lastMessage = messages.at(-1)
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)

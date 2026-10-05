@@ -1687,6 +1687,7 @@
 		pointer-events: none;
 	}
 	[data-mail-reader]:has([data-swipe-active]) {
+		background: transparent;
 		position: relative;
 		z-index: 1;
 	}
