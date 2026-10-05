@@ -5,6 +5,7 @@ import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Tra
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useUserPreferences, useUserPreferencesReady } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
+import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
@@ -53,6 +54,7 @@ import {
 	type ThreadResponseKind,
 	threadResponseSearch,
 } from '#features/mail/state/thread-response'
+import { useBulkTriage } from '#features/mail/state/use-bulk-triage'
 import { getFolders, getThreadMessages, getThreads } from '#server/fns'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { Toolbar } from '#shared/components/ui/toolbar'
@@ -259,6 +261,12 @@ function SearchResults() {
 	const listScrollRef = useRef<HTMLDivElement>(null)
 	const moveFocusToCursorRef = useRef(false)
 	const sortedThreads = useMemo(() => newestFirst(threads), [threads])
+	const updateThread = useUpdateThreadMutation()
+	const selection = useBulkTriage({
+		identity: JSON.stringify([q, folderId]),
+		threads: sortedThreads,
+		update: (input) => updateThread.mutateAsync(input),
+	})
 	const unreadCount = sortedThreads.filter((thread) => thread.unread).length
 	const title = folderId ? mailFolderTitle(folderId, folders) : 'Search results'
 	const canLoadMore = hasSearchQuery && threadsQuery.hasNextPage
@@ -291,6 +299,7 @@ function SearchResults() {
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
+			if (selection.selecting) return
 			const target = event.target instanceof HTMLElement ? event.target : null
 			const isTyping =
 				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
@@ -334,7 +343,7 @@ function SearchResults() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [cursor, folderId, q, router, setCursor, sortedThreads])
+	}, [cursor, folderId, q, router, selection.selecting, setCursor, sortedThreads])
 	/* v8 ignore stop -- @preserve */
 
 	// Server-rendered deep links skip the client loader; mark the selected
@@ -354,23 +363,33 @@ function SearchResults() {
 				className={layout.list}
 				data-density={preferences.listDensity}
 			>
-				<Toolbar pinned className="justify-between px-4">
-					<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
-					<div className="flex items-center gap-1">
-						{unreadCount > 0 ? (
-							<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-								{unreadCount}
-							</span>
-						) : null}
-						<ListDensityMenu
-							value={preferences.listDensity}
-							onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
-						/>
-						<ReadingPaneMenu
-							value={preferences.readingPane}
-							onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
-						/>
-					</div>
+				<Toolbar
+					pinned={!selection.selecting}
+					className={cn('justify-between px-4', selection.selecting && 'h-auto min-h-12 py-2')}
+				>
+					{selection.selecting ? (
+						<BulkMailToolbar selection={selection} />
+					) : (
+						<>
+							<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
+							<div className="flex items-center gap-1">
+								<BulkMailToolbar selection={selection} />
+								{unreadCount > 0 ? (
+									<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+										{unreadCount}
+									</span>
+								) : null}
+								<ListDensityMenu
+									value={preferences.listDensity}
+									onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
+								/>
+								<ReadingPaneMenu
+									value={preferences.readingPane}
+									onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
+								/>
+							</div>
+						</>
+					)}
 				</Toolbar>
 
 				<div
@@ -381,7 +400,7 @@ function SearchResults() {
 					}}
 					className={cn(
 						'min-h-0 flex-1 overflow-y-auto',
-						UNDER_PINNED_BAR_CLASS,
+						!selection.selecting && UNDER_PINNED_BAR_CLASS,
 						UNDER_MOBILE_BAR_CLASS,
 						sortedThreads.length === 0 && canLoadMore && 'flex flex-col',
 					)}
@@ -421,6 +440,15 @@ function SearchResults() {
 								searchFolderId={folderId}
 								active={thread.id === threadId}
 								keyboardActive={cursor === index}
+								selection={
+									selection.selecting
+										? {
+												checked: selection.selectedIds.includes(thread.id),
+												disabled: selection.pending,
+												onToggle: () => selection.toggle(thread.id),
+											}
+										: undefined
+								}
 							/>
 						))
 					)}
@@ -489,12 +517,14 @@ function SearchThreadRow({
 	searchFolderId,
 	active,
 	keyboardActive,
+	selection,
 }: {
 	thread: Awaited<ReturnType<typeof getThreads>>['threads'][number]
 	q: string
 	searchFolderId?: string
 	active: boolean
 	keyboardActive: boolean
+	selection?: { checked: boolean; disabled: boolean; onToggle: () => void }
 }) {
 	const folderId = threadRouteFolderId(thread)
 	const updateThread = useUpdateThreadMutation()
@@ -561,7 +591,7 @@ function SearchThreadRow({
 		<ThreadRowMenu
 			thread={optimisticThread}
 			folderId={searchFolderId ?? folderId}
-			busy={busy || starPending}
+			busy={busy || starPending || Boolean(selection)}
 			onOpen={() => router.navigate({ to: '/mail/search', search: { ...resultSearch, threadId: thread.id } })}
 			onRespond={respond}
 			onToggleStar={toggleStar}
@@ -575,18 +605,30 @@ function SearchThreadRow({
 				className={cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')}
 				tabIndex={-1}
 			>
-				<Link
-					to="/mail/search"
-					search={{ ...resultSearch, threadId: thread.id }}
-					aria-label={threadRowLinkLabel(optimisticThread, folderId)}
-					aria-current={active ? 'true' : undefined}
-					className={THREAD_ROW_LINK_CLASS}
-				/>
+				{selection ? (
+					<button
+						type="button"
+						className={THREAD_ROW_LINK_CLASS}
+						aria-label={`Toggle selection for ${thread.subject || '(no subject)'}`}
+						aria-pressed={selection.checked}
+						disabled={selection.disabled}
+						onClick={selection.onToggle}
+					/>
+				) : (
+					<Link
+						to="/mail/search"
+						search={{ ...resultSearch, threadId: thread.id }}
+						aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+						aria-current={active ? 'true' : undefined}
+						className={THREAD_ROW_LINK_CLASS}
+					/>
+				)}
 				<ThreadRowContent
 					thread={optimisticThread}
 					folderId={folderId}
 					onToggleStar={toggleStar}
 					starPending={starPending}
+					selection={selection}
 				/>
 				<ThreadRowError message={actionError} />
 			</div>
