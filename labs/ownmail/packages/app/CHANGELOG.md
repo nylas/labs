@@ -1,5 +1,12 @@
 # @ownmail/app
 
+## 0.21.3
+
+### Patch Changes
+
+- dd3e839: Render saved layout preferences from a lightweight cookie on the server to prevent default layouts flashing during hydration. Migrate existing local preferences automatically while keeping account-owned data local.
+- 1275c52: Keep thread toolbars steady by fading only conversation content during navigation.
+
 ## 0.21.2
 
 ### Patch Changes
