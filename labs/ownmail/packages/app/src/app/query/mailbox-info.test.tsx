@@ -19,7 +19,7 @@ it.each(['bootstrap', 'refresh'])(
 		const old = Promise.withResolvers<{ email: string; appName: string }>()
 		getMailboxInfo.mockReturnValueOnce(old.promise)
 		const pending =
-			kind === 'bootstrap' ? ensureMailboxInfo(client) : client.fetchQuery(mailboxInfoQueryOptions())
+			kind === 'bootstrap' ? ensureMailboxInfo(client, true) : client.fetchQuery(mailboxInfoQueryOptions())
 		const rejected = expect(pending).rejects.toThrow()
 		await client.cancelQueries()
 		await rejected
