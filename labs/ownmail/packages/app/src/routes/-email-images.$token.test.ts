@@ -1,3 +1,4 @@
+import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -205,4 +206,21 @@ it('bounds attachment downloads that never return headers', async () => {
 	} finally {
 		vi.useRealTimers()
 	}
+})
+
+it('records the status of SDK attachment failures without provider details', async () => {
+	const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+	mocks.verifyEmailImageSource.mockResolvedValue({ kind: 'attachment', attachmentId: 'a', messageId: 'm' })
+	mocks.nylas.mockResolvedValue({
+		forGrant: () => ({
+			downloadAttachment: vi.fn().mockRejectedValue(new NylasApiError('private-provider-details', 403)),
+		}),
+	})
+	const response = await request()
+	expect(response.status).toBe(404)
+	expect(await response.text()).toBe('Image unavailable')
+	expect(log).toHaveBeenCalledWith(expect.stringContaining('"code":"upstream_status"'))
+	expect(log).toHaveBeenCalledWith(expect.stringContaining('"status":403'))
+	expect(JSON.stringify(log.mock.calls)).not.toContain('private-provider-details')
+	log.mockRestore()
 })

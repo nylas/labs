@@ -1,3 +1,4 @@
+import { NylasApiError } from '@nylas-labs/cli-kit/v3'
 import { createFileRoute } from '@tanstack/react-router'
 import {
 	type EmailImageMode,
@@ -74,6 +75,11 @@ async function attachmentBytes(
 			throw new OperationFailure('upstream_status', 'fetch', response.status)
 		}
 		return await limitedImageBody(response, controller.signal)
+	} catch (error) {
+		if (error instanceof NylasApiError) {
+			throw new OperationFailure('upstream_status', 'fetch', error.status)
+		}
+		throw error
 	} finally {
 		clearTimeout(timer)
 	}
