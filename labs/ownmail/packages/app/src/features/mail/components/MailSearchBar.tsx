@@ -16,15 +16,18 @@ type MailSearchBarProps = {
 
 export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSearchBarProps) {
 	const inputRef = useRef<HTMLInputElement>(null)
+	const submittingRef = useRef(false)
+	const composingRef = useRef(false)
 	const listboxId = useId()
 	const messageId = useId()
 	const [focused, setFocused] = useState(false)
 	const [helpOpen, setHelpOpen] = useState(false)
-	const [activeIndex, setActiveIndex] = useState(-1)
+	const [selection, setSelection] = useState<{ value: string; cursor: number; index: number } | null>(null)
+	const [caret, setCaret] = useState<{ value: string; position: number } | null>(null)
 	const [touched, setTouched] = useState(false)
 	const [submitting, setSubmitting] = useState(false)
 	const [submissionError, setSubmissionError] = useState(false)
-	const cursor = inputRef.current?.selectionStart ?? value.length
+	const cursor = caret?.value === value ? caret.position : value.length
 	const validation = useMemo(() => validateMailSearchQuery(value), [value])
 	const suggestions = useMemo(() => mailSearchSuggestions(value, cursor), [cursor, value])
 	const hasError = (touched && !validation.valid) || submissionError
@@ -35,9 +38,19 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 			(helpOpen && suggestions.length > 0) ||
 			(focused && value.trim().length > 0 && suggestions.length > 0)) &&
 		!submitting
+	const listboxOpen = panelOpen && !hasError
+	const activeIndex =
+		listboxOpen && selection?.value === value && selection.cursor === cursor && suggestions[selection.index]
+			? selection.index
+			: -1
 
-	function setValue(nextValue: string) {
+	function setActiveIndex(index: number) {
+		setSelection(index < 0 ? null : { value, cursor, index })
+	}
+
+	function setValue(nextValue: string, position = nextValue.length) {
 		onChange(nextValue)
+		setCaret({ value: nextValue, position })
 		setTouched(false)
 		setSubmissionError(false)
 		setActiveIndex(-1)
@@ -45,7 +58,7 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 
 	function applySuggestion(suggestion: (typeof suggestions)[number]) {
 		const next = applyMailSearchSuggestion(value, suggestion)
-		setValue(next.value)
+		setValue(next.value, next.cursor)
 		setHelpOpen(false)
 		requestAnimationFrame(() => {
 			inputRef.current?.focus()
@@ -54,18 +67,21 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 	}
 
 	async function submitValue(nextValue: string) {
+		if (submittingRef.current || composingRef.current) return
 		const result = validateMailSearchQuery(nextValue)
 		setTouched(true)
 		if (!result.valid) return
 		setHelpOpen(false)
 		setActiveIndex(-1)
 		setSubmissionError(false)
+		submittingRef.current = true
 		setSubmitting(true)
 		try {
 			await onSubmit(result.query)
 		} catch {
 			setSubmissionError(true)
 		} finally {
+			submittingRef.current = false
 			setSubmitting(false)
 		}
 	}
@@ -91,6 +107,7 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 				if (event.currentTarget.contains(event.relatedTarget)) return
 				setFocused(false)
 				setHelpOpen(false)
+				setActiveIndex(-1)
 				if (value.trim()) setTouched(true)
 			}}
 		>
@@ -102,21 +119,42 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 					type="text"
 					role="combobox"
 					value={value}
-					onChange={(event) => setValue(event.target.value)}
+					onChange={(event) =>
+						setValue(event.target.value, event.target.selectionStart ?? event.target.value.length)
+					}
+					onSelect={(event) => {
+						const position = event.currentTarget.selectionStart ?? value.length
+						if (position !== cursor) {
+							setCaret({ value, position })
+							setActiveIndex(-1)
+						}
+					}}
 					onFocus={() => setFocused(true)}
 					onClick={() => setActiveIndex(-1)}
+					onCompositionStart={() => {
+						composingRef.current = true
+						setActiveIndex(-1)
+					}}
+					onCompositionEnd={() => {
+						composingRef.current = false
+					}}
 					onKeyDown={(event) => {
-						if (event.key === 'ArrowDown' && suggestions.length > 0) {
+						if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)
+							return
+						if (event.key === 'ArrowDown' && suggestions.length > 0 && !hasError && !submitting) {
 							event.preventDefault()
 							setFocused(true)
-							setActiveIndex((current) => (current + 1) % suggestions.length)
-						} else if (event.key === 'ArrowUp' && suggestions.length > 0) {
+							setHelpOpen(true)
+							setActiveIndex((activeIndex + 1) % suggestions.length)
+						} else if (event.key === 'ArrowUp' && suggestions.length > 0 && !hasError && !submitting) {
 							event.preventDefault()
 							setFocused(true)
-							setActiveIndex((current) => (current <= 0 ? suggestions.length - 1 : current - 1))
+							setHelpOpen(true)
+							setActiveIndex(activeIndex <= 0 ? suggestions.length - 1 : activeIndex - 1)
 						} else if (event.key === 'Enter') {
 							event.preventDefault()
-							if (activeIndex >= 0) applySuggestion(suggestions[activeIndex] as (typeof suggestions)[number])
+							const suggestion = suggestions[activeIndex]
+							if (suggestion) applySuggestion(suggestion)
 							else void submitValue(value)
 						} else if (event.key === 'Escape' && panelOpen) {
 							event.preventDefault()
@@ -129,8 +167,8 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 					className="mail-search-field h-11 min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
 					aria-label="Search mail"
 					aria-autocomplete="list"
-					aria-controls={panelOpen ? listboxId : undefined}
-					aria-expanded={panelOpen}
+					aria-controls={listboxOpen ? listboxId : undefined}
+					aria-expanded={listboxOpen}
 					aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
 					aria-describedby={messageId}
 					aria-invalid={hasError || undefined}
@@ -142,9 +180,11 @@ export function MailSearchBar({ value, activeQuery, onChange, onSubmit }: MailSe
 				{value ? (
 					<button
 						type="button"
+						disabled={submitting}
 						onClick={() => {
 							setValue('')
 							void submitValue('')
+							inputRef.current?.focus()
 						}}
 						aria-label="Clear search"
 						className="mail-search-icon-button"

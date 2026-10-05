@@ -18,6 +18,7 @@ import { saveComposeRecipients } from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
 import { Chip, PillRow } from '#shared/components/ui/chip'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
@@ -145,6 +146,11 @@ export function ComposeWindow({
 	const [body, setBody] = useState(draftBody)
 	const initialFocusTarget = useRef(composeFocusTarget({ to, subject, isReply: Boolean(replyToMessageId) }))
 	const [busy, setBusy] = useState(false)
+	const [confirmation, setConfirmation] = useState<'discard' | 'send' | null>(null)
+	const confirmationRef = useRef<'discard' | 'send' | null>(null)
+	const confirmationReturnFocus = useRef<HTMLElement | null>(null)
+	const confirmationCancelRef = useRef<HTMLButtonElement>(null)
+	const manualSaving = useRef(false)
 	const [minimized, setMinimized] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -175,6 +181,17 @@ export function ComposeWindow({
 		setBody(seedToMarkdown(draftBody))
 	}, [draftBody])
 	const navigateAfterClose = onClosed
+
+	const requestConfirmation = useCallback((action: 'discard' | 'send') => {
+		confirmationReturnFocus.current = document.activeElement as HTMLElement | null
+		confirmationRef.current = action
+		setConfirmation(action)
+	}, [])
+
+	function dismissConfirmation() {
+		confirmationRef.current = null
+		setConfirmation(null)
+	}
 
 	const persistDraft = useCallback(
 		async ({ to, subject, body, attachments, replyToMessageId }: DraftPersistenceInput) => {
@@ -220,7 +237,14 @@ export function ComposeWindow({
 	)
 
 	const close = useCallback(async () => {
-		if (closingRef.current || submitting.current || discarding.current) return
+		if (
+			closingRef.current ||
+			submitting.current ||
+			discarding.current ||
+			manualSaving.current ||
+			confirmationRef.current
+		)
+			return
 
 		const hasVisibleDraft = Boolean(to || subject || body || attachmentsRef.current.length)
 		if (!hasVisibleDraft && !attachingRef.current) {
@@ -329,77 +353,104 @@ export function ComposeWindow({
 		dirty.current = true
 	}
 
-	const submit = useCallback(async () => {
-		const currentTo = recipientInputRef.current?.getCurrentValue() ?? to
-		const recipientValidation = validateRecipientEmails(currentTo, { required: true })
-		if (recipientValidation.error) {
-			setRecipientError(
-				recipientValidation.error === 'required'
-					? 'Add at least one recipient before sending.'
-					: 'Enter a valid email address for each recipient before sending.',
+	const submit = useCallback(
+		async (allowEmptySubject = false) => {
+			if (
+				submitting.current ||
+				discarding.current ||
+				closingRef.current ||
+				attachingRef.current ||
+				manualSaving.current ||
+				confirmationRef.current
 			)
-			setError(null)
-			focusComposeTarget('compose-to')
-			return
-		}
-
-		setRecipientError(null)
-		if (currentTo !== to) setTo(currentTo)
-		submitting.current = true
-		setBusy(true)
-		setError(null)
-		try {
-			const id = await queueDraftPersistence({
-				to: currentTo,
-				subject,
-				body,
-				attachments: attachmentsRef.current,
-				replyToMessageId,
-			})
-			await sendDraftMutation.mutateAsync({
-				draftId: id,
-				to: currentTo,
-				subject,
-				// The editor holds markdown; outgoing mail carries inline-styled HTML.
-				body: markdownToEmailHtml(body),
-				// The provider draft was just saved with the current attachments.
-				// sendDraft restores them server-side, avoiding duplicate files.
-				...(replyToMessageId ? { replyToMessageId } : {}),
-			})
-			if (preferences.autoSaveContacts) {
-				void runTrackedWrite(queryClient, () =>
-					saveComposeRecipients({
-						data: {
-							emails: recipientValidation.emails,
-						},
-					}),
+				return
+			const currentTo = recipientInputRef.current?.getCurrentValue() ?? to
+			const recipientValidation = validateRecipientEmails(currentTo, { required: true })
+			if (recipientValidation.error) {
+				setRecipientError(
+					recipientValidation.error === 'required'
+						? 'Add at least one recipient before sending.'
+						: 'Enter a valid email address for each recipient before sending.',
 				)
-					.then((receipt) => {
-						for (const contact of receipt.contacts) {
-							applyContactEffect(queryClient, { type: 'created', contact })
-						}
-					})
-					.catch(() => undefined)
+				setError(null)
+				focusComposeTarget('compose-to')
+				return
 			}
-			onSent()
-		} catch {
-			setError('Could not send your message. Check your connection, then try again.')
-			setBusy(false)
-			submitting.current = false
-		}
-	}, [
-		body,
-		onSent,
-		preferences.autoSaveContacts,
-		queryClient,
-		queueDraftPersistence,
-		replyToMessageId,
-		sendDraftMutation,
-		subject,
-		to,
-	])
+
+			setRecipientError(null)
+			if (currentTo !== to) setTo(currentTo)
+			if (!subject.trim() && !allowEmptySubject) {
+				requestConfirmation('send')
+				return
+			}
+			submitting.current = true
+			setBusy(true)
+			setError(null)
+			try {
+				const id = await queueDraftPersistence({
+					to: currentTo,
+					subject,
+					body,
+					attachments: attachmentsRef.current,
+					replyToMessageId,
+				})
+				await sendDraftMutation.mutateAsync({
+					draftId: id,
+					to: currentTo,
+					subject,
+					// The editor holds markdown; outgoing mail carries inline-styled HTML.
+					body: markdownToEmailHtml(body),
+					// The provider draft was just saved with the current attachments.
+					// sendDraft restores them server-side, avoiding duplicate files.
+					...(replyToMessageId ? { replyToMessageId } : {}),
+				})
+				if (preferences.autoSaveContacts) {
+					void runTrackedWrite(queryClient, () =>
+						saveComposeRecipients({
+							data: {
+								emails: recipientValidation.emails,
+							},
+						}),
+					)
+						.then((receipt) => {
+							for (const contact of receipt.contacts) {
+								applyContactEffect(queryClient, { type: 'created', contact })
+							}
+						})
+						.catch(() => undefined)
+				}
+				onSent()
+			} catch {
+				setError('Could not send your message. Check your connection, then try again.')
+				setBusy(false)
+				submitting.current = false
+			}
+		},
+		[
+			body,
+			onSent,
+			preferences.autoSaveContacts,
+			queryClient,
+			queueDraftPersistence,
+			replyToMessageId,
+			requestConfirmation,
+			sendDraftMutation,
+			subject,
+			to,
+		],
+	)
 
 	const saveNow = useCallback(async () => {
+		if (
+			submitting.current ||
+			discarding.current ||
+			closingRef.current ||
+			attachingRef.current ||
+			manualSaving.current ||
+			confirmationRef.current
+		)
+			return
+		manualSaving.current = true
 		setBusy(true)
 		setError(null)
 		try {
@@ -413,11 +464,33 @@ export function ComposeWindow({
 		} catch (error) {
 			setError(draftSaveErrorMessage(error))
 		} finally {
+			manualSaving.current = false
 			setBusy(false)
 		}
 	}, [body, queueDraftPersistence, replyToMessageId, subject, to])
 
-	async function discard() {
+	async function discard(confirmed = false) {
+		if (
+			submitting.current ||
+			discarding.current ||
+			closingRef.current ||
+			attachingRef.current ||
+			manualSaving.current ||
+			confirmationRef.current
+		)
+			return
+		if (
+			!confirmed &&
+			(to.trim() ||
+				recipientInputRef.current?.getCurrentValue().trim() ||
+				subject.trim() ||
+				body.trim() ||
+				attachmentsRef.current.length ||
+				draft?.attachments?.length)
+		) {
+			requestConfirmation('discard')
+			return
+		}
 		discarding.current = true
 		setBusy(true)
 		setError(null)
@@ -435,7 +508,7 @@ export function ComposeWindow({
 
 	useEffect(() => {
 		const timer = setTimeout(() => {
-			focusComposeTarget(initialFocusTarget.current)
+			if (!confirmationRef.current) focusComposeTarget(initialFocusTarget.current)
 			// Inline in a thread, the whole card comes into view, Send included.
 			composePanelRef.current?.scrollIntoView?.({ block: 'nearest' })
 		}, 0)
@@ -443,7 +516,7 @@ export function ComposeWindow({
 	}, [])
 
 	useEffect(() => {
-		if (!mobileCompose || minimized) return
+		if (!mobileCompose || minimized || confirmation) return
 		function trapMobileComposeFocus(event: KeyboardEvent) {
 			if (event.key !== 'Tab') return
 			const panel = composePanelRef.current
@@ -468,10 +541,11 @@ export function ComposeWindow({
 		}
 		document.addEventListener('keydown', trapMobileComposeFocus)
 		return () => document.removeEventListener('keydown', trapMobileComposeFocus)
-	}, [minimized, mobileCompose])
+	}, [confirmation, minimized, mobileCompose])
 
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
+			if (confirmationRef.current) return
 			if (!composePanelRef.current?.contains(event.target as Node) || event.defaultPrevented) return
 			const target = event.target as HTMLElement | null
 			const isTyping =
@@ -540,7 +614,11 @@ export function ComposeWindow({
 			>
 				<div className="flex min-w-0 items-center gap-2">
 					<span className="truncate text-sm font-semibold">{subject || 'New message'}</span>
-					{busy ? <span className="text-xs shrink-0 text-muted-foreground">Sending…</span> : null}
+					{busy ? (
+						<span className="text-xs shrink-0 text-muted-foreground">
+							{submitting.current ? 'Sending…' : discarding.current ? 'Discarding…' : 'Saving…'}
+						</span>
+					) : null}
 					{!busy && attaching ? (
 						<span className="text-xs shrink-0 text-muted-foreground">Attaching…</span>
 					) : null}
@@ -581,6 +659,46 @@ export function ComposeWindow({
 				</div>
 			</div>
 
+			<Dialog open={confirmation !== null} onOpenChange={dismissConfirmation}>
+				<DialogContent
+					className="p-6"
+					aria-describedby="compose-confirmation-description"
+					onOpenAutoFocus={(event) => {
+						event.preventDefault()
+						confirmationCancelRef.current?.focus()
+					}}
+					onCloseAutoFocus={(event) => {
+						event.preventDefault()
+						if (!submitting.current && !discarding.current) confirmationReturnFocus.current?.focus()
+					}}
+				>
+					<DialogTitle className="text-base font-semibold">
+						{confirmation === 'discard' ? 'Discard this draft?' : 'Send without a subject?'}
+					</DialogTitle>
+					<p id="compose-confirmation-description" className="mt-2 text-sm text-muted-foreground">
+						{confirmation === 'discard'
+							? 'Your message and attachments will be deleted. This cannot be undone.'
+							: 'A subject helps your recipients recognize and find your message.'}
+					</p>
+					<div className="mt-6 flex flex-wrap justify-end gap-2">
+						<Button ref={confirmationCancelRef} variant="outline" onClick={dismissConfirmation}>
+							{confirmation === 'discard' ? 'Keep draft' : 'Keep editing'}
+						</Button>
+						<Button
+							variant={confirmation === 'discard' ? 'destructive' : 'default'}
+							onClick={() => {
+								const action = confirmationRef.current
+								dismissConfirmation()
+								if (action === 'discard') void discard(true)
+								else if (action === 'send') void submit(true)
+							}}
+						>
+							{confirmation === 'discard' ? 'Discard permanently' : 'Send without subject'}
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
+
 			{!minimized ? (
 				<>
 					<div className="flex flex-col">
@@ -597,7 +715,7 @@ export function ComposeWindow({
 									className="flex-1"
 									// The row draws the one focus ring, as the subject row does.
 									inputClassName="compose-field focus-visible:ring-0"
-									disabled={closing}
+									disabled={busy || closing}
 									invalid={Boolean(recipientError)}
 									describedBy={recipientError ? 'compose-recipient-error' : undefined}
 								/>
@@ -616,7 +734,7 @@ export function ComposeWindow({
 							<input
 								id="compose-subject"
 								value={subject}
-								disabled={closing}
+								disabled={busy || closing}
 								onChange={(event) => setSubject(event.target.value)}
 								className="compose-field h-12 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-wait disabled:opacity-60"
 							/>
@@ -627,7 +745,7 @@ export function ComposeWindow({
 						id="compose-body"
 						value={body}
 						onChange={setBody}
-						readOnly={closing}
+						readOnly={busy || closing}
 						className="min-h-0 flex-1"
 					/>
 
@@ -639,7 +757,7 @@ export function ComposeWindow({
 									action={
 										<IconButton
 											label={`Remove ${attachment.filename}`}
-											disabled={closing}
+											disabled={busy || closing}
 											onClick={() => removeAttachment(index)}
 											className="disabled:cursor-wait"
 										>
@@ -661,11 +779,12 @@ export function ComposeWindow({
 						<Button
 							type="button"
 							disabled={busy || attaching || closing}
-							onClick={submit}
+							onClick={() => void submit()}
 							aria-keyshortcuts="Meta+Enter Control+Enter"
 							className="font-semibold"
 						>
-							<Send className="h-4 w-4" /> {attaching ? 'Attaching...' : busy ? 'Sending...' : 'Send'}
+							<Send className="h-4 w-4" />{' '}
+							{attaching ? 'Attaching...' : submitting.current ? 'Sending...' : 'Send'}
 						</Button>
 						<span className="shortcut-hint text-xs text-muted-foreground" aria-hidden="true">
 							⌘↵
@@ -706,7 +825,7 @@ export function ComposeWindow({
 							variant="ghost"
 							size="icon"
 							disabled={busy || attaching || closing}
-							onClick={discard}
+							onClick={() => void discard()}
 							aria-label="Discard draft"
 							className="ml-auto hover:text-destructive"
 						>

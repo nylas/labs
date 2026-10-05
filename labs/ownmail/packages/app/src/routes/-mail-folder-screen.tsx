@@ -4,6 +4,7 @@ import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { useCompose } from '#features/mail/components/ComposeProvider'
+import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import {
@@ -26,6 +27,7 @@ import type { MailDraft, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
 import { getThreads, updateThreadState } from '#server/fns'
 import { PullToRefresh, RefreshButton } from '#shared/components/PullToRefresh'
+import { Button } from '#shared/components/ui/button'
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -34,6 +36,7 @@ import {
 	ContextMenuShortcut,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { ScrollArea } from '#shared/components/ui/scroll-area'
 import { Toolbar } from '#shared/components/ui/toolbar'
@@ -120,6 +123,37 @@ function LoadedMailFolderRouteScreen({
 	const folderTitle = mailFolderTitle(folderId, folders)
 	const navigate = useNavigate()
 	const { openCompose, composing } = useCompose()
+	// This state survives optimistic removal of the row, including rollback on failure.
+	const [discardTarget, setDiscardTarget] = useState<MailDraft | null>(null)
+	const [discardError, setDiscardError] = useState<string | null>(null)
+	const [discardPending, setDiscardPending] = useState(false)
+	const discardPendingRef = useRef(false)
+	const discardReturnFocus = useRef<HTMLElement | null>(null)
+	const discardReturnId = useRef<string | undefined>(undefined)
+	const discardCancelRef = useRef<HTMLButtonElement>(null)
+	const requestDiscard = useCallback((draft: MailDraft, row: HTMLElement | null) => {
+		discardReturnFocus.current = row
+		discardReturnId.current = draft.id
+		setDiscardError(null)
+		setDiscardTarget(draft)
+	}, [])
+
+	async function confirmDiscard() {
+		if (!discardTarget || !onDiscardDraft || discardPendingRef.current) return
+		discardPendingRef.current = true
+		setDiscardPending(true)
+		setDiscardError(null)
+		try {
+			await onDiscardDraft(discardTarget.id)
+			setDiscardTarget(null)
+		} catch {
+			setDiscardError('Could not discard the draft. Check your connection, then try again.')
+		} finally {
+			discardPendingRef.current = false
+			setDiscardPending(false)
+		}
+	}
+
 	const folderIdentity = JSON.stringify([folderId, initialCursor])
 	// Paged-in rows, the pagination status and the keyboard cursor belong to one
 	// folder and first page. They are stored with that identity and read back
@@ -432,7 +466,7 @@ function LoadedMailFolderRouteScreen({
 							key={draft.id}
 							draft={draft}
 							navActive={cursor === index}
-							onDiscardDraft={onDiscardDraft}
+							onRequestDiscard={onDiscardDraft ? requestDiscard : undefined}
 						/>
 					))
 				)
@@ -461,6 +495,50 @@ function LoadedMailFolderRouteScreen({
 
 	return (
 		<div className={layout.container} data-mail-panes>
+			<Dialog
+				open={discardTarget !== null}
+				onOpenChange={(open) => {
+					if (!open && !discardPendingRef.current) setDiscardTarget(null)
+				}}
+			>
+				<DialogContent
+					className="p-6"
+					aria-describedby="draft-discard-description"
+					aria-busy={discardPending}
+					onOpenAutoFocus={(event) => {
+						event.preventDefault()
+						discardCancelRef.current?.focus()
+					}}
+					onCloseAutoFocus={(event) => {
+						event.preventDefault()
+						if (discardReturnFocus.current?.isConnected) discardReturnFocus.current.focus()
+						else {
+							const rows = [...(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? [])]
+							focusNavRow(rows.find((row) => row.dataset.draftId === discardReturnId.current) ?? rows[0])
+						}
+					}}
+				>
+					<DialogTitle className="text-base font-semibold">Discard this draft?</DialogTitle>
+					<p id="draft-discard-description" className="mt-2 break-words text-sm text-muted-foreground">
+						“{discardTarget?.subject || '(no subject)'}” and its attachments will be deleted. This cannot be
+						undone.
+					</p>
+					{discardError ? <ErrorBanner message={discardError} /> : null}
+					<div className="mt-6 flex flex-wrap justify-end gap-2">
+						<Button
+							ref={discardCancelRef}
+							variant="outline"
+							disabled={discardPending}
+							onClick={() => setDiscardTarget(null)}
+						>
+							Keep draft
+						</Button>
+						<Button variant="destructive" disabled={discardPending} onClick={() => void confirmDiscard()}>
+							{discardPending ? 'Discarding…' : 'Discard permanently'}
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
 			<section
 				className={layout.list}
 				data-mail-list
@@ -547,20 +625,26 @@ function focusNavRow(row: HTMLElement | undefined) {
 const DraftRow = memo(function DraftRow({
 	draft,
 	navActive,
-	onDiscardDraft,
+	onRequestDiscard,
 }: {
 	draft: MailDraft
 	navActive: boolean
-	onDiscardDraft?: (draftId: string) => Promise<void>
+	onRequestDiscard?: (draft: MailDraft, row: HTMLElement | null) => void
 }) {
 	const { openCompose } = useCompose()
 	const openDraft = () => void openCompose({ kind: 'draft', draftId: draft.id })
-	// A failed discard belongs to this draft: rows are keyed by draft id.
-	const [discardError, setDiscardError] = useState<string | null>(null)
+	const rowRef = useRef<HTMLButtonElement>(null)
+	const openingConfirmation = useRef(false)
 	return (
-		<ContextMenu>
+		<ContextMenu
+			onOpenChange={(open) => {
+				if (open) openingConfirmation.current = false
+			}}
+		>
 			<ContextMenuTrigger asChild>
 				<button
+					ref={rowRef}
+					data-draft-id={draft.id}
 					type="button"
 					onClick={openDraft}
 					data-nav-row=""
@@ -574,27 +658,26 @@ const DraftRow = memo(function DraftRow({
 						subject={draft.subject}
 						snippet={draft.snippet}
 					/>
-					<ThreadRowError message={discardError} />
 				</button>
 			</ContextMenuTrigger>
-			<ContextMenuContent aria-label={`Actions for draft ${draft.subject || '(no subject)'}`}>
+			<ContextMenuContent
+				aria-label={`Actions for draft ${draft.subject || '(no subject)'}`}
+				onCloseAutoFocus={(event) => {
+					if (openingConfirmation.current) event.preventDefault()
+				}}
+			>
 				<ContextMenuItem aria-keyshortcuts="Enter" onSelect={openDraft}>
 					<FileText aria-hidden="true" />
 					Open draft
 					<ContextMenuShortcut>Enter</ContextMenuShortcut>
 				</ContextMenuItem>
 				<ContextMenuSeparator />
-				{/* The composer discards without a confirmation; so does this. The
-				    optimistic removal is rolled back by the mutation if it fails,
-				    and the row says so in the composer's words. */}
 				<ContextMenuItem
 					variant="destructive"
-					disabled={!onDiscardDraft}
+					disabled={!onRequestDiscard}
 					onSelect={() => {
-						setDiscardError(null)
-						void onDiscardDraft?.(draft.id).catch(() =>
-							setDiscardError('Could not discard the draft. Check your connection, then try again.'),
-						)
+						openingConfirmation.current = true
+						onRequestDiscard?.(draft, rowRef.current)
 					}}
 				>
 					<Trash2 aria-hidden="true" />

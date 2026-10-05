@@ -1904,6 +1904,16 @@ describe('MailFolderRouteScreen — context menus', () => {
 	})
 
 	describe('drafts', () => {
+		function deferred<T>() {
+			let resolve!: (value: T) => void
+			let reject!: (reason?: unknown) => void
+			const promise = new Promise<T>((res, rej) => {
+				resolve = res
+				reject = rej
+			})
+			return { promise, resolve, reject }
+		}
+
 		const drafts = [
 			{ id: 'd1', to: [{ email: 'a@b.com' }], subject: 'One', snippet: 'x' },
 			{ id: 'd2', to: [{ email: 'c@d.com' }], subject: '', snippet: 'y' },
@@ -1934,7 +1944,7 @@ describe('MailFolderRouteScreen — context menus', () => {
 			await menuClosed()
 
 			// A failed discard is rolled back by the mutation; the menu stays usable.
-			for (const _attempt of [1, 2]) {
+			for (const attempt of [1, 2]) {
 				fireEvent.contextMenu(screen.getByRole('button', { name: /c@d.com/ }))
 				await screen.findByRole('menu', { name: 'Actions for draft (no subject)' })
 				expect(screen.getByRole('menuitem', { name: 'Discard draft' })).toHaveAttribute(
@@ -1943,11 +1953,112 @@ describe('MailFolderRouteScreen — context menus', () => {
 				)
 				choose('Discard draft')
 				await menuClosed()
+				fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
+				if (attempt === 1) {
+					await screen.findByRole('alert')
+					fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+				} else await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 			}
 			expect(onDiscardDraft).toHaveBeenCalledTimes(2)
 			expect(onDiscardDraft).toHaveBeenLastCalledWith('d2')
 			// The second attempt succeeded, so the first one's message is gone.
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+		})
+
+		it('names the draft and safely cancels with the button or Escape while restoring row focus', async () => {
+			const onDiscardDraft = vi.fn()
+			renderDrafts({ onDiscardDraft })
+			const row = screen.getByRole('button', { name: /a@b.com.*One/ })
+			for (const useEscape of [false, true]) {
+				row.focus()
+				fireEvent.contextMenu(row)
+				await screen.findByRole('menu')
+				choose('Discard draft')
+				const dialog = await screen.findByRole('dialog', { name: 'Discard this draft?' })
+				expect(dialog).toHaveAccessibleDescription(
+					'“One” and its attachments will be deleted. This cannot be undone.',
+				)
+				const cancel = screen.getByRole('button', { name: 'Keep draft' })
+				await waitFor(() => expect(cancel).toHaveFocus())
+				if (useEscape) fireEvent.keyDown(cancel, { key: 'Escape' })
+				else fireEvent.click(cancel)
+				await waitFor(() => expect(row).toHaveFocus())
+				expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+			}
+			expect(onDiscardDraft).not.toHaveBeenCalled()
+		})
+
+		it('prevents duplicate discard and cancellation while deletion is pending', async () => {
+			const pending = deferred<void>()
+			const onDiscardDraft = vi.fn(() => pending.promise)
+			renderDrafts({ onDiscardDraft })
+			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
+			await screen.findByRole('menu')
+			choose('Discard draft')
+			const confirm = screen.getByRole('button', { name: 'Discard permanently' })
+			act(() => {
+				fireEvent.click(confirm)
+				fireEvent.click(confirm)
+			})
+			expect(onDiscardDraft).toHaveBeenCalledTimes(1)
+			expect(screen.getByRole('button', { name: 'Keep draft' })).toBeDisabled()
+			expect(screen.getByRole('button', { name: 'Discarding…' })).toBeDisabled()
+			fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+			expect(screen.getByRole('dialog')).toBeInTheDocument()
+			await act(async () => {
+				pending.resolve()
+			})
+			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+		})
+
+		it('retains the failure and safe cancellation after an optimistic row removal and rollback', async () => {
+			const pending = deferred<void>()
+			const onDiscardDraft = vi.fn(() => pending.promise)
+			const view = renderDrafts({ onDiscardDraft })
+			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
+			await screen.findByRole('menu')
+			choose('Discard draft')
+			fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
+			view.rerender(
+				<MailFolderRouteScreen
+					threads={[]}
+					drafts={[drafts[1]]}
+					folders={[]}
+					folderId="drafts"
+					nextCursor={undefined}
+					onDiscardDraft={onDiscardDraft}
+				/>,
+			)
+			expect(screen.getByRole('dialog', { name: 'Discard this draft?' })).toBeInTheDocument()
+			await act(async () => {
+				pending.reject(new Error('private details'))
+			})
+			view.rerender(
+				<MailFolderRouteScreen
+					threads={[]}
+					drafts={drafts}
+					folders={[]}
+					folderId="drafts"
+					nextCursor={undefined}
+					onDiscardDraft={onDiscardDraft}
+				/>,
+			)
+			expect(screen.getByRole('alert')).toHaveTextContent('Could not discard the draft.')
+			expect(screen.getByRole('alert')).not.toHaveTextContent('private details')
+			fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+			await waitFor(() => expect(screen.getByRole('button', { name: /a@b.com.*One/ })).toHaveFocus())
+		})
+
+		it('can leave the draft screen while a discard confirmation is open without deleting anything', async () => {
+			const onDiscardDraft = vi.fn()
+			const view = renderDrafts({ onDiscardDraft })
+			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
+			await screen.findByRole('menu')
+			choose('Discard draft')
+			await screen.findByRole('dialog', { name: 'Discard this draft?' })
+			view.unmount()
+			await waitFor(() => expect(document.body).toHaveFocus())
+			expect(onDiscardDraft).not.toHaveBeenCalled()
 		})
 
 		it('puts focus on the cursored draft for the ContextMenu key', () => {
@@ -1958,16 +2069,19 @@ describe('MailFolderRouteScreen — context menus', () => {
 			expect(screen.getByRole('button', { name: /a@b.com.*One/ })).toHaveFocus()
 		})
 
-		it('says on the draft row, in the composer wording, when it could not be discarded', async () => {
+		it('keeps a generic failure in the confirmation so the user can retry or keep the draft', async () => {
 			renderDrafts({ onDiscardDraft: vi.fn().mockRejectedValue(new Error('provider detail')) })
 			const draft = screen.getByRole('button', { name: /c@d.com/ })
 			fireEvent.contextMenu(draft)
 			await screen.findByRole('menu')
 			choose('Discard draft')
+			fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
 			const alert = await screen.findByRole('alert')
 			expect(alert).toHaveTextContent('Could not discard the draft. Check your connection, then try again.')
-			expect(draft).toContainElement(alert)
-			expect(screen.getByRole('button', { name: /a@b.com.*One/ })).not.toContainElement(alert)
+			expect(screen.getByRole('dialog', { name: 'Discard this draft?' })).toContainElement(alert)
+			expect(alert).not.toHaveTextContent('provider detail')
+			fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+			await waitFor(() => expect(draft).toHaveFocus())
 		})
 
 		it('shows Discard as unavailable where the list cannot delete drafts', async () => {
@@ -1993,6 +2107,8 @@ describe('MailFolderRouteScreen — context menus', () => {
 			fireEvent.contextMenu(screen.getByRole('button', { name: /a@b.com.*One/ }))
 			await screen.findByRole('menu')
 			choose('Discard draft')
+			expect(deleteDraft).not.toHaveBeenCalled()
+			fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
 			await waitFor(() => expect(deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd1' } }))
 		})
 	})

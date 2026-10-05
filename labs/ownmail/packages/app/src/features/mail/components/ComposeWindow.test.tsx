@@ -584,6 +584,7 @@ describe('ComposeWindow close', () => {
 		deleteDraft.mockReturnValueOnce(removal.promise)
 		const { onClosed, handle } = renderWindow({ seed: draftSeed({ id: 'd0', subject: 'Bin me' }) })
 		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
 		await waitFor(() => expect(deleteDraft).toHaveBeenCalled())
 
 		await act(async () => {
@@ -1394,5 +1395,211 @@ describe('ComposeWindow autosave', () => {
 		})
 		expect(screen.queryByText('Saving…')).not.toBeInTheDocument()
 		expect(screen.getByText('Saved')).toBeInTheDocument()
+	})
+})
+
+describe('ComposeWindow compose safeguards', () => {
+	it('keeps draft fields and attachments when cancelling discard, and restores focus', async () => {
+		const { container, onClosed } = renderWindow({
+			seed: fieldsSeed({ to: 'a@b.com', subject: 'Keep', body: 'Keep body' }),
+		})
+		fireEvent.change(fileInput(container), { target: { files: [new File(['important'], 'keep.txt')] } })
+		await screen.findByText('keep.txt')
+		const discardButton = screen.getByRole('button', { name: 'Discard draft' })
+		discardButton.focus()
+		fireEvent.click(discardButton)
+		const dialog = screen.getByRole('dialog', { name: 'Discard this draft?' })
+		expect(dialog).toHaveAccessibleDescription(
+			'Your message and attachments will be deleted. This cannot be undone.',
+		)
+		expect(screen.getByRole('button', { name: 'Keep draft' })).toHaveFocus()
+		expect(deleteDraft).not.toHaveBeenCalled()
+		fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+		await waitFor(() => expect(discardButton).toHaveFocus())
+		expect(screen.getByLabelText('To')).toHaveValue('a@b.com')
+		expect(screen.getByLabelText('Subject')).toHaveValue('Keep')
+		expect(bodyField()).toHaveValue('Keep body')
+		expect(screen.getByText('keep.txt')).toBeInTheDocument()
+		expect(onClosed).not.toHaveBeenCalled()
+	})
+
+	it('protects an attachment-only draft and a locally typed recipient from discard', async () => {
+		recipientInputMock.keepDraftLocal = true
+		const { container } = renderWindow()
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: 'unfinished' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		expect(screen.getByRole('dialog', { name: 'Discard this draft?' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+		fireEvent.change(screen.getByLabelText('To'), { target: { value: '' } })
+		fireEvent.change(fileInput(container), { target: { files: [new File(['x'], 'only.txt')] } })
+		await screen.findByText('only.txt')
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		expect(screen.getByRole('dialog', { name: 'Discard this draft?' })).toBeInTheDocument()
+	})
+
+	it('deletes a nonempty saved draft only after confirmation and prevents duplicate deletion', async () => {
+		const removal = deferred<unknown>()
+		deleteDraft.mockReturnValueOnce(removal.promise)
+		const { onClosed } = renderWindow({ seed: draftSeed({ id: 'd1', subject: 'Delete me', body: 'Body' }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		expect(deleteDraft).not.toHaveBeenCalled()
+		const confirm = screen.getByRole('button', { name: 'Discard permanently' })
+		act(() => {
+			fireEvent.click(confirm)
+			fireEvent.click(confirm)
+		})
+		await waitFor(() => expect(deleteDraft).toHaveBeenCalledTimes(1))
+		expect(deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd1' } })
+		expect(screen.getByText('Discarding…')).toBeInTheDocument()
+		expect(onClosed).not.toHaveBeenCalled()
+		await act(async () => {
+			removal.resolve({ removedDraftId: 'd1' })
+		})
+		expect(onClosed).toHaveBeenCalledTimes(1)
+	})
+
+	it('preserves nonempty draft after confirmed deletion fails and allows retry', async () => {
+		deleteDraft.mockRejectedValueOnce(new Error('internal secret'))
+		const { onClosed } = renderWindow({ seed: draftSeed({ id: 'd1', subject: 'Keep me', body: 'Body' }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Could not discard the draft.')
+		expect(screen.queryByText('internal secret')).not.toBeInTheDocument()
+		expect(bodyField()).toHaveValue('Body')
+		expect(screen.getByLabelText('Subject')).toHaveValue('Keep me')
+		expect(onClosed).not.toHaveBeenCalled()
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Discard permanently' }))
+		await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1))
+	})
+
+	it('closes an empty draft immediately without a confirmation', async () => {
+		const { onClosed } = renderWindow()
+		fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+		await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1))
+		expect(screen.queryByRole('dialog', { name: 'Discard this draft?' })).not.toBeInTheDocument()
+		expect(deleteDraft).not.toHaveBeenCalled()
+	})
+
+	it('checks an empty subject after valid recipients and lets the user keep editing', async () => {
+		const { onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: '  ', body: 'Body' }) })
+		await waitFor(() => expect(screen.getByLabelText('Subject')).toHaveFocus())
+		const send = screen.getByRole('button', { name: 'Send' })
+		send.focus()
+		fireEvent.click(send)
+		expect(screen.getByRole('dialog', { name: 'Send without a subject?' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus()
+		expect(saveDraft).not.toHaveBeenCalled()
+		expect(sendDraft).not.toHaveBeenCalled()
+		fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+		await waitFor(() => expect(send).toHaveFocus())
+		expect(bodyField()).toHaveValue('Body')
+		fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Now titled' } })
+		fireEvent.click(send)
+		await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+		expect(sendDraft.mock.calls[0][0].data.subject).toBe('Now titled')
+	})
+
+	it('supports keyboard confirmation cancellation on mobile without escaping the modal', async () => {
+		mockMobileViewport()
+		renderWindow({ seed: fieldsSeed({ to: 'a@b.com', body: 'Body' }) })
+		await waitFor(() => expect(screen.getByLabelText('Subject')).toHaveFocus())
+		bodyField().focus()
+		fireEvent.keyDown(bodyField(), { key: 'Enter', ctrlKey: true })
+		const cancel = screen.getByRole('button', { name: 'Keep editing' })
+		expect(cancel).toHaveFocus()
+		fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true })
+		expect(screen.getByRole('button', { name: 'Send without subject' })).toHaveFocus()
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+		await waitFor(() => expect(bodyField()).toHaveFocus())
+		expect(screen.queryByRole('dialog', { name: 'Send without a subject?' })).not.toBeInTheDocument()
+		expect(sendDraft).not.toHaveBeenCalled()
+	})
+
+	it('sends once after empty-subject confirmation, preserving body and attachments', async () => {
+		const sending = deferred<unknown>()
+		sendDraft.mockReturnValueOnce(sending.promise)
+		const { container, onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', body: 'Body' }) })
+		fireEvent.change(fileInput(container), { target: { files: [new File(['x'], 'send.txt')] } })
+		await screen.findByText('send.txt')
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		const confirm = screen.getByRole('button', { name: 'Send without subject' })
+		act(() => {
+			fireEvent.click(confirm)
+			fireEvent.click(confirm)
+		})
+		await waitFor(() => expect(sendDraft).toHaveBeenCalledTimes(1))
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({
+			subject: '',
+			body: markdownToDraftBody('Body'),
+			attachments: [{ filename: 'send.txt' }],
+		})
+		expect(screen.getByLabelText('Subject')).toBeDisabled()
+		expect(bodyField()).toHaveAttribute('readonly')
+		await act(async () => {
+			sending.resolve({ removedDraftId: 'new-draft' })
+		})
+		expect(onSent).toHaveBeenCalledTimes(1)
+	})
+
+	it('retains an untitled message and attachments after send failure', async () => {
+		sendDraft.mockRejectedValueOnce(new Error('internal failure'))
+		const { container, onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', body: 'Body' }) })
+		fireEvent.change(fileInput(container), { target: { files: [new File(['x'], 'retry.txt')] } })
+		await screen.findByText('retry.txt')
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Send without subject' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Could not send your message.')
+		expect(bodyField()).toHaveValue('Body')
+		expect(screen.getByText('retry.txt')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+		expect(onSent).not.toHaveBeenCalled()
+	})
+
+	it('does not offer empty-subject confirmation until recipients are valid', () => {
+		renderWindow({ seed: fieldsSeed({ to: 'invalid', body: 'Body' }) })
+		fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+		expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address')
+		expect(screen.queryByRole('dialog', { name: 'Send without a subject?' })).not.toBeInTheDocument()
+	})
+})
+
+describe('ComposeWindow rapid input safety', () => {
+	it('starts only one send when activation arrives twice before React updates the button', async () => {
+		const { onSent } = renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: 'Hi', body: 'Body' }) })
+		const send = screen.getByRole('button', { name: 'Send' })
+		act(() => {
+			send.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			send.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+		await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+		expect(sendDraft).toHaveBeenCalledTimes(1)
+	})
+
+	it('starts only one manual save when activation arrives twice before React updates the button', async () => {
+		renderWindow({ seed: fieldsSeed({ to: 'a@b.com', subject: 'Hi', body: 'Body' }) })
+		const save = screen.getByRole('button', { name: 'Save draft' })
+		act(() => {
+			save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+		await screen.findByText('Saved')
+		expect(saveDraft).toHaveBeenCalledTimes(1)
+	})
+
+	it('keeps one discard checkpoint and its safe initial focus when requested immediately after mount', async () => {
+		vi.useFakeTimers()
+		renderWindow({ seed: fieldsSeed({ body: 'Body' }) })
+		const discard = screen.getByRole('button', { name: 'Discard draft' })
+		act(() => {
+			discard.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			discard.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		})
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0)
+		})
+		expect(screen.getAllByRole('dialog', { name: 'Discard this draft?' })).toHaveLength(1)
+		expect(screen.getByRole('button', { name: 'Keep draft' })).toHaveFocus()
+		expect(deleteDraft).not.toHaveBeenCalled()
 	})
 })

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MailSearchBar } from './MailSearchBar.js'
@@ -157,6 +158,100 @@ describe('MailSearchBar', () => {
 
 		expect(input().value).toBe('')
 		expect(onSubmit).toHaveBeenCalledWith('')
+		expect(input()).toHaveFocus()
+	})
+
+	it('opens empty-input suggestions with arrows and references only visible options', () => {
+		render(<ControlledSearch onSubmit={vi.fn()} />)
+		fireEvent.keyDown(input(), { key: 'ArrowDown' })
+		const listbox = screen.getByRole('listbox')
+		expect(input()).toHaveAttribute('aria-controls', listbox.id)
+		expect(input()).toHaveAttribute('aria-expanded', 'true')
+		expect(document.getElementById(input().getAttribute('aria-activedescendant') ?? '')).toHaveAttribute(
+			'aria-selected',
+			'true',
+		)
+
+		fireEvent.keyDown(input(), { key: 'Escape' })
+		expect(input()).not.toHaveAttribute('aria-controls')
+		expect(input()).not.toHaveAttribute('aria-activedescendant')
+		fireEvent.keyDown(input(), { key: 'ArrowUp' })
+		expect(screen.getAllByRole('option').at(-1)).toHaveAttribute('aria-selected', 'true')
+	})
+
+	it('does not apply an old selection when navigation replaces the controlled query', () => {
+		const onChange = vi.fn()
+		const onSubmit = vi.fn()
+		const view = render(<MailSearchBar value="invoice overdue" onChange={onChange} onSubmit={onSubmit} />)
+		fireEvent.keyDown(input(), { key: 'ArrowUp' })
+		expect(screen.getAllByRole('option').at(-1)).toHaveAttribute('aria-selected', 'true')
+		view.rerender(<MailSearchBar value="receipt" onChange={onChange} onSubmit={onSubmit} />)
+		expect(input()).not.toHaveAttribute('aria-activedescendant')
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		expect(onChange).not.toHaveBeenCalled()
+		expect(onSubmit).toHaveBeenCalledWith('receipt')
+	})
+
+	it('updates predictions after moving the caret without modifying the query', async () => {
+		const user = userEvent.setup()
+		render(<ControlledSearch onSubmit={vi.fn()} />)
+		await user.type(input(), 'invoice o receipt')
+		await user.keyboard('{ArrowDown}{ArrowLeft>8/}')
+		expect(input()).not.toHaveAttribute('aria-activedescendant')
+		fireEvent.keyDown(input(), { key: 'ArrowDown' })
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		expect(input().value).toBe('invoice OR  receipt')
+	})
+
+	it('leaves IME candidate navigation and confirmation to the input method', () => {
+		const onSubmit = vi.fn()
+		render(<ControlledSearch onSubmit={onSubmit} />)
+		fireEvent.change(input(), { target: { value: '東京' } })
+		fireEvent.compositionStart(input())
+		fireEvent.keyDown(input(), { key: 'ArrowDown' })
+		expect(input()).not.toHaveAttribute('aria-activedescendant')
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		fireEvent.submit(input().closest('form') as HTMLFormElement)
+		expect(onSubmit).not.toHaveBeenCalled()
+		fireEvent.compositionEnd(input())
+		fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+		fireEvent.keyDown(input(), { key: 'Enter', keyCode: 229 })
+		expect(onSubmit).not.toHaveBeenCalled()
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		expect(onSubmit).toHaveBeenCalledWith('東京')
+	})
+
+	it('keeps search usable when a browser cannot report the selection', async () => {
+		const user = userEvent.setup()
+		render(<ControlledSearch onSubmit={vi.fn()} />)
+		await user.click(input())
+		const selection = vi.spyOn(input(), 'selectionStart', 'get').mockReturnValue(null)
+		fireEvent.change(input(), { target: { value: 'receipt' } })
+		fireEvent.keyUp(input(), { key: 'ArrowLeft' })
+		fireEvent.keyDown(input(), { key: 'ArrowDown' })
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		expect(input().value).toBe('receipt OR ')
+		selection.mockRestore()
+	})
+
+	it('guards pending keyboard and form submits and allows retry after failure', async () => {
+		const pending = deferred()
+		const onSubmit = vi.fn().mockReturnValueOnce(pending.promise)
+		render(<ControlledSearch onSubmit={onSubmit} />)
+		fireEvent.change(input(), { target: { value: 'invoice' } })
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		fireEvent.submit(input().closest('form') as HTMLFormElement)
+		expect(onSubmit).toHaveBeenCalledTimes(1)
+		expect(screen.getByRole('button', { name: 'Clear search' })).toBeDisabled()
+		await act(async () => pending.reject(new Error('private provider detail')))
+		expect(input()).toHaveAttribute('aria-expanded', 'false')
+		expect(input()).not.toHaveAttribute('aria-controls')
+		expect(input()).not.toHaveAttribute('aria-activedescendant')
+		fireEvent.keyDown(input(), { key: 'ArrowDown' })
+		expect(input()).not.toHaveAttribute('aria-activedescendant')
+		fireEvent.keyDown(input(), { key: 'Enter' })
+		expect(onSubmit).toHaveBeenCalledTimes(2)
 	})
 
 	it('exposes loading, disabled, error, and success states without locking the input', async () => {
