@@ -98,3 +98,27 @@ Platform invocation logs may capture request URLs independently of application
 logging. Signed image paths contain sensitive data: restrict access and retention
 and disable invocation URL logging where required. Application events intentionally
 omit URLs, cookies, account identifiers, and arbitrary exception messages.
+
+Each server request also includes `X-Request-ID` and `Server-Timing` for request
+handling and any session, KV, renewal, mailbox, folder, or thread work completed
+before headers are sent. Deferred work can finish after those headers; compare
+these timings with browser `ttfb`, `hydration`, `inbox_ready`, and `lcp` metrics.
+`request.completed` measures response creation, not completion of a streamed body.
+
+Browser performance reporting samples 10% of document loads. The authenticated,
+same-origin `/api/diagnostics` endpoint accepts only bounded metric names, numeric
+values, and an installed-app flag; it caps payloads at 512 bytes and logging at
+60 reports per minute per running isolate. `browser.performance` events also
+include a release version. LCP is reported on page hide when supported. Missing
+reports can mean sampling, an unsupported browser API, or the logging budget;
+they do not imply a successful or fast load. Client and background sync failures
+report counts only, without exception messages or stacks.
+
+For iOS acceptance, compare repeated cold and warm homescreen launches and Safari
+loads on the same device/network. Record p75 LCP (target <=2.5 seconds), TTFB,
+inbox readiness, and whether useful loading feedback appears. Authentication
+remains mandatory before mailbox data is streamed. Session validation is shared
+only inside one HTTP request; optional display-name lookup moves off the initial
+path, and folder/thread requests start concurrently. No private mailbox data is
+persisted in a service-worker cache. Evaluate that additional caching only after
+these measurements identify a remaining startup bottleneck.

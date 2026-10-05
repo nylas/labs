@@ -654,3 +654,19 @@ describe('/settings', () => {
 		expect(resetMailboxPassword).toHaveBeenCalledTimes(2)
 	})
 })
+
+it('loads the full provider name after a mail bootstrap before saving preferences', async () => {
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	queryClient.setQueryData(
+		mailboxInfoQueryOptions().queryKey,
+		{ email: info.email, appName: info.appName },
+		{ updatedAt: 0 },
+	)
+	const data = await Route.options.loader({ context: { queryClient } })
+	expect(data.info.displayName).toBe('Ada')
+	renderSettings(false, data.info, queryClient)
+	expect(screen.getByLabelText('Display name')).toHaveValue('Ada')
+	fireEvent.click(screen.getByLabelText('Darken email content automatically'))
+	fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+	expect(await screen.findByRole('status')).toHaveTextContent('Settings saved.')
+})

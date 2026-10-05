@@ -4,6 +4,7 @@ import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { LOGIN_PATH } from '#app/config/route-paths'
 import { diagnostic } from './diagnostics.js'
 import { mailboxFromRequest } from './nylas.js'
+import { currentRequestId } from './request-context.js'
 
 export async function requireMailbox() {
 	const request = getRequest()
@@ -22,6 +23,7 @@ export async function requireMailbox() {
 export function friendly(err: unknown): Error {
 	diagnostic({
 		event: 'mailbox.failed',
+		requestId: currentRequestId(),
 		stage: 'mailbox',
 		code: 'provider',
 		status: err instanceof NylasApiError ? err.status : undefined,

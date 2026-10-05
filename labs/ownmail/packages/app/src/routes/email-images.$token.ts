@@ -16,6 +16,7 @@ import {
 	untilAborted,
 } from '#server/diagnostics'
 import { nylas } from '#server/nylas'
+import { currentRequestId } from '#server/request-context'
 import { getSession } from '#server/session'
 
 const TRANSPARENT_TRACKING_PIXEL = Uint8Array.from(
@@ -89,7 +90,7 @@ export const Route = createFileRoute('/email-images/$token')({
 	server: {
 		handlers: {
 			GET: async ({ request, params }) => {
-				const requestId = crypto.randomUUID()
+				const requestId = currentRequestId() ?? crypto.randomUUID()
 				const started = performance.now()
 				let stage: DiagnosticStage = 'session'
 				try {

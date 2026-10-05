@@ -9,12 +9,13 @@ import {
 } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Compass } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { AccountSwitchLoader } from '#app/components/AccountSwitchLoader'
 import { appMeta, DARK_THEME_COLOR, LIGHT_THEME_COLOR } from '#app/config/app-meta'
 import { MAIL_HOME_PATH } from '#app/config/route-paths'
 import { INITIAL_ROOT_CLASS_NAME } from '#app/config/theme'
 import { useAccountSwitchStatus } from '#app/lib/account-switch-status'
+import { monitorPerformance } from '#app/lib/performance-monitor'
 import type { OwnmailRouterContext } from '#app/query/query-provider'
 import { ComposeProvider } from '#features/mail/components/ComposeProvider'
 import { platform } from '#server/platform'
@@ -53,6 +54,8 @@ export const Route = createRootRouteWithContext<OwnmailRouterContext>()({
 		}
 	},
 	component: RootComponent,
+	shellComponent: RootDocument,
+	pendingComponent: StartupPending,
 	errorComponent: AppError,
 	notFoundComponent: NotFoundComponent,
 })
@@ -109,8 +112,7 @@ function NotFoundComponent() {
 	)
 }
 
-function RootComponent() {
-	const switchingTo = useAccountSwitchStatus()
+function RootDocument({ children }: { children: ReactNode }) {
 	return (
 		<html lang="en" className={INITIAL_ROOT_CLASS_NAME} suppressHydrationWarning>
 			<head>
@@ -125,22 +127,44 @@ function RootComponent() {
 				/>
 			</head>
 			<body suppressHydrationWarning>
-				<NavigationProgress />
-				<RouteAnnouncer />
-				{/* The previous inbox is unmounted, never covered, while the next one loads. */}
-				<ToastProvider>
-					{/* Compose belongs to one inbox: a switch unmounts it with everything else. */}
-					{switchingTo ? (
-						<AccountSwitchLoader email={switchingTo} />
-					) : (
-						<ComposeProvider>
-							<Outlet />
-						</ComposeProvider>
-					)}
-				</ToastProvider>
+				{children}
 				<Scripts />
 			</body>
 		</html>
+	)
+}
+
+function StartupPending() {
+	return (
+		<div
+			role="status"
+			className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background text-foreground"
+		>
+			<p className="font-display text-lg font-semibold">OwnMail</p>
+			<p className="text-sm text-muted-foreground">Opening your mailbox…</p>
+		</div>
+	)
+}
+
+function RootComponent() {
+	useEffect(() => monitorPerformance(), [])
+	const switchingTo = useAccountSwitchStatus()
+	return (
+		<>
+			<NavigationProgress />
+			<RouteAnnouncer />
+			{/* The previous inbox is unmounted, never covered, while the next one loads. */}
+			<ToastProvider>
+				{/* Compose belongs to one inbox: a switch unmounts it with everything else. */}
+				{switchingTo ? (
+					<AccountSwitchLoader email={switchingTo} />
+				) : (
+					<ComposeProvider>
+						<Outlet />
+					</ComposeProvider>
+				)}
+			</ToastProvider>
+		</>
 	)
 }
 

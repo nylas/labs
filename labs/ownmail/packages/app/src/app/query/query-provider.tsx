@@ -166,6 +166,7 @@ function ServerStateSync() {
 				previousRef.current = next
 			} catch {
 				// Transient network failures are retried on the next interval.
+				window.dispatchEvent(new Event('ownmail:sync-failed'))
 			} finally {
 				syncing = false
 			}

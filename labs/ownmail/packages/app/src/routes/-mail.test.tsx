@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Folder } from '@nylas-labs/cli-kit/v3'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // A single mutable router state drives every useRouterState selector so tests can
@@ -15,7 +15,8 @@ let routerState: RouterState = { location: { pathname: '/mail/f/inbox', search: 
 const navigate = vi.fn()
 const invalidate = vi.fn()
 
-vi.mock('@tanstack/react-router', () => ({
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+	Await: (await importOriginal<any>()).Await,
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 	useNavigate: () => navigate,
 	useRouter: () => ({ invalidate }),
@@ -166,6 +167,41 @@ afterEach(() => {
 })
 
 describe('/mail loader + layout', () => {
+	it('streams the authenticated shell before folders arrive and replaces the fallback when ready', async () => {
+		getMailboxInfo.mockResolvedValue(info)
+		let resolve!: (value: Folder[]) => void
+		getFolders.mockReturnValue(
+			new Promise<Folder[]>((done) => {
+				resolve = done
+			}),
+		)
+		const queryClient = new QueryClient()
+		vi.stubGlobal('window', undefined)
+		let data: any
+		try {
+			data = await Route.options.loader({ context: { queryClient } })
+		} finally {
+			vi.unstubAllGlobals()
+		}
+		expect(data.folders).toBeInstanceOf(Promise)
+		Route.useLoaderData = () => data
+		const Component = Route.options.component
+		await act(async () => {
+			render(
+				<QueryClientProvider client={queryClient}>
+					<Component />
+				</QueryClientProvider>,
+			)
+		})
+		expect(screen.getByText('Loading your mailbox…')).toBeInTheDocument()
+		await act(async () => {
+			resolve([])
+			await data.folders
+		})
+		await waitFor(() => expect(screen.queryByText('Loading your mailbox…')).not.toBeInTheDocument())
+		expect(screen.getByTestId('logo')).toHaveTextContent('OwnMail')
+	})
+
 	it('loads mailbox info and folders together for the shell', async () => {
 		getMailboxInfo.mockResolvedValue(info)
 		getFolders.mockResolvedValue([{ id: 'inbox' }] as Folder[])

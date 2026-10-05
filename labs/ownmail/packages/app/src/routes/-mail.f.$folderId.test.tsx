@@ -17,7 +17,8 @@ let routerState: RouterState = { location: { pathname: '/mail/f/inbox' }, matche
 const invalidate = vi.fn()
 const navigate = vi.fn()
 
-vi.mock('@tanstack/react-router', () => ({
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+	Await: (await importOriginal<any>()).Await,
 	createFileRoute: () => (opts: any) => ({ options: opts }),
 	useRouter: () => ({ invalidate }),
 	useNavigate: () => navigate,
@@ -112,6 +113,50 @@ afterEach(() => {
 })
 
 describe('loadMailFolderData', () => {
+	it('streams a folder placeholder while concurrent folder and thread requests resolve', async () => {
+		let resolveFolders!: (value: any[]) => void
+		let resolveThreads!: (value: any) => void
+		getFolders.mockReturnValue(
+			new Promise((done) => {
+				resolveFolders = done
+			}),
+		)
+		getThreads.mockReturnValue(
+			new Promise((done) => {
+				resolveThreads = done
+			}),
+		)
+		const queryClient = loaderQueryClient()
+		vi.stubGlobal('window', undefined)
+		let data: any
+		try {
+			data = await Route.options.loader({ context: { queryClient }, params: { folderId: 'inbox' } })
+		} finally {
+			vi.unstubAllGlobals()
+		}
+		expect(data.deferred).toBeInstanceOf(Promise)
+		expect(getFolders).toHaveBeenCalled()
+		expect(getThreads).toHaveBeenCalled()
+		Route.useLoaderData = () => data
+		Route.useParams = () => ({ folderId: 'inbox' })
+		Route.useSearch = () => ({})
+		const Component = Route.options.component
+		await act(async () => {
+			render(
+				<QueryClientProvider client={queryClient}>
+					<Component />
+				</QueryClientProvider>,
+			)
+		})
+		expect(screen.queryByText('All caught up')).not.toBeInTheDocument()
+		await act(async () => {
+			resolveFolders([])
+			resolveThreads({ threads: [] })
+			await data.deferred
+		})
+		expect(await screen.findByText('All caught up')).toBeInTheDocument()
+	})
+
 	it('reuses the cached folder list when returning from a thread without another network wait', async () => {
 		getFolders.mockResolvedValue([{ id: 'inbox' }])
 		getThreads.mockResolvedValue({ threads: [thread({ id: 't1' })], nextCursor: undefined })

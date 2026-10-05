@@ -1,5 +1,5 @@
 import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { Await, createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo } from 'react'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { useCompose } from '#features/mail/components/ComposeProvider'
@@ -28,27 +28,41 @@ export const Route = createFileRoute('/mail/f/$folderId')({
 	validateSearch: (search): { baseFolderId?: string } => ({
 		...(typeof search.baseFolderId === 'string' ? { baseFolderId: search.baseFolderId } : {}),
 	}),
-	loader: async ({ context, params }) => loadMailFolderData(params.folderId, context.queryClient),
+	loader: async ({ context, params }) => {
+		// Authenticate before streaming any mailbox content. Client transitions retain
+		// their established pending semantics; only initial SSR defers the slow data.
+		await ensureMailboxInfo(context.queryClient, true)
+		const data = loadMailFolderData(params.folderId, context.queryClient)
+		return typeof window === 'undefined' ? { deferred: data } : await data
+	},
 	component: FolderView,
 	pendingComponent: FolderPending,
 })
 
 export async function loadMailFolderData(folderId: string, queryClient: QueryClient) {
 	// The mailbox comes first: every key below is partitioned by account.
-	await ensureMailboxInfo(queryClient)
-	const folders = await queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
+	await ensureMailboxInfo(queryClient, true)
+	const foldersPromise = queryClient.ensureQueryData(foldersQueryOptions(() => getFolders()))
+	// Start both requests after account resolution; observe both rejections immediately.
 	if (folderId === 'drafts') {
+		const [folders, drafts] = await Promise.all([
+			foldersPromise,
+			queryClient.ensureQueryData(draftsQueryOptions(() => listDrafts())),
+		])
 		return {
 			threads: [] as MailThread[],
-			drafts: await queryClient.ensureQueryData(draftsQueryOptions(() => listDrafts())),
+			drafts,
 			folders,
 			nextCursor: undefined as string | undefined,
 		}
 	}
 	const filters = folderId === 'starred' ? { starred: true } : { folderId }
-	const result = await queryClient.ensureInfiniteQueryData(
-		threadListQueryOptions(filters, (input) => getThreads({ data: input })),
-	)
+	const [folders, result] = await Promise.all([
+		foldersPromise,
+		queryClient.ensureInfiniteQueryData(
+			threadListQueryOptions(filters, (input) => getThreads({ data: input })),
+		),
+	])
 	const firstPage = result.pages.at(0) as MailThreadPage
 	return {
 		threads: firstPage.threads,
@@ -72,7 +86,17 @@ function FolderPending() {
 }
 
 function FolderView() {
-	const loaderData = Route.useLoaderData()
+	const data = Route.useLoaderData()
+	if ('deferred' in data)
+		return (
+			<Await promise={data.deferred} fallback={<FolderPending />}>
+				{(loaderData) => <LoadedFolderView loaderData={loaderData} />}
+			</Await>
+		)
+	return <LoadedFolderView loaderData={data} />
+}
+
+function LoadedFolderView({ loaderData }: { loaderData: Awaited<ReturnType<typeof loadMailFolderData>> }) {
 	const { folderId } = Route.useParams()
 	const { baseFolderId } = Route.useSearch()
 	const updateThread = useUpdateThreadMutation()

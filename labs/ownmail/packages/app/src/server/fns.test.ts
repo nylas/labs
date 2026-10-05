@@ -246,6 +246,18 @@ describe('requireMailbox (auth gate)', () => {
 })
 
 describe('getMailboxInfo', () => {
+	it('validates bootstrap input and skips optional provider metadata during initial loading', async () => {
+		expect(fns.getMailboxInfo.validator(undefined)).toEqual({ bootstrap: false })
+		expect(fns.getMailboxInfo.validator({ bootstrap: true })).toEqual({ bootstrap: true })
+		for (const input of [null, 'true', [], {}, { bootstrap: true, secret: 'x' }])
+			expect(() => fns.getMailboxInfo.validator(input as any)).toThrow('Invalid request')
+		resolveMailbox()
+		expect(await fns.getMailboxInfo.handler({ data: { bootstrap: true } })).toMatchObject({
+			email: 'ada@ownmail.com',
+		})
+		expect(nylasMock).not.toHaveBeenCalled()
+	})
+
 	it('uses the session-owned development display name without calling the provider', async () => {
 		usingDevMocksMock.mockResolvedValue(true)
 		resolveMailbox({ displayName: 'Dev Ada' })

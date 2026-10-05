@@ -3,6 +3,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId } from '#server/ids'
 import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
+import { timeOperation } from '#server/request-context'
 import { protectMessageImageSources } from './email-image-sources.js'
 import {
 	type FolderIdInput,
@@ -63,7 +64,7 @@ type FolderLister = {
  * turn an already-successful provider mutation into a reported failure. */
 async function freshFolders(mailbox: FolderLister): Promise<Folder[] | undefined> {
 	try {
-		return listData<Folder>((await mailbox.listFolders()).data)
+		return listData<Folder>((await timeOperation('folders', () => mailbox.listFolders())).data)
 	} catch {
 		return undefined
 	}
@@ -156,7 +157,7 @@ function stripHtml(value: string): string {
 export const getFolders = createServerFn({ method: 'GET' }).handler(async (): Promise<Folder[]> => {
 	const { mailbox } = await requireMailbox()
 	try {
-		const res = await mailbox.listFolders()
+		const res = await timeOperation('folders', () => mailbox.listFolders())
 		return listData<Folder>(res.data)
 	} catch (err) {
 		throw friendly(err)
@@ -181,7 +182,7 @@ function isProtectedFolder(folder: Folder): boolean {
 }
 
 async function requireCustomFolder(mailbox: FolderLister, folderId: string): Promise<Folder> {
-	const folders = listData<Folder>((await mailbox.listFolders()).data)
+	const folders = listData<Folder>((await timeOperation('folders', () => mailbox.listFolders())).data)
 	const folder = folders.find((candidate) => candidate.id === folderId)
 	if (!folder || isProtectedFolder(folder)) throw new Error('This folder cannot be changed.')
 	return folder
@@ -233,13 +234,15 @@ export const getThreads = createServerFn({ method: 'GET' })
 		const { mailbox } = await requireMailbox()
 		const search = threadSearchParams(data.q)
 		try {
-			const res = await mailbox.listThreads({
-				limit: 30,
-				...(data.folderId ? { in: data.folderId } : {}),
-				...(data.pageToken ? { page_token: data.pageToken } : {}),
-				...search,
-				...(data.starred !== undefined ? { starred: data.starred } : {}),
-			})
+			const res = await timeOperation('threads', () =>
+				mailbox.listThreads({
+					limit: 30,
+					...(data.folderId ? { in: data.folderId } : {}),
+					...(data.pageToken ? { page_token: data.pageToken } : {}),
+					...search,
+					...(data.starred !== undefined ? { starred: data.starred } : {}),
+				}),
+			)
 			return {
 				threads: listData<Thread>(res.data),
 				...(res.next_cursor ? { nextCursor: res.next_cursor } : {}),
