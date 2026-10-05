@@ -405,13 +405,20 @@ describe('ThreadConversation rendering', () => {
 		const messageSurfaces = container.querySelectorAll('[data-slot="thread-message"]')
 
 		expect(messageSurfaces).toHaveLength(2)
+		const fades = container.querySelectorAll('[data-navigation-content]')
+		expect(fades).toHaveLength(2)
+		for (const fade of fades) {
+			expect(fade.querySelector('[data-navigation-content]')).toBeNull()
+		}
 		for (const surface of messageSurfaces) {
 			expect(surface).not.toHaveClass('rounded-xl', 'border', 'shadow-xs')
 		}
 		const headers = container.querySelectorAll('[data-slot="message-header"]')
 		expect(headers[0]).not.toHaveClass('border-t')
 		expect(headers[1]).toHaveClass('border-t', 'border-border')
-		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-slot', 'thread-messages')
+		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-slot', 'thread-message-stream')
+		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-navigation-content')
+		expect(messageSurfaces[0]?.parentElement?.parentElement).toHaveAttribute('data-slot', 'thread-messages')
 		expect(screen.getAllByRole('heading', { level: 2, name: 'sender@example.com' })).toHaveLength(2)
 		expect(screen.getAllByRole('article', { name: 'sender@example.com' })).toHaveLength(2)
 	})

@@ -138,7 +138,8 @@ the replacement while avoiding a blank flash.
 | Folder or search identity changes | Destination skeleton immediately; committed result fades | Mail navigation and destination title |
 | List → thread or contact, single pane | Incoming detail fades and settles from 12px to the right | App chrome |
 | Detail → list, single pane | Returning list fades and settles from 12px to the left | Retained list scroll and existing focus restoration |
-| Thread → thread or contact → contact | Detail fades only | List and navigation |
+| Thread → thread | Conversation content fades only | Reader toolbar, response controls, list and navigation |
+| Contact → contact | Detail fades only | List and navigation |
 | Calendar date or view changes | New grid fades only | Header geometry and side panels |
 | Navigation sheet open / close | 24px entrance, short reverse exit; backdrop fades | Underlying destination |
 | Committed swipe-back | Existing finger-following transition only | Native gesture behavior and retained list |
@@ -160,6 +161,10 @@ with no animated settling under reduced motion.
 
 Implementation: `NavigationMotion` observes the router's committed-render event
 and animates the named `data-navigation-region` using the Web Animations API.
+Mail readers fade the subject and message stream marked `data-navigation-content`
+together. The icon toolbar, its glass backdrop, inline reply entry and pinned
+Conversation reply bar remain fully opaque. Entering or leaving a single-pane
+reader still uses the pane for spatial movement; peer thread changes never do.
 It does not add wrappers, remount panes, keep outgoing DOM, or take snapshots.
 The existing `ContentReadyOutlet` remains responsible for identity isolation.
 Sheets use Radix's CSS animation lifecycle so dismissal can finish before the

@@ -91,6 +91,16 @@ function readerMarkup(root: HTMLElement): string {
 	for (const trigger of copy.querySelectorAll('[data-slot="message-header-row"][data-state="closed"]')) {
 		trigger.removeAttribute('data-state')
 	}
+	// Navigation adds only targeting attributes and one unstyled grouping element.
+	// Exclude that scaffolding while still comparing every message and reply control.
+	for (const target of copy.querySelectorAll('[data-navigation-content]')) {
+		target.removeAttribute('data-navigation-content')
+	}
+	for (const stream of copy.querySelectorAll('[data-slot="thread-message-stream"]')) {
+		expect(stream.tagName).toBe('DIV')
+		expect(stream.getAttributeNames()).toEqual(['data-slot'])
+		stream.replaceWith(...stream.childNodes)
+	}
 	const emails = [...root.querySelectorAll('ownmail-email')].map(
 		(email) => `<!-- shadow ${email.getAttribute('data-message-id')} -->${email.shadowRoot?.innerHTML ?? ''}`,
 	)

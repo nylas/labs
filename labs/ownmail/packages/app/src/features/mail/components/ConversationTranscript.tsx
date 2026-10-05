@@ -204,6 +204,7 @@ function Transcript({
 		<div data-slot="conversation-view" className="flex min-h-0 flex-1 flex-col">
 			<LinkPreviewRegion
 				data-slot="conversation-transcript"
+				data-navigation-content=""
 				className="flex flex-1 flex-col gap-region pb-region"
 			>
 				{chat ? (

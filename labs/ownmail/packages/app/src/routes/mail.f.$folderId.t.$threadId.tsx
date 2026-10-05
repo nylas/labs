@@ -513,7 +513,7 @@ function ThreadView() {
 				scrollRestorationId={`thread:${threadId}`}
 				aria-label="Thread conversation"
 				viewportClassName={cn(!error && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
-				// The containing pane owns navigation motion; do not fade the body a second time.
+				// Motion targets the subject and messages inside, leaving response controls steady.
 				className="min-h-0 flex-1"
 			>
 				<ThreadConversation

@@ -68,6 +68,7 @@ describe('committed navigation motion', () => {
 	let media: EventTarget & { matches: boolean }
 	let narrow: boolean
 	let surface: HTMLDivElement
+	let content: HTMLDivElement
 	let animations: { cancel: ReturnType<typeof vi.fn> }[]
 	let animate: ReturnType<typeof vi.fn>
 	let stop: (() => void) | undefined
@@ -102,6 +103,10 @@ describe('committed navigation motion', () => {
 			return animation
 		})
 		surface.animate = animate
+		content = document.createElement('div')
+		content.dataset.navigationContent = ''
+		content.animate = animate
+		surface.append(content)
 	})
 	afterEach(() => {
 		cleanup()
@@ -126,6 +131,7 @@ describe('committed navigation motion', () => {
 			duration: 220,
 			easing: 'ease-out',
 		})
+		expect(animate.mock.contexts).toEqual([content, surface])
 		unmount()
 		expect(listeners.size).toBe(0)
 		expect(animations.every((animation) => animation.cancel.mock.calls.length === 1)).toBe(true)
@@ -160,6 +166,47 @@ describe('committed navigation motion', () => {
 		stop = observeNavigationMotion(router)
 		navigate(reader, location('/mail/f/inbox/t/two'))
 		expect(animate).toHaveBeenCalledTimes(1)
+		expect(animate.mock.contexts).toEqual([content])
+	})
+
+	it.each([false, true])(
+		'keeps folder and search reader controls outside the fade (search: %s)',
+		(search) => {
+			const toolbar = document.createElement('div')
+			toolbar.dataset.slot = 'toolbar'
+			surface.prepend(toolbar)
+			narrow = false
+			stop = observeNavigationMotion(router)
+			navigate(
+				search ? location('/mail/search', { q: 'hello', threadId: 'one' }) : reader,
+				search ? location('/mail/search', { q: 'hello', threadId: 'two' }) : location('/mail/f/inbox/t/two'),
+			)
+			expect(animate.mock.contexts).toEqual([content])
+			expect(content.contains(toolbar)).toBe(false)
+		},
+	)
+
+	it('fades the subject and message stream together without fading sibling reply controls', () => {
+		const messages = document.createElement('div')
+		messages.dataset.navigationContent = ''
+		messages.animate = animate
+		const reply = document.createElement('button')
+		surface.append(messages, reply)
+		stop = observeNavigationMotion(router)
+		navigate(reader, location('/mail/f/inbox/t/two'))
+		expect(animate.mock.contexts).toEqual([content, messages])
+		expect(animate.mock.calls[0]).toEqual(animate.mock.calls[1])
+	})
+
+	it('never falls back to fading the toolbar when pending content is absent or cannot animate', () => {
+		stop = observeNavigationMotion(router)
+		content.remove()
+		navigate(reader, location('/mail/f/inbox/t/two'))
+		expect(animate).not.toHaveBeenCalled()
+		surface.append(content)
+		Object.defineProperty(content, 'animate', { value: undefined })
+		navigate(reader, location('/mail/f/inbox/t/two'))
+		expect(animate).not.toHaveBeenCalled()
 	})
 
 	it.each(['pointerdown', 'touchstart', 'keydown'])('cancels immediately on %s', (type) => {

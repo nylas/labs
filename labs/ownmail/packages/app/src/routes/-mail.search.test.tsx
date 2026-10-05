@@ -760,6 +760,10 @@ describe('/mail/search thread detail', () => {
 		// The shared reader (same component as the folder thread view) shows the subject,
 		// label chip, and the last message's HTML body via the iframe renderer.
 		expect(screen.getByText('Subject A')).toBeTruthy()
+		const motionContent = screen.getByText('Subject A').closest('[data-navigation-content]')
+		expect(motionContent).toBeInTheDocument()
+		expect(motionContent).not.toContainElement(screen.getByRole('button', { name: 'Delete' }))
+		expect(motionContent).not.toContainElement(screen.getByRole('button', { name: 'Reply' }))
 		expect(screen.getAllByText('Work').length).toBeGreaterThan(0)
 		expect(screen.getByTitle('Email content m3')).toBeTruthy()
 
