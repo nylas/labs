@@ -273,7 +273,7 @@ describe('ComposeProvider inline replies', () => {
 		await open({ kind: 'reply', threadId: 't1', replyToMessageId: 'm1' })
 		expect(screen.getByRole('dialog', { name: 'Compose message' })).toBeInTheDocument()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 		await open({ kind: 'reply', replyToMessageId: 'm1' })
 		expect(screen.getByRole('dialog', { name: 'Compose message' })).toBeInTheDocument()
@@ -307,7 +307,7 @@ describe('ComposeProvider composing state', () => {
 		await open({ kind: 'reply', threadId: 't1', replyToMessageId: 'm1' })
 		expect(composing()).toEqual({ kind: 'reply', threadId: 't1' })
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		await waitFor(() => expect(composing()).toBeNull())
 
 		await open({ kind: 'draft', draftId: 'd1' })
@@ -325,7 +325,7 @@ describe('ComposeProvider closing', () => {
 		})
 		await waitFor(() => expect(screen.getByLabelText('To')).toHaveFocus())
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 
 		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 		expect(opener).toHaveFocus()
@@ -339,7 +339,7 @@ describe('ComposeProvider closing', () => {
 		await open({ kind: 'new' })
 		opener.remove()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 
 		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 		expect(opener).not.toHaveFocus()
@@ -355,7 +355,7 @@ describe('ComposeProvider closing', () => {
 			delete (document as { activeElement?: unknown }).activeElement
 		}
 
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 	})
 
@@ -379,7 +379,7 @@ describe('ComposeProvider closing', () => {
 	it('does not toast when the composer is merely closed', async () => {
 		renderProvider()
 		await open({ kind: 'new' })
-		fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
 		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 		expect(screen.getByRole('status')).toBeEmptyDOMElement()
 	})
