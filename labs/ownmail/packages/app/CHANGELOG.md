@@ -1,5 +1,19 @@
 # @ownmail/app
 
+## 0.22.0
+
+### Minor Changes
+
+- dde7ce1: Add bulk mail selection with loaded-only scope, reversible actions, partial-failure recovery, and accessible mobile controls.
+
+### Patch Changes
+
+- dde7ce1: Show event time zones and end dates, and require an explicit choice for repeated daylight-saving times while preserving meeting duration.
+- dde7ce1: Confirm draft discard and empty-subject sending, preserve recovery from failed draft deletion, and make keyboard mail search predictable.
+- dde7ce1: Preserve calendar duration and exact timestamps, protect unsaved event edits across navigation, and hydrate draft resume controls consistently.
+- dde7ce1: Keep draft save status accurate during slow requests, show recoverable save failures, and preserve the latest recipient and cleared-field edits.
+- dde7ce1: Apply the same reversible loaded-conversation bulk actions and selection recovery to mail search results.
+
 ## 0.21.3
 
 ### Patch Changes
