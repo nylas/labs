@@ -805,6 +805,12 @@ export function mockSaveDraft(input: {
 	draftId: string
 } {
 	const id = input.draftId || `draft-${Date.now()}`
+	// A reply draft belongs to the thread of the message it answers, and keeps it
+	// across edits, so the thread lists it in draft_ids and latest_draft_or_message.
+	const previous = input.draftId ? drafts.get(input.draftId) : undefined
+	const threadId =
+		previous?.thread_id ??
+		(input.replyToMessageId ? messages.get(input.replyToMessageId)?.thread_id : undefined)
 	drafts.set(id, {
 		id,
 		grant_id: GRANT_ID,
@@ -819,6 +825,7 @@ export function mockSaveDraft(input: {
 		body: input.body,
 		to: splitEmails(input.to).map((email) => ({ email })),
 		...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
+		...(threadId ? { thread_id: threadId } : {}),
 		...(input.attachments?.length
 			? { attachments: mockAttachmentMetadata(input.attachments), outbound_attachments: input.attachments }
 			: {}),

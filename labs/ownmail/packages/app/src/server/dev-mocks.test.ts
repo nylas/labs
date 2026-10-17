@@ -157,6 +157,37 @@ describe('dev mock reference identity', () => {
 		expect(sentDraft?.has_attachments).toBe(true)
 	})
 
+	it('keeps a reply draft in the thread it answers, across edits', () => {
+		const thread = mockThreads({ folderId: 'inbox' }).threads.find(
+			(item) => (item.message_ids ?? []).length > 0,
+		)
+		const replyTo = thread?.message_ids?.[0] as string
+		const saved = mockSaveDraft({
+			to: 'grace.hopper@vercel.com',
+			subject: 'Re: reply',
+			body: 'First',
+			replyToMessageId: replyTo,
+		})
+		const inThread = () => mockThreads({}).threads.find((item) => item.id === thread?.id)
+		expect(mockDraft(saved.draftId).thread_id).toBe(thread?.id)
+		expect(inThread()?.draft_ids).toContain(saved.draftId)
+		mockSaveDraft({
+			draftId: saved.draftId,
+			to: 'grace.hopper@vercel.com',
+			subject: 'Re: reply',
+			body: 'Edited',
+		})
+		expect(mockDraft(saved.draftId).thread_id).toBe(thread?.id)
+		expect(inThread()?.draft_ids).toContain(saved.draftId)
+		const orphan = mockSaveDraft({
+			to: 'a@example.com',
+			subject: 'Re: gone',
+			body: 'x',
+			replyToMessageId: 'missing',
+		})
+		expect(mockDraft(orphan.draftId).thread_id).toBeUndefined()
+	})
+
 	it('preserves existing draft attachments when an update omits replacements', async () => {
 		const mailbox = createDevMailbox()
 		const attachment = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
