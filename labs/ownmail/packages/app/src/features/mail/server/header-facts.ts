@@ -112,10 +112,14 @@ function domainOf(value: string | undefined): string | undefined {
 	return domain && HOST_PATTERN.test(domain) ? domain : undefined
 }
 
-/** Relaxed DMARC alignment: the same domain, or one a subdomain of the other. */
+/**
+ * Relaxed DMARC alignment: both identities share an organizational domain, so
+ * sibling subdomains (`bounces.example.com`, `accounts.example.com`) align.
+ * Both arrive through `domainOf`, which already validated them as hosts.
+ */
 function aligned(domain: string | undefined, fromDomain: string | undefined): boolean {
 	if (!domain || !fromDomain) return false
-	return domain === fromDomain || domain.endsWith(`.${fromDomain}`) || fromDomain.endsWith(`.${domain}`)
+	return siteOf(domain) === siteOf(fromDomain)
 }
 
 type AuthResult = { method: string; result: string; domain?: string }

@@ -44,6 +44,33 @@ describe('messageHeaderFacts', () => {
 		expect(facts).toMatchObject({ verified: true, authFailed: false })
 	})
 
+	it('aligns sibling subdomains of one organizational domain, as relaxed DMARC does', () => {
+		const siblings = [
+			received('mx2.example.net'),
+			h(
+				'Authentication-Results',
+				'mx2.example.net; spf=pass smtp.mailfrom=bounces.example.com; dkim=pass header.d=mail.example.com',
+			),
+		]
+		expect(messageHeaderFacts(siblings, 'alerts@accounts.example.com').verified).toBe(true)
+		const otherOrg = [
+			received('mx2.example.net'),
+			h(
+				'Authentication-Results',
+				'mx2.example.net; spf=pass smtp.mailfrom=bounces.example.org; dkim=pass header.d=mail.example.org',
+			),
+		]
+		expect(messageHeaderFacts(otherOrg, 'alerts@accounts.example.com').verified).toBe(false)
+		const publicSuffix = [
+			received('mx2.example.net'),
+			h(
+				'Authentication-Results',
+				'mx2.example.net; spf=pass smtp.mailfrom=shop.other.co.uk; dkim=pass header.d=shop.other.co.uk',
+			),
+		]
+		expect(messageHeaderFacts(publicSuffix, 'help@bank.example.co.uk').verified).toBe(false)
+	})
+
 	it('verifies aligned SPF and DKIM passes without DMARC, and refuses unaligned ones', () => {
 		const aligned = [
 			received('mx2.example.net'),
