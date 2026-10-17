@@ -310,8 +310,51 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 		},
 	)
 
-/** Messages in one thread looked up for their List-Unsubscribe header. */
-const LIST_UNSUBSCRIBE_LOOKUP_LIMIT = 50
+/** Messages read per page when a thread's headers are looked up. */
+const HEADER_LOOKUP_PAGE_SIZE = 50
+/** Pages read per thread header lookup: at most 200 messages, which bounds the cost of one request. */
+const HEADER_LOOKUP_MAX_PAGES = 4
+
+type HeaderMessage = (Message & { headers?: unknown }) | null
+
+type HeaderMessageLister = {
+	listMessages(query: {
+		thread_id: string
+		fields: 'include_headers'
+		limit: number
+		page_token?: string
+	}): Promise<{ data?: unknown; next_cursor?: unknown }>
+}
+
+/**
+ * Every message of one thread with its untrusted provider headers, following
+ * the provider's cursor for at most `HEADER_LOOKUP_MAX_PAGES` pages. A cursor
+ * that is not a usable provider id, or that repeats, ends the walk. Any
+ * failure rejects, so callers keep their single "no answer" fallback.
+ */
+async function listThreadMessagesWithHeaders(
+	mailbox: HeaderMessageLister,
+	threadId: string,
+): Promise<HeaderMessage[]> {
+	const messages: HeaderMessage[] = []
+	const seenCursors = new Set<string>()
+	let pageToken: string | undefined
+	for (let page = 0; page < HEADER_LOOKUP_MAX_PAGES; page++) {
+		const response = await mailbox.listMessages({
+			thread_id: threadId,
+			fields: 'include_headers',
+			limit: HEADER_LOOKUP_PAGE_SIZE,
+			...(pageToken ? { page_token: pageToken } : {}),
+		})
+		if (!Array.isArray(response.data)) throw new Error('Unexpected message list')
+		messages.push(...(response.data as HeaderMessage[]))
+		const cursor = typeof response.next_cursor === 'string' ? response.next_cursor : undefined
+		if (!validNylasProviderId(cursor) || seenCursors.has(cursor)) break
+		seenCursors.add(cursor)
+		pageToken = cursor
+	}
+	return messages
+}
 
 /** Whether untrusted provider headers include a non-empty List-Unsubscribe. Only the name is compared. */
 function hasListUnsubscribe(headers: unknown): boolean {
@@ -342,31 +385,22 @@ export const getThreadListUnsubscribe = createServerFn({ method: 'GET' })
 	.handler(async ({ data }): Promise<{ messageIds: string[] }> => {
 		const { mailbox } = await requireMailbox()
 		try {
-			const response = await mailbox.listMessages({
-				thread_id: data.threadId,
-				fields: 'include_headers',
-				limit: LIST_UNSUBSCRIBE_LOOKUP_LIMIT,
-			})
-			const messages = (Array.isArray(response.data) ? response.data : []) as Array<
-				Message & { headers?: unknown }
-			>
-			return {
-				messageIds: messages
-					.filter((message) => typeof message?.id === 'string' && hasListUnsubscribe(message.headers))
-					.map((message) => message.id),
-			}
+			const messages = await listThreadMessagesWithHeaders(mailbox, data.threadId)
+			const messageIds = messages
+				.filter((message) => typeof message?.id === 'string' && hasListUnsubscribe(message.headers))
+				.map((message) => (message as Message).id)
+			// A message can appear on two pages when the thread changes mid-walk.
+			return { messageIds: [...new Set(messageIds)] }
 		} catch {
 			return { messageIds: [] }
 		}
 	})
 
-/** Messages in one thread read for their header facts. */
-const HEADER_FACTS_LOOKUP_LIMIT = 50
-
 /**
  * What a thread's headers say about each message: sender authentication,
  * Reply-To, mailing list and unsubscribe targets, and the sender's time zone.
- * Headers are requested once per thread, only when the reader asks; their
+ * Headers are requested once per thread, only when the reader asks, a page at
+ * a time for at most 200 messages; facts from every page are merged. Their
  * values are untrusted, are never stored or logged, and only the derived
  * booleans and short validated strings of `messageHeaderFacts` leave the
  * server. Any failure answers "no facts", and the reader shows plain headers.
@@ -378,14 +412,7 @@ export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
 	.handler(async ({ data }): Promise<ThreadHeaderFacts> => {
 		const { mailbox, email } = await requireMailbox()
 		try {
-			const response = await mailbox.listMessages({
-				thread_id: data.threadId,
-				fields: 'include_headers',
-				limit: HEADER_FACTS_LOOKUP_LIMIT,
-			})
-			const messages = (Array.isArray(response.data) ? response.data : []) as Array<
-				(Message & { headers?: unknown }) | null
-			>
+			const messages = await listThreadMessagesWithHeaders(mailbox, data.threadId)
 			const entries: Array<[string, MessageHeaderFacts]> = []
 			for (const message of messages) {
 				if (!message || !validNylasProviderId(message.id)) continue
@@ -405,6 +432,7 @@ export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
 				])
 			}
 			// fromEntries defines own keys, so a hostile id like `__proto__` stays plain data.
+			// A message seen on two pages keeps the facts of its latest copy.
 			return { byMessage: Object.fromEntries(entries) }
 		} catch {
 			return { byMessage: {} }

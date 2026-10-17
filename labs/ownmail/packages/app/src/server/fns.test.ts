@@ -433,6 +433,28 @@ describe('getThreadListUnsubscribe', () => {
 			messageIds: [],
 		})
 	})
+
+	it('follows the cursor through every page of a long thread and lists each bulk message once', async () => {
+		resolveMailbox()
+		const bulk = (id: string) => ({
+			id,
+			headers: [{ name: 'List-Unsubscribe', value: '<https://u.example>' }],
+		})
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [bulk('page-1'), { id: 'person' }], next_cursor: 'cursor-2' })
+			// A message that moved between pages mid-walk is reported once.
+			.mockResolvedValueOnce({ data: [bulk('page-1'), bulk('page-2')], next_cursor: null })
+		const result = await fns.getThreadListUnsubscribe.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(2)
+		expect(mailbox.listMessages).toHaveBeenLastCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+			page_token: 'cursor-2',
+		})
+		expect(result).toEqual({ messageIds: ['page-1', 'page-2'] })
+	})
 })
 
 describe('getThreadHeaderFacts', () => {
@@ -530,6 +552,89 @@ describe('getThreadHeaderFacts', () => {
 		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
 
 		mailbox.listMessages.mockResolvedValue({ data: 'unexpected' })
+		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+	})
+
+	it('merges facts from every page of a long thread', async () => {
+		resolveMailbox()
+		const listMessage = (id: string, list: string) => ({
+			id,
+			from: [{ email: 'news@vercel.com' }],
+			headers: [{ name: 'List-Id', value: `<${list}>` }],
+		})
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [listMessage('m1', 'one.vercel.com')], next_cursor: 'cursor-2' })
+			.mockResolvedValueOnce({ data: [listMessage('m2', 'two.vercel.com')], next_cursor: 'cursor-3' })
+			// The newest copy of a message that reappears on a later page wins.
+			.mockResolvedValueOnce({
+				data: [listMessage('m1', 'moved.vercel.com'), listMessage('m3', 'three.vercel.com')],
+			})
+		const result = await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages.mock.calls.map(([query]) => query)).toEqual([
+			{ thread_id: 't1', fields: 'include_headers', limit: 50 },
+			{ thread_id: 't1', fields: 'include_headers', limit: 50, page_token: 'cursor-2' },
+			{ thread_id: 't1', fields: 'include_headers', limit: 50, page_token: 'cursor-3' },
+		])
+		expect(Object.keys(result.byMessage)).toEqual(['m1', 'm2', 'm3'])
+		expect(result.byMessage.m1?.listId).toBe('moved.vercel.com')
+		expect(result.byMessage.m2?.listId).toBe('two.vercel.com')
+		expect(result.byMessage.m3?.listId).toBe('three.vercel.com')
+	})
+
+	it('reads at most four pages (200 messages) of one thread', async () => {
+		resolveMailbox()
+		let page = 0
+		mailbox.listMessages.mockImplementation(async () => {
+			page += 1
+			return {
+				data: Array.from({ length: 50 }, (_, index) => ({ id: `p${page}-${index}` })),
+				next_cursor: `cursor-${page + 1}`,
+			}
+		})
+		const result = await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(4)
+		expect(mailbox.listMessages).toHaveBeenLastCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+			page_token: 'cursor-4',
+		})
+		expect(Object.keys(result.byMessage)).toHaveLength(200)
+		expect(result.byMessage['p5-0']).toBeUndefined()
+	})
+
+	it('stops at an unusable or repeated cursor', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'bad\ncursor' })
+		expect(
+			Object.keys((await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).byMessage),
+		).toEqual(['m1'])
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(1)
+
+		mailbox.listMessages.mockReset()
+		mailbox.listMessages.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 42 })
+		await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(1)
+
+		mailbox.listMessages.mockReset()
+		mailbox.listMessages.mockResolvedValue({ data: [{ id: 'm1' }], next_cursor: 'same' })
+		await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+		// The second page hands back the cursor it was read with; the walk ends there.
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(2)
+	})
+
+	it('answers "no facts" when a later page fails, rather than facts for part of the thread', async () => {
+		resolveMailbox()
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'cursor-2' })
+			.mockRejectedValueOnce(new NylasApiError('rate limited', 429))
+		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'cursor-2' })
+			.mockResolvedValueOnce({ data: 'unexpected' })
 		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
 	})
 })
