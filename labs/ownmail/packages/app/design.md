@@ -456,6 +456,98 @@ and renders exactly as before when the view is off.
   "Show original" and the reply choice live under the thread's identity
   (`useIdentityState`), so nothing set on one thread shows on another.
 
+## Folding
+
+A long thread opens as a few open messages, some one-line rows and stacked
+rows, never as a wall. `foldPlan` in `thread-reading-model.ts` decides; the
+reader only draws it.
+
+| Shape | Which messages |
+| --- | --- |
+| Open | Unread, the latest, starred, anything that names you, and the message you linked to |
+| One line | The first message (it sets context) and each read message that touches an open one |
+| Folded | Three or more read messages in a row become one stacked row that names who wrote them and the date span |
+
+1. Names you. A message is open when its own text (quoted history and the
+   signature left out) names the mailbox owner by first name or address.
+2. Runs. A run of one or two remaining messages shows as one-line rows; it is
+   not worth a stacked row. Clicking a folded row turns it into one-line rows,
+   not open messages; clicking a one-line row opens it. "Expand all" and
+   "Collapse all" stay in the display actions.
+3. Never hide silently. A folded row says how many messages it holds
+   ("9 earlier messages"), who wrote them and when.
+4. Long threads. Over 50 messages the list is virtualised; the map and j/k
+   still address every message.
+
+## Catch-up
+
+When a thread of six or more messages has something new, a card above the
+first new message says what changed since the reader was last here:
+"Since you last read, Tuesday" and a row of facts, with "Jump to first new".
+
+- Facts, no adjectives. "3 new messages" (data type), "Mary Jackson joined",
+  "Q3-roadmap-v4.pdf replaces v3" and "1 question to you". Facts are filled
+  pills on `--muted`; the question is the one fact on the amber ground
+  (`--amber-soft`), with its glyph, so colour is never the only signal. They
+  come from `catchUpFacts`, never from a guess.
+- Summary. OwnMail has no assistant. A summary appears only when a
+  `ThreadSummaryProvider` answers for the new messages, under a line, with
+  "Answer {First}" (a reply to whoever asked the question) and "Show sources"
+  (a pressed toggle that marks the messages it was made from). Without a
+  provider, or when it fails, the block is not rendered and the facts stand
+  alone. A summary is shown only for the messages it was made from. Only mock
+  mode (`OWNMAIL_DEV_MOCKS`) answers, with the board's three bullets for its
+  roadmap thread; production has no provider.
+
+## Thread map
+
+The thread's shape at a glance: who spoke, where you stopped, where files
+landed. It opens from the dots beside the reader, or with `g m`, and clicking a
+row scrolls to that message and opens it.
+
+- One row per message: a dot in the sender's hue (the six avatar hues as
+  `--person-dot-*`, the owner always green), the sender's full name ("You" for
+  the owner), chips for the files it carried (the version in a family, "v2",
+  else the type, "docx"), people added ("+ Mary") and "asks you" on the amber
+  ground, and the date: a time today ("9:30"), a weekday this week, else
+  "Sep 28". Repeats fold into a count ("jpg ×6") and a row keeps three chips
+  at most ("+n" for the rest, "asks you" always shown), so the name keeps its
+  room.
+- A subject change sits as a muted line between the rows it divides. "You
+  stopped here" is a green label between two hairlines before the first message
+  that was new when the thread opened.
+- New rows are semibold with green (`--cta-icon`) dates. The current message is
+  tinted (`--row-selected`) with `aria-current`, and its dot keeps a soft ring of
+  its own hue.
+- Filters: All, With files, Names you and From… (a menu of everyone who
+  wrote), as a segmented control of `aria-pressed` buttons. Subject changes
+  belong to the full map; the stopped label stays only while rows sit on both
+  sides of it.
+- From `xl` the map is panel glass (380px) docked at the reader's right, over
+  the stream, and stays open while you move between rows; below `xl` it is a
+  sheet from the right that closes when you choose a row, so the message
+  shows. Escape inside the map closes it (inside the From… menu, only the
+  menu). Focus starts on the current row and goes back where it was when the
+  map closes. The rows are one Tab stop; the arrow keys, Home and End move
+  between them.
+
+## Files shelf
+
+"Files in this thread" collects every file once, newest version first. It
+opens from the files count in the thread header as a section under it.
+
+- Two columns of tiles (one on a phone), each a 1px bordered plane control: a
+  type tile (PDF, XLS, DOC, PPT on its own tint; other files by extension on
+  `--muted`), or for a raster image of 512 KB or less a thumbnail from the
+  attachment route, lazily loaded, with the tile as its fallback; then the name
+  and "Grace · today", with the size on images.
+- Versions fold by name (v1…vN, -final, (1)): the newest is the tile and the
+  rest sit behind its "v1–v3" link, a menu of earlier versions.
+- The header counts "{n} files · {m} versions folded". "Download all" fetches
+  each file in turn through the attachment route.
+- Inline images and signature logos are not files, and the shelf says so in
+  its footnote.
+
 ## Message header
 
 An open message's header whispers. It is one line: a 32px avatar, the
