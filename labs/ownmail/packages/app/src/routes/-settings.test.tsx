@@ -267,6 +267,8 @@ describe('/settings', () => {
 			emailColorMode: 'automatic',
 			remoteImagePolicy: 'ask',
 			readingPane: 'vertical',
+			readingPaneListWidth: null,
+			readingPaneListHeight: null,
 			listDensity: 'default',
 			threadView: 'messages',
 			primaryTimezone: 'UTC',

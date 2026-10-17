@@ -7,6 +7,7 @@ import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
+import { ReadingPaneDivider } from '#features/mail/components/ReadingPaneDivider'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import {
 	THREAD_ROW_CLASS,
@@ -23,7 +24,7 @@ import {
 	mailFolderTitle,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
-import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import { readingPaneLayout, readingPaneSizeStyle } from '#features/mail/lib/reading-pane'
 import type { MailDraft, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
 import { useBulkTriage } from '#features/mail/state/use-bulk-triage'
@@ -524,7 +525,7 @@ function LoadedMailFolderRouteScreen({
 	)
 
 	return (
-		<div className={layout.container} data-mail-panes>
+		<div className={layout.container} style={readingPaneSizeStyle(preferences)} data-mail-panes>
 			<Dialog
 				open={discardTarget !== null}
 				onOpenChange={(open) => {
@@ -619,6 +620,7 @@ function LoadedMailFolderRouteScreen({
 					threadList
 				)}
 			</section>
+			<ReadingPaneDivider />
 			<section className={layout.reader} data-mail-reader data-navigation-region="mail-reader">
 				{hasThread ? (
 					(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)

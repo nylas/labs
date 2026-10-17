@@ -879,12 +879,14 @@
 	/*
 	 * One line needs more room than the 22rem vertical-split list. The wider
 	 * list lives here, not in the layout classes, so a Condensed preference
-	 * changes nothing where Condensed rows do not apply.
+	 * changes nothing where Condensed rows do not apply. A width the person
+	 * dragged to still wins over either default, and the reader keeps its
+	 * 360px, as in the layout classes.
 	 */
 	@media (min-width: 80rem) {
 		.mail-list-vertical[data-density="condensed"] {
-			width: 26rem;
-			max-width: 26rem;
+			width: min(var(--mail-list-width, 26rem), calc(100% - 360px));
+			max-width: min(var(--mail-list-width, 26rem), calc(100% - 360px));
 		}
 	}
 

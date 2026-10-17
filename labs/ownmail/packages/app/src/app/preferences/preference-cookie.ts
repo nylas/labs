@@ -19,7 +19,13 @@ const COOKIE_FIELDS = [
 	'secondaryTimezone',
 	'autoSaveContacts',
 	'remoteImagePolicy',
+	'readingPaneListWidth',
+	'readingPaneListHeight',
 ] as const satisfies readonly (keyof UserPreferences)[]
+
+// The pane sizes joined the tuple later: a cookie written before them still
+// reads, with default sizes, so the upgrade renders without a layout flip.
+const LEGACY_FIELD_COUNT = COOKIE_FIELDS.length - 2
 
 export function encodePreferenceCookie(preferences: UserPreferences): string {
 	const normalized = normalizePreferences(preferences)
@@ -40,12 +46,14 @@ export function readPreferenceCookie(header: string): UserPreferences | null {
 	if (encoded.length > MAX_PREFERENCE_COOKIE_LENGTH) return null
 	try {
 		const tuple: unknown = JSON.parse(decodeURIComponent(encoded))
-		if (!Array.isArray(tuple) || tuple.length !== COOKIE_FIELDS.length + 1 || tuple[0] !== 1) return null
-		const input = Object.fromEntries(COOKIE_FIELDS.map((key, index) => [key, tuple[index + 1]]))
+		if (!Array.isArray(tuple) || tuple[0] !== 1) return null
+		if (tuple.length !== COOKIE_FIELDS.length + 1 && tuple.length !== LEGACY_FIELD_COUNT + 1) return null
+		const fields = COOKIE_FIELDS.slice(0, tuple.length - 1)
+		const input = Object.fromEntries(fields.map((key, index) => [key, tuple[index + 1]]))
 		const normalized = normalizePreferences(input)
 		// Exact round-trip validates types, enum allow-lists, timezone names/lengths,
-		// booleans and zoom ranges without coercing attacker-controlled values.
-		if (COOKIE_FIELDS.some((key) => normalized[key] !== input[key])) return null
+		// booleans, zoom ranges and pane sizes without coercing attacker-controlled values.
+		if (fields.some((key) => normalized[key] !== input[key])) return null
 		return normalized
 	} catch {
 		return null

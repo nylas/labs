@@ -92,11 +92,25 @@ describe('bounded preference cookie', () => {
 			[11, 'America/Toronto'],
 			[12, 'false'],
 			[13, 'sometimes'],
+			[14, 120],
+			[14, '420'],
+			[15, 90],
 		] as const) {
 			const tampered = [...tuple]
 			tampered[index] = invalid
 			expect(readPreferenceCookie(header(encodeURIComponent(JSON.stringify(tampered))))).toBeNull()
 		}
+	})
+
+	it('carries dragged pane sizes and still reads a cookie written before them', () => {
+		const sized = { ...saved(), readingPaneListWidth: 420, readingPaneListHeight: 55 }
+		expect(readPreferenceCookie(header(encodePreferenceCookie(sized)))).toEqual(sized)
+		// The previous tuple ended at the remote image policy, without the two sizes.
+		const legacy = JSON.parse(decodeURIComponent(encodePreferenceCookie(sized))).slice(0, -2)
+		expect(readPreferenceCookie(header(encodeURIComponent(JSON.stringify(legacy))))).toEqual(saved())
+		// Any other length is unsupported.
+		const truncated = legacy.slice(0, -1)
+		expect(readPreferenceCookie(header(encodeURIComponent(JSON.stringify(truncated))))).toBeNull()
 	})
 
 	it('writes a host-only year-long cookie synchronously, with Secure on HTTPS', () => {
