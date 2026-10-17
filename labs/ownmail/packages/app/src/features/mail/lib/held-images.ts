@@ -19,6 +19,11 @@ export const HELD_IMAGE_ATTRIBUTE = 'data-ownmail-held'
 /** On the placeholder that stands in for a held image. */
 export const HELD_PLACEHOLDER_ATTRIBUTE = 'data-ownmail-held-image'
 
+/** On an image that failed to load: it is hidden behind its fallback. */
+export const FAILED_IMAGE_ATTRIBUTE = 'data-ownmail-image-failed'
+/** On the fallback that names a failed image, in the image's declared space. */
+export const IMAGE_FALLBACK_ATTRIBUTE = 'data-ownmail-image-fallback'
+
 export const BLOCKED_IMAGE = '.email-root img:not([src]):not([srcset])'
 
 /** A placeholder with no declared height is as tall as the board draws one. */
@@ -31,8 +36,9 @@ const MIN_HELD_WIDTH = 120
  */
 export function edgeShadowStyle(linksDisabled: boolean): string {
 	return [
-		`:host .email-root img[${HELD_IMAGE_ATTRIBUTE}]{display:none!important;}`,
-		`:host .email-root [${HELD_PLACEHOLDER_ATTRIBUTE}]{display:inline-flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;max-width:100%!important;vertical-align:top;margin:0;border-radius:4px;overflow:hidden;padding:4px;text-align:center;font:11px/1.4 var(--font-sans,sans-serif)!important;color:var(--muted-foreground,#6b7680)!important;background:repeating-linear-gradient(135deg,var(--muted,#f1f2f1) 0 6px,color-mix(in oklch,var(--muted,#f1f2f1),var(--foreground,#1a1a1a) 4%) 6px 12px)!important;}`,
+		`:host .email-root img:is([${HELD_IMAGE_ATTRIBUTE}],[${FAILED_IMAGE_ATTRIBUTE}]){display:none!important;}`,
+		// An image that failed after it was allowed keeps its place the same way, naming what it showed.
+		`:host .email-root :is([${HELD_PLACEHOLDER_ATTRIBUTE}],[${IMAGE_FALLBACK_ATTRIBUTE}]){display:inline-flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;max-width:100%!important;vertical-align:top;margin:0;border-radius:4px;overflow:hidden;padding:4px;text-align:center;font:11px/1.4 var(--font-sans,sans-serif)!important;color:var(--muted-foreground,#6b7680)!important;background:repeating-linear-gradient(135deg,var(--muted,#f1f2f1) 0 6px,color-mix(in oklch,var(--muted,#f1f2f1),var(--foreground,#1a1a1a) 4%) 6px 12px)!important;}`,
 		linksDisabled ? ':host .email-root a{cursor:default!important;text-decoration:none!important;}' : '',
 	].join('\n')
 }

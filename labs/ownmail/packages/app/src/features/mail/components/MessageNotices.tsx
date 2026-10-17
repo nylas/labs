@@ -81,10 +81,12 @@ export function MessageNotices({
 	facts,
 	knownSenders,
 	muted = false,
+	listNotice = true,
 	onMuteThread,
 	onAddBack,
 }: {
 	message: MailMessage
+	/** The message before this one in the thread, open or not: who it reached says who was dropped. */
 	prev?: MailMessage
 	owner: string
 	facts?: MessageHeaderFacts
@@ -92,6 +94,8 @@ export function MessageNotices({
 	knownSenders: Person[]
 	/** Whether the thread is muted; the list notice then offers "Unmute thread". */
 	muted?: boolean
+	/** A thread says it came through a list once, on its first open message from the list. */
+	listNotice?: boolean
 	/** Toggles the thread's muted state. */
 	onMuteThread(): void
 	onAddBack(person: Person): void
@@ -101,7 +105,7 @@ export function MessageNotices({
 	const lookalike = lookalikeSender(message, knownSenders, owner)
 	const failed = facts?.authFailed === true && !sender.isOwner
 	const removed = removedFromReply(message, prev, owner)
-	const list = sender.isOwner ? null : mailingList(message, facts, owner)
+	const list = sender.isOwner || !listNotice ? null : mailingList(message, facts, owner)
 	const leaveHref = facts?.unsubscribeUrl ?? facts?.unsubscribeMailto
 	const domain = addressDomain(sender.email)
 

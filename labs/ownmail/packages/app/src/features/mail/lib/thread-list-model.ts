@@ -23,6 +23,7 @@ import {
 	isThreadFile,
 	receiptAmount,
 	rowParticipants,
+	subjectStandIn,
 	threadFiles,
 } from './thread-reading-model.js'
 
@@ -162,6 +163,8 @@ export type ThreadRowFacts = {
 	state: 'normal' | 'draft' | 'scheduled' | 'failed' | 'muted'
 	who: RowWho
 	subject: string
+	/** The subject is the message's first line, standing in for one it does not have. */
+	subjectIsStandIn?: boolean
 	/** Who the snippet is from: "you" (the owner replied last) or a first name on a group thread. */
 	snippetFrom?: string
 	snippet: string
@@ -235,6 +238,17 @@ function newestFile(thread: MailThread, summary: ThreadUnreadSummary | undefined
  * without it the row says what the thread and its newest message carry.
  */
 export function threadRowFacts(
+	thread: MailThread,
+	env: Pick<ThreadListEnv, 'owner' | 'ownerFirstName' | 'now' | 'mutedIds'>,
+	summary?: ThreadUnreadSummary,
+): ThreadRowFacts {
+	const facts = rowFactsOf(thread, env, summary)
+	// "(no subject)" tells you nothing: the first line stands in, styled as a stand-in.
+	const title = subjectStandIn(facts.subject, thread.snippet ?? thread.latest_draft_or_message?.snippet ?? '')
+	return title.isStandIn ? { ...facts, subject: title.text, subjectIsStandIn: true } : facts
+}
+
+function rowFactsOf(
 	thread: MailThread,
 	env: Pick<ThreadListEnv, 'owner' | 'ownerFirstName' | 'now' | 'mutedIds'>,
 	summary?: ThreadUnreadSummary,

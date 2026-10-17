@@ -596,7 +596,10 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		expect(screen.getByText('(no subject)')).toBeInTheDocument()
+		// No subject: the first line stands in for one, never "(no subject)".
+		expect(document.querySelector('.thread-row-subject')).toHaveAttribute('data-stand-in', 'true')
+		expect(document.querySelector('.thread-row-subject')).toHaveTextContent('snippet')
+		expect(screen.queryByText('(no subject)')).toBeNull()
 		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
 		// Rows count what is new, never every message: no "(3)".
 		expect(screen.queryByText('(3)')).toBeNull()

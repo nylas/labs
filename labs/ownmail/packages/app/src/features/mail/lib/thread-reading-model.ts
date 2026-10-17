@@ -230,6 +230,11 @@ const messagePeople = (message: MailMessage): EmailParticipant[] => [
 	...(message.cc ?? []),
 ]
 
+/** An address that names a mailing list by itself: eng-all@, pm-list@, all@. */
+export const LIST_LOCAL_PART = /(?:-all|-list|^all)$/i
+
+const localPart = (email: string): string => addressKey(email).split('@')[0] as string
+
 /**
  * People without the nameless addresses nobody writes from, such as a Cc'd
  * pm-leads@ list: they are recipients, not people on the thread. Kept when
@@ -301,6 +306,9 @@ export function rowParticipants(thread: MailThread, owner: string): { names: str
  * previous message involved, which is when the header sets the recipients in
  * the normal text colour.
  *
+ * Mail to a mailing list names the list instead, as `group` ("to eng-all@ and
+ * 238 others"), which the header sets apart from the rest.
+ *
  * Pass `prev` only when the previous message sits open directly above this
  * one. After a folded or one-line gap pass undefined, so the header names the
  * recipients ("to you, Grace +2") instead of pointing at a message the reader
@@ -310,7 +318,7 @@ export function recipientSummary(
 	msg: MailMessage,
 	prev: MailMessage | undefined,
 	owner: string,
-): { text: string; changed: boolean } {
+): { text: string; changed: boolean; group?: string } {
 	const recipients = uniquePeople([...(msg.to ?? []), ...(msg.cc ?? [])], owner)
 	if (recipients.length === 0) return { text: 'to undisclosed recipients', changed: false }
 	const sender = addressKey(msg.from?.[0]?.email)
@@ -324,6 +332,14 @@ export function recipientSummary(
 	const changed = dropped > 0
 	if (replied && before !== null && before.size > 0 && !changed && recipients.length >= 2) {
 		return { text: 'to everyone', changed: false }
+	}
+	// Mail sent to a list is summarised by the list it came through: "to eng-all@ and 238 others".
+	const list = recipients.find((person) => !person.isOwner && LIST_LOCAL_PART.test(localPart(person.email)))
+	if (list) {
+		const group = `${localPart(list.email)}@`
+		const others = recipients.length - 1
+		const rest = others === 0 ? '' : ` and ${others} ${others === 1 ? 'other' : 'others'}`
+		return { text: `to ${group}${rest}`, changed, group }
 	}
 	const ordered = [...recipients.filter((p) => p.isOwner), ...recipients.filter((p) => !p.isOwner)]
 	const named = firstNames(ordered).slice(0, 2)
@@ -780,6 +796,8 @@ export type FoldOptions = {
 	/** For the folded rows' date span. Defaults to the current time and zone. */
 	now?: number
 	tz?: string
+	/** Indices after which a run may not continue (a message there could not load). */
+	breaksAfter?: ReadonlySet<number>
 }
 
 /** The key of a folded run: the id of its first message. */
@@ -792,7 +810,7 @@ export const foldRunKey = (messages: MailMessage[], indices: number[]): string =
  * One line: the first message and each read message next to an open one.
  * Folded: three or more of the rest in a row, as one stacked row naming who
  * wrote them and when. Shorter runs, and runs the reader expanded, are lines.
- * Folded rows name their senders with the owner last, as the thread header does.
+ * Folded rows name their senders in the order they wrote, the owner as "you".
  */
 export function foldPlan(messages: MailMessage[], opts: FoldOptions): FoldItem[] {
 	const unread = new Set(opts.unreadIds)
@@ -828,6 +846,7 @@ export function foldPlan(messages: MailMessage[], opts: FoldOptions): FoldItem[]
 			items.push({ kind: open[index] ? 'open' : 'line', index })
 		} else {
 			run.push(index)
+			if (opts.breaksAfter?.has(index)) flush()
 		}
 	})
 	flush()
@@ -847,16 +866,16 @@ function foldedRow(
 		run.flatMap((message) => message.from?.slice(0, 1) ?? []),
 		owner,
 	)
-	const self = senders.find((person) => person.isOwner)
-	const others = senders.filter((person) => !person.isOwner)
-	const { names, more } = participantsLabel(senders, FOLD_MAX_NAMES)
+	// The senders in the order they spoke in the run, "you" where the owner did.
+	const names = firstNames(senders.slice(0, FOLD_MAX_NAMES)).join(', ')
+	const more = senders.length - Math.min(senders.length, FOLD_MAX_NAMES)
 	const dates = run.map((message) => message.date ?? 0).filter(isTime)
 	return {
 		kind: 'folded',
 		indices,
 		names: `${names}${more > 0 ? ` +${more}` : ''}`,
 		span: dates.length > 0 ? dateSpanLabel(Math.min(...dates), Math.max(...dates), now, tz) : '',
-		avatars: self ? [...others.slice(0, FOLD_MAX_AVATARS - 1), self] : others.slice(0, FOLD_MAX_AVATARS),
+		avatars: senders.slice(0, FOLD_MAX_AVATARS),
 		ids: run.map((message) => message.id),
 		key,
 	}

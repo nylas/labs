@@ -725,6 +725,42 @@ describe('getThreadMessages', () => {
 		expect(res.failedMessageIds).toEqual(['gone', 'broken'])
 	})
 
+	it('places your unsent replies in the thread with its messages, leaving out drafts it cannot read', async () => {
+		resolveMailbox({ displayName: 'Ada' })
+		mailbox.getThread.mockResolvedValue({
+			data: { message_ids: ['m1', 'm2'], draft_ids: ['d1', 'd1', 'gone', 7, 'bad\nid'] },
+		})
+		mailbox.getMessage.mockImplementation((id: string) =>
+			Promise.resolve({ data: { id, date: id === 'm1' ? 1 : 3 } }),
+		)
+		mailbox.getDraft.mockImplementation((id: string) =>
+			id === 'gone'
+				? Promise.reject(new NylasApiError('gone', 404))
+				: Promise.resolve({
+						data: { id, grant_id: 'g', thread_id: 't1', date: 2, to: [{ email: 'mary@x.com' }] },
+					}),
+		)
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.getDraft).toHaveBeenCalledTimes(2)
+		expect(res.messages.map((m) => m.id)).toEqual(['m1', 'd1', 'm2'])
+		expect(res.messages[1]).toMatchObject({
+			from: [{ email: 'ada@ownmail.com', name: 'Ada' }],
+			folders: ['drafts'],
+			unread: false,
+		})
+		expect(res.ownmailDraftMessageIds).toEqual(['d1'])
+	})
+
+	it('reads no drafts for a thread whose draft list is not a list', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['m1'], draft_ids: 'd1' } })
+		mailbox.getMessage.mockResolvedValue({ data: { id: 'm1' } })
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+		expect(mailbox.getDraft).not.toHaveBeenCalled()
+		expect(res).not.toHaveProperty('ownmailDraftMessageIds')
+	})
+
 	it('fails the whole read only when no message could be loaded', async () => {
 		resolveMailbox()
 		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['a', 'b'] } })

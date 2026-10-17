@@ -463,7 +463,6 @@ const hiking = seedThread(
 			from: [ALAN],
 			to: [ACCOUNT],
 			date: daysAgo(1, 11, 45),
-			starred: true,
 		},
 		{
 			id: 'msg-hiking-2',
@@ -713,6 +712,9 @@ const lenny = seedThread(
 			from: [{ name: 'Lenny’s', email: 'newsletter@lennysnewsletter.com' }],
 			to: [ACCOUNT],
 			date: daysAgo(3, 7, 0),
+			// Unread, so the Newsletters bundle reads as unread (semibold), as board 02 draws it;
+			// the inbox still counts the board's 6 unread conversations.
+			unread: true,
 		},
 	],
 )
@@ -935,7 +937,6 @@ const noSubject = seedThread(
 			from: [KATHERINE],
 			to: [ACCOUNT],
 			date: daysAgo(4, 8, 15),
-			unread: true,
 		},
 	],
 )
@@ -1310,6 +1311,33 @@ const checklist: SeededThread = {
 	},
 }
 
+/**
+ * A thread longer than the reader mounts at once (over 50 messages), in
+ * Archive so it stays off the boards' inbox: the stream is windowed while the
+ * map and j / k still reach every message.
+ */
+export const INCIDENT_LOG_LENGTH = 64
+const incidentSenders = [ALAN, GRACE, KATHERINE, ACCOUNT]
+const incidentLog = seedThread(
+	'thread-incident-log',
+	['archive', 'work'],
+	Array.from(
+		{ length: INCIDENT_LOG_LENGTH },
+		(_, index): MessageSeed => ({
+			id: `msg-incident-${index + 1}`,
+			subject: index === 0 ? 'Incident log: search latency' : 'Re: Incident log: search latency',
+			body: html(
+				`Update ${index + 1}: p95 search latency is ${180 + ((index * 37) % 140)} ms on the new index.`,
+			),
+			from: [incidentSenders[index % incidentSenders.length] as EmailParticipant],
+			to: [ALAN, GRACE, KATHERINE, ACCOUNT].filter(
+				(person) => person !== incidentSenders[index % incidentSenders.length],
+			),
+			date: daysAgo(20, 9, 0) + index * 3 * 3600,
+		}),
+	),
+)
+
 // ---- Sent ---------------------------------------------------------------------
 
 const contract = seedThread(
@@ -1376,6 +1404,7 @@ const seeded: SeededThread[] = [
 	replyTo,
 	removed,
 	checklist,
+	incidentLog,
 	contract,
 	sync,
 ]

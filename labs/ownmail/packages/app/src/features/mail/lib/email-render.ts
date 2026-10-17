@@ -259,7 +259,8 @@ export function shadowStyleText(): string {
 	// bounds positioned provider content to the message surface. Paper and original
 	// presentations paint the sender canvas on the root as well, so the message
 	// stays light even before the thread band has updated. The 16px / 1.6 type is
-	// an inherited default: any size or line-height the sender declares wins.
+	// an inherited default: any size or line-height the sender declares wins, and
+	// so do a prose message's own paragraph margins over the reader's 12px rhythm.
 	return `
 :host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;font-size:16px;line-height:1.6;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
 :host([data-email-theme="dark"]){--ownmail-email-theme:dark;--ownmail-email-link-color:#7dd3fc;color:#e5e7eb;color-scheme:dark;}
@@ -273,6 +274,8 @@ export function shadowStyleText(): string {
 :where(.email-root) :where(html, body){display:block;min-width:0;}
 :where(.email-root) :where(body){margin:0;}
 :where(.email-root) :where(body:not([bgcolor])){background-color:transparent;}
+:host([data-email-prose]) .email-root :where(p){margin:0 0 12px;}
+:host([data-email-prose]) .email-root :where(p:last-child){margin-bottom:0;}
 :where(.email-root) :where(pre){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;}
 :where(.email-root) :where(a[href]){color:var(--ownmail-email-link-color);}
 :where(.email-root) :where(a[href]:not([data-ownmail-cta])){text-decoration:underline!important;text-decoration-thickness:max(1px,.08em)!important;text-underline-offset:.15em!important;}

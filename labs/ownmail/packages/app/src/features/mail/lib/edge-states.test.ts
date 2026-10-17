@@ -7,6 +7,7 @@ import {
 	firstNameFromAddress,
 	fitPercent,
 	hiddenImagesText,
+	isArabicScript,
 	knownNameFor,
 	pendingSendAt,
 	recipientAddresses,
@@ -138,6 +139,15 @@ describe('reflowPlainText', () => {
 		expect(reflowPlainText(`${wrapped}   \ncontinues here`)).toEqual([
 			{ kind: 'text', text: `${wrapped} continues here` },
 		])
+	})
+})
+
+describe('isArabicScript', () => {
+	it('reads a paragraph by its first letter', () => {
+		expect(isArabicScript('شكراً، سأراجع المستند صباح الغد.')).toBe(true)
+		expect(isArabicScript('« شكراً »')).toBe(true)
+		expect(isArabicScript('Thanks, شكراً')).toBe(false)
+		expect(isArabicScript('— 42 —')).toBe(false)
 	})
 })
 

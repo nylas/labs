@@ -192,6 +192,28 @@ describe('pendingSendAt', () => {
 })
 
 describe('threadRowFacts', () => {
+	it('lets the first line stand in for a missing subject, from the thread or its latest message', () => {
+		expect(
+			threadRowFacts(thread({ id: 't', subject: '', snippet: 'Can you send me the hotel?' }), env()),
+		).toMatchObject({ subject: 'Can you send me the hotel?', subjectIsStandIn: true })
+		const fromLatest = threadRowFacts(
+			thread({
+				id: 't',
+				subject: undefined,
+				snippet: undefined,
+				latest_draft_or_message: message({ id: 'm', subject: '', snippet: 'First line.' }),
+			}),
+			env(),
+		)
+		expect(fromLatest).toMatchObject({ subject: 'First line.', subjectIsStandIn: true })
+		const nothing = threadRowFacts(
+			thread({ id: 't', subject: '', snippet: undefined, latest_draft_or_message: undefined }),
+			env(),
+		)
+		expect(nothing.subject).toBe('')
+		expect(nothing).not.toHaveProperty('subjectIsStandIn')
+	})
+
 	it('names a draft by its recipient and shows the draft, not the conversation', () => {
 		const draft = threadRowFacts(
 			thread({

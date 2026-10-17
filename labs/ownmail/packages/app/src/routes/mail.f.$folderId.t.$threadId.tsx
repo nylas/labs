@@ -165,6 +165,31 @@ function ThreadErrorView({ error, reset }: ErrorComponentProps) {
 				>
 					<ArrowLeft className="size-5" />
 				</ToolbarIconButton>
+				{/* The reader's own controls keep their places, unavailable until the conversation loads. */}
+				<IconButton label="Archive" disabled>
+					<Archive className="h-4 w-4" />
+				</IconButton>
+				<IconButton label="Delete" disabled>
+					<Trash2 className="h-4 w-4" />
+				</IconButton>
+				<IconButton label="Star" disabled>
+					<Star className="h-4 w-4" />
+				</IconButton>
+				<IconButton label="Mark unread" disabled>
+					<Mail className="h-4 w-4" />
+				</IconButton>
+				<ToolbarSeparator />
+				<span aria-hidden="true" className="flex-1" />
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					disabled
+					className="reader-reply-all border-cta-line shadow-none"
+				>
+					<ReplyAll className="text-cta-icon" aria-hidden="true" />
+					Reply all
+				</Button>
 			</Toolbar>
 			<div className={cn(UNDER_PINNED_BAR_CLASS, 'min-h-0 flex-1')}>
 				<ThreadLoadError error={error} reset={reset} />

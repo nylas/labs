@@ -319,6 +319,9 @@
  * - `--danger-soft`: the danger ground of a draft pill; `--danger-soft-fg` is every
  *   danger text (a draft, a send that failed) on it or on the plane.
  * - `--quiet-fg`: the quiet text action and quoted history.
+ * - `--control-fg`: the reader's quiet controls: its icon buttons (toolbar,
+ *   stepper, a message's hover actions) and a folded run's count, a step
+ *   stronger than muted text.
  * - `--reader-reply-shadow`: the soft shadow under the pinned reply card.
  * Text on each ground keeps 4.5:1 in both themes. */
 @theme inline {
@@ -352,6 +355,7 @@
 	--color-danger-soft: var(--danger-soft);
 	--color-danger-soft-foreground: var(--danger-soft-fg);
 	--color-quiet-foreground: var(--quiet-fg);
+	--color-control-foreground: var(--control-fg);
 	--shadow-reader-reply: var(--reader-reply-shadow);
 }
 
@@ -386,6 +390,7 @@
 	--danger-soft: oklch(0.96 0.03 25);
 	--danger-soft-fg: oklch(0.48 0.17 25);
 	--quiet-fg: oklch(0.4 0.01 165);
+	--control-fg: oklch(0.35 0.01 165);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
@@ -420,5 +425,6 @@
 	--danger-soft: oklch(0.27 0.06 25);
 	--danger-soft-fg: oklch(0.82 0.1 25);
 	--quiet-fg: oklch(0.82 0.008 155);
+	--control-fg: oklch(0.86 0.006 155);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
 }

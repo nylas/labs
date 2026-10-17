@@ -297,7 +297,8 @@ the list toolbar or the command palette.
 - Condensed: one line (people, subject and snippet, time), 34 pixels. The
   vertical split widens the list from 22rem to 26rem for it, in the same media
   query as the rows, so the preference changes no layout where it does not
-  apply.
+  apply. A bundle keeps the same columns: its title and count in the people
+  column at their 13px, who sent it in the subject column.
 - Compact and Condensed apply only with a fine pointer (mouse or trackpad) on
   desktop layouts. Mobile layouts and any touch-capable device always get the
   Default row, never under 48 pixels, and the toolbar control is hidden there
@@ -332,6 +333,11 @@ The list says what changed, so a row can be acted on without opening it.
   A list without headings (search results) gives each row its own day: the
   time today, the weekday within the past week, else the date.
 - Rows part on `--list-line`, a rule lighter than the toolbar's `--border`.
+  Their lines are set at the type's own height (`line-height: normal`), so a
+  day's rows fit the pane as board 02 lays them out.
+- Subject. A conversation with no subject shows the first line of its text in
+  italics, a stand-in, never "(no subject)"; its link and checkbox are named
+  after it.
 - People. A row names who is on the conversation, not only the last sender:
   the latest sender first, the person last as "you", first names, four at most
   and then "+n" in muted text ("Mary, Grace, Alan, you +1"). A lone
@@ -370,7 +376,8 @@ The list says what changed, so a row can be acted on without opening it.
   now" and "Cancel scheduled send", the reader's Send now and Cancel ("Edge
   states"); a failure is said on the row.
 - Muted. A muted conversation stays in its folder at 85% opacity, the people in
-  muted text with a muted-bell glyph, a list as "eng-all@ · 31 people", and the
+  muted text after a muted-bell glyph (any muted conversation, not only a
+  list's), a list as "eng-all@ · 31 people", and the
   snippet "Muted · 12 replies you don’t need to read". It carries no unread
   weight and no signals. Mute and Unmute are in the row menu; the choice is
   this device's, and belongs to the signed-in mailbox (`mutedThreadsByAccount`),
@@ -442,7 +449,9 @@ line-height (17px and 1.55 on a phone), which a sender's own styles override,
 and prose is held to a 72ch measure under the sender's name. Designed (table or
 layout) mail keeps the full column. An open message's body starts 12px beneath
 its header, so a sender canvas that spans the pane never touches the header
-above it. The Conversation view keeps its centred column.
+above it. Written (prose) mail sits on the reader's own ground with no band,
+its paragraphs 12px apart and none above the first, unless the sender sets
+its own margins. The Conversation view keeps its centred column.
 
 What was unread when the thread opened is held for as long as it stays open
 and marks where the reader left off (see "New-since divider"). The thread opens
@@ -597,8 +606,12 @@ reader only draws it.
    not open messages; clicking a one-line row opens it. "Expand all" and
    "Collapse all" stay in the display actions.
 3. Never hide silently. A folded row says how many messages it holds
-   ("9 earlier messages"), who wrote them and when.
-4. Long threads. Over 50 messages the list is virtualised; the map and j/k
+   ("9 earlier messages"), who wrote them, in the order they wrote ("you" for
+   the owner, where you wrote), and when.
+4. A linked message. A message opened inside a folded run (a link, a map row
+   or dot, `j` / `k`) opens on its own: its read neighbours become one-line
+   rows and what is left on either side folds again.
+5. Long threads. Over 50 messages the list is virtualised; the map and j/k
    still address every message.
 
 ## New-since divider
@@ -664,10 +677,12 @@ row scrolls to that message and opens it.
   wrote), as a segmented control of `aria-pressed` buttons. Subject changes
   belong to the full map; the stopped label stays only while rows sit on both
   sides of it.
-- From `xl` the map is panel glass (380px) docked at the reader's right, over
-  the stream, and stays open while you move between rows; below `xl` it is a
-  sheet from the right that closes when you choose a row, so the message
-  shows. Escape inside the map closes it (inside the From… menu, only the
+- Where the reader's pane has room for both (1088px or wider) the map is
+  panel glass (380px) docked at the reader's right, beside the stream, which
+  keeps clear of it, and stays open while you move between rows. In a
+  narrower pane (a split view at 1440, any window below `xl`) it is a sheet
+  from the right that closes when you choose a row, so the message shows. Its
+  rows scroll inside it, so the From… menu always opens in full over them. Escape inside the map closes it (inside the From… menu, only the
   menu). Focus starts on the current row and goes back where it was when the
   map closes. The rows are one Tab stop; the arrow keys, Home and End move
   between them.
@@ -703,7 +718,9 @@ time in `font-data` at 12px. Everything else is one click away.
   in folded stacks, 18 in recipient chips, 40 on the sender card.
 - Recipients. "to you, Grace +2": the owner first as "you", then first names,
   two at most and a count; "to everyone" when a reply reached everyone the
-  message before it involved. The summary is muted, and set in the normal text
+  message before it involved. Mail to a list is summarised by the list it came
+  through, the list in the normal text colour at 500: "to eng-all@ and 238
+  others". The summary is muted, and set in the normal text
   colour only when the recipients changed from the message open directly
   above. It is a button that opens the details.
 - Details. A panel (glass from `sm` up, in the flow on a phone) under the
@@ -773,7 +790,8 @@ glyph, 13px text, the 6px plane radius. Never a rail.
   reply-all guard, else "a mailing list"; "Sent through a mailing list." when
   no recipient is the list, rather than an address made up from its List-Id.
   Then "Mute thread" ("Unmute thread" on a muted thread) and, when the list
-  offers one, "Leave list".
+  offers one, "Leave list". A thread says it once, on its first open message
+  from the list, not on every reply.
 - Amber and red are tokens (`--notice-warning`, `--notice-danger`, each with a
   `-line` and an `-fg`), 4.5:1 or better in both themes. The owner's own mail
   raises no notice.
@@ -813,8 +831,9 @@ link inside a sentence; all keep the 44px floor on touch.
   never a blank gap.
 - Your draft in a thread. A Draft pill (pencil and word, `--danger-soft`
   fill) with "reply to Mary · edited 2 h ago", the first line of the draft,
-  and Resume or Discard (danger text). It sits under the message it answers;
-  opening the thread scrolls to it (`draftAnchorId`).
+  and Resume or Discard (danger text). The reader loads the drafts the
+  provider lists on the thread with its messages; each sits under the message
+  it answers, and opening the thread scrolls to it (`draftAnchorId`).
 - Not sent, or not yet. A bounce says "Not sent. mary@nasa.gov bounced." in
   `--danger-soft-fg` with Edit and resend and Copy text; a scheduled message
   says "Sends Mon 9:00 AM" with Send now and Cancel. Both act through the
@@ -830,7 +849,8 @@ link inside a sentence; all keep the 44px floor on touch.
   Trash" with a Show link, and "Alan started a side thread with Grace" with an
   Open link, for a later thread with the same subject and a strict subset of
   the people, looked up once per thread (outside the mail cache root, so mail
-  writes never cancel it).
+  writes never cancel it). A message shown from Trash still says "In Trash" on
+  its row, and above its body once opened.
 - An invite that changed. Only the newest invitation gets the card and its
   buttons: the calendar glyph and title, "Updated 3 times", the current time
   with the earlier start struck
@@ -849,15 +869,17 @@ link inside a sentence; all keep the 44px floor on touch.
   offered Always.
 - Designed mail wider than the pane. A fixed layout is scaled to fit instead
   of scrolling sideways: in the Original layout as sent, and in the default
-  Readable layout whatever still overflows once the mail has reflowed. The bar
+  Readable layout whole when it fits at the 80% floor or above (a 640px
+  newsletter in a 528px column, at 82%), else whatever still overflows once
+  the mail has reflowed. The bar
   says "Fitted to width (82%)" with Actual size
   (100%, panning inside the message) and Open in window (the whole sanitized
   message, history included, in a new window under a policy that runs
   nothing and loads images only through OwnMail's proxy; inert links stay
   inert there). The bar appears only when the scaled layout really fits:
   below the 80% legibility floor the message still pans and no bar claims it
-  was fitted. Readable reflows first, so most designed mail fits without any
-  scale. Text-only mail never scales; it reflows.
+  was fitted. A layout too wide to fit legibly reflows first, so it fits
+  without a scale where it can. Text-only mail never scales; it reflows.
 - One very long message. Past 1,500 words of new text: "6 min read · 38%" over
   a 4px `--primary` progress bar, and an outline of the message's own headings
   (a 130px right column from `xl`, an Outline disclosure below it; the current
@@ -865,7 +887,8 @@ link inside a sentence; all keep the 44px floor on touch.
   reopening returns to where the reader stopped.
 - Hard-wrapped plain text. Lines of 40 to 80 characters inside a paragraph join
   the next line unless it starts a list item, a quote or an indent. Every
-  paragraph takes its direction from its own text (`dir="auto"`). Indented and
+  paragraph takes its direction from its own text (`dir="auto"`), and an
+  Arabic paragraph is set in a Naskh face at 15px where the device has one. Indented and
   fenced blocks stay exactly as written, in mono on a `--muted` chip, and so
   do code-indented lines (four spaces or a tab) inside a prose paragraph,
   unless they continue a list item. Prose is `--secondary-foreground`.
@@ -881,7 +904,12 @@ link inside a sentence; all keep the 44px floor on touch.
   refreshes when you're back online." while offline, in every reader (a folder
   thread and a search result alike). A thread that cannot load at all shows the
   same card inside the reader (the thread route's error, the search reader's
-  failed result) instead of replacing it. A reply from a list row to a thread
+  failed result) instead of replacing it, under the reader's toolbar with its
+  controls in place (unavailable until the thread loads). Offline, a thread
+  not saved on this device fails at once, never waiting behind the loading
+  skeleton. In the stream a quiet line marks where each missing message was
+  ("Couldn’t load 1 message here." with Try again), and a folded run stops
+  there. A reply from a list row to a thread
   that only partly loaded fails on the row rather than answering a message
   that may not be the last one.
 

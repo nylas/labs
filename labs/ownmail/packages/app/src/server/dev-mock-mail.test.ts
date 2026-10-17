@@ -1,6 +1,7 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
 import { describe, expect, it } from 'vitest'
 import { foldPlan, newSinceDivider, rowParticipants } from '#features/mail/lib/thread-reading-model'
+import { VIRTUALIZE_AFTER } from '#features/mail/lib/thread-stream'
 import { messageHeaderFacts, rawHeaderText } from '#features/mail/server/header-facts'
 import { toMailMessage, toMailThread } from '#features/mail/state/mail-queries'
 import {
@@ -51,6 +52,15 @@ describe('board 02: the inbox list', () => {
 		expect(days.slice(7).every((day) => day >= 2 && day <= 6)).toBe(true)
 	})
 
+	it('keeps a thread longer than the reader mounts at once, in Archive, off the boards’ inbox', () => {
+		const messages = mockThreadMessages('thread-incident-log').messages
+		expect(messages.length).toBeGreaterThan(VIRTUALIZE_AFTER)
+		expect(thread('thread-incident-log')).toBeUndefined()
+		expect(mockThreads({ folderId: 'archive' }).threads.map((candidate) => candidate.id)).toContain(
+			'thread-incident-log',
+		)
+	})
+
 	it('counts 6 unread conversations in the inbox', () => {
 		expect(mockFolders().find((folder) => folder.id === 'inbox')?.unread_count).toBe(6)
 		expect(
@@ -60,8 +70,8 @@ describe('board 02: the inbox list', () => {
 				.sort(),
 		).toEqual([
 			'thread-calendar-invite',
+			'thread-lenny',
 			'thread-lookalike',
-			'thread-no-subject',
 			'thread-roadmap',
 			'thread-staging',
 			'thread-staging-freeze',

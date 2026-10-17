@@ -1864,6 +1864,10 @@ describe('what the reader is given beyond the thread', () => {
 		render(<ErrorView error={new Error('down')} reset={reset} info={{ componentStack: '' }} />)
 		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
 		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
+		// The reader's controls keep their places, unavailable until the conversation loads.
+		for (const name of ['Archive', 'Delete', 'Star', 'Mark unread', 'Reply all']) {
+			expect(within(toolbar).getByRole('button', { name })).toBeDisabled()
+		}
 		await user.click(screen.getByRole('button', { name: 'Try again' }))
 		expect(reset).toHaveBeenCalledTimes(1)
 		await user.click(within(toolbar).getByRole('button', { name: 'Back to list' }))

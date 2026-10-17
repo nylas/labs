@@ -32,6 +32,7 @@ import {
 	scaledHeight,
 	shadowStyleText,
 } from '../lib/email-render.js'
+import { declaredImageSize, FAILED_IMAGE_ATTRIBUTE, IMAGE_FALLBACK_ATTRIBUTE } from '../lib/held-images.js'
 import {
 	PICTURE_MEDIA_ATTRIBUTE,
 	type PictureMediaDefinition,
@@ -174,7 +175,6 @@ const contrastColorStyle = new WeakMap<
 const PICTURE_PANE_FEATURE = /^\(\s*(min|max)-width\s*:\s*(\d*\.?\d+)(px|em|rem)\s*\)$/i
 const CONTROLLED_IMAGE_PATH = /^\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const CONTROLLED_IMAGE_IN_TEXT = /\/email-images\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\?[^\s"')>,]+)?/g
-const IMAGE_FALLBACK_ATTRIBUTE = 'data-ownmail-image-fallback'
 const IMAGE_BACKING_ATTRIBUTE = 'data-ownmail-image-backing'
 
 /** Keep dark transparent pixels legible when the proxy returned an unadapted format or original colors. */
@@ -785,7 +785,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			for (const image of failed) {
 				this.imageStates.set(image, 'pending')
 				image.hidden = false
-				image.removeAttribute('data-ownmail-image-failed')
+				image.removeAttribute(FAILED_IMAGE_ATTRIBUTE)
 				if (image.nextElementSibling?.matches(`[${IMAGE_FALLBACK_ATTRIBUTE}]`)) {
 					image.nextElementSibling.remove()
 				}
@@ -857,7 +857,12 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			this.removeAttribute('data-email-direction')
 			const rtl = this.updateLogicalDirection(content)
 			const mode = this.layoutMode()
-			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
+			// A fixed layout only a little wider than the pane (a 640px newsletter in
+			// a 528px column) is fitted to it whole, as Original would be, instead of
+			// reflowing its columns; one too wide to stay legible when fitted reflows.
+			const unreflowed = content.scrollWidth
+			const fitWhole = unreflowed > containerWidth && containerWidth / unreflowed >= MIN_EMAIL_SCALE
+			const reflowed = mode === 'readable' && !fitWhole && this.applyReadableLayout(content, containerWidth)
 			applyPictureSourceMedia(content, this.emailTheme(), containerWidth)
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
 			// Readable mail reflows to the pane; what still cannot reflow (a designed
@@ -1209,7 +1214,7 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 					this.imageStates.set(image, event.type === 'error' ? 'failed' : 'loaded')
 					if (event.type === 'error') {
 						image.hidden = true
-						image.setAttribute('data-ownmail-image-failed', '')
+						image.setAttribute(FAILED_IMAGE_ATTRIBUTE, '')
 						if (!image.nextElementSibling?.matches(`[${IMAGE_FALLBACK_ATTRIBUTE}]`)) {
 							const fallback = document.createElement('span')
 							const label = image.alt.trim() || 'Image unavailable'
@@ -1217,11 +1222,15 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 							fallback.setAttribute('role', 'img')
 							fallback.setAttribute('aria-label', label)
 							fallback.textContent = label
+							// In the image's declared space, so the layout does not move when images fail.
+							const { width, height } = declaredImageSize(image)
+							if (width !== null) fallback.style.width = `${width}px`
+							if (height !== null) fallback.style.height = `${height}px`
 							image.parentNode?.insertBefore(fallback, image.nextSibling)
 						}
 					} else {
 						image.hidden = false
-						image.removeAttribute('data-ownmail-image-failed')
+						image.removeAttribute(FAILED_IMAGE_ATTRIBUTE)
 						if (image.nextElementSibling?.matches(`[${IMAGE_FALLBACK_ATTRIBUTE}]`)) {
 							image.nextElementSibling.remove()
 						}

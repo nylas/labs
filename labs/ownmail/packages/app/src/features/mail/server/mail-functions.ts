@@ -121,13 +121,10 @@ function isNotFound(err: unknown): boolean {
 		: err instanceof Error && /not found|deleted/i.test(err.message)
 }
 
-function draftThreadMessages(
-	draft: Draft,
-	email: string,
-	displayName?: string,
-): { thread: Thread; messages: Message[]; ownmailDraftMessageIds: string[] } {
+/** A draft as a message of its thread: from you, in Drafts, read. */
+function draftMessage(draft: Draft, email: string, displayName?: string): Message {
 	const from = draft.from?.length ? draft.from : [{ email, ...(displayName ? { name: displayName } : {}) }]
-	const message: Message = {
+	return {
 		...draft,
 		from,
 		thread_id: draft.thread_id ?? draft.id,
@@ -135,6 +132,14 @@ function draftThreadMessages(
 		unread: false,
 		starred: draft.starred ?? false,
 	}
+}
+
+function draftThreadMessages(
+	draft: Draft,
+	email: string,
+	displayName?: string,
+): { thread: Thread; messages: Message[]; ownmailDraftMessageIds: string[] } {
+	const message = draftMessage(draft, email, displayName)
 	const thread: Thread = {
 		id: draft.id,
 		grant_id: draft.grant_id,
@@ -151,6 +156,18 @@ function draftThreadMessages(
 		folders: draft.folders ?? ['drafts'],
 	}
 	return { thread, messages: [message], ownmailDraftMessageIds: [message.id] }
+}
+
+/** Most drafts a thread's reader loads: one unsent reply is the common case. */
+const MAX_THREAD_DRAFTS = 10
+
+/** The drafts a provider lists on a thread (`draft_ids`), valid ids only. */
+function threadDraftIds(thread: Thread): string[] {
+	const ids = (thread as Thread & { draft_ids?: unknown }).draft_ids
+	if (!Array.isArray(ids)) return []
+	return [
+		...new Set(ids.filter((id): id is string => typeof id === 'string' && validNylasProviderId(id))),
+	].slice(0, MAX_THREAD_DRAFTS)
 }
 
 function stripHtml(value: string): string {
@@ -287,12 +304,22 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 				const firstFailure = settled.find((result) => result.status === 'rejected')
 				if (firstFailure && failedMessageIds.length === messageIds.length) throw firstFailure.reason
 				const messages = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
-				const protectedMessages = await Promise.all(messages.map(protectMessageImageSources))
+				// Your unsent replies sit in the thread, under the message each answers. A
+				// draft that cannot be read is left out: it is still in Drafts.
+				const draftIds = threadDraftIds(thread.data)
+				const drafts = (
+					await Promise.allSettled(draftIds.map((id) => mailbox.getDraft(id).then((r) => r.data)))
+				).flatMap((result) =>
+					result.status === 'fulfilled' ? [draftMessage(result.value, email, displayName)] : [],
+				)
+				const all = [...messages, ...drafts]
+				all.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
+				const protectedMessages = await Promise.all(all.map(protectMessageImageSources))
 				return {
 					thread: thread.data,
 					messages: protectedMessages,
 					mailboxEmail: email,
+					...(drafts.length > 0 ? { ownmailDraftMessageIds: drafts.map((draft) => draft.id) } : {}),
 					...(failedMessageIds.length > 0 ? { failedMessageIds } : {}),
 				}
 			} catch (err) {

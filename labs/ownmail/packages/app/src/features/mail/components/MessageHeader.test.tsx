@@ -51,6 +51,21 @@ afterEach(() => {
 })
 
 describe('MessageHeader', () => {
+	it('names the list a broadcast came through, set apart from the people it adds up to', () => {
+		const cc = Array.from({ length: 238 }, (_, i) => ({ name: `Person ${i}`, email: `p${i}@vercel.com` }))
+		setup({ message: { ...alan, to: [{ email: 'eng-all@vercel.com' }], cc } as MailMessage })
+		expect(summary()).toHaveTextContent('to eng-all@ and 238 others')
+		expect(within(summary()).getByText('eng-all@')).toHaveClass('font-medium', 'text-foreground')
+	})
+
+	it('names the list in a folded header too', () => {
+		setup({
+			message: { ...alan, to: [{ email: 'eng-all@vercel.com' }], cc: [] } as MailMessage,
+			expanded: false,
+		})
+		expect(screen.getByText('eng-all@')).toHaveClass('text-foreground')
+	})
+
 	it('is one line: avatar, name, recipient summary, actions and time', () => {
 		const { container } = setup({ headingId: 'sender-12' })
 		expect(container.querySelector('[data-slot="message-header"]')).toHaveAttribute('data-state', 'open')
@@ -137,6 +152,11 @@ describe('MessageHeader', () => {
 		fireEvent.keyDown(document, { key: 'Escape' })
 		expect(details()).not.toBeNull()
 		dialog.remove()
+		// The dialog took its Escape and closed before the key reached the panel: the panel stays.
+		const handled = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+		handled.preventDefault()
+		document.dispatchEvent(handled)
+		expect(details()).not.toBeNull()
 		fireEvent.keyDown(document, { key: 'Enter' })
 		expect(details()).not.toBeNull()
 		fireEvent.keyDown(document, { key: 'Escape' })

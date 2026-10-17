@@ -602,7 +602,7 @@ describe('folding a long thread', () => {
 		)
 		const folded = screen.getByRole('button', { name: /5 earlier messages/ })
 		expect(folded).toHaveAttribute('aria-expanded', 'false')
-		expect(folded).toHaveTextContent('Alan, Grace, you')
+		expect(folded).toHaveTextContent('Alan, you, Grace')
 		// The first message (it sets context) and the one next to the open latest are lines.
 		expect(document.querySelectorAll('[data-slot="message-expand"]')).toHaveLength(2)
 		expect(states()).toEqual(['Message from Alan Turing'])
@@ -1115,6 +1115,40 @@ describe('moving through a thread', () => {
 		expect(position()).toBe('1 of 3')
 	})
 
+	it('docks the map beside the stream only where the pane has room for both', () => {
+		const dock = document.createElement('div')
+		dock.id = THREAD_MAP_DOCK_ID
+		document.body.append(dock)
+		let width = 1288
+		dock.getBoundingClientRect = () => ({ width }) as DOMRect
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn((query: string) => ({
+				matches: !query.includes('max-width'),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			})),
+		)
+		const { container } = render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const root = container.querySelector('[data-slot="thread-conversation"]') as HTMLElement
+		expect(root).not.toHaveAttribute('data-map-docked')
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		// A wide pane: the panel docks and the stream keeps clear of it.
+		expect(within(dock).getByRole('complementary', { name: 'Thread map' })).toBeInTheDocument()
+		expect(root).toHaveAttribute('data-map-docked', 'true')
+		// A split view at 1440: the pane is too narrow for both, so the map is a sheet over the stream.
+		width = 808
+		act(() => {
+			window.dispatchEvent(new Event('resize'))
+		})
+		expect(screen.getByRole('dialog')).toHaveAttribute('data-slot', 'thread-map-panel')
+		expect(root).not.toHaveAttribute('data-map-docked')
+		dock.remove()
+	})
+
 	it('opens the thread map with g m, from the dots, and from the More menu', () => {
 		const dock = document.createElement('div')
 		dock.id = THREAD_MAP_DOCK_ID
@@ -1292,6 +1326,19 @@ describe('moving through a thread', () => {
 		)
 		expect(scrolled).toHaveBeenCalled()
 	})
+
+	it('opens a linked message inside a folded run on its own and folds what is left on either side', () => {
+		window.location.hash = '#message-m6'
+		Element.prototype.scrollIntoView = vi.fn()
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(14)} mailboxEmail="ada@ownmail.com" />,
+		)
+		// 1 line, [2–4] folded, 5 line, 6 open, 7 line, [8–12] folded, 13 line, 14 open.
+		expect(screen.getByRole('button', { name: /^3 earlier messages/ })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /^5 earlier messages/ })).toBeInTheDocument()
+		expect(document.querySelectorAll('[data-slot="message-expand"]')).toHaveLength(4)
+		expect(document.querySelectorAll('[data-slot="thread-message"]')).toHaveLength(2)
+	})
 })
 
 describe('what the reader keeps', () => {
@@ -1424,6 +1471,36 @@ describe('message actions', () => {
 		window.getSelection()?.addRange(range)
 		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith(expect.objectContaining({ body: '> Note 2\n\n' }))
+
+		// An HTML body's words live in its shadow root; a selection there is inside the message too.
+		const host = document.createElement('div')
+		article.append(host)
+		const shadowText = document.createTextNode('First, the calendar sync milestone')
+		host.attachShadow({ mode: 'open' }).append(shadowText)
+		// jsdom keeps no ranges inside a shadow tree, so the browser's selection is stood in for.
+		const shadowSelection = vi
+			.spyOn(window, 'getSelection')
+			.mockReturnValue({ anchorNode: shadowText, toString: () => shadowText.data } as unknown as Selection)
+		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ body: '> First, the calendar sync milestone\n\n' }),
+		)
+		shadowSelection.mockRestore()
+
+		// A selection somewhere else quotes the message's own words.
+		const outside = document.createElement('p')
+		outside.textContent = 'Elsewhere'
+		document.body.append(outside)
+		range.setStart(outside.firstChild as Text, 0)
+		range.setEnd(outside.firstChild as Text, 9)
+		window.getSelection()?.removeAllRanges()
+		window.getSelection()?.addRange(range)
+		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ body: '> Note 2 about the plan.\n\n' }),
+		)
+		outside.remove()
+		host.remove()
 		window.getSelection()?.removeAllRanges()
 	})
 
@@ -1578,6 +1655,10 @@ describe('message actions', () => {
 		expect(document.getElementById('message-trashed')).toBeNull()
 		fireEvent.click(screen.getByRole('button', { name: 'Show' }))
 		expect(document.getElementById('message-trashed')).not.toBeNull()
+		// Shown, it still says it is in Trash.
+		expect(
+			(document.getElementById('message-trashed') as HTMLElement).querySelector('.reader-trash-note'),
+		).toHaveTextContent('In Trash')
 
 		// Messages the server could not load are counted, with a retry in place.
 		const partial = screen.getByText('Couldn’t load 2 messages. Showing 3 saved on this device.')
@@ -1671,6 +1752,55 @@ describe('message actions', () => {
 				to: expect.stringContaining('katherine@example.com'),
 			}),
 		)
+	})
+
+	it('marks where messages that could not load were, and tries again from there', () => {
+		const onRetryLoad = vi.fn()
+		const messages = longThread(8)
+		const ids = messages.map((entry) => entry.id)
+		render(
+			<ThreadConversation
+				thread={{ ...thread('t1'), message_ids: [...ids.slice(0, 4), 'lost', ...ids.slice(4)] }}
+				messages={messages}
+				mailboxEmail="ada@ownmail.com"
+				failedMessageIds={['lost']}
+				onRetryLoad={onRetryLoad}
+			/>,
+		)
+		const marker = document.querySelector('[data-slot="missing-messages"]') as HTMLElement
+		expect(marker).toHaveTextContent('Couldn’t load 1 message here.')
+		// The run before it folds only up to the gap; the gap follows its folded row.
+		expect(marker.closest('[data-slot="stream-item"]')?.previousElementSibling).not.toBeNull()
+		fireEvent.click(within(marker).getByRole('button', { name: 'Try again' }))
+		expect(onRetryLoad).toHaveBeenCalledOnce()
+	})
+
+	it('says who a reply dropped even when the message before it is a one-line row', () => {
+		const KATHERINE = { name: 'Katherine Johnson', email: 'katherine@example.com' }
+		const messages: MailMessage[] = [
+			{ ...message('m1'), from: [GRACE], to: [ADA, ALAN, KATHERINE], date: NOW - 2 * DAY, body: 'Plan?' },
+			{ ...message('m2'), from: [ALAN], to: [GRACE, ADA], date: NOW - DAY, body: 'Looks good.' },
+		]
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		// Grace's message is a one-line row; Alan's open reply still says Katherine was dropped.
+		expect(document.querySelectorAll('[data-slot="thread-message"]')).toHaveLength(1)
+		expect(screen.getByRole('button', { name: 'Add Katherine back to yours' })).toBeInTheDocument()
+	})
+
+	it('says once that a thread came through a list, on its first open message from the list', () => {
+		const ENG_ALL = { email: 'eng-all@example.com' }
+		const messages: MailMessage[] = [1, 2, 3].map((n) => ({
+			...message(`m${n}`),
+			from: [n === 2 ? ADA : ALAN],
+			to: [ENG_ALL],
+			date: NOW - (4 - n) * 60,
+			body: `Update ${n}.`,
+			unread: true,
+		}))
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		expect(document.querySelectorAll('[data-slot="thread-message"]')).toHaveLength(3)
+		expect(screen.getAllByRole('button', { name: 'Mute thread' })).toHaveLength(1)
+		expect(document.getElementById('message-m1')).toHaveTextContent('Sent to eng-all@')
 	})
 
 	it('shows an invitation that changed once, and notes the earlier version where it was', async () => {

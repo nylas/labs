@@ -1,7 +1,8 @@
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Trash2, WifiOff } from 'lucide-react'
 import { collapsedMessagePreview } from '../lib/mail-ui-model.js'
 import type { FoldItem } from '../lib/thread-reading-model.js'
 import { personName, senderPerson } from '../lib/thread-reading-model.js'
+import { isTrashed } from '../lib/thread-stream.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { Avatar, AvatarStack } from './Avatar.js'
 
@@ -33,7 +34,10 @@ export function OneLineMessageRow({
 		>
 			<Avatar person={sender} size={28} className="reader-line-avatar" />
 			<span className="reader-line-name">{name}</span>
-			<span className="reader-line-preview">{collapsedMessagePreview(message)}</span>
+			<span className="reader-line-preview">
+				{isTrashed(message) ? <InTrash /> : null}
+				{collapsedMessagePreview(message)}
+			</span>
 			<span className="reader-line-date font-data tabular-nums">{date}</span>
 		</button>
 	)
@@ -88,5 +92,38 @@ export function SystemLine({ text }: { text: string }) {
 		<p data-slot="system-line" className="reader-system-line">
 			{text}
 		</p>
+	)
+}
+
+/**
+ * Where messages that could not load were: a quiet line in their place in
+ * the stream, with Try again (design.md "Edge states": say exactly what is
+ * missing and where).
+ */
+export function MissingMessagesRow({ count, onRetry }: { count: number; onRetry: () => void }) {
+	return (
+		<p role="note" data-slot="missing-messages" className="reader-system-line reader-missing-line">
+			<WifiOff aria-hidden="true" className="size-3.5 shrink-0" />
+			<span>
+				Couldn’t load {count === 1 ? '1 message' : `${count} messages`} here.{' '}
+				<button type="button" onClick={onRetry} className="reader-missing-retry">
+					Try again
+				</button>
+			</span>
+		</p>
+	)
+}
+
+/** A message shown from Trash still says where it is. */
+export function InTrash() {
+	return (
+		<span data-slot="in-trash" className="reader-in-trash">
+			<Trash2 aria-hidden="true" className="size-3 shrink-0" />
+			In Trash
+			<span aria-hidden="true" className="reader-in-trash-separator">
+				{' '}
+				·{' '}
+			</span>
+		</span>
 	)
 }

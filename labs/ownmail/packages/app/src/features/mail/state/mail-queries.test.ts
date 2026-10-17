@@ -1,5 +1,5 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { QueryClient } from '@tanstack/react-query'
+import { onlineManager, QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { accountScope, SERVER_ACCOUNT_SCOPE } from '#app/lib/account-scope'
 import {
@@ -259,6 +259,19 @@ describe('mail query cache boundaries', () => {
 			messages: [toMailMessage(message)],
 			mailboxEmail: 'me@example.com',
 		})
+	})
+
+	it('loads a conversation even offline, so one not saved on this device fails instead of waiting', async () => {
+		const options = threadDetailQueryOptions('t1', async () => {
+			throw new Error('offline')
+		})
+		expect(options.networkMode).toBe('always')
+		onlineManager.setOnline(false)
+		try {
+			await expect(new QueryClient().fetchQuery({ ...options, retry: false })).rejects.toThrow('offline')
+		} finally {
+			onlineManager.setOnline(true)
+		}
 	})
 
 	it('builds paginated thread options without putting page tokens in the query key', async () => {

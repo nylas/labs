@@ -48,6 +48,7 @@ import {
 	replyDraftSearch,
 	threadLabels,
 } from '../lib/mail-ui-model.js'
+import { mailingList } from '../lib/message-anatomy.js'
 import {
 	bounceFor,
 	catchUpFacts,
@@ -58,6 +59,7 @@ import {
 	newSinceDivider,
 	type Person,
 	participantsLabel,
+	senderPerson,
 	shortDayLabel,
 	subjectStandIn,
 	supersededInvites,
@@ -77,6 +79,7 @@ import {
 	isTrashed,
 	lineDateLabel,
 	messageAnchorId,
+	missingAfter,
 	placeDrafts,
 	quotedMessageId,
 	replyTarget,
@@ -98,7 +101,7 @@ import type { EmailDisplayStatus } from './EmailHtml.js'
 import { JumpToNewPill } from './JumpToNewPill.js'
 import { MessageBody } from './MessageBody.js'
 import { PartialLoadNotice } from './PartialLoadNotice.js'
-import { scrollParent, useMediaQuery, useReaderClock } from './reader-hooks.js'
+import { scrollParent, useMediaQuery, useReaderClock, useWidthAtLeast } from './reader-hooks.js'
 import { ThreadColumn, ThreadColumnReader } from './ThreadColumn.js'
 import { CONVERSATION_LAYOUT_OPTIONS, ThreadDisplayMenu } from './ThreadDisplayMenu.js'
 import { downloadThreadFiles, ThreadFilesShelf, threadFileUrl } from './ThreadFilesShelf.js'
@@ -114,7 +117,13 @@ import {
 import { type ReaderMenuItem, ReaderMoreMenu, ThreadStepper } from './ThreadReaderControls.js'
 import { ThreadReaderHeader } from './ThreadReaderHeader.js'
 import { ThreadStreamNotices } from './ThreadStreamNotices.js'
-import { FoldedMessagesRow, NewSinceDivider, OneLineMessageRow, SystemLine } from './ThreadStreamRows.js'
+import {
+	FoldedMessagesRow,
+	MissingMessagesRow,
+	NewSinceDivider,
+	OneLineMessageRow,
+	SystemLine,
+} from './ThreadStreamRows.js'
 import { ThreadViewSwitch } from './ThreadViewSwitch.js'
 import { VirtualStreamItem } from './VirtualStreamItem.js'
 
@@ -131,6 +140,8 @@ export const THREAD_MAP_DOCK_ID = 'thread-map-dock'
 const TOOLBAR_ACTIONS_QUERY = '(min-width: 48rem)'
 /** Below `md` the reader is the phone thread screen. */
 const PHONE_QUERY = '(max-width: 47.999rem)'
+/** The narrowest pane the thread map docks in: its 380px panel beside a reading column. */
+const MAP_DOCK_MIN_PANE = 1088
 /** `g` then `m` within this long opens the thread map. */
 const CHORD_TIMEOUT_MS = 1000
 /** The thread map panel; below `xl` it is a sheet (a dialog) that `g m` also closes. */
@@ -429,12 +440,28 @@ function ThreadConversationController({
 	)
 }
 
-/** The quoted text a "Quote selection in reply" seeds: the selection inside that message, else its own words. */
+/** Whether `node` sits inside `container`, through the shadow roots that hold an HTML body. */
+function containsAcrossShadow(container: Element, node: Node): boolean {
+	for (let current: Node | null = node; current; ) {
+		if (container.contains(current)) return true
+		const root = current.getRootNode()
+		current = root instanceof ShadowRoot ? root.host : null
+	}
+	return false
+}
+
+/**
+ * The quoted text a "Quote selection in reply" seeds: the selection inside
+ * that message (an HTML body's words live in its shadow root), else its own
+ * words. Each line is a quote line; the composer shows the line being edited
+ * with its "> " and the others as the quote they make.
+ */
 function quotedText(message: MailMessage): string {
 	const selection = window.getSelection()
 	const anchor = selection?.anchorNode
 	const article = document.getElementById(messageAnchorId(message.id))
-	const selected = selection && anchor && article?.contains(anchor) ? selection.toString().trim() : ''
+	const selected =
+		selection && anchor && article && containsAcrossShadow(article, anchor) ? selection.toString().trim() : ''
 	const text = selected || messageNewText(message)
 	return `${text
 		.split('\n')
@@ -578,6 +605,11 @@ function ThreadConversationContent({
 	)
 	const [closedIds, setClosedIds] = useState<Set<string>>(() => new Set())
 	const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
+	// Messages that could not load are marked where they were, and break a folded run there.
+	const missing = useMemo(
+		() => missingAfter(thread.message_ids, visible, failedMessageIds),
+		[thread.message_ids, visible, failedMessageIds],
+	)
 	const plan = useMemo(
 		() =>
 			foldPlan(visible, {
@@ -588,8 +620,9 @@ function ThreadConversationContent({
 				expandedRuns,
 				openIds,
 				...(clock ? { now: clock.now, tz: clock.tz } : {}),
+				breaksAfter: new Set(missing.keys()),
 			}),
-		[visible, owner, ownerFirstName, snapshot, targetId, expandedRuns, openIds, clock],
+		[visible, owner, ownerFirstName, snapshot, targetId, expandedRuns, openIds, clock, missing],
 	)
 	const divider = useMemo(() => {
 		const found = newSinceDivider(visible, snapshot, clock?.now ?? Date.now(), clock?.tz ?? 'UTC')
@@ -617,8 +650,9 @@ function ThreadConversationContent({
 				events,
 				catchUpBeforeIndex,
 				drafts,
+				missing,
 			}),
-		[visible, plan, closedIds, divider, events, catchUpBeforeIndex, drafts],
+		[visible, plan, closedIds, divider, events, catchUpBeforeIndex, drafts, missing],
 	)
 	const files = useMemo(() => threadFiles(visible, owner), [visible, owner])
 	const details = useMemo(
@@ -692,15 +726,18 @@ function ThreadConversationContent({
 		setClosedIds((current) => new Set(current).add(messageId))
 	}, [])
 
-	/** Opens a message wherever it is (unfolding its run) and scrolls it into view. */
+	/**
+	 * Opens a message wherever it is and scrolls it into view. A message inside
+	 * a folded run opens on its own: its read neighbours become one-line rows
+	 * and what is left on either side folds again (board 04, "How a long thread
+	 * folds").
+	 */
 	const goTo = useCallback(
 		(messageId: string) => {
-			const run = plan.find((item) => item.kind === 'folded' && item.ids.includes(messageId))
-			if (run?.kind === 'folded') setExpandedRuns((current) => new Set([...current, ...run.ids]))
 			pendingScroll.current = { id: messageId, scroll: true }
 			openMessage(messageId)
 		},
-		[plan, openMessage],
+		[openMessage],
 	)
 
 	// Scroll a message the reader moved to into view once it is laid out, and
@@ -1153,6 +1190,16 @@ function ThreadConversationContent({
 		[clock],
 	)
 
+	// A thread says once that it came through a list: on its first open message from the list.
+	const listNoticeId = entries.find(
+		(entry) =>
+			entry.kind === 'open' &&
+			!senderPerson(entry.message, owner).isOwner &&
+			mailingList(entry.message, headerFacts?.byMessage[entry.message.id], owner) !== null,
+	)?.key
+	// The map docks beside the stream only where the pane has room for both;
+	// a narrower pane opens it as a sheet over the stream instead.
+	const mapDocked = useWidthAtLeast(slots?.mapDock, MAP_DOCK_MIN_PANE)
 	const virtual = visible.length > VIRTUALIZE_AFTER
 	const renderEntry = (entry: StreamEntry): ReactNode => {
 		switch (entry.kind) {
@@ -1161,6 +1208,8 @@ function ThreadConversationContent({
 					<ThreadOpenMessage
 						message={entry.message}
 						{...(entry.prev ? { prev: entry.prev } : {})}
+						{...(entry.earlier ? { earlier: entry.earlier } : {})}
+						listNotice={entry.message.id === listNoticeId}
 						owner={owner}
 						{...(headerFacts?.byMessage[entry.message.id]
 							? { facts: headerFacts.byMessage[entry.message.id] }
@@ -1230,6 +1279,12 @@ function ThreadConversationContent({
 						<SystemLine text={entry.text} />
 					</ThreadColumn>
 				)
+			case 'missing':
+				return (
+					<ThreadColumn>
+						<MissingMessagesRow count={entry.count} onRetry={() => onRetryLoad?.()} />
+					</ThreadColumn>
+				)
 			case 'draft': {
 				const to = entry.message.to?.[0]
 				const replyToFirstName = to ? firstName(toPerson(to, owner)) : undefined
@@ -1253,6 +1308,8 @@ function ThreadConversationContent({
 		<div
 			ref={rootRef}
 			data-slot="thread-conversation"
+			// The docked map takes the pane's right side; the stream keeps clear of it.
+			data-map-docked={(mapOpen && mapDocked && !conversation) || undefined}
 			className={conversation ? 'flex min-h-full flex-col bg-background' : 'reader min-h-full bg-background'}
 		>
 			{toolbarPortals}
@@ -1390,6 +1447,7 @@ function ThreadConversationContent({
 							onSelect={goTo}
 							onClose={() => setMapOpen(false)}
 							namesYouIds={namesYouIds}
+							{...(mapDocked !== undefined ? { docked: mapDocked } : {})}
 						/>,
 						slots.mapDock,
 					)

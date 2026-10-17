@@ -320,6 +320,8 @@ describe('dev mock Nylas client surface', () => {
 	})
 
 	it('applies every thread query filter and also returns everything for an empty query', async () => {
+		// Nothing on the boards is starred; star one conversation to filter by it.
+		await mailbox.updateThread('thread-hiking', { starred: true })
 		const filtered = await mailbox.listThreads({
 			in: 'personal',
 			subject: 'weekend',
@@ -328,6 +330,7 @@ describe('dev mock Nylas client surface', () => {
 			starred: true,
 		})
 		expect(filtered.data.map((thread) => thread.id)).toContain('thread-hiking')
+		await mailbox.updateThread('thread-hiking', { starred: false })
 
 		const all = await mailbox.listThreads()
 		expect(all.data.length).toBeGreaterThan(0)

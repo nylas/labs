@@ -48,10 +48,10 @@ export const ThreadBundleRow = memo(function ThreadBundleRow({
 				<Icon className="h-4 w-4" />
 			</span>
 			<span className="thread-bundle-text">
-				<span className="flex min-w-0 items-baseline gap-cluster">
+				<span className="thread-bundle-title flex min-w-0 items-baseline gap-cluster">
 					<span
 						className={cn(
-							'min-w-0 flex-1 truncate text-sm text-foreground',
+							'thread-bundle-name min-w-0 flex-1 truncate text-sm text-foreground',
 							summary.unread ? 'font-semibold' : 'font-normal',
 						)}
 					>

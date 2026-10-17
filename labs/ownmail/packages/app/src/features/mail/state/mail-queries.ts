@@ -312,5 +312,9 @@ export function threadDetailQueryOptions(
 	return queryOptions({
 		queryKey: mailKeys.threadDetail(safeThreadId),
 		queryFn: async () => toMailThreadDetail(await fetchDetail(safeThreadId)),
+		// Offline, a conversation that is not saved on this device fails at once
+		// (the reader says so, with Try again) instead of waiting, paused, for a
+		// connection behind a loading skeleton.
+		networkMode: 'always',
 	})
 }

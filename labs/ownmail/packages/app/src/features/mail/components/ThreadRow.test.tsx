@@ -294,6 +294,24 @@ describe('ThreadRowContent', () => {
 		expect(sender.querySelector('.thread-row-list-who')).not.toHaveClass('gap-1')
 	})
 
+	it('leads any muted conversation with the bell, not only a list’s', () => {
+		const { container } = renderRow(
+			thread({
+				id: 'thread-hiking',
+				participants: [ALAN, ADA],
+				message_ids: ['a', 'b'],
+				latest_draft_or_message: message({ id: 'b', from: [ADA], to: [ALAN] }),
+			}),
+			{ env: { ...ENV, mutedIds: new Set(['thread-hiking']) } },
+		)
+		const sender = container.querySelector('.thread-row-sender') as HTMLElement
+		expect(sender.querySelector('.thread-row-list-who svg')).not.toBeNull()
+		expect(sender).toHaveTextContent(/^Muted: Alan Turing, you$/)
+		expect(container.querySelector('.thread-row-snippet')).toHaveTextContent(
+			'Muted · 1 reply you don’t need to read',
+		)
+	})
+
 	it('says when a scheduled send goes out instead of the time', () => {
 		const { container } = renderRow(
 			thread({
@@ -425,10 +443,25 @@ describe('ThreadRowContent', () => {
 		cleanup()
 
 		const onToggle = vi.fn()
-		renderRow(thread({ id: 'x', subject: '' }), { selection: { checked: false, disabled: false, onToggle } })
+		renderRow(thread({ id: 'x', subject: '', snippet: '' }), {
+			selection: { checked: false, disabled: false, onToggle },
+		})
 		expect(screen.queryByRole('button', { name: 'Star' })).toBeNull()
 		fireEvent.click(screen.getByRole('checkbox', { name: 'Select (no subject)' }))
 		expect(onToggle).toHaveBeenCalled()
+	})
+
+	it('lets the first line stand in for a missing subject, styled as a stand-in', () => {
+		const { container } = renderRow(
+			thread({
+				id: 'x',
+				subject: '',
+				snippet: 'Can you send me the Lisbon hotel confirmation before Friday?',
+			}),
+		)
+		const subject = container.querySelector('.thread-row-subject') as HTMLElement
+		expect(subject).toHaveTextContent(/^Can you send me the Lisbon hotel.*…$/)
+		expect(subject).toHaveAttribute('data-stand-in', 'true')
 	})
 })
 

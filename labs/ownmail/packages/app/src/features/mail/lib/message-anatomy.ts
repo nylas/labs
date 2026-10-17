@@ -22,6 +22,7 @@ import { bubbleContent } from './conversation-model.js'
 import {
 	firstName,
 	isBounceMessage,
+	LIST_LOCAL_PART,
 	type Person,
 	personName,
 	REPLY_ALL_GUARD,
@@ -41,8 +42,6 @@ const LINE_LABEL = /^(?:[a-z]{1,8}\.?\s*[:|–-]\s*)/i
 const FORWARD_SUBJECT = /^\s*fwd?\s*:/i
 /** Second-level labels under a two-letter country code that a registrant cannot own (`co.uk`). */
 const PUBLIC_SECOND_LEVELS = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org'])
-/** A To address that names a mailing list by itself: eng-all@, pm-list@, all@. */
-const LIST_LOCAL_PART = /(?:-all|-list|^all)$/i
 
 const toSeconds = (value: number): number => (value > MILLISECONDS_FLOOR ? Math.floor(value / 1000) : value)
 const addressKey = (email: string): string => email.trim().toLowerCase()

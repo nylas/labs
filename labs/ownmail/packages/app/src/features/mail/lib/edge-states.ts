@@ -166,6 +166,15 @@ function joinWrapped(lines: string[]): string {
 	return out.join('\n')
 }
 
+/** Arabic script letters (Arabic, its supplement and extended blocks, presentation forms). */
+const ARABIC_LETTER = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u
+
+/** Whether a paragraph is written in Arabic script: its first letter is one. */
+export function isArabicScript(text: string): boolean {
+	const first = /\p{L}/u.exec(text)?.[0]
+	return first !== undefined && ARABIC_LETTER.test(first)
+}
+
 /** A short, stable hash of a string, for React keys of repeated text. */
 export function textKey(text: string, index: number): string {
 	let hash = 0x811c9dc5

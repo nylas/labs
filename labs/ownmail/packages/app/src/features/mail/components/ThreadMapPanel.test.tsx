@@ -76,7 +76,9 @@ function Harness({
 	entries = ENTRIES,
 	namesYouIds,
 	stoppedBeforeIndex = 4 as number | null,
+	docked,
 }: {
+	docked?: boolean
 	initialFilter?: ThreadMapFilter
 	onSelect?: (id: string) => void
 	onClose?: () => void
@@ -98,6 +100,7 @@ function Harness({
 				onClose={onClose}
 				open={open}
 				namesYouIds={namesYouIds}
+				{...(docked !== undefined ? { docked } : {})}
 			/>
 			<button type="button">Outside</button>
 		</div>
@@ -437,6 +440,19 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 })
 
 describe('ThreadMapPanel docked from xl', () => {
+	it('docks or opens as a sheet as its caller says, whatever the window width', () => {
+		stubWidth(true)
+		render(<Harness docked={false} />)
+		expect(screen.getByRole('dialog')).toBeInTheDocument()
+		cleanup()
+		stubWidth(false)
+		render(<Harness docked />)
+		const panel = screen.getByRole('complementary', { name: 'Thread map' })
+		// Its rows scroll inside it, so the From… menu over them is never clipped by the panel.
+		expect(panel).not.toHaveClass('overflow-y-auto')
+		expect(panel.querySelector('[data-slot="thread-map-rows"]')).toHaveClass('overflow-y-auto')
+	})
+
 	it('is panel glass beside the reader, with the current row focused', () => {
 		stubWidth(true)
 		render(<Harness />)

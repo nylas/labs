@@ -1036,8 +1036,8 @@ describe('marking a thread read on open', () => {
 		expect(client.getQueryData<{ thread: { unread: boolean } }>(detailKey)?.thread.unread).toBe(true)
 	})
 
-	it('does not report a thread read when its read failed before the conversation loaded', async () => {
-		api.markThreadRead.mockRejectedValue(new Error('offline'))
+	it('asks the provider to mark the thread read only once the conversation has loaded', async () => {
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', unread: false } })
 		let deliver: () => void = () => {}
 		const loaded = new Promise<void>((resolve) => (deliver = resolve))
 
@@ -1045,6 +1045,31 @@ describe('marking a thread read on open', () => {
 			await loaded
 			return { thread: { id: 'thread-1', unread: true } }
 		})
+		// The row reads at once; the provider's read waits for the messages, so
+		// they still say which were unread when the reader first shows them.
+		await vi.waitFor(() => expect(cachedRow()?.unread).toBe(false))
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+		deliver()
+
+		await expect(opening).resolves.toEqual({ thread: { id: 'thread-1', unread: false } })
+		await vi.waitFor(() => expect(api.markThreadRead).toHaveBeenCalledTimes(1))
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+	})
+
+	it('does not report a thread read when its read failed before the conversation loaded', async () => {
+		let reject: (reason: unknown) => void = () => {}
+		api.markThreadRead.mockReturnValue(new Promise((_resolve, fail) => (reject = fail)))
+		let deliver: () => void = () => {}
+		const loaded = new Promise<void>((resolve) => (deliver = resolve))
+
+		// A read already in flight (the reader marked it on an earlier open) is joined, not repeated.
+		expect(markThreadReadOnOpen(client, 'thread-1')).toBe(true)
+		const opening = openThreadDetail(client, 'thread-1', { preload: false }, async () => {
+			await loaded
+			return { thread: { id: 'thread-1', unread: true } }
+		})
+		reject(new Error('offline'))
 		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
 		deliver()
 

@@ -7,7 +7,7 @@ import {
 	personName,
 	senderPerson,
 } from '../lib/thread-reading-model.js'
-import { chipAttachments, messageHeadings } from '../lib/thread-stream.js'
+import { chipAttachments, isTrashed, messageHeadings } from '../lib/thread-stream.js'
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 import { AttachmentChip } from './AttachmentChip.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
@@ -20,6 +20,7 @@ import { linksDisabled, MessageNotices } from './MessageNotices.js'
 import { OutgoingStatus } from './OutgoingStatus.js'
 import { SupersededInviteNote } from './SupersededInvite.js'
 import { ThreadColumn, ThreadColumnInset } from './ThreadColumn.js'
+import { InTrash } from './ThreadStreamRows.js'
 
 /** How an invitation message shows its card: the newest of several, or one that was replaced. */
 export type InviteVersion =
@@ -63,6 +64,8 @@ export type OpenMessageDisplay = {
 export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	message,
 	prev,
+	earlier,
+	listNotice,
 	owner,
 	facts,
 	knownSenders,
@@ -76,7 +79,12 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	current,
 }: {
 	message: MailMessage
+	/** The message before, when it is open directly above (the header compares recipients with it). */
 	prev?: MailMessage
+	/** The message before in the thread, however it is shown (a notice says who this reply dropped). */
+	earlier?: MailMessage
+	/** Whether this message carries the thread's one mailing-list notice. */
+	listNotice: boolean
 	owner: string
 	facts?: MessageHeaderFacts
 	knownSenders: Person[]
@@ -143,9 +151,15 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 			>
 				<ThreadColumnInset>
 					<ThreadColumn>
+						{isTrashed(message) ? (
+							<p className="reader-trash-note">
+								<InTrash />
+							</p>
+						) : null}
 						<MessageNotices
 							message={message}
-							{...(prev ? { prev } : {})}
+							{...(earlier ? { prev: earlier } : {})}
+							listNotice={listNotice}
 							owner={owner}
 							{...(facts ? { facts } : {})}
 							knownSenders={knownSenders}

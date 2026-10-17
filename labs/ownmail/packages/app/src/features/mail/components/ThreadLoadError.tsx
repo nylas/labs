@@ -1,5 +1,6 @@
 import { useRouter } from '@tanstack/react-router'
 import { EdgeLoadCard, useOnline } from './PartialLoadNotice.js'
+import { ThreadColumn, ThreadColumnReader } from './ThreadColumn.js'
 
 /**
  * The reader route's error component. A thread that fails to load keeps the
@@ -10,15 +11,22 @@ export function ThreadLoadError({ reset }: { error: unknown; reset(): void }) {
 	const router = useRouter()
 	const online = useOnline()
 	return (
-		<div data-slot="thread-load-error" className="mx-auto w-full max-w-[760px] px-4 py-6">
-			<EdgeLoadCard
-				text={online ? 'Couldn’t load this conversation.' : 'Couldn’t load this conversation while offline.'}
-				online={online}
-				onRetry={() => {
-					reset()
-					void router.invalidate()
-				}}
-			/>
+		// On the reader's own column, where the conversation would have started.
+		<div data-slot="thread-load-error" className="w-full py-6">
+			<ThreadColumnReader active>
+				<ThreadColumn>
+					<EdgeLoadCard
+						text={
+							online ? 'Couldn’t load this conversation.' : 'Couldn’t load this conversation while offline.'
+						}
+						online={online}
+						onRetry={() => {
+							reset()
+							void router.invalidate()
+						}}
+					/>
+				</ThreadColumn>
+			</ThreadColumnReader>
 		</div>
 	)
 }

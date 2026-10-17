@@ -90,6 +90,7 @@ export function ThreadRowLayout({
 	when,
 	star,
 	subject,
+	subjectIsStandIn = false,
 	subjectClassName,
 	snippetFrom,
 	snippet,
@@ -109,6 +110,8 @@ export function ThreadRowLayout({
 	when?: ReactNode
 	star?: ReactNode
 	subject: string | undefined
+	/** The subject is the first line standing in for a missing one, and looks it. */
+	subjectIsStandIn?: boolean
 	subjectClassName?: string
 	/** "you" (with the reply glyph) or a first name: who the snippet is from. */
 	snippetFrom?: string
@@ -160,6 +163,7 @@ export function ThreadRowLayout({
 			<div className="thread-row-text pointer-events-none relative z-10">
 				<span className="thread-row-summary">
 					<span
+						data-stand-in={subjectIsStandIn || undefined}
 						className={cn(
 							'thread-row-subject text-sm',
 							unread ? 'font-semibold text-foreground' : 'text-foreground',
@@ -274,7 +278,7 @@ export function threadUnreadSummaryQueryOptions(thread: MailThread) {
 }
 
 /** "Mary, Grace, Alan, you +1", "Draft · to Bright Smile Dental", "To Grace Hopper", "eng-all@ · 31 people". */
-function RowSender({ who, fallback }: { who: RowWho; fallback: string }) {
+function RowSender({ who, fallback, muted = false }: { who: RowWho; fallback: string; muted?: boolean }) {
 	if (who.kind === 'draft') {
 		return (
 			<>
@@ -283,23 +287,25 @@ function RowSender({ who, fallback }: { who: RowWho; fallback: string }) {
 		)
 	}
 	if (who.kind === 'to') return <>To {who.name}</>
-	if (who.kind === 'list') {
+	const people = (
+		<>
+			{who.kind === 'list' ? `${who.list} · ${who.people} people` : who.names || fallback}
+			{who.kind === 'people' && who.more > 0 ? (
+				<span className="font-normal text-muted-foreground"> +{who.more}</span>
+			) : null}
+		</>
+	)
+	// A muted conversation, a list's or anyone's, leads with the bell that says so.
+	if (who.kind === 'list' || muted) {
 		return (
 			<span className="thread-row-list-who inline-flex min-w-0 items-center align-bottom">
 				<BellOff aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
 				<span className="sr-only">Muted: </span>
-				<span className="truncate">
-					{who.list} · {who.people} people
-				</span>
+				<span className="truncate">{people}</span>
 			</span>
 		)
 	}
-	return (
-		<>
-			{who.names || fallback}
-			{who.more > 0 ? <span className="font-normal text-muted-foreground"> +{who.more}</span> : null}
-		</>
-	)
+	return people
 }
 
 /**
@@ -404,7 +410,7 @@ export function ThreadRowContent({
 								checked={selection.checked}
 								disabled={selection.disabled}
 								onChange={selection.onToggle}
-								aria-label={`Select ${thread.subject || '(no subject)'}`}
+								aria-label={`Select ${facts.subject || '(no subject)'}`}
 								className="h-4 w-4 accent-primary"
 							/>
 						</label>
@@ -433,7 +439,7 @@ export function ThreadRowContent({
 						</button>
 					)
 				}
-				sender={<RowSender who={facts.who} fallback={threadSender(thread, folderId)} />}
+				sender={<RowSender who={facts.who} fallback={threadSender(thread, folderId)} muted={muted} />}
 				tone={facts.state === 'failed' ? 'failed' : muted ? 'muted' : facts.asksYou ? 'asks' : undefined}
 				unread={facts.unread}
 				hasAttachments={Boolean(thread.has_attachments) && !facts.file && !facts.invite && !muted}
@@ -447,6 +453,7 @@ export function ThreadRowContent({
 					) : undefined
 				}
 				subject={facts.subject}
+				subjectIsStandIn={facts.subjectIsStandIn === true}
 				subjectClassName={muted ? 'thread-row-subject-quiet' : undefined}
 				snippetFrom={facts.snippetFrom}
 				snippet={facts.snippet}

@@ -172,10 +172,14 @@ export function markThreadReadOnOpen(
 	return startReadOnOpen(client, threadId, knownThread) !== undefined
 }
 
+/** `after`, when given, holds the request to the provider until it settles:
+ * a conversation being opened is loaded first, so the provider's read cannot
+ * reach the messages before the reader sees which of them were unread. */
 function startReadOnOpen(
 	client: QueryClient,
 	threadId: string,
 	knownThread?: MailThread,
+	after?: Promise<void>,
 ): ReadAttempt | undefined {
 	if (typeof window === 'undefined') return undefined
 	let pending = openingReads.get(client)
@@ -195,7 +199,10 @@ function startReadOnOpen(
 	// applied to a conversation in the next inbox.
 	const detailKey = mailKeys.threadDetail(threadId)
 	const observer = new MutationObserver(client, {
-		mutationFn: () => markThreadRead({ data: { threadId } }),
+		mutationFn: async () => {
+			await after
+			return markThreadRead({ data: { threadId } })
+		},
 		onMutate: async (): Promise<OptimisticContext> => ({
 			operation: await managerFor(client).begin(updateThreadEffect(input), { preserveThreadDetails: true }),
 		}),
@@ -221,8 +228,10 @@ function startReadOnOpen(
 
 /** Loads a thread for a real (non-preload) open, starting the optimistic read
  * from the cached row before the detail request so the list, folder badge, and
- * reader agree immediately. A detail fetched before the read landed is aligned
- * with it, unless that read has already failed. */
+ * reader agree immediately. The provider is asked to mark it read only once
+ * the detail has loaded, so the messages still say which were unread (the
+ * reader's "new since" divider is built from them). The loaded detail is
+ * aligned with the read, unless that read has already failed. */
 export async function openThreadDetail<T extends { thread: { unread?: boolean } }>(
 	client: QueryClient,
 	threadId: string,
@@ -233,8 +242,10 @@ export async function openThreadDetail<T extends { thread: { unread?: boolean } 
 	}: { preload: boolean; queryKey?: QueryKey; cacheAs?: (detail: T) => unknown },
 	load: () => Promise<T>,
 ): Promise<T> {
-	const attempt = preload ? undefined : startReadOnOpen(client, threadId)
-	const detail = await load()
+	let loaded!: () => void
+	const gate = new Promise<void>((resolve) => (loaded = resolve))
+	const attempt = preload ? undefined : startReadOnOpen(client, threadId, undefined, gate)
+	const detail = await load().finally(loaded)
 	if (!attempt || attempt.failed || !detail.thread.unread) return detail
 	const read = { ...detail, thread: { ...detail.thread, unread: false } }
 	// Cache the aligned detail immediately so a later rejection can return it

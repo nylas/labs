@@ -390,7 +390,7 @@ function MapBody({
 	const tabStopId = [focusedId, selectedId].find((id) => id != null && rowIds.includes(id)) ?? rowIds[0]
 
 	return (
-		<div className="flex flex-col gap-cluster p-5">
+		<div className="flex min-h-0 flex-col gap-cluster p-5">
 			<div className="flex items-baseline gap-cluster">
 				{title}
 				<span className="font-data text-xs text-muted-foreground tabular-nums">
@@ -437,7 +437,11 @@ function MapBody({
 			</fieldset>
 
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the row buttons inside */}
-			<div className="flex flex-col" onKeyDown={(event) => moveFocus(event, 'button[data-map-row]')}>
+			<div
+				data-slot="thread-map-rows"
+				className="flex min-h-0 flex-col overflow-y-auto"
+				onKeyDown={(event) => moveFocus(event, 'button[data-map-row]')}
+			>
 				{rows.length === 0 || !rows.some((row) => row.kind === 'entry') ? (
 					<p className="m-0 px-hairline py-cluster text-[13px] text-muted-foreground">No messages match.</p>
 				) : null}
@@ -481,7 +485,7 @@ function MapBody({
 							onFocus={() => setFocusedId(entry.messageId)}
 							onClick={() => onSelect(entry.messageId)}
 							className={cn(
-								'flex min-h-[33px] w-full min-w-0 items-center gap-hairline rounded-md px-hairline text-left text-[13px] leading-[1.35] transition-colors duration-[var(--dur-fast)] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(any-pointer:coarse)]:min-h-11',
+								'flex min-h-[33px] w-full min-w-0 items-center gap-hairline rounded-md px-hairline text-left text-[13px] leading-[1.35] transition-colors duration-[var(--dur-fast)] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [@media(any-pointer:coarse)]:min-h-11',
 								entry.unread && 'font-semibold',
 								selected && 'bg-list-selected hover:bg-list-selected',
 							)}
@@ -554,6 +558,7 @@ export function ThreadMapPanel({
 	onClose,
 	open,
 	namesYouIds,
+	docked: dockedOverride,
 }: {
 	entries: MapEntry[]
 	stoppedBeforeIndex: number | null
@@ -568,8 +573,14 @@ export function ThreadMapPanel({
 	 * these and the rows that ask the reader something. Without it the filter keeps only the questions.
 	 */
 	namesYouIds?: readonly string[]
+	/**
+	 * Whether the panel docks beside the stream, as the caller decides from the
+	 * room its pane has; without it, from `xl` up.
+	 */
+	docked?: boolean
 }) {
-	const docked = useDocked()
+	const wide = useDocked()
+	const docked = dockedOverride ?? wide
 	const titleId = useId()
 	const asideRef = useRef<HTMLElement>(null)
 	// Keyed on the ids, not the array, so a caller that builds a new list each render keeps the rows memoised.
@@ -638,7 +649,8 @@ export function ThreadMapPanel({
 				{...panel}
 				className={cn(
 					panel.className,
-					'absolute top-region right-region z-30 max-h-[calc(100%-2rem)] w-[380px] overflow-y-auto',
+					// Its rows scroll inside it; the From… menu opens over them, never clipped by the panel.
+					'absolute top-region right-region z-30 flex max-h-[calc(100%-2rem)] w-[380px] flex-col',
 				)}
 			>
 				{/* Docked beside the stream, the map stays open while the reader moves to the row. */}
@@ -671,7 +683,7 @@ export function ThreadMapPanel({
 				}}
 				className="right-0 left-auto flex w-[min(380px,calc(100%_-_2rem))] max-w-none flex-col border-l bg-background pt-[var(--safe-area-top)] pb-[var(--safe-area-bottom)]"
 			>
-				<div className="min-h-0 flex-1 overflow-y-auto">
+				<div className="flex min-h-0 flex-1 flex-col">
 					{/* The sheet covers the stream, so choosing a row closes it to show that message. */}
 					{body(
 						<DialogTitle asChild>

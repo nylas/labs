@@ -82,7 +82,13 @@ describe('held images', () => {
 	})
 
 	it('hides held images behind striped placeholders, and quiets links only when asked', () => {
-		expect(edgeShadowStyle(false)).toContain(`img[${HELD_IMAGE_ATTRIBUTE}]{display:none!important;}`)
+		// A failed image is hidden and named in its declared space the same way.
+		expect(edgeShadowStyle(false)).toContain(
+			`img:is([${HELD_IMAGE_ATTRIBUTE}],[data-ownmail-image-failed]){display:none!important;}`,
+		)
+		expect(edgeShadowStyle(false)).toContain(
+			`:is([${HELD_PLACEHOLDER_ATTRIBUTE}],[data-ownmail-image-fallback]){display:inline-flex!important;`,
+		)
 		expect(edgeShadowStyle(false)).toContain('repeating-linear-gradient(135deg')
 		expect(edgeShadowStyle(false)).not.toContain('cursor:default')
 		expect(edgeShadowStyle(true)).toContain(':host .email-root a{cursor:default!important;')

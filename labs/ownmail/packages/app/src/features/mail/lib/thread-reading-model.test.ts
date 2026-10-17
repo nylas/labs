@@ -293,6 +293,22 @@ describe('recipientSummary', () => {
 		expect(recipientSummary(m8 as MailMessage, m7, OWNER)).toEqual({ text: 'to everyone', changed: false })
 	})
 
+	it('summarises mail to a list by the list it came through', () => {
+		const ENG_ALL = { email: 'eng-all@vercel.com' }
+		const cc = Array.from({ length: 238 }, (_, i) => ({ name: `Person ${i}`, email: `p${i}@vercel.com` }))
+		expect(recipientSummary({ ...msg('l', ALAN, [ENG_ALL]), cc }, undefined, OWNER)).toEqual({
+			text: 'to eng-all@ and 238 others',
+			changed: false,
+			group: 'eng-all@',
+		})
+		expect(recipientSummary({ ...msg('l', ALAN, [ENG_ALL]), cc: [GRACE] }, undefined, OWNER)).toMatchObject({
+			text: 'to eng-all@ and 1 other',
+		})
+		expect(recipientSummary(msg('l', ALAN, [ENG_ALL]), undefined, OWNER)).toMatchObject({
+			text: 'to eng-all@',
+		})
+	})
+
 	it('still says "to everyone" when a reply all adds someone', () => {
 		// Grace adds Mary: the "Grace added Mary Jackson" line says so.
 		expect(recipientSummary(m7 as MailMessage, m6, OWNER)).toEqual({ text: 'to everyone', changed: false })
@@ -519,7 +535,7 @@ describe('foldPlan', () => {
 			'open:13',
 		])
 		const folded = items[1] as Extract<FoldItem, { kind: 'folded' }>
-		expect(folded.names).toBe('Alan, Katherine, Mary, you +2')
+		expect(folded.names).toBe('Alan, Katherine, you, Mary +2')
 		expect(folded.span).toBe('Oct 2 – Oct 10')
 		expect(folded.avatars.map((p) => personName(p, 'first'))).toEqual(['Alan', 'Katherine', 'you'])
 		expect(folded.ids).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9'])
@@ -565,7 +581,7 @@ describe('foldPlan', () => {
 		expect(kinds(tail)).toContain('line:7')
 	})
 
-	it('names a folded run’s senders with the owner last', () => {
+	it('names a folded run’s senders in the order they spoke, the owner as “you”', () => {
 		// The board's run: Alan, you, Katherine, Alan, Grace, you, Katherine, Alan, Grace.
 		const order = [ALAN, ADA, KATHERINE, ALAN, GRACE, ADA, KATHERINE, ALAN, GRACE]
 		const messages = [
@@ -575,12 +591,18 @@ describe('foldPlan', () => {
 			msg('m11', ALAN, [ADA], { date: ago(2) }),
 		]
 		const folded = foldPlan(messages, { ...base, unreadIds: ['m11'] }).find((item) => item.kind === 'folded')
-		expect(folded).toMatchObject({ names: 'Alan, Katherine, Grace, you' })
+		expect(folded).toMatchObject({ names: 'Alan, you, Katherine, Grace' })
 		expect(folded?.kind === 'folded' && folded.avatars.map((p) => personName(p, 'first'))).toEqual([
 			'Alan',
-			'Katherine',
 			'you',
+			'Katherine',
 		])
+	})
+
+	it('does not fold a run across a message that could not load', () => {
+		const messages = longThread(10)
+		const items = foldPlan(messages, { ...base, unreadIds: [], breaksAfter: new Set([4]) })
+		expect(kinds(items)).toEqual(['line:0', 'folded:1,2,3,4', 'folded:5,6,7', 'line:8', 'open:9'])
 	})
 
 	it('shows runs shorter than three as lines', () => {

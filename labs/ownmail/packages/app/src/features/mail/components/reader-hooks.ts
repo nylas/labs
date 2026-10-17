@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
 
 /** Tailwind's `md`: from here the reader is the desktop layout; below it, the phone thread screen. */
@@ -87,4 +87,24 @@ export function watchNear(element: HTMLElement, onChange: (near: boolean) => voi
 		current.observer.disconnect()
 		nearWatches.delete(root)
 	}
+}
+
+/**
+ * Whether an element is at least `min` CSS pixels wide, measured again as the
+ * window resizes; undefined while it is not laid out (no element, no width,
+ * or on the server), so the caller can fall back to a breakpoint.
+ */
+export function useWidthAtLeast(element: HTMLElement | null | undefined, min: number): boolean | undefined {
+	const [wide, setWide] = useState<boolean | undefined>(undefined)
+	useEffect(() => {
+		if (!element) return
+		const update = () => {
+			const { width } = element.getBoundingClientRect()
+			setWide(width > 0 ? width >= min : undefined)
+		}
+		update()
+		window.addEventListener('resize', update)
+		return () => window.removeEventListener('resize', update)
+	}, [element, min])
+	return element ? wide : undefined
 }

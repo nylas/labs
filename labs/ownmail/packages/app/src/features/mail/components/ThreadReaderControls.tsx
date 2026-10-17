@@ -12,7 +12,7 @@ import { IconButton } from '#shared/components/ui/icon-button'
 import { cn } from '#shared/lib/utils'
 
 /** The reader toolbar's icon buttons are 32px with a fine pointer, like the board's toolbar. */
-export const READER_ICON_BUTTON_CLASS = 'size-8 max-md:size-11'
+export const READER_ICON_BUTTON_CLASS = 'size-8 text-control-foreground max-md:size-11 max-md:text-foreground'
 
 /**
  * "12 of 14" between Previous (k) and Next (j). It follows the message in
@@ -133,7 +133,8 @@ export function ReaderMoreMenu({ items, label = 'More' }: { items: ReaderMenuIte
 				className={READER_ICON_BUTTON_CLASS}
 				onClick={() => setOpen((current) => !current)}
 			>
-				<MoreHorizontal aria-hidden="true" />
+				{/* 20px on the phone's top bar, as its Back and Archive are. */}
+				<MoreHorizontal aria-hidden="true" className="size-4 max-md:size-5" />
 			</IconButton>
 			{open ? (
 				<div

@@ -151,9 +151,19 @@ function LongMessageLayout({
 		}
 	}, [measure, messageId, viewport])
 
+	/** Brings a section's heading to the top of the view, under the progress bar while it is pinned. */
 	const goTo = (index: number) => {
-		const node = headingNodes(rootRef.current as HTMLDivElement, headings)[index]
-		node?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+		const root = rootRef.current as HTMLDivElement
+		const node = headingNodes(root, headings)[index]
+		if (!node) return
+		const parent = scrollParent(root)
+		const bar = root.querySelector('[data-slot="long-message-progress"]') as HTMLElement
+		const pinned = getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().height : 0
+		// The pane's scroll padding is the bar it scrolls under (the toolbar); the progress bar pins below it.
+		const padding = parent ? Number.parseFloat(getComputedStyle(parent).scrollPaddingTop) || 0 : 0
+		const by = node.getBoundingClientRect().top - viewport(parent).top - padding - pinned
+		if (parent) parent.scrollBy({ top: by, behavior: 'smooth' })
+		else window.scrollBy({ top: by, behavior: 'smooth' })
 	}
 
 	const percent = Math.round(progress * 100)

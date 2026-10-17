@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
 import { cn } from '#shared/lib/utils'
 import { splitHtmlBody, splitPlainBody } from '../lib/body-disclosure.js'
-import { reflowPlainText, textKey } from '../lib/edge-states.js'
+import { isArabicScript, reflowPlainText, textKey } from '../lib/edge-states.js'
 import { prepareEmailMessageContent } from '../lib/email-message-content.js'
 import type { EmailCanvasDetail, EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
 import { ownMailDraftMarkdown } from '../lib/html-to-markdown.js'
@@ -138,11 +138,14 @@ function PreparedHtmlBody({
 			retryRevision={retryRevision}
 			linksDisabled={linksDisabled}
 			fontSize={bodyFontSize}
+			prose={prepared.isProse}
 		/>
 	)
 	// The band extends the sender's canvas across the whole reading pane; the
-	// message itself stays on the thread column.
-	const band = canvas?.canvas ?? null
+	// message itself stays on the thread column. Written mail sits on the
+	// reader's own ground, right under its header, unless a light message is
+	// kept on paper in the dark reader.
+	const band = prepared.isProse && canvas?.strategy !== 'paper' ? null : (canvas?.canvas ?? null)
 	return (
 		<div
 			data-slot="email-canvas-band"
@@ -173,6 +176,7 @@ function PreparedHtmlBody({
 						{...(message.subject ? { windowTitle: message.subject } : {})}
 						windowHtml={prepared.html}
 						chromeInset={!prepared.isProse}
+						prose={prepared.isProse}
 					/>
 					<div className={prepared.isProse ? undefined : 'px-4 sm:px-0'}>
 						<BodyDisclosures disclosure={body} onGoToQuoted={onGoToQuoted} renderHtml={renderTaken} />
@@ -249,6 +253,8 @@ function PlainBody({
 								className={cn(
 									'whitespace-pre-wrap break-words text-secondary-foreground [overflow-wrap:anywhere]',
 									PROSE_SIZE[bodyFontSize],
+									// Arabic is set in a Naskh face, which Manrope does not carry.
+									isArabicScript(block.text) && 'reader-arabic',
 								)}
 							>
 								{block.text}

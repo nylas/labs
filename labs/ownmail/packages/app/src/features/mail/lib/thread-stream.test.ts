@@ -10,6 +10,7 @@ import {
 	lineDateLabel,
 	messageAnchorId,
 	messageHeadings,
+	missingAfter,
 	placeDrafts,
 	quotedMessageId,
 	replyAllNames,
@@ -70,6 +71,16 @@ describe('streamEntries', () => {
 		expect(kinds(streamEntries(base))).toEqual(['|line', '|folded', '|open', '|open'])
 	})
 
+	it('marks messages that could not load where they were, before the first or after a row', () => {
+		const missing = new Map([
+			[-1, 1],
+			[2, 2],
+		])
+		const entries = streamEntries({ ...base, missing })
+		expect(kinds(entries)).toEqual(['|missing', '|line', '|folded', '|missing', '|open', '|open'])
+		expect(entries[3]).toMatchObject({ kind: 'missing', count: 2, key: 'missing:2' })
+	})
+
 	it('lets the divider be the line above the first new message, with the catch-up card before it', () => {
 		const entries = streamEntries({
 			...base,
@@ -115,6 +126,14 @@ describe('streamEntries', () => {
 		expect(entries.at(-1)).not.toHaveProperty('prev')
 	})
 
+	it('gives every open message after the first the message before it, however that one is shown', () => {
+		const entries = streamEntries({ ...base, closedIds: new Set(['m3']) })
+		const open = entries.filter((entry) => entry.kind === 'open')
+		expect(open.map((entry) => ('earlier' in entry ? entry.earlier?.id : undefined))).toEqual(['m3'])
+		const first = streamEntries({ ...base, plan: [{ kind: 'open', index: 0 }] })
+		expect(first[0]).not.toHaveProperty('earlier')
+	})
+
 	it('puts system lines only between rows, never inside a folded run', () => {
 		const entries = streamEntries({
 			...base,
@@ -147,6 +166,18 @@ describe('streamEntries', () => {
 		const entries = streamEntries({ ...base, drafts: [{ draft, after: messages[1] }] })
 		expect(kinds(entries)).toEqual(['|line', '|folded', '|draft', '|open', '|open'])
 		expect(entries[2]).toMatchObject({ kind: 'draft', key: 'draft:d1', replyTo: { id: 'm1' } })
+	})
+})
+
+describe('missingAfter', () => {
+	it('counts the messages that could not load after the shown message each follows', () => {
+		const shown = [message('a'), message('b')]
+		expect([...missingAfter(['x', 'a', 'y', 'z', 'gone', 'b'], shown, ['x', 'y', 'z'])]).toEqual([
+			[-1, 1],
+			[0, 2],
+		])
+		expect(missingAfter(['a', 'b'], shown, undefined).size).toBe(0)
+		expect([...missingAfter(undefined, shown, ['x'])]).toEqual([])
 	})
 })
 

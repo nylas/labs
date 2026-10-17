@@ -254,6 +254,12 @@ describe('shadowStyleText', () => {
 		expect(css).toContain('padding:0;')
 	})
 
+	it('sets a prose message’s paragraphs 12px apart with none above the first, below the sender’s own CSS', () => {
+		const css = shadowStyleText()
+		expect(css).toContain(':host([data-email-prose]) .email-root :where(p){margin:0 0 12px;}')
+		expect(css).toContain(':host([data-email-prose]) .email-root :where(p:last-child){margin-bottom:0;}')
+	})
+
 	it('sets the 16px / 1.6 reading baseline on the host as an overridable default', () => {
 		const host = shadowStyleText().split('\n')[0] as string
 		expect(host).toMatch(/^:host\{/)

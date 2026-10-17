@@ -392,6 +392,28 @@ describe('MessageBody (canvas band)', () => {
 		expect(band).not.toHaveClass('py-6')
 		expect(band).toHaveAttribute('data-email-strategy', 'paper')
 	})
+
+	it('keeps written mail on the reader’s ground, right under its header, unless it is kept on paper', () => {
+		render(<MessageBody message={message({ id: 'm-prose', body: '<p>One.</p><p>Two.</p>' })} />)
+		const band = document.querySelector('[data-slot="email-canvas-band"]') as HTMLElement
+		const element = document.querySelector(EMAIL_ELEMENT_TAG) as HTMLElement
+		// Its paragraphs take the reader's rhythm.
+		expect(element).toHaveAttribute('data-email-prose', '')
+		const send = (strategy: string) =>
+			act(() => {
+				element.dispatchEvent(
+					new CustomEvent(EMAIL_CANVAS_EVENT, {
+						detail: { strategy, canvas: 'rgb(255, 255, 255)', height: 80 },
+					}),
+				)
+			})
+		send('original')
+		expect(band.style.backgroundColor).toBe('')
+		expect(band).not.toHaveClass('py-3')
+		send('paper')
+		expect(band.style.backgroundColor).toBe('rgb(255, 255, 255)')
+		expect(band).toHaveClass('py-3')
+	})
 })
 
 describe('MessageBody (edge states)', () => {
@@ -418,6 +440,8 @@ describe('MessageBody (edge states)', () => {
 		expect(paragraph).toHaveAttribute('dir', 'auto')
 		expect(paragraph).toHaveClass('text-[17px]', 'leading-[1.55]')
 		expect(screen.getByText('شكراً، سأراجع المستند صباح الغد.')).toHaveAttribute('dir', 'auto')
+		expect(screen.getByText('شكراً، سأراجع المستند صباح الغد.')).toHaveClass('reader-arabic')
+		expect(paragraph).not.toHaveClass('reader-arabic')
 		const code = screen.getByText('git checkout release/3.2')
 		expect(code.tagName).toBe('PRE')
 		expect(code).toHaveClass('font-mono', 'bg-muted', 'whitespace-pre')

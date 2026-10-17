@@ -31,7 +31,7 @@ const collapseButtonClass =
 	'sr-only shrink-0 rounded-md text-foreground/75 outline-none hover:bg-muted hover:text-foreground focus-visible:not-sr-only focus-visible:inline-flex focus-visible:size-7 focus-visible:items-center focus-visible:justify-center focus-visible:ring-2 focus-visible:ring-ring'
 
 const actionButtonClass =
-	'touch-target inline-flex size-7 items-center justify-center rounded-md text-foreground/75 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+	'touch-target inline-flex size-7 items-center justify-center rounded-md text-control-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
 
 function HeaderAction({
 	label,
@@ -110,6 +110,15 @@ export function MessageHeader({
 	const sender = senderPerson(message, owner)
 	const name = headerSenderName(message, owner)
 	const summary = recipientSummary(message, prev, owner)
+	// A list the mail came through stands out from the people it adds up to.
+	const summaryText = summary.group ? (
+		<>
+			to <span className="font-medium text-foreground">{summary.group}</span>
+			{summary.text.slice(`to ${summary.group}`.length)}
+		</>
+	) : (
+		summary.text
+	)
 	const showDetails = expanded && detailsOpen
 	const tz = mounted ? viewerTimeZone() : 'UTC'
 	const time = message.date && mounted ? headerTimeLabel(message.date, Date.now(), tz) : ''
@@ -191,7 +200,7 @@ export function MessageHeader({
 											summary.changed && 'text-foreground',
 										)}
 									>
-										<span className="truncate">{summary.text}</span>
+										<span className="truncate">{summaryText}</span>
 										<ChevronDown
 											aria-hidden="true"
 											className={cn(
@@ -204,7 +213,7 @@ export function MessageHeader({
 										<span className="sr-only">{showDetails ? 'Hide' : 'Show'} message details</span>
 									</button>
 								) : (
-									<span className="truncate">{summary.text}</span>
+									<span className="truncate">{summaryText}</span>
 								)}
 								{timeElement ? (
 									<span className="shrink-0 md:hidden">
@@ -350,8 +359,9 @@ function useDismiss(
 			if (!pressStartedInside && !inside(event)) closeRef.current()
 		}
 		function onKeyDown(event: KeyboardEvent) {
-			if (event.key !== 'Escape') return
-			// A dialog opened from the panel handles its own Escape.
+			// A dialog opened from the panel handles its own Escape. It claims the key
+			// (and may already be gone by now), so a handled Escape is left alone.
+			if (event.key !== 'Escape' || event.defaultPrevented) return
 			if (document.querySelector('[data-slot="dialog-content"]')) return
 			event.preventDefault()
 			event.stopPropagation()

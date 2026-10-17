@@ -481,6 +481,25 @@ describe('<ownmail-email> rendering', () => {
 		expect(image.src).toContain('retry=2')
 	})
 
+	it('names a failed image in its declared space, so the layout keeps its place', () => {
+		const token = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+		const el = mount(
+			`<img class="sized" alt="Lisbon" width="560" height="180" src="/email-images/${token}"><img class="half" alt="Porto" width="280" src="/email-images/${token}">`,
+		)
+		el.setAttribute('data-load-remote-images', '')
+		const sized = el.shadowRoot?.querySelector<HTMLImageElement>('.sized') as HTMLImageElement
+		const half = el.shadowRoot?.querySelector<HTMLImageElement>('.half') as HTMLImageElement
+		sized.dispatchEvent(new Event('error'))
+		half.dispatchEvent(new Event('error'))
+		const [first, second] =
+			el.shadowRoot?.querySelectorAll<HTMLElement>('[data-ownmail-image-fallback]') ?? []
+		expect(sized).toHaveAttribute('data-ownmail-image-failed')
+		expect(first?.style.width).toBe('560px')
+		expect(first?.style.height).toBe('180px')
+		expect(second?.style.width).toBe('280px')
+		expect(second?.style.height).toBe('')
+	})
+
 	it('stores html set before connection and renders it on connect', () => {
 		ensureEmailElementDefined()
 		const el = document.createElement(EMAIL_ELEMENT_TAG) as EmailEl
@@ -686,6 +705,24 @@ describe('<ownmail-email> scaling', () => {
 		el.measure()
 		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe(`${MIN_EMAIL_SCALE}`)
 		expect(el).toHaveAttribute('data-email-pan')
+	})
+
+	it('fits a fixed layout a little wider than the pane whole instead of reflowing its columns', () => {
+		const el = mount(
+			'<table class="designed" width="640" style="min-width:640px"><tr><td>Day one</td></tr></table>',
+		)
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const table = content.querySelector('.designed') as HTMLElement
+		stubSize(content, 'scrollWidth', 640)
+		stubSize(el, 'clientWidth', 528)
+		let detail: EmailLayoutStatusDetail | undefined
+		el.addEventListener(EMAIL_LAYOUT_STATUS_EVENT, (event) => {
+			detail = (event as CustomEvent<EmailLayoutStatusDetail>).detail
+		})
+		el.measure()
+		expect(table.style.getPropertyValue('width')).toBe('')
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe(`${528 / 640}`)
+		expect(detail).toMatchObject({ mode: 'readable', reflowed: false, needsFit: true, naturalWidth: 640 })
 	})
 
 	it('clears any scaling when content fits the pane', () => {

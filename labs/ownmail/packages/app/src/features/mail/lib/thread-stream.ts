@@ -32,12 +32,13 @@ const REPLY_CARD_NAMES = 3
 type FoldedItem = Extract<FoldItem, { kind: 'folded' }>
 
 export type StreamEntry = { key: string; separated: boolean } & (
-	| { kind: 'open' | 'line'; index: number; message: MailMessage; prev?: MailMessage }
+	| { kind: 'open' | 'line'; index: number; message: MailMessage; prev?: MailMessage; earlier?: MailMessage }
 	| { kind: 'folded'; item: FoldedItem }
 	| { kind: 'divider'; label: string; count: number }
 	| { kind: 'catch-up' }
 	| { kind: 'system'; text: string }
 	| { kind: 'draft'; message: MailMessage; replyTo?: MailMessage }
+	| { kind: 'missing'; count: number }
 )
 
 export type StreamInput = {
@@ -52,6 +53,30 @@ export type StreamInput = {
 	catchUpBeforeIndex: number | null
 	/** Drafts, each with the message it follows in the thread (undefined: before the first). */
 	drafts: Array<{ draft: MailMessage; after?: MailMessage }>
+	/** Messages that could not load, counted after the shown message they follow (-1: before the first). */
+	missing?: ReadonlyMap<number, number>
+}
+
+/**
+ * Where the messages that could not load were: how many follow each shown
+ * message, by the thread's own order of message ids (-1: before the first).
+ * A missing message breaks a folded run there, so the stream can say so in place.
+ */
+export function missingAfter(
+	messageIds: readonly string[] | undefined,
+	shown: MailMessage[],
+	failedIds: readonly string[] | undefined,
+): Map<number, number> {
+	const missing = new Map<number, number>()
+	const failed = new Set(failedIds ?? [])
+	if (failed.size === 0) return missing
+	const indexOf = new Map(shown.map((message, index) => [message.id, index]))
+	let after = -1
+	for (const id of messageIds ?? []) {
+		if (failed.has(id)) missing.set(after, (missing.get(after) ?? 0) + 1)
+		else after = indexOf.get(id) ?? after
+	}
+	return missing
 }
 
 const itemIndices = (item: FoldItem): number[] => (item.kind === 'folded' ? item.indices : [item.index])
@@ -62,10 +87,11 @@ const itemIndices = (item: FoldItem): number[] => (item.kind === 'folded' ? item
  * and the divider and system lines themselves. A system line between two
  * messages shows only where those messages are on separate rows: one that
  * falls inside a folded run folds with it. `prev` is set on an open message
- * only when the message before it is open directly above.
+ * only when the message before it is open directly above; `earlier` is the
+ * message before it however that one is shown.
  */
 export function streamEntries(input: StreamInput): StreamEntry[] {
-	const { messages, plan, closedIds, divider, events, catchUpBeforeIndex, drafts } = input
+	const { messages, plan, closedIds, divider, events, catchUpBeforeIndex, drafts, missing } = input
 	const entries: StreamEntry[] = []
 	const eventsAfter = new Map<number, string[]>()
 	for (const event of events)
@@ -90,7 +116,14 @@ export function streamEntries(input: StreamInput): StreamEntry[] {
 			separateNext = true
 		}
 	}
+	const pushMissing = (afterIndex: number) => {
+		const count = missing?.get(afterIndex)
+		if (!count) return
+		push({ kind: 'missing', key: `missing:${afterIndex}`, separated: separateNext, count })
+		separateNext = true
+	}
 	pushDrafts(leadingDrafts)
+	pushMissing(-1)
 	let lastOpenIndex = -2
 	for (const item of plan) {
 		const indices = itemIndices(item)
@@ -124,6 +157,7 @@ export function streamEntries(input: StreamInput): StreamEntry[] {
 				...(open && lastOpenIndex === item.index - 1
 					? { prev: messages[item.index - 1] as MailMessage }
 					: {}),
+				...(open && item.index > 0 ? { earlier: messages[item.index - 1] as MailMessage } : {}),
 			})
 			lastOpenIndex = open ? item.index : -2
 		}
@@ -133,6 +167,8 @@ export function streamEntries(input: StreamInput): StreamEntry[] {
 			const message = messages[index] as MailMessage
 			pushDrafts(draftsAfter.get(message.id) ?? [], message)
 		}
+		// A run is folded only between missing messages, so they follow its last row.
+		pushMissing(indices.at(-1) as number)
 	}
 	return entries
 }

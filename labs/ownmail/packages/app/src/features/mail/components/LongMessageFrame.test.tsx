@@ -119,11 +119,24 @@ describe('LongMessageFrame', () => {
 		}
 		expect(sessionStorage.getItem('ownmail:reading-position:msa')).toBe('400')
 
+		// The heading lands under the pinned progress bar and the toolbar the pane scrolls under, not behind them.
+		const paneScroll = vi.fn()
+		pane.scrollBy = paneScroll as unknown as typeof pane.scrollBy
+		pane.style.scrollPaddingTop = '44px'
+		const bar = document.querySelector('[data-slot="long-message-progress"]') as HTMLElement
+		bar.style.position = 'sticky'
+		rectOf(bar, { top: 144, height: 40 })
 		await userEvent.click(screen.getAllByRole('button', { name: '3 Liability' })[0] as HTMLElement)
-		expect(shadow.querySelector('h2')?.scrollIntoView).toHaveBeenCalledWith({
-			block: 'start',
-			behavior: 'smooth',
-		})
+		expect(paneScroll).toHaveBeenLastCalledWith({ top: 900 - 100 - 44 - 40, behavior: 'smooth' })
+		// On a phone the bar scrolls with the message; a pane without scroll padding has none to keep clear.
+		bar.style.position = 'static'
+		pane.style.scrollPaddingTop = ''
+		await userEvent.click(screen.getAllByRole('button', { name: '3 Liability' })[0] as HTMLElement)
+		expect(paneScroll).toHaveBeenLastCalledWith({ top: 800, behavior: 'smooth' })
+		// A heading the message no longer has goes nowhere.
+		shadow.innerHTML = ''
+		await userEvent.click(screen.getAllByRole('button', { name: '3 Liability' })[0] as HTMLElement)
+		expect(paneScroll).toHaveBeenCalledTimes(2)
 	})
 
 	it('returns to where the reader stopped once the message is tall enough', () => {
@@ -174,6 +187,19 @@ describe('LongMessageFrame', () => {
 		})
 		expect(screen.queryByRole('navigation')).toBeNull()
 		expect(screen.queryByText('Outline')).toBeNull()
+	})
+
+	it('scrolls the page itself to a section when no pane scrolls', async () => {
+		const scrollBy = vi.fn()
+		vi.stubGlobal('scrollBy', scrollBy)
+		render(
+			<LongMessageFrame messageId="page-outline" text={LONG} headings={HEADINGS}>
+				<Body />
+			</LongMessageFrame>,
+		)
+		rectOf(screen.getByRole('heading', { name: 'Payment' }), { top: 700, height: 20 })
+		await userEvent.click(screen.getAllByRole('button', { name: '2 Payment' })[0] as HTMLElement)
+		expect(scrollBy).toHaveBeenLastCalledWith({ top: 700, behavior: 'smooth' })
 	})
 
 	it('keeps the saved position until the message is tall enough to return to it', () => {

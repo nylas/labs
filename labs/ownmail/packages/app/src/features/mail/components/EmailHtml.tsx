@@ -50,6 +50,7 @@ const OwnmailEmail = EMAIL_ELEMENT_TAG as unknown as (props: {
 	className?: string
 	style?: CSSProperties
 	'data-message-id'?: string
+	'data-email-prose'?: string
 }) => null
 
 type Fit = { scale: number; naturalWidth: number }
@@ -102,6 +103,7 @@ export function EmailHtml({
 	windowTitle = 'Email',
 	windowHtml,
 	chromeInset = false,
+	prose = false,
 }: {
 	html: string
 	messageId: string
@@ -126,6 +128,8 @@ export function EmailHtml({
 	windowHtml?: string
 	/** Designed mail runs edge to edge on a phone; its bars keep the prose gutter. */
 	chromeInset?: boolean
+	/** Ordinary written mail: its paragraphs take the reader's rhythm (12px apart, none above the first). */
+	prose?: boolean
 }) {
 	const ref = useRef<(HTMLElement & EmailElementLike) | null>(null)
 	const [ready, setReady] = useState(false)
@@ -367,6 +371,7 @@ export function EmailHtml({
 						ref={ref}
 						title={`Email content ${messageId}`}
 						data-message-id={messageId}
+						{...(prose ? { 'data-email-prose': '' } : {})}
 						className="block w-full"
 						style={elementStyle}
 					/>
