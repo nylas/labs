@@ -62,6 +62,17 @@
 	--color-accent-foreground: var(--accent-foreground);
 	--color-bubble-own: var(--bubble-own);
 	--color-bubble-own-foreground: var(--bubble-own-fg);
+	/* Thread list (design.md "Thread list"): row rules, the open row, a row asking you, a draft, a send
+	 * that failed, the ask pill. */
+	--color-list-line: var(--list-line);
+	--color-list-selected: var(--list-selected);
+	--color-list-selected-line: var(--list-selected-line);
+	--color-list-asks: var(--list-asks);
+	--color-list-draft: var(--list-draft);
+	--color-list-failed: var(--list-failed);
+	--color-list-failed-foreground: var(--list-failed-fg);
+	--color-signal-ask: var(--signal-ask);
+	--color-signal-ask-foreground: var(--signal-ask-fg);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-border: var(--border);
@@ -163,6 +174,17 @@
 	 * token here; in the dark theme it is the green accent surface itself. */
 	--bubble-own: oklch(0.935 0.035 158);
 	--bubble-own-fg: oklch(0.2 0.035 160);
+	/* Thread list: rows part on a rule lighter than `--border`; the open row is a green tint in a
+	 * 1px ring; amber asks, red is a draft or did not send. */
+	--list-line: oklch(0.94 0.003 145);
+	--list-selected: oklch(0.955 0.012 158);
+	--list-selected-line: oklch(0.88 0.03 158);
+	--list-asks: oklch(0.985 0.004 158);
+	--list-draft: oklch(0.5 0.17 25);
+	--list-failed: oklch(0.98 0.012 25);
+	--list-failed-fg: oklch(0.48 0.17 25);
+	--signal-ask: oklch(0.95 0.04 75);
+	--signal-ask-fg: oklch(0.4 0.08 65);
 	--destructive: oklch(0.55 0.2 25);
 	--destructive-foreground: oklch(1 0 0);
 	--border: oklch(0.91 0.003 145);
@@ -239,6 +261,15 @@
 	--accent-foreground: oklch(0.92 0.06 158);
 	--bubble-own: oklch(0.26 0.04 160);
 	--bubble-own-fg: oklch(0.92 0.06 158);
+	--list-line: oklch(1 0 0 / 6%);
+	--list-selected: oklch(0.24 0.035 160);
+	--list-selected-line: oklch(0.42 0.06 158);
+	--list-asks: oklch(0.19 0.015 160);
+	--list-draft: oklch(0.76 0.13 25);
+	--list-failed: oklch(0.21 0.035 25);
+	--list-failed-fg: oklch(0.8 0.11 25);
+	--signal-ask: oklch(0.32 0.05 75);
+	--signal-ask-fg: oklch(0.9 0.07 80);
 	--destructive: oklch(0.66 0.19 25);
 	--destructive-foreground: oklch(0 0 0);
 	--border: oklch(1 0 0 / 9%);

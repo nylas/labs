@@ -391,8 +391,8 @@ describe('/mail/search results list', () => {
 		expect(screen.getByText('Hello there')).toBeTruthy()
 		// Empty subject falls back to a placeholder.
 		expect(screen.getByText('(no subject)')).toBeTruthy()
-		// Multi-message thread shows its count; single-message thread does not.
-		expect(screen.getByText('(2)')).toBeTruthy()
+		// Rows count what is new ("3 new"), never every message in the thread.
+		expect(screen.queryByText('(2)')).toBeNull()
 		// The active thread and the unread thread are flagged for styling/state.
 		expect(container.querySelector('[data-active="true"]')?.querySelector('a')).toHaveAttribute(
 			'data-to',
@@ -834,7 +834,7 @@ describe('/mail/search thread detail', () => {
 			await waitFor(() => expect(resultsList()).toHaveAttribute('data-density', 'compact'))
 			// Result rows are the shared thread row, so the density applies to them too.
 			expect(resultsList()?.querySelector('[data-nav-row]')).toHaveClass('thread-row')
-			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-lead')).not.toBeNull()
+			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-star')).not.toBeNull()
 		} finally {
 			window.localStorage.clear()
 		}

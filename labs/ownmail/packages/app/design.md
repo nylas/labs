@@ -290,10 +290,11 @@ Mail lists (folders, drafts, and search results) share one row definition,
 `.thread-row`, with three densities. The choice is a device preference, set from
 the list toolbar or the command palette.
 
-- Default: three lines (sender and date, subject, snippet), about 89 pixels.
-- Compact: two lines (sender and date, then subject and snippet on one line),
+- Default: three lines (people and time, subject, snippet), about 89 pixels,
+  and a fourth line of signals when a row has more than one.
+- Compact: two lines (people and time, then subject and snippet on one line),
   about 62 pixels.
-- Condensed: one line (sender, subject and snippet, date), 34 pixels. The
+- Condensed: one line (people, subject and snippet, time), 34 pixels. The
   vertical split widens the list from 22rem to 26rem for it, in the same media
   query as the rows, so the preference changes no layout where it does not
   apply.
@@ -301,14 +302,105 @@ the list toolbar or the command palette.
   desktop layouts. Mobile layouts and any touch-capable device always get the
   Default row, never under 48 pixels, and the toolbar control is hidden there
   because the choice has no effect. The gate is a CSS media query that is the
-  exact complement of the touch-floor query, not script detection.
-- Unread rows have no marker of their own. The sender and subject are set in
+  exact complement of the touch-floor query, not script detection. The two
+  narrower densities carry the same signals as Default, collapsed to the first
+  one at the end of the line; an invitation collapses to an "Invite" pill and
+  a failed send keeps its words as the snippet.
+- Unread rows have no marker of their own. The people and subject are set in
   the foreground at semibold, and the time turns the green accent
   (`--cta-icon`) at semibold, where the eye checks for recency. Read rows set
-  the sender at regular weight. Row text keeps the 16-pixel left edge it shares
-  with the list title, and the sender sits 12 pixels clear of the star.
-  The star's hit target is sized per density so it never extends into a
-  neighbouring row.
+  the people at regular weight. Row text keeps the 16-pixel left edge it shares
+  with the list title and the day-group headings; only the selection checkbox
+  takes a leading track, with the sender 12 pixels clear of it.
+- The star sits before the time. A starred row shows it; on any other row it
+  appears while the pointer is over the row or focus is inside it, and always
+  on touch, where nothing hovers. Its hit target is sized per density so it
+  never extends into a neighbouring row.
+
+## Thread list
+
+The list says what changed, so a row can be acted on without opening it.
+
+- Title. The 44px list toolbar names the folder at 16px semibold, then
+  "{n} unread" in 12px muted data type: a count, not a badge.
+- Day groups. "Today", "Yesterday", "This week", then month names ("September",
+  "September 2025") head the rows, 12px semibold muted, 16px above and 6px
+  below. The heading carries the day, so a row's time is the time of day in
+  Today and Yesterday, the weekday in This week, and the date before that. Days
+  are counted in the person's primary time zone. The server renders the groups
+  and the browser hydrates them on the server's minute, then on its own clock.
+  A list without headings (search results) gives each row its own day: the
+  time today, the weekday within the past week, else the date.
+- Rows part on `--list-line`, a rule lighter than the toolbar's `--border`.
+- People. A row names who is on the conversation, not only the last sender:
+  the latest sender first, the person last as "you", first names, four at most
+  and then "+n" in muted text ("Mary, Grace, Alan, you +1"). A lone
+  correspondent keeps their full name ("Alan Turing, you"). A nameless list
+  address on Cc is not a person.
+- Snippet. On a conversation with more than two people the snippet starts with
+  its sender's first name ("Mary: …"). When the person wrote last it starts with
+  the reply glyph and "You:".
+- Signals. Under the snippet, as a glyph and a word in 20px pills (11px
+  semibold, fully round like any count): "{n} new" on the primary fill,
+  counting the unread messages of an unread conversation rather than all of
+  them; "Asks you" on amber with the reply-arrow glyph, when the newest message
+  asks the person something; and the newest file's name with a paperclip on the
+  muted fill. A lone signal sits at the end of the snippet line instead.
+  The unread count and the newest file come from one light lookup per
+  conversation (its messages' unread flags and files, never their bodies),
+  made once the row has been on screen and only for an unread conversation
+  with earlier messages; it is asked again only when a new message arrives.
+  Until it answers, the newest message's file is named. Labels stay in the
+  reader; the rows carry none.
+- Invitations. An invitation replaces the snippet with its time ("Thu, Oct 22 ·
+  2:00–2:45 PM") and small Accept and Decline buttons (24px, 6px radius, a
+  `--cta-line` outline), answered through the same calendar functions and cache
+  entry as the invitation card. The answers wait, disabled, until the
+  invitation is known; while the calendar is still syncing its event the row
+  checks again as the card does, and a lookup that fails offers no answers.
+- Drafts. A conversation whose newest item is the person's draft reads
+  "Draft · to {name}", "Draft" semibold in `--list-draft`, with the draft's
+  subject and text.
+- Not sent. A bounce of the person's own message turns the row
+  `--list-failed`, names the recipient ("To Meridian Bank"), and replaces the
+  snippet with "Not sent. The address bounced." beside "Edit and resend", which
+  opens the composer on the message that bounced.
+- Scheduled. A send waiting on `send_at` names its recipient and shows "Sends
+  Mon 9:00 AM" with a clock in place of the time.
+- Muted. A muted conversation stays in its folder at 85% opacity, the people in
+  muted text with a muted-bell glyph, a list as "eng-all@ · 31 people", and the
+  snippet "Muted · 12 replies you don’t need to read". It carries no unread
+  weight and no signals. Mute and Unmute are in the row menu; the choice is
+  this device's.
+- Asking. A row whose newest message asks the person is tinted `--list-asks`,
+  the faintest green, beside its "Asks you" pill.
+- Bundles. Within a day group, two or more newsletters (a bulk sender, or an
+  unsubscribe or view-in-browser line) or receipts
+  (receipt, invoice, payment, order or paid, with an amount) fold into one row
+  where the newest of them sits: a 32px muted icon tile, "Newsletters" or
+  "Receipts" with a count pill, and the senders, or who was paid how much
+  ("Stripe $4,200.00 · Voyage $612.40"). An unread bundle sets its title
+  semibold. Clicking it, or Enter on it, lists its conversations beneath it,
+  indented to its title (`aria-expanded`), and clicking again folds them.
+  Opening a conversation folded into a bundle opens the bundle, which stays
+  open after the conversation closes, so rows never move under the keyboard
+  cursor. Selecting shows every conversation, and the person's own folders
+  (Sent, Drafts, Trash, Spam) never bundle. Stepping between open
+  conversations with j/k passes over bundle rows. A bundle row shows the same
+  focus ring as a row's link.
+- The open conversation's row is tinted `--list-selected` inside a uniform 1px
+  `--list-selected-line` ring, with no rule under it. The tints keep row text,
+  muted snippets and their own text at 4.5:1 in both themes (tested from the
+  tokens). A conversation that was unread when it opened keeps its unread
+  weight and "{n} new" on its row while it is open, as the reader's "new since"
+  divider does, until another conversation opens.
+- The keyboard cursor stays on its row while rows above it come and go; when
+  its own row leaves, it keeps its place. Closing a conversation returns the
+  cursor and focus to its row, or to the bundle it is folded into.
+- Every state a row shows by weight, colour or glyph is in its link's name:
+  "Open {subject} from {people}", or "draft to", "to" for the person's own
+  mail, then "unread", "{n} new", "asks you", "muted", "not sent", or the
+  scheduled time.
 
 ## Reading
 

@@ -1,5 +1,18 @@
-import { Archive, Forward, Inbox, Mail, MailOpen, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import {
+	Archive,
+	Bell,
+	BellOff,
+	Forward,
+	Inbox,
+	Mail,
+	MailOpen,
+	Reply,
+	ReplyAll,
+	Star,
+	Trash2,
+} from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
+import { isThreadMuted, toggleThreadMuted, useUserPreferences } from '#app/preferences/user-preferences'
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -32,7 +45,9 @@ function Item({
  * and the row already do (open, answer, read state, star, archive, delete) and
  * acts on the row it was opened on, whichever conversation is open beside the
  * list. The reader's shortcuts (R, E, #, S, U) act on the open conversation,
- * so they are shown only on the row of that conversation.
+ * so they are shown only on the row of that conversation. Muting is this
+ * device's choice, as in the reader's More menu: it changes the row, never
+ * the folder.
  */
 export function ThreadRowMenu({
 	thread,
@@ -58,6 +73,8 @@ export function ThreadRowMenu({
 	/** The row element; it becomes the trigger. */
 	children: ReactElement
 }) {
+	const [preferences, savePreferences] = useUserPreferences()
+	const muted = isThreadMuted(preferences, thread.id)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	const cannotRespond = busy || !onRespond
 	// The items are disabled without it, so they never call a missing handler.
@@ -95,6 +112,10 @@ export function ThreadRowMenu({
 				<Item shortcut={readerShortcuts && 'S'} disabled={busy} onSelect={() => onToggleStar()}>
 					<Star aria-hidden="true" />
 					{thread.starred ? 'Unstar' : 'Star'}
+				</Item>
+				<Item onSelect={() => savePreferences(toggleThreadMuted(preferences, thread.id))}>
+					{muted ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}
+					{muted ? 'Unmute' : 'Mute'}
 				</Item>
 				<Item
 					shortcut={readerShortcuts && 'E'}
