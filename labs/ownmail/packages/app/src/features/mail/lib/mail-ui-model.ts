@@ -140,6 +140,31 @@ export function messageBodyParagraphs(message: MailMessage): string[] {
 		.filter(Boolean)
 }
 
+/**
+ * A message's words as written, to copy or to send again: paragraphs apart by
+ * a blank line, and the line breaks inside one kept, so a "Thanks,<br>Ada"
+ * sign-off stays on two lines. (messageBodyParagraphs joins those lines for
+ * reading.) In HTML only `<br>` and block ends break lines; the source's own
+ * newlines are whitespace.
+ */
+export function messageBodyText(message: MailMessage): string {
+	const body = message.body ?? ''
+	const source = hasHtmlMarkup(body)
+		? decodeHtmlEntities(htmlTextContent(body, '\n\n', true))
+		: body
+			? decodeHtmlEntities(body)
+			: readableSnippet(message.snippet)
+	return source
+		.replace(/\u00a0/g, ' ')
+		.replace(/\r\n?/g, '\n')
+		.replace(/[ \t]+/g, ' ')
+		.replace(/ ?\n ?/g, '\n')
+		.split(/\n{2,}/)
+		.map((paragraph) => paragraph.trim())
+		.filter(Boolean)
+		.join('\n\n')
+}
+
 export function messageHasHtml(message: MailMessage): boolean {
 	const body = message.body?.trim()
 	if (!body) return false
@@ -320,19 +345,21 @@ function decodeHtmlEntities(value: string): string {
 	})
 }
 
-function htmlTextContent(html: string, paragraphBreak: string): string {
+/** `collapseSource`: the markup's own newlines are whitespace, so only `<br>` and block ends break lines. */
+function htmlTextContent(html: string, paragraphBreak: string, collapseSource = false): string {
+	const run = (value: string) => (collapseSource ? value.replace(/\s+/g, ' ') : value)
 	let text = ''
 	let cursor = 0
 	while (cursor < html.length) {
 		const tagStart = html.indexOf('<', cursor)
 		if (tagStart === -1) {
-			text += html.slice(cursor)
+			text += run(html.slice(cursor))
 			break
 		}
-		text += html.slice(cursor, tagStart)
+		text += run(html.slice(cursor, tagStart))
 		const tagEnd = htmlTokenEnd(html, tagStart)
 		if (tagEnd === -1) {
-			text += html.slice(tagStart)
+			text += run(html.slice(tagStart))
 			break
 		}
 		const tag = html.slice(tagStart + 1, tagEnd)
@@ -516,7 +543,7 @@ export function forwardDraftSearch(message: MailMessage): {
 		.filter(Boolean)
 		.join(', ')
 	const date = message.date ? new Date(message.date * 1000).toLocaleString() : ''
-	const body = messageBodyParagraphs(message).join('\n\n')
+	const body = messageBodyText(message)
 	return {
 		to: '',
 		subject,

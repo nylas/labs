@@ -401,8 +401,9 @@ const paragraphBlock = (text: string): CleanBlock => ({ type: 'paragraph', spans
  * removed. Plain text goes through the clean view's plaintext model; HTML is
  * cut where its quoted history starts. Both then pass the conversation
  * model's thread pass, which finds unmarked signatures by the sender's name.
+ * Blocks are one per line, or apart as paragraphs with `paragraphBreak` "\n\n".
  */
-export function messageNewText(message: MailMessage): string {
+export function messageNewText(message: MailMessage, paragraphBreak = '\n'): string {
 	let blocks: CleanBlock[]
 	if (!messageHasHtml(message) && message.ownmailDraft !== true) {
 		// Plain text never takes the DOM path: messageContent returns its blocks directly.
@@ -417,7 +418,10 @@ export function messageNewText(message: MailMessage): string {
 		blocks = own.trim() ? messageBodyParagraphs({ ...message, body: lines }).map(paragraphBlock) : []
 	}
 	const { blocks: kept } = bubbleContent(blocks, [], message.from?.[0])
-	return blocksText(kept.filter((block) => block.type !== 'history' && block.type !== 'signature'))
+	return blocksText(
+		kept.filter((block) => block.type !== 'history' && block.type !== 'signature'),
+		paragraphBreak,
+	)
 }
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

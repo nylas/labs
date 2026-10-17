@@ -40,9 +40,32 @@ describe('ThreadMapDots', () => {
 			</div>,
 		)
 		const map = screen.getByRole('complementary', { name: 'Thread map' })
-		expect(map.style.maxHeight).toBe('600px')
+		expect((map.querySelector('.reader-map-track') as HTMLElement).style.maxHeight).toBe('600px')
 		const dots = within(map).getAllByRole('button', { name: /^(?:grace|You)$/ })
 		expect(dots.map((dot) => dot.tabIndex)).toEqual([0, -1])
 		expect(dots[1]).toHaveAttribute('data-hue', '158')
+	})
+
+	it('titles each dot with the first name and day the board shows', () => {
+		render(
+			<ThreadMapDots
+				entries={[
+					{
+						...entry('a', 'grace@example.com'),
+						from: { name: 'Grace Hopper', email: 'grace@example.com', isOwner: false },
+						date: 1,
+					},
+					entry('b', 'ada@ownmail.com', true),
+				]}
+				stoppedBeforeIndex={null}
+				dateLabel={() => 'Sep 28'}
+				onSelect={() => {}}
+				onOpenPanel={() => {}}
+			/>,
+		)
+		const dots = screen.getAllByRole('button', { name: /Grace Hopper|You/ })
+		expect(dots[0]).toHaveAccessibleName('Grace Hopper, Sep 28')
+		expect(dots[0]).toHaveAttribute('title', 'Grace, Sep 28')
+		expect(dots[1]).toHaveAttribute('title', 'You')
 	})
 })

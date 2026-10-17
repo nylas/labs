@@ -16,7 +16,7 @@ import { calendarKeys } from '#features/calendar/state/calendar-keys'
 import { getThreadMessages } from '#server/fns'
 import { cn } from '#shared/lib/utils'
 import {
-	messageBodyParagraphs,
+	messageBodyText,
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
 	threadSender,
@@ -539,7 +539,7 @@ function FailedSendLine({ threadId, client }: { threadId: string; client: QueryC
 				kind: 'new',
 				to: bounce.address,
 				subject: original.subject ?? '',
-				body: messageBodyParagraphs(original).join('\n\n'),
+				body: messageBodyText(original),
 			})
 		} catch {
 			setFailed(true)

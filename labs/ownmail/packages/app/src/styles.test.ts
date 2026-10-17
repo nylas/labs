@@ -26,15 +26,23 @@ describe('touch editing styles', () => {
 
 describe('typefaces', () => {
 	// Manrope is the primary face; Inter is reserved for data. Each extra family
-	// is another file on the first paint's critical path, so no other face ships.
+	// is another file on the first paint's critical path, so no other face ships,
+	// except the Arabic face, which a browser fetches only for Arabic text.
 	it('sets body and headings in Manrope, data in Inter, and declares no other web font', () => {
 		expect(tokens).toMatch(/--font-sans:\s*var\(--font-manrope\)/)
 		expect(tokens).toMatch(/--font-display: var\(--font-manrope\)/)
 		expect(tokens).toMatch(/--font-data: var\(--font-inter\)/)
-		const families = [...tokens.matchAll(/@font-face\s*\{\s*font-family: "([^"]+)"/g)].map(
-			(match) => match[1],
-		)
-		expect(families).toEqual(['Manrope', 'Manrope Fallback', 'Inter', 'Inter Fallback'])
+		const faces = [...tokens.matchAll(/@font-face\s*\{\s*font-family: "([^"]+)"([^}]*)\}/g)]
+		expect(faces.map((match) => match[1])).toEqual([
+			'Manrope',
+			'Manrope Fallback',
+			'Inter',
+			'Inter Fallback',
+			'Noto Naskh Arabic',
+		])
+		const arabic = faces.find((match) => match[1] === 'Noto Naskh Arabic')?.[2] ?? ''
+		expect(arabic).toMatch(/unicode-range:\s+U\+0600-06FF,/)
+		expect(arabic).not.toMatch(/U\+00[0-5]/)
 	})
 })
 

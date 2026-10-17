@@ -1417,7 +1417,10 @@ describe('moving through a thread', () => {
 				<ThreadConversation thread={thread('t1')} messages={longThread(3)} mailboxEmail="ada@ownmail.com" />
 			</div>,
 		)
-		const map = screen.getByRole('complementary', { name: 'Thread map' })
+		// The column runs the reader's height; the dots in it fit the viewport.
+		const map = screen
+			.getByRole('complementary', { name: 'Thread map' })
+			.querySelector('.reader-map-track') as HTMLElement
 		expect(map.style.maxHeight).toBe('756px')
 		height = 400
 		act(() => observed.at(-1)?.())
@@ -1671,6 +1674,22 @@ describe('message actions', () => {
 		outside.remove()
 		host.remove()
 		window.getSelection()?.removeAllRanges()
+	})
+
+	it('quotes a whole message with its paragraphs apart when nothing is selected', () => {
+		const messages = longThread(2)
+		;(messages[1] as MailMessage).body =
+			'<p>Grace, I went through v3.</p><p>First, the calendar sync.</p><p>Otherwise this is ready.</p>'
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		window.getSelection()?.removeAllRanges()
+		const alan = document.getElementById('message-m2') as HTMLElement
+		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
+		const body =
+			'> Grace, I went through v3.\n> \n> First, the calendar sync.\n> \n> Otherwise this is ready.\n\n'
+		expect(compose.openCompose).toHaveBeenLastCalledWith(expect.objectContaining({ body }))
+		expect(markdownToEmailHtml(body)).toBe(
+			'<blockquote>Grace, I went through v3.<br><br>First, the calendar sync.<br><br>Otherwise this is ready.</blockquote>',
+		)
 	})
 
 	/** A Gmail reply quoting Grace's message under its attribution line. */

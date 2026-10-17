@@ -36,6 +36,18 @@
 	size-adjust: 107.12%;
 }
 
+/* The Arabic face for right-to-left paragraphs (.reader-arabic); fetched only for Arabic text. SIL OFL 1.1. */
+@font-face {
+	font-family: "Noto Naskh Arabic";
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+	src: url("/fonts/noto-naskh-arabic-arabic.woff2") format("woff2");
+	unicode-range:
+		U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E,
+		U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+
 @theme inline {
 	/* Manrope is the one voice for body, UI and headings; Inter sets data (times,
 	 * dates, counts), where its tabular figures line up. */
@@ -366,6 +378,7 @@
 	--color-control-foreground: var(--control-fg);
 	--color-note-foreground: var(--note-fg);
 	--color-bar-icon-foreground: var(--bar-icon-fg);
+	--color-progress-track: var(--progress-track);
 	--shadow-reader-reply: var(--reader-reply-shadow);
 }
 
@@ -403,6 +416,8 @@
 	--control-fg: oklch(0.35 0.01 165);
 	--note-fg: oklch(0.3 0.01 165);
 	--bar-icon-fg: oklch(0.25 0.01 165);
+	/* A progress bar's empty track: a step lighter than the border (board 06, card 9). */
+	--progress-track: oklch(0.93 0.003 145);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
 	--email-ink: oklch(0.2 0.01 165);
 }
@@ -441,6 +456,7 @@
 	--control-fg: oklch(0.86 0.006 155);
 	--note-fg: oklch(0.88 0.006 155);
 	--bar-icon-fg: oklch(0.9 0.006 155);
+	--progress-track: oklch(1 0 0 / 7%);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
 	--email-ink: oklch(0.2 0.01 165);
 }

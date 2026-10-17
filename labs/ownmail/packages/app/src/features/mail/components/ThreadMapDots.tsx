@@ -11,8 +11,9 @@ export const dotHue = (person: Person): ReturnType<typeof personHue> =>
  * The thread's shape beside the reader: a dot per message, tinted for its
  * sender. Read messages are small, the first a little larger, new ones larger
  * and stronger, with a short green rule where the reader stopped and a ring on
- * the message in focus. A dot scrolls to its message and opens it; the column
- * itself (or `g m`) opens the thread map panel.
+ * the message in focus. A dot scrolls to its message and opens it; anywhere
+ * else in the column, which runs the reader's full height, (or `g m`) opens
+ * the thread map panel.
  *
  * The column fits the viewport: on a very long thread the dots draw closer
  * together instead of running past the screen. One dot is in the tab order
@@ -59,18 +60,13 @@ export function ThreadMapDots({
 	}
 
 	return (
-		<aside
-			ref={ref}
-			aria-label="Thread map"
-			data-slot="thread-map-dots"
-			className="reader-map"
-			style={maxHeight ? { maxHeight } : undefined}
-		>
-			<div className="reader-map-track">
+		<aside ref={ref} aria-label="Thread map" data-slot="thread-map-dots" className="reader-map">
+			<div className="reader-map-track" style={maxHeight ? { maxHeight } : undefined}>
 				{entries.map((entry, index) => {
 					const size = entry.unread ? 'new' : index === 0 ? 'first' : 'read'
 					const name = personName(entry.from, 'full')
 					const date = entry.date ? dateLabel(entry.date) : ''
+					const when = date ? `, ${date}` : ''
 					return (
 						<Fragment key={entry.messageId}>
 							{index === stoppedBeforeIndex ? (
@@ -80,9 +76,10 @@ export function ThreadMapDots({
 								type="button"
 								data-slot="thread-map-dot"
 								tabIndex={entry.messageId === tabbableId ? 0 : -1}
-								aria-label={`${entry.from.isOwner ? 'You' : name}${date ? `, ${date}` : ''}${entry.unread ? ', new' : ''}`}
+								aria-label={`${entry.from.isOwner ? 'You' : name}${when}${entry.unread ? ', new' : ''}`}
 								aria-current={entry.messageId === currentId ? 'true' : undefined}
-								title={`${entry.from.isOwner ? 'You' : name}${date ? `, ${date}` : ''}`}
+								// The tooltip is the short form the board draws: "Grace, Sep 28".
+								title={`${entry.from.isOwner ? 'You' : personName(entry.from, 'first')}${when}`}
 								className={cn('reader-map-dot', `reader-map-dot-${size}`)}
 								data-hue={dotHue(entry.from)}
 								onClick={() => onSelect(entry.messageId)}

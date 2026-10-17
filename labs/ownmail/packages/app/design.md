@@ -27,6 +27,9 @@ tokens.
 - Data: Inter, variable weight 400–700, with tabular figures (`font-data
   tabular-nums`), for times, dates, counts and calendar numerals.
 - Mono: the platform UI monospace stack, limited to shortcuts and code.
+- Arabic: Noto Naskh Arabic, variable weight 400–700, bundled for Arabic
+  script only (it loads when Arabic text appears), for right-to-left
+  paragraphs in mail.
 - Display tracking: `-0.02em`.
 - Mobile editable text: never below 16px, preventing iOS focus zoom.
 
@@ -668,6 +671,10 @@ The thread's shape at a glance: who spoke, where you stopped, where files
 landed. It opens from the dots beside the reader, or with `g m`, and clicking a
 row scrolls to that message and opens it.
 
+- The dots sit in a 44px column that runs the reader's full height; the dots
+  stay in view as the stream scrolls. A dot opens its message (its tooltip is
+  "Grace, Sep 28"); anywhere else in the column opens the map.
+
 - One row per message: a dot in the sender's hue (the six avatar hues as
   `--person-dot-*`, the owner always green), the sender's full name ("You" for
   the owner), chips for the files it carried (the version in a family, "v2",
@@ -818,10 +825,11 @@ choice, borderless `--quiet-fg` text for the rest, a semibold `--primary` text
 link inside a sentence; all keep the 44px floor on touch.
 
 - Quoted text and signature. What trails a message (a quoted history taken off
-  its end, a client-marked or `-- ` signature) sits behind a 24px pill: 6px
-  radius, `--muted` fill, 12px muted words, a "more" glyph for history. One
-  pill when there are both ("Quoted text and signature"); opening it splits
-  into "Quoted: 2 earlier messages" (open) and "Signature" (closed). Each
+  its end, a client-marked or `-- ` signature) sits behind a pill: 6px
+  radius, `--muted` fill, 12px words, a "more" glyph for history. One 24px
+  pill in muted words when there are both ("Quoted text and signature");
+  opening it splits into "Quoted: 2 earlier messages" (open) and "Signature"
+  (closed), each 26px in `--quiet-fg` (one pill alone is the same). Each
   quoted message is a `--secondary` card in `--quiet-fg` at 1.55 (16px by
   12px padding, the nearest full steps to the board's 14px by 12px): "Grace,
   Tue 6:02 PM", its own paragraphs cut near 72 characters, and "Go to Grace's
@@ -896,14 +904,14 @@ link inside a sentence; all keep the 44px floor on touch.
   was fitted. A layout too wide to fit legibly reflows first, so it fits
   without a scale where it can. Text-only mail never scales; it reflows.
 - One very long message. Past 1,500 words of new text: "6 min read · 38%" over
-  a 4px `--primary` progress bar, and an outline of the message's own headings
+  a 4px `--primary` progress bar on a `--progress-track` track, and an outline of the message's own headings
   (a 130px right column from `xl`, an Outline disclosure below it; the current
   section is semibold). The position is kept per message for the session, so
   reopening returns to where the reader stopped.
 - Hard-wrapped plain text. Lines of 40 to 80 characters inside a paragraph join
   the next line unless it starts a list item, a quote or an indent. Every
   paragraph takes its direction from its own text (`dir="auto"`), and an
-  Arabic paragraph is set in a Naskh face at 15px where the device has one. Indented and
+  Arabic paragraph is set in Noto Naskh Arabic at 15px. Indented and
   fenced blocks stay exactly as written, in mono on a `--muted` chip, and so
   do code-indented lines (four spaces or a tab) inside a prose paragraph,
   unless they continue a list item. Prose is `--secondary-foreground`.

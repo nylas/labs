@@ -97,9 +97,11 @@ describe('board 02: the inbox list', () => {
 			to: [{ name: 'Bright Smile Dental' }],
 		})
 		expect((dentist as { draft_ids?: string[] }).draft_ids).toEqual(['draft-dentist-reply'])
-		expect(dentist?.latest_draft_or_message?.snippet).toMatch(
-			/^Could we move this to Friday morning instead\? I have a/,
+		// Board 02's copy, word for word.
+		expect(dentist?.latest_draft_or_message?.snippet).toBe(
+			'Could we move this to Friday morning instead? I have a…',
 		)
+		expect(thread('thread-offsite')?.snippet).toBe('Thanks for pulling this together. A couple of notes…')
 		expect(thread('thread-roadmap')?.latest_draft_or_message?.id).toBe('msg-roadmap-14')
 		expect(thread('thread-roadmap')).not.toHaveProperty('draft_ids')
 

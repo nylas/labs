@@ -212,7 +212,7 @@ function LongMessageLayout({
 								aria-valuemin={0}
 								aria-valuemax={100}
 								aria-valuenow={percent}
-								className="h-1 overflow-hidden rounded-full bg-border"
+								className="h-1 overflow-hidden rounded-full bg-progress-track"
 							>
 								<div className="h-1 rounded-full bg-primary" style={{ width: `${percent}%` }} />
 							</div>

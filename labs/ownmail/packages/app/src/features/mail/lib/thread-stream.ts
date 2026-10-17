@@ -8,7 +8,7 @@
 
 import { isCalendarInvitationAttachment } from '#features/calendar/lib/calendar-invitation'
 import type { MailMessage } from '../state/mail-queries.js'
-import { messageBodyParagraphs } from './mail-ui-model.js'
+import { messageBodyText } from './mail-ui-model.js'
 import {
 	type FoldItem,
 	firstName,
@@ -393,7 +393,7 @@ export function resendSeed(message: MailMessage): { to: string; subject: string;
 	return {
 		to: [...(message.to ?? []), ...(message.cc ?? [])].map((person) => person.email).join(', '),
 		subject: message.subject ?? '',
-		body: messageBodyParagraphs(message).join('\n\n'),
+		body: messageBodyText(message),
 	}
 }
 

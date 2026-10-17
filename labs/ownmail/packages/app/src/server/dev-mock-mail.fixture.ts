@@ -549,6 +549,8 @@ const offsite = seedThread(
 		{
 			id: 'msg-offsite-scheduled',
 			subject: 'Re: Q3 offsite agenda',
+			// The provider's snippet stops where board 02 draws it.
+			snippet: 'Thanks for pulling this together. A couple of notes…',
 			body: html(
 				'Thanks for pulling this together. A couple of notes on day one: planning should start after lunch, and we need a room for the billing breakout.',
 				'Ada',
@@ -1430,7 +1432,8 @@ export const seedDrafts: StoredDraft[] = [
 		thread_id: 'thread-dentist',
 		reply_to_message_id: 'msg-dentist-1',
 		subject: 'Re: Reminder: appointment Thursday 2:30 PM',
-		snippet: 'Could we move this to Friday morning instead? I have a design review on Thursday afternoon.',
+		// The provider's snippet stops where board 02 draws it.
+		snippet: 'Could we move this to Friday morning instead? I have a…',
 		body: '<p>Could we move this to Friday morning instead? I have a design review on Thursday afternoon.</p><p>Ada</p>',
 		from: [ACCOUNT],
 		to: [DENTIST],

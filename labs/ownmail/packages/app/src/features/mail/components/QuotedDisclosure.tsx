@@ -1,5 +1,6 @@
 import { MoreHorizontal } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { cn } from '#shared/lib/utils'
 import {
 	attributionSeconds,
 	type BodyDisclosure,
@@ -22,8 +23,10 @@ export function disclosureLabel(kind: DisclosureKind, count = 0): string {
 
 /**
  * The quiet pill that stands in for what trails a message: its quoted history,
- * its signature, or both at once. 24px, 6px radius, a muted fill and muted
- * 12px words; the history pills lead with a "more" glyph.
+ * its signature, or both at once. 6px radius, a muted fill and 12px words; the
+ * history pills lead with a "more" glyph. The one pill for both is 24px with
+ * muted words (board 01); the history and signature pills it splits into are
+ * 26px with quiet words (board 05, step 4).
  */
 export function QuotedDisclosure({
 	kind,
@@ -49,7 +52,12 @@ export function QuotedDisclosure({
 			aria-expanded={expanded}
 			aria-controls={controls}
 			onClick={onToggle}
-			className="quoted-pill inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
+			className={cn(
+				'quoted-pill inline-flex shrink-0 items-center rounded-md bg-muted text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11',
+				kind === 'both'
+					? 'h-6 px-2 text-muted-foreground'
+					: 'quoted-pill-split h-[26px] text-quiet-foreground',
+			)}
 		>
 			{kind === 'signature' ? null : <MoreHorizontal aria-hidden="true" className="size-3.5 shrink-0" />}
 			{disclosureLabel(kind, count)}

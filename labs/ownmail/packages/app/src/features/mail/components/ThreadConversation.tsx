@@ -473,7 +473,8 @@ function containsAcrossShadow(container: Element, node: Node): boolean {
  * words. Each line is a quote line; the composer shows the line being edited
  * with its "> " and the others as the quote they make. The break between two
  * paragraphs stays inside the quote as one empty "> " line (a bare ">" is not
- * a quote line to the composer), so a selection across paragraphs is one quote.
+ * a quote line to the composer), so a selection across paragraphs is one quote;
+ * with nothing selected, the message's own paragraphs stay apart the same way.
  */
 function quotedText(message: MailMessage): string {
 	const selection = window.getSelection()
@@ -481,7 +482,7 @@ function quotedText(message: MailMessage): string {
 	const article = document.getElementById(messageAnchorId(message.id))
 	const selected =
 		selection && anchor && article && containsAcrossShadow(article, anchor) ? selection.toString().trim() : ''
-	const text = selected || messageNewText(message)
+	const text = selected || messageNewText(message, '\n\n')
 	const lines = text.split(/\r?\n/).map((line) => line.trimEnd())
 	return `${lines
 		.filter((line, index) => line !== '' || lines[index - 1] !== '')

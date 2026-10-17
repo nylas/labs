@@ -14,7 +14,7 @@ afterEach(() => {
 // Saturday, October 17 2026, 12:00 UTC.
 const NOW = Date.UTC(2026, 9, 17, 12) / 1000
 const MONDAY_NINE = Date.UTC(2026, 9, 19, 9) / 1000
-const sent = { id: 'm1', body: '<p>Hi Mary,</p><p>The 20th works.</p>' } as MailMessage
+const sent = { id: 'm1', body: '<p>Hi Mary,</p><p>The 20th works.</p><p>Thanks,<br>Ada</p>' } as MailMessage
 const handlers = () => ({ onEditResend: vi.fn(), onSendNow: vi.fn(), onCancelSchedule: vi.fn() })
 
 describe('OutgoingStatus', () => {
@@ -32,7 +32,7 @@ describe('OutgoingStatus', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
 		expect(actions.onEditResend).toHaveBeenCalledOnce()
 		await userEvent.click(screen.getByRole('button', { name: 'Copy text' }))
-		expect(writeText).toHaveBeenCalledWith('Hi Mary,\n\nThe 20th works.')
+		expect(writeText).toHaveBeenCalledWith('Hi Mary,\n\nThe 20th works.\n\nThanks,\nAda')
 		expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
 	})
 

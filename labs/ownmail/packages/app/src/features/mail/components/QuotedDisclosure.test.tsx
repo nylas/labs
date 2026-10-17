@@ -38,24 +38,38 @@ describe('disclosureLabel', () => {
 })
 
 describe('QuotedDisclosure', () => {
-	it('is a 24px muted pill with a "more" glyph for history and none for a signature', async () => {
+	it('is a 26px quiet pill for history (a "more" glyph) or the signature (none), split from the 24px muted one', async () => {
 		const onToggle = vi.fn()
 		const view = render(
 			<QuotedDisclosure kind="quoted" count={2} expanded={false} onToggle={onToggle} controls="x" />,
 		)
 		const pill = screen.getByRole('button', { name: 'Quoted: 2 earlier messages' })
-		expect(pill).toHaveClass('h-6', 'rounded-md', 'bg-muted', 'text-xs', 'text-muted-foreground')
+		expect(pill).toHaveClass(
+			'quoted-pill-split',
+			'h-[26px]',
+			'rounded-md',
+			'bg-muted',
+			'text-xs',
+			'text-quiet-foreground',
+		)
+		expect(pill).not.toHaveClass('h-6', 'px-2', 'text-muted-foreground')
 		expect(pill).toHaveAttribute('aria-expanded', 'false')
 		expect(pill).toHaveAttribute('aria-controls', 'x')
 		expect(pill.querySelector('svg')).not.toBeNull()
 		await userEvent.click(pill)
 		expect(onToggle).toHaveBeenCalledOnce()
-		// Open, it keeps the muted tone of the pills beside it; what opens below says it is open.
+		// Open, it keeps the quiet tone of the pill beside it; what opens below says it is open.
 		view.rerender(<QuotedDisclosure kind="quoted" count={2} expanded onToggle={onToggle} />)
-		expect(pill).toHaveClass('text-muted-foreground')
+		expect(pill).toHaveClass('text-quiet-foreground')
 		expect(pill.className).not.toMatch(/aria-expanded:text-/)
 		view.rerender(<QuotedDisclosure kind="signature" expanded onToggle={onToggle} />)
-		expect(screen.getByRole('button', { name: 'Signature' }).querySelector('svg')).toBeNull()
+		const signature = screen.getByRole('button', { name: 'Signature' })
+		expect(signature.querySelector('svg')).toBeNull()
+		expect(signature).toHaveClass('h-[26px]', 'text-quiet-foreground')
+		view.rerender(<QuotedDisclosure kind="both" expanded={false} onToggle={onToggle} />)
+		const both = screen.getByRole('button', { name: 'Quoted text and signature' })
+		expect(both).toHaveClass('h-6', 'px-2', 'text-muted-foreground')
+		expect(both).not.toHaveClass('quoted-pill-split')
 	})
 })
 

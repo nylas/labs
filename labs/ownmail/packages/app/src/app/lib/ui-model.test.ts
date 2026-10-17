@@ -24,6 +24,7 @@ import {
 	mailFolderTitle,
 	mailSearchInputValue,
 	messageBodyParagraphs,
+	messageBodyText,
 	messageHasHtml,
 	messagePreview,
 	readableSnippet,
@@ -138,6 +139,21 @@ describe('ui-model mail helpers', () => {
 		} as Message
 
 		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
+	})
+
+	it('keeps a message’s line breaks and paragraphs as written for copying and resending', () => {
+		expect(
+			messageBodyText({
+				body: '<p>Hi, my June\n  statement &amp; fee?</p>\n<p>Thanks,<br>Ada&nbsp;Lovelace</p>',
+			} as Message),
+		).toBe('Hi, my June statement & fee?\n\nThanks,\nAda Lovelace')
+		expect(messageBodyText({ body: 'a<br> <br>b<br><br><br>c' } as Message)).toBe('a\n\nb\n\nc')
+		expect(messageBodyText({ body: '<p>Unclosed <b' } as Message)).toBe('Unclosed <b')
+		expect(messageBodyText({ body: 'Line one\r\nLine two\n\n\nNext &amp; last' } as Message)).toBe(
+			'Line one\nLine two\n\nNext & last',
+		)
+		expect(messageBodyText({ snippet: 'Only <b>snippet</b>' } as Message)).toBe('Only snippet')
+		expect(messageBodyText({} as Message)).toBe('')
 	})
 
 	it('detects html bodies for rich rendering', () => {

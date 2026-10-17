@@ -304,6 +304,11 @@
 	gap: 6px;
 }
 
+/* The split history and signature pills are a step larger (board 05, step 4). */
+.quoted-pill-split {
+	padding-inline: 9px;
+}
+
 /* The pills sit 14px under the last line the person wrote (board 01). */
 .body-disclosures {
 	margin-top: 14px;
@@ -641,7 +646,7 @@
 	color: var(--muted-foreground);
 }
 
-/* An Arabic paragraph of a plain-text message, in a Naskh face where the device has one. */
+/* An Arabic paragraph of a plain-text message, in the bundled Naskh face (tokens.css). */
 .reader-arabic {
 	font-family: "Noto Naskh Arabic", "Geeza Pro", "Segoe UI", serif;
 	font-size: 15px;
@@ -912,32 +917,33 @@
 	display: none;
 }
 
+/* The column runs the reader's full height, so a click anywhere in it opens the map panel. */
 @media (min-width: 64rem) {
 	.reader-map {
-		position: sticky;
-		/* Sticky insets are measured inside the viewport's padding, which already clears the toolbar. */
-		top: 0;
+		position: relative;
 		display: flex;
 		width: 44px;
 		flex: none;
-		align-self: flex-start;
+		align-self: stretch;
 		flex-direction: column;
 		align-items: center;
-		/* Never taller than the viewport (the component sets the height it has): a long thread's dots draw closer. */
-		overflow: hidden;
-		padding-top: 96px;
-		padding-bottom: 16px;
 	}
 }
 
+/* The dots stay in view as the stream scrolls. */
 .reader-map-track {
-	position: relative;
+	position: sticky;
+	/* Sticky insets are measured inside the viewport's padding, which already clears the toolbar. */
+	top: 0;
 	z-index: 1;
 	display: flex;
-	min-height: 0;
-	flex: 0 1 auto;
+	width: 100%;
 	flex-direction: column;
 	align-items: center;
+	/* Never taller than the viewport (the component sets the height it has): a long thread's dots draw closer. */
+	overflow: hidden;
+	padding-top: 96px;
+	padding-bottom: 16px;
 	pointer-events: none;
 }
 

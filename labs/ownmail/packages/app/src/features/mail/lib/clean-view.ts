@@ -508,8 +508,11 @@ function blockText(block: CleanBlock): string {
 	}
 }
 
-/** The text a reader sees in these blocks, one block per line with whitespace collapsed. */
-export function blocksText(blocks: CleanBlock[]): string {
+/**
+ * The text a reader sees in these blocks, one block per line with whitespace
+ * collapsed; `separator` "\n\n" keeps the blocks apart as paragraphs instead.
+ */
+export function blocksText(blocks: CleanBlock[], separator = '\n'): string {
 	return blocks
 		.map((block) =>
 			blockText(block)
@@ -517,7 +520,7 @@ export function blocksText(blocks: CleanBlock[]): string {
 				.trim(),
 		)
 		.filter(Boolean)
-		.join('\n')
+		.join(separator)
 }
 
 /** Plaintext keeps its paragraphs; a recognised reply separator starts the quoted history. */

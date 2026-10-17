@@ -2,7 +2,7 @@ import { AlertTriangle, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
 import { pendingSendAt, scheduledLabel, viewerZone } from '../lib/edge-states.js'
-import { messageBodyParagraphs } from '../lib/mail-ui-model.js'
+import { messageBodyText } from '../lib/mail-ui-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { EDGE_BUTTON_CLASS, EDGE_GHOST_CLASS } from './edge-actions.js'
 
@@ -40,7 +40,7 @@ export function OutgoingStatus({
 
 	const copyText = async () => {
 		try {
-			await navigator.clipboard.writeText(messageBodyParagraphs(message).join('\n\n'))
+			await navigator.clipboard.writeText(messageBodyText(message))
 			setCopy('copied')
 		} catch {
 			setCopy('failed')
