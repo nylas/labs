@@ -456,6 +456,68 @@ and renders exactly as before when the view is off.
   "Show original" and the reply choice live under the thread's identity
   (`useIdentityState`), so nothing set on one thread shows on another.
 
+## Message header
+
+An open message's header whispers. It is one line: a 32px avatar, the
+sender's name at 15px semibold, a short recipient summary at 13px, and the
+time in `font-data` at 12px. Everything else is one click away.
+
+- Avatars. Initials on a per-person tint: the address hashes into six hues
+  (`--avatar-75`, `-250`, `-32`, `-158`, `-300`, `-200`, each with an `-fg`
+  pair holding 4.5:1 in both themes). The owner always wears the green pair.
+  Avatars are round, decorative (the name is always beside them) and sized by
+  role: 32 in open headers, 28 in one-line rows, 24 in the thread header, 20
+  in folded stacks, 18 in recipient chips, 40 on the sender card.
+- Recipients. "to you, Grace +2": the owner first as "you", then first names,
+  two at most and a count; "to everyone" when a reply reached everyone the
+  message before it involved. The summary is muted, and set in the normal text
+  colour only when the recipients changed from the message open directly
+  above. It is a button that opens the details.
+- Details. A panel (glass from `sm` up, in the flow on a phone) under the
+  summary: From with the address and "Verified sender" (shield, accent) when
+  DMARC passed; To and Cc as person chips (a nameless address shows as
+  "pm-leads@"; a long line shows eight and a count that expands); the long
+  date, and "7:12 AM where Alan is (PDT)" when the sender's Date offset
+  differs from the reader's clock. "Copy addresses" copies everyone but you;
+  "Show raw headers" reads the header block on demand and shows it as plain
+  text in a dialog, never parsed or rendered.
+- Actions. Reply, Forward and Quote selection in reply sit in a small bordered
+  group of 28px buttons that appears while the header is hovered or holds
+  focus, and stays visible where there is no hover. Quote keeps the reader's
+  selection. A phone uses its bottom bar instead. The header's right-click
+  menu mirrors these and adds the raw download.
+- Sender card. Hovering (after a short rest) or focusing the sender's name, or
+  tapping it, opens a card: a 40px avatar, the name, a title line, the address
+  and phone in `font-data`, all read from the signature the sender signed this
+  message with ("From their signature."), with "Save to contacts" and "New
+  email". Escape returns to the name. No gendered pronouns.
+- Clicking a header's own space collapses an open message; a collapsed header
+  is one button that opens it.
+
+## Notices
+
+A message says what is unusual about it above its body, and nothing when
+nothing is. Each notice is `role="note"`: a uniform 1px border, a tint and a
+glyph, 13px text, the 6px plane radius. Never a rail.
+
+- Replies elsewhere (amber, Reply glyph): "Replies go to
+  grace.personal@fastmail.com, not the address this came from."
+- Not who they look like (red, warning glyph): a sender that failed DMARC, or
+  whose display name is someone this mailbox knows writing from another
+  organisation's domain. "“Meridian Bank” usually writes from
+  meridianbank.com. This came from meridian-secure.co and failed sender
+  checks. Links are disabled." The message's links are made inert.
+- Someone dropped (neutral): "Alan removed Katherine from this reply." with
+  "Add Katherine back to yours", counted as the thread's system lines count a
+  removal: only on a reply all that still reaches two or more of the people
+  before it.
+- A mailing list (neutral): "Sent to eng-all@, a list of 240." when the list
+  is the only To and the copied people give a size, else "a mailing list";
+  then "Mute thread" and, when the list offers one, "Leave list".
+- Amber and red are tokens (`--notice-warning`, `--notice-danger`, each with a
+  `-line` and an `-fg`), 4.5:1 or better in both themes. The owner's own mail
+  raises no notice.
+
 ## Icon controls
 
 - Compact navigation and familiar toolbar actions use icons without repeated
