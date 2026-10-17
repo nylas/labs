@@ -496,4 +496,10 @@ describe('mock clock helpers', () => {
 		expect(next.getDay()).toBe(today)
 		expect(daysBetween(upcoming((today + 1) % 7, 9, 0))).toBe(-1)
 	})
+
+	it('reaches back a full week when the weekday fell too recently', () => {
+		const today = new Date().getDay()
+		expect(daysBackTo(today, 2)).toBe(7)
+		expect(daysBackTo((today + 4) % 7, 2)).toBe(3)
+	})
 })

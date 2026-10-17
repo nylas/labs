@@ -527,6 +527,15 @@ describe('foldPlan', () => {
 		expect(foldRunKey(messages, folded.indices)).toBe('m1')
 	})
 
+	it('leaves the span empty and shows only others when a folded run has no dates and no owner', () => {
+		const messages = Array.from({ length: 8 }, (_, i) =>
+			msg(`m${i}`, i % 2 ? ALAN : GRACE, [KATHERINE], { date: undefined, body: `Note ${i}.` }),
+		)
+		const folded = foldPlan(messages, { ...base, unreadIds: [] }).find((item) => item.kind === 'folded')
+		expect(folded).toMatchObject({ kind: 'folded', span: '' })
+		expect((folded as Extract<FoldItem, { kind: 'folded' }>).avatars.some((p) => p.isOwner)).toBe(false)
+	})
+
 	it('expands a run into one-line rows when the reader opened it', () => {
 		const messages = longThread(6)
 		const items = foldPlan(messages, { ...base, unreadIds: [], expandedRuns: new Set(['m1']) })

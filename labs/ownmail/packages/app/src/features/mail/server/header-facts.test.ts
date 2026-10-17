@@ -18,9 +18,15 @@ describe('messageHeaderFacts', () => {
 		const empty = { verified: false, authFailed: false, listUnsubscribe: false }
 		expect(messageHeaderFacts(undefined, 'a@example.com')).toEqual(empty)
 		expect(messageHeaderFacts('From: x' as never)).toEqual(empty)
-		expect(messageHeaderFacts([null, 'Date', { name: 7, value: 'x' }, { name: 'Date', value: 9 }])).toEqual(
-			empty,
-		)
+		expect(
+			messageHeaderFacts([
+				null,
+				'Date',
+				{ name: 7, value: 'x' },
+				{ name: '  ', value: 'x' },
+				{ name: 'Date', value: 9 },
+			]),
+		).toEqual(empty)
 	})
 
 	it('verifies a DMARC pass from the topmost Authentication-Results only', () => {

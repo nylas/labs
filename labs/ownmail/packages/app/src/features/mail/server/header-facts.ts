@@ -164,7 +164,7 @@ function trustedAuthenticationResults(pairs: HeaderPair[]): AuthResult[] {
 		if (!hostSite || !MICROSOFT_SITES.has(hostSite)) return []
 		results = segments
 	} else {
-		const authservId = (segments[0] as string).trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+		const authservId = ((segments[0] as string).trim().split(/\s+/)[0] as string).toLowerCase()
 		const trusted =
 			(hostSite !== undefined && siteOf(authservId) === hostSite) ||
 			(authservId === 'mx.google.com' && (googleReceived(host) || hostSite === 'google.com'))
