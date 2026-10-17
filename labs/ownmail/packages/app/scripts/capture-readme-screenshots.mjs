@@ -80,13 +80,12 @@ try {
 	await darkContext.addInitScript(() => localStorage.setItem('theme', 'dark'))
 
 	const lightPage = await lightContext.newPage()
-	await lightPage.goto(`${baseUrl}/mail`, { waitUntil: 'networkidle' })
-	await lightPage.getByText('The Dispatch', { exact: true }).first().click()
+	// The Dispatch is opened by its address: the list bundles it with the other newsletters.
+	await lightPage.goto(`${baseUrl}/mail/f/inbox/t/thread-newsletter`, { waitUntil: 'networkidle' })
 	const lightMail = await lightPage.screenshot()
 
 	const darkPage = await darkContext.newPage()
-	await darkPage.goto(`${baseUrl}/mail`, { waitUntil: 'networkidle' })
-	await darkPage.getByText('The Dispatch', { exact: true }).first().click()
+	await darkPage.goto(`${baseUrl}/mail/f/inbox/t/thread-newsletter`, { waitUntil: 'networkidle' })
 	const darkMail = await darkPage.screenshot()
 
 	await sharp(lightMail)

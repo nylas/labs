@@ -5,6 +5,9 @@ const MAX_HIDDEN_CALENDAR_IDS = 200
 const MAX_CALENDAR_ID_LENGTH = 1000
 const MAX_HIDDEN_CALENDAR_ACCOUNTS = 20
 const MAX_DISPLAY_NAME_ACCOUNTS = 20
+/** Muted conversations kept on this device; the newest choices are kept past the cap. */
+export const MAX_MUTED_THREAD_IDS = 200
+const MAX_THREAD_ID_LENGTH = 1000
 
 export type RemoteImagePolicy = 'ask' | 'always'
 
@@ -70,6 +73,12 @@ export type UserPreferences = {
 	 * choice made in one inbox must never hide a calendar in another.
 	 */
 	hiddenCalendarsByAccount: Record<string, string[]>
+	/**
+	 * Conversations muted on this device, oldest first. A muted thread stays in
+	 * its folder; its row and reader say so. Thread ids are long and unbounded in
+	 * number, so this list lives only in local storage, never in the cookie.
+	 */
+	mutedThreadIds: string[]
 }
 
 function browserTimezone(): string {
@@ -113,6 +122,7 @@ export function defaultUserPreferences(): UserPreferences {
 		calendarSidebarCollapsed: false,
 		calendarDetailPaneOpen: false,
 		hiddenCalendarsByAccount: {},
+		mutedThreadIds: [],
 	}
 }
 
@@ -197,6 +207,47 @@ export function withHiddenCalendarIds(
 	return { ...preferences, hiddenCalendarsByAccount: { ...others, [key]: [...ids] } }
 }
 
+function validThreadId(id: unknown): id is string {
+	return typeof id === 'string' && id.length > 0 && id.length <= MAX_THREAD_ID_LENGTH && !/[\r\n]/.test(id)
+}
+
+function normalizeMutedThreadIds(value: unknown): string[] {
+	if (!Array.isArray(value)) return []
+	const ids: string[] = []
+	// A repeated id keeps its latest position, which is what the cap orders by.
+	for (const id of value) {
+		if (!validThreadId(id)) continue
+		const existing = ids.indexOf(id)
+		if (existing !== -1) ids.splice(existing, 1)
+		ids.push(id)
+	}
+	return ids.slice(-MAX_MUTED_THREAD_IDS)
+}
+
+/** Whether a conversation is muted on this device. */
+export function isThreadMuted(preferences: UserPreferences, threadId: string): boolean {
+	return preferences.mutedThreadIds.includes(threadId)
+}
+
+/** Mutes or unmutes one conversation; muting again moves it to the newest end of the list. */
+export function withThreadMuted(
+	preferences: UserPreferences,
+	threadId: string,
+	muted: boolean,
+): UserPreferences {
+	if (!validThreadId(threadId)) return preferences
+	const others = preferences.mutedThreadIds.filter((id) => id !== threadId)
+	return {
+		...preferences,
+		mutedThreadIds: muted ? [...others, threadId].slice(-MAX_MUTED_THREAD_IDS) : others,
+	}
+}
+
+/** Flips one conversation's muted state. */
+export function toggleThreadMuted(preferences: UserPreferences, threadId: string): UserPreferences {
+	return withThreadMuted(preferences, threadId, !isThreadMuted(preferences, threadId))
+}
+
 export function normalizePreferences(value: unknown): UserPreferences {
 	const defaults = defaultUserPreferences()
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults
@@ -244,5 +295,6 @@ export function normalizePreferences(value: unknown): UserPreferences {
 		// attributed to an inbox, so it is deliberately dropped rather than applied
 		// to whichever inbox happens to be active.
 		hiddenCalendarsByAccount: normalizeHiddenCalendarsByAccount(input.hiddenCalendarsByAccount),
+		mutedThreadIds: normalizeMutedThreadIds(input.mutedThreadIds),
 	}
 }

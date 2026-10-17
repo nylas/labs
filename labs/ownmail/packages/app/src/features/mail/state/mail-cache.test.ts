@@ -508,6 +508,36 @@ describe('mail optimistic transaction journal', () => {
 		expect(client.getQueryState(listKey)?.fetchStatus).toBe('idle')
 	})
 
+	it('never cancels header lookups, so a thread opened unread keeps its header facts', async () => {
+		const client = seedClient()
+		const factsKey = mailKeys.threadHeaderFacts('t1')
+		const unsubscribeKey = mailKeys.threadListUnsubscribe('t1')
+		const rawKey = mailKeys.messageRawHeaders('m1')
+		let resolveFacts: (facts: { byMessage: Record<string, never> }) => void = () => {}
+		const facts = client.fetchQuery({
+			queryKey: factsKey,
+			queryFn: () => new Promise<{ byMessage: Record<string, never> }>((resolve) => (resolveFacts = resolve)),
+			retry: false,
+		})
+		const never = () => new Promise<never>(() => {})
+		void client.fetchQuery({ queryKey: unsubscribeKey, queryFn: never }).catch(() => {})
+		void client.fetchQuery({ queryKey: rawKey, queryFn: never }).catch(() => {})
+		const manager = createMailOptimisticManager(client)
+
+		const read = await manager.begin(
+			{ type: 'thread.read', threadId: 't1', unread: false },
+			{ preserveThreadDetails: true },
+		)
+		await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		read.commit()
+		resolveFacts({ byMessage: {} })
+
+		await expect(facts).resolves.toEqual({ byMessage: {} })
+		expect(client.getQueryState(factsKey)).toMatchObject({ status: 'success', fetchStatus: 'idle' })
+		expect(client.getQueryState(unsubscribeKey)?.fetchStatus).toBe('fetching')
+		expect(client.getQueryState(rawKey)?.fetchStatus).toBe('fetching')
+	})
+
 	it('rolls back one failed operation without erasing a newer optimistic operation', async () => {
 		const client = seedClient()
 		const manager = createMailOptimisticManager(client)

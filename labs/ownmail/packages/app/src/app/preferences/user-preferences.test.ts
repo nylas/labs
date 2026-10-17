@@ -12,13 +12,17 @@ import {
 	displayNameFor,
 	hiddenCalendarIdsFor,
 	isSupportedTimezone,
+	isThreadMuted,
+	MAX_MUTED_THREAD_IDS,
 	readUserPreferences,
+	toggleThreadMuted,
 	USER_PREFERENCES_STORAGE_KEY,
 	userPreferencesTestApi,
 	useUserPreferences,
 	useUserPreferencesReady,
 	withDisplayName,
 	withHiddenCalendarIds,
+	withThreadMuted,
 	writeUserPreferences,
 } from './user-preferences.js'
 
@@ -61,6 +65,7 @@ describe('user preferences', () => {
 			calendarSidebarCollapsed: true,
 			calendarDetailPaneOpen: true,
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
+			mutedThreadIds: ['thread-1'],
 		})
 		expect(saved).toEqual({
 			displayNameByAccount: { 'ada@example.com': 'Ada Lovelace' },
@@ -78,6 +83,7 @@ describe('user preferences', () => {
 			calendarSidebarCollapsed: true,
 			calendarDetailPaneOpen: true,
 			hiddenCalendarsByAccount: { 'ada@example.com': ['cal-work', 'cal-home'] },
+			mutedThreadIds: ['thread-1'],
 		})
 		expect(readUserPreferences()).toEqual(saved)
 		expect(isSupportedTimezone('not/a-timezone')).toBe(false)
@@ -437,5 +443,66 @@ describe('shared preference store', () => {
 		})
 		expect(result.current[0].readingPane).toBe('vertical')
 		unmount()
+	})
+})
+
+describe('muted conversations', () => {
+	it('mutes and unmutes a conversation on this device without archiving anything', () => {
+		const initial = defaultUserPreferences()
+		expect(initial.mutedThreadIds).toEqual([])
+		expect(isThreadMuted(initial, 't1')).toBe(false)
+
+		const muted = toggleThreadMuted(initial, 't1')
+		expect(isThreadMuted(muted, 't1')).toBe(true)
+		expect(muted.mutedThreadIds).toEqual(['t1'])
+		expect(toggleThreadMuted(muted, 't1').mutedThreadIds).toEqual([])
+		expect(initial.mutedThreadIds).toEqual([])
+	})
+
+	it('moves a re-muted conversation to the newest end and keeps the newest past the cap', () => {
+		const ids = Array.from({ length: MAX_MUTED_THREAD_IDS }, (_, index) => `t${index}`)
+		const full = { ...defaultUserPreferences(), mutedThreadIds: ids }
+		const remuted = withThreadMuted(full, 't0', true)
+		expect(remuted.mutedThreadIds.at(-1)).toBe('t0')
+		expect(remuted.mutedThreadIds).toHaveLength(MAX_MUTED_THREAD_IDS)
+
+		const overflow = withThreadMuted(full, 'newest', true)
+		expect(overflow.mutedThreadIds).toHaveLength(MAX_MUTED_THREAD_IDS)
+		expect(overflow.mutedThreadIds[0]).toBe('t1')
+		expect(overflow.mutedThreadIds.at(-1)).toBe('newest')
+		expect(withThreadMuted(full, 't5', false).mutedThreadIds).not.toContain('t5')
+	})
+
+	it('ignores unusable thread ids', () => {
+		const preferences = defaultUserPreferences()
+		expect(withThreadMuted(preferences, '', true)).toBe(preferences)
+		expect(withThreadMuted(preferences, 'bad\nid', true)).toBe(preferences)
+		expect(withThreadMuted(preferences, 'x'.repeat(1001), true)).toBe(preferences)
+	})
+
+	it('normalizes stored ids: drops malformed entries and duplicates, and keeps the newest past the cap', () => {
+		const saved = writeUserPreferences({
+			...defaultUserPreferences(),
+			mutedThreadIds: ['a', 7, '', 'b\nc', 'b', 'a', 'x'.repeat(1001)] as never,
+		})
+		expect(saved.mutedThreadIds).toEqual(['b', 'a'])
+		expect(
+			writeUserPreferences({ ...defaultUserPreferences(), mutedThreadIds: 'a' as never }).mutedThreadIds,
+		).toEqual([])
+
+		const many = Array.from({ length: MAX_MUTED_THREAD_IDS + 5 }, (_, index) => `t${index}`)
+		const capped = writeUserPreferences({ ...defaultUserPreferences(), mutedThreadIds: many })
+		expect(capped.mutedThreadIds).toHaveLength(MAX_MUTED_THREAD_IDS)
+		expect(capped.mutedThreadIds[0]).toBe('t5')
+	})
+
+	it('keeps muted ids in local storage only, never in the preference cookie', () => {
+		writeUserPreferences({ ...defaultUserPreferences(), mutedThreadIds: ['thread-secret'] })
+		expect(document.cookie).not.toContain('thread-secret')
+		expect(JSON.parse(localStorage.getItem(USER_PREFERENCES_STORAGE_KEY) ?? 'null').mutedThreadIds).toEqual([
+			'thread-secret',
+		])
+		userPreferencesTestApi.reset()
+		expect(readUserPreferences().mutedThreadIds).toEqual(['thread-secret'])
 	})
 })

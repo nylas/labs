@@ -48,6 +48,7 @@ export function readUserPreferences(): UserPreferences {
 				...presentation,
 				displayNameByAccount: local.displayNameByAccount,
 				hiddenCalendarsByAccount: local.hiddenCalendarsByAccount,
+				mutedThreadIds: local.mutedThreadIds,
 			},
 		}
 	}

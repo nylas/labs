@@ -1,7 +1,7 @@
 import { type Draft, type Folder, type Message, NylasApiError, type Thread } from '@nylas-labs/cli-kit/v3'
 import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
-import { requireNylasProviderId } from '#server/ids'
+import { requireNylasProviderId, validNylasProviderId } from '#server/ids'
 import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
 import { timeOperation } from '#server/request-context'
 import { protectMessageImageSources } from './email-image-sources.js'
@@ -13,6 +13,12 @@ import {
 	normalizeUpdateFolderInput,
 	type UpdateFolderInput,
 } from './folder-input.js'
+import {
+	type MessageHeaderFacts,
+	messageHeaderFacts,
+	rawHeaderText,
+	type ThreadHeaderFacts,
+} from './header-facts.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
 import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
 import { parseRecipientEmails } from './recipients.js'
@@ -264,6 +270,7 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			messages: Message[]
 			mailboxEmail: string
 			ownmailDraftMessageIds?: string[]
+			failedMessageIds?: string[]
 		}> => {
 			// Reading is side-effect free: route preloads fetch this on hover, and
 			// the client marks a thread read explicitly when it is actually opened.
@@ -271,10 +278,23 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			try {
 				const thread = await mailbox.getThread(data.threadId)
 				const messageIds = thread.data.message_ids ?? []
-				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
+				// One unreadable message must not hide the rest of the conversation:
+				// the reader shows what loaded and names how many did not.
+				const settled = await Promise.allSettled(
+					messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)),
+				)
+				const failedMessageIds = messageIds.filter((_, index) => settled[index]?.status === 'rejected')
+				const firstFailure = settled.find((result) => result.status === 'rejected')
+				if (firstFailure && failedMessageIds.length === messageIds.length) throw firstFailure.reason
+				const messages = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
 				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
 				const protectedMessages = await Promise.all(messages.map(protectMessageImageSources))
-				return { thread: thread.data, messages: protectedMessages, mailboxEmail: email }
+				return {
+					thread: thread.data,
+					messages: protectedMessages,
+					mailboxEmail: email,
+					...(failedMessageIds.length > 0 ? { failedMessageIds } : {}),
+				}
 			} catch (err) {
 				if (!isNotFound(err)) throw err
 				const drafts = await mailbox.listDrafts({ limit: 50 })
@@ -338,6 +358,80 @@ export const getThreadListUnsubscribe = createServerFn({ method: 'GET' })
 		} catch {
 			return { messageIds: [] }
 		}
+	})
+
+/** Messages in one thread read for their header facts. */
+const HEADER_FACTS_LOOKUP_LIMIT = 50
+
+/**
+ * What a thread's headers say about each message: sender authentication,
+ * Reply-To, mailing list and unsubscribe targets, and the sender's time zone.
+ * Headers are requested once per thread, only when the reader asks; their
+ * values are untrusted, are never stored or logged, and only the derived
+ * booleans and short validated strings of `messageHeaderFacts` leave the
+ * server. Any failure answers "no facts", and the reader shows plain headers.
+ */
+export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
+	.validator((input: { threadId: string }) => ({
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+	}))
+	.handler(async ({ data }): Promise<ThreadHeaderFacts> => {
+		const { mailbox, email } = await requireMailbox()
+		try {
+			const response = await mailbox.listMessages({
+				thread_id: data.threadId,
+				fields: 'include_headers',
+				limit: HEADER_FACTS_LOOKUP_LIMIT,
+			})
+			const messages = (Array.isArray(response.data) ? response.data : []) as Array<
+				(Message & { headers?: unknown }) | null
+			>
+			const entries: Array<[string, MessageHeaderFacts]> = []
+			for (const message of messages) {
+				if (!message || !validNylasProviderId(message.id)) continue
+				const fromEmail = Array.isArray(message.from) ? message.from[0]?.email : undefined
+				// A provider may list your own recipients as the Reply-To of what you sent;
+				// that is not a redirection a reader needs to be told about.
+				const ownMessage = typeof fromEmail === 'string' && fromEmail.toLowerCase() === email.toLowerCase()
+				const replyToEmail =
+					!ownMessage && Array.isArray(message.reply_to) ? message.reply_to[0]?.email : undefined
+				entries.push([
+					message.id,
+					messageHeaderFacts(
+						message.headers,
+						typeof fromEmail === 'string' ? fromEmail : undefined,
+						typeof replyToEmail === 'string' ? replyToEmail : undefined,
+					),
+				])
+			}
+			// fromEntries defines own keys, so a hostile id like `__proto__` stays plain data.
+			return { byMessage: Object.fromEntries(entries) }
+		} catch {
+			return { byMessage: {} }
+		}
+	})
+
+/**
+ * One message's header block as plain text, for "Show raw headers". Read from
+ * the provider's raw message only on that explicit request; the body never
+ * leaves the server and the text is capped at 64 KB.
+ */
+export const getMessageRawHeaders = createServerFn({ method: 'GET' })
+	.validator((input: { messageId: string }) => ({
+		messageId: requireNylasProviderId(input.messageId, 'message'),
+	}))
+	.handler(async ({ data }): Promise<{ text: string }> => {
+		const { mailbox } = await requireMailbox()
+		let rawMime: unknown
+		try {
+			const result = await mailbox.getRawMime(data.messageId)
+			rawMime = (result as { data?: { raw_mime?: unknown } } | null)?.data?.raw_mime
+		} catch (err) {
+			throw friendly(err)
+		}
+		const text = rawHeaderText(rawMime)
+		if (text === null) throw new Error('Raw headers are not available for this message.')
+		return { text }
 	})
 
 /** Explicit read-state mutation for callers that keep data loading side-effect free. */

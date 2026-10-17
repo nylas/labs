@@ -1,6 +1,7 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
 import { hashKey, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import {
+	MAIL_HEADER_LOOKUP_KINDS,
 	MAIL_KEY_ARGUMENT,
 	MAIL_KEY_KIND,
 	type MailDraft,
@@ -448,12 +449,17 @@ export function createMailOptimisticManager(client: QueryClient, root: QueryKey 
 			options: { preserveThreadDetails?: boolean } = {},
 		): Promise<MailOptimisticOperation> {
 			// Opening a thread marks it read while its detail is still loading;
-			// cancelling that fetch would fail the reader's own route load.
-			await client.cancelQueries(
-				options.preserveThreadDetails
-					? { queryKey: root, predicate: (query) => query.queryKey[MAIL_KEY_KIND] !== 'thread' }
-					: { queryKey: root },
-			)
+			// cancelling that fetch would fail the reader's own route load. Header
+			// lookups are never written optimistically, and a cancelled one is not
+			// retried, so they always run on.
+			await client.cancelQueries({
+				queryKey: root,
+				predicate: (query) => {
+					const kind = query.queryKey[MAIL_KEY_KIND]
+					if (typeof kind === 'string' && MAIL_HEADER_LOOKUP_KINDS.has(kind)) return false
+					return !(options.preserveThreadDetails && kind === 'thread')
+				},
+			})
 			const entry: JournalEntry = { id: nextId++, effect, status: 'pending' }
 			entries.push(entry)
 			apply(effect)

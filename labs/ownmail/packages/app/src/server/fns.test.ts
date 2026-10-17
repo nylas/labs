@@ -57,6 +57,7 @@ function makeMailbox() {
 		listThreads: vi.fn(),
 		getThread: vi.fn(),
 		getMessage: vi.fn(),
+		getRawMime: vi.fn(),
 		listMessages: vi.fn(),
 		updateThread: vi.fn(),
 		listDrafts: vi.fn(),
@@ -434,6 +435,140 @@ describe('getThreadListUnsubscribe', () => {
 	})
 })
 
+describe('getThreadHeaderFacts', () => {
+	it('validates the thread id', () => {
+		expect(fns.getThreadHeaderFacts.validator({ threadId: 'thread-1' })).toEqual({ threadId: 'thread-1' })
+		expect(() => fns.getThreadHeaderFacts.validator({ threadId: 'bad\nid' })).toThrow()
+	})
+
+	it('asks for headers once per thread and returns only derived facts, never a raw header value', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValue({
+			data: [
+				{
+					id: 'alan',
+					from: [{ email: 'alan@bletchley.dev' }],
+					headers: [
+						{ name: 'Received', value: 'from mail.bletchley.dev by mx1.example.net with ESMTPS id 1' },
+						{
+							name: 'Authentication-Results',
+							value: 'mx2.example.net; dmarc=pass header.from=bletchley.dev',
+						},
+						{ name: 'Date', value: 'Wed, 14 Oct 2026 07:12:00 -0700' },
+						{ name: 'X-Secret', value: 'token=abc123' },
+					],
+				},
+				{
+					id: 'grace',
+					from: [{ email: 'grace.hopper@vercel.com' }],
+					headers: [{ name: 'Reply-To', value: 'Private Name <grace.personal@fastmail.com>' }],
+				},
+				{
+					id: 'parsed-reply-to',
+					from: [{ email: 'help@bank.com' }],
+					reply_to: [{ name: 'Support <help@bank.com>', email: 'collect@evil.example' }],
+					headers: [{ name: 'Reply-To', value: '"Support <help@bank.com>" <collect@evil.example>' }],
+				},
+				{
+					id: 'own',
+					from: [{ email: 'Ada@OwnMail.com' }],
+					reply_to: [{ email: 'grace.hopper@vercel.com' }],
+				},
+				{
+					id: 'list',
+					from: 'not-a-list',
+					headers: [
+						{ name: 'List-Id', value: 'Eng <eng-all.vercel.com>' },
+						{ name: 'List-Unsubscribe', value: '<https://lists.example/u?token=secret>' },
+					],
+				},
+				{ id: '__proto__', from: [{ email: 7 }] },
+				{ id: 'bad\nid', headers: [] },
+				{ id: 42 },
+				null,
+			],
+		})
+		const result = await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+		})
+		expect(Object.keys(result.byMessage)).toEqual([
+			'alan',
+			'grace',
+			'parsed-reply-to',
+			'own',
+			'list',
+			'__proto__',
+		])
+		expect(result.byMessage.alan).toEqual({
+			verified: true,
+			authFailed: false,
+			listUnsubscribe: false,
+			dateOffsetMinutes: -420,
+		})
+		expect(result.byMessage.grace?.replyTo).toBe('grace.personal@fastmail.com')
+		expect(result.byMessage['parsed-reply-to']?.replyTo).toBe('collect@evil.example')
+		// Your own sent mail lists its recipients as Reply-To; that is no redirection.
+		expect(result.byMessage.own?.replyTo).toBeUndefined()
+		expect(result.byMessage.list).toMatchObject({
+			listId: 'eng-all.vercel.com',
+			listUnsubscribe: true,
+			unsubscribeUrl: 'https://lists.example/u?token=secret',
+		})
+		expect(Object.getPrototypeOf(result.byMessage)).toBe(Object.prototype)
+		const serialized = JSON.stringify(result)
+		expect(serialized).not.toContain('abc123')
+		expect(serialized).not.toContain('Private Name')
+	})
+
+	it('answers "no facts" when the lookup fails or returns something unexpected', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockRejectedValue(new NylasApiError('fields is not supported', 400))
+		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+
+		mailbox.listMessages.mockResolvedValue({ data: 'unexpected' })
+		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+	})
+})
+
+describe('getMessageRawHeaders', () => {
+	const encode = (text: string) => btoa(text).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+
+	it('validates the message id', () => {
+		expect(fns.getMessageRawHeaders.validator({ messageId: 'm1' })).toEqual({ messageId: 'm1' })
+		expect(() => fns.getMessageRawHeaders.validator({ messageId: '' })).toThrow('Invalid message')
+	})
+
+	it('returns only the header block of the raw message', async () => {
+		resolveMailbox()
+		mailbox.getRawMime.mockResolvedValue({
+			data: { id: 'm1', raw_mime: encode('From: a@b.co\r\nSubject: Hi\r\n\r\nSecret body') },
+		})
+		const result = await fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })
+
+		expect(mailbox.getRawMime).toHaveBeenCalledWith('m1')
+		expect(result).toEqual({ text: 'From: a@b.co\r\nSubject: Hi' })
+	})
+
+	it('maps provider failures and unusable payloads to user-safe errors', async () => {
+		resolveMailbox()
+		mailbox.getRawMime.mockRejectedValueOnce(new NylasApiError('gone', 404))
+		await expect(fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })).rejects.toThrow(/Not found/)
+
+		mailbox.getRawMime.mockResolvedValueOnce(null)
+		await expect(fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })).rejects.toThrow(
+			'Raw headers are not available for this message.',
+		)
+		mailbox.getRawMime.mockResolvedValueOnce({ data: { raw_mime: '***' } })
+		await expect(fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })).rejects.toThrow(
+			'Raw headers are not available',
+		)
+	})
+})
+
 describe('getThreadMessages', () => {
 	it('validates the thread id', () => {
 		expect(fns.getThreadMessages.validator({ threadId: 'thread-1' })).toEqual({ threadId: 'thread-1' })
@@ -468,6 +603,31 @@ describe('getThreadMessages', () => {
 		mailbox.getMessage.mockImplementation((id: string) => Promise.resolve({ data: { id } }))
 		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
 		expect(res.messages).toHaveLength(2)
+	})
+
+	it('shows the messages that loaded and names the ones that failed', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['m1', 'gone', 'm2', 'broken'] } })
+		mailbox.getMessage.mockImplementation((id: string) =>
+			id === 'gone' || id === 'broken'
+				? Promise.reject(new NylasApiError('gone', id === 'gone' ? 404 : 500))
+				: Promise.resolve({ data: { id, date: id === 'm1' ? 1 : 2 } }),
+		)
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+
+		expect(res.messages.map((m) => m.id)).toEqual(['m1', 'm2'])
+		expect(res.failedMessageIds).toEqual(['gone', 'broken'])
+	})
+
+	it('fails the whole read only when no message could be loaded', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['a', 'b'] } })
+		mailbox.getMessage.mockRejectedValue(new NylasApiError('server', 500))
+		await expect(fns.getThreadMessages.handler({ data: { threadId: 't1' } })).rejects.toThrow('server')
+
+		mailbox.getMessage.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.listDrafts.mockResolvedValue({ data: [] })
+		await expect(fns.getThreadMessages.handler({ data: { threadId: 't1' } })).rejects.toThrow(/Not found/)
 	})
 
 	it('supports an explicit read mutation with a canonical thread and folder receipt', async () => {

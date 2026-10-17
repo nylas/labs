@@ -285,7 +285,7 @@ describe('calendar input validation', () => {
 				title: 'Planning',
 				startTime: 1_800_000_000,
 				endTime: 1_800_003_600,
-				participants: 'grace@vercel.com' as unknown as string[],
+				participants: 'grace.hopper@vercel.com' as unknown as string[],
 			}),
 		).toThrow('Invalid participants')
 		expect(() =>

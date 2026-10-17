@@ -9,8 +9,11 @@ import {
 	MAIL_KEY_ARGUMENT,
 	MAIL_KEY_KIND,
 	mailKeys,
+	messageHeaderFactsFor,
+	messageRawHeadersQueryOptions,
 	normalizeMailThreadFilters,
 	threadDetailQueryOptions,
+	threadHeaderFactsQueryOptions,
 	threadListQueryOptions,
 	threadListUnsubscribeQueryOptions,
 	toMailDraft,
@@ -51,6 +54,55 @@ describe('mail query cache boundaries', () => {
 		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
 		expect(fetchIds).toHaveBeenCalledTimes(1)
 		expect(() => threadListUnsubscribeQueryOptions('bad\nid', fetchIds)).toThrow()
+	})
+
+	it('keeps header facts per account and thread for the session and never retries a failure', async () => {
+		const facts = { byMessage: { m1: { verified: true, authFailed: false, listUnsubscribe: false } } }
+		const fetchFacts = vi.fn(async () => facts)
+		const options = threadHeaderFactsQueryOptions('t1', fetchFacts)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-header-facts', 't1'])
+		expect(mailKeys.threadHeaderFacts('t1')).toEqual(options.queryKey)
+		expect(options.staleTime).toBe(Number.POSITIVE_INFINITY)
+		expect(options.retry).toBe(false)
+
+		const queryClient = new QueryClient()
+		expect(await queryClient.fetchQuery(options)).toEqual(facts)
+		await queryClient.fetchQuery(options)
+		expect(fetchFacts).toHaveBeenCalledTimes(1)
+		expect(fetchFacts).toHaveBeenCalledWith('t1')
+		expect(() => threadHeaderFactsQueryOptions('bad\nid', fetchFacts)).toThrow()
+
+		expect(messageHeaderFactsFor(facts, 'm1')?.verified).toBe(true)
+		expect(messageHeaderFactsFor(facts, 'toString')).toBeUndefined()
+		expect(messageHeaderFactsFor(undefined, 'm1')).toBeUndefined()
+	})
+
+	it('fetches raw headers per account and message only on request and keeps them briefly', async () => {
+		const fetchHeaders = vi.fn(async () => ({ text: 'From: a@b.co' }))
+		const options = messageRawHeadersQueryOptions('m1', fetchHeaders)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'message-raw-headers', 'm1'])
+		expect(mailKeys.messageRawHeaders('m1')).toEqual(options.queryKey)
+		expect(options.retry).toBe(false)
+		expect(options.gcTime).toBe(60_000)
+		expect(await new QueryClient().fetchQuery(options)).toBe('From: a@b.co')
+		expect(fetchHeaders).toHaveBeenCalledWith('m1')
+		expect(() => messageRawHeadersQueryOptions('', fetchHeaders)).toThrow('Invalid message')
+	})
+
+	it('carries the ids of messages that failed to load into the cache, validated', () => {
+		const detail = toMailThreadDetail({
+			thread,
+			messages: [message],
+			mailboxEmail: 'ada@example.com',
+			failedMessageIds: ['m2', 'm2', 'bad\nid', '', 7 as never, 'm3'],
+		})
+		expect(detail.failedMessageIds).toEqual(['m2', 'm3'])
+		expect(
+			toMailThreadDetail({ thread, messages: [], mailboxEmail: 'a@b.co', failedMessageIds: 'm2' as never }),
+		).not.toHaveProperty('failedMessageIds')
+		expect(
+			toMailThreadDetail({ thread, messages: [], mailboxEmail: 'a@b.co', failedMessageIds: [] }),
+		).not.toHaveProperty('failedMessageIds')
 	})
 
 	it('normalizes stable filters and query keys', () => {
