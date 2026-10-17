@@ -108,12 +108,39 @@ describe('messageHeaderFacts', () => {
 				received('mx.ownmail.com'),
 				h(
 					'Authentication-Results',
-					'mx.ownmail.com; spf=pass smtp.mailfrom=a.com; dkim=pass header.d=a.com; dmarc=fail',
+					'mx.ownmail.com; spf=pass smtp.mailfrom=a.com; dkim=pass header.d=a.com; dmarc=fail header.from=a.com',
 				),
 			],
 			'x@a.com',
 		)
 		expect(failedEvenIfAligned).toMatchObject({ verified: false, authFailed: true })
+		// A DMARC verdict about another identity, or none at all, is no verdict on this sender, and blocks the fallback.
+		const verdict = (dmarc: string) =>
+			messageHeaderFacts(
+				[
+					received('mx.ownmail.com'),
+					h(
+						'Authentication-Results',
+						`mx.ownmail.com; spf=pass smtp.mailfrom=a.com; dkim=pass header.d=a.com; ${dmarc}`,
+					),
+				],
+				'x@a.com',
+			)
+		expect(verdict('dmarc=pass header.from=attacker.example')).toMatchObject({
+			verified: false,
+			authFailed: false,
+		})
+		expect(verdict('dmarc=fail header.from=attacker.example')).toMatchObject({
+			verified: false,
+			authFailed: false,
+		})
+		expect(verdict('dmarc=fail')).toMatchObject({ verified: false, authFailed: false })
+		expect(
+			messageHeaderFacts([
+				received('mx.ownmail.com'),
+				h('Authentication-Results', 'mx.ownmail.com; dmarc=pass'),
+			]),
+		).toMatchObject({ verified: false })
 		expect(
 			messageHeaderFacts(
 				[received('mx.ownmail.com'), h('Authentication-Results', 'mx.ownmail.com; unknown=pass; garbage')],
@@ -196,18 +223,19 @@ describe('messageHeaderFacts', () => {
 				h('Authentication-Results', `mx.google.com; ${pass}`),
 			),
 		).toMatchObject(untrusted)
+		// A header without an authserv-id carries nothing the receiver attested, even behind a Microsoft hop.
 		expect(
 			facts(
 				received('BN8PR12MB.namprd12.prod.outlook.com'),
 				h('Authentication-Results', `spf=pass smtp.mailfrom=bank.com; ${fail}`),
 			),
-		).toMatchObject({ verified: false, authFailed: true })
+		).toMatchObject(untrusted)
 		expect(
 			facts(
 				received('BN8PR12MB.namprd12.prod.outlook.com'),
 				h('Authentication-Results', `spf=pass (ok) smtp.mailfrom=bank.com; dmarc=pass header.from=bank.com`),
 			),
-		).toMatchObject({ verified: true })
+		).toMatchObject(untrusted)
 	})
 
 	it('never reads a lower Authentication-Results in place of an unusable topmost one', () => {

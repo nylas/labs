@@ -37,10 +37,6 @@ const MAX_OFFSET_MINUTES = 14 * 60
 const EMAIL_PATTERN = /^[^\s@<>()",;:\\[\]]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
 const LIST_ID_PATTERN = /^[A-Za-z0-9._-]+$/
 const HOST_PATTERN = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/
-/** Second-level labels under a two-letter country code that a registrant cannot own (`co.uk`). */
-const PUBLIC_SECOND_LEVELS = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org'])
-/** Microsoft 365 writes Authentication-Results without an authserv-id; its hops are these sites. */
-const MICROSOFT_SITES = new Set(['outlook.com', 'office365.com'])
 
 /** RFC 5322 obsolete zone names that still appear in Date headers. */
 const NAMED_ZONES: Record<string, number> = {
@@ -128,17 +124,6 @@ type AuthResult = { method: string; result: string; domain?: string }
 
 const METHOD_RESULT = /^\s*(dmarc|spf|dkim)\s*=\s*([a-z]+)/i
 
-/** The registrable site of a host, roughly: its last two labels, or three under `co.uk`-style suffixes. */
-function siteOf(host: string): string | undefined {
-	const normalized = host.trim().toLowerCase().replace(/\.$/, '')
-	if (!HOST_PATTERN.test(normalized)) return undefined
-	const labels = normalized.split('.')
-	const tld = labels.at(-1) as string
-	const second = labels.at(-2) as string
-	const keep = tld.length === 2 && PUBLIC_SECOND_LEVELS.has(second) && labels.length > 2 ? 3 : 2
-	return labels.slice(-keep).join('.')
-}
-
 /** The host that received the message last: the `by` of the topmost Received header, which the sender cannot write. */
 function receivingHost(pairs: HeaderPair[]): string | undefined {
 	const received = firstHeader(pairs, 'received')
@@ -148,31 +133,20 @@ function receivingHost(pairs: HeaderPair[]): string | undefined {
 
 /**
  * The method results of the topmost Authentication-Results header, and only
- * when the receiving provider wrote it (RFC 8601 §5 has receivers drop any
- * copy of their own id from outside). That is when its authserv-id is
- * exactly the receiving host (a sibling host on the same site may be a
- * sender-written copy the receiver never stripped), `mx.google.com` behind
- * a google.com hop, or a Microsoft 365 header, which carries no id, behind a
- * Microsoft hop. A bare IP hop proves no provider, so it never vouches.
- * Anything else may have been written by the sender, so it says nothing.
+ * when the receiving host wrote it: its authserv-id is exactly the topmost
+ * Received `by` host, which RFC 8601 §5 has receivers strip from outside
+ * copies. A header without an id, a sibling host on the same site, or a hop
+ * that is a bare IP proves nothing about who wrote it, so it says nothing.
  */
 function trustedAuthenticationResults(pairs: HeaderPair[]): AuthResult[] {
 	const value = firstHeader(pairs, 'authentication-results')
 	const host = receivingHost(pairs)
 	if (!value || !host) return []
 	const segments = value.replace(/\([^()]*\)/g, ' ').split(';')
-	const hostSite = siteOf(host)
-	let results: string[]
-	if (METHOD_RESULT.test(segments[0] as string)) {
-		if (!hostSite || !MICROSOFT_SITES.has(hostSite)) return []
-		results = segments
-	} else {
-		const authservId = ((segments[0] as string).trim().split(/\s+/)[0] as string).toLowerCase()
-		const trusted =
-			authservId === host.replace(/\.$/, '') || (authservId === 'mx.google.com' && hostSite === 'google.com')
-		if (!trusted) return []
-		results = segments.slice(1)
-	}
+	if (METHOD_RESULT.test(segments[0] as string)) return []
+	const authservId = ((segments[0] as string).trim().split(/\s+/)[0] as string).toLowerCase()
+	if (authservId !== host.replace(/\.$/, '')) return []
+	const results = segments.slice(1)
 	const parsed: AuthResult[] = []
 	for (const entry of results) {
 		const match = METHOD_RESULT.exec(entry)
@@ -270,7 +244,11 @@ export function messageHeaderFacts(
 	const fromDomain = domainOf(from)
 	const auth = trustedAuthenticationResults(pairs)
 	const result = (method: string) => auth.filter((entry) => entry.method === method)
-	const dmarc = result('dmarc')[0]?.result
+	// A DMARC verdict speaks only for the From domain it names. One about another
+	// identity (or none) is not a verdict on this sender, but it still blocks the
+	// SPF-and-DKIM fallback: fail closed rather than vouch past it.
+	const dmarcResults = result('dmarc')
+	const dmarc = dmarcResults.find((entry) => fromDomain !== undefined && entry.domain === fromDomain)?.result
 	const alignedPass = (method: string) =>
 		result(method).some((entry) => entry.result === 'pass' && aligned(entry.domain, fromDomain))
 	const replyTo =
@@ -279,7 +257,7 @@ export function messageHeaderFacts(
 	const unsubscribe = firstHeader(pairs, 'list-unsubscribe')
 	const offset = dateOffsetMinutes(firstHeader(pairs, 'date'))
 	return {
-		verified: dmarc === 'pass' || (dmarc !== 'fail' && alignedPass('spf') && alignedPass('dkim')),
+		verified: dmarc === 'pass' || (dmarcResults.length === 0 && alignedPass('spf') && alignedPass('dkim')),
 		authFailed: dmarc === 'fail',
 		...(replyTo && replyTo.toLowerCase() !== from?.toLowerCase() ? { replyTo } : {}),
 		...(list ? { listId: list } : {}),
