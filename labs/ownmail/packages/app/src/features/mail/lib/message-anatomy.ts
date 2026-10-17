@@ -19,6 +19,7 @@ import { isCalendarInvitationAttachment } from '#features/calendar/lib/calendar-
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 import { blocksText, type CleanBlock, messageContent } from './clean-view.js'
 import { bubbleContent } from './conversation-model.js'
+import { organisationDomain, sameSenderDomain } from './sender-domain.js'
 import {
 	firstName,
 	isBounceMessage,
@@ -40,8 +41,6 @@ const LINK_LINE = /https?:\/\/|www\./i
 /** A label some signatures put before a number or address: "Mobile:", "T:", "Email -". */
 const LINE_LABEL = /^(?:[a-z]{1,8}\.?\s*[:|–-]\s*)/i
 const FORWARD_SUBJECT = /^\s*fwd?\s*:/i
-/** Second-level labels under a two-letter country code that a registrant cannot own (`co.uk`). */
-const PUBLIC_SECOND_LEVELS = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org'])
 
 const toSeconds = (value: number): number => (value > MILLISECONDS_FLOOR ? Math.floor(value / 1000) : value)
 const addressKey = (email: string): string => email.trim().toLowerCase()
@@ -174,19 +173,6 @@ export function senderLocalTime(
 	}
 }
 
-/** The registrable part of an address's domain: mail.meridianbank.com → meridianbank.com. */
-export function organisationDomain(email: string): string {
-	const host = addressKey(email).split('@')[1] ?? ''
-	const labels = host.split('.').filter(Boolean)
-	const keep =
-		labels.length >= 3 &&
-		(labels.at(-1) as string).length === 2 &&
-		PUBLIC_SECOND_LEVELS.has(labels.at(-2) as string)
-			? 3
-			: 2
-	return labels.slice(-keep).join('.')
-}
-
 /** The domain an address came from, as written: meridian-secure.co. */
 export const addressDomain = (email: string): string => addressKey(email).split('@')[1] ?? ''
 
@@ -199,8 +185,9 @@ export type Lookalike = { name: string; usualDomain: string; domain: string }
  * A sender whose display name is someone this mailbox knows (a contact or a
  * prior correspondent) but whose address is on another organisation's domain:
  * "Meridian Bank" from meridian-secure.co when Meridian Bank writes from
- * meridianbank.com. Null when any other known address with that name shares
- * the sender's domain, or the sender is the owner or has no name. The
+ * meridianbank.com. Null when any other known address with that name writes
+ * from the sender's organisation (`sameSenderDomain`, the same test that
+ * makes its links inert), or the sender is the owner or has no name. The
  * sender's own address never vouches for itself: saving a lookalike to
  * contacts, or listing this message's sender among correspondents, does not
  * make it safe.
@@ -220,13 +207,14 @@ export function lookalikeSender(
 			sameName(person.name, sender.name),
 	)
 	if (namesakes.length === 0) return null
-	const domain = organisationDomain(sender.email)
-	if (namesakes.some((person) => organisationDomain(person.email) === domain)) return null
-	return {
-		name: sender.name,
-		usualDomain: organisationDomain((namesakes[0] as Person).email),
-		domain: addressDomain(sender.email),
-	}
+	if (namesakes.some((person) => sameSenderDomain(person.email, sender.email))) return null
+	const usual = (namesakes[0] as Person).email
+	// Siblings under a public suffix (mail.bank.co.uk, news.bank.co.uk) are told apart by their hosts.
+	const usualDomain =
+		organisationDomain(usual) === organisationDomain(sender.email)
+			? addressDomain(usual)
+			: organisationDomain(usual)
+	return { name: sender.name, usualDomain, domain: addressDomain(sender.email) }
 }
 
 /** Where replies go when it is not the address the message came from; the owner's own mail never warns. */

@@ -15,7 +15,6 @@ import {
 	isBounceMessage,
 	type Person,
 	type SystemEvent,
-	senderPerson,
 	shortDayLabel,
 	type ThreadFile,
 	threadFiles,
@@ -315,25 +314,6 @@ export function chipAttachments(message: MailMessage): NonNullable<MailMessage['
 	)
 }
 
-const domainOf = (email: string): string => email.trim().toLowerCase().split('@')[1] ?? ''
-
-/**
- * A lookalike sender: the display name of someone else in this thread (or in
- * `known`), written from a different domain than theirs.
- */
-export function isLookalikeSender(message: MailMessage, others: Person[], owner: string): boolean {
-	const sender = senderPerson(message, owner)
-	const name = sender.name.trim().toLowerCase()
-	if (!name || sender.isOwner) return false
-	const domain = domainOf(sender.email)
-	return others.some(
-		(person) =>
-			person.name.trim().toLowerCase() === name &&
-			person.email.trim().toLowerCase() !== sender.email.trim().toLowerCase() &&
-			domainOf(person.email) !== domain,
-	)
-}
-
 /** Heading texts (h1–h3) of an HTML body, for the long-message outline. */
 export function messageHeadings(message: MailMessage): string[] {
 	const body = message.body ?? ''
@@ -406,11 +386,17 @@ export function stepMessage(current: number, step: 1 | -1, count: number): numbe
 /** The element id of a message in the stream, the target of `#message-<id>` links and the map. */
 export const messageAnchorId = (messageId: string): string => `message-${messageId}`
 
-/** The message a `#message-<id>` hash names, when it is in the thread. */
+/** The message a `#message-<id>` hash names, when it is in the thread and the hash decodes. */
 export function hashTarget(hash: string, messages: MailMessage[]): string | undefined {
 	const match = /^#message-(.+)$/.exec(hash)
 	if (!match) return undefined
-	const id = decodeURIComponent(match[1] as string)
+	let id: string
+	try {
+		id = decodeURIComponent(match[1] as string)
+	} catch {
+		// A malformed escape (`#message-%`) names no message.
+		return undefined
+	}
 	return messages.some((message) => message.id === id) ? id : undefined
 }
 

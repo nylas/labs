@@ -71,6 +71,21 @@ describe('linksDisabled', () => {
 		expect(isLookalikeSender(fake as MailMessage, [MERIDIAN], OWNER)).toBe(true)
 		expect(isLookalikeSender({ ...fake, from: [GRACE] } as MailMessage, [MERIDIAN], OWNER)).toBe(false)
 	})
+
+	it('trusts the same address, the same domain, unknown names, nameless senders and the owner', () => {
+		const from = (sender: { name?: string; email: string }) => ({ id: 'm', from: [sender] }) as MailMessage
+		const known: Person = { name: 'meridian bank', email: 'Statements@MeridianBank.com', isOwner: false }
+		expect(isLookalikeSender(from(MERIDIAN), [known], OWNER)).toBe(false)
+		expect(
+			isLookalikeSender(from({ name: 'Meridian Bank', email: 'help@meridianbank.com' }), [MERIDIAN], OWNER),
+		).toBe(false)
+		expect(isLookalikeSender(from(GRACE), [MERIDIAN], OWNER)).toBe(false)
+		expect(isLookalikeSender(from({ email: 'x@y.z' }), [MERIDIAN], OWNER)).toBe(false)
+		expect(isLookalikeSender(from({ name: 'Meridian Bank', email: OWNER }), [MERIDIAN], OWNER)).toBe(false)
+		expect(isLookalikeSender(from({ name: 'Meridian Bank', email: 'nodomain' }), [MERIDIAN], OWNER)).toBe(
+			true,
+		)
+	})
 })
 
 describe('MessageNotices', () => {
@@ -119,6 +134,29 @@ describe('MessageNotices', () => {
 		)
 		expect(notes()[0]).toHaveTextContent(
 			'This came from pay-now.io and failed sender checks. Links are disabled.',
+		)
+	})
+
+	it('warns exactly when links are made inert, for siblings on a plain domain and under co.uk', () => {
+		const cases: Array<[known: string, sender: string, warns: boolean]> = [
+			['digest@mail.example.com', 'hello@news.example.com', false],
+			['digest@mail.example.co.uk', 'hello@news.example.co.uk', true],
+			['digest@example.co.uk', 'hello@news.example.co.uk', false],
+		]
+		for (const [known, sender, warns] of cases) {
+			const knownSenders: Person[] = [{ name: 'Example', email: known, isOwner: false }]
+			const message = { from: [{ name: 'Example', email: sender }], to: [ADA] }
+			const { unmount } = renderNotices(message, { facts: facts({ verified: true }), knownSenders })
+			expect(notes()).toHaveLength(warns ? 1 : 0)
+			expect(isLookalikeSender({ id: 'm', ...message } as MailMessage, knownSenders, OWNER)).toBe(warns)
+			unmount()
+		}
+		renderNotices(
+			{ from: [{ name: 'Example', email: 'hello@news.example.co.uk' }], to: [ADA] },
+			{ knownSenders: [{ name: 'Example', email: 'digest@mail.example.co.uk', isOwner: false }] },
+		)
+		expect(notes()[0]).toHaveTextContent(
+			'“Example” usually writes from mail.example.co.uk. This came from news.example.co.uk. Links are disabled.',
 		)
 	})
 

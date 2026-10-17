@@ -234,6 +234,48 @@ describe('LongMessageFrame', () => {
 		expect(scrollBy).toHaveBeenLastCalledWith({ top: 700, behavior: 'smooth' })
 	})
 
+	it('saves the end of the message once the view scrolls past it, and returns there', () => {
+		render(
+			<div data-testid="pane" style={{ overflowY: 'auto' }}>
+				<LongMessageFrame messageId="past" text={LONG} headings={HEADINGS}>
+					<Body />
+				</LongMessageFrame>
+			</div>,
+		)
+		const pane = screen.getByTestId('pane')
+		const frame = document.querySelector('[data-slot="long-message"]') as Element
+		rectOf(pane, { top: 100, height: 500 })
+		// Well below the message: the replies after it fill the view.
+		rectOf(frame, { top: -2900, height: 2000 })
+		act(() => {
+			pane.dispatchEvent(new Event('scroll'))
+		})
+		expect(screen.getByText('8 min read · 100%')).toBeInTheDocument()
+		// Its end at the bottom of the view: 2,000 tall less the 500 the view shows.
+		expect(sessionStorage.getItem('ownmail:reading-position:past')).toBe('1500')
+		cleanup()
+
+		render(
+			<div data-testid="pane" style={{ overflowY: 'scroll' }}>
+				<LongMessageFrame messageId="past" text={LONG} headings={HEADINGS}>
+					<Body />
+				</LongMessageFrame>
+			</div>,
+		)
+		const reopened = screen.getByTestId('pane')
+		let scrollTop = 0
+		Object.defineProperty(reopened, 'scrollTop', {
+			get: () => scrollTop,
+			set: (value: number) => {
+				scrollTop = value
+			},
+		})
+		rectOf(reopened, { top: 100, height: 500 })
+		rectOf(document.querySelector('[data-slot="long-message"]') as Element, { top: 150, height: 2000 })
+		act(() => resize?.())
+		expect(scrollTop).toBe(150 - 100 + 1500)
+	})
+
 	it('keeps the saved position until the message is tall enough to return to it', () => {
 		sessionStorage.setItem('ownmail:reading-position:tall', '5000')
 		render(

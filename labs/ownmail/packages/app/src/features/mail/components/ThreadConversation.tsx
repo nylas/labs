@@ -75,7 +75,6 @@ import {
 	CATCH_UP_MIN_MESSAGES,
 	conversationMessages,
 	hashTarget,
-	isLookalikeSender,
 	isTrashed,
 	knownPerson,
 	lineDateLabel,
@@ -107,7 +106,7 @@ import { DraftInThread, draftAnchorId } from './DraftInThread.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { JumpToNewPill } from './JumpToNewPill.js'
 import { MessageBody } from './MessageBody.js'
-import { linksDisabled, senderCheckNotice, uncheckedSender } from './MessageNotices.js'
+import { isLookalikeSender, linksDisabled, senderCheckNotice, uncheckedSender } from './MessageNotices.js'
 import { PartialLoadNotice } from './PartialLoadNotice.js'
 import { scrollParent, useMediaQuery, useReaderClock, useWidthAtLeast } from './reader-hooks.js'
 import { ThreadColumn, ThreadColumnReader } from './ThreadColumn.js'

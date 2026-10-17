@@ -9,7 +9,6 @@ import {
 	longDateLabel,
 	lookalikeSender,
 	mailingList,
-	organisationDomain,
 	parseSignature,
 	personChips,
 	removedFromReply,
@@ -102,15 +101,6 @@ describe('time zones', () => {
 	})
 })
 
-describe('organisationDomain', () => {
-	it('keeps the registrable part of a domain', () => {
-		expect(organisationDomain('alerts@mail.MeridianBank.com')).toBe('meridianbank.com')
-		expect(organisationDomain('a@news.example.co.uk')).toBe('example.co.uk')
-		expect(organisationDomain('a@shop.example.de')).toBe('example.de')
-		expect(organisationDomain('nobody')).toBe('')
-	})
-})
-
 describe('lookalikeSender', () => {
 	const known = [person({ name: 'Meridian Bank', email: 'statements@meridianbank.com' })]
 	const fake = msg('m', { name: 'Meridian Bank', email: 'alerts@Meridian-Secure.co' }, [ADA])
@@ -129,6 +119,10 @@ describe('lookalikeSender', () => {
 	it('trusts the same organisation, strangers, the owner and nameless senders', () => {
 		const sub = msg('m', { name: 'Meridian Bank', email: 'alerts@mail.meridianbank.com' }, [ADA])
 		expect(lookalikeSender(sub, known, OWNER)).toBeNull()
+		const sibling = msg('m', { name: 'Meridian Bank', email: 'alerts@news.meridianbank.com' }, [ADA])
+		expect(
+			lookalikeSender(sibling, [person({ name: 'Meridian Bank', email: 'x@mail.meridianbank.com' })], OWNER),
+		).toBeNull()
 		expect(
 			lookalikeSender(
 				fake,
@@ -154,6 +148,13 @@ describe('lookalikeSender', () => {
 			domain: 'meridian-secure.co',
 		})
 		expect(lookalikeSender(fake, [saved], OWNER)).toBeNull()
+	})
+
+	it('names siblings under a public suffix by their hosts', () => {
+		const sibling = msg('m', { name: 'Meridian Bank', email: 'alerts@news.meridian.co.uk' }, [ADA])
+		expect(
+			lookalikeSender(sibling, [person({ name: 'Meridian Bank', email: 'x@mail.meridian.co.uk' })], OWNER),
+		).toEqual({ name: 'Meridian Bank', usualDomain: 'mail.meridian.co.uk', domain: 'news.meridian.co.uk' })
 	})
 
 	it('names an address without a domain as it is', () => {

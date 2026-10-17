@@ -107,7 +107,8 @@ function LongMessageLayout({
 		const travel = rect.height - (view.bottom - view.top)
 		const read = travel > 0 ? Math.min(1, Math.max(0, (view.top - rect.top) / travel)) : 1
 		setProgress(read)
-		if (restored.current) saveOffset(messageId, view.top - rect.top)
+		// Past its end the view is still where the message was finished: keep that, so a return can reach it.
+		if (restored.current) saveOffset(messageId, Math.min(view.top - rect.top, Math.max(0, travel)))
 		const nodes = headingNodes(root, headings)
 		let section = -1
 		nodes.forEach((node, index) => {

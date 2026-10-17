@@ -797,7 +797,14 @@ glyph, 13px text, the 6px plane radius. Never a rail.
   organisation's domain (the sender's own address never vouches for itself,
   even once saved). "“Meridian Bank” usually writes from
   meridianbank.com. This came from meridian-secure.co and failed sender
-  checks. Links are disabled." The message's links are made inert.
+  checks. Links are disabled." The message's links are made inert. One test
+  decides both the notice and the inert links, so a message never loses its
+  links without saying why: the same host or a subdomain of it is the same
+  organisation, and so are sibling hosts under a plain top-level domain
+  (mail.example.com and news.example.com). Under a country code with a short
+  generic second level (co.uk, ne.jp, com.au) siblings are told apart, since
+  there is no public suffix list to say who owns them; a guess errs toward
+  the notice.
 - Someone dropped (neutral): "Alan removed Katherine from this reply." with
   "Add Katherine back to yours", counted as the thread's system lines count a
   removal: only on a reply all that still reaches two or more of the people

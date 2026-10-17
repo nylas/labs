@@ -6,7 +6,6 @@ import {
 	chipAttachments,
 	conversationMessages,
 	hashTarget,
-	isLookalikeSender,
 	isTrashed,
 	knownPerson,
 	lineDateLabel,
@@ -332,39 +331,6 @@ describe('chipAttachments', () => {
 	})
 })
 
-describe('isLookalikeSender', () => {
-	const bank = { name: 'Meridian Bank', email: 'statements@meridianbank.com', isOwner: false }
-
-	it('flags a known name written from another domain', () => {
-		const fake = message('m', { from: [{ name: 'Meridian Bank', email: 'alerts@meridian-secure.co' }] })
-		expect(isLookalikeSender(fake, [bank], OWNER)).toBe(true)
-	})
-
-	it('trusts the same address, the same domain, unknown names, nameless senders and the owner', () => {
-		const known = { name: 'meridian bank', email: 'Statements@MeridianBank.com', isOwner: false }
-		expect(isLookalikeSender(message('m', { from: [bank] }), [known], OWNER)).toBe(false)
-		expect(
-			isLookalikeSender(
-				message('m', { from: [{ name: 'Meridian Bank', email: 'help@meridianbank.com' }] }),
-				[bank],
-				OWNER,
-			),
-		).toBe(false)
-		expect(isLookalikeSender(message('m', { from: [GRACE] }), [bank], OWNER)).toBe(false)
-		expect(isLookalikeSender(message('m', { from: [{ email: 'x@y.z' }] }), [bank], OWNER)).toBe(false)
-		expect(
-			isLookalikeSender(message('m', { from: [{ name: 'Meridian Bank', email: OWNER }] }), [bank], OWNER),
-		).toBe(false)
-		expect(
-			isLookalikeSender(
-				message('m', { from: [{ name: 'Meridian Bank', email: 'nodomain' }] }),
-				[bank],
-				OWNER,
-			),
-		).toBe(true)
-	})
-})
-
 describe('messageHeadings', () => {
 	it('reads h1 to h3 as plain text and skips empty headings', () => {
 		const body =
@@ -416,6 +382,11 @@ describe('navigation helpers', () => {
 		expect(hashTarget('#message-missing', messages)).toBeUndefined()
 		expect(hashTarget('#other', messages)).toBeUndefined()
 		expect(hashTarget('', messages)).toBeUndefined()
+	})
+
+	it('treats a hash that does not decode as naming no message', () => {
+		expect(hashTarget('#message-%', [message('%')])).toBeUndefined()
+		expect(hashTarget('#message-%E0%A4%A', messages)).toBeUndefined()
 	})
 })
 
