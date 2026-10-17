@@ -1,6 +1,6 @@
 import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, type ErrorComponentProps, useNavigate, useRouter } from '@tanstack/react-router'
 import {
 	Archive,
 	ArrowLeft,
@@ -13,17 +13,27 @@ import {
 	Star,
 	Trash2,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { skipNextNavigationMotion } from '#app/lib/navigation-motion'
 import { returnToPreviousFolder } from '#app/lib/reader-history'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ErrorBanner } from '#features/mail/components/ErrorBanner'
+import { InlineReplyCard } from '#features/mail/components/InlineReplyCard'
+import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
+import { MobileThreadTopBar } from '#features/mail/components/MobileThreadTopBar'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
-import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from '#features/mail/components/ThreadConversation'
+import {
+	THREAD_MAP_DOCK_ID,
+	THREAD_MOBILE_MORE_ID,
+	THREAD_TOOLBAR_ACTIONS_ID,
+	THREAD_TOOLBAR_MORE_ID,
+	ThreadConversation,
+} from '#features/mail/components/ThreadConversation'
+import { ThreadLoadError } from '#features/mail/components/ThreadLoadError'
+import { READER_ICON_BUTTON_CLASS } from '#features/mail/components/ThreadReaderControls'
 import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
-import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
 	forwardDraftSearch,
 	replyAllDraftSearch,
@@ -32,10 +42,17 @@ import {
 	threadNeighbours,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import {
+	type Person,
+	subjectStandIn,
+	threadParticipants,
+	toPerson,
+} from '#features/mail/lib/thread-reading-model'
 import { findCachedThread, systemFolderBeforeMove } from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
 	openThreadDetail,
+	useDeleteDraftMutation,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
@@ -43,10 +60,11 @@ import {
 	type MailThreadListData,
 	mailKeys,
 	threadDetailQueryOptions,
+	threadHeaderFactsQueryOptions,
 	toMailThread,
 	toMailThreadDetail,
 } from '#features/mail/state/mail-queries'
-import { getThreadMessages, getThreads } from '#server/fns'
+import { getThreadHeaderFacts, getThreadMessages, getThreads } from '#server/fns'
 import { useToast } from '#shared/components/Toaster'
 import { Button } from '#shared/components/ui/button'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
@@ -76,6 +94,7 @@ export const Route = createFileRoute('/mail/f/$folderId/t/$threadId')({
 	},
 	component: KeyedThreadView,
 	pendingComponent: ThreadPending,
+	errorComponent: ThreadErrorView,
 })
 
 /** The older conversation to open after triage. When the open thread is the
@@ -120,6 +139,59 @@ async function nextConversationAfterTriage(
 
 /** Split view keeps the list beside the reader from Tailwind's `xl` breakpoint. */
 const SPLIT_VIEW_QUERY = '(min-width: 80rem)'
+
+/**
+ * People this mailbox writes with, from the conversations already in the list
+ * cache: the lookalike-sender check compares a sender's name against them.
+ */
+function cachedCorrespondents(queryClient: QueryClient, owner: string): Person[] {
+	const people = new Map<string, Person>()
+	for (const [, data] of queryClient.getQueriesData<MailThreadListData>({
+		queryKey: mailKeys.threadLists(),
+	})) {
+		for (const page of data?.pages ?? []) {
+			for (const thread of page.threads) {
+				for (const participant of thread.participants ?? []) {
+					const person = toPerson(participant, owner)
+					const key = person.email.toLowerCase()
+					if (key && person.name && !person.isOwner && !people.has(key)) people.set(key, person)
+				}
+			}
+		}
+	}
+	return [...people.values()]
+}
+
+/**
+ * A conversation that could not load keeps the reader's toolbar, so the way
+ * back stays where it was, and says so in place with Try again.
+ */
+function ThreadErrorView({ error, reset }: ErrorComponentProps) {
+	const { folderId } = Route.useParams()
+	const { baseFolderId } = Route.useSearch()
+	const navigate = useNavigate()
+	return (
+		<div data-testid="thread-reader" className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+			<Toolbar pinned className="reader-toolbar px-3">
+				<ToolbarIconButton
+					label="Back to list"
+					onClick={() =>
+						navigate({
+							to: '/mail/f/$folderId',
+							params: { folderId },
+							search: baseFolderId ? { baseFolderId } : {},
+						})
+					}
+				>
+					<ArrowLeft className="size-5" />
+				</ToolbarIconButton>
+			</Toolbar>
+			<div className={cn(UNDER_PINNED_BAR_CLASS, 'min-h-0 flex-1')}>
+				<ThreadLoadError error={error} reset={reset} />
+			</div>
+		</div>
+	)
+}
 
 /** Taps have no hover preload, so show the cached subject at once instead of
  * a blank reader while the conversation loads. */
@@ -195,7 +267,20 @@ function ThreadView() {
 		),
 		initialData: seedDetail,
 	})
-	const { thread, messages, mailboxEmail } = seededData(detailQuery.data, seedDetail)
+	const { thread, messages, mailboxEmail, failedMessageIds } = seededData(detailQuery.data, seedDetail)
+	// Header facts (sender checks, Reply-To, lists) are looked up once per thread and kept for the session.
+	const headerFacts = useQuery(
+		threadHeaderFactsQueryOptions(
+			threadId,
+			/* v8 ignore next -- @preserve production query wiring is covered through the query-option tests */
+			(id) => getThreadHeaderFacts({ data: { threadId: id } }),
+		),
+	).data
+	const knownSenders = useMemo(
+		() => cachedCorrespondents(queryClient, mailboxEmail),
+		[queryClient, mailboxEmail],
+	)
+	const deleteDraft = useDeleteDraftMutation()
 	const updateThread = useUpdateThreadMutation()
 	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()
@@ -222,7 +307,16 @@ function ThreadView() {
 		skipNextNavigationMotion(router)
 		goBackToList()
 	}, true)
-	const lastMessage = messages.at(-1)
+	// Replies answer the last message anyone sent, never your own unsent draft.
+	const lastMessage = messages.findLast((message) => message.ownmailDraft !== true)
+	const title = subjectStandIn(
+		thread.subject ?? messages[0]?.subject,
+		messages[0]?.body ?? messages[0]?.snippet ?? '',
+	)
+	const peopleCount = threadParticipants(
+		messages.filter((message) => message.ownmailDraft !== true),
+		mailboxEmail,
+	).length
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	// Replies open in this thread, under the last message; a forward floats (design.md "Reading").
@@ -404,6 +498,16 @@ function ThreadView() {
 		if (thread.unread) markThreadReadOnOpen(queryClient, threadId, thread)
 	}, [queryClient, thread, threadId])
 
+	const archiveLabel =
+		pendingAction === 'archive'
+			? isArchived
+				? 'Returning to inbox'
+				: 'Archiving'
+			: isArchived
+				? 'Return to inbox'
+				: 'Archive'
+	const archive = () => act('archive', { folder: isArchived ? 'inbox' : 'archive' }, true)
+
 	return (
 		<div
 			{...swipeHandlers}
@@ -411,7 +515,8 @@ function ThreadView() {
 			className="reader-swipe-feedback relative flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
-			<Toolbar pinned className="gap-1 px-3">
+			{/* design.md "Reading": triage, then view and position, then respond at the end. */}
+			<Toolbar pinned className="reader-toolbar px-3 max-md:hidden">
 				<ToolbarIconButton
 					label="Back to list"
 					onClick={goBackToList}
@@ -420,18 +525,10 @@ function ThreadView() {
 					<ArrowLeft className="size-5" />
 				</ToolbarIconButton>
 				<IconButton
-					label={
-						pendingAction === 'archive'
-							? isArchived
-								? 'Returning to inbox'
-								: 'Archiving'
-							: isArchived
-								? 'Return to inbox'
-								: 'Archive'
-					}
+					label={archiveLabel}
 					disabled={pendingAction !== null}
 					loading={pendingAction === 'archive'}
-					onClick={() => act('archive', { folder: isArchived ? 'inbox' : 'archive' }, true)}
+					onClick={archive}
 				>
 					{pendingAction === 'archive' ? (
 						<Loader2 className="h-4 w-4 animate-spin" />
@@ -482,24 +579,44 @@ function ThreadView() {
 					)}
 				</IconButton>
 
-				{/* design.md "Reading": triage, then view, then respond at the end. */}
-				<ToolbarSeparator className="hidden md:block" />
-				<div id={THREAD_TOOLBAR_ACTIONS_ID} className="flex items-center gap-1" />
+				<ToolbarSeparator />
+				{/* The view switch, display options and the "12 of 14" stepper render here. */}
+				<div id={THREAD_TOOLBAR_ACTIONS_ID} className="flex items-center gap-control" />
+				<span aria-hidden="true" className="flex-1" />
 				{lastMessage ? (
-					<div className="ml-auto hidden items-center gap-1 sm:flex">
-						<Button type="button" variant="outline" onClick={reply} title="Reply (R)" className="shadow-none">
-							<Reply className="h-4 w-4" aria-hidden="true" />
-							Reply
+					<div className="flex items-center gap-control">
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={replyAll}
+							title="Reply all"
+							className="reader-reply-all shadow-none"
+						>
+							<ReplyAll className="text-cta-icon" aria-hidden="true" />
+							Reply all
 						</Button>
-						<ActionButton label="Reply all" onClick={replyAll}>
-							<ReplyAll className="h-4 w-4" />
+						<ActionButton label="Reply" onClick={reply}>
+							<Reply className="h-4 w-4" />
 						</ActionButton>
 						<ActionButton label="Forward" onClick={forward}>
 							<Forward className="h-4 w-4" />
 						</ActionButton>
 					</div>
 				) : null}
+				<div id={THREAD_TOOLBAR_MORE_ID} className="flex items-center" />
 			</Toolbar>
+			{/* The phone thread screen has its own top bar: back, the subject over its size, Archive and More. */}
+			<div className="md:hidden">
+				<MobileThreadTopBar
+					subject={title.text}
+					messageCount={messages.filter((message) => message.ownmailDraft !== true).length}
+					peopleCount={peopleCount}
+					onBack={goBackToList}
+					onArchive={archive}
+					moreMenu={<div id={THREAD_MOBILE_MORE_ID} className="flex items-center" />}
+				/>
+			</div>
 			{/* An error sits in the flow below the bar, so the conversation starts under the error instead. */}
 			{error ? (
 				<div className={UNDER_PINNED_BAR_CLASS}>
@@ -520,6 +637,13 @@ function ThreadView() {
 					thread={thread}
 					messages={messages}
 					mailboxEmail={mailboxEmail}
+					headerFacts={headerFacts}
+					failedMessageIds={failedMessageIds}
+					knownSenders={knownSenders}
+					onRetryLoad={() => void detailQuery.refetch()}
+					onDiscardDraft={(draftId) =>
+						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
+					}
 					{...(lastMessage ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
 				>
 					{lastMessage && replyingHere ? (
@@ -527,24 +651,23 @@ function ThreadView() {
 							<div data-slot="inline-composer" ref={inlineSlotRef} />
 						</ThreadColumn>
 					) : lastMessage ? (
-						<ThreadColumn>
-							<button
-								ref={inlineReplyRef}
-								data-slot="inline-reply"
-								type="button"
-								onClick={reply}
-								className="hidden min-h-11 w-full items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-ring/30 hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:flex"
-							>
-								<Reply className="h-4 w-4 shrink-0" />
-								<span>Write a reply…</span>
-							</button>
-						</ThreadColumn>
+						<InlineReplyCard
+							latest={lastMessage}
+							owner={mailboxEmail}
+							onReply={reply}
+							onReplyAll={replyAll}
+							fieldRef={inlineReplyRef}
+						/>
 					) : null}
 				</ThreadConversation>
 			</ScrollArea>
 
+			{/* The thread map panel docks here, over the conversation and under the toolbar. */}
+			<div id={THREAD_MAP_DOCK_ID} className="reader-map-dock" />
 			{lastMessage ? (
-				<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
+				<div className="md:hidden">
+					<MobileReplyBar onReply={reply} onReplyAll={replyAll} onForward={forward} />
+				</div>
 			) : null}
 		</div>
 	)
@@ -568,14 +691,14 @@ function IconButton({
 	children: React.ReactNode
 }) {
 	// Every control in the thread toolbar is the shared icon button, so the row
-	// is one size: 36px with a fine pointer, 44px on narrow and touch screens.
+	// is one size: 32px with a fine pointer, 44px on narrow and touch screens.
 	return (
 		<ToolbarIconButton
 			label={label}
 			onClick={onClick}
 			disabled={disabled}
 			aria-busy={loading || undefined}
-			className={className}
+			className={cn(READER_ICON_BUTTON_CLASS, className)}
 			onAnimationEnd={onAnimationEnd}
 		>
 			{children}
@@ -593,7 +716,7 @@ function ActionButton({
 	children: React.ReactNode
 }) {
 	return (
-		<ToolbarIconButton label={label} onClick={onClick}>
+		<ToolbarIconButton label={label} onClick={onClick} className={READER_ICON_BUTTON_CLASS}>
 			{children}
 		</ToolbarIconButton>
 	)

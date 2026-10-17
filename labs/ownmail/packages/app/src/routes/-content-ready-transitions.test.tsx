@@ -896,10 +896,10 @@ describe('glass layer budget', () => {
 		expect(page().getByRole('menu', { name: 'Reading pane' })).toHaveClass('glass-panel')
 
 		const glass = [...document.querySelectorAll('.glass-bar, .glass-panel:not([data-glass="solid"])')]
-		// List toolbar, reader toolbar and the open menu. The phone tab bar is hidden at this
-		// width by CSS, and the rail's inbox menu stays closed inside its <details>.
+		// List toolbar, reader toolbar and the open menu. The phone tab bar, top bar and reply
+		// bar are hidden at this width by CSS, and the rail's inbox menu stays closed inside its <details>.
 		const visibleOnDesktop = glass.filter(
-			(surface) => !surface.classList.contains('md:hidden') && !surface.closest('details:not([open])'),
+			(surface) => !surface.closest('.md\\:hidden') && !surface.closest('details:not([open])'),
 		)
 		expect(
 			visibleOnDesktop.map((surface) => surface.getAttribute('data-slot') ?? surface.getAttribute('role')),

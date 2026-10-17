@@ -9,6 +9,28 @@ import { USER_PREFERENCES_STORAGE_KEY } from '#app/preferences/user-preferences'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversation'
 
+// The reader mounts parts that other modules own. These stand-ins (test/reader-contract-mocks)
+// keep these tests about what the reader mounts and wires, not how each part looks.
+vi.mock('./Avatar', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MessageHeader', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MessageNotices', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./AttachmentChip', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./EmptyBody', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./DraftInThread', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./OutgoingStatus', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadStreamNotices', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./PartialLoadNotice', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadLoadError', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./LongMessageFrame', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./SupersededInvite', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ReplyAllGuard', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./CatchUpCard', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadMapPanel', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadFilesShelf', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MobileThreadTopBar', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./JumpToNewPill', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MobileReplyBar', () => import('../../../../test/reader-contract-mocks'))
+
 /**
  * The Conversation view is optional. The standard reader is the default, and
  * people who never turn the view on must not see their mail rendered any
@@ -26,7 +48,13 @@ import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversat
  * context-menu trigger. Radix adds exactly one attribute to that existing
  * element, `data-state="closed"`, and no element, class or text. That
  * attribute is left out of the comparison, the same way the view switch is;
- * everything else about the header row is still compared.
+ * everything else about the header row is still compared. *
+ * They were re-recorded a second time, deliberately, for the reading redesign
+ * (TW-7709): read messages fold into one-line and stacked rows, the thread
+ * header gains its meta line, open messages take the shared message header,
+ * and the reply card is pinned under the stream. The parts other modules own
+ * (header, avatars, notices, edge states) are the stand-ins in
+ * test/reader-contract-mocks, so these files record the reader's own markup.
  */
 
 const { originalColorSendersMock } = vi.hoisted(() => ({ originalColorSendersMock: vi.fn() }))
@@ -40,6 +68,14 @@ beforeEach(() => {
 	// Timestamps are formatted in the viewer's locale and zone; pin them so the
 	// golden file is the same on every machine.
 	vi.spyOn(Date.prototype, 'toLocaleString').mockReturnValue('Mon, Sep 28, 9:12 AM')
+	// Relative days ("Sep 28 – today", "Mon") are written from the reader's clock and zone: pin both.
+	vi.spyOn(Date, 'now').mockReturnValue(1_790_600_000_000)
+	const resolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions
+	vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (
+		this: Intl.DateTimeFormat,
+	) {
+		return { ...resolvedOptions.call(this), timeZone: 'UTC' }
+	})
 })
 
 afterEach(() => {
@@ -114,7 +150,8 @@ describe('standard reader with the Conversation view off', () => {
 				<p>after the last message</p>
 			</ThreadConversation>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'More' }))
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Expand all 3 messages' }))
 		await screen.findByTitle('Email content m2')
 
 		await expect(readerMarkup(container)).toMatchFileSnapshot('./__tests__/standard-reader.golden.txt')
@@ -148,7 +185,8 @@ describe('standard reader with the Conversation view off', () => {
 				<p>after the last message</p>
 			</ThreadConversation>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'More' }))
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Expand all 3 messages' }))
 		await screen.findByTitle('Email content m2')
 
 		// Compared, not recorded: only the first test may write the golden file.

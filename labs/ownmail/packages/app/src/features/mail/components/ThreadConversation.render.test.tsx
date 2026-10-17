@@ -1,23 +1,72 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
+import { defaultUserPreferences, UserPreferencesProvider } from '#app/preferences/user-preferences'
 import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT } from '../lib/email-render'
 import type { MailMessage, MailThread } from '../state/mail-queries'
-import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversation'
+import {
+	THREAD_MAP_DOCK_ID,
+	THREAD_MOBILE_MORE_ID,
+	THREAD_TOOLBAR_ACTIONS_ID,
+	THREAD_TOOLBAR_MORE_ID,
+	ThreadConversation,
+} from './ThreadConversation'
 
-const { trustSenderImagesMock, originalColorSendersMock, setSenderOriginalColorsMock } = vi.hoisted(() => ({
-	trustSenderImagesMock: vi.fn(),
-	originalColorSendersMock: vi.fn(),
-	setSenderOriginalColorsMock: vi.fn(),
-}))
+// The reader mounts parts that other modules own. These stand-ins (test/reader-contract-mocks)
+// keep these tests about what the reader mounts and wires, not how each part looks.
+vi.mock('./Avatar', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MessageHeader', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MessageNotices', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./AttachmentChip', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./EmptyBody', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./DraftInThread', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./OutgoingStatus', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadStreamNotices', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./PartialLoadNotice', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadLoadError', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./LongMessageFrame', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./SupersededInvite', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ReplyAllGuard', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./CatchUpCard', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadMapPanel', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./ThreadFilesShelf', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MobileThreadTopBar', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./JumpToNewPill', () => import('../../../../test/reader-contract-mocks'))
+vi.mock('./MobileReplyBar', () => import('../../../../test/reader-contract-mocks'))
+
+const { trustSenderImagesMock, originalColorSendersMock, setSenderOriginalColorsMock, compose } = vi.hoisted(
+	() => ({
+		trustSenderImagesMock: vi.fn(),
+		originalColorSendersMock: vi.fn(),
+		setSenderOriginalColorsMock: vi.fn(),
+		compose: {
+			openCompose: vi.fn(async () => {}),
+			composing: null,
+			registerInlineSlot: vi.fn(),
+		},
+	}),
+)
 vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../lib/image-sender-trust')>()),
 	trustSenderImages: trustSenderImagesMock,
 	originalColorSenders: originalColorSendersMock,
 	setSenderOriginalColors: setSenderOriginalColorsMock,
+}))
+vi.mock('./ComposeProvider', () => ({ useCompose: () => compose }))
+// The invitation card loads its event; here it only reports what the reader hands it.
+vi.mock('./CalendarInvitationCard', () => ({
+	CalendarInvitationCard: ({ message, updateCount }: { message: MailMessage; updateCount?: number }) =>
+		message.attachments?.some((attachment) => attachment.content_type === 'text/calendar') ? (
+			<p data-slot="invitation-stub">
+				Invitation {message.id}
+				{updateCount ? `, updated ${updateCount} times` : ''}
+			</p>
+		) : null,
 }))
 
 afterEach(() => {
@@ -25,6 +74,8 @@ afterEach(() => {
 	document.documentElement.classList.remove('dark')
 	localStorage.clear()
 	resetAccountScope()
+	window.location.hash = ''
+	vi.unstubAllGlobals()
 })
 
 beforeEach(() => {
@@ -34,9 +85,12 @@ beforeEach(() => {
 	originalColorSendersMock.mockResolvedValue([])
 	setSenderOriginalColorsMock.mockReset()
 	setSenderOriginalColorsMock.mockResolvedValue(true)
+	compose.openCompose.mockClear()
 })
 
 const CONTROLLED_IMAGE = `/email-images/${'a'.repeat(20)}.${'b'.repeat(20)}?mode=automatic&theme=light`
+const DAY = 86_400
+const NOW = Math.floor(Date.now() / 1000)
 
 function thread(id: string): MailThread {
 	return { id, subject: `Thread ${id}`, starred: false }
@@ -57,6 +111,40 @@ function htmlMessage(id: string, sender = 'sender@example.com'): MailMessage {
 		from: [{ email: sender }],
 		body: `<img class="remote-${id}" src="${CONTROLLED_IMAGE}" width="600" height="200"><table width="800"><tr><td>${id}</td></tr></table>`,
 	}
+}
+
+const GRACE = { name: 'Grace Hopper', email: 'grace@example.com' }
+const ALAN = { name: 'Alan Turing', email: 'alan@example.com' }
+const ADA = { name: 'Ada Lovelace', email: 'ada@ownmail.com' }
+
+/** A thread of `count` messages between Grace, Alan and Ada, a day apart, the last `unread` of them unread. */
+function longThread(count: number, unread = 0): MailMessage[] {
+	return Array.from({ length: count }, (_, index) => {
+		const from = [GRACE, ALAN, ADA][index % 3] as typeof GRACE
+		return {
+			id: `m${index + 1}`,
+			from: [from],
+			to: [GRACE, ALAN, ADA].filter((person) => person !== from),
+			date: NOW - (count - index) * DAY,
+			body: `Note ${index + 1} about the plan.`,
+			...(index >= count - unread ? { unread: true } : {}),
+		}
+	})
+}
+
+const states = () =>
+	[...document.querySelectorAll('[data-slot="thread-message"]')].map((node) =>
+		node.getAttribute('aria-label'),
+	)
+
+function openMore() {
+	fireEvent.click(screen.getByRole('button', { name: 'More' }))
+	return screen.getByRole('menu', { name: 'Thread actions' })
+}
+
+function expandAll(count: number) {
+	openMore()
+	fireEvent.click(screen.getByRole('menuitem', { name: `Expand all ${count} messages` }))
 }
 
 function ConversationProbe({
@@ -89,61 +177,45 @@ describe('ThreadConversation rendering', () => {
 		expect(layoutStates).toEqual(['open', 'open'])
 	})
 
-	it('keeps the mobile timestamp on a dedicated one-line row', () => {
-		const datedMessage = { ...message('m1'), date: 1_700_000_000 }
-		const { container } = render(<ThreadConversation thread={thread('t1')} messages={[datedMessage]} />)
-		const timestamps = container.querySelectorAll('time')
-
-		expect(timestamps).toHaveLength(2)
-		expect(timestamps[0]).toHaveClass('hidden', 'sm:inline-block', 'order-3')
-		expect(timestamps[1]).toHaveClass('basis-full', 'whitespace-nowrap', 'pl-10', 'sm:hidden')
-		// Item 7 of the reading change: metadata is 13px, one step up from the 12px it was.
-		for (const timestamp of timestamps) {
-			expect(timestamp).toHaveClass('text-[13px]')
-			expect(timestamp).not.toHaveClass('text-xs')
-		}
-		expect(container.querySelector('[data-slot="message-details"]')).toHaveClass('text-[13px]')
+	it('hands each open message to the message header, with the message above only when it is open above it', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(3)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expandAll(3)
+		const headers = screen.getAllByRole('heading', { level: 2 })
+		expect(headers.map((heading) => heading.textContent)).toEqual(['Grace Hopper', 'Alan Turing', 'you'])
+		// The first message has nothing open above it, so its recipients are named.
+		const summaries = document.querySelectorAll('[data-slot="recipient-summary"]')
+		expect(summaries[0]).toHaveTextContent('to you, Alan')
+		// Alan replied to everyone Grace's message involved.
+		expect(summaries[1]).toHaveTextContent('to everyone')
 	})
 
-	it('makes multi-message display controls descriptive, touch-friendly, and stateful', () => {
+	it('expands and collapses every message from the More menu, which says when nothing is left to do', () => {
 		render(
 			<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2'), message('m3')]} />,
 		)
-		const expand = screen.getByRole('button', { name: 'Expand all 3 messages' })
-		const collapse = screen.getByRole('button', { name: 'Collapse all 3 messages' })
-
-		expect(expand).toHaveTextContent('')
-		expect(expand).toHaveAttribute('title', 'Expand all messages')
-		// The shared icon button: 36px with a fine pointer, 44px on narrow and touch screens.
-		const touchFriendly = [
-			'size-9',
-			'max-md:size-11',
-			'[@media(any-pointer:coarse)]:size-11',
-			'focus-visible:ring-[3px]',
-			'focus-visible:ring-ring',
-			'forced-colors:focus-visible:outline-2',
-			'forced-colors:focus-visible:outline-offset-2',
-			'forced-colors:focus-visible:outline-solid',
-		]
-		expect(expand).toHaveClass(...touchFriendly)
-		expect(collapse).toHaveTextContent('')
-		expect(collapse).toHaveAttribute('title', 'Collapse all messages')
-		expect(collapse).toHaveClass(...touchFriendly)
-		const states = () =>
-			[...document.querySelectorAll('[data-slot="thread-message"]')].map((node) =>
-				node.getAttribute('data-state'),
-			)
-
+		const menu = openMore()
+		// The menu floats over the reader: panel glass, one layer deep.
+		expect(menu).toHaveClass('glass-panel')
+		const expand = within(menu).getByRole('menuitem', { name: 'Expand all 3 messages' })
+		expect(expand).toBeEnabled()
 		fireEvent.click(expand)
-		expect(expand).toBeDisabled()
-		expect(states()).toEqual(['open', 'open', 'open'])
-		expect(screen.queryByRole('button', { name: /Expand message from/ })).not.toBeInTheDocument()
+		expect(document.querySelectorAll('[data-state="open"]')).toHaveLength(3)
+		expect(screen.queryByRole('menu')).toBeNull()
 
-		fireEvent.click(collapse)
-		expect(collapse).toBeDisabled()
-		expect(states()).toEqual(['collapsed', 'collapsed', 'collapsed'])
-		// A collapsed message opens from its own summary, without going through a menu.
-		expect(screen.getAllByRole('button', { name: /Expand message from/ })).toHaveLength(3)
+		openMore()
+		expect(screen.getByRole('menuitem', { name: 'Expand all 3 messages' })).toBeDisabled()
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all 3 messages' }))
+		expect(document.querySelectorAll('[data-state="open"]')).toHaveLength(0)
+		// Each collapsed message is a one-line row that opens with one click.
+		const rows = document.querySelectorAll<HTMLButtonElement>('[data-slot="message-expand"]')
+		expect(rows).toHaveLength(3)
+		openMore()
+		expect(screen.getByRole('menuitem', { name: 'Collapse all 3 messages' })).toBeDisabled()
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+		fireEvent.click(rows[1] as HTMLButtonElement)
+		expect(document.querySelectorAll('[data-state="open"]')).toHaveLength(1)
 	})
 
 	it('renders one thread display menu and applies layout and color choices to every message', async () => {
@@ -156,15 +228,9 @@ describe('ThreadConversation rendering', () => {
 		)
 		const trigger = screen.getByRole('button', { name: 'Thread display' })
 		expect(screen.getAllByRole('button', { name: 'Thread display' })).toHaveLength(1)
-		expect(trigger).toHaveClass(
-			'size-9',
-			'max-md:size-11',
-			'[@media(any-pointer:coarse)]:size-11',
-			'focus-visible:ring-[3px]',
-		)
 		expect(trigger.closest('[data-slot="thread-message"]')).toBeNull()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expandAll(2)
 		const emailElements = [...container.querySelectorAll<HTMLElement>(EMAIL_ELEMENT_TAG)]
 		expect(emailElements).toHaveLength(2)
 		act(() => {
@@ -219,7 +285,7 @@ describe('ThreadConversation rendering', () => {
 		fireEvent.click(await screen.findByRole('button', { name: 'Show images in this thread' }))
 		await waitFor(() => expect(latestImage()).toHaveAttribute('src', CONTROLLED_IMAGE))
 
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expandAll(2)
 		await waitFor(() => {
 			const images = [...rendered.container.querySelectorAll<HTMLElement>(EMAIL_ELEMENT_TAG)].map((element) =>
 				element.shadowRoot?.querySelector<HTMLImageElement>('img'),
@@ -243,7 +309,7 @@ describe('ThreadConversation rendering', () => {
 				messages={[htmlMessage('m1', 'alex@example.com'), htmlMessage('m2', 'sam@example.com')]}
 			/>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expandAll(2)
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 
 		expect(await screen.findByRole('button', { name: 'Show images in this thread' })).toBeInTheDocument()
@@ -258,7 +324,7 @@ describe('ThreadConversation rendering', () => {
 				messages={[htmlMessage('m1'), htmlMessage('m2')]}
 			/>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expandAll(2)
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		fireEvent.click(await screen.findByRole('button', { name: 'Always show from sender@example.com' }))
 
@@ -305,158 +371,142 @@ describe('ThreadConversation rendering', () => {
 		await waitFor(() => expect(image.src).toContain('retry=1'))
 	})
 
-	it('uses a compact, scroll-away summary without duplicating attachment links', () => {
-		const firstMessage = {
-			...message('m1'),
+	it('leads with the subject, then who is on the thread, how long it is, its span and its files', () => {
+		const withFile = {
+			...longThread(3)[0],
 			attachments: [{ id: 'a1', filename: 'roadmap.pdf', size: 2048, is_inline: false }],
-		}
+		} as MailMessage
 		const { container } = render(
 			<ThreadConversation
-				thread={{ ...thread('t1'), folders: ['work'] }}
-				messages={[firstMessage, message('m2')]}
+				thread={{ ...thread('t1'), subject: 'Q3 roadmap', folders: ['work'] }}
+				messages={[withFile, ...longThread(3).slice(1)]}
+				mailboxEmail="ada@ownmail.com"
 			/>,
 		)
-		const summary = container.querySelector('[data-slot="thread-summary"]')
-		const attachmentSummary = container.querySelector('[data-slot="thread-attachment-summary"]')
+		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
+		// The subject scrolls away with the conversation: nothing in the summary is pinned.
+		expect(summary.className).not.toMatch(/sticky|top-0|border-b/)
+		expect(summary.firstElementChild).toHaveAttribute('data-slot', 'thread-column')
+		const subject = screen.getByRole('heading', { level: 1, name: 'Q3 roadmap' })
+		expect(subject).toHaveClass('reader-title')
+		expect(container.querySelector('[data-slot="subject-stand-in"]')).toBeNull()
 
-		// The subject scrolls away with the conversation at every width: nothing in
-		// the summary is pinned, and no separator stands between it and the first message.
-		expect(summary?.className).not.toMatch(/sticky|top-0|border-b/)
-		expect(summary).toHaveClass('pt-3')
-		const subject = screen.getByRole('heading', { level: 1 })
-		// Body size in the body face, so it reads as the first line and not a banner.
-		expect(subject).toHaveClass('font-sans', 'text-base', 'leading-6', 'font-semibold')
-		expect(subject.className).not.toMatch(/font-display|text-balance|text-(?:lg|xl|2xl)/)
-		// Labels sit inline after the subject, in the same wrapping line.
-		expect(screen.getByText('Work').parentElement).toBe(subject.parentElement)
-		expect(summary?.firstElementChild).toHaveAttribute('data-slot', 'thread-column')
-		expect(attachmentSummary).toHaveTextContent('1 thread attachment')
-		expect(attachmentSummary).toHaveClass('min-h-11', 'max-w-full')
-		// No inline padding of its own, so it starts on the same edge as the subject above it.
-		expect(attachmentSummary?.className).not.toMatch(/\bp[xlrse]-/)
-		expect(container.querySelectorAll('[data-slot="thread-attachment"]')).toHaveLength(0)
+		const meta = container.querySelector('[data-slot="thread-meta"]') as HTMLElement
+		expect(within(meta).getByText('Grace, Alan, you')).toHaveClass('font-medium', 'text-foreground')
+		expect(meta).toHaveTextContent('3 messages')
+		expect(container.querySelector('[data-slot="thread-span"]')).toHaveTextContent(/–\s*yesterday$/)
+		// Labels follow the meta line.
+		expect(screen.getByText('Work').closest('.reader-labels')).not.toBeNull()
+
+		const files = within(meta).getByRole('button', { name: '1 file' })
+		expect(files).toHaveAttribute('aria-expanded', 'false')
+		fireEvent.click(files)
+		expect(files).toHaveAttribute('aria-expanded', 'true')
+		const shelf = screen.getByRole('region', { name: 'Files in this thread' })
+		expect(files).toHaveAttribute('aria-controls', shelf.parentElement?.id)
+		const open = vi.spyOn(window, 'open').mockReturnValue(null)
+		fireEvent.click(within(shelf).getByRole('button', { name: 'Open roadmap.pdf' }))
+		expect(open).toHaveBeenCalledWith('/attachments/a1?message_id=m1', '_blank', 'noopener')
+		vi.useFakeTimers()
+		const clicks = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+		fireEvent.click(within(shelf).getByRole('button', { name: 'Download all' }))
+		vi.runAllTimers()
+		vi.useRealTimers()
+		expect(clicks).toHaveBeenCalledTimes(1)
+		fireEvent.click(files)
+		expect(screen.queryByRole('region', { name: 'Files in this thread' })).toBeNull()
 	})
 
-	it('gives attachment downloads a touch-friendly target and visible keyboard focus', () => {
-		const messageWithAttachment = {
-			...message('m1'),
+	it('names four people and counts the rest', () => {
+		const people = ['Grace', 'Alan', 'Katherine', 'Mary', 'Dorothy'].map((name) => ({
+			name: `${name} Example`,
+			email: `${name.toLowerCase()}@example.com`,
+		}))
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[
+					{ ...message('m1'), from: [people[0] as (typeof people)[0]], to: [ADA, ...people.slice(1)] },
+				]}
+				mailboxEmail="ada@ownmail.com"
+			/>,
+		)
+		expect(document.querySelector('[data-slot="thread-participants"]')).toHaveTextContent(
+			'Grace, Alan, Katherine, you +2',
+		)
+	})
+
+	it('stands the first line in for a missing subject and says so', () => {
+		render(
+			<ThreadConversation
+				thread={{ ...thread('t1'), subject: '' }}
+				messages={[{ ...message('m1'), body: 'Can you send me the Lisbon hotel confirmation number?' }]}
+			/>,
+		)
+		expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Can you send me the Lisbon hotel…')
+		expect(screen.getByText('No subject. Showing the first line instead.')).toBeInTheDocument()
+	})
+
+	it('shows each file of an open message as a chip with its size and the version it replaces', () => {
+		const v1 = {
+			...longThread(2)[0],
+			attachments: [{ id: 'a1', filename: 'plan-v1.pdf', size: 1024, is_inline: false }],
+		} as MailMessage
+		const v2 = {
+			...longThread(2)[1],
 			attachments: [
-				{
-					id: 'attachment-1',
-					filename: 'project-plan.pdf',
-					size: 2048,
-					is_inline: false,
-				},
+				{ id: 'a2', filename: 'plan-v2.pdf', size: 2048, is_inline: false },
+				{ id: 'inline', filename: 'logo.png', size: 10, is_inline: true },
+				{ id: 'ics', filename: 'invite.ics', content_type: 'text/calendar', is_inline: false },
 			],
-		}
-		const { container } = render(
-			<ThreadConversation thread={thread('t1')} messages={[messageWithAttachment]} />,
-		)
-		const links = container.querySelectorAll<HTMLAnchorElement>('[data-slot="thread-attachment"]')
+		} as MailMessage
+		render(<ThreadConversation thread={thread('t1')} messages={[v1, v2]} mailboxEmail="ada@ownmail.com" />)
+		expandAll(2)
 
-		expect(links).toHaveLength(1)
-		for (const link of links) {
-			expect(link).toHaveClass(
-				'min-h-11',
-				'focus-visible:outline-none',
-				'focus-visible:ring-[3px]',
-				'focus-visible:ring-ring',
-				'forced-colors:focus-visible:outline-2',
-				'forced-colors:focus-visible:outline-offset-2',
-				'forced-colors:focus-visible:outline-solid',
-			)
-			expect(link).toHaveAttribute('href', '/attachments/attachment-1?message_id=m1')
-			expect(link).toHaveAttribute('download', 'project-plan.pdf')
-			expect(link).toHaveTextContent('project-plan.pdf')
-			expect(link).toHaveTextContent('2 KB')
-			expect(link).toHaveAccessibleName('project-plan.pdf, 2 KB, attached to message from sender@example.com')
-		}
+		const latest = screen.getByRole('region', { name: 'Attachments from Alan Turing' })
+		// Inline images and invitations are not chips; the invitation is a card.
+		expect(within(latest).getAllByText(/plan-v2\.pdf/)).toHaveLength(1)
+		expect(within(latest).getByText(/plan-v2\.pdf/)).toHaveTextContent(/2 KB · replaces v1 from /)
+		expect(
+			within(screen.getByRole('region', { name: 'Attachments from Grace Hopper' })).getByText(/plan-v1/),
+		).toHaveTextContent('plan-v1.pdf · 1 KB')
+		expect(screen.getByText('Invitation m2')).toBeInTheDocument()
 	})
 
-	it('keeps downloads solely with their attributed message in a multi-message thread', () => {
-		const fromAlex = {
-			...message('m1'),
-			from: [{ name: 'Alex', email: 'alex@example.com' }],
-			attachments: [{ id: 'a1', filename: 'plan.pdf', is_inline: false }],
-		}
-		const fromSam = {
-			...message('m2'),
-			from: [{ email: 'sam@example.com' }],
-			attachments: [{ id: 'a2', filename: 'notes.txt', is_inline: false }],
-		}
-		const { container } = render(<ThreadConversation thread={thread('t1')} messages={[fromAlex, fromSam]} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
-
-		expect(screen.getByText('2 thread attachments')).toBeInTheDocument()
-		expect(container.querySelectorAll('[data-slot="thread-attachment"]')).toHaveLength(2)
-		expect(
-			container.querySelector('[aria-label="plan.pdf, attached to message from Alex"]'),
-		).toBeInTheDocument()
-		expect(
-			container.querySelector('[aria-label="notes.txt, attached to message from sam@example.com"]'),
-		).toBeInTheDocument()
-		expect(screen.getByRole('region', { name: 'Attachments from sam@example.com' })).toBeInTheDocument()
-	})
-
-	it('separates messages as distinct reader surfaces', () => {
+	it('separates rows with one line each, and lets the divider stand in for the line after it', () => {
 		const { container } = render(
-			<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />,
+			<ThreadConversation thread={thread('t1')} messages={longThread(4, 2)} mailboxEmail="ada@ownmail.com" />,
 		)
-		const messageSurfaces = container.querySelectorAll('[data-slot="thread-message"]')
-
-		expect(messageSurfaces).toHaveLength(2)
+		const stream = container.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		const sequence = [...stream.children].map((child) =>
+			child.getAttribute('data-slot') === 'stream-rule' ? 'rule' : child.getAttribute('data-kind'),
+		)
+		expect(sequence).toEqual(['rule', 'line', 'rule', 'line', 'divider', 'open', 'rule', 'open'])
+		expect(screen.getByRole('separator', { name: /^2 new since / })).toBeInTheDocument()
+		// The subject and the stream fade on navigation; nothing nests a second fade.
 		const fades = container.querySelectorAll('[data-navigation-content]')
 		expect(fades).toHaveLength(2)
-		for (const fade of fades) {
-			expect(fade.querySelector('[data-navigation-content]')).toBeNull()
-		}
-		for (const surface of messageSurfaces) {
-			expect(surface).not.toHaveClass('rounded-xl', 'border', 'shadow-xs')
-		}
-		const headers = container.querySelectorAll('[data-slot="message-header"]')
-		expect(headers[0]).not.toHaveClass('border-t')
-		expect(headers[1]).toHaveClass('border-t', 'border-border')
-		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-slot', 'thread-message-stream')
-		expect(messageSurfaces[0]?.parentElement).toHaveAttribute('data-navigation-content')
-		expect(messageSurfaces[0]?.parentElement?.parentElement).toHaveAttribute('data-slot', 'thread-messages')
-		expect(screen.getAllByRole('heading', { level: 2, name: 'sender@example.com' })).toHaveLength(2)
-		expect(screen.getAllByRole('article', { name: 'sender@example.com' })).toHaveLength(2)
+		for (const fade of fades) expect(fade.querySelector('[data-navigation-content]')).toBeNull()
+		expect(stream.parentElement).toHaveAttribute('data-slot', 'thread-messages')
+		expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual([
+			'Message from you',
+			'Message from Grace Hopper',
+		])
 	})
 
-	it('keeps the same clearance above the next separator whether a message is open or collapsed', () => {
-		const withAttachment = {
-			...message('m2'),
-			attachments: [{ id: 'a1', filename: 'agenda.pdf', size: 2048, is_inline: false }],
-		}
-		const { container } = render(
-			<ThreadConversation thread={thread('t1')} messages={[message('m1'), withAttachment]} />,
+	it('names an anonymous message without inventing a sender', () => {
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[
+					{ ...message('m1'), from: undefined, attachments: [{ id: 'a1', filename: 'anonymous.txt' }] },
+				]}
+			/>,
 		)
-		const collapsedEnd = container.querySelector('[data-slot="collapsed-message-end"]')
-		const openEnd = container.querySelector('[data-slot="expanded-message-content"]')
-		const bottomPadding = (element: Element | null) =>
-			[...(element?.classList ?? [])].filter((name) => name.startsWith('pb-'))
-
-		// The attachment pills are the last thing in an open message; they must not sit on the line.
-		expect(openEnd?.querySelector('[data-slot="thread-attachment"]')).not.toBeNull()
-		expect(openEnd).toBe(openEnd?.closest('[data-slot="thread-message"]')?.lastElementChild)
-		expect(bottomPadding(openEnd)).toEqual(['pb-4'])
-		expect(bottomPadding(collapsedEnd)).toEqual(bottomPadding(openEnd))
-	})
-
-	it('names an anonymous message and attributes its attachments without duplicating them', () => {
-		const anonymous = {
-			...message('m1'),
-			from: undefined,
-			attachments: [{ id: 'a1', filename: 'anonymous.txt', is_inline: false }],
-		}
-		const { container } = render(<ThreadConversation thread={thread('t1')} messages={[anonymous]} />)
-
-		expect(screen.getByRole('article', { name: '(unknown sender)' })).toBeInTheDocument()
-		expect(screen.getByRole('heading', { level: 2, name: '(unknown sender)' })).toBeInTheDocument()
-		expect(
-			container.querySelector('[aria-label="anonymous.txt, attached to message from (unknown sender)"]'),
-		).toBeInTheDocument()
-		expect(container.querySelectorAll('[data-slot="thread-attachment"]')).toHaveLength(1)
+		expect(screen.getByRole('article', { name: 'Message from Unknown sender' })).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'Attachments from Unknown sender' })).toHaveTextContent(
+			'anonymous.txt',
+		)
 	})
 
 	it('remembers a sender color choice and renders their messages in original colors', async () => {
@@ -467,7 +517,7 @@ describe('ThreadConversation rendering', () => {
 			[...rendered.container.querySelectorAll(EMAIL_ELEMENT_TAG)].map((element) =>
 				element.getAttribute('data-color-mode'),
 			)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expandAll(2)
 		fireEvent.click(screen.getByRole('button', { name: 'Thread display' }))
 		const toggle = await screen.findByRole('button', {
 			name: 'Always use original colors from sender@example.com',
@@ -530,97 +580,514 @@ describe('ThreadConversation rendering', () => {
 	})
 })
 
-describe('message header', () => {
-	it('is one compact row: a 28px avatar and a single overflow control', () => {
-		const { container } = render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
-		const row = container.querySelector('[data-slot="message-header-row"]') as HTMLElement
-
-		// The height contract (40px fine pointer, 44px touch) lives in styles.css.
-		expect(row).toHaveClass('message-header-row', 'items-center')
-		expect(container.querySelector('[data-slot="sender-avatar"]')).toHaveClass('h-7', 'w-7')
-		// Download and collapse no longer cost the row two 44px buttons: one
-		// overflow control holds both, and nothing in the row is a direct link.
-		expect(row.querySelectorAll('a')).toHaveLength(0)
-		expect(row.querySelectorAll('[data-slot="message-actions"] button')).toHaveLength(1)
-		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
-		expect(overflow).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
-		expect(overflow).toHaveAttribute('aria-haspopup', 'menu')
-		expect(overflow).toHaveAttribute('aria-expanded', 'false')
-	})
-
-	it('keeps the separator clearance outside the row so every header row is the same height', () => {
-		const { container } = render(
-			<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />,
+describe('folding a long thread', () => {
+	it('folds three or more read messages into one row that names who wrote them, and unfolds it into lines', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8)} mailboxEmail="ada@ownmail.com" />,
 		)
-		const headers = container.querySelectorAll('[data-slot="message-header"]')
-		// The first message follows the subject directly; later ones are divided by a line.
-		expect(headers[0]?.className).not.toMatch(/border-t|pt-/)
-		expect(headers[1]).toHaveClass('border-t', 'border-border', 'pt-4')
-		for (const header of headers) {
-			expect(header.firstElementChild?.className).not.toMatch(/\bp[tby]-|border/)
+		const folded = screen.getByRole('button', { name: /5 earlier messages/ })
+		expect(folded).toHaveAttribute('aria-expanded', 'false')
+		expect(folded).toHaveTextContent('Alan, Grace, you')
+		// The first message (it sets context) and the one next to the open latest are lines.
+		expect(document.querySelectorAll('[data-slot="message-expand"]')).toHaveLength(2)
+		expect(states()).toEqual(['Message from Alan Turing'])
+
+		fireEvent.click(folded)
+		expect(screen.queryByRole('button', { name: /earlier messages/ })).toBeNull()
+		const lines = document.querySelectorAll<HTMLButtonElement>('[data-slot="message-expand"]')
+		expect(lines).toHaveLength(7)
+		expect(lines[1]).toHaveTextContent('Alan Turing')
+		expect(lines[1]).toHaveTextContent('Note 2 about the plan.')
+		fireEvent.click(lines[1] as HTMLButtonElement)
+		expect(states()).toEqual(['Message from Alan Turing', 'Message from Alan Turing'])
+	})
+
+	it('opens what was unread, puts the divider before it and keeps the snapshot after the thread is read', () => {
+		const messages = longThread(5, 2)
+		const rendered = render(
+			<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(states()).toEqual(['Message from Grace Hopper', 'Message from Alan Turing'])
+		const divider = screen.getByRole('separator', { name: /^2 new since / })
+		// The label is drawn between two neutral lines and announced on the separator itself.
+		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent(
+			/^2 new since (?:yesterday|[A-Z][a-z]+day)$/,
+		)
+
+		// Opening the thread marked it read; what was new when it opened stays new.
+		const read = messages.map((entry) => ({ ...entry, unread: false }))
+		rendered.rerender(
+			<ThreadConversation thread={thread('t1')} messages={read} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(screen.getByRole('separator', { name: /^2 new since / })).toBeInTheDocument()
+	})
+
+	it('shows no divider when every message is new', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(3, 3)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(screen.queryByRole('separator')).toBeNull()
+		expect(states()).toHaveLength(3)
+	})
+
+	it('puts a system line between two rows, where the change happened', () => {
+		const [first, second] = longThread(2)
+		const added = {
+			...(second as MailMessage),
+			to: [...((second as MailMessage).to ?? []), { name: 'Mary Jackson', email: 'mary@example.com' }],
 		}
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[first as MailMessage, added]}
+				mailboxEmail="ada@ownmail.com"
+			/>,
+		)
+		const line = screen.getByText('Alan added Mary Jackson')
+		expect(line).toHaveClass('reader-system-line')
+		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		expect([...stream.children].map((child) => child.getAttribute('data-kind') ?? 'rule')).toEqual([
+			'rule',
+			'line',
+			'system',
+			'rule',
+			'open',
+		])
 	})
 
-	it('collapses and re-expands a message through the overflow menu', () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
-		const article = screen.getByRole('article', { name: 'sender@example.com' })
-		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
+	it('offers a catch-up card above what is new on a long thread', () => {
+		const messages = longThread(7, 1)
+		const last = messages.at(-1) as MailMessage
+		messages[messages.length - 1] = { ...last, body: 'Ada, can you confirm the date?' }
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		const card = screen.getByRole('region', { name: 'Catch up' })
+		expect(card).toHaveTextContent(/Since you last read, (?:yesterday|[A-Z][a-z]+day): 1 new/)
+		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		expect([...stream.children].map((child) => child.getAttribute('data-kind') ?? 'rule').slice(-4)).toEqual([
+			'rule',
+			'catch-up',
+			'divider',
+			'open',
+		])
 
-		fireEvent.click(overflow)
-		expect(overflow).toHaveAttribute('aria-expanded', 'true')
-		const menu = screen.getByRole('menu', { name: 'Actions for message from sender@example.com' })
-		expect(overflow).toHaveAttribute('aria-controls', menu.id)
-		// The menu floats over the message: panel glass, one layer deep.
-		expect(menu).toHaveClass('glass-panel')
-		expect(menu.parentElement?.closest('.glass-panel')).toBeNull()
-		const items = screen.getAllByRole('menuitem')
-		expect(items.map((item) => item.textContent)).toEqual(['Collapse message', 'Download raw email'])
-		for (const item of items) expect(item).toHaveClass('min-h-11')
-		expect(items[0]).toHaveFocus()
-		expect(items[0]).toHaveAttribute('aria-expanded', 'true')
-
-		fireEvent.click(items[0] as HTMLElement)
-		expect(article).toHaveAttribute('data-state', 'collapsed')
-		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-		expect(overflow).toHaveFocus()
-
-		fireEvent.click(overflow)
-		const expand = screen.getByRole('menuitem', { name: 'Expand message' })
-		expect(expand).toHaveAttribute('aria-expanded', 'false')
-		fireEvent.click(expand)
-		expect(article).toHaveAttribute('data-state', 'open')
+		fireEvent.click(within(card).getByRole('button', { name: 'Answer Grace' }))
+		expect(compose.openCompose).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: 'm7' }),
+		)
+		fireEvent.click(within(card).getByRole('button', { name: 'Show sources' }))
+		expect(document.querySelectorAll('[data-source="true"]')).toHaveLength(1)
+		fireEvent.click(within(card).getByRole('button', { name: 'Hide sources' }))
+		expect(document.querySelectorAll('[data-source="true"]')).toHaveLength(0)
+		fireEvent.click(within(card).getByRole('button', { name: 'Jump to first new' }))
+		expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
+			'aria-label',
+			'Message from Grace Hopper',
+		)
 	})
 
-	it('offers the overflow actions on right-click of the header, for that message only', async () => {
+	it('mounts every row while the thread is short, and only the rows near the viewport past 50', () => {
+		const observers: Array<{ callback: IntersectionObserverCallback; elements: Element[] }> = []
+		vi.stubGlobal(
+			'IntersectionObserver',
+			class {
+				elements: Element[] = []
+				constructor(callback: IntersectionObserverCallback) {
+					observers.push({ callback, elements: this.elements })
+				}
+				observe(element: Element) {
+					this.elements.push(element)
+				}
+				disconnect() {}
+			},
+		)
+		render(
+			<ThreadConversation thread={thread('long')} messages={longThread(60)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expandAll(60)
+		const items = document.querySelectorAll('[data-slot="stream-item"]')
+		expect(items).toHaveLength(60)
+		// The message in focus stays mounted; the rest wait to come near the viewport.
+		expect(document.querySelectorAll('[data-virtual="held"]')).toHaveLength(59)
+		expect(document.getElementById('message-m10')).not.toBeNull()
+		const target = observers.find((observer) => observer.elements[0]?.id === 'message-m10')
+		act(() =>
+			target?.callback(
+				[{ isIntersecting: true, target: target.elements[0] } as unknown as IntersectionObserverEntry],
+				{} as IntersectionObserver,
+			),
+		)
+		expect(document.getElementById('message-m10')).toHaveAttribute('data-virtual', 'mounted')
+		act(() =>
+			target?.callback(
+				[{ isIntersecting: false, target: target.elements[0] } as unknown as IntersectionObserverEntry],
+				{} as IntersectionObserver,
+			),
+		)
+		expect(document.getElementById('message-m10')).toHaveAttribute('data-virtual', 'held')
+	})
+})
+
+describe('opening a thread', () => {
+	/** A scroll viewport 500px tall whose last 60px sit under the phone's bottom bar. */
+	function stubLayout(tops: Record<string, number>) {
+		// jsdom lays nothing out and has no scrollIntoView of its own.
+		Element.prototype.scrollIntoView ??= () => {}
+		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500)
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			const top =
+				this.getAttribute('data-testid') === 'viewport'
+					? 0
+					: (tops[this.id] ?? tops[this.getAttribute('data-slot') ?? ''] ?? 0)
+			return { top, bottom: this.getAttribute('data-testid') === 'viewport' ? 500 : top + 40 } as DOMRect
+		})
+	}
+
+	const inViewport = (node: React.ReactNode) => (
+		<div data-testid="viewport" style={{ overflowY: 'auto', paddingBottom: '60px' }}>
+			{node}
+		</div>
+	)
+
+	afterEach(() => vi.restoreAllMocks())
+
+	it('scrolls to where the reader left off when that is below the first screen', () => {
+		stubLayout({ 'new-since-divider': 800 })
+		const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+		render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={longThread(8, 2)}
+					mailboxEmail="ada@ownmail.com"
+				/>,
+			),
+		)
+		expect(scrolled.mock.contexts[0]).toHaveAttribute('data-slot', 'new-since-divider')
+	})
+
+	it('scrolls to your draft first, and leaves a divider already in view where it is', () => {
+		stubLayout({ 'draft-d1': 900, 'new-since-divider': 100 })
+		const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+		const draft = { ...message('d1'), ownmailDraft: true as const, from: [ADA], to: undefined, date: NOW }
+		const { unmount } = render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={[...longThread(4, 1), draft]}
+					mailboxEmail="ada@ownmail.com"
+				/>,
+			),
+		)
+		expect(scrolled.mock.contexts[0]).toHaveAttribute('id', 'draft-d1')
+		// The draft has no one it answers yet.
+		expect(screen.getByText('Draft reply to nobody')).toBeInTheDocument()
+		unmount()
+		scrolled.mockClear()
+		render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t2')}
+					messages={longThread(4, 1)}
+					mailboxEmail="ada@ownmail.com"
+				/>,
+			),
+		)
+		expect(scrolled).not.toHaveBeenCalled()
+	})
+
+	it('keeps the place a reader had already scrolled to', () => {
+		stubLayout({ 'new-since-divider': 800 })
+		vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockReturnValue(120)
+		const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+		render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={longThread(8, 2)}
+					mailboxEmail="ada@ownmail.com"
+				/>,
+			),
+		)
+		expect(scrolled).not.toHaveBeenCalled()
+	})
+
+	it('points a phone at the new messages still below the fold, and goes to the next one', () => {
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn((query: string) => ({
+				matches: query.includes('max-width'),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			})),
+		)
+		stubLayout({ 'message-m6': 100, 'message-m7': 600, 'message-m8': 900 })
+		vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+		render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={longThread(8, 3)}
+					mailboxEmail="ada@ownmail.com"
+				/>,
+			),
+		)
+		const viewport = screen.getByTestId('viewport')
+		fireEvent.scroll(viewport)
+		const pill = screen.getByRole('button', { name: '2 more new' })
+		fireEvent.click(pill)
+		expect(document.getElementById('message-m7')?.querySelector('[data-current="true"]')).not.toBeNull()
+		// Once nothing new is below the fold, a late tap goes nowhere and the pill leaves.
+		stubLayout({})
+		fireEvent.click(screen.getByRole('button', { name: '2 more new' }))
+		expect(document.getElementById('message-m7')?.querySelector('[data-current="true"]')).not.toBeNull()
+		viewport.style.paddingBottom = ''
+		fireEvent.scroll(viewport)
+		expect(screen.queryByRole('button', { name: /more new/ })).toBeNull()
+		// Outside a scrolling pane there is nothing to point at.
+		cleanup()
+		render(
+			<ThreadConversation thread={thread('t2')} messages={longThread(8, 3)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(screen.queryByRole('button', { name: /more new/ })).toBeNull()
+		// Bodies are set a step larger on a phone.
+		expect(document.querySelector('[data-slot="message-header"]')).not.toBeNull()
+	})
+
+	it("writes no day of its own on the server, where the reader's clock is unknown", () => {
+		const html = renderToString(
+			<UserPreferencesProvider initialPreferences={defaultUserPreferences()}>
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={longThread(8, 2)}
+					mailboxEmail="ada@ownmail.com"
+				/>
+			</UserPreferencesProvider>,
+		)
+		expect(html).toContain('aria-label="2 new"')
+		expect(html).not.toContain('new since')
+		expect(html).toContain('4<!-- --> earlier messages')
+		expect(html).not.toMatch(/earlier messages<\/span><span class="reader-folded-meta">[^<]*·/)
+		expect(html).toContain('data-slot="thread-map-dots"')
+	})
+
+	it('opens your own mail that is waiting to be sent, so its state is on screen', () => {
+		const scheduled = {
+			...message('later'),
+			from: [ADA],
+			to: [GRACE],
+			date: NOW - DAY,
+			send_at: NOW + DAY,
+		} as MailMessage
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[scheduled, ...longThread(2)]}
+				mailboxEmail="ada@ownmail.com"
+			/>,
+		)
+		expect(
+			document.getElementById('message-later')?.querySelector('[data-slot="thread-message"]'),
+		).not.toBeNull()
+	})
+})
+
+describe('moving through a thread', () => {
+	it('steps with j and k, and the stepper says where the reader is', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8, 2)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const scrolled = vi.fn()
+		Element.prototype.scrollIntoView = scrolled
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		// The thread opens on the first new message.
+		expect(position()).toBe('7 of 8')
+
+		fireEvent.keyDown(document.body, { key: 'k' })
+		expect(position()).toBe('6 of 8')
+		fireEvent.keyDown(document.body, { key: 'k' })
+		// Message 5 was folded: stepping to it unfolds its run and opens it.
+		expect(position()).toBe('5 of 8')
+		expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
+			'aria-label',
+			'Message from Alan Turing',
+		)
+		expect(screen.queryByRole('button', { name: /earlier messages/ })).toBeNull()
+		expect(scrolled).toHaveBeenCalled()
+		fireEvent.keyDown(document.body, { key: 'j' })
+		expect(position()).toBe('6 of 8')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Next message (j)' }))
+		expect(position()).toBe('7 of 8')
+		fireEvent.keyDown(document.body, { key: 'j' })
+		fireEvent.keyDown(document.body, { key: 'j' })
+		// The last message is as far as j goes.
+		expect(position()).toBe('8 of 8')
+		expect(screen.getByRole('button', { name: 'Next message (j)' })).toBeDisabled()
+		fireEvent.keyDown(document.body, { key: 'k' })
+		fireEvent.click(screen.getByRole('button', { name: 'Previous message (k)' }))
+		expect(position()).toBe('6 of 8')
+
+		// Typing, modified keys and open menus keep their own keys.
+		const input = document.createElement('input')
+		document.body.append(input)
+		fireEvent.keyDown(input, { key: 'j' })
+		fireEvent.keyDown(document.body, { key: 'j', metaKey: true })
+		expect(position()).toBe('6 of 8')
+		input.remove()
+	})
+
+	it('leaves j and k to a list beside the reader while the list has focus', () => {
+		const row = document.createElement('button')
+		row.setAttribute('data-nav-row', '')
+		document.body.append(row)
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(4, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		fireEvent.keyDown(row, { key: 'k' })
+		fireEvent.keyDown(document.body, { key: 'k' })
+		expect(position()).toBe('4 of 4')
+		fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'k' })
+		expect(position()).toBe('3 of 4')
+		row.remove()
+	})
+
+	it('opens the thread map with g m, from the dots, and from the More menu', () => {
+		const dock = document.createElement('div')
+		dock.id = THREAD_MAP_DOCK_ID
+		document.body.append(dock)
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+
+		const dots = screen.getByRole('complementary', { name: 'Thread map' })
+		const buttons = within(dots).getAllByRole('button', { name: /^(?:Grace Hopper|Alan Turing|You),/ })
+		expect(buttons).toHaveLength(8)
+		expect(buttons[0]).toHaveClass('reader-map-dot-first')
+		expect(buttons[7]).toHaveClass('reader-map-dot-new')
+		expect(buttons[7]).toHaveAttribute('aria-current', 'true')
+		expect(buttons[7]).toHaveAccessibleName(/, new$/)
+		expect(dots.querySelector('[data-slot="thread-map-stopped"]')?.nextElementSibling).toBe(buttons[7])
+
+		// A dot scrolls to its message and opens it, unfolding its run.
+		fireEvent.click(buttons[2] as HTMLElement)
+		expect(document.querySelector('[data-current="true"]')).toHaveAttribute('aria-label', 'Message from you')
+
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		const panel = within(dock).getByRole('complementary', { name: 'Thread map panel' })
+		expect(panel).toHaveAttribute('data-selected', 'm3')
+		fireEvent.click(within(panel).getByRole('button', { name: 'Map row m5' }))
+		expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
+			'aria-label',
+			'Message from Alan Turing',
+		)
+		fireEvent.click(within(panel).getByRole('button', { name: 'Close thread map' }))
+		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+
+		fireEvent.click(within(dots).getByRole('button', { name: /^Open thread map/ }))
+		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		openMore()
+		const item = screen.getByRole('menuitem', { name: /^Thread map/ })
+		expect(item).toHaveAttribute('aria-pressed', 'true')
+		fireEvent.click(item)
+		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		// A g without its m does nothing.
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'x' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		dock.remove()
+	})
+
+	it('opens the message a #message link names', () => {
+		window.location.hash = '#message-m2'
+		const scrolled = vi.fn()
+		Element.prototype.scrollIntoView = scrolled
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(6)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
+			'aria-label',
+			'Message from Alan Turing',
+		)
+		expect(scrolled).toHaveBeenCalled()
+	})
+})
+
+describe('message actions', () => {
+	it('replies to, forwards and quotes the message whose header they are on', () => {
+		const messages = longThread(3)
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		expandAll(3)
+		fireEvent.click(screen.getByRole('button', { name: 'Reply to Grace Hopper' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				kind: 'reply',
+				threadId: 't1',
+				to: 'grace@example.com',
+				replyToMessageId: 'm1',
+			}),
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Forward message from Alan Turing' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'forward', threadId: 't1', subject: 'Fwd: ' }),
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Quote message from Alan Turing' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				kind: 'reply',
+				replyToMessageId: 'm2',
+				body: '> Note 2 about the plan.\n\n',
+			}),
+		)
+
+		// A selection inside the message is what gets quoted.
+		const article = document.getElementById('message-m2') as HTMLElement
+		const text = within(article).getByText('Note 2 about the plan.').firstChild as Text
+		const range = document.createRange()
+		range.setStart(text, 0)
+		range.setEnd(text, 6)
+		window.getSelection()?.removeAllRanges()
+		window.getSelection()?.addRange(range)
+		fireEvent.click(screen.getByRole('button', { name: 'Quote message from Alan Turing' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith(expect.objectContaining({ body: '> Note 2\n\n' }))
+		window.getSelection()?.removeAllRanges()
+	})
+
+	it('collapses an open message from its header and from its right-click menu', async () => {
 		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
-		const [first, second] = screen.getAllByRole('article', { name: 'sender@example.com' }) as HTMLElement[]
-		expect(first).toHaveAttribute('data-state', 'collapsed')
-		expect(second).toHaveAttribute('data-state', 'open')
+		fireEvent.click(screen.getByRole('button', { name: 'Collapse message from sender@example.com' }))
+		expect(states()).toEqual([])
 
-		const header = second.querySelector('[data-slot="message-header-row"]') as HTMLElement
+		fireEvent.click(
+			document.querySelectorAll<HTMLButtonElement>('[data-slot="message-expand"]')[1] as HTMLElement,
+		)
+		const header = document.querySelector('[data-slot="message-header"]') as HTMLElement
 		expect(fireEvent.contextMenu(header, { clientX: 10, clientY: 10 })).toBe(false)
 		const menu = await screen.findByRole('menu', { name: 'Actions for message from sender@example.com' })
 		expect(menu).toHaveAttribute('data-slot', 'context-menu-content')
-		const items = screen.getAllByRole('menuitem')
+		const items = within(menu).getAllByRole('menuitem')
 		expect(items.map((item) => item.textContent)).toEqual(['Collapse message', 'Download raw email'])
 		expect(items[1]).toHaveAttribute('href', '/messages/m2/download')
-		expect(items[1]).toHaveAttribute('download')
-
 		fireEvent.click(items[0] as HTMLElement)
-		expect(second).toHaveAttribute('data-state', 'collapsed')
-		expect(first).toHaveAttribute('data-state', 'collapsed')
-		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
-
-		fireEvent.contextMenu(header, { clientX: 10, clientY: 10 })
-		fireEvent.click(await screen.findByRole('menuitem', { name: 'Expand message' }))
-		expect(second).toHaveAttribute('data-state', 'open')
+		expect(states()).toEqual([])
 	})
 
 	it('offers no raw download for a draft that has not been sent', async () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[{ ...message('m1'), ownmailDraft: true }]} />)
-		fireEvent.contextMenu(document.querySelector('[data-slot="message-header-row"]') as HTMLElement)
-		await screen.findByRole('menu')
-		expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Collapse message'])
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[{ ...message('m1'), ownmailDraft: true }, message('m2')]}
+			/>,
+		)
+		fireEvent.contextMenu(document.querySelector('[data-slot="message-header"]') as HTMLElement)
+		const menu = await screen.findByRole('menu', { name: 'Actions for message from sender@example.com' })
+		expect(within(menu).getAllByRole('menuitem')).toHaveLength(2)
+		cleanup()
+		render(<ThreadConversation thread={thread('t2')} messages={[{ ...message('m1'), ownmailDraft: true }]} />)
+		openMore()
+		expect(screen.queryByRole('menuitem', { name: 'Download raw email' })).toBeNull()
 	})
 
 	it('keeps the browser menu on the message body, where links, images and text live', () => {
@@ -630,83 +1097,180 @@ describe('message header', () => {
 		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 	})
 
-	it('opens a collapsed message from its summary line', () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
-		const article = screen.getAllByRole('article')[0] as HTMLElement
-		expect(article).toHaveAttribute('data-state', 'collapsed')
+	it('wires the notices, your outgoing mail and the edge states to what they offer', () => {
+		const onDiscardDraft = vi.fn()
+		const onRetryLoad = vi.fn()
+		const sent = {
+			id: 'sent',
+			from: [ADA],
+			to: [{ email: 'mary@nasa.gov' }],
+			subject: 'Launch dates',
+			date: NOW - 2 * DAY,
+			body: 'Here are the dates.',
+		}
+		const bounce = {
+			id: 'bounce',
+			from: [{ email: 'mailer-daemon@ownmail.com' }],
+			to: [ADA],
+			subject: 'Undeliverable: Launch dates',
+			date: NOW - 2 * DAY + 60,
+			body: 'Delivery to mary@nasa.gov failed.',
+		}
+		const trashed = { ...message('trashed'), folders: ['trash'], date: NOW - DAY }
+		const draft = { ...message('draft'), ownmailDraft: true as const, from: [ADA], to: [GRACE], date: NOW }
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[sent, bounce, trashed, draft]}
+				mailboxEmail="ada@ownmail.com"
+				failedMessageIds={['lost-1', 'lost-2']}
+				onRetryLoad={onRetryLoad}
+				onDiscardDraft={onDiscardDraft}
+			/>,
+		)
+		// The bounced message opens and says it was not sent.
+		expect(screen.getByText(/Not sent\. mary@nasa\.gov bounced\./)).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith({
+			kind: 'new',
+			to: 'mary@nasa.gov',
+			subject: 'Launch dates',
+			body: 'Here are the dates.',
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'Send now' }))
+		expect(compose.openCompose).toHaveBeenCalledTimes(2)
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel scheduled send' }))
 
-		const summary = screen.getByRole('button', { name: 'Expand message from sender@example.com' })
-		expect(summary).toHaveTextContent('Message m1')
-		// The hit area stretches over the sender and preview lines.
-		expect(summary).toHaveClass('before:absolute', 'before:inset-0')
-		expect(summary.parentElement).toHaveClass('relative')
-		fireEvent.click(summary)
+		// The draft sits after the message it follows, with Resume and Discard.
+		expect(screen.getByText('Draft reply to Grace')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+		expect(compose.openCompose).toHaveBeenLastCalledWith({ kind: 'draft', draftId: 'draft' })
+		fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+		expect(onDiscardDraft).toHaveBeenCalledWith('draft')
 
-		expect(article).toHaveAttribute('data-state', 'open')
-		expect(screen.queryByRole('button', { name: /Expand message from/ })).not.toBeInTheDocument()
+		// Trash is said, not hidden silently, and can be shown.
+		expect(screen.getByText(/1 in Trash/)).toBeInTheDocument()
+		expect(document.getElementById('message-trashed')).toBeNull()
+		fireEvent.click(screen.getByRole('button', { name: 'Show trashed' }))
+		expect(document.getElementById('message-trashed')).not.toBeNull()
+
+		// Messages the server could not load are counted, with a retry in place.
+		expect(screen.getByText(/2 failed, 3 shown/)).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+		expect(onRetryLoad).toHaveBeenCalledTimes(1)
+
+		// Notices: muting from a notice mutes the thread; adding someone back replies to all of them.
+		fireEvent.click(screen.getAllByRole('button', { name: /^Mute from notice/ })[0] as HTMLElement)
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([
+			't1',
+		])
+		fireEvent.click(screen.getAllByRole('button', { name: /^Mute from notice/ })[0] as HTMLElement)
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([
+			't1',
+		])
+		fireEvent.click(screen.getAllByRole('button', { name: /^Add back from notice/ })[0] as HTMLElement)
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: expect.any(String) }),
+		)
 	})
 
-	it('moves through the overflow menu with the keyboard and returns focus on dismissal', () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
-		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
-		fireEvent.click(overflow)
+	it('shows an invitation that changed once, and notes the earlier version where it was', () => {
+		const invite = (id: string, date: number): MailMessage => ({
+			id,
+			from: [GRACE],
+			to: [ADA],
+			subject: 'Invitation: Design review',
+			date,
+			body: 'Join us.',
+			attachments: [{ id: `${id}-ics`, filename: 'invite.ics', content_type: 'text/calendar' }],
+		})
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[invite('i1', NOW - 2 * DAY), invite('i2', NOW - DAY)]}
+				mailboxEmail="ada@ownmail.com"
+			/>,
+		)
+		expect(screen.getByText('Invitation i2, updated 1 times')).toBeInTheDocument()
+		expandAll(2)
+		const scrolled = vi.fn()
+		Element.prototype.scrollIntoView = scrolled
+		fireEvent.click(screen.getByRole('button', { name: 'Show the latest invitation' }))
+		expect(document.getElementById('message-i2')?.querySelector('[data-current="true"]')).not.toBeNull()
+		expect(scrolled).toHaveBeenCalled()
+	})
+
+	it('mutes and unmutes the thread from the More menu, and offers the raw latest message', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
+		openMore()
+		const download = screen.getByRole('menuitem', { name: 'Download raw email' })
+		expect(download).toHaveAttribute('href', '/messages/m2/download')
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Mute thread' }))
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([
+			't1',
+		])
+		openMore()
+		const unmute = screen.getByRole('menuitem', { name: 'Unmute thread' })
+		expect(unmute).toHaveAttribute('aria-pressed', 'true')
+		fireEvent.click(unmute)
+		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([])
+	})
+})
+
+describe('the More menu', () => {
+	it('moves with the keyboard, keeps its keys from the page, and closes on Escape, Tab or an outside press', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
+		const trigger = screen.getByRole('button', { name: 'More' })
+		fireEvent.click(trigger)
+		expect(trigger).toHaveAttribute('aria-expanded', 'true')
 		const menu = screen.getByRole('menu')
-		const [toggle, download] = screen.getAllByRole('menuitem') as [HTMLElement, HTMLElement]
-
-		fireEvent.keyDown(menu, { key: 'ArrowDown' })
-		expect(download).toHaveFocus()
-		fireEvent.keyDown(menu, { key: 'ArrowDown' })
-		expect(toggle).toHaveFocus()
+		expect(trigger).toHaveAttribute('aria-controls', menu.id)
+		const items = within(menu).getAllByRole('menuitem')
+		expect(items[0]).toHaveFocus()
 		fireEvent.keyDown(menu, { key: 'ArrowUp' })
-		expect(download).toHaveFocus()
+		expect(items.at(-1)).toHaveFocus()
+		fireEvent.keyDown(menu, { key: 'ArrowDown' })
+		expect(items[0]).toHaveFocus()
 		fireEvent.keyDown(menu, { key: 'a' })
-		expect(download).toHaveFocus()
+		expect(items[0]).toHaveFocus()
 
-		// Escape is handled by the menu: it must not reach the reader's "back to list" shortcut.
 		const onWindowKeyDown = vi.fn()
 		window.addEventListener('keydown', onWindowKeyDown)
 		fireEvent.keyDown(menu, { key: 'Escape' })
 		window.removeEventListener('keydown', onWindowKeyDown)
 		expect(onWindowKeyDown).not.toHaveBeenCalled()
-		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-		expect(overflow).toHaveFocus()
-		expect(overflow).not.toHaveAttribute('aria-controls')
+		expect(screen.queryByRole('menu')).toBeNull()
+		expect(trigger).toHaveFocus()
+		expect(trigger).not.toHaveAttribute('aria-controls')
 
-		fireEvent.click(overflow)
+		fireEvent.click(trigger)
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Tab' })
-		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-		expect(overflow).toHaveFocus()
-	})
+		expect(screen.queryByRole('menu')).toBeNull()
 
-	it('closes the overflow menu on an outside press, a second trigger press, and after a download', () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
-		const overflow = screen.getByRole('button', { name: 'Actions for message from sender@example.com' })
-
-		fireEvent.click(overflow)
+		fireEvent.click(trigger)
 		fireEvent.pointerDown(screen.getByRole('menu'))
 		expect(screen.getByRole('menu')).toBeInTheDocument()
 		fireEvent.pointerDown(document.body)
-		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		expect(screen.queryByRole('menu')).toBeNull()
 
-		fireEvent.click(overflow)
-		fireEvent.click(overflow)
-		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		fireEvent.click(trigger)
+		fireEvent.click(trigger)
+		expect(screen.queryByRole('menu')).toBeNull()
 
-		fireEvent.click(overflow)
+		fireEvent.click(trigger)
 		const download = screen.getByRole('menuitem', { name: 'Download raw email' })
-		expect(download).toHaveAttribute('href', '/messages/m1/download')
 		download.addEventListener('click', (event) => event.preventDefault())
 		fireEvent.click(download)
-		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+		expect(screen.queryByRole('menu')).toBeNull()
 	})
 })
 
 describe('thread actions placement', () => {
-	function toolbarSlot() {
-		const slot = document.createElement('div')
-		slot.id = THREAD_TOOLBAR_ACTIONS_ID
-		document.body.append(slot)
-		return slot
+	function slot(id: string) {
+		const element = document.createElement('div')
+		element.id = id
+		document.body.append(element)
+		return element
 	}
 
 	function stubViewport(desktop: boolean) {
@@ -718,7 +1282,13 @@ describe('thread actions placement', () => {
 		}
 		vi.stubGlobal(
 			'matchMedia',
-			vi.fn(() => media),
+			vi.fn((query: string) => ({
+				...media,
+				// The phone query is the complement of the desktop one.
+				get matches() {
+					return query.includes('max-width') ? !media.matches : media.matches
+				},
+			})),
 		)
 		return {
 			listeners,
@@ -732,74 +1302,96 @@ describe('thread actions placement', () => {
 	}
 
 	afterEach(() => {
-		document.getElementById(THREAD_TOOLBAR_ACTIONS_ID)?.remove()
-		vi.unstubAllGlobals()
+		for (const id of [THREAD_TOOLBAR_ACTIONS_ID, THREAD_TOOLBAR_MORE_ID, THREAD_MOBILE_MORE_ID]) {
+			document.getElementById(id)?.remove()
+		}
 	})
 
 	const conversation = (
 		<ThreadConversation thread={thread('t1')} messages={[htmlMessage('m1'), htmlMessage('m2')]} />
 	)
 
-	it('moves the display menu and expand/collapse-all into the pane toolbar on desktop', () => {
-		const slot = toolbarSlot()
+	it('puts the view controls and the stepper in the toolbar, and More at its end, on desktop', () => {
+		const actions = slot(THREAD_TOOLBAR_ACTIONS_ID)
+		const more = slot(THREAD_TOOLBAR_MORE_ID)
 		const viewport = stubViewport(true)
 		const { container } = render(conversation)
 		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
 
 		expect(window.matchMedia).toHaveBeenCalledWith('(min-width: 48rem)')
-		// The subject row holds the subject only, so no 44px control sets its height.
-		expect(summary.querySelector('button')).toBeNull()
-		for (const name of ['Thread display', 'Expand all 2 messages', 'Collapse all 2 messages']) {
-			expect(slot).toContainElement(screen.getByRole('button', { name }))
-		}
-
+		// The subject row holds the subject and its meta line only.
+		expect(summary.querySelector('[data-slot="thread-actions"]')).toBeNull()
+		expect(actions).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(actions).toContainElement(screen.getByRole('button', { name: 'Previous message (k)' }))
+		expect(actions.querySelector('hr')).not.toBeNull()
+		expect(more).toContainElement(screen.getByRole('button', { name: 'More' }))
 		// The actions keep working from the toolbar: state stays with the conversation.
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expandAll(2)
 		expect(container.querySelectorAll('[data-state="open"]')).toHaveLength(2)
-		expect(viewport.listeners.size).toBe(1)
+		expect(viewport.listeners.size).toBeGreaterThan(0)
 	})
 
-	it('keeps the actions in the subject row on narrow screens, where the toolbar is already full', () => {
-		const slot = toolbarSlot()
+	it('hands More to the phone top bar on narrow screens, with the view choice inside it', async () => {
+		const actions = slot(THREAD_TOOLBAR_ACTIONS_ID)
+		const mobile = slot(THREAD_MOBILE_MORE_ID)
 		const viewport = stubViewport(false)
-		const { container, unmount } = render(conversation)
-		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
+		const { unmount } = render(
+			<QueryClientProvider client={new QueryClient()}>{conversation}</QueryClientProvider>,
+		)
 
-		expect(slot).toBeEmptyDOMElement()
-		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(actions).toBeEmptyDOMElement()
+		expect(mobile).toContainElement(screen.getByRole('button', { name: 'More' }))
+		// Display options join More on a phone only when they have something to offer:
+		// here the messages' remote images are blocked.
+		await waitFor(() =>
+			expect(mobile).toContainElement(screen.getByRole('button', { name: 'Thread display' })),
+		)
+		openMore()
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Conversation view' }))
+		expect(document.querySelector('[data-slot="thread-message"]')).toBeNull()
+		openMore()
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Messages view' }))
 
-		// Crossing the breakpoint moves the same actions, without duplicating them.
+		// Crossing the breakpoint moves the same controls, without duplicating them.
 		viewport.resize(true)
 		expect(screen.getAllByRole('button', { name: 'Thread display' })).toHaveLength(1)
-		expect(slot).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
-		viewport.resize(false)
-		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
-
+		expect(actions).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
 		unmount()
 		expect(viewport.listeners.size).toBe(0)
 	})
 
-	it('keeps the actions in the subject row for a pane without a toolbar', () => {
+	it('keeps the controls beside the subject for a pane without a toolbar', () => {
 		stubViewport(true)
 		const { container } = render(conversation)
 		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
 
 		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
-		expect(summary).toContainElement(screen.getByRole('button', { name: 'Expand all 2 messages' }))
+		expect(summary).toContainElement(screen.getByRole('button', { name: 'More' }))
+	})
+
+	it('keeps the view controls beside the subject when the toolbar offers only More', () => {
+		const more = slot(THREAD_TOOLBAR_MORE_ID)
+		stubViewport(true)
+		const { container } = render(conversation)
+		const summary = container.querySelector('[data-slot="thread-summary"]') as HTMLElement
+
+		expect(summary).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(more).toContainElement(screen.getByRole('button', { name: 'More' }))
 	})
 
 	it('uses the toolbar when the environment cannot report the viewport', () => {
-		const slot = toolbarSlot()
+		const actions = slot(THREAD_TOOLBAR_ACTIONS_ID)
 		vi.stubGlobal('matchMedia', undefined)
 		render(conversation)
 
-		expect(slot).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(actions).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
 	})
 
 	it('renders no action row for a single plain-text message', () => {
-		toolbarSlot()
+		slot(THREAD_TOOLBAR_ACTIONS_ID)
 		render(<ThreadConversation thread={thread('t1')} messages={[message('m1')]} />)
 
 		expect(document.querySelector('[data-slot="thread-actions"]')).toBeNull()
+		expect(document.querySelector('[data-slot="thread-stepper"]')).toBeNull()
 	})
 })
