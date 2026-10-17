@@ -113,13 +113,15 @@ function domainOf(value: string | undefined): string | undefined {
 }
 
 /**
- * Relaxed DMARC alignment: both identities share an organizational domain, so
- * sibling subdomains (`bounces.example.com`, `accounts.example.com`) align.
- * Both arrive through `domainOf`, which already validated them as hosts.
+ * Alignment without a DMARC verdict: the same domain, or one a subdomain of
+ * the other. Deliberately stricter than DMARC's relaxed mode, which compares
+ * organizational domains: resolving those safely needs the full public suffix
+ * list (`a.ne.jp` and `b.ne.jp` are different owners), and a missed sibling
+ * only withholds "Verified sender" while a wrong one would grant it.
  */
 function aligned(domain: string | undefined, fromDomain: string | undefined): boolean {
 	if (!domain || !fromDomain) return false
-	return siteOf(domain) === siteOf(fromDomain)
+	return domain === fromDomain || domain.endsWith(`.${fromDomain}`) || fromDomain.endsWith(`.${domain}`)
 }
 
 type AuthResult = { method: string; result: string; domain?: string }
