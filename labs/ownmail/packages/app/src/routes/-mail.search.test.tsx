@@ -51,6 +51,7 @@ const fns = vi.hoisted(() => ({
 	deleteDraft: vi.fn(),
 	sendScheduledNow: vi.fn(),
 	cancelScheduledSend: vi.fn(),
+	markMessagesRead: vi.fn(async () => ({ threadId: 'th1', messageIds: [] })),
 }))
 vi.mock('#server/fns', () => fns)
 
@@ -859,6 +860,21 @@ describe('/mail/search thread detail', () => {
 		)
 		await waitFor(() => expect(fns.getThreadMessages.mock.calls.length).toBeGreaterThan(calls))
 		expect(fns.getThreadMessages).toHaveBeenLastCalledWith({ data: { threadId: 'th1' } })
+	})
+
+	it('marks only the shown unread messages of a result that partly loaded', async () => {
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'], unread: true },
+			messages: messages.map((message, index) => (index === 0 ? { ...message, unread: true } : message)),
+			failedMessageIds: ['m9'],
+		})
+		renderRoute()
+		await waitFor(() =>
+			expect(fns.markMessagesRead).toHaveBeenCalledWith({
+				data: { threadId: 'th1', messageIds: [messages[0]?.id] },
+			}),
+		)
+		expect(fns.markThreadRead).not.toHaveBeenCalled()
 	})
 
 	it('holds every reply on a result that only partly loaded, and keeps it readable', async () => {

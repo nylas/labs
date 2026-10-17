@@ -1536,6 +1536,75 @@ describe('scheduled sends', () => {
 	})
 })
 
+describe('markMessagesRead', () => {
+	it('validates the thread and message ids, without repeats', () => {
+		expect(fns.markMessagesRead.validator({ threadId: 't1', messageIds: ['m1', 'm2', 'm1'] })).toEqual({
+			threadId: 't1',
+			messageIds: ['m1', 'm2'],
+		})
+		expect(() => fns.markMessagesRead.validator({ threadId: 't1', messageIds: 'm1' } as never)).toThrow(
+			'Invalid messages',
+		)
+		expect(() => fns.markMessagesRead.validator(null as never)).toThrow('Invalid messages')
+		expect(() =>
+			fns.markMessagesRead.validator({
+				threadId: 't1',
+				messageIds: Array.from({ length: 201 }, (_, index) => `m${index}`),
+			}),
+		).toThrow('Invalid messages')
+		expect(() => fns.markMessagesRead.validator({ threadId: 't1', messageIds: ['bad id\n'] })).toThrow()
+	})
+
+	it('marks each given message read, never the thread', async () => {
+		resolveMailbox()
+		const updateMessage = vi.fn(async (id: string) => ({ data: { id } }))
+		Object.assign(mailbox, { updateMessage })
+		expect(
+			await fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1', 'm2'] } }),
+		).toEqual({
+			threadId: 't1',
+			messageIds: ['m1', 'm2'],
+			folders: [],
+		})
+		expect(updateMessage).toHaveBeenNthCalledWith(1, 'm1', { unread: false })
+		expect(updateMessage).toHaveBeenNthCalledWith(2, 'm2', { unread: false })
+		expect(mailbox.updateThread).not.toHaveBeenCalled()
+	})
+
+	it('answers only the messages the provider confirmed', async () => {
+		resolveMailbox()
+		const updateMessage = vi
+			.fn()
+			.mockResolvedValueOnce({ data: { id: 'm1' } })
+			.mockRejectedValueOnce(new Error('busy'))
+		Object.assign(mailbox, { updateMessage })
+		expect(
+			await fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1', 'm2'] } }),
+		).toEqual({
+			threadId: 't1',
+			messageIds: ['m1'],
+			folders: [],
+		})
+	})
+
+	it('fails when no message could be marked', async () => {
+		resolveMailbox()
+		Object.assign(mailbox, { updateMessage: vi.fn().mockRejectedValue(new Error('provider detail')) })
+		await expect(
+			fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1'] } }),
+		).rejects.toThrow('Something went wrong talking to your mailbox.')
+	})
+
+	it('marks nothing when the mailbox client cannot update one message', async () => {
+		resolveMailbox()
+		expect(await fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1'] } })).toEqual({
+			threadId: 't1',
+			messageIds: [],
+		})
+		expect(mailbox.updateThread).not.toHaveBeenCalled()
+	})
+})
+
 describe('deleteDraft', () => {
 	it('validates the draft id', () => {
 		expect(fns.deleteDraft.validator({ draftId: 'd1' })).toEqual({ draftId: 'd1' })

@@ -52,7 +52,7 @@ import {
 	systemFolderBeforeMove,
 } from '#features/mail/state/mail-cache'
 import {
-	markThreadReadOnOpen,
+	markOpenedThreadRead,
 	openThreadDetail,
 	useDeleteDraftMutation,
 	useScheduledSendAction,
@@ -510,14 +510,16 @@ function ThreadView() {
 	}, [act, baseFolderId, canRespond, folderId, isArchived, navigate, reply, toggleStar])
 
 	// Server-rendered deep links skip the client loader, so the reader marks the
-	// thread read once per open. Later unread states (for example "Mark unread"
-	// before leaving) must not be reverted by this effect.
+	// thread read once per open, and once more when a partial load is completed
+	// by Try again (a partial load marks only the messages shown). Later unread
+	// states (for example "Mark unread" before leaving) must not be reverted.
 	const readRequestedFor = useRef<string | null>(null)
 	useEffect(() => {
-		if (readRequestedFor.current === threadId) return
-		readRequestedFor.current = threadId
-		if (thread.unread) markThreadReadOnOpen(queryClient, threadId, thread)
-	}, [queryClient, thread, threadId])
+		const request = `${threadId}:${partial ? 'shown' : 'all'}`
+		if (readRequestedFor.current === request) return
+		readRequestedFor.current = request
+		markOpenedThreadRead(queryClient, threadId, { thread, messages, failedMessageIds })
+	}, [queryClient, thread, threadId, messages, failedMessageIds, partial])
 
 	const archiveLabel =
 		pendingAction === 'archive'

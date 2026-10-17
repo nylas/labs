@@ -157,6 +157,14 @@ class DevMailbox {
 		return itemResponse(toThread(thread))
 	}
 
+	/** One message's state; the thread is unread while any of its messages is. */
+	async updateMessage(
+		messageId: string,
+		body: { unread?: boolean; starred?: boolean; folders?: string[] },
+	): Promise<ItemResponse<Message>> {
+		return itemResponse(mockUpdateMessageState({ messageId, ...body }))
+	}
+
 	async send(body: SendMessageRequest): Promise<ItemResponse<Message>> {
 		const sent = mockSendMessage({
 			toList: (body.to ?? []).map((participant) => participant.email),
@@ -835,6 +843,23 @@ type MockDraftInput = {
 	body: string
 	replyToMessageId?: string
 	attachments?: SendMessageRequest['attachments']
+}
+
+/** One message read or unread (or starred, or moved); its thread is unread while any message is. */
+export function mockUpdateMessageState(input: {
+	messageId: string
+	unread?: boolean
+	starred?: boolean
+	folders?: string[]
+}): Message {
+	const message = messages.get(input.messageId)
+	if (!message) throw new Error('Not found - it may have been deleted.')
+	if (input.unread !== undefined) message.unread = input.unread
+	if (input.starred !== undefined) message.starred = input.starred
+	if (input.folders) message.folders = input.folders
+	const thread = threads.get(message.thread_id) as StoredThread
+	thread.unread = thread.message_ids.some((id) => (messages.get(id) as StoredMessage).unread === true)
+	return message
 }
 
 export function mockSaveDraft(input: MockDraftInput): {

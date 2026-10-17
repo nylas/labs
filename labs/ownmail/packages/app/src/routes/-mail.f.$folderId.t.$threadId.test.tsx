@@ -22,6 +22,7 @@ vi.mock('@tanstack/react-router', () => ({
 const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
 const markThreadRead = vi.fn()
+const markMessagesRead = vi.fn()
 const getThreads = vi.fn()
 const sideThreadSearch = vi.fn(async (_input: unknown) => ({ threads: [] }))
 const headerFacts = vi.fn()
@@ -42,6 +43,7 @@ vi.mock('#server/fns', () => ({
 	sendScheduledNow: (input: any) => sendScheduledNow(input),
 	cancelScheduledSend: (input: any) => cancelScheduledSend(input),
 	markThreadRead: (input: any) => markThreadRead(input),
+	markMessagesRead: (input: any) => markMessagesRead(input),
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
@@ -1439,6 +1441,28 @@ describe('read state on open', () => {
 
 		expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', unread: true } })
 		expect(markThreadRead).toHaveBeenCalledTimes(1)
+	})
+
+	it('marks only the shown messages of a partly loaded thread read, then the whole thread once it loads', async () => {
+		markMessagesRead.mockResolvedValue({ threadId: 't1', messageIds: ['m3'] })
+		const unreadThread = { id: 't1', subject: 'Hello', unread: true, folders: ['work'] }
+		const shown = richMessages().map((message: any, index: number) =>
+			index === 2 ? { ...message, unread: true } : message,
+		)
+		const partialDetail = loaderData({ thread: unreadThread, messages: shown, failedMessageIds: ['lost'] })
+		getThreadMessages.mockResolvedValue(loaderData({ thread: unreadThread, messages: shown }))
+		renderThread(partialDetail)
+		await waitFor(() =>
+			expect(markMessagesRead).toHaveBeenCalledWith({
+				data: { threadId: 't1', messageIds: [shown[2].id] },
+			}),
+		)
+		expect(markThreadRead).not.toHaveBeenCalled()
+		// Try again loads the rest: now the whole thread is read.
+		const paused = document.querySelector('[data-slot="replies-paused"]') as HTMLElement
+		fireEvent.click(within(paused).getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(markThreadRead).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+		expect(markMessagesRead).toHaveBeenCalledTimes(1)
 	})
 
 	it('does not broadly invalidate the router when a thread opens', () => {

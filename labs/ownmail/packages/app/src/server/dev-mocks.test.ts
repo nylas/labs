@@ -895,3 +895,30 @@ describe('dev mock scheduled message kept as a draft', () => {
 		await expect(mailbox.downloadAttachment('att-missing', bare.data.id)).rejects.toThrow('Not found')
 	})
 })
+
+describe('dev mock message read state', () => {
+	const mailbox = createDevMailbox()
+
+	it('marks one message read; its thread stays unread while another message is', async () => {
+		const first = await mailbox.send({ to: [{ email: 'grace@example.com' }], subject: 'Two', body: 'One' })
+		const threadId = first.data.thread_id as string
+		const second = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Re: Two',
+			body: 'Two',
+			reply_to_message_id: first.data.id,
+		})
+		mockUpdateThreadState({ threadId, unread: true })
+		const updated = await mailbox.updateMessage(first.data.id, { unread: false })
+		expect(updated.data.unread).toBe(false)
+		expect(mockThreadMessages(threadId).thread.unread).toBe(true)
+		await mailbox.updateMessage(second.data.id, { unread: false, starred: true, folders: ['sent', 'work'] })
+		const after = (await mailbox.getMessage(second.data.id)).data
+		expect(after).toMatchObject({ unread: false, starred: true, folders: ['sent', 'work'] })
+		expect(mockThreadMessages(threadId).thread.unread).toBe(false)
+		// Nothing asked, nothing changed.
+		await mailbox.updateMessage(second.data.id, {})
+		expect((await mailbox.getMessage(second.data.id)).data).toMatchObject({ unread: false, starred: true })
+		await expect(mailbox.updateMessage('msg-missing', { unread: false })).rejects.toThrow('Not found')
+	})
+})

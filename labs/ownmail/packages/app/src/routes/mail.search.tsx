@@ -37,7 +37,7 @@ import {
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import { cachedCorrespondents, findCachedThread } from '#features/mail/state/mail-cache'
 import {
-	markThreadReadOnOpen,
+	markOpenedThreadRead,
 	openThreadDetail,
 	useDeleteDraftMutation,
 	useScheduledSendAction,
@@ -357,12 +357,16 @@ function SearchResults() {
 	/* v8 ignore stop -- @preserve */
 
 	// Server-rendered deep links skip the client loader; mark the selected
-	// result read once per selection without undoing a later unread choice.
+	// result read once per selection (and once more when Try again completes a
+	// partial load, which marks only the messages shown) without undoing a
+	// later unread choice.
 	const readRequestedFor = useRef<string | null>(null)
 	useEffect(() => {
-		if (!selected || readRequestedFor.current === selected.thread.id) return
-		readRequestedFor.current = selected.thread.id
-		if (selected.thread.unread) markThreadReadOnOpen(queryClient, selected.thread.id, selected.thread)
+		if (!selected) return
+		const request = `${selected.thread.id}:${selected.failedMessageIds?.length ? 'shown' : 'all'}`
+		if (readRequestedFor.current === request) return
+		readRequestedFor.current = request
+		markOpenedThreadRead(queryClient, selected.thread.id, selected)
 	}, [queryClient, selected])
 
 	return (

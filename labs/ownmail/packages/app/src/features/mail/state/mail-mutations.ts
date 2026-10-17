@@ -11,6 +11,7 @@ import type { OutboundAttachment } from '#features/mail/server/outbound-attachme
 import {
 	cancelScheduledSend,
 	deleteDraft,
+	markMessagesRead,
 	markThreadRead,
 	saveDraft,
 	sendDraft,
@@ -164,6 +165,20 @@ type ReadAttempt = { failed: boolean }
 
 const openingReads = new WeakMap<QueryClient, Map<string, ReadAttempt>>()
 
+/** What a loaded conversation says about itself for read state: which messages did not load. */
+type LoadedForRead = { failedMessageIds?: readonly string[] }
+
+/** Whether a loaded conversation is missing messages that could not be read. */
+const partlyLoaded = (detail: LoadedForRead | undefined): boolean =>
+	(detail?.failedMessageIds?.length ?? 0) > 0
+
+/** A thread read held back because its conversation did not load in full. */
+class IncompleteLoad extends Error {
+	constructor() {
+		super('The conversation did not load in full.')
+	}
+}
+
 /** Opening an unread thread marks it read at once in every cached list, folder
  * badge, and detail, then confirms with the provider. It runs through the
  * mutation cache so it counts as pending work, and it never cancels the detail
@@ -178,12 +193,16 @@ export function markThreadReadOnOpen(
 
 /** `after`, when given, holds the request to the provider until it settles:
  * a conversation being opened is loaded first, so the provider's read cannot
- * reach the messages before the reader sees which of them were unread. */
+ * reach the messages before the reader sees which of them were unread. The
+ * thread is marked read only when that load is complete: a load that failed,
+ * or left messages out, rolls the optimistic read back, so messages nobody has
+ * seen keep their unread state (the reader then marks only the ones it shows,
+ * `markOpenedThreadRead`). */
 function startReadOnOpen(
 	client: QueryClient,
 	threadId: string,
 	knownThread?: MailThread,
-	after?: Promise<void>,
+	after?: Promise<LoadedForRead | undefined>,
 ): ReadAttempt | undefined {
 	if (typeof window === 'undefined') return undefined
 	let pending = openingReads.get(client)
@@ -204,7 +223,10 @@ function startReadOnOpen(
 	const detailKey = mailKeys.threadDetail(threadId)
 	const observer = new MutationObserver(client, {
 		mutationFn: async () => {
-			await after
+			if (after) {
+				const loaded = await after
+				if (!loaded || partlyLoaded(loaded)) throw new IncompleteLoad()
+			}
 			return markThreadRead({ data: { threadId } })
 		},
 		onMutate: async (): Promise<OptimisticContext> => ({
@@ -233,10 +255,11 @@ function startReadOnOpen(
 /** Loads a thread for a real (non-preload) open, starting the optimistic read
  * from the cached row before the detail request so the list, folder badge, and
  * reader agree immediately. The provider is asked to mark it read only once
- * the detail has loaded, so the messages still say which were unread (the
- * reader's "new since" divider is built from them). The loaded detail is
- * aligned with the read, unless that read has already failed. */
-export async function openThreadDetail<T extends { thread: { unread?: boolean } }>(
+ * the detail has loaded in full, so the messages still say which were unread
+ * (the reader's "new since" divider is built from them). The loaded detail is
+ * aligned with the read, unless that read has already failed or the detail is
+ * missing messages (then the thread stays unread everywhere). */
+export async function openThreadDetail<T extends { thread: { unread?: boolean } } & LoadedForRead>(
 	client: QueryClient,
 	threadId: string,
 	{
@@ -246,16 +269,82 @@ export async function openThreadDetail<T extends { thread: { unread?: boolean } 
 	}: { preload: boolean; queryKey?: QueryKey; cacheAs?: (detail: T) => unknown },
 	load: () => Promise<T>,
 ): Promise<T> {
-	let loaded!: () => void
-	const gate = new Promise<void>((resolve) => (loaded = resolve))
+	let loaded!: (detail: T | undefined) => void
+	const gate = new Promise<T | undefined>((resolve) => (loaded = resolve))
 	const attempt = preload ? undefined : startReadOnOpen(client, threadId, undefined, gate)
-	const detail = await load().finally(loaded)
-	if (!attempt || attempt.failed || !detail.thread.unread) return detail
+	const detail = await load().then(
+		(value) => {
+			loaded(value)
+			return value
+		},
+		(error: unknown) => {
+			loaded(undefined)
+			throw error
+		},
+	)
+	if (!attempt || attempt.failed || !detail.thread.unread || partlyLoaded(detail)) return detail
 	const read = { ...detail, thread: { ...detail.thread, unread: false } }
 	// Cache the aligned detail immediately so a later rejection can return it
 	// to unread before any route installs it as initial data.
 	if (queryKey) client.setQueryData(queryKey, cacheAs(read))
 	return read
+}
+
+type OpenedThread = {
+	thread: MailThread
+	messages: readonly { id: string; unread?: boolean; ownmailDraft?: boolean }[]
+	failedMessageIds?: readonly string[]
+}
+
+const shownReads = new WeakMap<QueryClient, Set<string>>()
+
+/**
+ * The reader's read for a thread it shows (a server-rendered open, or one the
+ * loader could not mark): the whole thread when every message loaded, else
+ * only the unread messages on screen, one by one, so the ones that did not
+ * load stay unread and so does the thread, in its row and folder badge. The
+ * reader's detail is updated with the messages the provider confirmed. A
+ * mailbox client that cannot mark one message marks nothing.
+ */
+export function markOpenedThreadRead(client: QueryClient, threadId: string, detail: OpenedThread): void {
+	if (!detail.thread.unread) return
+	if (!partlyLoaded(detail)) {
+		markThreadReadOnOpen(client, threadId, detail.thread)
+		return
+	}
+	if (typeof window === 'undefined') return
+	const messageIds = detail.messages
+		.filter((message) => message.unread === true && message.ownmailDraft !== true)
+		.map((message) => message.id)
+	let pending = shownReads.get(client)
+	if (!pending) {
+		pending = new Set()
+		shownReads.set(client, pending)
+	}
+	if (messageIds.length === 0 || pending.has(threadId)) return
+	const inFlight = pending
+	inFlight.add(threadId)
+	const detailKey = mailKeys.threadDetail(threadId)
+	const observer = new MutationObserver(client, {
+		mutationFn: () => markMessagesRead({ data: { threadId, messageIds } }),
+		onSuccess: (receipt) => {
+			const marked = new Set(receipt.messageIds)
+			client.setQueryData<MailThreadDetail>(detailKey, (current) =>
+				current && marked.size > 0
+					? {
+							...current,
+							messages: current.messages.map((message) =>
+								marked.has(message.id) ? { ...message, unread: false } : message,
+							),
+						}
+					: current,
+			)
+			reconcileInBackground(client)
+		},
+		onSettled: () => inFlight.delete(threadId),
+	})
+	// A failed read leaves the messages unread, as they still are.
+	void observer.mutate().catch(() => {})
 }
 
 function optimisticDraft(input: DraftFields, draftId: string): MailDraft {

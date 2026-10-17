@@ -920,7 +920,10 @@ link inside a sentence; all keep the 44px floor on touch.
   but Reply, Reply all and Forward wait: the toolbar keeps them in place,
   unavailable; the reply card (and the phone's reply bar) gives way to "Reply,
   Reply all and Forward are off until the whole conversation loads. The newest
-  message may be missing." with Try again; and `r` answers nothing.
+  message may be missing." with Try again; and `r` answers nothing. Opening
+  it marks only the unread messages shown read, one by one (nothing, where the
+  mailbox cannot mark a single message); the thread itself, its row and its
+  folder badge stay unread until a complete load, which marks it read.
 
 ## Phone thread
 

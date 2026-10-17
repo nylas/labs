@@ -511,6 +511,43 @@ export const markThreadRead = createServerFn({ method: 'POST' })
 		}
 	})
 
+type MessageUpdater = {
+	updateMessage?: (messageId: string, body: { unread: boolean }) => Promise<unknown>
+}
+
+/** Most messages one partial-thread read marks: a reader shows at most this many. */
+const MAX_MARKED_MESSAGES = 200
+
+/**
+ * Marks only the given messages of a thread read, one by one. A reader that
+ * could not load every message of a thread uses this instead of
+ * `markThreadRead`, so messages nobody has seen stay unread. A mailbox client
+ * without per-message updates marks nothing, and the thread stays unread.
+ * Answers the ids the provider confirmed.
+ */
+export const markMessagesRead = createServerFn({ method: 'POST' })
+	.validator((input: { threadId: string; messageIds: string[] }) => {
+		if (!input || !Array.isArray(input.messageIds) || input.messageIds.length > MAX_MARKED_MESSAGES) {
+			throw new Error('Invalid messages')
+		}
+		return {
+			threadId: requireNylasProviderId(input.threadId, 'thread'),
+			messageIds: [...new Set(input.messageIds.map((id) => requireNylasProviderId(id, 'message')))],
+		}
+	})
+	.handler(async ({ data }): Promise<{ threadId: string; messageIds: string[]; folders?: Folder[] }> => {
+		const { mailbox, grantId } = await requireMailbox()
+		const update = (mailbox as MessageUpdater).updateMessage
+		if (typeof update !== 'function') return { threadId: data.threadId, messageIds: [] }
+		const settled = await Promise.allSettled(
+			data.messageIds.map((id) => update.call(mailbox, id, { unread: false })),
+		)
+		const marked = data.messageIds.filter((_, index) => settled[index]?.status === 'fulfilled')
+		const failure = settled.find((result) => result.status === 'rejected')
+		if (failure && marked.length === 0) throw friendly(failure.reason)
+		return mailReceipt(mailbox, grantId, { threadId: data.threadId, messageIds: marked })
+	})
+
 export const sendMessage = createServerFn({ method: 'POST' })
 	.validator(
 		(input: {
