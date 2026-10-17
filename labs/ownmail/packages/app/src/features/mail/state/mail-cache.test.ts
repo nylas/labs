@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import {
 	applyMailCacheEffect,
+	cachedCorrespondents,
 	createMailOptimisticManager,
 	dedupeThreadPages,
 	dedupeThreads,
@@ -513,6 +514,8 @@ describe('mail optimistic transaction journal', () => {
 		const factsKey = mailKeys.threadHeaderFacts('t1')
 		const unsubscribeKey = mailKeys.threadListUnsubscribe('t1')
 		const rawKey = mailKeys.messageRawHeaders('m1')
+		// The thread list's per-row unread summary is a read-only lookup too.
+		const summaryKey = [...mailKeys.all, 'thread-unread-summary', 't1', 'm1']
 		let resolveFacts: (facts: { byMessage: Record<string, never> }) => void = () => {}
 		const facts = client.fetchQuery({
 			queryKey: factsKey,
@@ -522,6 +525,7 @@ describe('mail optimistic transaction journal', () => {
 		const never = () => new Promise<never>(() => {})
 		void client.fetchQuery({ queryKey: unsubscribeKey, queryFn: never }).catch(() => {})
 		void client.fetchQuery({ queryKey: rawKey, queryFn: never }).catch(() => {})
+		void client.fetchQuery({ queryKey: summaryKey, queryFn: never }).catch(() => {})
 		const manager = createMailOptimisticManager(client)
 
 		const read = await manager.begin(
@@ -536,6 +540,7 @@ describe('mail optimistic transaction journal', () => {
 		expect(client.getQueryState(factsKey)).toMatchObject({ status: 'success', fetchStatus: 'idle' })
 		expect(client.getQueryState(unsubscribeKey)?.fetchStatus).toBe('fetching')
 		expect(client.getQueryState(rawKey)?.fetchStatus).toBe('fetching')
+		expect(client.getQueryState(summaryKey)?.fetchStatus).toBe('fetching')
 	})
 
 	it('rolls back one failed operation without erasing a newer optimistic operation', async () => {
@@ -605,5 +610,35 @@ describe('systemFolderBeforeMove', () => {
 	it('ignores views and labels, which a move does not take a conversation out of', () => {
 		expect(systemFolderBeforeMove(['starred', 'drafts', 'work'])).toBeUndefined()
 		expect(systemFolderBeforeMove(undefined)).toBeUndefined()
+	})
+})
+
+describe('cachedCorrespondents', () => {
+	it('knows each named person of the listed conversations once, never the owner or a bare address', () => {
+		const client = new QueryClient()
+		client.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), {
+			pages: [
+				{
+					threads: [
+						{
+							id: 'bank',
+							participants: [
+								{ name: 'Meridian Bank', email: 'Statements@MeridianBank.com' },
+								{ name: 'Me', email: 'me@x.com' },
+								{ email: 'noname@x.com' },
+							],
+						},
+						{ id: 'again', participants: [{ name: 'Meridian', email: 'statements@meridianbank.com' }] },
+						{ id: 'none' },
+					],
+				},
+			],
+			pageParams: [undefined],
+		})
+		// A list still loading has no data yet.
+		client.getQueryCache().build(client, { queryKey: mailKeys.threadList({ folderId: 'empty' }) })
+		expect(cachedCorrespondents(client, 'me@x.com')).toEqual([
+			{ name: 'Meridian Bank', email: 'Statements@MeridianBank.com', isOwner: false },
+		])
 	})
 })

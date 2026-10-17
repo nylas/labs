@@ -15,13 +15,13 @@ describe.each(['light', 'dark'] as const)('thread list colours in the %s theme',
 	})
 
 	it('says a send failed in a red that reads on its own ground', () => {
-		expect(contrast(colour('--list-failed'), colour('--list-failed-fg'))).toBeGreaterThanOrEqual(4.5)
+		expect(contrast(colour('--list-failed'), colour('--danger-soft-fg'))).toBeGreaterThanOrEqual(4.5)
 	})
 
 	it.each(['--background', '--card', '--list-selected'])(
 		'names a draft in a red that reads on %s',
 		(ground) => {
-			expect(contrast(colour(ground), colour('--list-draft'))).toBeGreaterThanOrEqual(4.5)
+			expect(contrast(colour(ground), colour('--danger-soft-fg'))).toBeGreaterThanOrEqual(4.5)
 		},
 	)
 

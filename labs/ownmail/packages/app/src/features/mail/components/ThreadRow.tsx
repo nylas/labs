@@ -278,7 +278,7 @@ function RowSender({ who, fallback }: { who: RowWho; fallback: string }) {
 	if (who.kind === 'draft') {
 		return (
 			<>
-				<span className="font-semibold text-list-draft">Draft</span> · to {who.to}
+				<span className="font-semibold text-danger-soft-foreground">Draft</span> · to {who.to}
 			</>
 		)
 	}

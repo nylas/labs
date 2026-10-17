@@ -56,7 +56,7 @@ const KIND_TILE: Record<Exclude<FileKind, 'image'>, string> = {
 	pdf: 'bg-file-pdf text-file-pdf-foreground',
 	sheet: 'bg-file-sheet text-file-sheet-foreground',
 	doc: 'bg-file-doc text-file-doc-foreground',
-	slides: 'bg-amber-soft text-amber-soft-foreground',
+	slides: 'bg-file-slides text-file-slides-foreground',
 	other: 'bg-muted text-muted-foreground',
 }
 

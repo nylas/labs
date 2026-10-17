@@ -507,6 +507,85 @@ export const sendMessage = createServerFn({ method: 'POST' })
 		}
 	})
 
+// ---- Scheduled sends ------------------------------------------------------------
+
+type ScheduledMailbox = {
+	getMessage(messageId: string): Promise<{ data: Message }>
+	getThread(threadId: string): Promise<{ data: Thread }>
+}
+
+/** Your scheduled message as the provider holds it, read before its schedule is cancelled. */
+async function scheduledMessage(
+	mailbox: ScheduledMailbox,
+	messageId: string,
+): Promise<Message & { schedule_id: string }> {
+	const message = (await mailbox.getMessage(messageId)).data
+	if (!validNylasProviderId(message.schedule_id)) throw new Error('This message is not scheduled to send.')
+	return message as Message & { schedule_id: string }
+}
+
+/** The thread message a scheduled reply answers: the one before it, so sending it now keeps the thread. */
+async function scheduledReplyTarget(
+	mailbox: ScheduledMailbox,
+	message: Message,
+): Promise<string | undefined> {
+	if (!message.thread_id) return undefined
+	const ids = (await mailbox.getThread(message.thread_id)).data.message_ids ?? []
+	const index = ids.indexOf(message.id)
+	const earlier = (index < 0 ? ids : ids.slice(0, index)).filter((id) => id !== message.id)
+	return earlier.at(-1)
+}
+
+const scheduledInput = (input: { messageId: string }) => ({
+	messageId: requireNylasProviderId(input.messageId, 'message'),
+})
+
+/**
+ * Stops a scheduled message from sending, with the provider's scheduled-send
+ * API. The reader then opens the composer with its words, so nothing is lost.
+ */
+export const cancelScheduledSend = createServerFn({ method: 'POST' })
+	.validator(scheduledInput)
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			const message = await scheduledMessage(mailbox, data.messageId)
+			await mailbox.cancelScheduledMessage(message.schedule_id)
+			return mailReceipt(mailbox, grantId, { cancelledMessageId: message.id })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+/**
+ * Sends a scheduled message now: its content and files are read first, its
+ * schedule is cancelled, and the same message goes out at once, in its thread.
+ */
+export const sendScheduledNow = createServerFn({ method: 'POST' })
+	.validator(scheduledInput)
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			const message = await scheduledMessage(mailbox, data.messageId)
+			const restored = await restoreDraftAttachments(mailbox, message)
+			const replyToMessageId = await scheduledReplyTarget(mailbox, message)
+			await mailbox.cancelScheduledMessage(message.schedule_id)
+			const sent = await mailbox.send({
+				to: message.to ?? [],
+				...(message.cc?.length ? { cc: message.cc } : {}),
+				...(message.bcc?.length ? { bcc: message.bcc } : {}),
+				...(message.reply_to?.length ? { reply_to: message.reply_to } : {}),
+				subject: message.subject ?? '',
+				body: message.body ?? '',
+				...(restored.length > 0 ? { attachments: normalizeOutboundAttachments(restored) } : {}),
+				...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+			})
+			return mailReceipt(mailbox, grantId, { cancelledMessageId: message.id, message: sent.data })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
 // ---- Thread actions -----------------------------------------------------------
 
 export const updateThreadState = createServerFn({ method: 'POST' })

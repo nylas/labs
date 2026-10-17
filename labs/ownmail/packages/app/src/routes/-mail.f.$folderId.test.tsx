@@ -51,7 +51,11 @@ const listDrafts = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
 const getThreadMessages = vi.fn()
+const sendScheduledNow = vi.fn()
+const cancelScheduledSend = vi.fn()
 vi.mock('#server/fns', () => ({
+	sendScheduledNow: (input: any) => sendScheduledNow(input),
+	cancelScheduledSend: (input: any) => cancelScheduledSend(input),
 	getThreadMessages: (input: any) => getThreadMessages(input),
 	deleteDraft: (input: any) => deleteDraft(input),
 	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
@@ -2446,7 +2450,23 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 	})
 
 	it('mutes and unmutes a conversation from its row menu, on this device', async () => {
-		renderInbox()
+		// Mutes belong to the signed-in mailbox, which the list knows from the mailbox info.
+		const client = new QueryClient()
+		client.setQueryData(['account', 'mailbox-info'], {
+			email: 'ada@ownmail.com',
+			displayName: 'Ada Lovelace',
+		})
+		render(
+			<QueryClientProvider client={client}>
+				<MailFolderRouteScreen
+					threads={threads}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>
+			</QueryClientProvider>,
+		)
 		const row = () =>
 			screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]') as HTMLElement
 		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
@@ -2456,11 +2476,105 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 		)
 		expect(row().querySelector('.thread-row-snippet')).toHaveTextContent('Muted')
 		expect(
-			JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds,
-		).toEqual(['tokens'])
+			JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadsByAccount,
+		).toEqual({ 'ada@ownmail.com': ['tokens'] })
 		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
 		fireEvent.click(await screen.findByRole('menuitem', { name: 'Unmute' }))
 		await waitFor(() => expect(row().querySelector('.thread-row-sender')).not.toHaveAttribute('data-tone'))
+	})
+
+	it('sends your scheduled message now or cancels it into the composer from its row menu', async () => {
+		const later = nowSeconds + DAY
+		const scheduled = thread({
+			id: 'offsite',
+			subject: 'Re: Q3 offsite agenda',
+			latest_message_received_date: nowSeconds - 3600,
+			latest_draft_or_message: {
+				id: 'msg-offsite',
+				thread_id: 'offsite',
+				from: [{ email: 'ada@ownmail.com' }],
+				to: [{ name: 'Grace Hopper', email: 'grace@example.com' }],
+				subject: 'Re: Q3 offsite agenda',
+				body: 'Thanks for pulling this together.',
+				send_at: later,
+				schedule_id: 'sched-1',
+			},
+		} as Partial<Thread> & { id: string })
+		const client = new QueryClient()
+		const invalidate = vi.spyOn(client, 'invalidateQueries')
+		sendScheduledNow.mockResolvedValue({ cancelledMessageId: 'msg-offsite' })
+		cancelScheduledSend
+			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite' })
+			.mockRejectedValueOnce(new Error('x'))
+		render(
+			<QueryClientProvider client={client}>
+				<MailFolderRouteScreen
+					threads={[scheduled, ...threads]}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>
+			</QueryClientProvider>,
+		)
+		const row = () =>
+			screen
+				.getByRole('link', { name: /Open Re: Q3 offsite agenda/ })
+				.closest('[data-nav-row]') as HTMLElement
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		await waitFor(() => expect(sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'msg-offsite' } }))
+		await waitFor(() => expect(invalidate).toHaveBeenCalled())
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
+
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel scheduled send' }))
+		await waitFor(() =>
+			expect(composeApi.openCompose).toHaveBeenCalledWith({
+				kind: 'new',
+				to: 'grace@example.com',
+				subject: 'Re: Q3 offsite agenda',
+				body: 'Thanks for pulling this together.',
+			}),
+		)
+		// A cancel that fails is said on the row.
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel scheduled send' }))
+		expect(await within(row()).findByText('Action failed')).toBeInTheDocument()
+
+		// A row that sends nothing later offers neither.
+		const tokens = screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]') as HTMLElement
+		fireEvent.contextMenu(tokens, { clientX: 10, clientY: 10 })
+		await screen.findByRole('menuitem', { name: 'Mute' })
+		expect(screen.queryByRole('menuitem', { name: 'Send now' })).toBeNull()
+	})
+
+	it('sends a scheduled message from a list outside a query client too', async () => {
+		const scheduled = thread({
+			id: 'solo',
+			subject: 'Solo schedule',
+			latest_message_received_date: nowSeconds - 60,
+			latest_draft_or_message: {
+				id: 'msg-solo',
+				from: [{ email: 'ada@ownmail.com' }],
+				to: [{ email: 'grace@example.com' }],
+				body: 'Later',
+				send_at: nowSeconds + DAY,
+			},
+		} as Partial<Thread> & { id: string })
+		sendScheduledNow.mockResolvedValue({ cancelledMessageId: 'msg-solo' })
+		renderInbox({ threads: [scheduled] })
+		fireEvent.contextMenu(
+			screen.getByRole('link', { name: /Open Solo schedule/ }).closest('[data-nav-row]') as HTMLElement,
+			{
+				clientX: 10,
+				clientY: 10,
+			},
+		)
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		await waitFor(() => expect(sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'msg-solo' } }))
 	})
 })

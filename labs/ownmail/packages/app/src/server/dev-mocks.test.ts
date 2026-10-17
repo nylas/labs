@@ -740,3 +740,29 @@ describe('dev mock contact store', () => {
 		expect(() => mockUpdateContact('contact-missing', { given_name: 'Nobody' })).toThrow('Not found')
 	})
 })
+
+describe('dev mock scheduled sends', () => {
+	const mailbox = createDevMailbox()
+
+	it('cancels the scheduled offsite reply: it leaves its thread and the thread keeps the rest', async () => {
+		const scheduled = (await mailbox.getMessage('msg-offsite-scheduled')).data
+		expect(scheduled.schedule_id).toBe('schedule-offsite-agenda')
+		const threadId = scheduled.thread_id as string
+		await mailbox.cancelScheduledMessage('schedule-offsite-agenda')
+		await expect(mailbox.getMessage('msg-offsite-scheduled')).rejects.toThrow('Not found')
+		const { thread, messages } = mockThreadMessages(threadId)
+		expect(messages.map((message) => message.id)).not.toContain('msg-offsite-scheduled')
+		expect(thread.snippet).toBe(messages.at(-1)?.snippet)
+	})
+
+	it('drops a thread whose only message was the scheduled one', async () => {
+		const sent = await mailbox.send({ to: [{ email: 'grace@example.com' }], subject: 'Later', body: 'Soon' })
+		;(await mailbox.getMessage(sent.data.id)).data.schedule_id = 'schedule-later'
+		await mailbox.cancelScheduledMessage('schedule-later')
+		expect(() => mockThreadMessages(sent.data.thread_id as string)).toThrow('Not found')
+	})
+
+	it('reports an unknown schedule as not found', async () => {
+		await expect(mailbox.cancelScheduledMessage('schedule-missing')).rejects.toThrow('Not found')
+	})
+})

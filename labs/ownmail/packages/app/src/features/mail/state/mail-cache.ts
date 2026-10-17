@@ -1,5 +1,6 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
 import { hashKey, type QueryClient, type QueryKey } from '@tanstack/react-query'
+import { type Person, toPerson } from '../lib/thread-reading-model.js'
 import {
 	MAIL_HEADER_LOOKUP_KINDS,
 	MAIL_KEY_ARGUMENT,
@@ -273,6 +274,28 @@ function entryThread(data: unknown, queryKey: QueryKey, threadId: string): MailT
 			.find((thread) => thread.id === threadId)
 	}
 	return undefined
+}
+
+/**
+ * People this mailbox writes with, from the conversations already in the list
+ * cache: the lookalike-sender check compares a sender's name against them.
+ */
+export function cachedCorrespondents(queryClient: QueryClient, owner: string): Person[] {
+	const people = new Map<string, Person>()
+	for (const [, data] of queryClient.getQueriesData<MailThreadListData>({
+		queryKey: mailKeys.threadLists(),
+	})) {
+		for (const page of data?.pages ?? []) {
+			for (const thread of page.threads) {
+				for (const participant of thread.participants ?? []) {
+					const person = toPerson(participant, owner)
+					const key = person.email.toLowerCase()
+					if (key && person.name && !person.isOwner && !people.has(key)) people.set(key, person)
+				}
+			}
+		}
+	}
+	return [...people.values()]
 }
 
 export function findCachedThread(

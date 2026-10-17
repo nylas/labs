@@ -444,6 +444,11 @@ describe('glass layer', () => {
 		expect(under).toContain('scroll-padding-bottom: var(--mobile-bar-inset);')
 		// Only where the bar exists: desktop bottoms keep their own padding.
 		expect(glass).toMatch(/@media \(width < 48rem\)\s*\{\s*\.under-mobile-bar\s*\{/)
+		// The phone thread's reply bar is 76px plus its hairline, taller than the tab bar.
+		expect(block(glass, '.under-mobile-reply-bar').replace(/\s+/g, ' ')).toContain(
+			'--mobile-bar-inset: max( calc(4.75rem + 1px), calc(var(--mobile-tab-bar-height) + 1px + var(--safe-area-bottom)) );',
+		)
+		expect(glass.indexOf('.under-mobile-reply-bar {')).toBeGreaterThan(glass.indexOf('.under-mobile-bar {'))
 	})
 
 	it('hides the pull-to-refresh indicator beneath a pinned bar until it is pulled', () => {

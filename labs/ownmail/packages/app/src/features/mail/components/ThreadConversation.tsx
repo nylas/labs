@@ -78,6 +78,7 @@ import {
 	lineDateLabel,
 	messageAnchorId,
 	placeDrafts,
+	quotedMessageId,
 	replyTarget,
 	resendSeed,
 	type StreamEntry,
@@ -86,6 +87,7 @@ import {
 	streamMessages,
 	VIRTUALIZE_AFTER,
 } from '../lib/thread-stream.js'
+import type { ScheduledSendAction } from '../state/mail-mutations.js'
 import type { MailMessage, MailThread, ThreadHeaderFacts } from '../state/mail-queries.js'
 import { formatSize } from './AttachmentLink.js'
 import { CatchUpCard } from './CatchUpCard.js'
@@ -99,7 +101,7 @@ import { PartialLoadNotice } from './PartialLoadNotice.js'
 import { scrollParent, useMediaQuery, useReaderClock } from './reader-hooks.js'
 import { ThreadColumn, ThreadColumnReader } from './ThreadColumn.js'
 import { CONVERSATION_LAYOUT_OPTIONS, ThreadDisplayMenu } from './ThreadDisplayMenu.js'
-import { ThreadFilesShelf } from './ThreadFilesShelf.js'
+import { downloadThreadFiles, ThreadFilesShelf, threadFileUrl } from './ThreadFilesShelf.js'
 import { ThreadMapDots } from './ThreadMapDots.js'
 import { type ThreadMapFilter, ThreadMapPanel, threadMapNamesYou } from './ThreadMapPanel.js'
 import { ThreadMessagesPlaceholder } from './ThreadMessagesPlaceholder.js'
@@ -202,7 +204,9 @@ const isTypingTarget = (target: EventTarget | null): boolean =>
  * `headerFacts` are the thread's header facts when the caller has looked them
  * up; `failedMessageIds` are messages the server could not load (the reader
  * says so and offers `onRetryLoad`); `knownSenders` are other people this
- * mailbox writes with, for the lookalike-sender check.
+ * mailbox writes with, for the lookalike-sender check. `onScheduledSend` sends
+ * your scheduled message now or cancels it, answering whether it did; without
+ * it a scheduled message offers neither.
  */
 export function ThreadConversation({
 	thread,
@@ -214,6 +218,7 @@ export function ThreadConversation({
 	knownSenders,
 	onRetryLoad,
 	onDiscardDraft,
+	onScheduledSend,
 	children,
 }: {
 	thread: MailThread
@@ -225,6 +230,7 @@ export function ThreadConversation({
 	knownSenders?: Person[]
 	onRetryLoad?: () => void
 	onDiscardDraft?: (draftId: string) => void
+	onScheduledSend?: (messageId: string, action: ScheduledSendAction) => Promise<boolean>
 	children?: ReactNode
 }) {
 	return (
@@ -239,6 +245,7 @@ export function ThreadConversation({
 			knownSenders={knownSenders}
 			onRetryLoad={onRetryLoad}
 			onDiscardDraft={onDiscardDraft}
+			onScheduledSend={onScheduledSend}
 		>
 			{children}
 		</ThreadConversationController>
@@ -251,6 +258,7 @@ type ReaderExtras = {
 	knownSenders: Person[] | undefined
 	onRetryLoad: (() => void) | undefined
 	onDiscardDraft: ((draftId: string) => void) | undefined
+	onScheduledSend: ((messageId: string, action: ScheduledSendAction) => Promise<boolean>) | undefined
 }
 
 type State<T> = [T, Dispatch<SetStateAction<T>>]
@@ -317,6 +325,8 @@ function ThreadConversationController({
 	const [originalSenders, setOriginalSenders] = useState<ReadonlySet<string>>(() => new Set())
 	const [originalColorStatus, setOriginalColorStatus] = useState<'idle' | 'error'>('idle')
 	const latestMessageId = messages.at(-1)?.id
+	// Mutes belong to the signed-in mailbox.
+	const mutesFor = mailboxEmail ?? ''
 	const ui: ReaderUi = {
 		map: useState(false),
 		mapFilter: useState<ThreadMapFilter>('all'),
@@ -391,8 +401,8 @@ function ThreadConversationController({
 			threadView={threadView}
 			onThreadViewChange={(view) => setViewOverride({ view, over: preferences.threadView })}
 			preferencesReady={preferencesReady}
-			muted={isThreadMuted(preferences, thread.id)}
-			onToggleMuted={() => savePreferences(toggleThreadMuted(preferences, thread.id))}
+			muted={isThreadMuted(preferences, mutesFor, thread.id)}
+			onToggleMuted={() => savePreferences(toggleThreadMuted(preferences, mutesFor, thread.id))}
 			displayStatuses={displayStatuses}
 			// `clean` belongs to the Conversation view; the standard reader lays it out as readable.
 			layoutMode={preferences.emailLayoutMode === 'original' ? 'original' : 'readable'}
@@ -472,6 +482,7 @@ function ThreadConversationContent({
 	knownSenders,
 	onRetryLoad,
 	onDiscardDraft,
+	onScheduledSend,
 	children,
 }: {
 	ui: ReaderUi
@@ -823,7 +834,14 @@ function ThreadConversationContent({
 		}
 		update()
 		viewport.addEventListener('scroll', update, { passive: true })
-		return () => viewport.removeEventListener('scroll', update)
+		// Messages settle their height after they load (images, the body's own
+		// layout), which moves what is below the fold without a scroll.
+		const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+		resize?.observe(rootRef.current as HTMLElement)
+		return () => {
+			viewport.removeEventListener('scroll', update)
+			resize?.disconnect()
+		}
 	}, [phone, conversation, unreadVisible, entries])
 	// The pill shows only while a viewport has new messages below it.
 	const jumpToNextNew = useCallback(() => {
@@ -863,9 +881,8 @@ function ThreadConversationContent({
 					...replySearch(message),
 					body: quotedText(message),
 				}),
-			onMuteThread: () => {
-				if (!muted) onToggleMuted()
-			},
+			// The list notice says "Unmute thread" on a muted thread, so it toggles.
+			onMuteThread: onToggleMuted,
 			onAddBack: (message, person) => {
 				const search = replyAllDraftSearch(message, owner)
 				void openCompose({
@@ -876,15 +893,28 @@ function ThreadConversationContent({
 				})
 			},
 			onEditResend: (message) => editAndResend(message),
+			onSendNow: onScheduledSend ? (message) => void onScheduledSend(message.id, 'send-now') : null,
+			// A cancelled message opens in the composer, so its words are never lost.
+			onCancelSchedule: onScheduledSend
+				? (message) =>
+						void onScheduledSend(message.id, 'cancel').then((cancelled) => {
+							if (cancelled) editAndResend(message)
+						})
+				: null,
 			onShowMessage: goTo,
+			onGoToQuoted: (message, quote) => {
+				const target = quotedMessageId(visible, message.id, quote)
+				if (target) goTo(target)
+			},
 			onDisplayStatus,
 		}),
 		[
+			onScheduledSend,
+			visible,
 			closeMessage,
 			openCompose,
 			thread.id,
 			replySearch,
-			muted,
 			onToggleMuted,
 			owner,
 			editAndResend,
@@ -1137,6 +1167,7 @@ function ThreadConversationContent({
 							: {})}
 						knownSenders={allKnownSenders}
 						lookalike={lookalikes.has(entry.message.id)}
+						muted={muted}
 						{...(invites.get(entry.message.id) ? { invite: invites.get(entry.message.id) } : {})}
 						{...(bounceByOriginal.get(entry.message.id)
 							? { bounce: bounceByOriginal.get(entry.message.id) }
@@ -1248,10 +1279,8 @@ function ThreadConversationContent({
 								<div id={filesShelfId} data-slot="thread-files-shelf" className="reader-files-shelf">
 									<ThreadFilesShelf
 										files={files}
-										onDownloadAll={() => downloadAll(files)}
-										onOpenFile={(file: ThreadFile) =>
-											window.open(attachmentUrl(file.attachmentId, file.messageId), '_blank', 'noopener')
-										}
+										onDownloadAll={() => void downloadThreadFiles(files)}
+										onOpenFile={(file: ThreadFile) => window.open(threadFileUrl(file), '_blank', 'noopener')}
 									/>
 								</div>
 							</ThreadColumn>
@@ -1377,23 +1406,5 @@ function ThreadConversationContent({
 /** The map panel floats over the pane, below its toolbar, where the pane offers a dock. */
 const dock = (panel: ReactNode, target: HTMLElement | null): ReactNode =>
 	target ? createPortal(panel, target) : panel
-
-const attachmentUrl = (attachmentId: string, messageId: string): string =>
-	`/attachments/${encodeURIComponent(attachmentId)}?message_id=${encodeURIComponent(messageId)}`
-
-/** Downloads every file in turn through the attachment route; the browser saves each one. */
-function downloadAll(files: Array<{ attachmentId: string; messageId: string; filename: string }>) {
-	files.forEach((file, index) => {
-		window.setTimeout(() => {
-			const link = document.createElement('a')
-			link.href = attachmentUrl(file.attachmentId, file.messageId)
-			link.download = file.filename
-			link.rel = 'noopener'
-			document.body.appendChild(link)
-			link.click()
-			link.remove()
-		}, index * 400)
-	})
-}
 
 export { formatSize }

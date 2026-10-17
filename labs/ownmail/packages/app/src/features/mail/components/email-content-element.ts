@@ -860,22 +860,25 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 			const reflowed = mode === 'readable' && this.applyReadableLayout(content, containerWidth)
 			applyPictureSourceMedia(content, this.emailTheme(), containerWidth)
 			const visibleWidth = mode === 'original' ? meaningfulContentWidth(content) : containerWidth
+			// Readable mail reflows to the pane; what still cannot reflow (a designed
+			// layout with fixed widths) keeps its width and is scaled like Original,
+			// so the reader is never asked to scroll sideways first (design.md "Edge states").
 			const naturalWidth =
-				mode === 'original' ? Math.max(containerWidth, visibleWidth || content.scrollWidth) : containerWidth
+				mode === 'original'
+					? Math.max(containerWidth, visibleWidth || content.scrollWidth)
+					: Math.max(containerWidth, content.scrollWidth)
 			content.style.setProperty('--ownmail-email-natural-width', `${naturalWidth}px`, 'important')
 			content.style.setProperty('width', `${naturalWidth}px`, 'important')
 
 			// Fixed-width layouts shrink only to the legibility floor; past it the
 			// message pans horizontally inside its own box instead.
-			const scale = mode === 'original' ? computeScale(naturalWidth, containerWidth, MIN_EMAIL_SCALE) : 1
+			const scale = computeScale(naturalWidth, containerWidth, MIN_EMAIL_SCALE)
 			content.style.setProperty('--ownmail-email-scale', `${scale}`, 'important')
 			// The host takes the message's direction, so an RTL canvas starts at the
 			// pane's right edge, scales from there, and pans toward its inline end.
 			content.style.setProperty('left', '0px', 'important')
 			if (rtl) this.setAttribute('data-email-direction', 'rtl')
-			const pans =
-				naturalWidth * scale > containerWidth + 0.5 ||
-				(mode === 'readable' && content.scrollWidth > containerWidth + 0.5)
+			const pans = naturalWidth * scale > containerWidth + 0.5
 			if (pans) this.setAttribute('data-email-pan', '')
 			else this.removeAttribute('data-email-pan')
 			if (scale < 1) {

@@ -36,24 +36,25 @@ import { READER_ICON_BUTTON_CLASS } from '#features/mail/components/ThreadReader
 import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
 import {
 	forwardDraftSearch,
+	MAIL_FOLDERS,
 	replyAllDraftSearch,
 	replyDraftSearch,
 	STAR_FILLED_CLASS,
 	threadNeighbours,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
-import {
-	type Person,
-	subjectStandIn,
-	threadParticipants,
-	toPerson,
-} from '#features/mail/lib/thread-reading-model'
+import { subjectStandIn, threadParticipants } from '#features/mail/lib/thread-reading-model'
 import { replyTarget, streamMessages } from '#features/mail/lib/thread-stream'
-import { findCachedThread, systemFolderBeforeMove } from '#features/mail/state/mail-cache'
+import {
+	cachedCorrespondents,
+	findCachedThread,
+	systemFolderBeforeMove,
+} from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
 	openThreadDetail,
 	useDeleteDraftMutation,
+	useScheduledSendMutation,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
@@ -140,28 +141,6 @@ async function nextConversationAfterTriage(
 
 /** Split view keeps the list beside the reader from Tailwind's `xl` breakpoint. */
 const SPLIT_VIEW_QUERY = '(min-width: 80rem)'
-
-/**
- * People this mailbox writes with, from the conversations already in the list
- * cache: the lookalike-sender check compares a sender's name against them.
- */
-function cachedCorrespondents(queryClient: QueryClient, owner: string): Person[] {
-	const people = new Map<string, Person>()
-	for (const [, data] of queryClient.getQueriesData<MailThreadListData>({
-		queryKey: mailKeys.threadLists(),
-	})) {
-		for (const page of data?.pages ?? []) {
-			for (const thread of page.threads) {
-				for (const participant of thread.participants ?? []) {
-					const person = toPerson(participant, owner)
-					const key = person.email.toLowerCase()
-					if (key && person.name && !person.isOwner && !people.has(key)) people.set(key, person)
-				}
-			}
-		}
-	}
-	return [...people.values()]
-}
 
 /**
  * A conversation that could not load keeps the reader's toolbar, so the way
@@ -282,6 +261,7 @@ function ThreadView() {
 		[queryClient, mailboxEmail],
 	)
 	const deleteDraft = useDeleteDraftMutation()
+	const scheduledSend = useScheduledSendMutation()
 	const updateThread = useUpdateThreadMutation()
 	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()
@@ -319,6 +299,9 @@ function ThreadView() {
 	const peopleCount = threadParticipants(shownMessages, mailboxEmail).length
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
+	// The phone's back button names the folder it returns to, as board 03 does ("Back to Inbox").
+	const systemFolder = MAIL_FOLDERS.find((folder) => folder.id === folderId)
+	const backLabel = systemFolder ? `Back to ${systemFolder.label}` : 'Back to list'
 	// Replies open in this thread, under the last message; a forward floats (design.md "Reading").
 	const { openCompose, composing, registerInlineSlot } = useCompose()
 	const replyingHere = composing?.kind === 'reply' && composing.threadId === threadId
@@ -619,6 +602,7 @@ function ThreadView() {
 					messageCount={shownMessages.length}
 					peopleCount={peopleCount}
 					onBack={goBackToList}
+					backLabel={backLabel}
 					onArchive={archive}
 					moreMenu={<div id={THREAD_MOBILE_MORE_ID} className="flex items-center" />}
 				/>
@@ -635,7 +619,11 @@ function ThreadView() {
 				// The reading position belongs to one conversation.
 				scrollRestorationId={`thread:${threadId}`}
 				aria-label="Thread conversation"
-				viewportClassName={cn(!error && UNDER_PINNED_BAR_CLASS, UNDER_MOBILE_BAR_CLASS)}
+				viewportClassName={cn(
+					!error && UNDER_PINNED_BAR_CLASS,
+					UNDER_MOBILE_BAR_CLASS,
+					lastMessage && 'under-mobile-reply-bar',
+				)}
 				// Motion targets the subject and messages inside, leaving response controls steady.
 				className="min-h-0 flex-1"
 			>
@@ -649,6 +637,17 @@ function ThreadView() {
 					onRetryLoad={() => void detailQuery.refetch()}
 					onDiscardDraft={(draftId) =>
 						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
+					}
+					onScheduledSend={(messageId, action) =>
+						scheduledSend.mutateAsync({ messageId, action }).then(
+							() => true,
+							() => {
+								setError(
+									action === 'cancel' ? 'Could not cancel the scheduled send' : 'Could not send it now',
+								)
+								return false
+							},
+						)
 					}
 					{...(lastMessage ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
 				>

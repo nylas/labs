@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
 	getContacts: vi.fn(),
 	markThreadRead: vi.fn(),
 	rsvpEvent: vi.fn(),
+	cancelScheduledSend: vi.fn(),
+	sendScheduledNow: vi.fn(),
 	saveDraft: vi.fn(),
 	sendDraft: vi.fn(),
 	updateContact: vi.fn(),
@@ -36,6 +38,8 @@ vi.mock('#server/fns', () => ({
 	getContacts: api.getContacts,
 	getMailboxInfo: vi.fn(),
 	markThreadRead: api.markThreadRead,
+	cancelScheduledSend: api.cancelScheduledSend,
+	sendScheduledNow: api.sendScheduledNow,
 	saveDraft: api.saveDraft,
 	sendDraft: api.sendDraft,
 	updateContact: api.updateContact,
@@ -67,6 +71,7 @@ import {
 	openThreadDetail,
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
+	useScheduledSendMutation,
 	useSendDraftMutation,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
@@ -893,6 +898,19 @@ describe('mail mutation hooks', () => {
 		})
 		const removeDraft = renderHook(() => useDeleteDraftMutation(), { wrapper }).result
 		await act(() => removeDraft.current.mutateAsync(draft.id))
+	})
+
+	it('sends a scheduled message now or cancels it, then reloads the mail cache', async () => {
+		api.sendScheduledNow.mockResolvedValue({ cancelledMessageId: 'msg-1' })
+		api.cancelScheduledSend.mockResolvedValue({ cancelledMessageId: 'msg-2' })
+		const invalidate = vi.spyOn(client, 'invalidateQueries')
+		const scheduled = renderHook(() => useScheduledSendMutation(), { wrapper }).result
+		await act(() => scheduled.current.mutateAsync({ messageId: 'msg-1', action: 'send-now' }))
+		expect(api.sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'msg-1' } })
+		await act(() => scheduled.current.mutateAsync({ messageId: 'msg-2', action: 'cancel' }))
+		expect(api.cancelScheduledSend).toHaveBeenCalledWith({ data: { messageId: 'msg-2' } })
+		expect(invalidate).toHaveBeenCalledTimes(2)
+		expect(invalidate).toHaveBeenCalledWith({ queryKey: mailKeys.all })
 	})
 
 	it('rolls back rejected optimistic mail operations', async () => {

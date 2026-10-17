@@ -340,3 +340,29 @@ export function hashTarget(hash: string, messages: MailMessage[]): string | unde
 	const id = decodeURIComponent(match[1] as string)
 	return messages.some((message) => message.id === id) ? id : undefined
 }
+
+/**
+ * The thread message a quoted history entry came from: the latest earlier
+ * message from that address, or, when the entry carries its date (seconds),
+ * the one sent closest to it. Nothing when no earlier message is theirs.
+ */
+export function quotedMessageId(
+	messages: MailMessage[],
+	quotingId: string,
+	quote: { email?: string; date?: number },
+): string | undefined {
+	const email = quote.email?.trim().toLowerCase()
+	if (!email) return undefined
+	const end = messages.findIndex((message) => message.id === quotingId)
+	const earlier = (end < 0 ? messages : messages.slice(0, end)).filter(
+		(message) => message.from?.some((from) => from.email.trim().toLowerCase() === email) === true,
+	)
+	const { date } = quote
+	if (date === undefined) return earlier.at(-1)?.id
+	let best: MailMessage | undefined
+	for (const message of earlier) {
+		const distance = Math.abs((message.date ?? 0) - date)
+		if (!best || distance <= Math.abs((best.date ?? 0) - date)) best = message
+	}
+	return best?.id
+}

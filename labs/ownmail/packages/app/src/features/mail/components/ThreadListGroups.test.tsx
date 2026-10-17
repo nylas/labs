@@ -51,7 +51,11 @@ describe('the list environment', () => {
 		beforeEach(() => {
 			window.localStorage.setItem(
 				USER_PREFERENCES_STORAGE_KEY,
-				JSON.stringify({ primaryTimezone: 'Europe/Lisbon', mutedThreadIds: ['thread-staging'] }),
+				JSON.stringify({
+					primaryTimezone: 'Europe/Lisbon',
+					// Mutes are per mailbox: only the signed-in one's apply.
+					mutedThreadsByAccount: { 'ada@ownmail.com': ['thread-staging'], 'grace@vercel.com': ['other'] },
+				}),
 			)
 		})
 

@@ -8,6 +8,7 @@ import {
 	useMemo,
 	useState,
 } from 'react'
+import { mutedThreadIdsFor } from '#app/preferences/preference-values'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { mailboxInfoQueryOptions } from '#app/query/mailbox-info'
 import { ownerFromMailbox, type ThreadListEnv } from '../lib/thread-list-model.js'
@@ -85,8 +86,10 @@ export function useThreadListEnvValue({ grouped = true }: { grouped?: boolean } 
 	}, [])
 	const tz = preferences.primaryTimezone
 	// The preferences snapshot keeps its identity until the stored text changes.
-	const mutedThreadIds = preferences.mutedThreadIds
-	const mutedIds = useMemo(() => new Set(mutedThreadIds), [mutedThreadIds])
+	// Mutes belong to the signed-in mailbox. Keyed by their text, the set is
+	// rebuilt only when that mailbox's mutes change.
+	const mutedKey = mutedThreadIdsFor(preferences, owner).join('\n')
+	const mutedIds = useMemo(() => new Set(mutedKey ? mutedKey.split('\n') : []), [mutedKey])
 	return useMemo(
 		() => ({ owner, ownerFirstName, now, tz, mutedIds, grouped }),
 		[owner, ownerFirstName, now, tz, mutedIds, grouped],

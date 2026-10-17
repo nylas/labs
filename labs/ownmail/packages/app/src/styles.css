@@ -683,7 +683,7 @@
 .reader-map-dot {
 	--dot-size: 6px;
 	--dot-read: var(--map-dot-158);
-	--dot-new: var(--map-dot-158-new);
+	--dot-new: var(--person-dot-158);
 	--dot-ring: var(--map-dot-158-ring);
 	display: flex;
 	width: 44px;
@@ -731,31 +731,31 @@
 
 .reader-map-dot[data-hue="75"] {
 	--dot-read: var(--map-dot-75);
-	--dot-new: var(--map-dot-75-new);
+	--dot-new: var(--person-dot-75);
 	--dot-ring: var(--map-dot-75-ring);
 }
 
 .reader-map-dot[data-hue="250"] {
 	--dot-read: var(--map-dot-250);
-	--dot-new: var(--map-dot-250-new);
+	--dot-new: var(--person-dot-250);
 	--dot-ring: var(--map-dot-250-ring);
 }
 
 .reader-map-dot[data-hue="32"] {
 	--dot-read: var(--map-dot-32);
-	--dot-new: var(--map-dot-32-new);
+	--dot-new: var(--person-dot-32);
 	--dot-ring: var(--map-dot-32-ring);
 }
 
 .reader-map-dot[data-hue="300"] {
 	--dot-read: var(--map-dot-300);
-	--dot-new: var(--map-dot-300-new);
+	--dot-new: var(--person-dot-300);
 	--dot-ring: var(--map-dot-300-ring);
 }
 
 .reader-map-dot[data-hue="200"] {
 	--dot-read: var(--map-dot-200);
-	--dot-new: var(--map-dot-200-new);
+	--dot-new: var(--person-dot-200);
 	--dot-ring: var(--map-dot-200-ring);
 }
 
@@ -1649,7 +1649,7 @@
 }
 
 .thread-row-failed {
-	color: var(--list-failed-fg);
+	color: var(--danger-soft-fg);
 }
 
 /* Day groups ("Today", "Yesterday", "This week", then months) anchor the list. */
@@ -2579,6 +2579,15 @@
 		/* `--under-mobile-bar-gap` carries the element's own bottom padding, which this replaces. */
 		padding-bottom: calc(var(--mobile-bar-inset) + var(--under-mobile-bar-gap, 0px));
 		scroll-padding-bottom: var(--mobile-bar-inset);
+	}
+
+	/* The phone thread's reply bar (design.md "Reading", phone) is taller than the
+	 * tab bar: its 76px row and hairline, or the tab bar with the home indicator. */
+	.under-mobile-reply-bar {
+		--mobile-bar-inset: max(
+			calc(4.75rem + 1px),
+			calc(var(--mobile-tab-bar-height) + 1px + var(--safe-area-bottom))
+		);
 	}
 }
 

@@ -1,3 +1,4 @@
+import { QueryClientContext } from '@tanstack/react-query'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { FileText, Loader2, Reply, Trash2 } from 'lucide-react'
 import {
@@ -5,6 +6,7 @@ import {
 	memo,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useId,
 	useMemo,
@@ -42,7 +44,9 @@ import {
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import { foldedBundleOf, type ThreadListItem, threadListItems } from '#features/mail/lib/thread-list-model'
 import { dayGroupHeading } from '#features/mail/lib/thread-reading-model'
-import type { MailDraft, MailThread } from '#features/mail/state/mail-queries'
+import { resendSeed } from '#features/mail/lib/thread-stream'
+import { runScheduledSend, type ScheduledSendAction } from '#features/mail/state/mail-mutations'
+import type { MailDraft, MailMessage, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
 import { useBulkTriage } from '#features/mail/state/use-bulk-triage'
 import { getThreads, updateThreadState } from '#server/fns'
@@ -952,6 +956,9 @@ const ThreadRow = memo(function ThreadRow({
 	const navigate = useNavigate()
 	const search = baseFolderId ? { baseFolderId } : {}
 	const labelId = useId()
+	// Isolated screens render rows without a query client; there is then no cache to reload.
+	const queryClient = useContext(QueryClientContext)
+	const { openCompose } = useCompose()
 	// Menu actions and their failure belong to this row's thread: rows are keyed by thread id.
 	const [busy, setBusy] = useState(false)
 	const [actionError, setActionError] = useState<string | null>(null)
@@ -1034,6 +1041,13 @@ const ThreadRow = memo(function ThreadRow({
 			: undefined,
 		onToggleStar: toggleStar,
 		onUpdate: updateFromMenu,
+		onScheduledSend: (action: ScheduledSendAction) =>
+			runRowAction(async () => {
+				const scheduled = thread.latest_draft_or_message as MailMessage
+				await runScheduledSend(queryClient ?? undefined, { messageId: scheduled.id, action })
+				// A cancelled message opens in the composer, so its words are never lost.
+				if (action === 'cancel') await openCompose({ kind: 'new', ...resendSeed(scheduled) })
+			}),
 	}
 
 	return (

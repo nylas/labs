@@ -26,9 +26,21 @@ const PAIRS: Array<[foreground: string, ground: string]> = [
 	['--file-sheet-fg', '--file-sheet'],
 	['--file-doc-fg', '--file-doc'],
 	['--file-doc-fg', '--file-image'],
+	['--file-slides-fg', '--file-slides'],
+	['--danger-soft-fg', '--list-failed'],
+	['--danger-soft-fg', '--background'],
 ]
 
 describe('edge-state tokens', () => {
+	it('define each token once per theme', () => {
+		for (const selector of [':root', '\\.dark']) {
+			const names = [...css.matchAll(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`, 'g'))].flatMap(
+				(block) => [...(block[1] as string).matchAll(/\s(--[a-z0-9-]+):/g)].map((match) => match[1]),
+			)
+			expect(names.length, selector).toBe(new Set(names).size)
+		}
+	})
+
 	for (const theme of ['light', 'dark'] as const) {
 		it(`keep text at 4.5:1 on their grounds in the ${theme} theme`, () => {
 			for (const [foreground, ground] of PAIRS) {
@@ -50,6 +62,9 @@ describe('edge-state tokens', () => {
 			'file-sheet',
 			'file-doc',
 			'file-image',
+			'file-slides',
+			'person-dot-158',
+			'map-dot-158',
 		]) {
 			expect(css).toContain(`--color-${name}:`)
 		}

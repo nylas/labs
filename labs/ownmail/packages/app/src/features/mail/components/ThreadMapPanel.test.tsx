@@ -220,7 +220,7 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 
 		const selected = within(dialog).getByRole('button', { current: true })
 		expect(selected).toHaveAttribute('data-message-id', 'm5')
-		expect(selected).toHaveClass('bg-row-selected', 'font-semibold')
+		expect(selected).toHaveClass('bg-list-selected', 'font-semibold')
 		// The current row is where focus starts.
 		expect(selected).toHaveFocus()
 		expect(selected.querySelector('time')).toHaveClass('text-cta-icon')
@@ -232,7 +232,7 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 		expect(youRow.querySelector('time')).toHaveClass('text-muted-foreground')
 		expect(
 			within(dialog.querySelector('[data-message-id="m7"]') as HTMLElement).getByText('asks you'),
-		).toHaveClass('bg-amber-soft')
+		).toHaveClass('bg-signal-ask')
 		expect(
 			within(dialog.querySelector('[data-message-id="m6"]') as HTMLElement).getByText('+ Mary'),
 		).toHaveClass('bg-muted')

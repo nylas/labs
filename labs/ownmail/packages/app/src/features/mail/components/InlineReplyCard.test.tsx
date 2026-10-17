@@ -6,9 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MailMessage } from '../state/mail-queries'
 import { InlineReplyCard } from './InlineReplyCard'
 
-// The reply-all guard belongs to the body's edge states; its stand-in shows when it asks.
-vi.mock('./ReplyAllGuard', () => import('../../../../test/reader-contract-mocks'))
-
 afterEach(cleanup)
 
 const OWNER = 'ada@ownmail.com'

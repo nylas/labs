@@ -68,9 +68,7 @@
 	--color-list-selected: var(--list-selected);
 	--color-list-selected-line: var(--list-selected-line);
 	--color-list-asks: var(--list-asks);
-	--color-list-draft: var(--list-draft);
 	--color-list-failed: var(--list-failed);
-	--color-list-failed-foreground: var(--list-failed-fg);
 	--color-signal-ask: var(--signal-ask);
 	--color-signal-ask-foreground: var(--signal-ask-fg);
 	--color-destructive: var(--destructive);
@@ -174,15 +172,14 @@
 	 * token here; in the dark theme it is the green accent surface itself. */
 	--bubble-own: oklch(0.935 0.035 158);
 	--bubble-own-fg: oklch(0.2 0.035 160);
-	/* Thread list: rows part on a rule lighter than `--border`; the open row is a green tint in a
-	 * 1px ring; amber asks, red is a draft or did not send. */
+	/* Thread list: rows part on a rule lighter than `--border`; the open row (and the
+	 * thread map's current row) is a green tint in a 1px ring; amber asks ("Asks you",
+	 * "1 question to you"), a failed send is a red tint whose text is `--danger-soft-fg`. */
 	--list-line: oklch(0.94 0.003 145);
 	--list-selected: oklch(0.955 0.012 158);
 	--list-selected-line: oklch(0.88 0.03 158);
 	--list-asks: oklch(0.985 0.004 158);
-	--list-draft: oklch(0.5 0.17 25);
 	--list-failed: oklch(0.98 0.012 25);
-	--list-failed-fg: oklch(0.48 0.17 25);
 	--signal-ask: oklch(0.95 0.04 75);
 	--signal-ask-fg: oklch(0.4 0.08 65);
 	--destructive: oklch(0.55 0.2 25);
@@ -265,9 +262,7 @@
 	--list-selected: oklch(0.24 0.035 160);
 	--list-selected-line: oklch(0.42 0.06 158);
 	--list-asks: oklch(0.19 0.015 160);
-	--list-draft: oklch(0.76 0.13 25);
 	--list-failed: oklch(0.21 0.035 25);
-	--list-failed-fg: oklch(0.8 0.11 25);
 	--signal-ask: oklch(0.32 0.05 75);
 	--signal-ask-fg: oklch(0.9 0.07 80);
 	--destructive: oklch(0.66 0.19 25);
@@ -314,11 +309,18 @@
 	--notice-danger-fg: oklch(0.86 0.07 25);
 }
 
-/* Long-thread tools (design.md "Thread map", "Files shelf", "Catch-up"): the
- * per-person dot of the thread map (the six avatar hues; the owner is 158), the
- * selected map row, the amber ground of "asks you" and "1 question to you", and
- * the file-type tiles of the files shelf. Text on each ground keeps 4.5:1 in
- * both themes. */
+/* Reading experience (design.md "Thread map", "Files shelf", "Catch-up",
+ * "Edge states", "Reading"). One token per role, light and dark:
+ * - `--person-dot-*`: a person's strong dot in the six avatar hues (the owner is
+ *   158): a new message in the reader's dots column and every row of the map panel.
+ *   `--map-dot-*` is the light tint of a read message's dot and `-ring` the soft
+ *   ring of the message in focus. The dots carry no text.
+ * - `--file-*`: the file-type tiles of the files shelf and attachment chips.
+ * - `--danger-soft`: the danger ground of a draft pill; `--danger-soft-fg` is every
+ *   danger text (a draft, a send that failed) on it or on the plane.
+ * - `--quiet-fg`: the quiet text action and quoted history.
+ * - `--reader-reply-shadow`: the soft shadow under the pinned reply card.
+ * Text on each ground keeps 4.5:1 in both themes. */
 @theme inline {
 	--color-person-dot-75: var(--person-dot-75);
 	--color-person-dot-250: var(--person-dot-250);
@@ -326,16 +328,31 @@
 	--color-person-dot-158: var(--person-dot-158);
 	--color-person-dot-300: var(--person-dot-300);
 	--color-person-dot-200: var(--person-dot-200);
-	--color-row-selected: var(--row-selected);
-	--color-amber-soft: var(--amber-soft);
-	--color-amber-soft-foreground: var(--amber-soft-fg);
+	--color-map-dot-75: var(--map-dot-75);
+	--color-map-dot-75-ring: var(--map-dot-75-ring);
+	--color-map-dot-250: var(--map-dot-250);
+	--color-map-dot-250-ring: var(--map-dot-250-ring);
+	--color-map-dot-32: var(--map-dot-32);
+	--color-map-dot-32-ring: var(--map-dot-32-ring);
+	--color-map-dot-158: var(--map-dot-158);
+	--color-map-dot-158-ring: var(--map-dot-158-ring);
+	--color-map-dot-300: var(--map-dot-300);
+	--color-map-dot-300-ring: var(--map-dot-300-ring);
+	--color-map-dot-200: var(--map-dot-200);
+	--color-map-dot-200-ring: var(--map-dot-200-ring);
 	--color-file-pdf: var(--file-pdf);
 	--color-file-pdf-foreground: var(--file-pdf-fg);
 	--color-file-sheet: var(--file-sheet);
 	--color-file-sheet-foreground: var(--file-sheet-fg);
 	--color-file-doc: var(--file-doc);
 	--color-file-doc-foreground: var(--file-doc-fg);
+	--color-file-slides: var(--file-slides);
+	--color-file-slides-foreground: var(--file-slides-fg);
 	--color-file-image: var(--file-image);
+	--color-danger-soft: var(--danger-soft);
+	--color-danger-soft-foreground: var(--danger-soft-fg);
+	--color-quiet-foreground: var(--quiet-fg);
+	--shadow-reader-reply: var(--reader-reply-shadow);
 }
 
 :root {
@@ -344,156 +361,64 @@
 	--person-dot-32: oklch(0.6 0.1 32);
 	--person-dot-158: oklch(0.55 0.08 158);
 	--person-dot-300: oklch(0.6 0.1 300);
-	--person-dot-200: oklch(0.58 0.08 200);
-	--row-selected: oklch(0.955 0.012 158);
-	--amber-soft: oklch(0.95 0.04 75);
-	--amber-soft-fg: oklch(0.4 0.08 65);
+	--person-dot-200: oklch(0.55 0.08 200);
+	--map-dot-75: oklch(0.8 0.08 75);
+	--map-dot-75-ring: oklch(0.9 0.04 75);
+	--map-dot-250: oklch(0.8 0.06 250);
+	--map-dot-250-ring: oklch(0.9 0.04 250);
+	--map-dot-32: oklch(0.8 0.06 32);
+	--map-dot-32-ring: oklch(0.9 0.04 32);
+	--map-dot-158: oklch(0.85 0.05 158);
+	--map-dot-158-ring: oklch(0.9 0.04 158);
+	--map-dot-300: oklch(0.8 0.06 300);
+	--map-dot-300-ring: oklch(0.9 0.04 300);
+	--map-dot-200: oklch(0.8 0.06 200);
+	--map-dot-200-ring: oklch(0.9 0.04 200);
 	--file-pdf: oklch(0.94 0.04 25);
 	--file-pdf-fg: oklch(0.45 0.15 25);
 	--file-sheet: oklch(0.93 0.05 150);
 	--file-sheet-fg: oklch(0.4 0.1 150);
 	--file-doc: oklch(0.93 0.03 250);
 	--file-doc-fg: oklch(0.4 0.1 250);
+	--file-slides: oklch(0.95 0.04 75);
+	--file-slides-fg: oklch(0.4 0.08 65);
 	--file-image: oklch(0.9 0.03 250);
-}
-
-.dark {
-	--person-dot-75: oklch(0.78 0.11 75);
-	--person-dot-250: oklch(0.72 0.1 250);
-	--person-dot-32: oklch(0.72 0.11 32);
-	--person-dot-158: oklch(0.74 0.09 158);
-	--person-dot-300: oklch(0.72 0.1 300);
-	--person-dot-200: oklch(0.74 0.08 200);
-	--row-selected: oklch(0.24 0.03 160);
-	--amber-soft: oklch(0.3 0.05 70);
-	--amber-soft-fg: oklch(0.86 0.09 75);
-	--file-pdf: oklch(0.3 0.06 25);
-	--file-pdf-fg: oklch(0.84 0.09 25);
-	--file-sheet: oklch(0.3 0.05 150);
-	--file-sheet-fg: oklch(0.85 0.09 150);
-	--file-doc: oklch(0.3 0.04 250);
-	--file-doc-fg: oklch(0.84 0.07 250);
-	--file-image: oklch(0.32 0.04 250);
-}
-
-/* Body edge states (design.md "Edge states"): the amber ground of the reply-all
- * guard (the same warning ground as message notices), the danger tint of a
- * draft and a failed send, the quiet text action, and the file-type tiles of
- * attachment chips. Text on each ground keeps 4.5:1 in both themes. */
-@theme inline {
-	--color-notice-warning: var(--notice-warning);
-	--color-notice-warning-line: var(--notice-warning-line);
-	--color-notice-warning-foreground: var(--notice-warning-fg);
-	--color-danger-soft: var(--danger-soft);
-	--color-danger-soft-foreground: var(--danger-soft-fg);
-	--color-quiet-foreground: var(--quiet-fg);
-	--color-file-pdf: var(--file-pdf);
-	--color-file-pdf-foreground: var(--file-pdf-fg);
-	--color-file-sheet: var(--file-sheet);
-	--color-file-sheet-foreground: var(--file-sheet-fg);
-	--color-file-doc: var(--file-doc);
-	--color-file-doc-foreground: var(--file-doc-fg);
-	--color-file-image: var(--file-image);
-}
-
-:root {
-	--notice-warning: oklch(0.97 0.025 75);
-	--notice-warning-line: oklch(0.85 0.06 75);
-	--notice-warning-fg: oklch(0.32 0.06 60);
 	--danger-soft: oklch(0.96 0.03 25);
 	--danger-soft-fg: oklch(0.48 0.17 25);
 	--quiet-fg: oklch(0.4 0.01 165);
-	--file-pdf: oklch(0.94 0.04 25);
-	--file-pdf-fg: oklch(0.45 0.15 25);
-	--file-sheet: oklch(0.93 0.05 150);
-	--file-sheet-fg: oklch(0.4 0.1 150);
-	--file-doc: oklch(0.93 0.03 250);
-	--file-doc-fg: oklch(0.4 0.1 250);
-	--file-image: oklch(0.9 0.03 250);
-}
-
-.dark {
-	--notice-warning: oklch(0.24 0.035 75);
-	--notice-warning-line: oklch(0.42 0.06 75);
-	--notice-warning-fg: oklch(0.88 0.07 80);
-	--danger-soft: oklch(0.27 0.06 25);
-	--danger-soft-fg: oklch(0.82 0.1 25);
-	--quiet-fg: oklch(0.82 0.008 155);
-	--file-pdf: oklch(0.3 0.06 25);
-	--file-pdf-fg: oklch(0.84 0.09 25);
-	--file-sheet: oklch(0.3 0.05 150);
-	--file-sheet-fg: oklch(0.85 0.09 150);
-	--file-doc: oklch(0.3 0.04 250);
-	--file-doc-fg: oklch(0.84 0.07 250);
-	--file-image: oklch(0.32 0.04 250);
-}
-
-/* The reader (design.md "Reading"): the thread map's dots beside the stream, a
- * light tint of each person's hue when read, a strong one when new and a ring
- * for the message in focus (the owner is 158), and the soft shadow under the
- * pinned reply card. The dots carry no text. */
-@theme inline {
-	--color-map-dot-75: var(--map-dot-75);
-	--color-map-dot-75-new: var(--map-dot-75-new);
-	--color-map-dot-75-ring: var(--map-dot-75-ring);
-	--color-map-dot-250: var(--map-dot-250);
-	--color-map-dot-250-new: var(--map-dot-250-new);
-	--color-map-dot-250-ring: var(--map-dot-250-ring);
-	--color-map-dot-32: var(--map-dot-32);
-	--color-map-dot-32-new: var(--map-dot-32-new);
-	--color-map-dot-32-ring: var(--map-dot-32-ring);
-	--color-map-dot-158: var(--map-dot-158);
-	--color-map-dot-158-new: var(--map-dot-158-new);
-	--color-map-dot-158-ring: var(--map-dot-158-ring);
-	--color-map-dot-300: var(--map-dot-300);
-	--color-map-dot-300-new: var(--map-dot-300-new);
-	--color-map-dot-300-ring: var(--map-dot-300-ring);
-	--color-map-dot-200: var(--map-dot-200);
-	--color-map-dot-200-new: var(--map-dot-200-new);
-	--color-map-dot-200-ring: var(--map-dot-200-ring);
-	--shadow-reader-reply: var(--reader-reply-shadow);
-}
-
-:root {
-	--map-dot-75: oklch(0.8 0.08 75);
-	--map-dot-75-new: oklch(0.65 0.12 75);
-	--map-dot-75-ring: oklch(0.9 0.04 75);
-	--map-dot-250: oklch(0.8 0.06 250);
-	--map-dot-250-new: oklch(0.55 0.1 250);
-	--map-dot-250-ring: oklch(0.9 0.04 250);
-	--map-dot-32: oklch(0.8 0.06 32);
-	--map-dot-32-new: oklch(0.6 0.1 32);
-	--map-dot-32-ring: oklch(0.9 0.04 32);
-	--map-dot-158: oklch(0.85 0.05 158);
-	--map-dot-158-new: oklch(0.55 0.08 158);
-	--map-dot-158-ring: oklch(0.9 0.04 158);
-	--map-dot-300: oklch(0.8 0.06 300);
-	--map-dot-300-new: oklch(0.6 0.1 300);
-	--map-dot-300-ring: oklch(0.9 0.04 300);
-	--map-dot-200: oklch(0.8 0.06 200);
-	--map-dot-200-new: oklch(0.55 0.08 200);
-	--map-dot-200-ring: oklch(0.9 0.04 200);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
 .dark {
+	--person-dot-75: oklch(0.78 0.12 75);
+	--person-dot-250: oklch(0.74 0.1 250);
+	--person-dot-32: oklch(0.74 0.11 32);
+	--person-dot-158: oklch(0.76 0.1 158);
+	--person-dot-300: oklch(0.74 0.1 300);
+	--person-dot-200: oklch(0.76 0.09 200);
 	--map-dot-75: oklch(0.48 0.07 75);
-	--map-dot-75-new: oklch(0.78 0.12 75);
 	--map-dot-75-ring: oklch(0.36 0.05 75);
 	--map-dot-250: oklch(0.46 0.06 250);
-	--map-dot-250-new: oklch(0.74 0.1 250);
 	--map-dot-250-ring: oklch(0.34 0.05 250);
 	--map-dot-32: oklch(0.46 0.06 32);
-	--map-dot-32-new: oklch(0.74 0.11 32);
 	--map-dot-32-ring: oklch(0.34 0.05 32);
 	--map-dot-158: oklch(0.46 0.05 158);
-	--map-dot-158-new: oklch(0.76 0.1 158);
 	--map-dot-158-ring: oklch(0.34 0.04 158);
 	--map-dot-300: oklch(0.46 0.06 300);
-	--map-dot-300-new: oklch(0.74 0.1 300);
 	--map-dot-300-ring: oklch(0.34 0.05 300);
 	--map-dot-200: oklch(0.46 0.05 200);
-	--map-dot-200-new: oklch(0.76 0.09 200);
 	--map-dot-200-ring: oklch(0.34 0.04 200);
+	--file-pdf: oklch(0.3 0.06 25);
+	--file-pdf-fg: oklch(0.84 0.09 25);
+	--file-sheet: oklch(0.3 0.05 150);
+	--file-sheet-fg: oklch(0.85 0.09 150);
+	--file-doc: oklch(0.3 0.04 250);
+	--file-doc-fg: oklch(0.84 0.07 250);
+	--file-slides: oklch(0.32 0.05 75);
+	--file-slides-fg: oklch(0.9 0.07 80);
+	--file-image: oklch(0.32 0.04 250);
+	--danger-soft: oklch(0.27 0.06 25);
+	--danger-soft-fg: oklch(0.82 0.1 25);
+	--quiet-fg: oklch(0.82 0.008 155);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
 }

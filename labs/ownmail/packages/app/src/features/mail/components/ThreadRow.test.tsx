@@ -261,7 +261,7 @@ describe('ThreadRowContent', () => {
 			}),
 		)
 		expect(container.querySelector('.thread-row-sender')).toHaveTextContent('Draft · to Bright Smile Dental')
-		expect(screen.getByText('Draft')).toHaveClass('text-list-draft', 'font-semibold')
+		expect(screen.getByText('Draft')).toHaveClass('text-danger-soft-foreground', 'font-semibold')
 		expect(container.querySelector('.thread-row-subject')).toHaveTextContent(
 			'Re: Reminder: appointment Thursday 2:30 PM',
 		)

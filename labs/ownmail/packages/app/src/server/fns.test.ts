@@ -62,6 +62,7 @@ function makeMailbox() {
 		updateThread: vi.fn(),
 		listDrafts: vi.fn(),
 		send: vi.fn(),
+		cancelScheduledMessage: vi.fn(),
 		deleteDraft: vi.fn(),
 		updateDraft: vi.fn(),
 		createDraft: vi.fn(),
@@ -1215,6 +1216,122 @@ describe('sendDraft', () => {
 		await expect(
 			fns.sendDraft.handler({ data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: 'b' } }),
 		).rejects.toThrow(/Something went wrong/)
+	})
+})
+
+describe('scheduled sends', () => {
+	const scheduled = {
+		id: 'm2',
+		thread_id: 't1',
+		schedule_id: 'sched-1',
+		send_at: 2_000_000_000,
+		from: [{ email: 'ada@ownmail.com' }],
+		to: [{ email: 'grace@example.com' }],
+		subject: 'Re: Q3 offsite agenda',
+		body: '<p>Thanks</p>',
+	}
+
+	it('validates the message id', () => {
+		expect(fns.cancelScheduledSend.validator({ messageId: 'm2' })).toEqual({ messageId: 'm2' })
+		expect(() => fns.sendScheduledNow.validator({ messageId: '' })).toThrow('Invalid message')
+	})
+
+	it('cancels the schedule of your scheduled message', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: scheduled })
+		expect(await fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			folders: [],
+		})
+		expect(mailbox.cancelScheduledMessage).toHaveBeenCalledWith('sched-1')
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+
+	it('refuses a message that is not scheduled, without cancelling anything', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { ...scheduled, schedule_id: undefined } })
+		await expect(fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.cancelScheduledMessage).not.toHaveBeenCalled()
+	})
+
+	it('sends it now in its thread, with its people and files, after cancelling the schedule', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({
+			data: {
+				...scheduled,
+				cc: [{ email: 'alan@example.com' }],
+				bcc: [{ email: 'katherine@example.com' }],
+				reply_to: [{ email: 'ada.personal@example.com' }],
+				attachments: [{ id: 'a1', filename: 'agenda.txt', content_type: 'text/plain' }],
+			},
+		})
+		mailbox.getThread.mockResolvedValue({ data: { id: 't1', message_ids: ['m0', 'm1', 'm2', 'm3'] } })
+		mailbox.downloadAttachment.mockResolvedValue(new Response('agenda'))
+		const order: string[] = []
+		mailbox.cancelScheduledMessage.mockImplementation(async () => void order.push('cancel'))
+		mailbox.send.mockImplementation(async () => {
+			order.push('send')
+			return { data: { id: 'message-sent' } }
+		})
+		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			message: { id: 'message-sent' },
+			folders: [],
+		})
+		expect(order).toEqual(['cancel', 'send'])
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'm2')
+		expect(mailbox.send).toHaveBeenCalledWith({
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			reply_to: [{ email: 'ada.personal@example.com' }],
+			subject: 'Re: Q3 offsite agenda',
+			body: '<p>Thanks</p>',
+			attachments: [{ filename: 'agenda.txt', content_type: 'text/plain', content: btoa('agenda') }],
+			reply_to_message_id: 'm1',
+		})
+	})
+
+	it('answers the thread’s last message when the scheduled one is not listed in it', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: scheduled })
+		mailbox.getThread.mockResolvedValue({ data: { id: 't1', message_ids: ['m0', 'm1'] } })
+		await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })
+		expect(mailbox.send).toHaveBeenCalledWith(expect.objectContaining({ reply_to_message_id: 'm1' }))
+	})
+
+	it('starts no reply chain for a message alone in its thread, or outside one', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValueOnce({ data: scheduled })
+		mailbox.getThread.mockResolvedValue({ data: { id: 't1' } })
+		await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })
+		mailbox.getMessage.mockResolvedValueOnce({
+			data: { id: 'm2', schedule_id: 'sched-1', to: undefined, subject: undefined, body: undefined },
+		})
+		await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })
+		expect(mailbox.getThread).toHaveBeenCalledTimes(1)
+		expect(mailbox.send).toHaveBeenNthCalledWith(1, {
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Re: Q3 offsite agenda',
+			body: '<p>Thanks</p>',
+		})
+		expect(mailbox.send).toHaveBeenNthCalledWith(2, { to: [], subject: '', body: '' })
+	})
+
+	it('keeps the schedule when a file cannot be read first', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { ...scheduled, attachments: [{ id: 'a1' }] } })
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.cancelScheduledMessage).not.toHaveBeenCalled()
+		expect(mailbox.send).not.toHaveBeenCalled()
 	})
 })
 

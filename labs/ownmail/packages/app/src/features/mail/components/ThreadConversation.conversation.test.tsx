@@ -14,28 +14,6 @@ import { replyAllDraftSearch } from '../lib/mail-ui-model'
 import { type MailMessage, type MailThread, mailKeys } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
-// The reader mounts parts that other modules own. These stand-ins (test/reader-contract-mocks)
-// keep these tests about what the reader mounts and wires, not how each part looks.
-vi.mock('./Avatar', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MessageHeader', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MessageNotices', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./AttachmentChip', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./EmptyBody', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./DraftInThread', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./OutgoingStatus', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadStreamNotices', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./PartialLoadNotice', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadLoadError', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./LongMessageFrame', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./SupersededInvite', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ReplyAllGuard', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./CatchUpCard', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadMapPanel', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadFilesShelf', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MobileThreadTopBar', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./JumpToNewPill', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MobileReplyBar', () => import('../../../../test/reader-contract-mocks'))
-
 const { senderImagesTrustedMock, trustSenderImagesMock, getThreadListUnsubscribeMock } = vi.hoisted(() => ({
 	senderImagesTrustedMock: vi.fn(),
 	trustSenderImagesMock: vi.fn(),

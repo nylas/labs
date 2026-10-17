@@ -1,6 +1,12 @@
-import { memo, useMemo } from 'react'
+import { memo, useId, useMemo } from 'react'
 import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
-import { messageNewText, type Person, personName, senderPerson } from '../lib/thread-reading-model.js'
+import {
+	emptyBodyNote,
+	messageNewText,
+	type Person,
+	personName,
+	senderPerson,
+} from '../lib/thread-reading-model.js'
 import { chipAttachments, messageHeadings } from '../lib/thread-stream.js'
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 import { AttachmentChip } from './AttachmentChip.js'
@@ -29,6 +35,12 @@ export type OpenMessageActions = {
 	onAddBack: (message: MailMessage, person: Person) => void
 	onEditResend: (message: MailMessage) => void
 	onShowMessage: (messageId: string) => void
+	/** Opens the thread message a quoted history entry of `message` came from. */
+	onGoToQuoted: (message: MailMessage, quote: { name: string; email?: string; date?: number }) => void
+	/** Sends your scheduled message now; null where the reader cannot. */
+	onSendNow: ((message: MailMessage) => void) | null
+	/** Cancels your scheduled message; null where the reader cannot. */
+	onCancelSchedule: ((message: MailMessage) => void) | null
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 }
 
@@ -55,6 +67,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	facts,
 	knownSenders,
 	lookalike,
+	muted,
 	invite,
 	bounce,
 	attachmentDetails,
@@ -68,6 +81,8 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	facts?: MessageHeaderFacts
 	knownSenders: Person[]
 	lookalike: boolean
+	/** Whether the thread is muted, so a list notice offers "Unmute thread". */
+	muted: boolean
 	invite?: InviteVersion
 	bounce?: { address: string }
 	attachmentDetails: ReadonlyMap<string, string>
@@ -81,10 +96,13 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	const headings = useMemo(() => messageHeadings(message), [message])
 	const attachments = chipAttachments(message)
 	const own = sender.isOwner
-	// Optional props of the body and the invitation card that arrive with the
-	// body's edge states; spread so this file compiles against either version.
-	const bodyExtras = { linksDisabled: linksDisabled(facts, lookalike), bodyFontSize: display.bodyFontSize }
-	const inviteExtras =
+	const { onSendNow, onCancelSchedule } = actions
+	const inert = linksDisabled(facts, lookalike)
+	// An empty body says so and lists its files as quiet compact chips.
+	const empty = emptyBodyNote(message, owner) !== null
+	const headingId = useId()
+	const contentId = useId()
+	const inviteHistory =
 		invite?.kind === 'latest'
 			? { updateCount: invite.updateCount, earlierVersions: invite.earlierVersions }
 			: {}
@@ -105,6 +123,9 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 					owner={owner}
 					{...(facts ? { facts } : {})}
 					expanded={true}
+					headingId={headingId}
+					contentId={contentId}
+					senderFlagged={lookalike}
 					onToggle={() => actions.onToggle(message.id)}
 					actions={{
 						onReply: () => actions.onReply(message),
@@ -115,8 +136,9 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 			</ThreadColumn>
 
 			<div
+				id={contentId}
 				data-slot="expanded-message-content"
-				data-links-disabled={bodyExtras.linksDisabled || undefined}
+				data-links-disabled={inert || undefined}
 				className="reader-message-content"
 			>
 				<ThreadColumnInset>
@@ -127,6 +149,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 							owner={owner}
 							{...(facts ? { facts } : {})}
 							knownSenders={knownSenders}
+							muted={muted}
 							onMuteThread={actions.onMuteThread}
 							onAddBack={(person: Person) => actions.onAddBack(message, person)}
 						/>
@@ -136,7 +159,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 								onShowLatest={() => actions.onShowMessage(invite.latestId)}
 							/>
 						) : (
-							<CalendarInvitationCard message={message} {...inviteExtras} />
+							<CalendarInvitationCard message={message} {...inviteHistory} />
 						)}
 						<EmptyBody message={message} owner={owner} />
 					</ThreadColumn>
@@ -150,7 +173,9 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 							loadRemoteImagesForSender={display.loadRemoteImagesForSender}
 							retryRevision={display.retryRevision}
 							onDisplayStatus={actions.onDisplayStatus}
-							{...bodyExtras}
+							linksDisabled={inert}
+							bodyFontSize={display.bodyFontSize}
+							onGoToQuoted={(quote) => actions.onGoToQuoted(message, quote)}
 						/>
 					</LongMessageFrame>
 					<ThreadColumn>
@@ -167,19 +192,20 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 											key={attachment.id}
 											attachment={attachment}
 											messageId={message.id}
-											{...(detail ? { detail } : {})}
+											compact={empty}
+											{...(detail && !empty ? { detail } : {})}
 										/>
 									)
 								})}
 							</section>
 						) : null}
-						{/* Send now and Cancel need a provider call OwnMail does not have yet,
-						    so a scheduled message offers neither (OutgoingStatus leaves them out). */}
 						{own ? (
 							<OutgoingStatus
 								message={message}
 								{...(bounce ? { bounce } : {})}
 								onEditResend={() => actions.onEditResend(message)}
+								{...(onSendNow ? { onSendNow: () => onSendNow(message) } : {})}
+								{...(onCancelSchedule ? { onCancelSchedule: () => onCancelSchedule(message) } : {})}
 							/>
 						) : null}
 					</ThreadColumn>

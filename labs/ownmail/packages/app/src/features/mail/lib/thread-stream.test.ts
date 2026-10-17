@@ -11,6 +11,7 @@ import {
 	messageAnchorId,
 	messageHeadings,
 	placeDrafts,
+	quotedMessageId,
 	replyAllNames,
 	replyFirstName,
 	replyTarget,
@@ -322,5 +323,47 @@ describe('navigation helpers', () => {
 		expect(hashTarget('#message-missing', messages)).toBeUndefined()
 		expect(hashTarget('#other', messages)).toBeUndefined()
 		expect(hashTarget('', messages)).toBeUndefined()
+	})
+})
+
+describe('quotedMessageId', () => {
+	const thread = [
+		message('g1', { date: NOW - 3 * DAY }),
+		message('a1', { from: [ALAN], date: NOW - 2 * DAY }),
+		message('g2', { from: [{ name: 'Grace', email: ' Grace@Example.com ' }], date: NOW - DAY }),
+		message('reply', { from: [ADA], date: NOW }),
+	]
+
+	it('finds the latest earlier message from the quoted address', () => {
+		expect(quotedMessageId(thread, 'reply', { email: 'grace@example.com' })).toBe('g2')
+	})
+
+	it('prefers the earlier message sent closest to the quoted date', () => {
+		expect(quotedMessageId(thread, 'reply', { email: 'GRACE@example.com', date: NOW - 3 * DAY + 60 })).toBe(
+			'g1',
+		)
+		expect(quotedMessageId(thread, 'reply', { email: 'alan@example.com', date: NOW })).toBe('a1')
+	})
+
+	it('looks only before the quoting message, or through the thread when it is not there', () => {
+		expect(quotedMessageId(thread, 'a1', { email: 'grace@example.com' })).toBe('g1')
+		expect(quotedMessageId(thread, 'gone', { email: 'ada@ownmail.com' })).toBe('reply')
+	})
+
+	it('finds nothing without an address or a message from it', () => {
+		expect(quotedMessageId(thread, 'reply', {})).toBeUndefined()
+		expect(quotedMessageId(thread, 'reply', { email: 'katherine@example.com' })).toBeUndefined()
+		expect(quotedMessageId(thread, 'reply', { email: 'katherine@example.com', date: NOW })).toBeUndefined()
+		expect(
+			quotedMessageId([message('x', { from: undefined }), message('y')], 'y', {
+				email: 'grace@example.com',
+				date: 1,
+			}),
+		).toBeUndefined()
+	})
+
+	it('treats a message without a date as sent at zero', () => {
+		const undated = [message('u'), message('d', { date: NOW }), message('r', { from: [ADA] })]
+		expect(quotedMessageId(undated, 'r', { email: 'grace@example.com', date: 10 })).toBe('u')
 	})
 })

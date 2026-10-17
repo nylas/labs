@@ -39,11 +39,15 @@ export function contrast(first: Lab, second: Lab): number {
 	return (high + 0.05) / (low + 0.05)
 }
 
-/** Reads one custom property from the `:root` (light) or `.dark` block of `src/tokens.css`. */
+/** Reads one custom property from the `:root` (light) or `.dark` blocks of `src/tokens.css`. */
 export function token(name: string, theme: 'light' | 'dark'): string {
 	const css = readFileSync(fileURLToPath(new URL('../src/tokens.css', import.meta.url)), 'utf8')
-	const block = new RegExp(`${theme === 'light' ? ':root' : '\\.dark'} \\{([^}]*)\\}`).exec(css)?.[1] ?? ''
-	const value = new RegExp(`\\s${name}: ([^;]+);`).exec(block)?.[1]
+	const blocks = css.matchAll(
+		new RegExp(`(?:^|\\n)${theme === 'light' ? ':root' : '\\.dark'} \\{([^}]*)\\}`, 'g'),
+	)
+	const value = [...blocks]
+		.map((block) => new RegExp(`\\s${name}: ([^;]+);`).exec(block[1] as string)?.[1])
+		.find(Boolean)
 	if (!value) throw new Error(`Token ${name} is missing from the ${theme} theme`)
 	return value
 }

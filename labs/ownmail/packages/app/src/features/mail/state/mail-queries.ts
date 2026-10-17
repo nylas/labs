@@ -187,11 +187,15 @@ export const mailKeys = {
 		[...mailKeys.all, 'message-raw-headers', requireCacheId(messageId, 'message')] as const,
 }
 
-/** Kinds of read-only header lookups: no cache effect writes them, so nothing needs to cancel them. */
+/**
+ * Kinds of read-only lookups: no cache effect writes them, so nothing needs to
+ * cancel them (the thread list's per-row unread summary is one of them).
+ */
 export const MAIL_HEADER_LOOKUP_KINDS: ReadonlySet<string> = new Set([
 	'thread-list-unsubscribe',
 	'thread-header-facts',
 	'message-raw-headers',
+	'thread-unread-summary',
 ])
 
 /**

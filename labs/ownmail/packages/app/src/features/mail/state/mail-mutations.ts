@@ -7,7 +7,15 @@ import {
 	useQueryClient,
 } from '@tanstack/react-query'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
-import { deleteDraft, markThreadRead, saveDraft, sendDraft, updateThreadState } from '#server/fns'
+import {
+	cancelScheduledSend,
+	deleteDraft,
+	markThreadRead,
+	saveDraft,
+	sendDraft,
+	sendScheduledNow,
+	updateThreadState,
+} from '#server/fns'
 import {
 	createMailOptimisticManager,
 	findCachedThread,
@@ -324,6 +332,35 @@ export function useDeleteDraftMutation() {
 			})
 			reconcileInBackground(client)
 		},
+	})
+}
+
+/** What can be done to your scheduled message: send it now, or cancel it. */
+export type ScheduledSendAction = 'send-now' | 'cancel'
+
+/**
+ * Sends a scheduled message now or cancels it. Either changes which messages
+ * the thread holds, so the mail cache (when there is one) is reloaded from the
+ * provider afterwards.
+ */
+export async function runScheduledSend(
+	client: QueryClient | undefined,
+	{ messageId, action }: { messageId: string; action: ScheduledSendAction },
+) {
+	const receipt =
+		action === 'send-now'
+			? await sendScheduledNow({ data: { messageId } })
+			: await cancelScheduledSend({ data: { messageId } })
+	await client?.invalidateQueries({ queryKey: mailKeys.all })
+	return receipt
+}
+
+/** `runScheduledSend` as a mutation of the app's query client. */
+export function useScheduledSendMutation() {
+	const client = useQueryClient()
+	return useMutation({
+		mutationFn: (input: { messageId: string; action: ScheduledSendAction }) =>
+			runScheduledSend(client, input),
 	})
 }
 

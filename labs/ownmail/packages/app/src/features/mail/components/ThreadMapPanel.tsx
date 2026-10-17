@@ -483,7 +483,7 @@ function MapBody({
 							className={cn(
 								'flex min-h-[33px] w-full min-w-0 items-center gap-hairline rounded-md px-hairline text-left text-[13px] leading-[1.35] transition-colors duration-[var(--dur-fast)] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(any-pointer:coarse)]:min-h-11',
 								entry.unread && 'font-semibold',
-								selected && 'bg-row-selected hover:bg-row-selected',
+								selected && 'bg-list-selected hover:bg-list-selected',
 							)}
 						>
 							<span
@@ -503,7 +503,7 @@ function MapBody({
 									key={chip.key}
 									className={cn(
 										'inline-flex h-5 shrink-0 items-center rounded-full px-cluster text-[11px]',
-										chip.asks ? 'bg-amber-soft text-amber-soft-foreground' : 'bg-muted text-foreground/70',
+										chip.asks ? 'bg-signal-ask text-signal-ask-foreground' : 'bg-muted text-foreground/70',
 									)}
 								>
 									{chip.label}

@@ -157,6 +157,10 @@ class DevMailbox {
 		return itemResponse(sent)
 	}
 
+	async cancelScheduledMessage(scheduleId: string): Promise<void> {
+		mockCancelScheduledMessage(scheduleId)
+	}
+
 	async listDrafts(): Promise<ListResponse<Draft>> {
 		return listResponse(mockDrafts())
 	}
@@ -752,6 +756,21 @@ export function mockSendMessage(input: {
 		})
 	}
 	return message
+}
+
+/**
+ * Cancels a scheduled send the way the provider does for a message it holds
+ * until its time: the message leaves the thread, and a thread left empty goes.
+ */
+export function mockCancelScheduledMessage(scheduleId: string): { ok: true } {
+	const message = [...messages.values()].find((candidate) => candidate.schedule_id === scheduleId)
+	if (!message) throw new Error('Not found - it may have been deleted.')
+	messages.delete(message.id)
+	const thread = threads.get(message.thread_id) as StoredThread
+	thread.message_ids = thread.message_ids.filter((id) => id !== message.id)
+	if (thread.message_ids.length === 0) threads.delete(thread.id)
+	else thread.snippet = (messages.get(thread.message_ids.at(-1) as string) as StoredMessage).snippet
+	return { ok: true }
 }
 
 export function mockUpdateThreadState(input: {

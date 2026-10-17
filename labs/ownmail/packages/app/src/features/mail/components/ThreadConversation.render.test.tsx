@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { useLayoutEffect } from 'react'
+import {
+	act,
+	cleanup,
+	fireEvent,
+	type RenderOptions,
+	render as renderInDom,
+	screen,
+	waitFor,
+	within,
+} from '@testing-library/react'
+import { type ReactElement, type ReactNode, useLayoutEffect } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
@@ -16,28 +25,7 @@ import {
 	THREAD_TOOLBAR_MORE_ID,
 	ThreadConversation,
 } from './ThreadConversation'
-
-// The reader mounts parts that other modules own. These stand-ins (test/reader-contract-mocks)
-// keep these tests about what the reader mounts and wires, not how each part looks.
-vi.mock('./Avatar', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MessageHeader', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MessageNotices', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./AttachmentChip', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./EmptyBody', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./DraftInThread', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./OutgoingStatus', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadStreamNotices', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./PartialLoadNotice', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadLoadError', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./LongMessageFrame', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./SupersededInvite', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ReplyAllGuard', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./CatchUpCard', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadMapPanel', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadFilesShelf', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MobileThreadTopBar', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./JumpToNewPill', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MobileReplyBar', () => import('../../../../test/reader-contract-mocks'))
+import { ThreadSummaryProvider } from './thread-summary'
 
 const { trustSenderImagesMock, originalColorSendersMock, setSenderOriginalColorsMock, compose } = vi.hoisted(
 	() => ({
@@ -58,16 +46,31 @@ vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	setSenderOriginalColors: setSenderOriginalColorsMock,
 }))
 vi.mock('./ComposeProvider', () => ({ useCompose: () => compose }))
-// The invitation card loads its event; here it only reports what the reader hands it.
-vi.mock('./CalendarInvitationCard', () => ({
-	CalendarInvitationCard: ({ message, updateCount }: { message: MailMessage; updateCount?: number }) =>
-		message.attachments?.some((attachment) => attachment.content_type === 'text/calendar') ? (
-			<p data-slot="invitation-stub">
-				Invitation {message.id}
-				{updateCount ? `, updated ${updateCount} times` : ''}
-			</p>
-		) : null,
+// The side-thread lookup searches the mailbox; here it finds nothing unless a test says so.
+const { getThreadsMock } = vi.hoisted(() => ({ getThreadsMock: vi.fn() }))
+vi.mock('#server/fns', async (importOriginal) => ({
+	...(await importOriginal<typeof import('#server/fns')>()),
+	getThreads: getThreadsMock,
 }))
+
+/** The reader always sits inside the app's query client; every render here gets a fresh one. */
+let queryClient: QueryClient
+function Providers({ children }: { children: ReactNode }) {
+	return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+}
+const render = (ui: ReactElement, options?: RenderOptions) =>
+	renderInDom(ui, { wrapper: Providers, ...options })
+// The invitation card is the real one; its event and its earlier file come from these.
+const { getCalendarInvitationMock, getInvitationFileTimeMock } = vi.hoisted(() => ({
+	getCalendarInvitationMock: vi.fn(),
+	getInvitationFileTimeMock: vi.fn(),
+}))
+vi.mock('#features/calendar/server/calendar-invitation-fns', () => ({
+	getCalendarInvitation: getCalendarInvitationMock,
+	respondCalendarInvitation: vi.fn(),
+	addCalendarInvitation: vi.fn(),
+}))
+vi.mock('../server/invitation-file-time.js', () => ({ getInvitationFileTime: getInvitationFileTimeMock }))
 
 afterEach(() => {
 	cleanup()
@@ -79,6 +82,18 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+	queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	getThreadsMock.mockReset()
+	getThreadsMock.mockResolvedValue({ threads: [] })
+	getCalendarInvitationMock.mockReset().mockResolvedValue({
+		state: 'ready',
+		title: 'Design review',
+		organizer: 'Grace Hopper',
+		when: { kind: 'timed', start: NOW + DAY, end: NOW + DAY + 2700 },
+		status: 'noreply',
+		conflicts: { state: 'clear' },
+	})
+	getInvitationFileTimeMock.mockReset().mockResolvedValue({ start: NOW + DAY - 3600, end: NOW + DAY - 900 })
 	setAccountScope('ada@ownmail.com')
 	trustSenderImagesMock.mockReset()
 	originalColorSendersMock.mockReset()
@@ -183,7 +198,7 @@ describe('ThreadConversation rendering', () => {
 		)
 		expandAll(3)
 		const headers = screen.getAllByRole('heading', { level: 2 })
-		expect(headers.map((heading) => heading.textContent)).toEqual(['Grace Hopper', 'Alan Turing', 'you'])
+		expect(headers.map((heading) => heading.textContent)).toEqual(['Grace Hopper', 'Alan Turing', 'You'])
 		// The first message has nothing open above it, so its recipients are named.
 		const summaries = document.querySelectorAll('[data-slot="recipient-summary"]')
 		expect(summaries[0]).toHaveTextContent('to you, Alan')
@@ -201,13 +216,13 @@ describe('ThreadConversation rendering', () => {
 		const expand = within(menu).getByRole('menuitem', { name: 'Expand all 3 messages' })
 		expect(expand).toBeEnabled()
 		fireEvent.click(expand)
-		expect(document.querySelectorAll('[data-state="open"]')).toHaveLength(3)
+		expect(document.querySelectorAll('[data-slot="thread-message"][data-state="open"]')).toHaveLength(3)
 		expect(screen.queryByRole('menu')).toBeNull()
 
 		openMore()
 		expect(screen.getByRole('menuitem', { name: 'Expand all 3 messages' })).toBeDisabled()
 		fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all 3 messages' }))
-		expect(document.querySelectorAll('[data-state="open"]')).toHaveLength(0)
+		expect(document.querySelectorAll('[data-slot="thread-message"][data-state="open"]')).toHaveLength(0)
 		// Each collapsed message is a one-line row that opens with one click.
 		const rows = document.querySelectorAll<HTMLButtonElement>('[data-slot="message-expand"]')
 		expect(rows).toHaveLength(3)
@@ -215,7 +230,7 @@ describe('ThreadConversation rendering', () => {
 		expect(screen.getByRole('menuitem', { name: 'Collapse all 3 messages' })).toBeDisabled()
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
 		fireEvent.click(rows[1] as HTMLButtonElement)
-		expect(document.querySelectorAll('[data-state="open"]')).toHaveLength(1)
+		expect(document.querySelectorAll('[data-slot="thread-message"][data-state="open"]')).toHaveLength(1)
 	})
 
 	it('renders one thread display menu and applies layout and color choices to every message', async () => {
@@ -405,13 +420,10 @@ describe('ThreadConversation rendering', () => {
 		const shelf = screen.getByRole('region', { name: 'Files in this thread' })
 		expect(files).toHaveAttribute('aria-controls', shelf.parentElement?.id)
 		const open = vi.spyOn(window, 'open').mockReturnValue(null)
-		fireEvent.click(within(shelf).getByRole('button', { name: 'Open roadmap.pdf' }))
+		fireEvent.click(within(shelf).getByRole('button', { name: /^Open roadmap\.pdf/ }))
 		expect(open).toHaveBeenCalledWith('/attachments/a1?message_id=m1', '_blank', 'noopener')
-		vi.useFakeTimers()
 		const clicks = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
 		fireEvent.click(within(shelf).getByRole('button', { name: 'Download all' }))
-		vi.runAllTimers()
-		vi.useRealTimers()
 		expect(clicks).toHaveBeenCalledTimes(1)
 		fireEvent.click(files)
 		expect(screen.queryByRole('region', { name: 'Files in this thread' })).toBeNull()
@@ -447,7 +459,7 @@ describe('ThreadConversation rendering', () => {
 		expect(screen.getByText('No subject. Showing the first line instead.')).toBeInTheDocument()
 	})
 
-	it('shows each file of an open message as a chip with its size and the version it replaces', () => {
+	it('shows each file of an open message as a chip with its size and the version it replaces', async () => {
 		const v1 = {
 			...longThread(2)[0],
 			attachments: [{ id: 'a1', filename: 'plan-v1.pdf', size: 1024, is_inline: false }],
@@ -465,12 +477,15 @@ describe('ThreadConversation rendering', () => {
 
 		const latest = screen.getByRole('region', { name: 'Attachments from Alan Turing' })
 		// Inline images and invitations are not chips; the invitation is a card.
-		expect(within(latest).getAllByText(/plan-v2\.pdf/)).toHaveLength(1)
-		expect(within(latest).getByText(/plan-v2\.pdf/)).toHaveTextContent(/2 KB · replaces v1 from /)
+		const chips = latest.querySelectorAll('[data-slot="attachment-chip"]')
+		expect(chips).toHaveLength(1)
+		expect(chips[0]).toHaveTextContent(/plan-v2\.pdf2 KB · replaces v1 from /)
 		expect(
-			within(screen.getByRole('region', { name: 'Attachments from Grace Hopper' })).getByText(/plan-v1/),
-		).toHaveTextContent('plan-v1.pdf · 1 KB')
-		expect(screen.getByText('Invitation m2')).toBeInTheDocument()
+			screen
+				.getByRole('region', { name: 'Attachments from Grace Hopper' })
+				.querySelector('[data-slot="attachment-chip"]'),
+		).toHaveTextContent('plan-v1.pdf1 KB')
+		expect(await screen.findByText('Design review')).toBeInTheDocument()
 	})
 
 	it('separates rows with one line each, and lets the divider stand in for the line after it', () => {
@@ -655,13 +670,20 @@ describe('folding a long thread', () => {
 		])
 	})
 
-	it('offers a catch-up card above what is new on a long thread', () => {
+	it('offers a catch-up card above what is new on a long thread', async () => {
 		const messages = longThread(7, 1)
 		const last = messages.at(-1) as MailMessage
 		messages[messages.length - 1] = { ...last, body: 'Ada, can you confirm the date?' }
-		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
-		const card = screen.getByRole('region', { name: 'Catch up' })
-		expect(card).toHaveTextContent(/Since you last read, (?:yesterday|[A-Z][a-z]+day): 1 new/)
+		// A summary provider is what offers Answer and Show sources.
+		const summarize = vi.fn(async () => ['Grace asks Ada to confirm the date.'])
+		render(
+			<ThreadSummaryProvider provider={{ summarize }}>
+				<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />
+			</ThreadSummaryProvider>,
+		)
+		const card = screen.getByRole('region', { name: /^Since you last read, (?:yesterday|[A-Z][a-z]+day)$/ })
+		expect(card).toHaveTextContent('1 new message')
+		expect(card).toHaveTextContent('1 question to you')
 		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
 		expect([...stream.children].map((child) => child.getAttribute('data-kind') ?? 'rule').slice(-4)).toEqual([
 			'rule',
@@ -669,14 +691,19 @@ describe('folding a long thread', () => {
 			'divider',
 			'open',
 		])
+		// The summary is made from the new messages only.
+		await within(card).findByText('Grace asks Ada to confirm the date.')
+		expect(summarize).toHaveBeenCalledWith([expect.objectContaining({ id: 'm7' })])
 
 		fireEvent.click(within(card).getByRole('button', { name: 'Answer Grace' }))
 		expect(compose.openCompose).toHaveBeenCalledWith(
 			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: 'm7' }),
 		)
-		fireEvent.click(within(card).getByRole('button', { name: 'Show sources' }))
+		const sources = within(card).getByRole('button', { name: 'Show sources' })
+		fireEvent.click(sources)
+		expect(sources).toHaveAttribute('aria-pressed', 'true')
 		expect(document.querySelectorAll('[data-source="true"]')).toHaveLength(1)
-		fireEvent.click(within(card).getByRole('button', { name: 'Hide sources' }))
+		fireEvent.click(sources)
 		expect(document.querySelectorAll('[data-source="true"]')).toHaveLength(0)
 		fireEvent.click(within(card).getByRole('button', { name: 'Jump to first new' }))
 		expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
@@ -807,7 +834,7 @@ describe('opening a thread', () => {
 		)
 		expect(scrolled.mock.contexts[0]).toHaveAttribute('id', 'draft-d1')
 		// The draft has no one it answers yet.
-		expect(screen.getByText('Draft reply to nobody')).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'Your draft' })).toHaveAttribute('id', 'draft-d1')
 		unmount()
 		scrolled.mockClear()
 		render(
@@ -838,7 +865,59 @@ describe('opening a thread', () => {
 		expect(scrolled).not.toHaveBeenCalled()
 	})
 
+	it('counts the new messages below the fold again when the stream settles its height', () => {
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn((query: string) => ({
+				matches: query.includes('max-width'),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			})),
+		)
+		const observers: Array<{ callback: () => void; observed: Element[]; disconnected: boolean }> = []
+		vi.stubGlobal(
+			'ResizeObserver',
+			class {
+				record: (typeof observers)[number]
+				constructor(callback: () => void) {
+					this.record = { callback, observed: [], disconnected: false }
+					observers.push(this.record)
+				}
+				observe(element: Element) {
+					this.record.observed.push(element)
+				}
+				unobserve() {}
+				disconnect() {
+					this.record.disconnected = true
+				}
+			},
+		)
+		// Nothing is below the fold until the messages above grow.
+		stubLayout({})
+		const { unmount } = render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={longThread(8, 3)}
+					mailboxEmail="ada@ownmail.com"
+				/>,
+			),
+		)
+		expect(screen.queryByRole('button', { name: /more new/ })).toBeNull()
+		const stream = observers.find((observer) =>
+			observer.observed.some((element) => element.getAttribute('data-slot') === 'thread-conversation'),
+		)
+		expect(stream).toBeDefined()
+		stubLayout({ 'message-m6': 100, 'message-m7': 600, 'message-m8': 900 })
+		act(() => stream?.callback())
+		expect(screen.getByRole('button', { name: '2 more new' })).toBeInTheDocument()
+		unmount()
+		expect(stream?.disconnected).toBe(true)
+	})
+
 	it('points a phone at the new messages still below the fold, and goes to the next one', () => {
+		// Without ResizeObserver the count still follows the scroll.
+		vi.stubGlobal('ResizeObserver', undefined)
 		vi.stubGlobal(
 			'matchMedia',
 			vi.fn((query: string) => ({
@@ -882,13 +961,15 @@ describe('opening a thread', () => {
 
 	it("writes no day of its own on the server, where the reader's clock is unknown", () => {
 		const html = renderToString(
-			<UserPreferencesProvider initialPreferences={defaultUserPreferences()}>
-				<ThreadConversation
-					thread={thread('t1')}
-					messages={longThread(8, 2)}
-					mailboxEmail="ada@ownmail.com"
-				/>
-			</UserPreferencesProvider>,
+			<Providers>
+				<UserPreferencesProvider initialPreferences={defaultUserPreferences()}>
+					<ThreadConversation
+						thread={thread('t1')}
+						messages={longThread(8, 2)}
+						mailboxEmail="ada@ownmail.com"
+					/>
+				</UserPreferencesProvider>
+			</Providers>,
 		)
 		expect(html).toContain('aria-label="2 new"')
 		expect(html).not.toContain('new since')
@@ -1024,7 +1105,7 @@ describe('moving through a thread', () => {
 		expandAll(3)
 		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
 		expect(position()).toBe('3 of 3')
-		fireEvent.focus(screen.getByRole('button', { name: 'Reply to Grace Hopper' }))
+		fireEvent.focus(screen.getByRole('button', { name: 'Reply to Grace' }))
 		expect(position()).toBe('1 of 3')
 		expect(
 			screen.getByRole('complementary', { name: 'Thread map' }).querySelector('[aria-current="true"]'),
@@ -1038,6 +1119,15 @@ describe('moving through a thread', () => {
 		const dock = document.createElement('div')
 		dock.id = THREAD_MAP_DOCK_ID
 		document.body.append(dock)
+		// A wide desktop: the toolbar has the actions and the map docks.
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn((query: string) => ({
+				matches: !query.includes('max-width'),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			})),
+		)
 		render(
 			<ThreadConversation thread={thread('t1')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
 		)
@@ -1057,29 +1147,31 @@ describe('moving through a thread', () => {
 
 		fireEvent.keyDown(document.body, { key: 'g' })
 		fireEvent.keyDown(document.body, { key: 'm' })
-		const panel = within(dock).getByRole('complementary', { name: 'Thread map panel' })
-		expect(panel).toHaveAttribute('data-selected', 'm3')
-		fireEvent.click(within(panel).getByRole('button', { name: 'Map row m5' }))
+		// From xl the map docks in the pane, beside the stream.
+		const panel = within(dock).getByRole('complementary', { name: 'Thread map' })
+		const mapPanel = () => dock.querySelector('[data-slot="thread-map-panel"]')
+		expect(panel.querySelector('[aria-current="true"]')).toHaveAttribute('data-message-id', 'm3')
+		fireEvent.click(panel.querySelector('[data-message-id="m5"]') as HTMLElement)
 		expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
 			'aria-label',
 			'Message from Alan Turing',
 		)
 		fireEvent.click(within(panel).getByRole('button', { name: 'Close thread map' }))
-		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		expect(mapPanel()).toBeNull()
 
 		fireEvent.click(within(dots).getByRole('button', { name: /^Open thread map/ }))
-		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		expect(mapPanel()).not.toBeNull()
 		openMore()
 		const item = screen.getByRole('menuitemcheckbox', { name: /^Thread map/ })
 		expect(item).toHaveAttribute('aria-checked', 'true')
 		expect(item).not.toHaveAttribute('aria-pressed')
 		fireEvent.click(item)
-		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		expect(mapPanel()).toBeNull()
 		// A g without its m does nothing.
 		fireEvent.keyDown(document.body, { key: 'g' })
 		fireEvent.keyDown(document.body, { key: 'x' })
 		fireEvent.keyDown(document.body, { key: 'm' })
-		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		expect(mapPanel()).toBeNull()
 
 		// g m works with a list row focused (no list shortcut uses g or m).
 		const row = document.createElement('button')
@@ -1087,7 +1179,7 @@ describe('moving through a thread', () => {
 		document.body.append(row)
 		fireEvent.keyDown(row, { key: 'g' })
 		fireEvent.keyDown(row, { key: 'm' })
-		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		expect(mapPanel()).not.toBeNull()
 		fireEvent.keyDown(row, { key: 'g' })
 		fireEvent.keyDown(row, { key: 'm' })
 		row.remove()
@@ -1101,20 +1193,20 @@ describe('moving through a thread', () => {
 		document.body.append(sheet)
 		fireEvent.keyDown(sheetRow, { key: 'g' })
 		fireEvent.keyDown(sheetRow, { key: 'm' })
-		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		expect(mapPanel()).not.toBeNull()
 		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
 		const before = position()
 		fireEvent.keyDown(document.body, { key: 'k' })
 		expect(position()).toBe(before)
 		fireEvent.keyDown(sheetRow, { key: 'g' })
 		fireEvent.keyDown(sheetRow, { key: 'm' })
-		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		expect(mapPanel()).toBeNull()
 		const other = document.createElement('div')
 		other.setAttribute('role', 'dialog')
 		document.body.append(other)
 		fireEvent.keyDown(document.body, { key: 'g' })
 		fireEvent.keyDown(document.body, { key: 'm' })
-		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		expect(mapPanel()).toBeNull()
 		other.remove()
 		sheet.remove()
 		dock.remove()
@@ -1220,7 +1312,7 @@ describe('what the reader keeps', () => {
 		render(
 			<ThreadConversation thread={thread('t1')} messages={longThread(7, 7)} mailboxEmail="ada@ownmail.com" />,
 		)
-		expect(screen.getByRole('region', { name: 'Catch up' })).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: /^Since you last read/ })).toBeInTheDocument()
 		// There is no "new since" divider when everything is new.
 		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
 		const kinds = [...stream.children].map((child) => child.getAttribute('data-kind') ?? 'rule')
@@ -1234,6 +1326,15 @@ describe('what the reader keeps', () => {
 		document.body.append(dock)
 		window.location.hash = '#message-m2'
 		Element.prototype.scrollIntoView ??= () => {}
+		// A wide desktop, where the map docks beside the stream.
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn((query: string) => ({
+				matches: !query.includes('max-width'),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			})),
+		)
 		const withFile = {
 			...(longThread(6)[0] as MailMessage),
 			attachments: [{ id: 'a1', filename: 'plan.pdf', size: 2048, content_type: 'application/pdf' }],
@@ -1251,7 +1352,7 @@ describe('what the reader keeps', () => {
 		fireEvent.keyDown(document.body, { key: 'g' })
 		fireEvent.keyDown(document.body, { key: 'm' })
 		fireEvent.click(screen.getByRole('button', { name: /1 file/ }))
-		fireEvent.click(screen.getByRole('button', { name: 'Show trashed' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show' }))
 		expect(position()).toBe('3 of 7')
 
 		const reply = { ...message('m7'), from: [GRACE], date: NOW }
@@ -1262,7 +1363,7 @@ describe('what the reader keeps', () => {
 				mailboxEmail="ada@ownmail.com"
 			/>,
 		)
-		expect(within(dock).getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		expect(within(dock).getByRole('complementary', { name: 'Thread map' })).toBeInTheDocument()
 		expect(screen.getByRole('region', { name: 'Files in this thread' })).toBeInTheDocument()
 		expect(document.getElementById('message-binned')).not.toBeNull()
 		// Still on message 3: the link is not followed again.
@@ -1290,7 +1391,7 @@ describe('message actions', () => {
 		const messages = longThread(3)
 		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
 		expandAll(3)
-		fireEvent.click(screen.getByRole('button', { name: 'Reply to Grace Hopper' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Reply to Grace' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				kind: 'reply',
@@ -1299,11 +1400,12 @@ describe('message actions', () => {
 				replyToMessageId: 'm1',
 			}),
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Forward message from Alan Turing' }))
+		const alan = document.getElementById('message-m2') as HTMLElement
+		fireEvent.click(within(alan).getByRole('button', { name: 'Forward this message' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({ kind: 'forward', threadId: 't1', subject: 'Fwd: ' }),
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Quote message from Alan Turing' }))
+		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				kind: 'reply',
@@ -1320,9 +1422,56 @@ describe('message actions', () => {
 		range.setEnd(text, 6)
 		window.getSelection()?.removeAllRanges()
 		window.getSelection()?.addRange(range)
-		fireEvent.click(screen.getByRole('button', { name: 'Quote message from Alan Turing' }))
+		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith(expect.objectContaining({ body: '> Note 2\n\n' }))
 		window.getSelection()?.removeAllRanges()
+	})
+
+	/** A Gmail reply quoting Grace's message under its attribution line. */
+	const quotedReply = (text: string, quoted: string) =>
+		`<p>${text}</p><div class="gmail_quote"><div class="gmail_attr">On Tue, Oct 13, 2026 at 6:02 PM Grace Hopper &lt;grace@example.com&gt; wrote:<br></div><blockquote class="gmail_quote"><p>${quoted}</p></blockquote></div>`
+
+	it('goes from a quoted message to that message in the thread', async () => {
+		const messages: MailMessage[] = [
+			{ ...message('m1'), from: [GRACE], to: [ADA], date: NOW - 2 * DAY, body: 'Here is v3.' },
+			{ ...message('m2'), from: [ALAN], to: [ADA], date: NOW - DAY, body: 'Unrelated.' },
+			{
+				...message('m3'),
+				from: [ADA],
+				to: [GRACE],
+				date: NOW,
+				body: quotedReply('Thanks!', 'Here is v3.'),
+			},
+		]
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		const latest = document.getElementById('message-m3') as HTMLElement
+		fireEvent.click(await within(latest).findByRole('button', { name: /^Quoted/ }))
+		Element.prototype.scrollIntoView ??= () => {}
+		fireEvent.click(within(latest).getByRole('button', { name: 'Go to Grace’s message' }))
+		await waitFor(() =>
+			expect(document.querySelector('[data-current="true"]')).toHaveAttribute(
+				'aria-label',
+				'Message from Grace Hopper',
+			),
+		)
+	})
+
+	it('stays where it is when the quoted person wrote nothing earlier in the thread', async () => {
+		const messages: MailMessage[] = [
+			{ ...message('m1'), from: [ALAN], to: [ADA], date: NOW - DAY, body: 'Hello.' },
+			{
+				...message('m2'),
+				from: [ADA],
+				to: [ALAN],
+				date: NOW,
+				body: quotedReply('Sure.', 'Elsewhere.'),
+			},
+		]
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		const latest = document.getElementById('message-m2') as HTMLElement
+		fireEvent.click(await within(latest).findByRole('button', { name: /^Quoted/ }))
+		fireEvent.click(within(latest).getByRole('button', { name: 'Go to Grace’s message' }))
+		expect(document.querySelector('[data-current="true"]')).toHaveAttribute('aria-label', 'Message from you')
 	})
 
 	it('replies to the first other person on your own message, and to no one on a note to yourself', () => {
@@ -1337,7 +1486,7 @@ describe('message actions', () => {
 			/>,
 		)
 		expandAll(2)
-		const [first, second] = screen.getAllByRole('button', { name: 'Reply to you' }) as [
+		const [first, second] = screen.getAllByRole('button', { name: /^Reply to (?:you|Ada)$/i }) as [
 			HTMLElement,
 			HTMLElement,
 		]
@@ -1357,7 +1506,7 @@ describe('message actions', () => {
 		const header = document.querySelector('[data-slot="message-header"]') as HTMLElement
 		expect(header.closest('[data-state="closed"]')).toBeNull()
 		expect(document.querySelectorAll('[data-slot="message-header"]')).toHaveLength(1)
-		fireEvent.click(screen.getByRole('button', { name: 'Collapse message from sender@example.com' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Collapse message' }))
 		expect(states()).toEqual([])
 	})
 
@@ -1406,7 +1555,9 @@ describe('message actions', () => {
 			/>,
 		)
 		// The bounced message opens and says it was not sent.
-		expect(screen.getByText(/Not sent\. mary@nasa\.gov bounced\./)).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="outgoing-status"]')).toHaveTextContent(
+			'Not sent.mary@nasa.gov bounced.',
+		)
 		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith({
 			kind: 'new',
@@ -1414,44 +1565,115 @@ describe('message actions', () => {
 			subject: 'Launch dates',
 			body: 'Here are the dates.',
 		})
-		// Send now and Cancel need a provider call OwnMail does not have: none is offered.
-		expect(screen.queryByRole('button', { name: 'Send now' })).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Cancel scheduled send' })).toBeNull()
 
 		// The draft sits after the message it follows, with Resume and Discard.
-		expect(screen.getByText('Draft reply to Grace')).toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+		const yourDraft = screen.getByRole('region', { name: 'Your draft reply to Grace' })
+		fireEvent.click(within(yourDraft).getByRole('button', { name: 'Resume' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith({ kind: 'draft', draftId: 'draft' })
-		fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+		fireEvent.click(within(yourDraft).getByRole('button', { name: 'Discard' }))
 		expect(onDiscardDraft).toHaveBeenCalledWith('draft')
 
 		// Trash is said, not hidden silently, and can be shown.
-		expect(screen.getByText(/1 in Trash/)).toBeInTheDocument()
+		expect(screen.getByText('1 message is in Trash')).toBeInTheDocument()
 		expect(document.getElementById('message-trashed')).toBeNull()
-		fireEvent.click(screen.getByRole('button', { name: 'Show trashed' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show' }))
 		expect(document.getElementById('message-trashed')).not.toBeNull()
 
 		// Messages the server could not load are counted, with a retry in place.
-		expect(screen.getByText(/2 failed, 3 shown/)).toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+		const partial = screen.getByText('Couldn’t load 2 messages. Showing 3 saved on this device.')
+		fireEvent.click(
+			within(partial.closest('[role="note"]') as HTMLElement).getByRole('button', { name: 'Try again' }),
+		)
 		expect(onRetryLoad).toHaveBeenCalledTimes(1)
+	})
 
-		// Notices: muting from a notice mutes the thread; adding someone back replies to all of them.
-		fireEvent.click(screen.getAllByRole('button', { name: /^Mute from notice/ })[0] as HTMLElement)
-		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([
-			't1',
-		])
-		fireEvent.click(screen.getAllByRole('button', { name: /^Mute from notice/ })[0] as HTMLElement)
-		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([
-			't1',
-		])
-		fireEvent.click(screen.getAllByRole('button', { name: /^Add back from notice/ })[0] as HTMLElement)
+	it('offers Send now and Cancel on your scheduled message only where the reader can act on them', async () => {
+		const scheduled: MailMessage = {
+			id: 'later',
+			from: [ADA],
+			to: [GRACE],
+			subject: 'Re: Q3 offsite agenda',
+			date: NOW - DAY,
+			body: 'Thanks for pulling this together.',
+			send_at: NOW + DAY,
+			schedule_id: 'sched-1',
+		}
+		const onScheduledSend = vi.fn(async () => true)
+		const { rerender } = render(
+			<ThreadConversation thread={thread('t1')} messages={[scheduled]} mailboxEmail="ada@ownmail.com" />,
+		)
+		// Without a way to act on it, the schedule is only said.
+		expect(document.querySelector('[data-slot="outgoing-status"]')).toHaveTextContent(/^Sends/)
+		expect(screen.queryByRole('button', { name: 'Send now' })).toBeNull()
+		rerender(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[scheduled]}
+				mailboxEmail="ada@ownmail.com"
+				onScheduledSend={onScheduledSend}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Send now' }))
+		expect(onScheduledSend).toHaveBeenLastCalledWith('later', 'send-now')
+		expect(compose.openCompose).not.toHaveBeenCalled()
+		// A cancelled message opens in the composer with its words.
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+		expect(onScheduledSend).toHaveBeenLastCalledWith('later', 'cancel')
+		await waitFor(() =>
+			expect(compose.openCompose).toHaveBeenCalledWith({
+				kind: 'new',
+				to: 'grace@example.com',
+				subject: 'Re: Q3 offsite agenda',
+				body: 'Thanks for pulling this together.',
+			}),
+		)
+		// A cancel that did not happen leaves the composer closed.
+		compose.openCompose.mockClear()
+		onScheduledSend.mockResolvedValueOnce(false)
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+		await waitFor(() => expect(onScheduledSend).toHaveBeenCalledTimes(3))
+		await Promise.resolve()
+		expect(compose.openCompose).not.toHaveBeenCalled()
+	})
+
+	it('wires the notices: mute the list thread from its notice, and add someone back', () => {
+		const KATHERINE = { name: 'Katherine Johnson', email: 'katherine@example.com' }
+		const messages: MailMessage[] = [
+			{ ...message('m1'), from: [GRACE], to: [ADA, ALAN, KATHERINE], date: NOW - 2 * DAY, body: 'Plan?' },
+			// Alan replied to all but Katherine.
+			{ ...message('m2'), from: [ALAN], to: [GRACE, ADA], date: NOW - DAY, body: 'Looks good.' },
+			{
+				...message('m3'),
+				from: [ALAN],
+				to: [{ email: 'eng-all@example.com' }],
+				date: NOW - 60,
+				body: 'Staging is back.',
+			},
+		]
+		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)
+		expandAll(3)
+		const muted = () =>
+			JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadsByAccount?.[
+				'ada@ownmail.com'
+			]
+		fireEvent.click(screen.getByRole('button', { name: 'Mute thread' }))
+		expect(muted()).toEqual(['t1'])
+		// The notice now says the state, and toggles it back.
+		fireEvent.click(screen.getByRole('button', { name: 'Unmute thread' }))
+		expect(muted()).toBeUndefined()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add Katherine back to yours' }))
 		expect(compose.openCompose).toHaveBeenLastCalledWith(
-			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: expect.any(String) }),
+			expect.objectContaining({
+				kind: 'reply',
+				threadId: 't1',
+				replyToMessageId: 'm2',
+				to: expect.stringContaining('katherine@example.com'),
+			}),
 		)
 	})
 
-	it('shows an invitation that changed once, and notes the earlier version where it was', () => {
+	it('shows an invitation that changed once, and notes the earlier version where it was', async () => {
 		const invite = (id: string, date: number): MailMessage => ({
 			id,
 			from: [GRACE],
@@ -1468,30 +1690,52 @@ describe('message actions', () => {
 				mailboxEmail="ada@ownmail.com"
 			/>,
 		)
-		expect(screen.getByText('Invitation i2, updated 1 times')).toBeInTheDocument()
+		// The newest invitation is the card: changed once, its earlier start (read from the earlier file) struck.
+		const card = await screen.findByText('Updated 1 time')
+		expect(getCalendarInvitationMock).toHaveBeenCalledWith({
+			data: { messageId: 'i2', attachmentId: 'i2-ics' },
+		})
+		await waitFor(() =>
+			expect(getInvitationFileTimeMock).toHaveBeenCalledWith({
+				data: { messageId: 'i1', attachmentId: 'i1-ics' },
+			}),
+		)
+		expect(card).toBeInTheDocument()
+		expect(
+			await screen.findByText((_, node) => node?.getAttribute('data-slot') === 'invitation-previous-time'),
+		).toBeInTheDocument()
 		expandAll(2)
 		const scrolled = vi.fn()
 		Element.prototype.scrollIntoView = scrolled
-		fireEvent.click(screen.getByRole('button', { name: 'Show the latest invitation' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show latest' }))
 		expect(document.getElementById('message-i2')?.querySelector('[data-current="true"]')).not.toBeNull()
 		expect(scrolled).toHaveBeenCalled()
 	})
 
 	it('mutes and unmutes the thread from the More menu, and offers the raw latest message', () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[message('m1'), message('m2')]}
+				mailboxEmail="Ada@OwnMail.com"
+			/>,
+		)
+		// Mutes belong to the signed-in mailbox.
+		const muted = () =>
+			JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadsByAccount?.[
+				'ada@ownmail.com'
+			]
 		openMore()
 		const download = screen.getByRole('menuitem', { name: 'Download raw email' })
 		expect(download).toHaveAttribute('href', '/messages/m2/download')
 		fireEvent.click(screen.getByRole('menuitem', { name: 'Mute thread' }))
-		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([
-			't1',
-		])
+		expect(muted()).toEqual(['t1'])
 		openMore()
 		// The label says the state; it is a plain action, not a pressed toggle.
 		const unmute = screen.getByRole('menuitem', { name: 'Unmute thread' })
 		expect(unmute).not.toHaveAttribute('aria-pressed')
 		fireEvent.click(unmute)
-		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([])
+		expect(muted()).toBeUndefined()
 	})
 })
 
@@ -1609,7 +1853,7 @@ describe('thread actions placement', () => {
 		expect(more).toContainElement(screen.getByRole('button', { name: 'More' }))
 		// The actions keep working from the toolbar: state stays with the conversation.
 		expandAll(2)
-		expect(container.querySelectorAll('[data-state="open"]')).toHaveLength(2)
+		expect(container.querySelectorAll('[data-slot="thread-message"][data-state="open"]')).toHaveLength(2)
 		expect(viewport.listeners.size).toBeGreaterThan(0)
 	})
 

@@ -3,33 +3,13 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, type RenderOptions, render as renderInDom, screen } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { USER_PREFERENCES_STORAGE_KEY } from '#app/preferences/user-preferences'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversation'
-
-// The reader mounts parts that other modules own. These stand-ins (test/reader-contract-mocks)
-// keep these tests about what the reader mounts and wires, not how each part looks.
-vi.mock('./Avatar', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MessageHeader', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MessageNotices', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./AttachmentChip', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./EmptyBody', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./DraftInThread', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./OutgoingStatus', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadStreamNotices', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./PartialLoadNotice', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadLoadError', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./LongMessageFrame', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./SupersededInvite', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ReplyAllGuard', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./CatchUpCard', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadMapPanel', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./ThreadFilesShelf', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MobileThreadTopBar', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./JumpToNewPill', () => import('../../../../test/reader-contract-mocks'))
-vi.mock('./MobileReplyBar', () => import('../../../../test/reader-contract-mocks'))
 
 /**
  * The Conversation view is optional. The standard reader is the default, and
@@ -52,9 +32,8 @@ vi.mock('./MobileReplyBar', () => import('../../../../test/reader-contract-mocks
  * They were re-recorded a second time, deliberately, for the reading redesign
  * (TW-7709): read messages fold into one-line and stacked rows, the thread
  * header gains its meta line, open messages take the shared message header,
- * and the reply card is pinned under the stream. The parts other modules own
- * (header, avatars, notices, edge states) are the stand-ins in
- * test/reader-contract-mocks, so these files record the reader's own markup.
+ * and the reply card is pinned under the stream. They record the integrated
+ * reader: the real message header, avatars, notices, files and edge states.
  */
 
 const { originalColorSendersMock } = vi.hoisted(() => ({ originalColorSendersMock: vi.fn() }))
@@ -62,6 +41,21 @@ vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../lib/image-sender-trust')>()),
 	originalColorSenders: originalColorSendersMock,
 }))
+
+// The side-thread lookup searches the mailbox; here it finds nothing.
+vi.mock('#server/fns', async (importOriginal) => ({
+	...(await importOriginal<typeof import('#server/fns')>()),
+	getThreads: vi.fn(async () => ({ threads: [] })),
+}))
+
+/** The reader always sits inside the app's query client. */
+function render(ui: ReactElement, options?: RenderOptions) {
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	const Providers = ({ children }: { children: ReactNode }) => (
+		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+	)
+	return renderInDom(ui, { wrapper: Providers, ...options })
+}
 
 beforeEach(() => {
 	originalColorSendersMock.mockResolvedValue([])

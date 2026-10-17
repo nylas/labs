@@ -209,7 +209,7 @@ describe('ThreadFilesShelf', () => {
 		])
 		expect(screen.getByText('ZIP')).toHaveClass('bg-muted')
 		expect(screen.getByText('FILE')).toBeInTheDocument()
-		expect(screen.getByText('PPT')).toHaveClass('bg-amber-soft')
+		expect(screen.getByText('PPT')).toHaveClass('bg-file-slides')
 	})
 
 	it('says one file and one folded version in the singular, and drops a zero count', async () => {

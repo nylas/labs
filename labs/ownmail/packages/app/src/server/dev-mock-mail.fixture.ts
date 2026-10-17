@@ -14,8 +14,8 @@ export const MAILBOX_EMAIL = 'ada@ownmail.com'
 export const ACCOUNT = { name: MAILBOX_NAME, email: MAILBOX_EMAIL }
 
 export type StoredThread = Thread & { folders: string[]; message_ids: string[] }
-/** `send_at` is the provider's scheduled-send time for an outgoing message. */
-export type StoredMessage = Message & { thread_id: string; send_at?: number }
+/** `send_at` and `schedule_id` are the provider's scheduled send of an outgoing message. */
+export type StoredMessage = Message & { thread_id: string }
 export type StoredDraft = Draft & { id: string; outbound_attachments?: SendMessageRequest['attachments'] }
 export type MockHeader = { name: string; value: string }
 
@@ -557,6 +557,7 @@ const offsite = seedThread(
 			to: [GRACE],
 			date: daysAgo(1, 15, 5),
 			send_at: upcoming(1, 9, 0),
+			schedule_id: 'schedule-offsite-agenda',
 			folders: ['sent', 'work'],
 		},
 	],
@@ -959,7 +960,9 @@ const billingLaunch = seedThread(
 			subject: 'Re: Billing launch: legal sign-off',
 			body: html('Checking with legal now. I’ll confirm by tomorrow.', 'Ada'),
 			from: [ACCOUNT],
-			to: [{ name: 'Mary Jackson', email: 'mary@nasa.gov' }],
+			// An old address, by itself: Mary's name stays with mjackson@vercel.com, so the
+			// reader's lookalike check never mistakes her real messages for an impostor's.
+			to: [{ email: 'mary@nasa.gov' }],
 			date: daysAgo(4, 10, 41),
 			folders: ['sent', 'work'],
 		},

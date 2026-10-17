@@ -15,12 +15,15 @@ export function composeKindForResponse(kind: ThreadResponseKind): 'reply' | 'for
  * no messages, so the thread is loaded through the same detail query the
  * reader uses (served from the cache when the thread was opened before) and
  * the answer targets its last message, exactly as the reader toolbar does.
- * Rejects when the thread cannot be loaded or has no message to answer.
+ * Rejects when the thread cannot be loaded or has no message to answer, and
+ * when part of it did not load: the last message shown may then not be the
+ * last one sent, so the row says the action failed instead of answering it.
  */
 export async function threadResponseSearch(client: QueryClient, threadId: string, kind: ThreadResponseKind) {
 	const detail = await client.ensureQueryData(
 		threadDetailQueryOptions(threadId, (id) => getThreadMessages({ data: { threadId: id } })),
 	)
+	if (detail.failedMessageIds?.length) throw new Error('Part of the thread could not be loaded.')
 	const lastMessage = detail.messages.at(-1)
 	if (!lastMessage) throw new Error('The thread has no message to answer.')
 	if (kind === 'reply') return replyDraftSearch(lastMessage)

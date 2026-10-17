@@ -63,7 +63,7 @@ describe('CatchUpCard', () => {
 		])
 		const items = within(screen.getByRole('list', { name: 'What changed' })).getAllByRole('listitem')
 		expect(items[0]).toHaveClass('font-data', 'tabular-nums', 'bg-muted')
-		expect(items[3]).toHaveClass('bg-amber-soft', 'text-amber-soft-foreground')
+		expect(items[3]).toHaveClass('bg-signal-ask', 'text-signal-ask-foreground')
 		expect(await screen.findByText(BULLETS[0] as string)).toBeInTheDocument()
 	})
 

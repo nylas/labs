@@ -100,7 +100,7 @@ export function CatchUpCard({
 					</li>
 				))}
 				{facts.questionsToYou.length > 0 ? (
-					<li className={cn(factClass, 'bg-amber-soft text-amber-soft-foreground')}>
+					<li className={cn(factClass, 'bg-signal-ask text-signal-ask-foreground')}>
 						<CornerDownRight aria-hidden="true" />
 						{plural(facts.questionsToYou.length, 'question to you', 'questions to you')}
 					</li>

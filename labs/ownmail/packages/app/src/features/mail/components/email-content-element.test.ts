@@ -9,6 +9,7 @@ import {
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
+	MIN_EMAIL_SCALE,
 } from '../lib/email-render.js'
 import {
 	anchorHref,
@@ -669,13 +670,21 @@ describe('<ownmail-email> scaling', () => {
 		expect(el).toHaveAttribute('data-email-direction', 'rtl')
 	})
 
-	it('pans readable content that still cannot fit after reflow', () => {
+	it('scales readable content that still cannot fit after reflow, and pans only past the floor', () => {
 		const el = mount('<pre>unbreakable</pre>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		// A little too wide: scaled to fit, as Original would, instead of scrolling sideways.
+		stubSize(content, 'scrollWidth', 400)
+		stubSize(el, 'clientWidth', 360)
+		el.measure()
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('0.9')
+		expect(content.style.width).toBe('400px')
+		expect(el).not.toHaveAttribute('data-email-pan')
+		// Far too wide: scaled to the legibility floor, and the rest pans.
 		stubSize(content, 'scrollWidth', 500)
 		stubSize(el, 'clientWidth', 320)
 		el.measure()
-		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('1')
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe(`${MIN_EMAIL_SCALE}`)
 		expect(el).toHaveAttribute('data-email-pan')
 	})
 
@@ -706,7 +715,8 @@ describe('<ownmail-email> scaling', () => {
 	it('emits a deduplicated composed layout status for the wrapper', () => {
 		const el = mount('<table width="600"><tr><td>x</td></tr></table>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
-		stubSize(content, 'scrollWidth', 600)
+		// Reflowed, the table fits the pane.
+		stubSize(content, 'scrollWidth', 300)
 		stubSize(content, 'scrollHeight', 200)
 		stubSize(el, 'clientWidth', 300)
 		const details: EmailLayoutStatusDetail[] = []
@@ -763,7 +773,8 @@ describe('<ownmail-email> scaling', () => {
 		const el = mount('<div class="wide" style="min-width:1200px!important;font-size:8px">Readable body</div>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
 		const wide = content.querySelector('.wide') as HTMLElement
-		stubSize(content, 'scrollWidth', 1_200)
+		// With its minimum width neutralised the layout fits, so nothing is scaled.
+		stubSize(content, 'scrollWidth', 320)
 		stubSize(el, 'clientWidth', 320)
 		el.measure()
 
