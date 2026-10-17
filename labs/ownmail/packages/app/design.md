@@ -916,7 +916,11 @@ link inside a sentence; all keep the 44px floor on touch.
   ("Couldn’t load 1 message here." with Try again), and a folded run stops
   there. A reply from a list row to a thread
   that only partly loaded fails on the row rather than answering a message
-  that may not be the last one.
+  that may not be the last one. In the reader the same thread stays readable,
+  but Reply, Reply all and Forward wait: the toolbar keeps them in place,
+  unavailable; the reply card (and the phone's reply bar) gives way to "Reply,
+  Reply all and Forward are off until the whole conversation loads. The newest
+  message may be missing." with Try again; and `r` answers nothing.
 
 ## Phone thread
 

@@ -1781,6 +1781,34 @@ describe('what the reader is given beyond the thread', () => {
 		await waitFor(() => expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
 	})
 
+	it('keeps reading but holds every reply while part of the thread is missing', async () => {
+		getThreadMessages.mockResolvedValue(loaderData())
+		renderThread(loaderData({ failedMessageIds: ['lost'] }))
+		// The toolbar's respond controls stay in place, unavailable.
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		for (const name of ['Reply all', 'Reply', 'Forward']) {
+			const control = within(toolbar).getByRole('button', { name })
+			expect(control).toBeDisabled()
+			expect(control).toHaveAttribute('title', 'Load the whole conversation to reply (Try again)')
+		}
+		// No reply card, no phone reply bar: the note says why and offers Try again.
+		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'Thread conversation' })).not.toHaveClass(
+			'under-mobile-reply-bar',
+		)
+		const paused = document.querySelector('[data-slot="replies-paused"]') as HTMLElement
+		expect(paused).toHaveTextContent(
+			'Reply, Reply all and Forward are off until the whole conversation loads. The newest message may be missing.',
+		)
+		// `r` answers nothing.
+		fireEvent.keyDown(document.body, { key: 'r' })
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
+		// Reading stays: the messages that loaded are there.
+		expect(screen.getAllByRole('article').length).toBeGreaterThan(0)
+		fireEvent.click(within(paused).getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+	})
+
 	it('says so on the reader when a draft cannot be discarded', async () => {
 		deleteDraft.mockRejectedValue(new Error('nope'))
 		renderThread(

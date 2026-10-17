@@ -9,6 +9,7 @@ import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
+import { RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { ThreadListEnvironment, useThreadListEnvValue } from '#features/mail/components/ThreadListGroups'
@@ -683,6 +684,9 @@ function SearchThreadDetail({
 	)
 	// Replies answer the last message anyone sent, never your own unsent draft.
 	const lastMessage = selected.messages.findLast((message) => message.ownmailDraft !== true)
+	// Part of the thread did not load, so the newest message may be the missing
+	// one: replies wait for the whole conversation (Try again), reading does not.
+	const partial = (selected.failedMessageIds?.length ?? 0) > 0
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
 	const [error, setError] = useState<string | null>(null)
@@ -835,13 +839,13 @@ function SearchThreadDetail({
 
 				{lastMessage ? (
 					<div className="ml-auto hidden items-center gap-1 sm:flex">
-						<ActionButton label="Reply" onClick={reply}>
+						<ActionButton label="Reply" onClick={reply} paused={partial}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton label="Reply all" onClick={replyAll}>
+						<ActionButton label="Reply all" onClick={replyAll} paused={partial}>
 							<ReplyAll className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton label="Forward" onClick={forward}>
+						<ActionButton label="Forward" onClick={forward} paused={partial}>
 							<Forward className="h-4 w-4" />
 						</ActionButton>
 					</div>
@@ -883,7 +887,11 @@ function SearchThreadDetail({
 				/>
 			</div>
 
-			{lastMessage ? (
+			{partial ? (
+				<div className="mx-5 my-3 lg:mx-8">
+					<RepliesPausedNotice onRetry={onRetryLoad} />
+				</div>
+			) : lastMessage ? (
 				<>
 					<div className="md:hidden">
 						<MobileReplyBar onReply={reply} onReplyAll={replyAll} onForward={forward} />
@@ -934,10 +942,13 @@ function IconButton({
 function ActionButton({
 	label,
 	onClick,
+	paused = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
+	/** Part of the thread did not load: the control stays in place, unavailable. */
+	paused?: boolean
 	children: React.ReactNode
 }) {
 	return (
@@ -945,8 +956,9 @@ function ActionButton({
 			type="button"
 			onClick={onClick}
 			aria-label={label}
-			title={label}
-			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
+			title={paused ? 'Load the whole conversation to reply (Try again)' : label}
+			disabled={paused}
+			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 xl:h-9 xl:w-9"
 		>
 			{children}
 		</button>

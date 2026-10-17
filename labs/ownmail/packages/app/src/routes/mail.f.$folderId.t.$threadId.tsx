@@ -23,6 +23,7 @@ import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { InlineReplyCard } from '#features/mail/components/InlineReplyCard'
 import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
 import { MobileThreadTopBar } from '#features/mail/components/MobileThreadTopBar'
+import { RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
 import {
 	THREAD_MAP_DOCK_ID,
@@ -315,6 +316,12 @@ function ThreadView() {
 	}, true)
 	// Replies answer the last message anyone sent, never your own unsent draft.
 	const lastMessage = messages.findLast((message) => message.ownmailDraft !== true)
+	// Part of the thread did not load, so the newest message may be the missing
+	// one: replies wait for the whole conversation (Try again), reading does not.
+	const partial = (failedMessageIds?.length ?? 0) > 0
+	const canRespond = Boolean(lastMessage) && !partial
+	const { refetch } = detailQuery
+	const retryLoad = useCallback(() => void refetch(), [refetch])
 	const title = subjectStandIn(
 		thread.subject ?? messages[0]?.subject,
 		messages[0]?.body ?? messages[0]?.snippet ?? '',
@@ -457,7 +464,7 @@ function ThreadView() {
 			if (key === 'r') {
 				const isModified = event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
 				if (isModified || shouldIgnoreReplyShortcut(event)) return
-				if (document.querySelector('[role="dialog"]') || !lastMessage) return
+				if (document.querySelector('[role="dialog"]') || !canRespond) return
 				event.preventDefault()
 				// Desktop: `r` lands on the reply card's "Reply only to {name}", so
 				// Enter opens the same reply. Where the card is not displayed (mobile)
@@ -500,7 +507,7 @@ function ThreadView() {
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [act, baseFolderId, folderId, isArchived, lastMessage, navigate, reply, toggleStar])
+	}, [act, baseFolderId, canRespond, folderId, isArchived, navigate, reply, toggleStar])
 
 	// Server-rendered deep links skip the client loader, so the reader marks the
 	// thread read once per open. Later unread states (for example "Mark unread"
@@ -604,16 +611,17 @@ function ThreadView() {
 							variant="outline"
 							size="sm"
 							onClick={replyAll}
-							title="Reply all"
+							title={partial ? REPLIES_PAUSED_TITLE : 'Reply all'}
+							disabled={partial}
 							className="reader-reply-all border-cta-line shadow-none"
 						>
 							<ReplyAll className="text-cta-icon" aria-hidden="true" />
 							Reply all
 						</Button>
-						<ActionButton label="Reply" onClick={reply}>
+						<ActionButton label="Reply" onClick={reply} paused={partial}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton label="Forward" onClick={forward}>
+						<ActionButton label="Forward" onClick={forward} paused={partial}>
 							<Forward className="h-4 w-4" />
 						</ActionButton>
 					</div>
@@ -647,7 +655,7 @@ function ThreadView() {
 				viewportClassName={cn(
 					!error && UNDER_PINNED_BAR_CLASS,
 					UNDER_MOBILE_BAR_CLASS,
-					lastMessage && 'under-mobile-reply-bar',
+					canRespond && 'under-mobile-reply-bar',
 				)}
 				// Motion targets the subject and messages inside, leaving response controls steady.
 				className="min-h-0 flex-1"
@@ -659,14 +667,18 @@ function ThreadView() {
 					headerFacts={headerFacts}
 					failedMessageIds={failedMessageIds}
 					knownSenders={knownSenders}
-					onRetryLoad={() => void detailQuery.refetch()}
+					onRetryLoad={retryLoad}
 					onDiscardDraft={(draftId) =>
 						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
 					}
 					onScheduledSend={scheduledSend}
-					{...(lastMessage ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
+					{...(canRespond ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
 				>
-					{lastMessage && replyingHere ? (
+					{partial ? (
+						<ThreadColumn>
+							<RepliesPausedNotice onRetry={retryLoad} />
+						</ThreadColumn>
+					) : lastMessage && replyingHere ? (
 						<ThreadColumn>
 							<div data-slot="inline-composer" ref={inlineSlotRef} />
 						</ThreadColumn>
@@ -684,7 +696,7 @@ function ThreadView() {
 
 			{/* The thread map panel docks here, over the conversation and under the toolbar. */}
 			<div id={THREAD_MAP_DOCK_ID} className="reader-map-dock" />
-			{lastMessage ? (
+			{canRespond ? (
 				<div className="md:hidden">
 					<MobileReplyBar onReply={reply} onReplyAll={replyAll} onForward={forward} />
 				</div>
@@ -726,17 +738,29 @@ function IconButton({
 	)
 }
 
+/** What a reply control says while part of the thread has not loaded. */
+const REPLIES_PAUSED_TITLE = 'Load the whole conversation to reply (Try again)'
+
 function ActionButton({
 	label,
 	onClick,
+	paused = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
+	/** Part of the thread did not load: the control stays in place, unavailable. */
+	paused?: boolean
 	children: React.ReactNode
 }) {
 	return (
-		<ToolbarIconButton label={label} onClick={onClick} className={READER_ICON_BUTTON_CLASS}>
+		<ToolbarIconButton
+			label={label}
+			onClick={onClick}
+			disabled={paused}
+			{...(paused ? { title: REPLIES_PAUSED_TITLE } : {})}
+			className={READER_ICON_BUTTON_CLASS}
+		>
 			{children}
 		</ToolbarIconButton>
 	)

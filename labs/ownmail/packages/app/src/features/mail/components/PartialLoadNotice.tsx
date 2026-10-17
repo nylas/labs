@@ -70,3 +70,28 @@ export function EdgeLoadCard({ text, online, onRetry }: { text: string; online: 
 		</div>
 	)
 }
+
+/**
+ * Where the reply card sits when part of the thread did not load: the newest
+ * message may be the missing one, so Reply, Reply all and Forward wait for
+ * the whole conversation. Reading stays available; Try again loads the rest.
+ */
+export function RepliesPausedNotice({ onRetry }: { onRetry(): void }) {
+	return (
+		<div
+			role="note"
+			data-slot="replies-paused"
+			className="flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-[13px] text-foreground"
+		>
+			<span>
+				Reply, Reply all and Forward are off until the whole conversation loads. The newest message may be
+				missing.
+			</span>
+			<div className="flex flex-wrap items-center gap-2">
+				<button type="button" onClick={onRetry} className={EDGE_BUTTON_CLASS}>
+					Try again
+				</button>
+			</div>
+		</div>
+	)
+}

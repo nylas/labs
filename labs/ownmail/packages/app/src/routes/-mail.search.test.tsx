@@ -861,6 +861,24 @@ describe('/mail/search thread detail', () => {
 		expect(fns.getThreadMessages).toHaveBeenLastCalledWith({ data: { threadId: 'th1' } })
 	})
 
+	it('holds every reply on a result that only partly loaded, and keeps it readable', async () => {
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] },
+			messages,
+			failedMessageIds: ['m9'],
+		})
+		renderRoute()
+		const paused = await waitFor(() => document.querySelector('[data-slot="replies-paused"]') as HTMLElement)
+		expect(paused).toBeInTheDocument()
+		for (const name of ['Reply', 'Reply all', 'Forward']) {
+			expect(screen.getByRole('button', { name })).toBeDisabled()
+		}
+		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+		const calls = fns.getThreadMessages.mock.calls.length
+		await userEvent.click(within(paused).getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(fns.getThreadMessages.mock.calls.length).toBeGreaterThan(calls))
+	})
+
 	it('keeps the results when the chosen result cannot load, and retries it in the reader', async () => {
 		seedDetail({ thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] }, messages })
 		const seed = Route.useLoaderData()
