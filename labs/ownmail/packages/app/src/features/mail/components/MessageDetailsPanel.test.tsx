@@ -38,7 +38,11 @@ function wrapper({ children }: { children: ReactNode }) {
 	return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-function renderPanel(message: MailMessage = alan, headerFacts: MessageHeaderFacts | null = facts()) {
+function renderPanel(
+	message: MailMessage = alan,
+	headerFacts: MessageHeaderFacts | null = facts(),
+	listSizes?: Record<string, number>,
+) {
 	return render(
 		<MessageDetailsPanel
 			id="details"
@@ -46,6 +50,7 @@ function renderPanel(message: MailMessage = alan, headerFacts: MessageHeaderFact
 			owner={OWNER}
 			facts={headerFacts ?? undefined}
 			viewerTz="Europe/Berlin"
+			listSizes={listSizes}
 		/>,
 		{ wrapper },
 	)
@@ -78,9 +83,27 @@ describe('MessageDetailsPanel', () => {
 			within(row('Cc'))
 				.getAllByRole('listitem')
 				.map((item) => item.textContent),
-		).toEqual(['KJKatherine Johnsonkatherine@vercel.com', 'PMpm-leads@pm-leads@vercel.com'])
+		).toEqual(['KJKatherine Johnsonkatherine@vercel.com', 'PMpm-leads@vercel.com'])
 		expect(screen.queryByText('Bcc', { selector: 'dt' })).toBeNull()
 		expect(row('Date')).toHaveTextContent('Wed, Oct 14, 2026, 4:12 PM7:12 AM where Alan is (PDT)')
+	})
+
+	it('shows a list by its local part and member count when the count is known', () => {
+		renderPanel(alan, facts(), { 'pm-leads@vercel.com': 12 })
+		const [, list] = within(row('Cc')).getAllByRole('listitem')
+		expect(list).toHaveAttribute('data-list', 'true')
+		expect(list).toHaveTextContent(/^PMpm-leads@ · 12 memberspm-leads@vercel\.com$/)
+		expect(within(list as HTMLElement).getByText('12')).toHaveClass('font-data', 'tabular-nums')
+	})
+
+	it('shows a List-Id list by its local part, without a count it does not know', () => {
+		renderPanel({ ...alan, cc: [{ email: 'design@vercel.com' }] }, facts({ listId: 'design.vercel.com' }), {
+			'design@vercel.com': 1,
+		})
+		expect(row('Cc')).toHaveTextContent(/^DEdesign@ · 1 memberdesign@vercel\.com$/)
+		cleanup()
+		renderPanel({ ...alan, cc: [{ email: 'design@vercel.com' }] }, facts({ listId: 'design.vercel.com' }))
+		expect(row('Cc')).toHaveTextContent(/^DEdesign@design@vercel\.com$/)
 	})
 
 	it('leaves out what it does not know', () => {

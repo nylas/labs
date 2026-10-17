@@ -52,11 +52,25 @@ function Chips({ chips }: { chips: PersonChip[] }) {
 	const hidden = chips.length - shown.length
 	return (
 		<ul className="flex flex-wrap gap-1">
-			{shown.map(({ person, label }) => (
-				<li key={person.email} title={person.email} className={cn(chipClass, 'gap-2 pr-2 pl-1')}>
+			{shown.map(({ person, label, isList, count }) => (
+				<li
+					key={person.email}
+					title={person.email}
+					data-list={isList || undefined}
+					className={cn(chipClass, 'gap-2 pr-2 pl-1')}
+				>
 					<Avatar person={person} size={18} />
-					<span className="truncate">{label}</span>
-					{person.isOwner ? null : <span className="sr-only">{person.email}</span>}
+					<span className="truncate">
+						{label}
+						{count !== undefined ? (
+							<>
+								<span aria-hidden="true"> · </span>
+								<span className="font-data tabular-nums">{count.toLocaleString('en-US')}</span>
+								<span className="sr-only"> {count === 1 ? 'member' : 'members'}</span>
+							</>
+						) : null}
+					</span>
+					{person.isOwner || label === person.email ? null : <span className="sr-only">{person.email}</span>}
 				</li>
 			))}
 			{hidden > 0 ? (
@@ -88,6 +102,7 @@ export function MessageDetailsPanel({
 	owner,
 	facts,
 	viewerTz,
+	listSizes,
 	id,
 	className,
 }: {
@@ -96,6 +111,8 @@ export function MessageDetailsPanel({
 	facts?: MessageHeaderFacts
 	/** The reader's time zone, for the sender's own time. */
 	viewerTz: string
+	/** Member counts of mailing lists, keyed by lower-case address. */
+	listSizes?: Readonly<Record<string, number>>
 	id?: string
 	className?: string
 }) {
@@ -104,11 +121,12 @@ export function MessageDetailsPanel({
 	const [rawOpen, setRawOpen] = useState(false)
 	const addresses = copyableAddresses(message, owner)
 	const local = message.date ? senderLocalTime(message.date, facts?.dateOffsetMinutes, viewerTz) : null
+	const lists = { listId: facts?.listId, listSizes }
 	const rows = (
 		[
-			['To', personChips(message.to, owner)],
-			['Cc', personChips(message.cc, owner)],
-			['Bcc', personChips(message.bcc, owner)],
+			['To', personChips(message.to, owner, lists)],
+			['Cc', personChips(message.cc, owner, lists)],
+			['Bcc', personChips(message.bcc, owner, lists)],
 		] as const
 	).filter(([, chips]) => chips.length > 0)
 

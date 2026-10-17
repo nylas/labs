@@ -70,7 +70,9 @@ function Notice({
  * and nothing when nothing is: replies that go to another address (amber),
  * a sender who failed checks or only looks like someone you know (red, with
  * links disabled), someone the sender dropped from a reply all, and a mailing
- * list with ways to mute the thread or leave the list.
+ * list with ways to mute (or, when `muted`, unmute) the thread or leave the
+ * list. The mute control is a toggle whose label says what it will do, so it
+ * carries no `aria-pressed` as well.
  */
 export function MessageNotices({
 	message,
@@ -78,6 +80,7 @@ export function MessageNotices({
 	owner,
 	facts,
 	knownSenders,
+	muted = false,
 	onMuteThread,
 	onAddBack,
 }: {
@@ -85,7 +88,11 @@ export function MessageNotices({
 	prev?: MailMessage
 	owner: string
 	facts?: MessageHeaderFacts
+	/** Contacts and earlier correspondents, never this message's own sender. */
 	knownSenders: Person[]
+	/** Whether the thread is muted; the list notice then offers "Unmute thread". */
+	muted?: boolean
+	/** Toggles the thread's muted state. */
 	onMuteThread(): void
 	onAddBack(person: Person): void
 }) {
@@ -129,10 +136,16 @@ export function MessageNotices({
 	if (list) {
 		notices.push(
 			<Notice key="list" kind="mailing-list" tone="neutral" icon={<Newspaper />}>
-				Sent to <strong className="font-semibold">{list.label}</strong>,{' '}
-				{list.count ? `a list of ${list.count.toLocaleString('en-US')}.` : 'a mailing list.'}{' '}
-				<button type="button" className={linkClass} onClick={onMuteThread}>
-					Mute thread
+				{list.label ? (
+					<>
+						Sent to <strong className="font-semibold">{list.label}</strong>,{' '}
+						{list.count ? `a list of ${list.count.toLocaleString('en-US')}.` : 'a mailing list.'}
+					</>
+				) : (
+					'Sent through a mailing list.'
+				)}{' '}
+				<button type="button" data-slot="mute-thread" className={linkClass} onClick={onMuteThread}>
+					{muted ? 'Unmute thread' : 'Mute thread'}
 				</button>
 				{leaveHref ? (
 					<>

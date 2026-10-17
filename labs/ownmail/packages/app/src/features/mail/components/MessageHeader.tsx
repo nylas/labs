@@ -1,4 +1,4 @@
-import { ChevronDown, Download, Forward, Quote, Reply } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, Forward, Quote, Reply } from 'lucide-react'
 import { type MouseEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useMounted } from '#shared/components/ClientTime'
 import {
@@ -22,6 +22,13 @@ export type MessageHeaderActions = { onReply(): void; onForward(): void; onQuote
 function viewerTimeZone(): string {
 	return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }
+
+/** Popovers inside the header row whose clicks are their own, not the row's. */
+const HEADER_POPOVERS = '[data-slot="message-details-popover"], [data-slot="sender-contact-card"]'
+
+/** Out of sight until it has keyboard focus; the board's header shows no collapse control. */
+const collapseButtonClass =
+	'sr-only shrink-0 rounded-md text-foreground/75 outline-none hover:bg-muted hover:text-foreground focus-visible:not-sr-only focus-visible:inline-flex focus-visible:size-7 focus-visible:items-center focus-visible:justify-center focus-visible:ring-2 focus-visible:ring-ring'
 
 const actionButtonClass =
 	'touch-target inline-flex size-7 items-center justify-center rounded-md text-foreground/75 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
@@ -59,9 +66,11 @@ function HeaderAction({
  * recipients changed from the message before (`prev`, passed only when that
  * message sits open directly above).
  *
- * Clicking the header's empty space collapses an open message; a collapsed
- * header is one button that opens it. Its right-click menu mirrors these
- * actions and adds the raw download.
+ * Clicking the header's empty space collapses an open message, and a
+ * "Collapse message" button, shown when it has keyboard focus, does the same
+ * from the keyboard; a collapsed header is one button that opens it. Its
+ * right-click menu mirrors these actions and adds the raw download. The
+ * details panel follows the summary in the document, so Tab moves into it.
  */
 export function MessageHeader({
 	message,
@@ -72,6 +81,9 @@ export function MessageHeader({
 	onToggle,
 	actions,
 	headingId,
+	contentId,
+	senderFlagged = false,
+	listSizes,
 }: {
 	message: MailMessage
 	prev?: MailMessage
@@ -82,6 +94,12 @@ export function MessageHeader({
 	actions: MessageHeaderActions
 	/** Id for the sender heading, so the message can be labelled by it. */
 	headingId?: string
+	/** Id of the message body this header opens and collapses. */
+	contentId?: string
+	/** The sender only looks like someone known (see `isLookalikeSender`); failed checks come from `facts`. */
+	senderFlagged?: boolean
+	/** Member counts of mailing lists, keyed by lower-case address: "pm-leads@ · 12". */
+	listSizes?: Readonly<Record<string, number>>
 }) {
 	const mounted = useMounted()
 	const ownHeadingId = useId()
@@ -103,7 +121,7 @@ export function MessageHeader({
 	function onRowClick(event: MouseEvent<HTMLDivElement>) {
 		if (!expanded) return
 		const target = event.target as HTMLElement
-		if (target.closest('button, a, input, [role="dialog"]')) return
+		if (target.closest(`button, a, input, [role="dialog"], ${HEADER_POPOVERS}`)) return
 		if (window.getSelection()?.toString()) return
 		onToggle()
 	}
@@ -119,11 +137,21 @@ export function MessageHeader({
 		</time>
 	) : null
 
+	const headingClass = 'text-[15px] leading-snug font-semibold text-foreground'
+	// The card sits beside the heading, not in it, so the heading names only the sender.
 	const nameElement =
 		sender.isOwner || !expanded ? (
-			<span className="truncate">{name}</span>
+			<h2 id={headingId ?? ownHeadingId} className={cn('flex min-w-0', headingClass)}>
+				<span className="truncate">{name}</span>
+			</h2>
 		) : (
-			<SenderContactCard message={message}>{name}</SenderContactCard>
+			<SenderContactCard
+				message={message}
+				heading={{ id: headingId ?? ownHeadingId, className: headingClass }}
+				suspicious={senderFlagged || facts?.authFailed === true}
+			>
+				{name}
+			</SenderContactCard>
 		)
 
 	return (
@@ -134,21 +162,20 @@ export function MessageHeader({
 		>
 			<ContextMenu>
 				<ContextMenuTrigger asChild>
-					{/* Clicking the header's own space is a pointer shortcut for collapsing; the menu and the toggle button are the keyboard paths. */}
+					{/* Clicking the header's own space is a pointer shortcut for collapsing; the collapse button and the menu are the keyboard paths. */}
 					{/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: see above */}
 					<div
 						data-slot="message-header-row"
-						className="message-header-row relative flex min-w-0 items-center gap-3"
+						className={cn(
+							'message-header-row relative flex min-w-0 items-center gap-3',
+							// On a phone the panel opens in the flow under the summary; the avatar stays at the top.
+							showDetails && 'max-sm:items-start',
+						)}
 						onClick={onRowClick}
 					>
 						<Avatar person={sender} size={32} />
 						<div className="flex min-w-0 flex-1 flex-col md:flex-row md:items-baseline md:gap-2">
-							<h2
-								id={headingId ?? ownHeadingId}
-								className="flex min-w-0 text-[15px] leading-snug font-semibold text-foreground"
-							>
-								{nameElement}
-							</h2>
+							{nameElement}
 							<div className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground md:text-[13px]">
 								{expanded ? (
 									<button
@@ -186,6 +213,28 @@ export function MessageHeader({
 									</span>
 								) : null}
 							</div>
+							{showDetails ? (
+								// biome-ignore lint/a11y/noStaticElementInteractions: only keeps the header's right-click menu out of the panel, so its text can be copied
+								<div
+									ref={detailsRef}
+									data-slot="message-details-popover"
+									onContextMenu={(event) => event.stopPropagation()}
+									// In the flow on a phone, so flat there; it floats, as glass, from `sm` up, under the summary.
+									className={cn(
+										'z-20 mt-2 sm:absolute sm:top-full sm:left-11 sm:max-h-[min(36rem,70vh)] sm:w-[428px] sm:max-w-[calc(100vw-6rem)] sm:overflow-y-auto',
+										GLASS_PANEL_FROM_SM_CLASS,
+									)}
+								>
+									<MessageDetailsPanel
+										id={detailsId}
+										message={message}
+										owner={owner}
+										facts={facts}
+										viewerTz={tz}
+										listSizes={listSizes}
+									/>
+								</div>
+							) : null}
 						</div>
 						{expanded ? (
 							// biome-ignore lint/a11y/useSemanticElements: a toolbar-like cluster of three buttons, not a form fieldset
@@ -205,6 +254,19 @@ export function MessageHeader({
 									<Quote className="size-3.5" aria-hidden="true" />
 								</HeaderAction>
 							</span>
+						) : null}
+						{expanded ? (
+							<button
+								type="button"
+								data-slot="message-collapse"
+								aria-label="Collapse message"
+								aria-expanded={true}
+								aria-controls={contentId}
+								onClick={onToggle}
+								className={collapseButtonClass}
+							>
+								<ChevronUp className="size-3.5" aria-hidden="true" />
+							</button>
 						) : (
 							// A collapsed header opens from anywhere on it.
 							<button
@@ -242,18 +304,6 @@ export function MessageHeader({
 					) : null}
 				</ContextMenuContent>
 			</ContextMenu>
-			{showDetails ? (
-				<div
-					ref={detailsRef}
-					// In the flow on a phone, so flat there; it floats, as glass, from `sm` up, under the summary.
-					className={cn(
-						'z-20 mt-2 sm:absolute sm:top-full sm:left-11 sm:max-h-[min(36rem,70vh)] sm:w-[428px] sm:max-w-[calc(100vw-6rem)] sm:overflow-y-auto',
-						GLASS_PANEL_FROM_SM_CLASS,
-					)}
-				>
-					<MessageDetailsPanel id={detailsId} message={message} owner={owner} facts={facts} viewerTz={tz} />
-				</div>
-			) : null}
 		</div>
 	)
 }

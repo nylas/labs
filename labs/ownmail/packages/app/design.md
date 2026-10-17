@@ -475,12 +475,15 @@ time in `font-data` at 12px. Everything else is one click away.
   above. It is a button that opens the details.
 - Details. A panel (glass from `sm` up, in the flow on a phone) under the
   summary: From with the address and "Verified sender" (shield, accent) when
-  DMARC passed; To and Cc as person chips (a nameless address shows as
-  "pm-leads@"; a long line shows eight and a count that expands); the long
+  DMARC passed; To and Cc as person chips (a mailing list shows as
+  "pm-leads@ · 12", the count in `font-data` when known; any other nameless
+  address shows in full, so its domain is never hidden; a long line shows
+  eight and a count that expands); the long
   date, and "7:12 AM where Alan is (PDT)" when the sender's Date offset
   differs from the reader's clock. "Copy addresses" copies everyone but you;
   "Show raw headers" reads the header block on demand and shows it as plain
-  text in a dialog, never parsed or rendered.
+  text in a dialog, never parsed or rendered. The panel follows the summary
+  in the document, so Tab moves from the summary into it.
 - Actions. Reply, Forward and Quote selection in reply sit in a small bordered
   group of 28px buttons that appears while the header is hovered or holds
   focus, and stays visible where there is no hover. Quote keeps the reader's
@@ -490,9 +493,16 @@ time in `font-data` at 12px. Everything else is one click away.
   tapping it, opens a card: a 40px avatar, the name, a title line, the address
   and phone in `font-data`, all read from the signature the sender signed this
   message with ("From their signature."), with "Save to contacts" and "New
-  email". Escape returns to the name. No gendered pronouns.
-- Clicking a header's own space collapses an open message; a collapsed header
-  is one button that opens it.
+  email". A click, tap or Enter keeps it open until the next one; Escape
+  closes it from anywhere and returns to the name when focus was in it. It is
+  a hover card, not a dialog, so the reader's shortcuts keep working, and it
+  sits beside the name's heading, not inside it. For a sender who failed
+  checks or only looks like someone known, the card shows the name and
+  address only: nothing from their signature and no "Save to contacts". No
+  gendered pronouns.
+- Clicking a header's own space collapses an open message, and a "Collapse
+  message" button, out of sight until it has keyboard focus, does the same
+  from the keyboard; a collapsed header is one button that opens it.
 
 ## Notices
 
@@ -504,7 +514,8 @@ glyph, 13px text, the 6px plane radius. Never a rail.
   grace.personal@fastmail.com, not the address this came from."
 - Not who they look like (red, warning glyph): a sender that failed DMARC, or
   whose display name is someone this mailbox knows writing from another
-  organisation's domain. "“Meridian Bank” usually writes from
+  organisation's domain (the sender's own address never vouches for itself,
+  even once saved). "“Meridian Bank” usually writes from
   meridianbank.com. This came from meridian-secure.co and failed sender
   checks. Links are disabled." The message's links are made inert.
 - Someone dropped (neutral): "Alan removed Katherine from this reply." with
@@ -512,8 +523,11 @@ glyph, 13px text, the 6px plane radius. Never a rail.
   removal: only on a reply all that still reaches two or more of the people
   before it.
 - A mailing list (neutral): "Sent to eng-all@, a list of 240." when the list
-  is the only To and the copied people give a size, else "a mailing list";
-  then "Mute thread" and, when the list offers one, "Leave list".
+  is the only To and the people the message shows number more than the
+  reply-all guard, else "a mailing list"; "Sent through a mailing list." when
+  no recipient is the list, rather than an address made up from its List-Id.
+  Then "Mute thread" ("Unmute thread" on a muted thread) and, when the list
+  offers one, "Leave list".
 - Amber and red are tokens (`--notice-warning`, `--notice-danger`, each with a
   `-line` and an `-fg`), 4.5:1 or better in both themes. The owner's own mail
   raises no notice.

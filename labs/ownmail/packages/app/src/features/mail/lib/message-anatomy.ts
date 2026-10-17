@@ -24,6 +24,7 @@ import {
 	isBounceMessage,
 	type Person,
 	personName,
+	REPLY_ALL_GUARD,
 	senderPerson,
 	toPerson,
 } from './thread-reading-model.js'
@@ -199,8 +200,11 @@ export type Lookalike = { name: string; usualDomain: string; domain: string }
  * A sender whose display name is someone this mailbox knows (a contact or a
  * prior correspondent) but whose address is on another organisation's domain:
  * "Meridian Bank" from meridian-secure.co when Meridian Bank writes from
- * meridianbank.com. Null when any known address with that name shares the
- * sender's domain, or the sender is the owner or has no name.
+ * meridianbank.com. Null when any other known address with that name shares
+ * the sender's domain, or the sender is the owner or has no name. The
+ * sender's own address never vouches for itself: saving a lookalike to
+ * contacts, or listing this message's sender among correspondents, does not
+ * make it safe.
  */
 export function lookalikeSender(
 	message: MailMessage,
@@ -210,7 +214,11 @@ export function lookalikeSender(
 	const sender = senderPerson(message, owner)
 	if (sender.isOwner || !sender.name || !sender.email) return null
 	const namesakes = knownSenders.filter(
-		(person) => !person.isOwner && person.email && sameName(person.name, sender.name),
+		(person) =>
+			!person.isOwner &&
+			person.email &&
+			addressKey(person.email) !== addressKey(sender.email) &&
+			sameName(person.name, sender.name),
 	)
 	if (namesakes.length === 0) return null
 	const domain = organisationDomain(sender.email)
@@ -279,14 +287,22 @@ export function removedFromReply(
 	return audience.filter((person) => !person.isOwner && !reached.has(addressKey(person.email)))
 }
 
-export type MailingList = { label: string; count?: number }
+/** The list's address as "eng-all@"; none when the message names no recipient as the list. */
+export type MailingList = { label?: string; count?: number }
+
+/** Whether an address is the list a List-Id names: eng-all@vercel.com for `eng-all.vercel.com`. */
+const isListIdAddress = (email: string, listId: string): boolean =>
+	addressKey(email).replace('@', '.') === listId || localPart(email) === listId.split('.')[0]
 
 /**
- * The mailing list a message came through: the To address its List-Id
+ * The mailing list a message came through: the To or Cc address its List-Id
  * names, else a To address that names a list by itself (eng-all@, pm-list@,
- * all@). "a list of 240" counts the people the message shows (the copied
- * recipients, the sender and you) only when the list is the sole To
- * recipient and others are copied; otherwise the size is not known.
+ * all@). A List-Id that names no recipient gives a list without a label;
+ * no address is made up from it. "a list of 240" counts the people the
+ * message shows (the copied recipients, the sender and you), and only when
+ * the list is the sole To recipient and that count is a broadcast (more
+ * than the reply-all guard); a smaller count says nothing about the list's
+ * size, so then the size is not known.
  */
 export function mailingList(
 	message: MailMessage,
@@ -296,28 +312,50 @@ export function mailingList(
 	const to = message.to ?? []
 	const listId = facts?.listId?.toLowerCase()
 	const list = listId
-		? to.find(
-				(participant) =>
-					addressKey(participant.email).replace('@', '.') === listId ||
-					localPart(participant.email) === listId.split('.')[0],
+		? [...to, ...(message.cc ?? [])].find(
+				(participant) => !toPerson(participant, owner).isOwner && isListIdAddress(participant.email, listId),
 			)
 		: to.find((participant) => LIST_LOCAL_PART.test(localPart(participant.email)))
-	if (!list && !listId) return null
-	const label = `${list ? localPart(list.email) : (listId as string).split('.')[0]}@`
+	if (!list) return listId ? {} : null
+	const label = `${localPart(list.email)}@`
 	const copied = message.cc ?? []
-	if (!list || to.length !== 1 || copied.length === 0) return { label }
+	if (to.length !== 1 || to[0] !== list || copied.length === 0) return { label }
 	const people = uniquePeople([...(message.from ?? []), ...copied], owner)
-	return { label, count: people.length + (people.some((person) => person.isOwner) ? 0 : 1) }
+	const count = people.length + (people.some((person) => person.isOwner) ? 0 : 1)
+	return count > REPLY_ALL_GUARD ? { label, count } : { label }
 }
 
-/** A chip in the details panel: "You", "Grace Hopper", or a nameless address as "pm-leads@". */
-export type PersonChip = { person: Person; label: string }
+/**
+ * A chip in the details panel: "You", "Grace Hopper", a list as "pm-leads@"
+ * (with its member count when known: "pm-leads@ · 12"), and any other
+ * nameless address in full, so its domain is always on screen.
+ */
+export type PersonChip = { person: Person; label: string; isList: boolean; count?: number }
 
-export function personChips(participants: EmailParticipant[] | undefined, owner: string): PersonChip[] {
-	return uniquePeople(participants ?? [], owner).map((person) => ({
-		person,
-		label: person.isOwner ? 'You' : person.name || `${localPart(person.email)}@`,
-	}))
+/** What marks an address as a list: the message's List-Id, and member counts known for this mailbox keyed by lower-case address. */
+export type ChipContext = { listId?: string; listSizes?: Readonly<Record<string, number>> }
+
+export function personChips(
+	participants: EmailParticipant[] | undefined,
+	owner: string,
+	context: ChipContext = {},
+): PersonChip[] {
+	const listId = context.listId?.toLowerCase()
+	return uniquePeople(participants ?? [], owner).map((person) => {
+		const key = addressKey(person.email)
+		const size =
+			!person.isOwner && context.listSizes && Object.hasOwn(context.listSizes, key)
+				? context.listSizes[key]
+				: undefined
+		const count = size !== undefined && Number.isFinite(size) && size >= 1 ? Math.floor(size) : undefined
+		const isList =
+			!person.isOwner &&
+			(count !== undefined ||
+				LIST_LOCAL_PART.test(localPart(key)) ||
+				(listId !== undefined && isListIdAddress(key, listId)))
+		const label = person.isOwner ? 'You' : person.name || (isList ? `${localPart(key)}@` : person.email)
+		return { person, label, isList, ...(count !== undefined ? { count } : {}) }
+	})
 }
 
 /** Every address on a message but the owner's, as "Name <address>", for "Copy addresses". */

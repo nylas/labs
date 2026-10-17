@@ -25,16 +25,21 @@ const signed: MailMessage = {
 	body: '<div><p>Otherwise this is ready.</p><div class="gmail_signature">Alan Turing<br>Principal Engineer, Bletchley<br>alan@bletchley.dev<br>+44 20 7946 0958</div></div>',
 } as MailMessage
 
-function renderCard(message: MailMessage = signed) {
+function renderCard(message: MailMessage = signed, suspicious?: boolean) {
 	return render(
-		<h2>
-			<SenderContactCard message={message}>Alan Turing</SenderContactCard>
-		</h2>,
+		<SenderContactCard
+			message={message}
+			heading={{ id: 'sender', className: 'name' }}
+			suspicious={suspicious}
+		>
+			Alan Turing
+		</SenderContactCard>,
 	)
 }
 
 const trigger = () => screen.getByRole('button', { name: 'Alan Turing' })
-const card = () => screen.queryByRole('dialog')
+const card = () => screen.queryByRole('group')
+const root = () => trigger().closest('[data-slot="sender-contact"]') as HTMLElement
 
 beforeEach(() => {
 	Object.assign(mutation, { isPending: false, isSuccess: false, isError: false })
@@ -63,27 +68,137 @@ describe('SenderContactCard', () => {
 		expect(card()).toBeNull()
 	})
 
+	it('keeps the heading to the name, with the card beside it', () => {
+		renderCard()
+		fireEvent.click(trigger())
+		const heading = screen.getByRole('heading', { level: 2, name: 'Alan Turing' })
+		expect(heading).toHaveAttribute('id', 'sender')
+		expect(heading).toHaveClass('name')
+		expect(heading).toHaveTextContent(/^Alan Turing$/)
+		expect(heading).not.toContainElement(card())
+		expect(root()).toContainElement(card())
+	})
+
+	it('renders the name button alone without a heading', () => {
+		render(<SenderContactCard message={signed}>Alan Turing</SenderContactCard>)
+		expect(screen.queryByRole('heading')).toBeNull()
+		fireEvent.click(trigger())
+		expect(card()).not.toBeNull()
+	})
+
+	it('is a hover card, not a dialog, so the reader’s shortcuts still see no dialog', () => {
+		renderCard()
+		fireEvent.click(trigger())
+		expect(card()).toHaveAttribute('data-slot', 'sender-contact-card')
+		expect(document.querySelector('[role="dialog"]')).toBeNull()
+	})
+
 	it('opens after a mouse rests on the name and closes after it leaves; touch hover does nothing', () => {
 		vi.useFakeTimers()
 		renderCard()
-		const root = trigger().parentElement as HTMLElement
-		fireEvent.pointerEnter(root, { pointerType: 'touch' })
+		fireEvent.pointerEnter(root(), { pointerType: 'touch' })
 		act(() => vi.advanceTimersByTime(1000))
 		expect(card()).toBeNull()
-		fireEvent.pointerEnter(root, { pointerType: 'mouse' })
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
 		act(() => vi.advanceTimersByTime(349))
 		expect(card()).toBeNull()
 		act(() => vi.advanceTimersByTime(1))
 		expect(card()).not.toBeNull()
-		fireEvent.pointerLeave(root, { pointerType: 'touch' })
+		fireEvent.pointerLeave(root(), { pointerType: 'touch' })
 		act(() => vi.advanceTimersByTime(1000))
 		expect(card()).not.toBeNull()
-		fireEvent.pointerLeave(root, { pointerType: 'mouse' })
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(100))
+		// Coming back before it closes keeps it open.
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(1000))
+		expect(card()).not.toBeNull()
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
 		act(() => vi.advanceTimersByTime(200))
+		expect(card()).toBeNull()
+		// Leaving before it opens cancels it.
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(100))
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(1000))
 		expect(card()).toBeNull()
 	})
 
-	it('opens on keyboard focus, not on a pointer focus, and Escape returns to the name', () => {
+	it('keeps a card that keyboard focus opened while a hover was pending', () => {
+		vi.useFakeTimers()
+		renderCard()
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		const button = trigger()
+		vi.spyOn(button, 'matches').mockReturnValueOnce(true)
+		fireEvent.focus(button)
+		act(() => vi.advanceTimersByTime(350))
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(1000))
+		expect(card()).not.toBeNull()
+	})
+
+	it('stays closed when Escape lands while a hover close is pending', () => {
+		vi.useFakeTimers()
+		renderCard()
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(350))
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
+		fireEvent.keyDown(document.body, { key: 'Escape' })
+		act(() => vi.advanceTimersByTime(1000))
+		expect(card()).toBeNull()
+	})
+
+	it('stays closed when focus leaves while a hover close is pending', () => {
+		vi.useFakeTimers()
+		renderCard()
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(350))
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
+		fireEvent.blur(trigger(), { relatedTarget: document.body })
+		expect(card()).toBeNull()
+		act(() => vi.advanceTimersByTime(1000))
+		expect(card()).toBeNull()
+	})
+
+	it('stays open when a click follows a hover, until a second click', () => {
+		vi.useFakeTimers()
+		renderCard()
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(350))
+		fireEvent.click(trigger())
+		expect(card()).not.toBeNull()
+		fireEvent.pointerLeave(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(1000))
+		expect(card()).not.toBeNull()
+		fireEvent.click(trigger())
+		expect(card()).toBeNull()
+	})
+
+	it('closes on Escape after a hover open without taking focus, and keeps that Escape from the reader', () => {
+		vi.useFakeTimers()
+		const onWindowKey = vi.fn()
+		window.addEventListener('keydown', onWindowKey)
+		renderCard()
+		const elsewhere = document.createElement('button')
+		document.body.append(elsewhere)
+		elsewhere.focus()
+		fireEvent.pointerEnter(root(), { pointerType: 'mouse' })
+		act(() => vi.advanceTimersByTime(350))
+		expect(card()).not.toBeNull()
+		fireEvent.keyDown(elsewhere, { key: 'e' })
+		expect(card()).not.toBeNull()
+		expect(onWindowKey).toHaveBeenCalledOnce()
+		fireEvent.keyDown(elsewhere, { key: 'Escape' })
+		expect(card()).toBeNull()
+		expect(elsewhere).toHaveFocus()
+		expect(onWindowKey).toHaveBeenCalledOnce()
+		fireEvent.keyDown(elsewhere, { key: 'Escape' })
+		expect(onWindowKey).toHaveBeenCalledTimes(2)
+		window.removeEventListener('keydown', onWindowKey)
+		elsewhere.remove()
+	})
+
+	it('opens on keyboard focus, not on a pointer focus; Enter keeps it open and Escape returns to the name', () => {
 		renderCard()
 		const button = trigger()
 		const matches = vi.spyOn(button, 'matches')
@@ -93,12 +208,28 @@ describe('SenderContactCard', () => {
 		matches.mockReturnValueOnce(true)
 		fireEvent.focus(button)
 		expect(card()).not.toBeNull()
-		fireEvent.keyDown(screen.getByRole('button', { name: 'Save to contacts' }), { key: 'Escape' })
+		// Enter on a button is a click: it pins the card rather than closing it.
+		fireEvent.click(button)
+		expect(card()).not.toBeNull()
+		matches.mockReturnValueOnce(true)
+		fireEvent.focus(button)
+		expect(card()).not.toBeNull()
+		const save = screen.getByRole('button', { name: 'Save to contacts' })
+		save.focus()
+		fireEvent.keyDown(save, { key: 'Escape' })
 		expect(card()).toBeNull()
 		expect(button).toHaveFocus()
-		fireEvent.keyDown(button, { key: 'Escape' })
-		fireEvent.keyDown(button, { key: 'Enter' })
-		expect(card()).toBeNull()
+	})
+
+	it('vouches for nothing from a suspicious sender’s signature and offers no save', () => {
+		renderCard(signed, true)
+		fireEvent.click(trigger())
+		expect(card()).toHaveTextContent('alan@bletchley.dev')
+		expect(card()).not.toHaveTextContent('Principal Engineer, Bletchley')
+		expect(card()).not.toHaveTextContent('+44 20 7946 0958')
+		expect(card()).not.toHaveTextContent('From their signature.')
+		expect(screen.queryByRole('button', { name: 'Save to contacts' })).toBeNull()
+		expect(screen.getByRole('button', { name: 'New email' })).toBeInTheDocument()
 	})
 
 	it('closes when focus leaves the name and its card, not when it moves into the card', () => {
@@ -146,7 +277,7 @@ describe('SenderContactCard', () => {
 
 	it('shows just the name and address without a signature, and saves what it knows', () => {
 		renderCard({ id: 'm1', from: [{ name: 'Cher', email: 'cher@example.com' }], body: 'Hi.' } as MailMessage)
-		fireEvent.click(screen.getByRole('button', { name: 'Alan Turing' }))
+		fireEvent.click(trigger())
 		expect(card()).toHaveTextContent('cher@example.com')
 		expect(card()).not.toHaveTextContent('From their signature.')
 		fireEvent.click(screen.getByRole('button', { name: 'Save to contacts' }))

@@ -24,7 +24,7 @@ const facts = (extra: Partial<MessageHeaderFacts> = {}): MessageHeaderFacts => (
 
 function renderNotices(
 	message: Partial<MailMessage>,
-	props: { prev?: MailMessage; facts?: MessageHeaderFacts; knownSenders?: Person[] } = {},
+	props: { prev?: MailMessage; facts?: MessageHeaderFacts; knownSenders?: Person[]; muted?: boolean } = {},
 ) {
 	const onMuteThread = vi.fn()
 	const onAddBack = vi.fn()
@@ -35,6 +35,7 @@ function renderNotices(
 			owner={OWNER}
 			facts={props.facts}
 			knownSenders={props.knownSenders ?? []}
+			muted={props.muted}
 			onMuteThread={onMuteThread}
 			onAddBack={onAddBack}
 		/>,
@@ -151,6 +152,28 @@ describe('MessageNotices', () => {
 		renderNotices({ from: [ALAN], to: [{ email: 'eng-all@vercel.com' }] })
 		expect(notes()[0]).toHaveTextContent('Sent to eng-all@, a mailing list. Mute thread')
 		expect(screen.queryByRole('link')).toBeNull()
+	})
+
+	it('offers Unmute thread on a muted thread, toggling the same way', () => {
+		const { onMuteThread } = renderNotices(
+			{ from: [ALAN], to: [{ email: 'eng-all@vercel.com' }] },
+			{ facts: facts({ listId: 'eng-all.vercel.com' }), muted: true },
+		)
+		expect(notes()[0]).toHaveTextContent('Sent to eng-all@, a mailing list. Unmute thread')
+		expect(screen.queryByRole('button', { name: 'Mute thread' })).toBeNull()
+		const unmute = screen.getByRole('button', { name: 'Unmute thread' })
+		expect(unmute).not.toHaveAttribute('aria-pressed')
+		fireEvent.click(unmute)
+		expect(onMuteThread).toHaveBeenCalledOnce()
+	})
+
+	it('says a list carried the message without making up its address when no recipient is the list', () => {
+		renderNotices(
+			{ from: [{ name: 'GitHub', email: 'notifications@github.com' }], to: [ADA] },
+			{ facts: facts({ listId: 'labs.nylas.github.com' }) },
+		)
+		expect(notes()[0]).toHaveTextContent('Sent through a mailing list. Mute thread')
+		expect(notes()[0]).not.toHaveTextContent('@')
 	})
 
 	it('says nothing about the owner’s own mail', () => {

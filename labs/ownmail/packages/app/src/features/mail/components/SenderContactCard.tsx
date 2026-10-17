@@ -23,73 +23,131 @@ function titleFields(title: string | undefined): { jobTitle?: string; companyNam
 	return { jobTitle: (job as string).trim(), ...(companyName ? { companyName } : {}) }
 }
 
+/** How the card opened: a resting pointer, keyboard focus, or a click or Enter that pins it. */
+type OpenedBy = 'hover' | 'focus' | 'click'
+
 /**
  * The sender's card (board 05, step 4): hovering or focusing the sender's
  * name shows who they are and how to reach them, from the signature they
  * signed this message with, with "Save to contacts" and "New email". The
- * name is a button, so a tap or Enter opens it too; Escape closes it and
- * returns to the name.
+ * name is a button: a tap, click or Enter opens the card and keeps it open
+ * (a second one closes it); Escape closes it from anywhere, returning to
+ * the name when focus was in the card. It is a non-modal hover card, not a
+ * dialog, so the reader's shortcuts keep working while it shows.
+ *
+ * With `heading`, the name button sits in that `<h2>` and the card beside
+ * it, so the heading (and anything it labels) is only the name. A
+ * `suspicious` sender (failed checks, or a lookalike) shows no
+ * signature-derived details and cannot be saved to contacts.
  */
-export function SenderContactCard({ message, children }: { message: MailMessage; children: ReactNode }) {
-	const [open, setOpen] = useState(false)
+export function SenderContactCard({
+	message,
+	children,
+	heading,
+	suspicious = false,
+}: {
+	message: MailMessage
+	children: ReactNode
+	heading?: { id: string; className?: string }
+	suspicious?: boolean
+}) {
+	const [openedBy, setOpenedBy] = useState<OpenedBy | null>(null)
+	const open = openedBy !== null
 	const cardId = useId()
-	const rootRef = useRef<HTMLSpanElement>(null)
+	const rootRef = useRef<HTMLDivElement>(null)
 	const triggerRef = useRef<HTMLButtonElement>(null)
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+	/** Set while Escape hands focus back to the name, which must not reopen the card. */
+	const returningFocus = useRef(false)
 
 	useEffect(() => () => clearTimeout(timer.current), [])
 
-	function later(next: boolean, delay: number) {
+	useEffect(() => {
+		if (!open) return
+		function onKeyDown(event: KeyboardEvent) {
+			if (event.key !== 'Escape') return
+			event.preventDefault()
+			event.stopPropagation()
+			clearTimeout(timer.current)
+			const focusInside = rootRef.current?.contains(document.activeElement) === true
+			setOpenedBy(null)
+			if (!focusInside) return
+			returningFocus.current = true
+			triggerRef.current?.focus()
+			returningFocus.current = false
+		}
+		document.addEventListener('keydown', onKeyDown)
+		return () => document.removeEventListener('keydown', onKeyDown)
+	}, [open])
+
+	/** Opens by hover unless already open some other way; closes only what hover opened. */
+	function later(next: 'hover' | null, delay: number) {
 		clearTimeout(timer.current)
-		timer.current = setTimeout(() => setOpen(next), delay)
+		timer.current = setTimeout(
+			() => setOpenedBy((current) => (next ? (current ?? next) : current === 'hover' ? null : current)),
+			delay,
+		)
 	}
 
-	function onBlur(event: FocusEvent<HTMLSpanElement>) {
-		if (!rootRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false)
+	function onBlur(event: FocusEvent<HTMLDivElement>) {
+		if (!rootRef.current?.contains(event.relatedTarget as Node | null)) setOpenedBy(null)
 	}
+
+	const trigger = (
+		<button
+			ref={triggerRef}
+			type="button"
+			aria-expanded={open}
+			aria-controls={open ? cardId : undefined}
+			onClick={() => {
+				clearTimeout(timer.current)
+				setOpenedBy((current) => (current === 'click' ? null : 'click'))
+			}}
+			onFocus={(event) => {
+				if (returningFocus.current || !event.currentTarget.matches(':focus-visible')) return
+				setOpenedBy((current) => current ?? 'focus')
+			}}
+			className="min-w-0 truncate rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+		>
+			{children}
+		</button>
+	)
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: the wrapper only observes hover, focus and Escape around the name button and its card; it is not a control.
-		<span
+		// biome-ignore lint/a11y/noStaticElementInteractions: the wrapper only observes hover and focus around the name button and its card; it is not a control.
+		<div
 			ref={rootRef}
 			data-slot="sender-contact"
-			className="relative inline-flex min-w-0"
-			onPointerEnter={(event) => event.pointerType === 'mouse' && later(true, OPEN_DELAY_MS)}
-			onPointerLeave={(event) => event.pointerType === 'mouse' && later(false, CLOSE_DELAY_MS)}
-			onBlur={onBlur}
-			onKeyDown={(event) => {
-				if (event.key !== 'Escape' || !open) return
-				event.preventDefault()
-				event.stopPropagation()
-				setOpen(false)
-				triggerRef.current?.focus()
+			className="relative flex min-w-0"
+			onPointerEnter={(event) => {
+				if (event.pointerType !== 'mouse') return
+				if (open) clearTimeout(timer.current)
+				else later('hover', OPEN_DELAY_MS)
 			}}
+			onPointerLeave={(event) => {
+				if (event.pointerType !== 'mouse') return
+				if (openedBy === 'hover') later(null, CLOSE_DELAY_MS)
+				else if (!open) clearTimeout(timer.current)
+			}}
+			onBlur={onBlur}
 		>
-			<button
-				ref={triggerRef}
-				type="button"
-				aria-expanded={open}
-				aria-controls={open ? cardId : undefined}
-				onClick={() => {
-					clearTimeout(timer.current)
-					setOpen((current) => !current)
-				}}
-				onFocus={(event) => {
-					if (event.currentTarget.matches(':focus-visible')) setOpen(true)
-				}}
-				className="min-w-0 truncate rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-			>
-				{children}
-			</button>
-			{open ? <ContactCard id={cardId} message={message} /> : null}
-		</span>
+			{heading ? (
+				<h2 id={heading.id} className={cn('flex min-w-0', heading.className)}>
+					{trigger}
+				</h2>
+			) : (
+				trigger
+			)}
+			{open ? <ContactCard id={cardId} message={message} suspicious={suspicious} /> : null}
+		</div>
 	)
 }
 
-function ContactCard({ id, message }: { id: string; message: MailMessage }) {
+function ContactCard({ id, message, suspicious }: { id: string; message: MailMessage; suspicious: boolean }) {
 	const sender = senderPerson(message, '')
 	const name = personName(sender, 'full')
-	const signature = useMemo(() => senderSignature(message, ''), [message])
+	// A sender who may not be who they say gets nothing vouched for from their own signature.
+	const signature = useMemo(() => (suspicious ? null : senderSignature(message, '')), [message, suspicious])
 	const email = sender.email || signature?.email
 	const { openCompose } = useCompose()
 	const save = useCreateContactMutation()
@@ -106,9 +164,10 @@ function ContactCard({ id, message }: { id: string; message: MailMessage }) {
 	}
 
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: a labelled group of the card's lines and buttons, not a form fieldset
 		<span
 			id={id}
-			role="dialog"
+			role="group"
 			aria-label={name}
 			data-slot="sender-contact-card"
 			className={cn(
@@ -140,17 +199,19 @@ function ContactCard({ id, message }: { id: string; message: MailMessage }) {
 				</span>
 			) : null}
 			<span className="flex gap-2">
-				<button
-					type="button"
-					onClick={saveContact}
-					disabled={save.isPending || save.isSuccess}
-					className={cn(
-						cardButtonClass,
-						'border border-cta-line bg-card font-semibold text-foreground hover:bg-muted',
-					)}
-				>
-					{save.isSuccess ? 'Saved to contacts' : 'Save to contacts'}
-				</button>
+				{suspicious ? null : (
+					<button
+						type="button"
+						onClick={saveContact}
+						disabled={save.isPending || save.isSuccess}
+						className={cn(
+							cardButtonClass,
+							'border border-cta-line bg-card font-semibold text-foreground hover:bg-muted',
+						)}
+					>
+						{save.isSuccess ? 'Saved to contacts' : 'Save to contacts'}
+					</button>
+				)}
 				{email ? (
 					<button
 						type="button"

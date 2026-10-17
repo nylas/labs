@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -201,6 +202,75 @@ describe('MessageHeader', () => {
 		const menu = await screen.findByRole('menu')
 		expect(within(menu).getByRole('menuitem', { name: 'Expand message' })).toBeInTheDocument()
 		expect(within(menu).queryByRole('menuitem', { name: 'Download raw email' })).toBeNull()
+	})
+
+	it('lets Tab move from the recipient summary into the details', async () => {
+		const user = userEvent.setup()
+		setup()
+		await user.click(summary())
+		expect(details()).not.toBeNull()
+		await user.tab()
+		expect(screen.getByRole('button', { name: 'Copy addresses' })).toHaveFocus()
+		expect(details()).not.toBeNull()
+		await user.tab()
+		expect(screen.getByRole('button', { name: 'Show raw headers' })).toHaveFocus()
+		await user.tab()
+		expect(screen.getByRole('button', { name: 'Reply to Alan' })).toHaveFocus()
+		expect(details()).toBeNull()
+	})
+
+	it('keeps clicks and right-clicks in the details to the details', () => {
+		const { container, onToggle } = setup()
+		fireEvent.click(summary())
+		const panel = details() as HTMLElement
+		fireEvent.click(panel)
+		expect(onToggle).not.toHaveBeenCalled()
+		expect(details()).not.toBeNull()
+		fireEvent.contextMenu(panel, { clientX: 20, clientY: 20 })
+		expect(screen.queryByRole('menu')).toBeNull()
+		expect(container.querySelector('[data-slot="message-details-popover"]')).toContainElement(panel)
+	})
+
+	it('shows list sizes in the details', () => {
+		setup({ listSizes: { 'pm-leads@vercel.com': 12 } })
+		fireEvent.click(summary())
+		expect(details()).toHaveTextContent('pm-leads@ · 12 members')
+	})
+
+	it('has a keyboard collapse control tied to the message body', async () => {
+		const user = userEvent.setup()
+		const { onToggle } = setup({ contentId: 'body-12' })
+		const collapse = screen.getByRole('button', { name: 'Collapse message' })
+		expect(collapse).toHaveAttribute('aria-expanded', 'true')
+		expect(collapse).toHaveAttribute('aria-controls', 'body-12')
+		expect(collapse).toHaveClass('sr-only', 'focus-visible:not-sr-only')
+		collapse.focus()
+		await user.keyboard('{Enter}')
+		expect(onToggle).toHaveBeenCalledOnce()
+		cleanup()
+		setup({ expanded: false })
+		expect(screen.queryByRole('button', { name: 'Collapse message' })).toBeNull()
+	})
+
+	it('keeps the heading to the sender’s name while the card is open', () => {
+		setup({ headingId: 'sender-12' })
+		fireEvent.click(screen.getByRole('button', { name: 'Alan Turing' }))
+		const heading = screen.getByRole('heading', { level: 2, name: 'Alan Turing' })
+		expect(heading).toHaveTextContent(/^Alan Turing$/)
+		const card = document.querySelector('[data-slot="sender-contact-card"]') as HTMLElement
+		expect(card).not.toBeNull()
+		expect(heading).not.toContainElement(card)
+		expect(screen.getByRole('button', { name: 'Save to contacts' })).toBeInTheDocument()
+	})
+
+	it('offers no save from the card for a sender who failed checks or is flagged as a lookalike', () => {
+		setup({ facts: { verified: false, authFailed: true, listUnsubscribe: false } })
+		fireEvent.click(screen.getByRole('button', { name: 'Alan Turing' }))
+		expect(screen.queryByRole('button', { name: 'Save to contacts' })).toBeNull()
+		cleanup()
+		setup({ senderFlagged: true })
+		fireEvent.click(screen.getByRole('button', { name: 'Alan Turing' }))
+		expect(screen.queryByRole('button', { name: 'Save to contacts' })).toBeNull()
 	})
 
 	it('falls back to UTC when the runtime has no time zone', () => {

@@ -146,6 +146,16 @@ describe('lookalikeSender', () => {
 		expect(lookalikeSender(msg('m', undefined, [ADA]), known, OWNER)).toBeNull()
 	})
 
+	it('does not let the sender’s own address vouch for it', () => {
+		const saved = person({ name: 'Meridian Bank', email: 'ALERTS@meridian-secure.co' })
+		expect(lookalikeSender(fake, [...known, saved], OWNER)).toEqual({
+			name: 'Meridian Bank',
+			usualDomain: 'meridianbank.com',
+			domain: 'meridian-secure.co',
+		})
+		expect(lookalikeSender(fake, [saved], OWNER)).toBeNull()
+	})
+
 	it('names an address without a domain as it is', () => {
 		const odd = msg('m', { name: 'Meridian Bank', email: 'meridian' }, [ADA])
 		expect(lookalikeSender(odd, known, OWNER)).toEqual({
@@ -248,11 +258,31 @@ describe('mailingList', () => {
 		})
 	})
 
-	it('names the list from List-Id when no To address is it', () => {
-		expect(
-			mailingList(msg('m', ALAN, [ADA], { cc: [GRACE] }), facts({ listId: 'Design.Vercel.com' }), OWNER),
-		).toEqual({
+	it('finds a copied list by its List-Id, and never names the owner as the list', () => {
+		const copiedList = msg('m', ALAN, [GRACE], { cc: [{ email: 'design@vercel.com' }] })
+		expect(mailingList(copiedList, facts({ listId: 'Design.Vercel.com' }), OWNER)).toEqual({
 			label: 'design@',
+		})
+		expect(mailingList(msg('m', ALAN, [ADA]), facts({ listId: 'ada.lists.example' }), OWNER)).toEqual({})
+	})
+
+	it('makes up no address when the List-Id names no recipient', () => {
+		const github = msg('m', { name: 'GitHub', email: 'notifications@github.com' }, [ADA])
+		expect(mailingList(github, facts({ listId: 'labs.nylas.github.com' }), OWNER)).toEqual({})
+		expect(
+			mailingList(msg('m', ALAN, [ADA], { cc: [GRACE] }), facts({ listId: 'abc123.mcsv.net' }), OWNER),
+		).toEqual({})
+	})
+
+	it('states no size for a small visible count, or when the list is not the sole To', () => {
+		const small = msg('m', ALAN, [{ email: 'eng-all@vercel.com' }], { cc: [GRACE] })
+		expect(mailingList(small, facts({ listId: 'eng-all.vercel.com' }), OWNER)).toEqual({ label: 'eng-all@' })
+		const listCopied = msg('m', ALAN, [GRACE], { cc: [{ email: 'eng-all@vercel.com' }, ...copied] })
+		expect(mailingList(listCopied, facts({ listId: 'eng-all.vercel.com' }), OWNER)).toEqual({
+			label: 'eng-all@',
+		})
+		expect(mailingList(msg('m', ALAN, [{ email: 'eng-all@vercel.com' }]), undefined, OWNER)).toEqual({
+			label: 'eng-all@',
 		})
 	})
 
@@ -263,15 +293,55 @@ describe('mailingList', () => {
 })
 
 describe('personChips', () => {
-	it('names the owner "You", people by name and a nameless address by its local part', () => {
+	it('names the owner "You", people by name and a nameless address in full', () => {
 		expect(
-			personChips([ADA, GRACE, PM_LEADS, { name: 'Grace', email: 'GRACE@vercel.com' }, { email: '' }], OWNER),
+			personChips(
+				[
+					ADA,
+					GRACE,
+					PM_LEADS,
+					{ email: 'ceo@attacker.example' },
+					{ name: 'Grace', email: 'GRACE@vercel.com' },
+					{ email: '' },
+				],
+				OWNER,
+			),
 		).toEqual([
-			{ person: person(ADA, true), label: 'You' },
-			{ person: person(GRACE), label: 'Grace Hopper' },
-			{ person: person(PM_LEADS), label: 'pm-leads@' },
+			{ person: person(ADA, true), label: 'You', isList: false },
+			{ person: person(GRACE), label: 'Grace Hopper', isList: false },
+			{ person: person(PM_LEADS), label: 'pm-leads@vercel.com', isList: false },
+			{ person: person({ email: 'ceo@attacker.example' }), label: 'ceo@attacker.example', isList: false },
 		])
 		expect(personChips(undefined, OWNER)).toEqual([])
+	})
+
+	it('shortens a list to its local part, with its member count when known', () => {
+		const lists = [PM_LEADS, { email: 'eng-all@vercel.com' }, { email: 'design@vercel.com' }, GRACE]
+		expect(
+			personChips(lists, OWNER, {
+				listId: 'Design.Vercel.com',
+				listSizes: { 'pm-leads@vercel.com': 12.4, 'grace@vercel.com': 3 },
+			}),
+		).toEqual([
+			{ person: person(PM_LEADS), label: 'pm-leads@', isList: true, count: 12 },
+			{ person: person({ email: 'eng-all@vercel.com' }), label: 'eng-all@', isList: true },
+			{ person: person({ email: 'design@vercel.com' }), label: 'design@', isList: true },
+			{ person: person(GRACE), label: 'Grace Hopper', isList: true, count: 3 },
+		])
+	})
+
+	it('ignores list sizes that are not counts, and never marks the owner as a list', () => {
+		expect(
+			personChips([PM_LEADS, ADA], OWNER, {
+				listSizes: { 'pm-leads@vercel.com': 0, 'ada@ownmail.com': 4 },
+			}),
+		).toEqual([
+			{ person: person(PM_LEADS), label: 'pm-leads@vercel.com', isList: false },
+			{ person: person(ADA, true), label: 'You', isList: false },
+		])
+		expect(personChips([PM_LEADS], OWNER, { listSizes: { 'pm-leads@vercel.com': Number.NaN } })).toEqual([
+			{ person: person(PM_LEADS), label: 'pm-leads@vercel.com', isList: false },
+		])
 	})
 })
 
