@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type PointerEvent, useRef } from 'react'
+import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
 import {
 	READING_PANE_LIST_HEIGHT_RANGE,
 	READING_PANE_LIST_WIDTH_RANGE,
@@ -32,6 +32,29 @@ type Panes = {
 
 type Drag = Panes & { pointerId: number; previous: string; moved: boolean }
 
+/** The panes around a handle; null until it sits after a list inside a container. */
+function measurePanes(root: HTMLElement | null, vertical: boolean): Panes | null {
+	const container = root?.parentElement
+	const list = root?.previousElementSibling
+	if (!container || !(list instanceof HTMLElement)) return null
+	const panes = container.getBoundingClientRect()
+	const listRect = list.getBoundingClientRect()
+	return {
+		container,
+		list,
+		panes: vertical ? panes.width : panes.height,
+		extent: vertical ? listRect.width : listRect.height,
+		start: vertical ? listRect.left : listRect.top,
+	}
+}
+
+/** The list size as laid out, in the separator's units; null while it is not laid out. */
+function laidOutSize(root: HTMLElement | null, vertical: boolean): number | null {
+	const panes = measurePanes(root, vertical)
+	if (!panes || panes.extent <= 0 || panes.panes <= 0) return null
+	return Math.round(vertical ? panes.extent : (panes.extent / panes.panes) * 100)
+}
+
 /**
  * The handle between the mail list and the reader in a split layout. It sits
  * between the two panes inside the layout container: dragging (or the arrow
@@ -46,26 +69,19 @@ export function ReadingPaneDivider() {
 	const [preferences, savePreferences] = useUserPreferences()
 	const rootRef = useRef<HTMLDivElement>(null)
 	const dragRef = useRef<Drag | null>(null)
+	// Screen readers hear the size as laid out: the Condensed default, the root
+	// font size and the cap that keeps the reader's room all change it.
+	const [laidOut, setLaidOut] = useState<number | null>(null)
+	const measuresWidth = preferences.readingPane === 'vertical'
+	useLayoutEffect(() => {
+		setLaidOut(laidOutSize(rootRef.current, measuresWidth))
+	})
 	if (preferences.readingPane === 'none') return null
 	const pane: SplitPane = preferences.readingPane
 	const property = READING_PANE_SIZE_PROPERTY[pane]
 	const vertical = pane === 'vertical'
 
-	/** The panes around the handle; null until it sits after a list inside a container. */
-	function measure(): Panes | null {
-		const container = rootRef.current?.parentElement
-		const list = rootRef.current?.previousElementSibling
-		if (!container || !(list instanceof HTMLElement)) return null
-		const panes = container.getBoundingClientRect()
-		const listRect = list.getBoundingClientRect()
-		return {
-			container,
-			list,
-			panes: vertical ? panes.width : panes.height,
-			extent: vertical ? listRect.width : listRect.height,
-			start: vertical ? listRect.left : listRect.top,
-		}
-	}
+	const measure = () => measurePanes(rootRef.current, vertical)
 
 	function apply(resize: ReadingPaneResize) {
 		if (resize.kind === 'collapse') savePreferences({ ...preferences, readingPane: 'none' })
@@ -143,9 +159,11 @@ export function ReadingPaneDivider() {
 	}
 
 	const range = vertical ? READING_PANE_LIST_WIDTH_RANGE : READING_PANE_LIST_HEIGHT_RANGE
-	const value = vertical
-		? (preferences.readingPaneListWidth ?? DEFAULT_LIST_WIDTH_PX)
-		: (preferences.readingPaneListHeight ?? DEFAULT_LIST_HEIGHT_PERCENT)
+	const value =
+		laidOut ??
+		(vertical
+			? (preferences.readingPaneListWidth ?? DEFAULT_LIST_WIDTH_PX)
+			: (preferences.readingPaneListHeight ?? DEFAULT_LIST_HEIGHT_PERCENT))
 
 	return (
 		<div
@@ -169,6 +187,7 @@ export function ReadingPaneDivider() {
 				onPointerUp={(event) => endDrag(event, true)}
 				onPointerCancel={(event) => endDrag(event, false)}
 				onDoubleClick={resetSize}
+				onFocus={() => setLaidOut(laidOutSize(rootRef.current, vertical))}
 				onKeyDown={onKeyDown}
 				className={cn(
 					'absolute touch-none transition-colors hover:bg-ring/30 focus-visible:bg-ring/50 focus-visible:outline-none data-[dragging]:bg-ring/50',

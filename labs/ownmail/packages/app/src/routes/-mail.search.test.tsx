@@ -405,7 +405,11 @@ describe('/mail/search results list', () => {
 		// No conversation selected -> the reader shows the empty prompt.
 		expect(screen.getByText('Select a conversation')).toBeTruthy()
 		const listPane = screen.getByRole('heading', { level: 1 }).closest('section')
-		expect(listPane).toHaveClass('flex', 'xl:w-[var(--mail-list-width,22rem)]', 'xl:flex-none')
+		expect(listPane).toHaveClass(
+			'flex',
+			'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+			'xl:flex-none',
+		)
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})

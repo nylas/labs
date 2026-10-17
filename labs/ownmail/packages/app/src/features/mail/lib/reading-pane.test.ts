@@ -35,7 +35,7 @@ describe('readingPaneLayout', () => {
 	it('places the list beside the reader for a vertical split', () => {
 		const layout = readingPaneLayout('vertical', true)
 		expect(classes(layout.list)).toEqual(
-			expect.arrayContaining(['xl:flex', 'xl:w-[var(--mail-list-width,22rem)]']),
+			expect.arrayContaining(['xl:flex', 'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]']),
 		)
 		expect(layout.container).not.toContain('xl:flex-col')
 		expect(layout.wideBackControl).toBe(false)
@@ -48,8 +48,8 @@ describe('readingPaneLayout', () => {
 		expect(vertical).toEqual(
 			expect.arrayContaining([
 				'mail-list-vertical',
-				'xl:w-[var(--mail-list-width,22rem)]',
-				'xl:max-w-[var(--mail-list-width,22rem)]',
+				'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+				'xl:max-w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
 			]),
 		)
 		expect(readingPaneLayout('vertical', true).list).not.toContain('26rem')
@@ -63,7 +63,11 @@ describe('readingPaneLayout', () => {
 		const layout = readingPaneLayout('horizontal', true)
 		expect(classes(layout.container)).toContain('xl:flex-col')
 		expect(classes(layout.list)).toEqual(
-			expect.arrayContaining(['xl:flex', 'xl:h-[var(--mail-list-height,40%)]', 'xl:w-full']),
+			expect.arrayContaining([
+				'xl:flex',
+				'xl:h-[min(var(--mail-list-height,40%),calc(100%_-_160px))]',
+				'xl:w-full',
+			]),
 		)
 		expect(layout.wideBackControl).toBe(false)
 	})

@@ -27,6 +27,8 @@ export type ReadingPaneLayout = {
  *
  * A dragged size arrives as a custom property on the container (see
  * `readingPaneSizeStyle`); without one, each split keeps its default size.
+ * Either way the list is capped against the current panes so the reader
+ * keeps `READER_MIN_PX` when a size saved in a larger window is restored.
  */
 export function readingPaneLayout(pane: ReadingPane, threadOpen: boolean): ReadingPaneLayout {
 	// `relative`: the list pane is the containing block of its pinned toolbar.
@@ -42,8 +44,8 @@ export function readingPaneLayout(pane: ReadingPane, threadOpen: boolean): Readi
 	}
 	const split =
 		pane === 'horizontal'
-			? 'xl:h-[var(--mail-list-height,40%)] xl:w-full xl:flex-none xl:border-b xl:border-border'
-			: 'mail-list-vertical border-r border-border xl:w-[var(--mail-list-width,22rem)] xl:max-w-[var(--mail-list-width,22rem)] xl:flex-none'
+			? 'xl:h-[min(var(--mail-list-height,40%),calc(100%_-_160px))] xl:w-full xl:flex-none xl:border-b xl:border-border'
+			: 'mail-list-vertical border-r border-border xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))] xl:max-w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))] xl:flex-none'
 	return {
 		container: `flex min-h-0 min-w-0 flex-1${pane === 'horizontal' ? ' xl:flex-col' : ''}`,
 		list: `${listBase} ${split} ${threadOpen ? 'hidden xl:flex' : 'flex'}`,
@@ -75,7 +77,7 @@ export function readingPaneSizeStyle(
 /** A list dragged thinner than this many pixels asks for no split at all. */
 export const READING_PANE_COLLAPSE_PX = 96
 
-/** The room a drag always leaves the conversation, in pixels. */
+/** The room the conversation always keeps, in pixels; the layout classes repeat these values. */
 const READER_MIN_PX = { vertical: 360, horizontal: 160 } as const
 
 export type SplitPane = Exclude<ReadingPane, 'none'>

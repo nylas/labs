@@ -70,8 +70,9 @@ describe('ReadingPaneDivider', () => {
 		expect(screen.queryByRole('separator')).toBeNull()
 	})
 
-	it('is a focusable separator that reports the list size, shown only where panes split', () => {
-		const { handle } = renderPanes()
+	it('is a focusable separator that reports the saved size until the list is laid out', () => {
+		render(<ReadingPaneDivider />)
+		const handle = screen.getByRole('separator')
 		expect(handle).toHaveAccessibleName('Resize conversation list')
 		expect(handle).toHaveAttribute('tabindex', '0')
 		expect(handle).toHaveAttribute('aria-orientation', 'vertical')
@@ -91,6 +92,33 @@ describe('ReadingPaneDivider', () => {
 		expect(horizontal).toHaveClass('cursor-row-resize')
 		savePreferences({ readingPane: 'horizontal', readingPaneListHeight: 60 })
 		expect(horizontal).toHaveAttribute('aria-valuenow', '60')
+	})
+
+	it('reports the list size as laid out, re-measured on focus', () => {
+		// The Condensed default (26rem) and the reader's reserved room both change the real width.
+		const sizes = new Map<string, Partial<DOMRect>>([
+			['panes', { width: 1200, height: 800 }],
+			['list', { width: 416, height: 320 }],
+		])
+		vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+			return rect(sizes.get(this.dataset.testid ?? '') ?? {})
+		})
+		render(
+			<div data-testid="panes">
+				<section data-testid="list" />
+				<ReadingPaneDivider />
+			</div>,
+		)
+		const handle = screen.getByRole('separator')
+		expect(handle).toHaveAttribute('aria-valuenow', '416')
+
+		sizes.set('list', { width: 500, height: 320 })
+		fireEvent.focus(handle)
+		expect(handle).toHaveAttribute('aria-valuenow', '500')
+
+		savePreferences({ readingPane: 'horizontal' })
+		expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '40')
+		expect(screen.getByRole('separator')).toHaveAttribute('aria-valuetext', '40% of the height')
 	})
 
 	it('resizes the list live while dragging and saves the size once released', () => {

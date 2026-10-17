@@ -508,7 +508,11 @@ describe('MailFolderRouteScreen — thread list', () => {
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
 		)
 		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
-		expect(listPane).toHaveClass('flex', 'xl:w-[var(--mail-list-width,22rem)]', 'xl:flex-none')
+		expect(listPane).toHaveClass(
+			'flex',
+			'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+			'xl:flex-none',
+		)
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByLabelText('Inbox thread list')).toHaveAttribute('data-slot', 'scroll-area-viewport')
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
@@ -1156,7 +1160,7 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		try {
 			render(screenFor())
 			expect(listSection()).toHaveAttribute('data-density', 'default')
-			expect(listSection()).toHaveClass('xl:w-[var(--mail-list-width,22rem)]')
+			expect(listSection()).toHaveClass('xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]')
 
 			await userEvent.click(screen.getByRole('button', { name: 'List density: Default' }))
 			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Condensed' }))
@@ -1164,7 +1168,10 @@ describe('MailFolderRouteScreen — reading pane', () => {
 			await waitFor(() => expect(listSection()).toHaveAttribute('data-density', 'condensed'))
 			// The choice only changes the attribute: the wider Condensed list is CSS keyed on it
 			// (fine pointers only), so touch layouts keep the 22rem list.
-			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[var(--mail-list-width,22rem)]')
+			expect(listSection()).toHaveClass(
+				'mail-list-vertical',
+				'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+			)
 			expect(listSection().className).not.toContain('26rem')
 			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
 				'condensed',
@@ -1217,7 +1224,7 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		routerState = openOn('t1')
 		render(screenFor())
 		await waitFor(() => expect(listSection().parentElement).toHaveClass('xl:flex-col'))
-		expect(listSection()).toHaveClass('xl:h-[var(--mail-list-height,40%)]')
+		expect(listSection()).toHaveClass('xl:h-[min(var(--mail-list-height,40%),calc(100%_-_160px))]')
 	})
 
 	it('resizes the list from the divider and switches to no split when it is dragged to near zero', async () => {
