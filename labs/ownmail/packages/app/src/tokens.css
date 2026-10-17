@@ -344,3 +344,55 @@
 	--file-doc-fg: oklch(0.84 0.07 250);
 	--file-image: oklch(0.32 0.04 250);
 }
+
+/* Body edge states (design.md "Edge states"): the amber ground of the reply-all
+ * guard (the same warning ground as message notices), the danger tint of a
+ * draft and a failed send, the quiet text action, and the file-type tiles of
+ * attachment chips. Text on each ground keeps 4.5:1 in both themes. */
+@theme inline {
+	--color-notice-warning: var(--notice-warning);
+	--color-notice-warning-line: var(--notice-warning-line);
+	--color-notice-warning-foreground: var(--notice-warning-fg);
+	--color-danger-soft: var(--danger-soft);
+	--color-danger-soft-foreground: var(--danger-soft-fg);
+	--color-quiet-foreground: var(--quiet-fg);
+	--color-file-pdf: var(--file-pdf);
+	--color-file-pdf-foreground: var(--file-pdf-fg);
+	--color-file-sheet: var(--file-sheet);
+	--color-file-sheet-foreground: var(--file-sheet-fg);
+	--color-file-doc: var(--file-doc);
+	--color-file-doc-foreground: var(--file-doc-fg);
+	--color-file-image: var(--file-image);
+}
+
+:root {
+	--notice-warning: oklch(0.97 0.025 75);
+	--notice-warning-line: oklch(0.85 0.06 75);
+	--notice-warning-fg: oklch(0.32 0.06 60);
+	--danger-soft: oklch(0.96 0.03 25);
+	--danger-soft-fg: oklch(0.48 0.17 25);
+	--quiet-fg: oklch(0.4 0.01 165);
+	--file-pdf: oklch(0.94 0.04 25);
+	--file-pdf-fg: oklch(0.45 0.15 25);
+	--file-sheet: oklch(0.93 0.05 150);
+	--file-sheet-fg: oklch(0.4 0.1 150);
+	--file-doc: oklch(0.93 0.03 250);
+	--file-doc-fg: oklch(0.4 0.1 250);
+	--file-image: oklch(0.9 0.03 250);
+}
+
+.dark {
+	--notice-warning: oklch(0.24 0.035 75);
+	--notice-warning-line: oklch(0.42 0.06 75);
+	--notice-warning-fg: oklch(0.88 0.07 80);
+	--danger-soft: oklch(0.27 0.06 25);
+	--danger-soft-fg: oklch(0.82 0.1 25);
+	--quiet-fg: oklch(0.82 0.008 155);
+	--file-pdf: oklch(0.3 0.06 25);
+	--file-pdf-fg: oklch(0.84 0.09 25);
+	--file-sheet: oklch(0.3 0.05 150);
+	--file-sheet-fg: oklch(0.85 0.09 150);
+	--file-doc: oklch(0.3 0.04 250);
+	--file-doc-fg: oklch(0.84 0.07 250);
+	--file-image: oklch(0.32 0.04 250);
+}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>OwnMail held images browser fixture</title>
+	</head>
+	<body>
+		<ownmail-email></ownmail-email>
+		<script type="module">
+			import { installEdgeState } from '../lib/held-images.ts'
+			import { ensureEmailElementDefined } from './email-content-element.ts'
+
+			ensureEmailElementDefined()
+			window.installEdgeState = installEdgeState
+			document.documentElement.dataset.emailElementReady = 'true'
+		</script>
+	</body>
+</html>

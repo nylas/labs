@@ -7,7 +7,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { markdownToDraftBody } from '#features/mail/lib/html-to-markdown'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
-import type { MailDraft } from '#features/mail/state/mail-queries'
+import { type MailDraft, mailKeys } from '#features/mail/state/mail-queries'
 
 // All server calls are mocked so a render never touches the network; tests assert
 // the right fn is called with the right payload.
@@ -123,15 +123,17 @@ function fieldsSeed(fields: { to?: string; subject?: string; body?: string; repl
 function renderWindow({
 	seed = { kind: 'new' },
 	inlineSlot,
+	client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
 }: {
 	seed?: ComposeSeed
 	inlineSlot?: HTMLElement | null
+	client?: QueryClient
 } = {}) {
 	const onClosed = vi.fn()
 	const onSent = vi.fn()
 	const handle = createRef<ComposeWindowHandle>()
 	const view = render(
-		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+		<QueryClientProvider client={client}>
 			<ComposeWindow
 				seed={seed}
 				inlineSlot={inlineSlot}
@@ -1815,5 +1817,51 @@ describe('ComposeWindow reliable autosave', () => {
 		})
 		expect(onClosed).toHaveBeenCalledOnce()
 		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('typed@example.com')
+	})
+})
+
+describe('ComposeWindow reply-all guard', () => {
+	const crowd = (count: number) =>
+		[
+			'alan.turing@bletchley.dev',
+			...Array.from({ length: count - 1 }, (_, index) => `person${index}@vercel.com`),
+		].join(', ')
+
+	it('asks once before a reply reaches more than 25 people and offers the smaller reply first', () => {
+		renderWindow({
+			seed: fieldsSeed({ to: crowd(240), subject: 'Re: Staging freeze', replyToMessageId: 'm1' }),
+		})
+		expect(screen.getByRole('note')).toHaveTextContent('Reply all will reach 240 people.')
+		fireEvent.click(screen.getByRole('button', { name: 'Reply to Alan only' }))
+		expect(screen.getByLabelText('To')).toHaveValue('alan.turing@bletchley.dev')
+		expect(screen.queryByRole('note')).toBeNull()
+	})
+
+	it('names the person as the thread knows them, not by their address', () => {
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const to = ['aturing@bletchley.dev', ...Array.from({ length: 30 }, (_, index) => `p${index}@x.com`)].join(
+			', ',
+		)
+		client.setQueryData(mailKeys.threadDetail('t1'), {
+			thread: { id: 't1' },
+			messages: [
+				{ id: 'm0', from: [{ name: '', email: 'aturing@bletchley.dev' }] },
+				{ id: 'm1', from: [{ name: 'Alan Turing', email: 'ATuring@bletchley.dev' }] },
+			],
+			mailboxEmail: 'ada@ownmail.com',
+		})
+		client.setQueryData(mailKeys.threadDetail('t2'), undefined)
+		renderWindow({ client, seed: fieldsSeed({ to, subject: 'Re: Staging', replyToMessageId: 'm1' }) })
+		expect(screen.getByRole('button', { name: 'Reply to Alan only' })).toBeInTheDocument()
+	})
+
+	it('says nothing for a small reply or a new message to a crowd', () => {
+		const view = renderWindow({
+			seed: fieldsSeed({ to: crowd(25), subject: 'Re: Hi', replyToMessageId: 'm1' }),
+		})
+		expect(screen.queryByRole('note')).toBeNull()
+		view.unmount()
+		renderWindow({ seed: fieldsSeed({ to: crowd(40), subject: 'Hello all' }) })
+		expect(screen.queryByRole('note')).toBeNull()
 	})
 })

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_CANVAS_EVENT, EMAIL_ELEMENT_TAG } from '../lib/email-render.js'
 import { markdownToDraftBody } from '../lib/html-to-markdown.js'
@@ -67,7 +68,19 @@ describe('MessageBody (plain text)', () => {
 		expect(container.firstChild).toBeNull()
 	})
 
-	it('collapses recognized plaintext reply history behind an accessible disclosure', () => {
+	it('drops a stray space before a body’s first word', () => {
+		render(<MessageBody message={message({ id: 'm4-indent', body: '\n  Hi Ada,\n\nThanks' })} />)
+		expect(screen.getByText('Hi Ada,').tagName).toBe('P')
+	})
+
+	it('falls back to the provider snippet, trimmed', () => {
+		render(
+			<MessageBody message={message({ id: 'm4-snippet', body: '', snippet: '\r\n   Snippet words  ' })} />,
+		)
+		expect(screen.getByText('Snippet words').tagName).toBe('P')
+	})
+
+	it('collapses recognized plaintext reply history behind an accessible disclosure', async () => {
 		render(
 			<MessageBody
 				message={message({
@@ -77,10 +90,13 @@ describe('MessageBody (plain text)', () => {
 			/>,
 		)
 
-		const disclosure = screen.getByText('Show quoted text').closest('details')
+		const pill = screen.getByRole('button', { name: 'Quoted: 1 earlier message' })
 		expect(screen.getByText('Current answer')).toBeInTheDocument()
-		expect(disclosure).not.toHaveAttribute('open')
-		expect(disclosure).toHaveTextContent('> Earlier line')
+		expect(pill).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByText(/Earlier line/)).toBeNull()
+		await userEvent.click(pill)
+		expect(screen.getByText('Sam, Friday')).toBeInTheDocument()
+		expect(screen.getByText('Earlier line Another line')).toBeInTheDocument()
 	})
 
 	it('does not hide an arbitrary plaintext quote', () => {
@@ -88,7 +104,7 @@ describe('MessageBody (plain text)', () => {
 			<MessageBody message={message({ id: 'm-visible-quote', body: 'A thought:\n> Keep this visible' })} />,
 		)
 
-		expect(screen.queryByText('Show quoted text')).toBeNull()
+		expect(screen.queryByRole('button', { name: /Quoted/ })).toBeNull()
 		expect(screen.getByText(/Keep this visible/)).toBeInTheDocument()
 	})
 
@@ -99,7 +115,7 @@ describe('MessageBody (plain text)', () => {
 			/>,
 		)
 
-		expect(screen.getByText('Show quoted text')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Quoted: 1 earlier message' })).toBeInTheDocument()
 		expect(document.querySelector('[data-slot="plain-email-prose"] > p')).toBeNull()
 	})
 })
@@ -275,7 +291,9 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
 
 		expect(root?.querySelector('img')).not.toHaveAttribute('src')
-		expect(root?.querySelector('[role="img"]')).toHaveTextContent('Missing signature')
+		expect(root?.querySelector('[role="img"]:not([data-ownmail-held-image])')).toHaveTextContent(
+			'Missing signature',
+		)
 		expect(root?.innerHTML).not.toContain('cid:')
 
 		view.rerender(
@@ -373,5 +391,170 @@ describe('MessageBody (canvas band)', () => {
 		expect(band).toHaveClass('py-3')
 		expect(band).not.toHaveClass('py-6')
 		expect(band).toHaveAttribute('data-email-strategy', 'paper')
+	})
+})
+
+describe('MessageBody (edge states)', () => {
+	it('reflows hard-wrapped plain text, sets each paragraph’s direction and keeps code as written', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'm-release',
+					body: [
+						'The release went out at 6 and the rollback plan is in the doc. Ping me',
+						'if staging looks off tonight.',
+						'',
+						'شكراً، سأراجع المستند صباح الغد.',
+						'',
+						'    git checkout release/3.2',
+					].join('\n'),
+				})}
+				bodyFontSize={17}
+			/>,
+		)
+		const paragraph = screen.getByText(
+			'The release went out at 6 and the rollback plan is in the doc. Ping me if staging looks off tonight.',
+		)
+		expect(paragraph).toHaveAttribute('dir', 'auto')
+		expect(paragraph).toHaveClass('text-[17px]', 'leading-[1.55]')
+		expect(screen.getByText('شكراً، سأراجع المستند صباح الغد.')).toHaveAttribute('dir', 'auto')
+		const code = screen.getByText('git checkout release/3.2')
+		expect(code.tagName).toBe('PRE')
+		expect(code).toHaveClass('font-mono', 'bg-muted', 'whitespace-pre')
+	})
+
+	it('keys repeated plain-text paragraphs apart', () => {
+		const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+		render(<MessageBody message={message({ id: 'm-repeat', body: 'Same words.\n\nSame words.' })} />)
+		expect(screen.getAllByText('Same words.')).toHaveLength(2)
+		expect(errors).not.toHaveBeenCalled()
+		errors.mockRestore()
+	})
+
+	it('folds a plain-text signature behind its pill', async () => {
+		render(<MessageBody message={message({ id: 'm-sig', body: 'See you then.\n-- \nGrace Hopper' })} />)
+		expect(screen.queryByText('Grace Hopper')).toBeNull()
+		await userEvent.click(screen.getByRole('button', { name: 'Signature' }))
+		expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
+	})
+
+	it('takes HTML history and signature off the rendered email and shows them behind one pill', async () => {
+		const onGoToQuoted = vi.fn()
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-12',
+					subject: 'Re: Q3 roadmap',
+					from: [{ name: 'Alan Turing', email: 'alan@x.com' }],
+					body: '<div><p>Otherwise this is ready.</p><div class="gmail_signature">Alan Turing<br>Principal Engineer</div></div><div class="gmail_quote"><div class="gmail_attr">On Tue, Oct 13, 2026 at 6:02 PM Grace Hopper &lt;grace@x.com&gt; wrote:<br></div><blockquote class="gmail_quote"><p>Here is v3.</p></blockquote></div>',
+				})}
+				onGoToQuoted={onGoToQuoted}
+			/>,
+		)
+		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
+		expect(root?.textContent).toContain('Otherwise this is ready.')
+		expect(root?.querySelector('details')).toBeNull()
+		expect(root?.textContent).not.toContain('Principal Engineer')
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted text and signature' }))
+		expect(screen.getByText('Here is v3.')).toBeInTheDocument()
+		await userEvent.click(screen.getByRole('button', { name: 'Go to Grace’s message' }))
+		expect(onGoToQuoted).toHaveBeenCalledWith(
+			expect.objectContaining({ name: 'Grace Hopper', email: 'grace@x.com' }),
+		)
+	})
+
+	it('keeps the pills of designed mail on the phone gutter', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'm-designed-sig',
+					body: '<table width="640"><tr><td>Designed</td></tr></table><div class="gmail_signature">Figma</div>',
+				})}
+			/>,
+		)
+		expect(screen.getByRole('button', { name: 'Signature' }).closest('.px-4')).not.toBeNull()
+	})
+
+	it('passes disabled links and the phone body size to the HTML renderer', () => {
+		render(
+			<MessageBody
+				message={message({ id: 'm-links', body: '<p><a href="https://example.com">Confirm</a></p>' })}
+				linksDisabled
+				bodyFontSize={17}
+			/>,
+		)
+		const element = document.querySelector(EMAIL_ELEMENT_TAG) as HTMLElement
+		expect(element.style.fontSize).toBe('17px')
+		expect(element.shadowRoot?.querySelector('style[data-ownmail-edge-style]')?.textContent).toContain(
+			'a{cursor:default!important;',
+		)
+		// The destination never reaches the rendered message.
+		const link = element.shadowRoot?.querySelector('a') as HTMLElement
+		expect(link).not.toHaveAttribute('href')
+		expect(link).toHaveTextContent('Confirm')
+	})
+
+	it('keeps a code line inside a prose paragraph as code, and a body’s first indent', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'm-code',
+					body: '    npm ci\n\nRun this:\n    npm install\n    npm test\nthen done.',
+				})}
+			/>,
+		)
+		expect(screen.getByText('npm ci').tagName).toBe('PRE')
+		expect(screen.getByText('Run this:').tagName).toBe('P')
+		expect(screen.getByText(/npm install/)).toHaveTextContent('npm install npm test')
+		expect(screen.getByText(/npm install/).tagName).toBe('PRE')
+		expect(screen.getByText('then done.').tagName).toBe('P')
+	})
+
+	it('sets plain prose in the body colour', () => {
+		render(<MessageBody message={message({ id: 'm-colour', body: 'Hello there.' })} />)
+		expect(screen.getByText('Hello there.')).toHaveClass('text-secondary-foreground')
+	})
+
+	it('shows an HTML history’s original, with its links and images, through the renderer', async () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-original',
+					body: '<p>Thanks!</p><div class="gmail_quote"><div class="gmail_attr">On Tue, Oct 13, 2026 at 6:02 PM Grace Hopper &lt;grace@x.com&gt; wrote:<br></div><blockquote class="gmail_quote"><p>See <a href="https://example.com/plan">the plan</a>.</p></blockquote></div>',
+				})}
+				linksDisabled
+			/>,
+		)
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted: 1 earlier message' }))
+		expect(document.querySelectorAll(EMAIL_ELEMENT_TAG)).toHaveLength(1)
+		await userEvent.click(screen.getByRole('button', { name: 'Show original' }))
+		const elements = document.querySelectorAll(EMAIL_ELEMENT_TAG)
+		expect(elements).toHaveLength(2)
+		const original = elements[1] as HTMLElement
+		expect(original).toHaveAttribute('data-message-id', 'msg-original:quoted')
+		const link = original.shadowRoot?.querySelector('a') as HTMLElement
+		expect(link).toHaveTextContent('the plan')
+		// The original keeps the message's inert-link rule.
+		expect(link).not.toHaveAttribute('href')
+		await userEvent.click(screen.getByRole('button', { name: 'Hide original' }))
+		expect(document.querySelectorAll(EMAIL_ELEMENT_TAG)).toHaveLength(1)
+	})
+
+	it('renders a signature with links as sent', async () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-sig-link',
+					body: '<p>Talk soon.</p><div class="gmail_signature">Grace Hopper<br><a href="https://cal.example.com/grace">Book a time</a></div>',
+				})}
+			/>,
+		)
+		await userEvent.click(screen.getByRole('button', { name: 'Signature' }))
+		const elements = document.querySelectorAll(EMAIL_ELEMENT_TAG)
+		expect(elements).toHaveLength(2)
+		expect((elements[1] as HTMLElement).shadowRoot?.querySelector('a')).toHaveAttribute(
+			'href',
+			'https://cal.example.com/grace',
+		)
 	})
 })
