@@ -39,6 +39,29 @@ describe('AttachmentChip', () => {
 	})
 })
 
+describe('AttachmentChip compact', () => {
+	it('is the quiet 28px paperclip chip under an empty body, the whole chip the download', () => {
+		render(
+			<AttachmentChip
+				compact
+				messageId="m/1"
+				attachment={{ id: 'a 1', filename: 'contract-signed.pdf', size: 2048 }}
+			/>,
+		)
+		const chip = screen.getByRole('link', { name: 'contract-signed.pdf' })
+		expect(chip).toHaveClass('h-7', 'rounded-md', 'border', 'text-[13px]')
+		expect(chip).toHaveAttribute('href', '/attachments/a%201?message_id=m%2F1')
+		expect(chip).toHaveAttribute('download', 'contract-signed.pdf')
+		expect(chip).toHaveAttribute('title', 'Download contract-signed.pdf (2 KB)')
+		expect(screen.queryByText('PDF')).toBeNull()
+	})
+
+	it('names an unnamed, sizeless file', () => {
+		render(<AttachmentChip compact messageId="m" attachment={{ id: 'a' }} />)
+		expect(screen.getByRole('link', { name: 'attachment' })).toHaveAttribute('title', 'Download attachment')
+	})
+})
+
 describe('fileKind', () => {
 	it('colours PDF, sheet, document and image tiles and labels other files by extension', () => {
 		expect(fileKind({ filename: 'a.PDF' }).label).toBe('PDF')

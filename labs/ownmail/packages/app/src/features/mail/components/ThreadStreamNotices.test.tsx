@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
-import type { MailMessage, MailThread } from '../state/mail-queries.js'
+import { type MailMessage, type MailThread, mailKeys } from '../state/mail-queries.js'
 
 const { getThreads } = vi.hoisted(() => ({ getThreads: vi.fn() }))
 vi.mock('#server/fns', () => ({ getThreads: (...args: unknown[]) => getThreads(...args) }))
@@ -32,7 +32,7 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }))
 
-const { ThreadStreamNotices, findSideThread, sideThreadText, subjectSearch } = await import(
+const { ThreadStreamNotices, findSideThread, sideThreadKey, sideThreadText, subjectSearch } = await import(
 	'./ThreadStreamNotices.js'
 )
 
@@ -60,8 +60,10 @@ const side = {
 	folders: ['inbox'],
 } as MailThread
 
-function renderNotices(props: Partial<Parameters<typeof ThreadStreamNotices>[0]> = {}) {
-	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function renderNotices(
+	props: Partial<Parameters<typeof ThreadStreamNotices>[0]> = {},
+	queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
 	return render(
 		<QueryClientProvider client={queryClient}>
 			<ThreadStreamNotices
@@ -112,6 +114,26 @@ describe('ThreadStreamNotices', () => {
 		const link = await screen.findByRole('link', { name: 'Open' })
 		expect(link).toHaveAttribute('href', '/mail/f/inbox/t/t2')
 		expect(screen.getByText('Alan started a side thread with Grace')).toBeInTheDocument()
+	})
+
+	it('keeps looking while mail writes cancel and refetch everything under the mail root', async () => {
+		let answer: (value: { threads: MailThread[] }) => void = () => {}
+		getThreads.mockImplementation(() => new Promise((resolve) => (answer = resolve)))
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		renderNotices({}, queryClient)
+		await waitFor(() => expect(getThreads).toHaveBeenCalledOnce())
+		// What mail-cache does when the thread is marked read as it opens.
+		await queryClient.cancelQueries({ queryKey: mailKeys.all })
+		await queryClient.invalidateQueries({ queryKey: mailKeys.all, refetchType: 'active' })
+		answer({ threads: [side] })
+		expect(await screen.findByRole('link', { name: 'Open' })).toBeInTheDocument()
+		expect(getThreads).toHaveBeenCalledOnce()
+		expect(sideThreadKey('t1', 'Offsite venue shortlist')).toEqual([
+			'mail-side-thread',
+			OWNER,
+			't1',
+			'Offsite venue shortlist',
+		])
 	})
 
 	it('does not look up a thread with no subject or no messages', () => {

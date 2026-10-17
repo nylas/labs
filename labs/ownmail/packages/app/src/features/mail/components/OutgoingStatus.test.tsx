@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MailMessage } from '../state/mail-queries.js'
 import { OutgoingStatus } from './OutgoingStatus.js'
@@ -55,6 +56,22 @@ describe('OutgoingStatus', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 		expect(actions.onSendNow).toHaveBeenCalledOnce()
 		expect(actions.onCancelSchedule).toHaveBeenCalledOnce()
+	})
+
+	it('offers Send now and Cancel only when the caller can act on them', () => {
+		const scheduled = { ...sent, send_at: MONDAY_NINE } as MailMessage
+		render(<OutgoingStatus message={scheduled} onEditResend={vi.fn()} now={NOW} tz="UTC" />)
+		expect(screen.getByRole('note')).toHaveTextContent('Sends Mon 9:00 AM')
+		expect(screen.queryByRole('button', { name: 'Send now' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+	})
+
+	it('leaves the zone-dependent send time out of the server render', () => {
+		const scheduled = { ...sent, send_at: MONDAY_NINE } as MailMessage
+		const html = renderToString(<OutgoingStatus message={scheduled} {...handlers()} now={NOW} tz="UTC" />)
+		expect(html).toContain('Sends')
+		expect(html).not.toContain('9:00')
+		expect(html).not.toContain('Mon')
 	})
 
 	it('separates a bounce from a schedule when a message has both', () => {

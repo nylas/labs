@@ -11,7 +11,8 @@ import {
 	LINK_PREVIEW_EVENT,
 } from '../lib/email-render.js'
 import { forgetRememberedEmails, rememberEmail, renderedEmailKey } from '../lib/email-render-memory.js'
-import { blockedImageCount, EDGE_STYLE_ATTRIBUTE, EmailHtml, edgeShadowStyle } from './EmailHtml.js'
+import { EDGE_STYLE_ATTRIBUTE, HELD_PLACEHOLDER_ATTRIBUTE } from '../lib/held-images.js'
+import { EmailHtml } from './EmailHtml.js'
 
 const { senderImagesTrustedMock, trustSenderImagesMock, openMessageWindowMock } = vi.hoisted(() => ({
 	senderImagesTrustedMock: vi.fn(),
@@ -466,9 +467,16 @@ describe('EmailHtml edge states', () => {
 			<EmailHtml html={blocked} messageId="m-voyage" senderAddress="trips@voyage.com" senderName="Voyage" />,
 		)
 		expect(await screen.findByText('2 images from voyage.com are hidden')).toBeInTheDocument()
-		const style = emailElement().shadowRoot?.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)
-		expect(style?.textContent).toContain('content:attr(alt)')
-		expect(style?.textContent).not.toContain('a[href]{cursor:default')
+		const shadow = emailElement().shadowRoot as ShadowRoot
+		const style = shadow.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)
+		expect(style?.textContent).toContain('repeating-linear-gradient(135deg')
+		expect(style?.textContent).not.toContain('cursor:default')
+		// Each held image keeps its declared box as a labelled placeholder; the pixel gets none.
+		const placeholders = [...shadow.querySelectorAll<HTMLElement>(`[${HELD_PLACEHOLDER_ATTRIBUTE}]`)]
+		expect(placeholders.map((placeholder) => placeholder.textContent)).toEqual(['Lisbon skyline', 'QR'])
+		expect(placeholders[0]).toHaveAttribute('role', 'img')
+		expect(placeholders[0]?.style.getPropertyValue('aspect-ratio')).toBe('600 / 200')
+		expect(placeholders[1]?.style.getPropertyValue('height')).toBe('54px')
 
 		fireEvent.click(screen.getByRole('button', { name: 'Show' }))
 		await waitFor(() => expect(emailElement()).toHaveAttribute('data-load-remote-images'))
@@ -489,6 +497,30 @@ describe('EmailHtml edge states', () => {
 		render(<EmailHtml html={blocked} messageId="m-always-fails" senderAddress="trips@voyage.com" />)
 		fireEvent.click(await screen.findByRole('button', { name: 'Always for voyage.com' }))
 		expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t remember this sender.')
+	})
+
+	it('never offers to trust for good a sender whose links are disabled', async () => {
+		render(
+			<EmailHtml
+				html={blocked}
+				messageId="m-lookalike-images"
+				senderAddress="security@meridian-secure.co"
+				senderName="Meridian Bank"
+				linksDisabled
+			/>,
+		)
+		expect(await screen.findByText('2 images from meridian-secure.co are hidden')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Always/ })).toBeNull()
+	})
+
+	it('puts the placeholders back when the element renders a new document', async () => {
+		render(<EmailHtml html={blocked} messageId="m-rerender" />)
+		const shadow = emailElement().shadowRoot as ShadowRoot
+		expect(shadow.querySelectorAll(`[${HELD_PLACEHOLDER_ATTRIBUTE}]`)).toHaveLength(2)
+		// A layout change re-renders the content root from the stored HTML.
+		emailElement().setAttribute('data-layout-mode', 'original')
+		await waitFor(() => expect(shadow.querySelectorAll(`[${HELD_PLACEHOLDER_ATTRIBUTE}]`)).toHaveLength(2))
 	})
 
 	it('offers only Show without a sender, and nothing when images are always allowed', async () => {
@@ -532,6 +564,7 @@ describe('EmailHtml edge states', () => {
 			{
 				title: 'Config',
 				allowRemoteImages: false,
+				linksDisabled: false,
 			},
 		)
 
@@ -541,6 +574,45 @@ describe('EmailHtml edge states', () => {
 		})
 		expect(screen.queryByText(/Fitted to width/)).toBeNull()
 		expect(emailElement().style.width).toBe('')
+	})
+
+	it('opens the whole message in a window, with inert links kept inert', () => {
+		render(
+			<EmailHtml
+				html="<p>Body only</p>"
+				windowHtml="<p>Body only</p><blockquote>History</blockquote>"
+				messageId="m-window"
+				linksDisabled
+			/>,
+		)
+		act(() => {
+			emailElement().dispatchEvent(fitStatus(0.82))
+		})
+		fireEvent.click(screen.getByRole('button', { name: 'Open in window' }))
+		expect(openMessageWindowMock).toHaveBeenCalledWith('<p>Body only</p><blockquote>History</blockquote>', {
+			title: 'Email',
+			allowRemoteImages: false,
+			linksDisabled: true,
+		})
+	})
+
+	it('never says a layout was fitted while it still pans past the legibility floor', () => {
+		render(<EmailHtml html="<table width='800'><tr><td>Wide</td></tr></table>" messageId="m-floor" />)
+		act(() => {
+			emailElement().dispatchEvent(
+				new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+					detail: {
+						mode: 'original',
+						naturalWidth: 800,
+						containerWidth: 343,
+						scale: 0.8,
+						reflowed: false,
+						needsFit: true,
+					},
+				}),
+			)
+		})
+		expect(screen.queryByText(/Fitted to width/)).toBeNull()
 	})
 
 	it('keeps the bars on the prose gutter for designed mail', () => {
@@ -567,9 +639,12 @@ describe('EmailHtml edge states', () => {
 		)
 		const root = emailElement().shadowRoot as ShadowRoot
 		expect(root.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)?.textContent).toContain(
-			'a[href]{cursor:default!important;}',
+			'a{cursor:default!important;',
 		)
 		const link = root.querySelector('.go') as HTMLElement
+		// No destination survives for a context menu, long press or drag to carry out.
+		expect(link).not.toHaveAttribute('href')
+		expect(link).toHaveTextContent('Confirm')
 		const click = new MouseEvent('click', { bubbles: true, composed: true, cancelable: true })
 		link.dispatchEvent(click)
 		expect(click.defaultPrevented).toBe(true)
@@ -587,25 +662,10 @@ describe('EmailHtml edge states', () => {
 			/>,
 		)
 		expect(root.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)?.textContent).not.toContain('cursor:default')
+		expect(root.querySelector('.go')).toHaveAttribute('href', 'https://meridian-secure.co/verify')
 		const allowed = new MouseEvent('click', { bubbles: true, composed: true, cancelable: true })
 		link.addEventListener('click', (event) => event.preventDefault(), { once: true })
 		;(root.querySelector('.go') as HTMLElement).dispatchEvent(allowed)
 		expect(root.querySelectorAll(`style[${EDGE_STYLE_ATTRIBUTE}]`)).toHaveLength(1)
-	})
-})
-
-describe('edge helpers', () => {
-	it('counts blocked images a reader would have seen, never tracking pixels', () => {
-		const root = document.createElement('div')
-		root.innerHTML =
-			'<div class="email-root"><img alt="a"><img width="600" height="200"><img width="1" height="1"><img width="1"><img src="/email-images/x.y"></div>'
-		expect(blockedImageCount(root)).toBe(3)
-		expect(blockedImageCount(null)).toBe(0)
-	})
-
-	it('holds blocked images at their declared size, and adds the inert-link rule only when asked', () => {
-		expect(edgeShadowStyle(false)).toContain('repeating-linear-gradient(135deg')
-		expect(edgeShadowStyle(false)).not.toContain('cursor:default')
-		expect(edgeShadowStyle(true)).toContain(':host .email-root a[href]{cursor:default!important;}')
 	})
 })

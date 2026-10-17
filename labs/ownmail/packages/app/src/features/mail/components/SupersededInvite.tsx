@@ -1,4 +1,4 @@
-import { CalendarDays } from 'lucide-react'
+import { Calendar } from 'lucide-react'
 import type { MailMessage } from '../state/mail-queries.js'
 import { EDGE_LINK_CLASS } from './edge-actions.js'
 
@@ -29,7 +29,7 @@ export function SupersededInviteNote({
 			data-slot="superseded-invite"
 			className="m-0 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground"
 		>
-			<CalendarDays aria-hidden="true" className="size-3.5 shrink-0" />
+			<Calendar aria-hidden="true" className="size-3.5 shrink-0" />
 			<span className="min-w-0 truncate">
 				{title ? `Earlier version of “${title}”` : 'Earlier version of this invitation'}
 			</span>

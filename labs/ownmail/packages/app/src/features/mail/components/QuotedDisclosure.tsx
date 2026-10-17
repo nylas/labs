@@ -1,5 +1,5 @@
 import { MoreHorizontal } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import {
 	attributionSeconds,
 	type BodyDisclosure,
@@ -73,19 +73,26 @@ export function quotedHeader(entry: QuotedEntry, now: number, tz: string): strin
 
 export type GoToQuoted = (quote: { name: string; email?: string; date?: number }) => void
 
+/** Renders a taken part of an HTML body as the sender wrote it, through the reader's own email renderer. */
+export type RenderTakenHtml = (html: string, part: 'quoted' | 'signature') => ReactNode
+
 /**
  * The pills under a message's own words and what they open. A message with
  * both history and a signature shows one pill; opening it splits into the
- * history (open) and the signature (closed), each its own toggle.
+ * history (open) and the signature (closed), each its own toggle. With
+ * `renderHtml`, an HTML history also offers its original (links, images and
+ * layout as sent), and a signature with links or a logo renders as sent.
  */
 export function BodyDisclosures({
 	disclosure,
 	onGoToQuoted,
+	renderHtml,
 	now = Date.now(),
 	tz = viewerZone(),
 }: {
 	disclosure: BodyDisclosure
 	onGoToQuoted?: GoToQuoted
+	renderHtml?: RenderTakenHtml
 	now?: number
 	tz?: string
 }) {
@@ -93,6 +100,7 @@ export function BodyDisclosures({
 	const [split, setSplit] = useState(false)
 	const [quotedOpen, setQuotedOpen] = useState(false)
 	const [signatureOpen, setSignatureOpen] = useState(false)
+	const [originalOpen, setOriginalOpen] = useState(false)
 	const quotedPill = useRef<HTMLButtonElement>(null)
 	const { quoted, signature } = disclosure
 	const both = quoted.length > 0 && signature.length > 0
@@ -104,6 +112,9 @@ export function BodyDisclosures({
 	if (quoted.length === 0 && signature.length === 0) return null
 	const quotedId = `${id}-quoted`
 	const signatureId = `${id}-signature`
+	const originalId = `${id}-original`
+	const quotedHtml = renderHtml ? disclosure.quotedHtml : undefined
+	const signatureHtml = renderHtml ? disclosure.signatureHtml : undefined
 	return (
 		<div data-slot="body-disclosures" className="mt-3">
 			<div className="flex flex-wrap gap-2">
@@ -145,14 +156,14 @@ export function BodyDisclosures({
 					data-slot="body-signature"
 					className="mt-3 whitespace-pre-line text-sm leading-normal text-muted-foreground"
 				>
-					{signature.join('\n')}
+					{signatureHtml ? (renderHtml as RenderTakenHtml)(signatureHtml, 'signature') : signature.join('\n')}
 				</div>
 			) : null}
 			{quotedOpen ? (
 				<div id={quotedId} data-slot="body-quoted" className="mt-4 flex flex-col gap-2">
 					{quoted.map((entry, index) => {
-						// Only a quote with an address can be found in the thread.
-						const email = onGoToQuoted ? entry.email : undefined
+						// Only a quote with an address can be found in the thread; a forward is never in it.
+						const email = onGoToQuoted && !entry.forwarded ? entry.email : undefined
 						const linked = Boolean(email)
 						const header = quotedHeader(entry, now, tz)
 						const date = attributionSeconds(entry.dateText)
@@ -161,11 +172,13 @@ export function BodyDisclosures({
 								// Quoted entries never reorder; the index keeps repeated words distinct.
 								// biome-ignore lint/suspicious/noArrayIndexKey: entries are positional.
 								key={index}
-								className="rounded-md bg-secondary p-3 text-sm leading-normal text-muted-foreground"
+								className="rounded-md bg-secondary px-4 py-3 text-sm leading-[1.55] text-quiet-foreground"
 							>
 								{header ? <div className="mb-1 text-xs font-semibold">{header}</div> : null}
 								{entry.text ? (
-									<p className="m-0 [overflow-wrap:anywhere]">{quotedExcerpt(entry, linked)}</p>
+									<p className="m-0 whitespace-pre-line [overflow-wrap:anywhere]">
+										{quotedExcerpt(entry, linked)}
+									</p>
 								) : null}
 								{linked ? (
 									<button
@@ -185,6 +198,24 @@ export function BodyDisclosures({
 							</div>
 						)
 					})}
+					{quotedHtml ? (
+						<div>
+							<button
+								type="button"
+								aria-expanded={originalOpen}
+								aria-controls={originalId}
+								onClick={() => setOriginalOpen((open) => !open)}
+								className={EDGE_LINK_CLASS}
+							>
+								{originalOpen ? 'Hide original' : 'Show original'}
+							</button>
+							{originalOpen ? (
+								<div id={originalId} data-slot="body-quoted-original" className="mt-2">
+									{(renderHtml as RenderTakenHtml)(quotedHtml, 'quoted')}
+								</div>
+							) : null}
+						</div>
+					) : null}
 				</div>
 			) : null}
 		</div>

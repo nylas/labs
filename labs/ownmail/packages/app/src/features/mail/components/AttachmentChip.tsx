@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react'
+import { Download, Paperclip } from 'lucide-react'
 import { cn } from '#shared/lib/utils'
 import type { MailMessage } from '../state/mail-queries.js'
 import { formatSize } from './AttachmentLink.js'
@@ -29,20 +29,39 @@ export function fileKind(attachment: Pick<Attachment, 'filename' | 'content_type
 /**
  * One file attached to a message: a 32×40 type tile, the name, a detail line
  * ("2.1 MB · replaces v3 from Tue", or the size alone) and a download button.
+ * `compact` is the quiet 28px chip that follows an empty body (board 06 card
+ * 1): a paperclip and the name, the whole chip the download link.
  */
 export function AttachmentChip({
 	attachment,
 	messageId,
 	detail,
+	compact = false,
 }: {
 	attachment: Attachment
 	messageId: string
 	detail?: string
+	compact?: boolean
 }) {
 	const filename = attachment.filename ?? 'attachment'
 	const kind = fileKind(attachment)
 	const line = detail ?? (attachment.size ? formatSize(attachment.size) : '')
 	const href = `/attachments/${encodeURIComponent(attachment.id)}?message_id=${encodeURIComponent(messageId)}`
+	if (compact) {
+		return (
+			<a
+				data-slot="attachment-chip"
+				data-compact=""
+				href={href}
+				download={attachment.filename}
+				title={line ? `Download ${filename} (${line})` : `Download ${filename}`}
+				className="inline-flex h-7 max-w-full min-w-0 items-center gap-2 self-start rounded-md border border-border px-3 text-[13px] text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
+			>
+				<Paperclip aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+				<span className="truncate">{filename}</span>
+			</a>
+		)
+	}
 	return (
 		<div
 			data-slot="attachment-chip"

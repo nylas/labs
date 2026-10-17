@@ -4,18 +4,18 @@ import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState
 import { createPortal } from 'react-dom'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { applyContactEffect } from '#features/contacts/state/contacts-state'
-import { firstNameFromAddress, recipientAddresses } from '#features/mail/lib/edge-states'
+import { firstNameFromAddress, knownNameFor, recipientAddresses } from '#features/mail/lib/edge-states'
 import { markdownToDraftBody, seedToMarkdown } from '#features/mail/lib/html-to-markdown'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
 import { validateRecipientEmails } from '#features/mail/lib/recipients'
-import { REPLY_ALL_GUARD } from '#features/mail/lib/thread-reading-model'
+import { firstName, REPLY_ALL_GUARD } from '#features/mail/lib/thread-reading-model'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
 import {
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
 	useSendDraftMutation,
 } from '#features/mail/state/mail-mutations'
-import type { MailDraft } from '#features/mail/state/mail-queries'
+import { type MailDraft, type MailThreadDetail, mailKeys } from '#features/mail/state/mail-queries'
 import { saveComposeRecipients } from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
@@ -28,6 +28,23 @@ import { ErrorBanner } from './ErrorBanner.js'
 import { MarkdownEditor } from './MarkdownEditor.js'
 import { ReplyAllGuard } from './ReplyAllGuard.js'
 import { formatSize } from './ThreadConversation.js'
+
+/**
+ * "Reply to {First} only" names the person as the thread knows them (Alan,
+ * not the "Aturing" of aturing@…); the address alone is the fallback.
+ */
+function replyOnlyFirstName(
+	address: string,
+	cached: Array<[unknown, MailThreadDetail | undefined]>,
+	replyToMessageId: string,
+): string {
+	const name = knownNameFor(
+		address,
+		cached.map(([, detail]) => detail),
+		replyToMessageId,
+	)
+	return name ? firstName({ name, email: address }) : firstNameFromAddress(address)
+}
 
 /**
  * What a composer starts from. A draft is loaded before the window opens; the
@@ -822,7 +839,11 @@ export function ComposeWindow({
 							<div className="border-b border-border px-3 py-2">
 								<ReplyAllGuard
 									count={replyRecipients.length}
-									replyOnlyFirstName={firstNameFromAddress(replyRecipients[0] as string)}
+									replyOnlyFirstName={replyOnlyFirstName(
+										replyRecipients[0] as string,
+										queryClient.getQueriesData<MailThreadDetail>({ queryKey: mailKeys.threadDetails() }),
+										replyToMessageId,
+									)}
 									onReplyOnly={() => {
 										const only = replyRecipients[0] as string
 										setTo(only)

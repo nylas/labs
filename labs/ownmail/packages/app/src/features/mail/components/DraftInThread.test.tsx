@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { markdownToDraftBody } from '../lib/html-to-markdown.js'
 import type { MailMessage } from '../state/mail-queries.js'
@@ -72,6 +73,21 @@ describe('DraftInThread', () => {
 		)
 		expect(screen.getByText('edited just now')).toBeInTheDocument()
 		expect(screen.getByRole('region').querySelector('p')).toBeNull()
+	})
+
+	it('leaves the clock-dependent edit time out of the server render', () => {
+		const html = renderToString(
+			<DraftInThread
+				draft={{ id: 'draft-4', date: NOW - 2 * 3600, body: '<p>Hi</p>' } as MailMessage}
+				replyToFirstName="Mary"
+				onResume={() => {}}
+				onDiscard={() => {}}
+				now={NOW}
+				tz="UTC"
+			/>,
+		)
+		expect(html).toContain('reply to Mary')
+		expect(html).not.toContain('edited')
 	})
 
 	it('builds the anchor id the reader scrolls to', () => {

@@ -144,4 +144,64 @@ describe('BodyDisclosures', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'Signature' }))
 		expect(screen.getByText('Grace')).toBeInTheDocument()
 	})
+
+	it('sets quoted cards in the quiet board colour and keeps their paragraphs', async () => {
+		render(
+			<BodyDisclosures
+				disclosure={{ quoted: [{ name: 'Sam', text: 'First.\n\nSecond.' }], signature: [] }}
+				now={NOW}
+				tz={tz}
+			/>,
+		)
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted: 1 earlier message' }))
+		const words = screen.getByText(/First\./)
+		expect(words).toHaveClass('whitespace-pre-line')
+		expect(words.textContent).toBe('First.\n\nSecond.')
+		expect(words.parentElement).toHaveClass('text-quiet-foreground', 'leading-[1.55]', 'px-4', 'py-3')
+	})
+
+	it('never links a forwarded message to the thread', async () => {
+		render(
+			<BodyDisclosures
+				disclosure={{
+					quoted: [{ name: 'Voyage', email: 'trips@voyage.com', text: 'Your trip.', forwarded: true }],
+					signature: [],
+				}}
+				onGoToQuoted={vi.fn()}
+				now={NOW}
+				tz={tz}
+			/>,
+		)
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted: 1 earlier message' }))
+		expect(screen.getByText('Your trip.')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Go to/ })).toBeNull()
+	})
+
+	it('offers the history’s original and renders a rich signature as sent, when it can render HTML', async () => {
+		const renderHtml = vi.fn((html: string, part: string) => <div data-part={part}>{html}</div>)
+		const rich: BodyDisclosure = {
+			quoted: [{ name: 'Sam', text: 'See the plan.' }],
+			signature: ['Grace', 'Book a time'],
+			quotedHtml: '<p>quoted original</p>',
+			signatureHtml: '<p>signature original</p>',
+		}
+		const view = render(<BodyDisclosures disclosure={rich} renderHtml={renderHtml} now={NOW} tz={tz} />)
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted text and signature' }))
+		const original = screen.getByRole('button', { name: 'Show original' })
+		expect(original).toHaveAttribute('aria-expanded', 'false')
+		await userEvent.click(original)
+		expect(screen.getByText('<p>quoted original</p>')).toHaveAttribute('data-part', 'quoted')
+		await userEvent.click(screen.getByRole('button', { name: 'Hide original' }))
+		expect(screen.queryByText('<p>quoted original</p>')).toBeNull()
+		await userEvent.click(screen.getByRole('button', { name: 'Signature' }))
+		expect(screen.getByText('<p>signature original</p>')).toHaveAttribute('data-part', 'signature')
+		view.unmount()
+
+		// Without a renderer, the words stand alone.
+		render(<BodyDisclosures disclosure={rich} now={NOW} tz={tz} />)
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted text and signature' }))
+		expect(screen.queryByRole('button', { name: 'Show original' })).toBeNull()
+		await userEvent.click(screen.getByRole('button', { name: 'Signature' }))
+		expect(screen.getByText(/Book a time/)).toBeInTheDocument()
+	})
 })

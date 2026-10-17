@@ -1,4 +1,5 @@
 import { Pencil } from 'lucide-react'
+import { useMounted } from '#shared/components/ClientTime'
 import { editedAgo, viewerZone } from '../lib/edge-states.js'
 import { messageBodyParagraphs } from '../lib/mail-ui-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
@@ -12,7 +13,8 @@ export function draftAnchorId(id: string): string {
 /**
  * Your unsent reply, in the thread under the message it answers: a Draft pill
  * (glyph and word), who it replies to and when it was last edited, the first
- * line of what you wrote, and Resume or Discard.
+ * line of what you wrote, and Resume or Discard. "edited 2 h ago" depends on
+ * the viewer's clock and zone, so it fills in after mount.
  */
 export function DraftInThread({
 	draft,
@@ -29,8 +31,11 @@ export function DraftInThread({
 	now?: number
 	tz?: string
 }) {
+	const mounted = useMounted()
 	const edited =
-		typeof draft.date === 'number' && draft.date > 0 ? `edited ${editedAgo(draft.date, now, tz)}` : ''
+		mounted && typeof draft.date === 'number' && draft.date > 0
+			? `edited ${editedAgo(draft.date, now, tz)}`
+			: ''
 	const context = [replyToFirstName ? `reply to ${replyToFirstName}` : '', edited].filter(Boolean).join(' · ')
 	const first = messageBodyParagraphs(draft)[0] ?? ''
 	// OwnMail's own drafts store Markdown; the preview shows the words, not the marks.
@@ -47,7 +52,11 @@ export function DraftInThread({
 					<Pencil aria-hidden="true" className="size-3" />
 					Draft
 				</span>
-				{context ? <span className="min-w-0 truncate text-xs text-muted-foreground">{context}</span> : null}
+				{context ? (
+					<span className="min-w-0 truncate text-xs text-muted-foreground" suppressHydrationWarning>
+						{context}
+					</span>
+				) : null}
 			</div>
 			{preview ? <p className="m-0 truncate text-secondary-foreground">{preview}</p> : null}
 			<div className="flex items-center gap-2">

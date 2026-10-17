@@ -5,6 +5,7 @@ import { EDGE_BUTTON_CLASS, EDGE_GHOST_CLASS } from './edge-actions.js'
  * Says how many of a message's images are held back and from where, with the
  * two ways to let them in: this message now, or this sender from now on. The
  * images keep their declared space meanwhile, so allowing them moves nothing.
+ * Without `onAlways` (no sender, or one that failed its checks) only Show is offered.
  */
 export function ImagesHiddenBar({
 	count,

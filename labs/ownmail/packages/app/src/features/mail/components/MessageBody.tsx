@@ -10,7 +10,7 @@ import { messageHasHtml } from '../lib/mail-ui-model.js'
 import { markdownToEmailHtml } from '../lib/markdown-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { type EmailDisplayStatus, EmailHtml } from './EmailHtml.js'
-import { BodyDisclosures, type GoToQuoted } from './QuotedDisclosure.js'
+import { BodyDisclosures, type GoToQuoted, type RenderTakenHtml } from './QuotedDisclosure.js'
 import { ThreadColumn } from './ThreadColumn.js'
 
 type BodyOptions = {
@@ -122,6 +122,24 @@ function PreparedHtmlBody({
 	// signature leave the document for the quiet pills beneath it.
 	const body = useMemo(() => splitHtmlBody(prepared.html), [prepared.html])
 	const [canvas, setCanvas] = useState<EmailCanvasDetail | null>(null)
+	// What was taken renders as sent, under the same sanitizer, image consent and
+	// inert-link rules as the message itself.
+	const renderTaken: RenderTakenHtml = (fragment, part) => (
+		<EmailHtml
+			html={fragment}
+			messageId={`${message.id}:${part}`}
+			darken={darkenEmail}
+			senderAddress={message.from?.[0]?.email}
+			senderName={message.from?.[0]?.name}
+			layoutMode={layoutMode}
+			colorMode={colorMode}
+			loadRemoteImagesForThread={loadRemoteImagesForThread}
+			loadRemoteImagesForSender={loadRemoteImagesForSender}
+			retryRevision={retryRevision}
+			linksDisabled={linksDisabled}
+			fontSize={bodyFontSize}
+		/>
+	)
 	// The band extends the sender's canvas across the whole reading pane; the
 	// message itself stays on the thread column.
 	const band = canvas?.canvas ?? null
@@ -153,10 +171,11 @@ function PreparedHtmlBody({
 						linksDisabled={linksDisabled}
 						fontSize={bodyFontSize}
 						{...(message.subject ? { windowTitle: message.subject } : {})}
+						windowHtml={prepared.html}
 						chromeInset={!prepared.isProse}
 					/>
 					<div className={prepared.isProse ? undefined : 'px-4 sm:px-0'}>
-						<BodyDisclosures disclosure={body} onGoToQuoted={onGoToQuoted} />
+						<BodyDisclosures disclosure={body} onGoToQuoted={onGoToQuoted} renderHtml={renderTaken} />
 					</div>
 				</div>
 			</ThreadColumn>
@@ -177,11 +196,21 @@ function HtmlBodyPlaceholder() {
 	)
 }
 
-/** Keep plaintext literal and React-escaped while normalizing platform newlines. */
+/**
+ * Keep plaintext literal and React-escaped while normalizing platform newlines.
+ * A body loses blank lines before and whitespace after, and a stray space or
+ * two before its first word, but keeps a code-sized first indent (four spaces
+ * or a tab): that is the start of a code block. A provider snippet is trimmed.
+ */
 function plainBodyText(message: MailMessage): string {
 	const body = typeof message.body === 'string' && message.body.trim() ? message.body : undefined
-	const snippet = typeof message.snippet === 'string' ? message.snippet : ''
-	return (body ?? snippet).replace(/\r\n?/g, '\n').trim()
+	if (body !== undefined) {
+		return body
+			.replace(/\r\n?/g, '\n')
+			.replace(/^(?:[ \t]*\n)+|\s+$/g, '')
+			.replace(/^ {1,3}(?=\S)/, '')
+	}
+	return typeof message.snippet === 'string' ? message.snippet.replace(/\r\n?/g, '\n').trim() : ''
 }
 
 /**
@@ -218,7 +247,7 @@ function PlainBody({
 								key={textKey(block.text, index)}
 								dir="auto"
 								className={cn(
-									'whitespace-pre-wrap break-words text-foreground [overflow-wrap:anywhere]',
+									'whitespace-pre-wrap break-words text-secondary-foreground [overflow-wrap:anywhere]',
 									PROSE_SIZE[bodyFontSize],
 								)}
 							>

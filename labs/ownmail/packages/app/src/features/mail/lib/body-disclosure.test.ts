@@ -261,6 +261,86 @@ describe('splitHtmlBody', () => {
 	})
 })
 
+describe('splitHtmlBody keeps what it cannot summarise', () => {
+	it('leaves a forwarded message in the body: it is the content, not history', () => {
+		const forward = prepare(
+			'<p>FYI</p><div class="gmail_quote"><div class="gmail_attr">---------- Forwarded message ---------<br>From: Voyage &lt;trips@voyage.com&gt;<br></div><table width="640"><tr><td><h1>Your trip</h1><a href="https://voyage.com/manage">Manage booking</a></td></tr></table></div>',
+		)
+		expect(splitHtmlBody(forward)).toEqual({ html: forward, quoted: [], signature: [] })
+	})
+
+	it('splits an Outlook chain at each header block and keeps each message’s paragraphs', () => {
+		const chain = prepare(
+			'<p>Sounds good.</p><div id="divRplyFwdMsg"><b>From:</b> Grace Hopper &lt;grace@x.com&gt;<br><b>Sent:</b> Tuesday<br></div><p>Here is v3.</p><p>Billing moved.</p><hr><p><b>From:</b> Alan &lt;alan@x.com&gt;<br><b>Sent:</b> Monday</p><p>Can you send v3?</p>',
+		)
+		expect(splitHtmlBody(chain).quoted).toEqual([
+			{
+				name: 'Grace Hopper',
+				email: 'grace@x.com',
+				dateText: 'Tuesday',
+				text: 'Here is v3.\nBilling moved.',
+			},
+			{ name: 'Alan', email: 'alan@x.com', dateText: 'Monday', text: 'Can you send v3?' },
+		])
+	})
+
+	it('starts the next chain message at its "Original Message" line, and not at a lone From: line', () => {
+		const chain = prepare(
+			'<p>Sounds good.</p><div id="divRplyFwdMsg"><b>From:</b> Grace &lt;grace@x.com&gt;<br><b>Sent:</b> Tuesday<br></div><p>Here.</p><p>From: the venue, a quote.</p><p>-----Original Message-----</p><p>From: Alan &lt;alan@x.com&gt;<br>Date: Monday</p><p>Venue?</p>',
+		)
+		expect(splitHtmlBody(chain).quoted).toEqual([
+			{ name: 'Grace', email: 'grace@x.com', dateText: 'Tuesday', text: 'Here.\nFrom: the venue, a quote.' },
+			{ name: 'Alan', email: 'alan@x.com', dateText: 'Monday', text: 'Venue?' },
+		])
+	})
+
+	it('leaves a signature with no words (a logo) where it is, rather than an empty pill', () => {
+		const logo = prepare('<p>Hi</p><div class="gmail_signature"><img alt="" width="120" height="40"></div>')
+		expect(splitHtmlBody(logo)).toEqual({ html: logo, quoted: [], signature: [] })
+		const dashes = prepare('<p>Hi</p><div class="gmail_signature">--</div>')
+		expect(splitHtmlBody(dashes).signature).toEqual([])
+	})
+
+	it('keeps the history and a rich signature as documents under the message’s styles', () => {
+		const split = splitHtmlBody(
+			prepare(
+				`<style>p{color:red}</style><p>Thanks!</p><div class="gmail_signature">Grace<br><a href="https://cal.example.com">Book a time</a></div>${quoted('Sam &lt;sam@x.com&gt;', 'Fri', '<p>See <a href="https://example.com/plan">the plan</a></p>')}`,
+			),
+		)
+		expect(split.quotedHtml).toMatch(/^<!doctype html><html><head><style>/)
+		expect(split.quotedHtml).toContain('href="https://example.com/plan"')
+		expect(split.quotedHtml).not.toContain('Show quoted text')
+		expect(split.signatureHtml).toContain('href="https://cal.example.com"')
+		const plain = splitHtmlBody(prepare('<p>Hi</p><div class="gmail_signature">Grace</div>'))
+		expect(plain.signatureHtml).toBeUndefined()
+		expect(plain.quotedHtml).toBeUndefined()
+	})
+})
+
+describe('splitPlainBody entries', () => {
+	it('marks a forwarded message, and reflows each entry into paragraphs', () => {
+		const body = [
+			'Passing this on.',
+			'',
+			'---------- Forwarded message ---------',
+			'> From: Voyage <trips@voyage.com>',
+			'>',
+			'> Your flight TP 123 leaves Lisbon at 9:40 on Thursday morning, and the',
+			'> boarding gate closes twenty minutes before departure.',
+			'>',
+			'> Manage your booking online.',
+		].join('\n')
+		expect(splitPlainBody(body).quoted).toEqual([
+			{
+				name: 'Voyage',
+				email: 'trips@voyage.com',
+				forwarded: true,
+				text: 'Your flight TP 123 leaves Lisbon at 9:40 on Thursday morning, and the boarding gate closes twenty minutes before departure.\n\nManage your booking online.',
+			},
+		])
+	})
+})
+
 describe('quotedExcerpt', () => {
 	it('cuts linked entries near 72 characters and shows the rest in full', () => {
 		const entry = { name: 'Grace', text: `${'word '.repeat(30)}end` }

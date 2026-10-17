@@ -1,6 +1,6 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CalendarDays, Check, Loader2, MapPin } from 'lucide-react'
+import { AlertTriangle, Calendar, CalendarDays, Check, Loader2, MapPin } from 'lucide-react'
 import { useId, useState } from 'react'
 import { firstCalendarInvitationAttachment } from '#features/calendar/lib/calendar-invitation'
 import type {
@@ -237,7 +237,7 @@ function CalendarInvitationContent({
 		>
 			<p className="sr-only">Calendar invitation</p>
 			<div className="flex min-w-0 items-center gap-2">
-				<CalendarDays aria-hidden="true" className="size-3.5 shrink-0" />
+				<Calendar aria-hidden="true" className="size-3.5 shrink-0" />
 				<h2
 					id={`invitation-title-${attachmentId}`}
 					className="m-0 min-w-0 text-[13px] font-semibold [overflow-wrap:anywhere]"
@@ -334,14 +334,8 @@ function ConflictNotice({
 }: {
 	conflicts: Extract<CalendarInvitationDetails, { state: 'ready' }>['conflicts']
 }) {
-	if (conflicts.state === 'clear') {
-		return (
-			<p className="m-0 flex items-center gap-2 rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-300">
-				<Check className="size-3.5 shrink-0" />
-				No conflicts on your calendar
-			</p>
-		)
-	}
+	// A clear calendar needs no words; the resting card stays as compact as the board draws it.
+	if (conflicts.state === 'clear') return null
 	if (conflicts.state === 'unknown') {
 		return (
 			<p className="m-0 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -353,7 +347,7 @@ function ConflictNotice({
 	return (
 		<p
 			role="alert"
-			className="m-0 flex items-start gap-2 rounded-md bg-amber-500/12 px-3 py-2 text-xs text-amber-900 dark:text-amber-200"
+			className="m-0 flex items-start gap-2 rounded-md border border-notice-warning-line bg-notice-warning px-3 py-2 text-xs text-notice-warning-foreground"
 		>
 			<AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
 			This overlaps with {conflicts.count} {conflicts.count === 1 ? 'event' : 'events'} on your calendar.

@@ -1,5 +1,6 @@
 import { AlertTriangle, Clock } from 'lucide-react'
 import { useState } from 'react'
+import { useMounted } from '#shared/components/ClientTime'
 import { pendingSendAt, scheduledLabel, viewerZone } from '../lib/edge-states.js'
 import { messageBodyParagraphs } from '../lib/mail-ui-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
@@ -10,6 +11,10 @@ import { EDGE_BUTTON_CLASS, EDGE_GHOST_CLASS } from './edge-actions.js'
  * words: "Not sent. mary@nasa.gov bounced." with Edit and resend or Copy text,
  * or "Sends Mon 9:00 AM" with Send now or Cancel. Nothing renders for a
  * message that went out normally.
+ *
+ * The send time is written in the viewer's own zone, which the server does
+ * not know, so it fills in after mount (server and first client render agree).
+ * Send now and Cancel appear only when the caller can act on them.
  */
 export function OutgoingStatus({
 	message,
@@ -23,11 +28,12 @@ export function OutgoingStatus({
 	message: MailMessage
 	bounce?: { address: string }
 	onEditResend(): void
-	onSendNow(): void
-	onCancelSchedule(): void
+	onSendNow?: () => void
+	onCancelSchedule?: () => void
 	now?: number
 	tz?: string
 }) {
+	const mounted = useMounted()
 	const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle')
 	const sendAt = pendingSendAt(message as MailMessage & { send_at?: unknown }, now)
 	if (!bounce && sendAt === null) return null
@@ -72,14 +78,21 @@ export function OutgoingStatus({
 				<div role="note" className="flex min-w-0 items-center gap-2 text-muted-foreground">
 					<Clock aria-hidden="true" className="size-3.5 shrink-0" />
 					<span className="min-w-0 flex-1">
-						Sends <span className="font-data tabular-nums">{scheduledLabel(sendAt, now, tz)}</span>
+						Sends{' '}
+						<span className="font-data tabular-nums" suppressHydrationWarning>
+							{mounted ? scheduledLabel(sendAt, now, tz) : '\u00a0'}
+						</span>
 					</span>
-					<button type="button" onClick={onSendNow} className={EDGE_GHOST_CLASS}>
-						Send now
-					</button>
-					<button type="button" onClick={onCancelSchedule} className={EDGE_GHOST_CLASS}>
-						Cancel
-					</button>
+					{onSendNow ? (
+						<button type="button" onClick={onSendNow} className={EDGE_GHOST_CLASS}>
+							Send now
+						</button>
+					) : null}
+					{onCancelSchedule ? (
+						<button type="button" onClick={onCancelSchedule} className={EDGE_GHOST_CLASS}>
+							Cancel
+						</button>
+					) : null}
 				</div>
 			) : null}
 		</div>

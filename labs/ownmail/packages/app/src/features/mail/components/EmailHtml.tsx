@@ -3,7 +3,7 @@
  * contrast: existing application tokens · pre-emit critique: P5 H5 E4 S5 R5 V5
  */
 
-import { type CSSProperties, type Ref, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type CSSProperties, type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
@@ -34,7 +34,9 @@ import {
 	subscribeLinkPreview,
 } from '../lib/email-render.js'
 import { rememberEmail, rememberedEmail, renderedEmailKey } from '../lib/email-render-memory.js'
+import { blockedImageCount, installEdgeState } from '../lib/held-images.js'
 import { senderImagesTrusted, trustSenderImages } from '../lib/image-sender-trust.js'
+import { inertLinksHtml } from '../lib/inert-links.js'
 import { openMessageWindow } from '../lib/open-message-window.js'
 import { ensureEmailElementDefined } from './email-content-element.js'
 import { FitToWidthBar } from './FitToWidthBar.js'
@@ -49,45 +51,6 @@ const OwnmailEmail = EMAIL_ELEMENT_TAG as unknown as (props: {
 	style?: CSSProperties
 	'data-message-id'?: string
 }) => null
-
-/** Marks the reader's own edge-state rules inside the message's shadow root. */
-export const EDGE_STYLE_ATTRIBUTE = 'data-ownmail-edge-style'
-
-const BLOCKED_IMAGE = '.email-root img:not([src]):not([srcset])'
-
-/**
- * Edge-state rules layered after the element's own: a blocked image with alt
- * text or a declared size keeps that space as a striped placeholder showing
- * its alt text (the readable layout otherwise drops it), and disabled links
- * stop looking clickable. Colours come from the app tokens, which inherit
- * into the shadow tree.
- */
-export function edgeShadowStyle(linksDisabled: boolean): string {
-	const selectors = [
-		`:host ${BLOCKED_IMAGE}[alt]:not([alt=""])`,
-		`:host ${BLOCKED_IMAGE}[width][height]:not([width="0"]):not([width="1"]):not([height="0"]):not([height="1"])`,
-	]
-	const held = (suffix = '') => selectors.map((selector) => `${selector}${suffix}`).join(',')
-	return [
-		// The browser's own alt rendering (a broken-image glyph and corner text) is
-		// hidden; the stripes cover it and the alt text is centred over them.
-		`${held()}{display:inline-block!important;position:relative!important;box-sizing:border-box!important;max-width:100%;vertical-align:top;border-radius:4px;overflow:hidden;font-size:0!important;color:transparent!important;background:repeating-linear-gradient(135deg,var(--muted,#f1f2f1) 0 6px,color-mix(in oklch,var(--muted,#f1f2f1),var(--foreground,#1a1a1a) 4%) 6px 12px)!important;}`,
-		`${held('::before')}{content:'';position:absolute;inset:0;background:inherit;}`,
-		`${held('::after')}{content:attr(alt);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font:11px/1.4 var(--font-sans,sans-serif);color:var(--muted-foreground,#6b7680);}`,
-		`:host ${BLOCKED_IMAGE}[alt]:not([alt=""]):not([height]){min-height:54px;min-width:120px;}`,
-		linksDisabled ? ':host .email-root a[href]{cursor:default!important;}' : '',
-	].join('\n')
-}
-
-/** Blocked images a reader would have seen: everything but tracking pixels. */
-export function blockedImageCount(root: ParentNode | null | undefined): number {
-	if (!root) return 0
-	return [...root.querySelectorAll(BLOCKED_IMAGE)].filter((image) => {
-		const width = image.getAttribute('width')
-		const height = image.getAttribute('height')
-		return !(width !== null && height !== null && Number(width) <= 2 && Number(height) <= 2)
-	}).length
-}
 
 type Fit = { scale: number; naturalWidth: number }
 
@@ -137,6 +100,7 @@ export function EmailHtml({
 	linksDisabled = false,
 	fontSize = 16,
 	windowTitle = 'Email',
+	windowHtml,
 	chromeInset = false,
 }: {
 	html: string
@@ -158,6 +122,8 @@ export function EmailHtml({
 	fontSize?: 16 | 17
 	/** The title of the window "Open in window" opens. */
 	windowTitle?: string
+	/** The whole message for "Open in window", history and signature included; defaults to `html`. */
+	windowHtml?: string
 	/** Designed mail runs edge to edge on a phone; its bars keep the prose gutter. */
 	chromeInset?: boolean
 }) {
@@ -212,10 +178,14 @@ export function EmailHtml({
 		const onLayoutStatus = (event: Event) => {
 			const detail = (event as CustomEvent<EmailLayoutStatusDetail>).detail
 			if (detail.reflowed || detail.needsFit) setLayoutControlAvailable(true)
-			// At actual size the element is as wide as the layout and reports no
-			// scale; the fitted measurement stays so the bar can return to it.
+			// The bar says "Fitted to width" only when the scaled layout really fits;
+			// past the legibility floor the message still pans, and saying it was
+			// fitted would be false. At actual size the element is as wide as the
+			// layout and reports no scale; the fitted measurement stays so the bar
+			// can return to it.
+			const fitted = detail.scale < 1 && detail.naturalWidth * detail.scale <= detail.containerWidth + 1
 			setFit((current) =>
-				detail.scale < 1
+				fitted
 					? { scale: detail.scale, naturalWidth: detail.naturalWidth }
 					: actualSizeRef.current
 						? current
@@ -273,36 +243,34 @@ export function EmailHtml({
 		if (ready) applyEmailImageMode(ref.current, imageMode)
 	}, [ready, imageMode])
 
+	// Inert links lose their destinations before the element ever sees them, so
+	// no context menu, long press or drag can carry a live URL out.
+	const renderedHtml = useMemo(() => (linksDisabled ? inertLinksHtml(html) : html), [html, linksDisabled])
+
 	// `ready` re-runs these once the custom element has mounted and `ref.current` is
 	// set (the linter can't see the ref dependency, so it is used explicitly here).
 	useLayoutEffect(() => {
-		if (ready) applyEmailHtml(ref.current, html)
-	}, [ready, html])
+		if (ready) applyEmailHtml(ref.current, renderedHtml)
+	}, [ready, renderedHtml])
 
 	// After the HTML, so the shadow root exists. The element replaces only its
-	// content root, so this sheet survives every re-render of the message; a
-	// new document re-checks it all the same.
+	// content root, so the sheet survives every re-render of the message, and
+	// the held-image placeholders follow each new document.
 	useLayoutEffect(() => {
-		void html
+		void renderedHtml
 		const shadow = ready ? ref.current?.shadowRoot : null
 		if (!shadow) return
-		let sheet = shadow.querySelector<HTMLStyleElement>(`style[${EDGE_STYLE_ATTRIBUTE}]`)
-		if (!sheet) {
-			sheet = document.createElement('style')
-			sheet.setAttribute(EDGE_STYLE_ATTRIBUTE, '')
-			shadow.appendChild(sheet)
-		}
-		sheet.textContent = edgeShadowStyle(linksDisabled)
-	}, [ready, html, linksDisabled])
+		return installEdgeState(shadow, linksDisabled)
+	}, [ready, renderedHtml, linksDisabled])
 
-	// Disabled links swallow every activation before the browser follows them.
+	// Belt and braces: anything still link-like swallows every activation.
 	useEffect(() => {
 		const element = ready ? ref.current : null
 		if (!element || !linksDisabled) return
 		const stop = (event: Event) => {
 			const link = event
 				.composedPath()
-				.find((target) => target instanceof Element && target.tagName === 'A' && target.hasAttribute('href'))
+				.find((target) => target instanceof Element && (target.tagName === 'A' || target.tagName === 'AREA'))
 			if (!link) return
 			event.preventDefault()
 			event.stopPropagation()
@@ -374,16 +342,18 @@ export function EmailHtml({
 		...(fontSize === 17 ? { fontSize: '17px', lineHeight: 1.55 } : {}),
 		...(showAtActualSize ? { width: `${fit.naturalWidth}px`, maxWidth: 'none' } : {}),
 	}
-	const onAlways = senderAddress
-		? () => {
-				// The images come in now; remembering the sender for next time can fail on its own.
-				setImagesShown(true)
-				setTrust('pending')
-				void trustSenderImages(senderAddress, accountScope()).then((trusted) =>
-					setTrust(trusted ? 'idle' : 'error'),
-				)
-			}
-		: undefined
+	// Never offer to trust for good a sender whose identity failed its checks.
+	const onAlways =
+		senderAddress && !linksDisabled
+			? () => {
+					// The images come in now; remembering the sender for next time can fail on its own.
+					setImagesShown(true)
+					setTrust('pending')
+					void trustSenderImages(senderAddress, accountScope()).then((trusted) =>
+						setTrust(trusted ? 'idle' : 'error'),
+					)
+				}
+			: undefined
 
 	return (
 		<>
@@ -432,9 +402,10 @@ export function EmailHtml({
 							actualSize={showAtActualSize}
 							onToggleActualSize={() => setActualSize((current) => !current)}
 							onOpenWindow={() =>
-								openMessageWindow(html, {
+								openMessageWindow(windowHtml ?? html, {
 									title: windowTitle,
 									allowRemoteImages: remoteImages?.loaded === true,
+									linksDisabled,
 								})
 							}
 						/>

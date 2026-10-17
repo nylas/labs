@@ -81,6 +81,11 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByText('From Grace Hopper')).toBeInTheDocument()
 		expect(screen.getByText('Aurora room')).toBeInTheDocument()
 		expect(screen.getByRole('alert')).toHaveTextContent('overlaps with 2 events')
+		expect(screen.getByRole('alert')).toHaveClass(
+			'border-notice-warning-line',
+			'bg-notice-warning',
+			'text-notice-warning-foreground',
+		)
 		// The label and icon tile identify the app-inserted card; no side has an accent border.
 		expect(screen.getByText('Calendar invitation')).toBeInTheDocument()
 		const card = document.querySelector('[data-slot="calendar-invitation"]')
@@ -141,7 +146,8 @@ describe('CalendarInvitationCard', () => {
 
 		expect(getCalendarInvitation).toHaveBeenCalledTimes(2)
 		expect(screen.getByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
-		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
+		// A clear calendar adds nothing to the compact card.
+		expect(screen.queryByText(/conflict/i)).toBeNull()
 	})
 
 	it('shows cancellation-specific retry copy while a calendar mutation finishes', async () => {
@@ -263,7 +269,7 @@ describe('CalendarInvitationCard', () => {
 			data: { messageId: 'message-1', attachmentId: 'attachment-1' },
 		})
 		expect(await screen.findByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
-		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
+		expect(screen.queryByText(/conflict/i)).toBeNull()
 		expect(screen.getByText('Added to your calendar')).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
 		expect(respondCalendarInvitation).not.toHaveBeenCalled()

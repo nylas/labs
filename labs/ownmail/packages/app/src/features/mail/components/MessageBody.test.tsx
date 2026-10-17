@@ -68,6 +68,18 @@ describe('MessageBody (plain text)', () => {
 		expect(container.firstChild).toBeNull()
 	})
 
+	it('drops a stray space before a body’s first word', () => {
+		render(<MessageBody message={message({ id: 'm4-indent', body: '\n  Hi Ada,\n\nThanks' })} />)
+		expect(screen.getByText('Hi Ada,').tagName).toBe('P')
+	})
+
+	it('falls back to the provider snippet, trimmed', () => {
+		render(
+			<MessageBody message={message({ id: 'm4-snippet', body: '', snippet: '\r\n   Snippet words  ' })} />,
+		)
+		expect(screen.getByText('Snippet words').tagName).toBe('P')
+	})
+
 	it('collapses recognized plaintext reply history behind an accessible disclosure', async () => {
 		render(
 			<MessageBody
@@ -279,7 +291,9 @@ describe('MessageBody (provider HTML, mounted → shadow-DOM renderer)', () => {
 		const root = document.querySelector(EMAIL_ELEMENT_TAG)?.shadowRoot?.querySelector('.email-root')
 
 		expect(root?.querySelector('img')).not.toHaveAttribute('src')
-		expect(root?.querySelector('[role="img"]')).toHaveTextContent('Missing signature')
+		expect(root?.querySelector('[role="img"]:not([data-ownmail-held-image])')).toHaveTextContent(
+			'Missing signature',
+		)
 		expect(root?.innerHTML).not.toContain('cid:')
 
 		view.rerender(
@@ -472,7 +486,75 @@ describe('MessageBody (edge states)', () => {
 		const element = document.querySelector(EMAIL_ELEMENT_TAG) as HTMLElement
 		expect(element.style.fontSize).toBe('17px')
 		expect(element.shadowRoot?.querySelector('style[data-ownmail-edge-style]')?.textContent).toContain(
-			'a[href]{cursor:default!important;}',
+			'a{cursor:default!important;',
+		)
+		// The destination never reaches the rendered message.
+		const link = element.shadowRoot?.querySelector('a') as HTMLElement
+		expect(link).not.toHaveAttribute('href')
+		expect(link).toHaveTextContent('Confirm')
+	})
+
+	it('keeps a code line inside a prose paragraph as code, and a body’s first indent', () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'm-code',
+					body: '    npm ci\n\nRun this:\n    npm install\n    npm test\nthen done.',
+				})}
+			/>,
+		)
+		expect(screen.getByText('npm ci').tagName).toBe('PRE')
+		expect(screen.getByText('Run this:').tagName).toBe('P')
+		expect(screen.getByText(/npm install/)).toHaveTextContent('npm install npm test')
+		expect(screen.getByText(/npm install/).tagName).toBe('PRE')
+		expect(screen.getByText('then done.').tagName).toBe('P')
+	})
+
+	it('sets plain prose in the body colour', () => {
+		render(<MessageBody message={message({ id: 'm-colour', body: 'Hello there.' })} />)
+		expect(screen.getByText('Hello there.')).toHaveClass('text-secondary-foreground')
+	})
+
+	it('shows an HTML history’s original, with its links and images, through the renderer', async () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-original',
+					body: '<p>Thanks!</p><div class="gmail_quote"><div class="gmail_attr">On Tue, Oct 13, 2026 at 6:02 PM Grace Hopper &lt;grace@x.com&gt; wrote:<br></div><blockquote class="gmail_quote"><p>See <a href="https://example.com/plan">the plan</a>.</p></blockquote></div>',
+				})}
+				linksDisabled
+			/>,
+		)
+		await userEvent.click(screen.getByRole('button', { name: 'Quoted: 1 earlier message' }))
+		expect(document.querySelectorAll(EMAIL_ELEMENT_TAG)).toHaveLength(1)
+		await userEvent.click(screen.getByRole('button', { name: 'Show original' }))
+		const elements = document.querySelectorAll(EMAIL_ELEMENT_TAG)
+		expect(elements).toHaveLength(2)
+		const original = elements[1] as HTMLElement
+		expect(original).toHaveAttribute('data-message-id', 'msg-original:quoted')
+		const link = original.shadowRoot?.querySelector('a') as HTMLElement
+		expect(link).toHaveTextContent('the plan')
+		// The original keeps the message's inert-link rule.
+		expect(link).not.toHaveAttribute('href')
+		await userEvent.click(screen.getByRole('button', { name: 'Hide original' }))
+		expect(document.querySelectorAll(EMAIL_ELEMENT_TAG)).toHaveLength(1)
+	})
+
+	it('renders a signature with links as sent', async () => {
+		render(
+			<MessageBody
+				message={message({
+					id: 'msg-sig-link',
+					body: '<p>Talk soon.</p><div class="gmail_signature">Grace Hopper<br><a href="https://cal.example.com/grace">Book a time</a></div>',
+				})}
+			/>,
+		)
+		await userEvent.click(screen.getByRole('button', { name: 'Signature' }))
+		const elements = document.querySelectorAll(EMAIL_ELEMENT_TAG)
+		expect(elements).toHaveLength(2)
+		expect((elements[1] as HTMLElement).shadowRoot?.querySelector('a')).toHaveAttribute(
+			'href',
+			'https://cal.example.com/grace',
 		)
 	})
 })

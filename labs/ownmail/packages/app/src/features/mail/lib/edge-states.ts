@@ -74,6 +74,9 @@ const WRAP_MIN = 40
 const WRAP_MAX = 80
 
 const isIndented = (line: string): boolean => /^(?: {2,}|\t)\S/.test(line)
+/** Inside prose, only a code-sized indent counts: shallower indents are a list item's continuation or layout. */
+const isCodeLine = (line: string): boolean => /^(?: {4,}|\t)\S/.test(line)
+const LIST_ITEM = /^\s*(?:[-*•+]|\d{1,3}[.)])\s/
 
 /** Remove the indentation every line of a block shares. */
 function dedent(lines: string[]): string {
@@ -87,6 +90,7 @@ function dedent(lines: string[]): string {
  * client and joins the next one, unless the next line starts a list item, a
  * quote or an indented line. A paragraph whose every line is indented, or a
  * fenced block, is code: kept exactly as written, without its shared indent.
+ * Code-indented lines inside a prose paragraph split out as code of their own.
  */
 export function reflowPlainText(text: string): PlainBlock[] {
 	const blocks: PlainBlock[] = []
@@ -106,23 +110,60 @@ export function reflowPlainText(text: string): PlainBlock[] {
 			blocks.push({ kind: 'code', text: dedent(lines) })
 			continue
 		}
-		let current = (lines[0] as string).trimEnd()
-		let previousLength = current.length
-		const out: string[] = []
-		for (const line of lines.slice(1)) {
-			const trimmed = line.trimEnd()
-			const wrapped = previousLength >= WRAP_MIN && previousLength <= WRAP_MAX && !STRUCTURE_LINE.test(line)
-			if (wrapped) current = `${current} ${trimmed}`
-			else {
-				out.push(current)
-				current = trimmed
-			}
-			previousLength = trimmed.length
-		}
-		out.push(current)
-		blocks.push({ kind: 'text', text: out.join('\n') })
+		blocks.push(...proseAndCode(lines))
 	}
 	return blocks
+}
+
+/**
+ * One paragraph that mixes prose and code ("Run this:" then indented commands):
+ * each run of lines indented as code (four spaces or a tab) becomes its own
+ * code block, unless it continues a list item; the prose around it reflows.
+ */
+function proseAndCode(lines: string[]): PlainBlock[] {
+	const blocks: PlainBlock[] = []
+	let prose: string[] = []
+	let code: string[] = []
+	const flushProse = () => {
+		if (prose.length > 0) blocks.push({ kind: 'text', text: joinWrapped(prose) })
+		prose = []
+	}
+	// A list item runs on through the indented lines under it.
+	let inItem = false
+	for (const line of lines) {
+		if (LIST_ITEM.test(line)) inItem = true
+		else if (!/^\s/.test(line)) inItem = false
+		if (isCodeLine(line) && !inItem) {
+			flushProse()
+			code.push(line)
+			continue
+		}
+		if (code.length > 0) blocks.push({ kind: 'code', text: dedent(code) })
+		code = []
+		prose.push(line)
+	}
+	if (code.length > 0) blocks.push({ kind: 'code', text: dedent(code) })
+	flushProse()
+	return blocks
+}
+
+/** Join a paragraph's hard-wrapped lines; lines broken on purpose stay broken. */
+function joinWrapped(lines: string[]): string {
+	let current = (lines[0] as string).trimEnd()
+	let previousLength = current.length
+	const out: string[] = []
+	for (const line of lines.slice(1)) {
+		const trimmed = line.trimEnd()
+		const wrapped = previousLength >= WRAP_MIN && previousLength <= WRAP_MAX && !STRUCTURE_LINE.test(line)
+		if (wrapped) current = `${current} ${trimmed}`
+		else {
+			out.push(current)
+			current = trimmed
+		}
+		previousLength = trimmed.length
+	}
+	out.push(current)
+	return out.join('\n')
 }
 
 /** A short, stable hash of a string, for React keys of repeated text. */
@@ -181,6 +222,36 @@ export function firstNameFromAddress(address: string): string {
 	const local = address.trim().split('@')[0] as string
 	const word = local.split(/[._+-]/).find(Boolean) ?? ''
 	return word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : ''
+}
+
+type NamedParticipant = { name?: string | null; email: string }
+type KnownMessage = {
+	id: string
+	from?: NamedParticipant[]
+	to?: NamedParticipant[]
+	cc?: NamedParticipant[]
+}
+
+/**
+ * The display name a thread already knows for an address, for "Reply to Alan
+ * only": the replied-to message's own entry first, then anyone on a thread the
+ * reader has loaded. Undefined when no message names that address.
+ */
+export function knownNameFor(
+	address: string,
+	threads: ReadonlyArray<{ messages: KnownMessage[] } | undefined>,
+	replyToMessageId?: string,
+): string | undefined {
+	const key = address.trim().toLowerCase()
+	const messages = threads.flatMap((thread) => thread?.messages ?? [])
+	const target = messages.filter((message) => message.id === replyToMessageId)
+	for (const message of [...target, ...messages]) {
+		for (const person of [...(message.from ?? []), ...(message.to ?? []), ...(message.cc ?? [])]) {
+			const name = person.name?.trim()
+			if (name && person.email.trim().toLowerCase() === key) return name
+		}
+	}
+	return undefined
 }
 
 /** The distinct addresses of a comma- or semicolon-separated recipient field. */

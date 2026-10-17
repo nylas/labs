@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { GitFork, Trash2 } from 'lucide-react'
+import { accountScope } from '#app/lib/account-scope'
 import { normalSubject } from '../lib/conversation-model.js'
 import { validateMailSearchQuery } from '../lib/mail-search.js'
 import { threadRouteFolderId } from '../lib/mail-ui-model.js'
 import { firstName, type Person, personName, toPerson } from '../lib/thread-reading-model.js'
-import { type MailMessage, type MailThread, mailKeys } from '../state/mail-queries.js'
+import type { MailMessage, MailThread } from '../state/mail-queries.js'
 import { EDGE_LINK_CLASS } from './edge-actions.js'
 
 const addressKey = (email: string): string => email.trim().toLowerCase()
@@ -65,6 +66,11 @@ export function sideThreadText(side: MailThread, owner: string): string {
 	return with_ ? `${who} started a side thread with ${with_}` : `${who} started a side thread`
 }
 
+/** The side-thread lookup's cache key: per account and thread, never under `mailKeys.all`. */
+export function sideThreadKey(threadId: string, query: string | null) {
+	return ['mail-side-thread', accountScope(), threadId, query] as const
+}
+
 /** A word-only search for a subject, so it always passes the search grammar. */
 export function subjectSearch(subject: string): string | null {
 	const words = normalSubject(subject)
@@ -98,7 +104,10 @@ export function ThreadStreamNotices({
 }) {
 	const query = subjectSearch(thread.subject ?? messages[0]?.subject ?? '')
 	const side = useQuery({
-		queryKey: [...mailKeys.all, 'side-thread', thread.id, query],
+		// Scoped to the account but outside the mail root: mail writes cancel and
+		// refetch everything under that root, and this read-only lookup (started
+		// as the thread opens, just before it is marked read) must survive them.
+		queryKey: sideThreadKey(thread.id, query),
 		queryFn: async () => {
 			const { getThreads } = await import('#server/fns')
 			const page = await getThreads({ data: { q: query as string } })

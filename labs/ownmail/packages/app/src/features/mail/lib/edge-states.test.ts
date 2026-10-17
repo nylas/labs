@@ -7,6 +7,7 @@ import {
 	firstNameFromAddress,
 	fitPercent,
 	hiddenImagesText,
+	knownNameFor,
 	pendingSendAt,
 	recipientAddresses,
 	reflowPlainText,
@@ -114,6 +115,24 @@ describe('reflowPlainText', () => {
 		])
 	})
 
+	it('splits code-indented lines inside a prose paragraph out as code', () => {
+		expect(reflowPlainText('Run this:\n    npm install\n    npm test\nthen done.')).toEqual([
+			{ kind: 'text', text: 'Run this:' },
+			{ kind: 'code', text: 'npm install\nnpm test' },
+			{ kind: 'text', text: 'then done.' },
+		])
+		expect(reflowPlainText('Last step:\n\tmake deploy')).toEqual([
+			{ kind: 'text', text: 'Last step:' },
+			{ kind: 'code', text: 'make deploy' },
+		])
+	})
+
+	it('keeps a list item’s indented continuation as part of the item', () => {
+		expect(reflowPlainText('Steps:\n- build it\n      on the release branch\nDone.')).toEqual([
+			{ kind: 'text', text: 'Steps:\n- build it\n      on the release branch\nDone.' },
+		])
+	})
+
 	it('drops whitespace on a wrapped line join', () => {
 		const wrapped = 'A sentence that is long enough to have been wrapped by a client'
 		expect(reflowPlainText(`${wrapped}   \ncontinues here`)).toEqual([
@@ -175,6 +194,28 @@ describe('recipients', () => {
 		expect(firstNameFromAddress('alan.turing@bletchley.dev')).toBe('Alan')
 		expect(firstNameFromAddress(' grace@vercel.com')).toBe('Grace')
 		expect(firstNameFromAddress('@x.com')).toBe('')
+	})
+
+	it('finds the name a loaded thread knows for an address, the replied message first', () => {
+		const threads = [
+			undefined,
+			{
+				messages: [
+					{ id: 'm0' },
+					{ id: 'm1', from: [{ name: 'A. Turing', email: 'alan@x.com' }] },
+					{ id: 'm2', from: [{ email: 'grace@x.com' }], to: [{ name: ' ', email: 'alan@x.com' }] },
+					{
+						id: 'm3',
+						from: [{ name: 'Grace', email: 'grace@x.com' }],
+						cc: [{ name: 'Alan Turing', email: 'ALAN@x.com ' }],
+					},
+				],
+			},
+		]
+		expect(knownNameFor('alan@x.com', threads, 'm3')).toBe('Alan Turing')
+		expect(knownNameFor('alan@x.com', threads)).toBe('A. Turing')
+		expect(knownNameFor('nobody@x.com', threads, 'm1')).toBeUndefined()
+		expect(knownNameFor('alan@x.com', [])).toBeUndefined()
 	})
 
 	it('lists distinct addresses from a recipient field', () => {

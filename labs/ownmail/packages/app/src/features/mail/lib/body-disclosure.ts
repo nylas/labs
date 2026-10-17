@@ -3,14 +3,18 @@
  * quoted history and the signature that trail what the person wrote. The
  * reader shows the new text first and these behind quiet pills, so this module
  * takes them off the end of a body and describes them: one entry per quoted
- * earlier message (who, when, their words) and the signature's lines.
+ * earlier message (who, when, their words) and the signature's lines. For an
+ * HTML body it also keeps what it took as HTML, so the reader can show the
+ * original with its links and images through the same sanitizer.
  *
  * Only a trailing history or signature is taken. Anything with new text after
  * it stays where the sender put it, and a body that would be left with no
- * text of its own is not split at all.
+ * text of its own is not split at all. A forwarded message is the content,
+ * not history, so it stays in the body; a signature with no words (a logo)
+ * stays too, rather than becoming an empty pill.
  */
 
-import { cutAtWord } from './edge-states.js'
+import { cutAtWord, reflowPlainText } from './edge-states.js'
 import { splitPlainQuotedHistory } from './email-message-content.js'
 
 export type QuotedEntry = {
@@ -19,15 +23,25 @@ export type QuotedEntry = {
 	email?: string
 	/** The attribution's date as written ("Tue, Oct 13, 2026 at 6:02 PM"). */
 	dateText?: string
-	/** That message's own words, quotes inside it removed. */
+	/** That message's own words, quotes inside it removed; paragraphs on their own lines. */
 	text: string
+	/** A forwarded message: not an earlier message of this thread, so it never links to one. */
+	forwarded?: boolean
 }
 
-export type BodyDisclosure = { quoted: QuotedEntry[]; signature: string[] }
+export type BodyDisclosure = {
+	quoted: QuotedEntry[]
+	signature: string[]
+	/** The taken history as a sanitizable document, links and images intact (HTML bodies only). */
+	quotedHtml?: string
+	/** The taken signature as a document, when it carries links or images (HTML bodies only). */
+	signatureHtml?: string
+}
 
 const LEAD_IN =
 	/^(?:on\s+(.+?)\s+wrote:|le\s+.+\s+a écrit\s*:|am\s+.+\s+schrieb\s+.+:|el\s+.+\s+escribió\s*:)\s*$/i
 const SEPARATOR = /^(?:-{2,}\s*(?:original|forwarded) message\s*-{2,}|begin forwarded message:)$/i
+const FORWARD = /^(?:-{2,}\s*forwarded message\s*-{2,}|begin forwarded message:)$/i
 const HEADER_LINE = /^(?:from|sent|date|to|cc|subject|reply-to):/i
 const HEADER_FROM = /^from:\s*(.+)$/i
 const HEADER_DATE = /^(?:sent|date):\s*(.+)$/i
@@ -68,8 +82,6 @@ export function attributionSeconds(dateText: string | undefined): number | null 
 	return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null
 }
 
-const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
-
 const QUOTE_MARK = /^\s*>/
 const unquote = (line: string): string => line.replace(/^\s*> ?/, '')
 
@@ -86,10 +98,40 @@ function headerAttribution(
 	return { attribution: { ...person(from ?? ''), ...(date ? { dateText: date.trim() } : {}) }, count }
 }
 
-/** Entries of a plain-text history: an attribution or header block, then `>`-quoted lines, nested once per level. */
-function plainEntries(lines: string[]): QuotedEntry[] {
+/**
+ * Where the next earlier message starts in an unquoted chain (Outlook writes
+ * each one under its own "From: … Sent: …" block, often after a rule or an
+ * "-----Original Message-----" line): the index of that block, or -1.
+ */
+function nextHeaderBlock(lines: string[]): number {
+	for (let index = 1; index < lines.length; index += 1) {
+		const line = (lines[index] as string).trim()
+		if (!HEADER_FROM.test(line)) continue
+		// A From: line is itself a header line, so there is always a block; it needs a second line.
+		if ((headerAttribution(lines.slice(index)) as { count: number }).count < 2) continue
+		return SEPARATOR.test((lines[index - 1] as string).trim()) ? index - 1 : index
+	}
+	return -1
+}
+
+/** An entry's words: plain text reflows into paragraphs; HTML text keeps one line per block. */
+function entryText(lines: string[], reflow: boolean): string {
+	const text = lines.join('\n').trim()
+	if (!reflow) return text
+	return reflowPlainText(text)
+		.map((block) => block.text)
+		.join('\n\n')
+}
+
+/**
+ * Entries of a history: an attribution, separator or header block, then that
+ * message's words. `>`-quoted lines nest once per level; an unquoted chain
+ * splits at each repeated header block.
+ */
+function plainEntries(lines: string[], reflow = true): QuotedEntry[] {
 	const first = (lines[0] as string).trim()
 	let attribution = parseAttribution(first)
+	const forwarded = FORWARD.test(first)
 	let rest = attribution || SEPARATOR.test(first) ? lines.slice(1) : lines
 	if (!attribution) {
 		const headers = headerAttribution(rest)
@@ -100,17 +142,20 @@ function plainEntries(lines: string[]): QuotedEntry[] {
 	}
 	const quoted = rest.some((line) => QUOTE_MARK.test(line))
 	const own = quoted ? rest.filter((line) => QUOTE_MARK.test(line)).map(unquote) : rest
-	const nestedAt = own.findIndex(
-		(line, index) =>
-			parseAttribution(line) !== null && own.slice(index + 1).some((next) => QUOTE_MARK.test(next)),
-	)
+	const nestedAt = quoted
+		? own.findIndex(
+				(line, index) =>
+					parseAttribution(line) !== null && own.slice(index + 1).some((next) => QUOTE_MARK.test(next)),
+			)
+		: nextHeaderBlock(own)
 	const ownLines = nestedAt === -1 ? own : own.slice(0, nestedAt)
 	const entry: QuotedEntry = {
 		name: attribution?.name ?? '',
 		...attribution,
-		text: collapse(ownLines.join(' ')),
+		text: entryText(ownLines, reflow),
+		...(forwarded ? { forwarded } : {}),
 	}
-	return [entry, ...(nestedAt === -1 ? [] : plainEntries(own.slice(nestedAt)))]
+	return [entry, ...(nestedAt === -1 ? [] : plainEntries(own.slice(nestedAt), reflow))]
 }
 
 /**
@@ -206,7 +251,7 @@ function htmlEntries(container: Element): QuotedEntry[] {
 	const quote = container.querySelector('blockquote')
 	if (!quote) {
 		const lines = readableText(container).split('\n')
-		return plainEntries(lines)
+		return plainEntries(lines, false)
 	}
 	// The attribution is what the history says before its first quote.
 	const range = container.ownerDocument.createRange()
@@ -236,9 +281,35 @@ function htmlEntries(container: Element): QuotedEntry[] {
 	const entry: QuotedEntry = {
 		name: attribution?.name ?? '',
 		...attribution,
-		text: collapse(readableText(own)),
+		text: readableText(own),
 	}
 	return [entry, ...nestedEntries]
+}
+
+/** The readable text of a history wrapper, without its "Show quoted text" summary. */
+function historyText(details: Element): string {
+	const copy = details.cloneNode(true) as Element
+	copy.querySelector(':scope > summary')?.remove()
+	return readableText(copy)
+}
+
+/** Whether a taken part must stay in the body: a forwarded message, or a signature with no words. */
+function staysInBody(element: Element): boolean {
+	if (element.matches(QUOTED_DETAILS)) return FORWARD.test(historyText(element).split('\n')[0] as string)
+	return signatureLines(element).length === 0
+}
+
+/** A signature's lines as a reader sees them, without the "-- " that opens it. */
+function signatureLines(element: Element): string[] {
+	return readableText(element)
+		.split('\n')
+		.filter((line) => line !== '' && !SIGNATURE_DELIMITER.test(line))
+}
+
+/** A standalone document of some taken nodes, under the message's own styles. */
+function fragmentDocument(document: Document, elements: Element[]): string {
+	const body = elements.map((element) => element.innerHTML).join('')
+	return `<!doctype html><html><head>${document.head.innerHTML}</head><body>${body}</body></html>`
 }
 
 /**
@@ -255,7 +326,7 @@ export function splitHtmlBody(preparedHtml: string): { html: string } & BodyDisc
 		.reverse()
 	const taken: Element[] = []
 	for (const candidate of candidates) {
-		if (contentAfter(candidate, taken)) break
+		if (contentAfter(candidate, taken) || staysInBody(candidate)) break
 		taken.push(candidate)
 	}
 	const unchanged = { html: preparedHtml, quoted: [], signature: [] }
@@ -267,22 +338,29 @@ export function splitHtmlBody(preparedHtml: string): { html: string } & BodyDisc
 
 	const quoted: QuotedEntry[] = []
 	const signature: string[] = []
+	const histories: Element[] = []
+	const signatures: Element[] = []
 	for (const element of taken.reverse()) {
 		if (element.matches(QUOTED_DETAILS)) {
 			element.querySelector(':scope > summary')?.remove()
 			quoted.push(...htmlEntries(element))
+			histories.push(element)
 		} else {
 			const prefix = element.previousElementSibling
 			if (prefix?.classList.contains('gmail_signature_prefix')) prefix.remove()
-			signature.push(
-				...readableText(element)
-					.split('\n')
-					.filter((line) => !SIGNATURE_DELIMITER.test(line)),
-			)
+			signature.push(...signatureLines(element))
+			signatures.push(element)
 		}
 		element.remove()
 	}
-	return { html: document.documentElement.outerHTML, quoted, signature }
+	const rich = signatures.some((element) => element.querySelector('a[href], img'))
+	return {
+		html: document.documentElement.outerHTML,
+		quoted,
+		signature,
+		...(histories.length > 0 ? { quotedHtml: fragmentDocument(document, histories) } : {}),
+		...(rich ? { signatureHtml: fragmentDocument(document, signatures) } : {}),
+	}
 }
 
 /** How an entry's words read under its header: cut near 72 characters when the full message is a click away. */
