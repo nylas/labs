@@ -5,8 +5,13 @@ import { cn } from '#shared/lib/utils'
 import { personName, shortDayLabel, type ThreadFile, versionToken } from '../lib/thread-reading-model.js'
 import { formatSize } from './AttachmentLink.js'
 
-/** Raster images get a thumbnail from the attachment itself when they are this small or smaller. */
-const THUMBNAIL_MAX_BYTES = 5 * 1024 * 1024
+/**
+ * Raster images get a thumbnail from the attachment itself only when they are
+ * this small or smaller: the attachment route sends the whole file uncached,
+ * so a larger photo keeps its tinted tile rather than cost a full download
+ * each time the shelf opens.
+ */
+const THUMBNAIL_MAX_BYTES = 512 * 1024
 const THUMBNAIL_TYPES = new Set([
 	'image/png',
 	'image/jpeg',

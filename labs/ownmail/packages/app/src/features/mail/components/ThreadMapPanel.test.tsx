@@ -9,6 +9,7 @@ import type { MailMessage } from '../state/mail-queries.js'
 import {
 	mapDateLabel,
 	mapEntryMatches,
+	rowChips,
 	type ThreadMapFilter,
 	ThreadMapPanel,
 	threadMapNamesYou,
@@ -160,16 +161,32 @@ describe('threadMapNamesYou', () => {
 		to: [ADA],
 		body,
 	})
-	it('keeps other people’s messages that name the reader or ask the reader something', () => {
+	it('keeps other people’s messages that name the reader by first name or address', () => {
 		const messages = [
 			message('names', GRACE, 'Thanks Ada, that settles it.'),
 			message('address', ALAN, 'I copied ada@ownmail.com on the doc.'),
+			// A question to "you" carries the "asks you" chip, which the filter keeps on its own.
 			message('asks', MARY, 'Billing can make Q3. Can you confirm the date with legal?'),
 			message('none', GRACE, 'Adam will send the numbers.'),
 			message('own', ADA, 'Ada here, signing off.'),
 		]
-		expect(threadMapNamesYou(messages, OWNER, 'Ada')).toEqual(['names', 'address', 'asks'])
+		expect(threadMapNamesYou(messages, OWNER, 'Ada')).toEqual(['names', 'address'])
+		// The same messages again: the answer is remembered, and stays the same.
+		expect(threadMapNamesYou(messages, OWNER, 'Ada')).toEqual(['names', 'address'])
+		// Another reader of the same messages gets an answer of their own.
+		expect(threadMapNamesYou(messages, 'adam@ownmail.com', 'Adam')).toEqual(['none'])
 		expect(threadMapNamesYou([message('x', GRACE, 'Plain note.')], '', '')).toEqual([])
+	})
+})
+
+describe('rowChips', () => {
+	const labels = (chips: string[]) => rowChips(chips).map((chip) => chip.label)
+	it('folds repeats into a count and keeps at most three chips, "asks you" always', () => {
+		expect(labels(['v4', '+ Mary'])).toEqual(['v4', '+ Mary'])
+		expect(labels(['jpg', 'jpg', 'jpg', 'pdf'])).toEqual(['jpg ×3', 'pdf'])
+		expect(labels(['jpg', 'png', 'pdf', 'docx', '+ Mary'])).toEqual(['jpg', 'png', '+3'])
+		expect(labels(['jpg', 'png', 'pdf', 'asks you'])).toEqual(['jpg', '+2', 'asks you'])
+		expect(rowChips(['jpg', 'jpg', 'asks you']).map((chip) => chip.key)).toEqual(['jpg', 'asks you'])
 	})
 })
 
@@ -179,6 +196,12 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 		const dialog = await screen.findByRole('dialog', { name: 'Thread map' })
 		expect(within(dialog).getByText('7 messages')).toHaveClass('font-data')
 		const filters = within(dialog).getByRole('group', { name: 'Filter' })
+		// Board 04's group: 2px around and between the segments; the pressed one is a plain card fill.
+		expect(filters).toHaveClass('bg-muted', 'p-px')
+		for (const segment of within(filters).getAllByRole('button')) {
+			expect(segment.className).not.toMatch(/shadow/)
+			expect(segment.closest('.m-px')).not.toBeNull()
+		}
 		expect(
 			within(filters)
 				.getAllByRole('button')
@@ -192,6 +215,7 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 		expect(texts.indexOf('Subject changed: “Q3 roadmap” → “… final review before Friday”')).toBe(
 			texts.findIndex((text) => text?.startsWith('Alan Turing')) - 1,
 		)
+		expect(within(dialog).getByText(/^Subject changed/).parentElement).toHaveClass('flex', 'justify-center')
 		expect(texts[texts.indexOf('You stopped here') + 1]).toMatch(/^Alan Turing, new/)
 
 		const selected = within(dialog).getByRole('button', { current: true })
@@ -218,16 +242,40 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 		expect(within(dialog).getByText('g m').tagName).toBe('KBD')
 	})
 
-	it('opens a row, closes from the button, and closes when the sheet is dismissed', async () => {
-		const onSelect = vi.fn()
-		const onClose = vi.fn()
+	it('opens a row and closes so the message shows, closes from the button and when dismissed', async () => {
+		const calls: string[] = []
+		const onSelect = vi.fn((id: string) => calls.push(`select ${id}`))
+		const onClose = vi.fn(() => calls.push('close'))
 		render(<Harness onSelect={onSelect} onClose={onClose} />)
 		await userEvent.click(screen.getByRole('button', { name: /^Mary Jackson/ }))
-		expect(onSelect).toHaveBeenCalledWith('m7')
+		expect(calls).toEqual(['select m7', 'close'])
 		await userEvent.click(screen.getByRole('button', { name: 'Close thread map' }))
-		expect(onClose).toHaveBeenCalledTimes(1)
-		fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
 		expect(onClose).toHaveBeenCalledTimes(2)
+		fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+		expect(onClose).toHaveBeenCalledTimes(3)
+	})
+
+	it('closes only the From… menu on Escape, not the sheet', async () => {
+		const onClose = vi.fn()
+		render(<Harness onClose={onClose} />)
+		const from = await screen.findByRole('button', { name: 'From…' })
+		await userEvent.click(from)
+		await userEvent.keyboard('{Escape}')
+		expect(screen.queryByRole('menu')).toBeNull()
+		expect(onClose).not.toHaveBeenCalled()
+		expect(screen.getByRole('dialog')).toBeInTheDocument()
+		expect(from).toHaveFocus()
+	})
+
+	it('draws repeated attachment types once with a count, without duplicate keys', async () => {
+		const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+		render(
+			<Harness entries={[entry('p1', ALAN, 2, { chips: ['jpg', 'jpg', 'jpg', 'png', 'pdf', 'docx'] })]} />,
+		)
+		const row = (await screen.findByRole('dialog')).querySelector('[data-message-id="p1"]') as HTMLElement
+		expect(row.textContent).toMatch(/^Alan Turingjpg ×3png\+2/)
+		expect(errors).not.toHaveBeenCalled()
+		errors.mockRestore()
 	})
 
 	it('filters to files, to the rows naming you, and back to all', async () => {
@@ -334,12 +382,18 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 		expect(screen.queryByRole('menu')).toBeNull()
 	})
 
-	it('moves between rows with the arrow keys', () => {
+	it('moves between rows with the arrow keys, the rows one Tab stop', () => {
 		render(<Harness />)
 		const list = screen.getByRole('button', { current: true }).parentElement as HTMLElement
 		const row = (id: string) => list.querySelector(`[data-message-id="${id}"]`) as HTMLElement
+		const tabStops = () =>
+			Array.from(list.querySelectorAll<HTMLElement>('[data-map-row]'))
+				.filter((button) => button.tabIndex === 0)
+				.map((button) => button.dataset.messageId)
+		expect(tabStops()).toEqual(['m5'])
 		fireEvent.keyDown(list, { key: 'ArrowDown' })
 		expect(row('m6')).toHaveFocus()
+		expect(tabStops()).toEqual(['m6'])
 		fireEvent.keyDown(list, { key: 'Home' })
 		expect(row('m1')).toHaveFocus()
 		fireEvent.keyDown(list, { key: 'End' })
@@ -406,6 +460,41 @@ describe('ThreadMapPanel docked from xl', () => {
 		expect(onClose).not.toHaveBeenCalled()
 		fireEvent.keyDown(screen.getByRole('complementary'), { key: 'Escape' })
 		expect(onClose).toHaveBeenCalledOnce()
+	})
+
+	it('gives focus back where it was when it closes, unless the reader moved it', () => {
+		stubWidth(true)
+		function Opener({ open }: { open: boolean }) {
+			return (
+				<>
+					<button type="button">Dots</button>
+					<Harness open={open} />
+				</>
+			)
+		}
+		const { rerender } = render(<Opener open={false} />)
+		const dots = screen.getByRole('button', { name: 'Dots' })
+		dots.focus()
+		rerender(<Opener open />)
+		expect(screen.getByRole('button', { current: true })).toHaveFocus()
+		rerender(<Opener open={false} />)
+		expect(dots).toHaveFocus()
+
+		rerender(<Opener open />)
+		const outside = screen.getByRole('button', { name: 'Outside' })
+		outside.focus()
+		rerender(<Opener open={false} />)
+		expect(outside).toHaveFocus()
+	})
+
+	it('stays open when a row is chosen beside the stream', async () => {
+		stubWidth(true)
+		const onSelect = vi.fn()
+		const onClose = vi.fn()
+		render(<Harness onSelect={onSelect} onClose={onClose} />)
+		await userEvent.click(screen.getByRole('button', { name: /^Mary Jackson/ }))
+		expect(onSelect).toHaveBeenCalledWith('m7')
+		expect(onClose).not.toHaveBeenCalled()
 	})
 
 	it('renders nothing while closed and follows the window across the breakpoint', async () => {

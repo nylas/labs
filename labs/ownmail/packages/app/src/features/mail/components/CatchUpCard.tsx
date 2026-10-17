@@ -119,8 +119,10 @@ export function CatchUpCard({
 							</span>
 						</p>
 						<ul className="m-0 list-disc pl-region text-[15px] leading-[1.6] text-foreground">
-							{summary.map((line) => (
-								<li key={line}>{line}</li>
+							{summary.map((line, index) => (
+								// A provider may repeat a line; the position keeps each bullet its own.
+								// biome-ignore lint/suspicious/noArrayIndexKey: the bullets are replaced whole, never reordered
+								<li key={index}>{line}</li>
 							))}
 						</ul>
 						<div className="flex gap-cluster">

@@ -93,6 +93,14 @@ describe('CatchUpCard', () => {
 		expect(onShowSources).toHaveBeenLastCalledWith([])
 	})
 
+	it('keeps a line the provider repeats as its own bullet', async () => {
+		const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+		renderCard({ provider: { summarize: async () => ['Twice.', 'Twice.'] } })
+		expect(await screen.findAllByText('Twice.')).toHaveLength(2)
+		expect(errors).not.toHaveBeenCalled()
+		errors.mockRestore()
+	})
+
 	it('leaves the summary block out when no provider answers', async () => {
 		renderCard({ provider: null })
 		await Promise.resolve()

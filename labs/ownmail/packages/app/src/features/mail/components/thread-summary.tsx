@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
+import { DEV_MOCK_SUMMARY_MESSAGE_ID, getDevMockThreadSummary } from '../server/thread-summary-mock.js'
 import type { MailMessage } from '../state/mail-queries.js'
 
 /**
@@ -13,26 +14,20 @@ export type ThreadSummarySource = {
 }
 
 /**
- * The local mock app's provider: the three canvas bullets for the mock Q3
- * roadmap thread (board 04), so the summary block can be checked against the
- * board. It answers for the mock thread's message ids only and returns null
- * for everything else, so it never speaks about real mail.
+ * The local mock app's provider (board 04): it asks the server only about the
+ * mock roadmap thread, and the server answers only in mock mode
+ * (`OWNMAIL_DEV_MOCKS`). Against a real mailbox it is null without a request.
  */
-export const devMockThreadSummaryProvider: ThreadSummarySource = {
+export const mockModeThreadSummaryProvider: ThreadSummarySource = {
 	async summarize(messages) {
-		const ids = new Set(messages.map((message) => message.id))
-		if (!ids.has('msg-roadmap-14')) return null
-		return [
-			'Alan asked for two changes: a firm date for calendar sync and search moved down.',
-			'Grace made both in v4 and added Mary for launch dates.',
-			'Open: Mary asks you to confirm legal sign-off by Oct 20.',
-		]
+		if (!messages.some((message) => message.id === DEV_MOCK_SUMMARY_MESSAGE_ID)) return null
+		return getDevMockThreadSummary()
 	},
 }
 
-/** Development builds (the local mock app among them) get the mock provider; production gets none. */
+/** Production builds have no provider; development builds have the one only mock mode answers. */
 /* v8 ignore next -- tests always run as a development build, so the production branch is never taken -- @preserve */
-const defaultProvider: ThreadSummarySource | null = import.meta.env.DEV ? devMockThreadSummaryProvider : null
+const defaultProvider: ThreadSummarySource | null = import.meta.env.DEV ? mockModeThreadSummaryProvider : null
 
 export const ThreadSummaryContext = createContext<ThreadSummarySource | null>(defaultProvider)
 
@@ -69,15 +64,18 @@ export function useThreadSummary(messages: MailMessage[]): string[] | null {
 	useEffect(() => {
 		if (!provider || messages.length === 0) return
 		let current = true
-		provider
-			.summarize(messages)
+		// A summary is optional: a provider that throws, rejects or answers with
+		// anything but lines leaves the card with its facts.
+		Promise.resolve()
+			.then(() => provider.summarize(messages))
 			.then((bullets) => {
-				const lines = (bullets ?? []).map((line) => line.trim()).filter(Boolean)
+				const lines = (Array.isArray(bullets) ? (bullets as unknown[]) : [])
+					.filter((line): line is string => typeof line === 'string')
+					.map((line) => line.trim())
+					.filter(Boolean)
 				if (current && lines.length > 0) setResult({ key, provider, bullets: lines })
 			})
-			.catch(() => {
-				// A summary is optional: a failing provider leaves the card with its facts.
-			})
+			.catch(() => {})
 		return () => {
 			current = false
 		}

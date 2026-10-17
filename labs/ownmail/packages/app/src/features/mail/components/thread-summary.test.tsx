@@ -3,13 +3,16 @@ import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-libr
 import { useContext } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MailMessage } from '../state/mail-queries.js'
-import {
-	devMockThreadSummaryProvider,
-	ThreadSummaryContext,
-	ThreadSummaryProvider,
-	type ThreadSummarySource,
-	useThreadSummary,
-} from './thread-summary.js'
+
+const { getDevMockThreadSummary } = vi.hoisted(() => ({ getDevMockThreadSummary: vi.fn() }))
+vi.mock('../server/thread-summary-mock.js', () => ({
+	DEV_MOCK_SUMMARY_MESSAGE_ID: 'msg-roadmap-14',
+	getDevMockThreadSummary: () => getDevMockThreadSummary(),
+}))
+
+const { mockModeThreadSummaryProvider, ThreadSummaryContext, ThreadSummaryProvider, useThreadSummary } =
+	await import('./thread-summary.js')
+type ThreadSummarySource = import('./thread-summary.js').ThreadSummarySource
 
 afterEach(cleanup)
 
@@ -34,21 +37,21 @@ function deferredProvider() {
 	return { provider, pending }
 }
 
-describe('devMockThreadSummaryProvider', () => {
-	it('answers with the three board bullets for the mock roadmap thread only', async () => {
-		await expect(devMockThreadSummaryProvider.summarize(NEW)).resolves.toEqual([
-			'Alan asked for two changes: a firm date for calendar sync and search moved down.',
-			'Grace made both in v4 and added Mary for launch dates.',
-			'Open: Mary asks you to confirm legal sign-off by Oct 20.',
-		])
-		await expect(devMockThreadSummaryProvider.summarize([message('real-message')])).resolves.toBeNull()
+describe('mockModeThreadSummaryProvider', () => {
+	it('asks the server about the mock roadmap thread only', async () => {
+		getDevMockThreadSummary.mockReset().mockResolvedValue(['From the mock layer.'])
+		await expect(mockModeThreadSummaryProvider.summarize(NEW)).resolves.toEqual(['From the mock layer.'])
+		expect(getDevMockThreadSummary).toHaveBeenCalledOnce()
+		// Real mail never reaches the server: there is nothing to say about it.
+		await expect(mockModeThreadSummaryProvider.summarize([message('real-message')])).resolves.toBeNull()
+		expect(getDevMockThreadSummary).toHaveBeenCalledOnce()
 	})
 })
 
 describe('ThreadSummaryProvider', () => {
-	it('defaults to the mock provider in development builds and can be turned off', () => {
+	it('defaults to the mock-mode provider in development builds and can be turned off', () => {
 		const { result } = renderHook(() => useContext(ThreadSummaryContext))
-		expect(result.current).toBe(devMockThreadSummaryProvider)
+		expect(result.current).toBe(mockModeThreadSummaryProvider)
 
 		const off = renderHook(() => useContext(ThreadSummaryContext), { wrapper: withProvider(null) })
 		expect(off.result.current).toBeNull()
@@ -83,6 +86,28 @@ describe('useThreadSummary', () => {
 		expect(summarize).toHaveBeenCalledWith(NEW)
 	})
 
+	it('keeps only the lines that are text, each in its place, repeats included', async () => {
+		const summarize = vi.fn(async () => ['Same.', 42, null, 'Same.'] as unknown as string[])
+		const { result } = renderHook(() => useThreadSummary(NEW), { wrapper: withProvider({ summarize }) })
+		await waitFor(() => expect(result.current).toEqual(['Same.', 'Same.']))
+	})
+
+	it('stays null when the provider throws before it answers or answers with something else', async () => {
+		const throwing = renderHook(() => useThreadSummary(NEW), {
+			wrapper: withProvider({
+				summarize: () => {
+					throw new Error('not configured')
+				},
+			}),
+		})
+		const odd = renderHook(() => useThreadSummary(NEW), {
+			wrapper: withProvider({ summarize: () => 'One line.' as unknown as Promise<string[]> }),
+		})
+		await act(async () => {})
+		expect(throwing.result.current).toBeNull()
+		expect(odd.result.current).toBeNull()
+	})
+
 	it('stays null when the provider has nothing to say or fails', async () => {
 		const silent = renderHook(() => useThreadSummary(NEW), {
 			wrapper: withProvider({ summarize: async () => null }),
@@ -105,6 +130,9 @@ describe('useThreadSummary', () => {
 			initialProps: { messages: NEW },
 			wrapper: withProvider(provider),
 		})
+		// The provider is asked on the next tick, so a synchronous throw cannot escape the effect.
+		await act(async () => {})
+		expect(pending).toHaveLength(1)
 		await act(async () => pending[0]?.resolve(['About the roadmap.']))
 		expect(result.current).toEqual(['About the roadmap.'])
 
@@ -113,6 +141,8 @@ describe('useThreadSummary', () => {
 		expect(result.current).toBeNull()
 		// The answer for a set the reader has already left is dropped.
 		rerender({ messages: [message('third')] })
+		await act(async () => {})
+		expect(pending.map((call) => call.messages[0]?.id)).toEqual(['msg-roadmap-12', 'other', 'third'])
 		await act(async () => pending[1]?.resolve(['About the other thread.']))
 		expect(result.current).toBeNull()
 		await act(async () => pending[2]?.resolve(['About the third thread.']))

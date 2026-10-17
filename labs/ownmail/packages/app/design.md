@@ -495,8 +495,9 @@ first new message says what changed since the reader was last here:
   "Answer {First}" (a reply to whoever asked the question) and "Show sources"
   (a pressed toggle that marks the messages it was made from). Without a
   provider, or when it fails, the block is not rendered and the facts stand
-  alone. A summary is shown only for the messages it was made from. The local
-  mock app supplies the board's three bullets for its roadmap thread.
+  alone. A summary is shown only for the messages it was made from. Only mock
+  mode (`OWNMAIL_DEV_MOCKS`) answers, with the board's three bullets for its
+  roadmap thread; production has no provider.
 
 ## Thread map
 
@@ -509,7 +510,9 @@ row scrolls to that message and opens it.
   the owner), chips for the files it carried (the version in a family, "v2",
   else the type, "docx"), people added ("+ Mary") and "asks you" on the amber
   ground, and the date: a time today ("9:30"), a weekday this week, else
-  "Sep 28".
+  "Sep 28". Repeats fold into a count ("jpg ×6") and a row keeps three chips
+  at most ("+n" for the rest, "asks you" always shown), so the name keeps its
+  room.
 - A subject change sits as a muted line between the rows it divides. "You
   stopped here" is a green label between two hairlines before the first message
   that was new when the thread opened.
@@ -521,8 +524,12 @@ row scrolls to that message and opens it.
   belong to the full map; the stopped label stays only while rows sit on both
   sides of it.
 - From `xl` the map is panel glass (380px) docked at the reader's right, over
-  the stream; below `xl` it is a sheet from the right. Escape closes it and
-  focus starts on the current row.
+  the stream, and stays open while you move between rows; below `xl` it is a
+  sheet from the right that closes when you choose a row, so the message
+  shows. Escape inside the map closes it (inside the From… menu, only the
+  menu). Focus starts on the current row and goes back where it was when the
+  map closes. The rows are one Tab stop; the arrow keys, Home and End move
+  between them.
 
 ## Files shelf
 
@@ -531,7 +538,7 @@ opens from the files count in the thread header as a section under it.
 
 - Two columns of tiles (one on a phone), each a 1px bordered plane control: a
   type tile (PDF, XLS, DOC, PPT on its own tint; other files by extension on
-  `--muted`), or for a raster image of 5 MB or less a thumbnail from the
+  `--muted`), or for a raster image of 512 KB or less a thumbnail from the
   attachment route, lazily loaded, with the tile as its fallback; then the name
   and "Grace · today", with the size on images.
 - Versions fold by name (v1…vN, -final, (1)): the newest is the tile and the

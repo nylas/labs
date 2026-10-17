@@ -179,9 +179,9 @@ describe('ThreadFilesShelf', () => {
 	})
 
 	it('shows a small raster image as its own thumbnail and falls back to the tile when it fails', () => {
-		renderShelf()
+		renderShelf([file('sketch.png', { contentType: 'image/png', size: 512 * 1024 })])
 		const image = document.querySelector('img') as HTMLImageElement
-		expect(image).toHaveAttribute('src', '/attachments/att-sync-flow.png?message_id=msg-sync-flow.png')
+		expect(image).toHaveAttribute('src', '/attachments/att-sketch.png?message_id=msg-sketch.png')
 		expect(image).toHaveAttribute('loading', 'lazy')
 		expect(image).toHaveAttribute('alt', '')
 		expect(image).toHaveAttribute('referrerpolicy', 'no-referrer')
@@ -192,11 +192,13 @@ describe('ThreadFilesShelf', () => {
 	it('keeps large, vector and unsized images as plain tiles', () => {
 		renderShelf([
 			file('huge.jpg', { contentType: 'image/jpeg', size: 6 * 1024 * 1024 }),
+			// The board's 1.4 MB diagram: over the thumbnail limit, so it keeps its tile.
+			file('sync-flow.png', { contentType: 'image/png', size: 1_468_006 }),
 			file('logo.svg', { contentType: 'image/svg+xml', size: 2_000 }),
 			file('unknown.png', { contentType: 'image/png', size: 0 }),
 		])
 		expect(document.querySelector('img')).toBeNull()
-		expect(screen.getByText('3 files')).toBeInTheDocument()
+		expect(screen.getByText('4 files')).toBeInTheDocument()
 	})
 
 	it('labels other files by extension, slides on the amber ground', () => {

@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog
 import { GlassPanelScope, useGlassPanelProps } from '#shared/components/ui/glass'
 import { cn } from '#shared/lib/utils'
 import {
-	asksYou,
 	type MapEntry,
 	messageNewText,
 	type Person,
@@ -58,23 +57,32 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 const hasWord = (text: string, word: string): boolean =>
 	word !== '' && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(word)}(?![\\p{L}\\p{N}])`, 'iu').test(text)
 
+/** Each message's answer for one owner, so a reader re-render does not parse every body again. */
+const namesYouCache = new WeakMap<MailMessage, { owner: string; names: boolean }>()
+
 /**
- * The messages the "Names you" filter keeps: someone else's message whose own
- * text (quoted history and signature removed) names the owner by first name
- * or address, or asks the owner something. The reader passes these to the map.
+ * The messages the "Names you" filter keeps besides the ones that ask the
+ * owner something (those carry the "asks you" chip already): someone else's
+ * message whose own text (quoted history and signature removed) names the
+ * owner by first name or address. Each body is read once per owner; the
+ * reader memoises the list on the messages, owner and first name and passes
+ * it to the map.
  */
 export function threadMapNamesYou(messages: MailMessage[], owner: string, ownerFirstName: string): string[] {
 	const name = ownerFirstName.trim()
 	const address = addressKey(owner)
+	const cacheKey = `${address}\n${name.toLowerCase()}`
 	return messages
 		.filter((message) => {
-			if (senderPerson(message, owner).isOwner) return false
-			const text = messageNewText(message)
-			return (
-				hasWord(text, name) ||
-				(address !== '' && text.toLowerCase().includes(address)) ||
-				asksYou(message, owner, ownerFirstName)
-			)
+			const cached = namesYouCache.get(message)
+			if (cached?.owner === cacheKey) return cached.names
+			let names = false
+			if (!senderPerson(message, owner).isOwner) {
+				const text = messageNewText(message)
+				names = hasWord(text, name) || (address !== '' && text.toLowerCase().includes(address))
+			}
+			namesYouCache.set(message, { owner: cacheKey, names })
+			return names
 		})
 		.map((message) => message.id)
 }
@@ -119,6 +127,31 @@ export function mapDateLabel(seconds: number, now: number, tz: string): string {
 const isPeopleChip = (chip: string): boolean => chip.startsWith('+ ') || chip.startsWith('− ')
 const isFileChip = (chip: string): boolean => !isPeopleChip(chip) && chip !== ASKS_YOU_CHIP
 
+/** A row shows this many chips at most; past that, the first ones, a "+n" count and "asks you". */
+const MAX_ROW_CHIPS = 3
+
+type RowChip = { label: string; key: string; asks: boolean }
+
+/**
+ * The chips a row draws: repeats of one label folded into a count ("jpg ×6"),
+ * and no more than `MAX_ROW_CHIPS`, so the sender's name always keeps its room.
+ * "asks you" is never the chip that gives way.
+ */
+export function rowChips(chips: readonly string[]): RowChip[] {
+	const counts = new Map<string, number>()
+	for (const chip of chips) counts.set(chip, (counts.get(chip) ?? 0) + 1)
+	const all = [...counts].map(([chip, count]) => ({
+		label: count > 1 ? `${chip} ×${count}` : chip,
+		key: chip,
+		asks: chip === ASKS_YOU_CHIP,
+	}))
+	if (all.length <= MAX_ROW_CHIPS) return all
+	const asks = all.filter((chip) => chip.asks)
+	const others = all.filter((chip) => !chip.asks)
+	const kept = others.slice(0, MAX_ROW_CHIPS - 1 - asks.length)
+	return [...kept, { label: `+${others.length - kept.length}`, key: 'more', asks: false }, ...asks]
+}
+
 /** Whether an entry passes a filter. */
 export function mapEntryMatches(
 	entry: MapEntry,
@@ -156,8 +189,11 @@ function useDocked(): boolean {
 	)
 }
 
+/** A segment: the pressed one is a plain card fill on the muted group, as board 04 draws it. */
 const segmentClass =
-	'inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-control whitespace-nowrap rounded-md px-cluster text-xs font-medium text-foreground/70 transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-card aria-pressed:text-foreground aria-pressed:shadow-xs [@media(any-pointer:coarse)]:h-11'
+	'inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-control whitespace-nowrap rounded-md px-cluster text-xs font-medium text-foreground/70 transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-card aria-pressed:text-foreground [@media(any-pointer:coarse)]:h-11'
+/** Each segment's 1px margin and the group's 1px padding make board 04's 2px gaps and inset. */
+const segmentSlotClass = 'm-px'
 
 function FromFilter({
 	senders,
@@ -206,7 +242,7 @@ function FromFilter({
 	}
 
 	return (
-		<div ref={rootRef} className="relative flex min-w-0 flex-1">
+		<div ref={rootRef} className={cn('relative flex min-w-0 flex-1', segmentSlotClass)}>
 			<button
 				ref={triggerRef}
 				type="button"
@@ -347,6 +383,11 @@ function MapBody({
 	)
 	const senders = useMemo(() => mapSenders(entries), [entries])
 	const count = entries.length
+	// One Tab stop for the whole list (roving tabindex): the row last focused,
+	// else the current message, else the first row. Arrow keys move between rows.
+	const [focusedId, setFocusedId] = useState<string | null>(null)
+	const rowIds = rows.flatMap((row) => (row.kind === 'entry' ? [row.entry.messageId] : []))
+	const tabStopId = [focusedId, selectedId].find((id) => id != null && rowIds.includes(id)) ?? rowIds[0]
 
 	return (
 		<div className="flex flex-col gap-cluster p-5">
@@ -366,13 +407,13 @@ function MapBody({
 				</button>
 			</div>
 
-			<fieldset className="m-0 flex min-w-0 gap-px rounded-lg border-2 border-transparent bg-muted p-0">
+			<fieldset className="m-0 flex min-w-0 rounded-lg border-0 bg-muted p-px">
 				<legend className="sr-only">Filter</legend>
 				<button
 					type="button"
 					aria-pressed={filter === 'all'}
 					onClick={() => onFilter('all')}
-					className={segmentClass}
+					className={cn(segmentClass, segmentSlotClass)}
 				>
 					All
 				</button>
@@ -380,7 +421,7 @@ function MapBody({
 					type="button"
 					aria-pressed={filter === 'files'}
 					onClick={() => onFilter('files')}
-					className={segmentClass}
+					className={cn(segmentClass, segmentSlotClass)}
 				>
 					With files
 				</button>
@@ -388,7 +429,7 @@ function MapBody({
 					type="button"
 					aria-pressed={filter === 'you'}
 					onClick={() => onFilter('you')}
-					className={segmentClass}
+					className={cn(segmentClass, segmentSlotClass)}
 				>
 					Names you
 				</button>
@@ -415,12 +456,13 @@ function MapBody({
 						)
 					}
 					if (row.kind === 'event') {
+						// Centred as a whole, as board 04 sets it; a wrapped second line stays flush left.
 						return (
 							<p
 								key={row.key}
-								className="m-0 px-hairline py-cluster text-xs leading-[1.4] text-muted-foreground"
+								className="m-0 flex justify-center px-hairline py-cluster text-xs leading-[1.4] text-muted-foreground"
 							>
-								{row.text}
+								<span className="min-w-0">{row.text}</span>
 							</p>
 						)
 					}
@@ -435,6 +477,8 @@ function MapBody({
 							data-map-row=""
 							data-message-id={entry.messageId}
 							aria-current={selected ? 'true' : undefined}
+							tabIndex={entry.messageId === tabStopId ? 0 : -1}
+							onFocus={() => setFocusedId(entry.messageId)}
 							onClick={() => onSelect(entry.messageId)}
 							className={cn(
 								'flex min-h-[33px] w-full min-w-0 items-center gap-hairline rounded-md px-hairline text-left text-[13px] leading-[1.35] transition-colors duration-[var(--dur-fast)] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(any-pointer:coarse)]:min-h-11',
@@ -454,17 +498,15 @@ function MapBody({
 								{entryName(entry.from)}
 								{entry.unread ? <span className="sr-only">, new</span> : null}
 							</span>
-							{entry.chips.map((chip) => (
+							{rowChips(entry.chips).map((chip) => (
 								<span
-									key={chip}
+									key={chip.key}
 									className={cn(
 										'inline-flex h-5 shrink-0 items-center rounded-full px-cluster text-[11px]',
-										chip === ASKS_YOU_CHIP
-											? 'bg-amber-soft text-amber-soft-foreground'
-											: 'bg-muted text-foreground/70',
+										chip.asks ? 'bg-amber-soft text-amber-soft-foreground' : 'bg-muted text-foreground/70',
 									)}
 								>
-									{chip}
+									{chip.label}
 								</span>
 							))}
 							<time
@@ -521,13 +563,19 @@ export function ThreadMapPanel({
 	onSelect(messageId: string): void
 	onClose(): void
 	open: boolean
-	/** Messages that name the reader (`threadMapNamesYou`); without it "Names you" keeps the questions to the reader. */
+	/**
+	 * Messages that name the reader (`threadMapNamesYou`, memoised by the caller); "Names you" keeps
+	 * these and the rows that ask the reader something. Without it the filter keeps only the questions.
+	 */
 	namesYouIds?: readonly string[]
 }) {
 	const docked = useDocked()
 	const titleId = useId()
 	const asideRef = useRef<HTMLElement>(null)
-	const namesYou = useMemo(() => new Set(namesYouIds ?? []), [namesYouIds])
+	// Keyed on the ids, not the array, so a caller that builds a new list each render keeps the rows memoised.
+	const namesYouKey = (namesYouIds ?? []).join('\n')
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the ids it was made from
+	const namesYou = useMemo(() => new Set(namesYouIds ?? []), [namesYouKey])
 	const panel = useGlassPanelProps()
 
 	const focusCurrentRow = (root: HTMLElement | null) => {
@@ -538,12 +586,24 @@ export function ThreadMapPanel({
 		row?.focus({ preventScroll: true })
 	}
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: focus moves only when the docked panel opens
+	// The docked panel takes focus to its current row when it opens and, when it
+	// closes, hands focus back to where it came from (the sheet's dialog does both
+	// itself). Focus the reader has moved elsewhere in the meantime stays there.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: focus moves only when the docked panel opens or closes
 	useEffect(() => {
-		if (open && docked) focusCurrentRow(asideRef.current)
+		if (!open || !docked) return
+		const aside = asideRef.current
+		const returnTo = document.activeElement
+		focusCurrentRow(aside)
+		return () => {
+			const active = document.activeElement
+			const lost = !active || active === document.body || aside?.contains(active)
+			if (lost && returnTo instanceof HTMLElement && returnTo.isConnected)
+				returnTo.focus({ preventScroll: true })
+		}
 	}, [open, docked])
 
-	const body = (title: ReactNode) => (
+	const body = (title: ReactNode, select: (messageId: string) => void) => (
 		<MapBody
 			title={title}
 			entries={entries}
@@ -551,7 +611,7 @@ export function ThreadMapPanel({
 			filter={filter}
 			onFilter={onFilter}
 			selectedId={selectedId}
-			onSelect={onSelect}
+			onSelect={select}
 			onClose={onClose}
 			namesYou={namesYou}
 		/>
@@ -581,7 +641,8 @@ export function ThreadMapPanel({
 					'absolute top-region right-region z-30 max-h-[calc(100%-2rem)] w-[380px] overflow-y-auto',
 				)}
 			>
-				<GlassPanelScope>{body(heading)}</GlassPanelScope>
+				{/* Docked beside the stream, the map stays open while the reader moves to the row. */}
+				<GlassPanelScope>{body(heading, onSelect)}</GlassPanelScope>
 			</aside>
 		)
 	}
@@ -600,6 +661,10 @@ export function ThreadMapPanel({
 				data-slot="thread-map-panel"
 				aria-describedby={undefined}
 				onBackdropClick={onClose}
+				onEscapeKeyDown={(event) => {
+					// Escape in the From… menu closes the menu, not the sheet.
+					if (event.target instanceof Element && event.target.closest('[role="menu"]')) event.preventDefault()
+				}}
 				onOpenAutoFocus={(event) => {
 					event.preventDefault()
 					focusCurrentRow(event.currentTarget as HTMLElement)
@@ -607,10 +672,15 @@ export function ThreadMapPanel({
 				className="right-0 left-auto flex w-[min(380px,calc(100%_-_2rem))] max-w-none flex-col border-l bg-background pt-[var(--safe-area-top)] pb-[var(--safe-area-bottom)]"
 			>
 				<div className="min-h-0 flex-1 overflow-y-auto">
+					{/* The sheet covers the stream, so choosing a row closes it to show that message. */}
 					{body(
 						<DialogTitle asChild>
 							<h2 className="m-0 min-w-0 flex-1 text-base font-semibold">Thread map</h2>
 						</DialogTitle>,
+						(messageId) => {
+							onSelect(messageId)
+							onClose()
+						},
 					)}
 				</div>
 			</DialogContent>
