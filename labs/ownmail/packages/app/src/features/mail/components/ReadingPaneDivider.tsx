@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
 	READING_PANE_LIST_HEIGHT_RANGE,
 	READING_PANE_LIST_WIDTH_RANGE,
@@ -73,9 +73,21 @@ export function ReadingPaneDivider() {
 	// font size and the cap that keeps the reader's room all change it.
 	const [laidOut, setLaidOut] = useState<number | null>(null)
 	const measuresWidth = preferences.readingPane === 'vertical'
+	const shown = preferences.readingPane !== 'none'
 	useLayoutEffect(() => {
 		setLaidOut(laidOutSize(rootRef.current, measuresWidth))
 	})
+	// A window resize changes the panes, and the cap on the list, without a render.
+	useEffect(() => {
+		const root = rootRef.current
+		// The handle mounts afresh each time a split is chosen again.
+		if (!shown || !root) return
+		const observer = new ResizeObserver(() => setLaidOut(laidOutSize(root, measuresWidth)))
+		for (const element of [root.parentElement, root.previousElementSibling]) {
+			if (element) observer.observe(element)
+		}
+		return () => observer.disconnect()
+	}, [measuresWidth, shown])
 	if (preferences.readingPane === 'none') return null
 	const pane: SplitPane = preferences.readingPane
 	const property = READING_PANE_SIZE_PROPERTY[pane]
@@ -187,7 +199,6 @@ export function ReadingPaneDivider() {
 				onPointerUp={(event) => endDrag(event, true)}
 				onPointerCancel={(event) => endDrag(event, false)}
 				onDoubleClick={resetSize}
-				onFocus={() => setLaidOut(laidOutSize(rootRef.current, vertical))}
 				onKeyDown={onKeyDown}
 				className={cn(
 					'absolute touch-none transition-colors hover:bg-ring/30 focus-visible:bg-ring/50 focus-visible:outline-none data-[dragging]:bg-ring/50',

@@ -61,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup()
 	vi.restoreAllMocks()
+	vi.unstubAllGlobals()
 })
 
 describe('ReadingPaneDivider', () => {
@@ -94,7 +95,7 @@ describe('ReadingPaneDivider', () => {
 		expect(horizontal).toHaveAttribute('aria-valuenow', '60')
 	})
 
-	it('reports the list size as laid out, re-measured on focus', () => {
+	it('reports the list size as laid out, re-measured when the panes resize', () => {
 		// The Condensed default (26rem) and the reader's reserved room both change the real width.
 		const sizes = new Map<string, Partial<DOMRect>>([
 			['panes', { width: 1200, height: 800 }],
@@ -103,6 +104,21 @@ describe('ReadingPaneDivider', () => {
 		vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
 			return rect(sizes.get(this.dataset.testid ?? '') ?? {})
 		})
+		const observed: Element[] = []
+		let notify = () => {}
+		const disconnect = vi.fn()
+		vi.stubGlobal(
+			'ResizeObserver',
+			class {
+				constructor(callback: () => void) {
+					notify = callback
+				}
+				observe(element: Element) {
+					observed.push(element)
+				}
+				disconnect = disconnect
+			},
+		)
 		render(
 			<div data-testid="panes">
 				<section data-testid="list" />
@@ -112,13 +128,18 @@ describe('ReadingPaneDivider', () => {
 		const handle = screen.getByRole('separator')
 		expect(handle).toHaveAttribute('aria-valuenow', '416')
 
+		expect(observed).toEqual([screen.getByTestId('panes'), screen.getByTestId('list')])
+
+		// The window shrinks: no render, but the observer reports the capped list.
 		sizes.set('list', { width: 500, height: 320 })
-		fireEvent.focus(handle)
+		act(() => notify())
 		expect(handle).toHaveAttribute('aria-valuenow', '500')
 
 		savePreferences({ readingPane: 'horizontal' })
 		expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '40')
 		expect(screen.getByRole('separator')).toHaveAttribute('aria-valuetext', '40% of the height')
+		// Switching splits observes afresh.
+		expect(disconnect).toHaveBeenCalledTimes(1)
 	})
 
 	it('resizes the list live while dragging and saves the size once released', () => {
