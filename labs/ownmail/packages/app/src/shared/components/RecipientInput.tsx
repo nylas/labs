@@ -165,7 +165,12 @@ export const RecipientInput = forwardRef<RecipientInputHandle, RecipientInputPro
 			<label className="sr-only" htmlFor={id}>
 				{label}
 			</label>
-			<div className="flex flex-wrap items-center gap-1">
+			{/* A long list (a reply all to 240 people) scrolls in about four rows of chips, so
+			    the field never pushes what follows it, such as the message, out of reach. */}
+			<div
+				data-slot="recipient-tokens"
+				className="flex max-h-24 flex-wrap items-center gap-1 overflow-y-auto"
+			>
 				{tokens.map((token, index) => (
 					<span
 						key={token}

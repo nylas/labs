@@ -158,7 +158,7 @@ function ThreadErrorView({ error, reset }: ErrorComponentProps) {
 	const navigate = useNavigate()
 	return (
 		<div data-testid="thread-reader" className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-			<Toolbar pinned className="reader-toolbar px-3">
+			<Toolbar pinned role="toolbar" aria-label="Thread actions" className="reader-toolbar px-3">
 				<ToolbarIconButton
 					label="Back to list"
 					onClick={() =>
@@ -279,6 +279,11 @@ function ThreadView() {
 		initialData: seedDetail,
 	})
 	const { thread, messages, mailboxEmail, failedMessageIds } = seededData(detailQuery.data, seedDetail)
+	// What the loader saw as unread, before opening marked the thread read: the
+	// detail may be fetched again (now read) before the reader first renders.
+	const unreadAtOpen = seedDetail.messages
+		.filter((message) => message.unread === true)
+		.map((message) => message.id)
 	// Header facts (sender checks, Reply-To, lists) are looked up once per thread and kept for the session.
 	const headerFacts = useQuery(
 		threadHeaderFactsQueryOptions(
@@ -290,6 +295,11 @@ function ThreadView() {
 	const knownSenders = useMemo(
 		() => cachedCorrespondents(queryClient, mailboxEmail),
 		[queryClient, mailboxEmail],
+	)
+	// Your own reply often carries addresses alone; the card names them as the thread does.
+	const replyKnown = useMemo(
+		() => [...threadParticipants(messages, mailboxEmail), ...knownSenders],
+		[messages, mailboxEmail, knownSenders],
 	)
 	const deleteDraft = useDeleteDraftMutation()
 	const updateThread = useUpdateThreadMutation()
@@ -545,7 +555,12 @@ function ThreadView() {
 			style={{ touchAction: 'pan-y pinch-zoom' }}
 		>
 			{/* design.md "Reading": triage, then view and position, then respond at the end. */}
-			<Toolbar pinned className="reader-toolbar px-3 max-md:hidden">
+			<Toolbar
+				pinned
+				role="toolbar"
+				aria-label="Thread actions"
+				className="reader-toolbar px-3 max-md:hidden"
+			>
 				<ToolbarIconButton
 					label="Back to list"
 					onClick={goBackToList}
@@ -680,6 +695,7 @@ function ThreadView() {
 						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
 					}
 					onScheduledSend={scheduledSend}
+					unreadAtOpen={unreadAtOpen}
 					{...(canRespond ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
 				>
 					{partial ? (
@@ -694,6 +710,7 @@ function ThreadView() {
 						<InlineReplyCard
 							latest={lastMessage}
 							owner={mailboxEmail}
+							known={replyKnown}
 							onReply={reply}
 							onReplyAll={replyAll}
 							replyRef={inlineReplyRef}

@@ -366,11 +366,14 @@ The list says what changed, so a row can be acted on without opening it.
   checks again as the card does, and a lookup that fails offers no answers.
 - Drafts. A conversation whose newest item is the person's draft reads
   "Draft · to {name}", "Draft" semibold in `--danger-soft-fg`, with the draft's
-  subject and text.
+  subject and text. Discarding the draft takes it off the row at once: the row
+  shows the thread's newest message again.
 - Not sent. A bounce of the person's own message turns the row
   `--list-failed`, names the recipient ("To Meridian Bank"), and replaces the
   snippet with "Not sent. The address bounced." beside "Edit and resend", which
-  opens the composer on the message that bounced.
+  opens the composer on the message that bounced. A toned row (not sent, asks
+  you) keeps its ground under the pointer, a step deeper, rather than the
+  neutral hover.
 - Scheduled. A send waiting on `send_at` names its recipient and shows "Sends
   Mon 9:00 AM" with a clock in place of the time. Its row menu offers "Send
   now" and "Cancel scheduled send", the reader's Send now and Cancel ("Edge
@@ -428,8 +431,10 @@ open composer.
 The reader's toolbar is one row of 32px controls, 2px apart: triage (archive,
 delete, star, mark unread), a separator, view (the Messages / Conversation
 switch and display options), a separator, the stepper ("12 of 14" between
-Previous `k` and Next `j`, following the message in focus), and respond at the
-end. Reply all is the one labelled button (an outline on `--cta-line` with its
+Previous `k` and Next `j`, following the message in focus; the keys step
+messages from the reader, from nothing focused, and from the open thread's own
+list row, while a focused row of another thread keeps the list's `j` / `k`),
+and respond at the end. Reply all is the one labelled button (an outline on `--cta-line` with its
 glyph in the accent, as in "CTA voice"); Reply, Forward and More stay icons
 beside it. More holds mute, the thread map (`g m`), Expand all / Collapse all
 and the raw download of the latest message; on a phone it also holds the view
@@ -618,12 +623,15 @@ reader only draws it.
 
 The first message that was unread when the thread opened sits under a
 "{n} new since {day}" divider: neutral 1px lines either side of a 12px semibold
-label in the green accent and a 6px accent dot. It is a `role="separator"` named
-by its label, so the place is announced, not only drawn.
+label in the green accent and a 6px accent dot. Its first line is the
+separator, named with the count and the place ("3 new since you last read,
+Tuesday"), so both are announced, not only drawn.
 
 - Held, not live. What was unread is read from the thread as it first loaded,
   before opening marks it read, and kept under the thread's identity for as
-  long as it stays open; a reply arriving moves nothing.
+  long as it stays open; a reply arriving moves nothing. The route hands the
+  reader what its loader saw as unread, so a detail fetched again (already
+  read) before the reader first draws still opens on what was new.
 - The day is the weekday of the last message read before them within the past
   six days ("Tuesday"), "yesterday" or "earlier today", else the date
   ("Oct 12"). On the server, where the reader's clock is unknown, the label says

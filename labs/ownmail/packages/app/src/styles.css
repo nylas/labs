@@ -65,6 +65,13 @@
 	display: none;
 }
 
+/* Chrome that sticks inside a scroll area (the long-message progress strip,
+ * the reply dock) sits over the area's overflow fades (z 20), so a pinned bar
+ * never reads washed out, and under its scrollbar (z 30). */
+.scroll-area-sticky {
+	z-index: 25;
+}
+
 .app-chrome-row {
 	height: calc(2.75rem + var(--safe-area-top));
 	padding-top: var(--safe-area-top);
@@ -286,9 +293,13 @@
 }
 
 /* Notices stand apart from the body under them, 10px from each other (board 05, step 3). */
+.message-notices,
+.superseded-invite {
+	margin-bottom: 16px;
+}
+
 .message-notices {
 	gap: 10px;
-	margin-bottom: 16px;
 }
 
 .message-notice {
@@ -362,6 +373,15 @@
 .map-row {
 	gap: 10px;
 	padding: 7px 10px;
+}
+
+/* A subject change sits in a row's own box; the "You stopped here" rule is a little tighter. */
+.map-event {
+	padding: 7px 10px;
+}
+
+.map-stopped {
+	padding: 6px 10px;
 }
 
 .map-chip {
@@ -576,6 +596,8 @@
 	white-space: nowrap;
 	font-size: 14px;
 	font-weight: 500;
+	/* The boards set one-line rows at the font's own line height. */
+	line-height: normal;
 }
 
 .reader-line-preview {
@@ -586,6 +608,7 @@
 	white-space: nowrap;
 	font-size: 13px;
 	color: var(--muted-foreground);
+	line-height: normal;
 }
 
 .reader-line-date {
@@ -608,6 +631,11 @@
 	gap: 4px;
 	font-weight: 600;
 	color: var(--muted-foreground);
+}
+
+/* "In Trash · Lodge…": the row's 4px gap before the dot, as much after it. */
+.reader-in-trash-separator {
+	margin-inline-end: 4px;
 }
 
 .reader-trash-note {
@@ -1013,7 +1041,7 @@
 	.reader-reply-dock {
 		position: sticky;
 		bottom: 0;
-		z-index: 10;
+		z-index: 25; /* .scroll-area-sticky: over the area's bottom fade */
 		display: block;
 		margin-top: auto;
 		background: var(--background);
@@ -1640,11 +1668,13 @@
 
 /* Tones, under hover and selection: a send that failed, a conversation asking you, a muted one. */
 .thread-row:where(:has(> .thread-row-sender[data-tone="failed"])) {
-	background: var(--list-failed);
+	--row-tone: var(--list-failed);
+	background: var(--row-tone);
 }
 
 .thread-row:where(:has(> .thread-row-sender[data-tone="asks"])) {
-	background: var(--list-asks);
+	--row-tone: var(--list-asks);
+	background: var(--row-tone);
 }
 
 .thread-row:where(:has(> .thread-row-sender[data-tone="muted"])) {
@@ -1653,6 +1683,14 @@
 
 .thread-row:hover {
 	background: color-mix(in oklch, var(--muted), transparent 35%);
+}
+
+/* A toned row keeps its ground under the pointer, a step deeper: a failed send stays red. */
+.thread-row:where(
+	:has(> .thread-row-sender[data-tone="failed"]),
+	:has(> .thread-row-sender[data-tone="asks"])
+):hover {
+	background: color-mix(in oklch, var(--row-tone), var(--foreground) 4%);
 }
 
 /* The open conversation: a green tint inside a uniform 1px ring (never a rail), with no rule under it. */
@@ -1905,6 +1943,11 @@
 	min-width: 0;
 }
 
+/* Who sent it, at the font's own line height as board 02 draws it (a 66px row). */
+.thread-bundle-line {
+	line-height: normal;
+}
+
 /* Conversations listed under an open bundle start where its title does. */
 .thread-row[data-bundled="true"] {
 	padding-left: 3.75rem;
@@ -2030,6 +2073,8 @@
 	 * sender column at the sender's size, who sent it in the subject column. */
 	[data-density="condensed"] .thread-bundle {
 		display: grid;
+		/* Cells space themselves, as a conversation row's do; the flex gap would push both columns right. */
+		column-gap: 0;
 	}
 
 	[data-density="condensed"] .thread-bundle-text {
@@ -2299,7 +2344,10 @@
 	inset: auto;
 	width: 100%;
 	max-width: none;
-	height: min(24rem, 60dvh);
+	/* At least this tall; a long recipient list and the reply-all guard grow it
+	 * instead of squeezing the message to nothing. */
+	height: auto;
+	min-height: min(24rem, 60dvh);
 	max-height: none;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);

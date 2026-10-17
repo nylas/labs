@@ -1,6 +1,6 @@
 import { ReplyAll, Send } from 'lucide-react'
 import type { Ref } from 'react'
-import { replyAllCount } from '../lib/thread-reading-model.js'
+import { type Person, replyAllCount } from '../lib/thread-reading-model.js'
 import { replyAllNames, replyFirstName } from '../lib/thread-stream.js'
 import type { MailMessage } from '../state/mail-queries.js'
 import { ReplyAllGuard } from './ReplyAllGuard.js'
@@ -17,19 +17,22 @@ import { ThreadColumn } from './ThreadColumn.js'
 export function InlineReplyCard({
 	latest,
 	owner,
+	known,
 	onReply,
 	onReplyAll,
 	replyRef,
 }: {
 	latest: MailMessage
 	owner: string
+	/** People the thread names, for addresses the latest message gives without a name. */
+	known?: readonly Person[]
 	onReply: () => void
 	onReplyAll: () => void
 	/** "Reply only to {name}", so the `r` shortcut can land on it. */
 	replyRef?: Ref<HTMLButtonElement>
 }) {
-	const { names, more } = replyAllNames(latest, owner)
-	const replyName = replyFirstName(latest, owner)
+	const { names, more } = replyAllNames(latest, owner, known)
+	const replyName = replyFirstName(latest, owner, known)
 	const reach = replyAllCount(latest, owner)
 	return (
 		<div data-slot="inline-reply-dock" className="reader-reply-dock">

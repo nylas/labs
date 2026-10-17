@@ -263,9 +263,9 @@ export function shadowStyleText(): string {
 	// so do a prose message's own paragraph margins over the reader's 12px rhythm
 	// and its own weights over the reader's semibold bold.
 	return `
-:host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;font-size:16px;line-height:1.6;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:#1a1a1a;color-scheme:light;}
+:host{--ownmail-email-theme:light;--ownmail-email-link-color:#075985;display:block;font-size:16px;line-height:1.6;position:static!important;inset:auto!important;z-index:auto!important;contain:layout paint;container:ownmail-email / inline-size;isolation:isolate;overflow:hidden;max-width:100%;color:var(--email-ink,#1a1a1a);color-scheme:light;}
 :host([data-email-theme="dark"]){--ownmail-email-theme:dark;--ownmail-email-link-color:#7dd3fc;color:#e5e7eb;color-scheme:dark;}
-:host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:#1a1a1a;color-scheme:light;}
+:host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:var(--email-ink,#1a1a1a);color-scheme:light;}
 :host([data-email-pan]){overflow-x:auto!important;overflow-y:hidden!important;touch-action:pan-x pan-y pinch-zoom;overscroll-behavior-x:contain;}
 :host([data-email-direction="rtl"]){direction:rtl;}
 .email-root{box-sizing:border-box!important;position:relative!important;inset:auto!important;z-index:auto!important;contain:none!important;isolation:isolate;overflow:visible!important;width:var(--ownmail-email-natural-width,100%)!important;max-width:none!important;transform:scale(var(--ownmail-email-scale,1))!important;transform-origin:top left!important;background:transparent!important;color:inherit;padding:0;overflow-wrap:anywhere;word-break:break-word;}

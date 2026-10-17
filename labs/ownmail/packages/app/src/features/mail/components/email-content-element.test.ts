@@ -823,6 +823,28 @@ describe('<ownmail-email> scaling', () => {
 		expect(wide.style.getPropertyPriority('font-size')).toBe('important')
 	})
 
+	it('leaves the small alt text of its own image placeholders at their size', () => {
+		const el = mount('<p>Your trip</p>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		// The placeholders are drawn after sanitising, which drops any an email brings itself.
+		for (const attribute of ['data-ownmail-held-image', 'data-ownmail-image-fallback']) {
+			const placeholder = document.createElement('span')
+			placeholder.setAttribute(attribute, '')
+			placeholder.style.fontSize = '11px'
+			placeholder.textContent = 'Lisbon skyline'
+			content.append(placeholder)
+		}
+		stubSize(content, 'scrollWidth', 320)
+		stubSize(el, 'clientWidth', 320)
+		el.measure()
+
+		const placeholders = content.querySelectorAll<HTMLElement>('span')
+		expect(placeholders).toHaveLength(2)
+		for (const placeholder of placeholders) {
+			expect(placeholder.style.getPropertyValue('font-size')).toBe('11px')
+		}
+	})
+
 	it('normalizes explicit nowrap text in readable mode', () => {
 		const el = mount('<div class="nowrap" style="white-space:nowrap">Long subject</div>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement

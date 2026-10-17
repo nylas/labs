@@ -27,7 +27,8 @@ export function SupersededInviteNote({
 		<p
 			role="note"
 			data-slot="superseded-invite"
-			className="m-0 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground"
+			// Set apart from the message text below as the notices are.
+			className="superseded-invite m-0 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground"
 		>
 			<Calendar aria-hidden="true" className="size-3.5 shrink-0" />
 			<span className="min-w-0 truncate">

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,5 +29,22 @@ describe('ThreadLoadError', () => {
 		render(<ThreadLoadError error={new Error('offline')} reset={() => {}} />)
 		expect(screen.getByRole('note')).toHaveTextContent('Couldn’t load this conversation while offline.')
 		expect(screen.getByText('Mail refreshes when you’re back online.')).toBeInTheDocument()
+	})
+
+	it('loads the conversation again in place when the connection comes back', () => {
+		const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+		const reset = vi.fn()
+		const { unmount } = render(<ThreadLoadError error={new Error('offline')} reset={reset} />)
+		expect(reset).not.toHaveBeenCalled()
+		onLine.mockReturnValue(true)
+		act(() => {
+			window.dispatchEvent(new Event('online'))
+		})
+		expect(reset).toHaveBeenCalledOnce()
+		expect(invalidate).toHaveBeenCalledOnce()
+		// Once it is gone, a later reconnect is not its to answer.
+		unmount()
+		window.dispatchEvent(new Event('online'))
+		expect(reset).toHaveBeenCalledOnce()
 	})
 })

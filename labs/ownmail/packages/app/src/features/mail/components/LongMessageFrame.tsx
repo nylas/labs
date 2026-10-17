@@ -102,7 +102,10 @@ function LongMessageLayout({
 		const view = viewport(parent)
 		const rect = root.getBoundingClientRect()
 		if (rect.height <= 0) return
-		const read = Math.min(1, Math.max(0, (view.bottom - rect.top) / rect.height))
+		// How far the view has moved through the message: 0% with its top in view,
+		// 100% once its end reaches the bottom. What is merely on screen is not yet read.
+		const travel = rect.height - (view.bottom - view.top)
+		const read = travel > 0 ? Math.min(1, Math.max(0, (view.top - rect.top) / travel)) : 1
 		setProgress(read)
 		if (restored.current) saveOffset(messageId, view.top - rect.top)
 		const nodes = headingNodes(root, headings)
@@ -197,7 +200,10 @@ function LongMessageLayout({
 			className="xl:grid xl:grid-cols-[minmax(0,1fr)_130px] xl:items-start xl:gap-x-6"
 		>
 			<div className="min-w-0">
-				<div data-slot="long-message-progress" className="z-10 bg-background pb-3 md:sticky md:top-0">
+				<div
+					data-slot="long-message-progress"
+					className="scroll-area-sticky bg-background pb-3 md:sticky md:top-0"
+				>
 					<ThreadColumn>
 						<div className="flex flex-col gap-2">
 							<div

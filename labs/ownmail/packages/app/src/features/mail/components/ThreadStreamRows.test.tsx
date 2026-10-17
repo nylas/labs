@@ -9,11 +9,11 @@ afterEach(cleanup)
 const GRACE = { name: 'Grace Hopper', email: 'grace@example.com' }
 
 describe('NewSinceDivider', () => {
-	it('is a separator named for where you left off, or for its count until the day is known', () => {
-		const { rerender } = render(<NewSinceDivider label="3 new since Tuesday" since="Tuesday" />)
-		const divider = screen.getByRole('separator', { name: 'New since you last read, Tuesday' })
+	it('is a separator named for its count and where you left off, or for its count until the day is known', () => {
+		const { rerender } = render(<NewSinceDivider label="3 new since Tuesday" count={3} since="Tuesday" />)
+		const divider = screen.getByRole('separator', { name: '3 new since you last read, Tuesday' })
 		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent('3 new since Tuesday')
-		rerender(<NewSinceDivider label="3 new" since={null} />)
+		rerender(<NewSinceDivider label="3 new" count={3} since={null} />)
 		expect(screen.getByRole('separator', { name: '3 new' })).toBeInTheDocument()
 	})
 })
@@ -30,6 +30,8 @@ describe('OneLineMessageRow', () => {
 		render(<OneLineMessageRow message={message} owner="ada@ownmail.com" date="Oct 2" onOpen={onOpen} />)
 		const row = screen.getByRole('button')
 		expect(row).toHaveTextContent('In Trash')
+		// The dot is spaced by the row's gap and its own margin: a flex item would drop literal spaces.
+		expect(row.querySelector('.reader-in-trash-separator')?.textContent).toBe('·')
 		fireEvent.click(row)
 		expect(onOpen).toHaveBeenCalledWith('m1')
 	})

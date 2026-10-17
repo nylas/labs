@@ -210,6 +210,8 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 				.getAllByRole('button')
 				.map((button) => button.textContent),
 		).toEqual(['All', 'With files', 'Names you', 'From…'])
+		// Four equal columns, whether the segment is a button or the From… menu around one.
+		expect(filters).toHaveClass('grid', 'grid-cols-4')
 		expect(within(filters).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
 		expect(rowNames()).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'])
 
@@ -218,7 +220,12 @@ describe('ThreadMapPanel as a sheet below xl', () => {
 		expect(texts.indexOf('Subject changed: “Q3 roadmap” → “… final review before Friday”')).toBe(
 			texts.findIndex((text) => text?.startsWith('Alan Turing')) - 1,
 		)
-		expect(within(dialog).getByText(/^Subject changed/).parentElement).toHaveClass('flex', 'justify-center')
+		expect(within(dialog).getByText(/^Subject changed/).parentElement).toHaveClass(
+			'map-event',
+			'flex',
+			'justify-center',
+		)
+		expect(dialog.querySelector('[data-slot="thread-map-stopped"]')).toHaveClass('map-stopped')
 		expect(texts[texts.indexOf('You stopped here') + 1]).toMatch(/^Alan Turing, new/)
 
 		const selected = within(dialog).getByRole('button', { current: true })

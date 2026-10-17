@@ -490,6 +490,9 @@ describe('toolbar actions', () => {
 		renderThread()
 
 		expect(desktopBar().getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
+		// Board 01 draws the row as a named toolbar.
+		expect(document.querySelector('.reader-toolbar')).toHaveAttribute('role', 'toolbar')
+		expect(document.querySelector('.reader-toolbar')).toHaveAttribute('aria-label', 'Thread actions')
 		// One height for the whole row: 32px with a fine pointer and 44px on narrow and
 		// touch screens. Every control is an icon button except Reply all, the one
 		// labelled action in the respond group (design.md "Reading").

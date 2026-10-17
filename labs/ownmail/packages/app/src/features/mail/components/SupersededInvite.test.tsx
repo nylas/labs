@@ -17,6 +17,8 @@ describe('SupersededInviteNote', () => {
 			/>,
 		)
 		expect(screen.getByRole('note')).toHaveTextContent('Earlier version of “Design review: token migration”')
+		// Spaced from the message text below as the notices are.
+		expect(screen.getByRole('note')).toHaveClass('superseded-invite')
 		await userEvent.click(screen.getByRole('button', { name: 'Show latest' }))
 		expect(onShowLatest).toHaveBeenCalledOnce()
 	})

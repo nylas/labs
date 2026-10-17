@@ -886,7 +886,8 @@ export function ComposeWindow({
 						value={body}
 						onChange={setBody}
 						readOnly={busy || closing}
-						className="min-h-0 flex-1"
+						// In the thread the reply keeps room to write however long its header grows.
+						className={cn('min-h-0 flex-1', inlineReply && 'min-h-24')}
 					/>
 
 					{attachments.length ? (

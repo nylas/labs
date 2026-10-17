@@ -80,9 +80,10 @@ vi.mock('#shared/components/RecipientInput', async () => {
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
 vi.mock('./MarkdownEditor.js', () => ({
-	MarkdownEditor: ({ id, value, onChange, placeholder, readOnly }: any) => (
+	MarkdownEditor: ({ id, value, onChange, placeholder, readOnly, className }: any) => (
 		<textarea
 			id={id}
+			className={className}
 			placeholder={placeholder ?? 'Write your message...'}
 			value={value}
 			readOnly={readOnly}
@@ -296,6 +297,8 @@ describe('ComposeWindow inline reply', () => {
 		expect(reply).toHaveAttribute('data-presentation', 'inline')
 		expect(reply).toHaveClass('compose-panel-inline')
 		expect(reply).not.toHaveClass('glass-panel', 'fixed')
+		// However tall the recipients and the reply-all guard make it, the message keeps room.
+		expect(document.getElementById('compose-body')).toHaveClass('min-h-24')
 		expect(slot).toContainElement(reply)
 		// Nothing floats, so there is nothing to minimise out of the way.
 		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden')

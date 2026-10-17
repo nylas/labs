@@ -325,6 +325,9 @@
  * - `--note-fg`: the text of a neutral note in the stream (a removed person, a
  *   mailing list) and of a draft's preview: between body text and muted.
  * - `--reader-reply-shadow`: the soft shadow under the pinned reply card.
+ * - `--email-ink`: message text on a light email canvas (board 01's body
+ *   text). The canvas stays light in either theme (an email's own dark
+ *   rendering sets its own ink), so the value does not change with it.
  * Text on each ground keeps 4.5:1 in both themes. */
 @theme inline {
 	--color-person-dot-75: var(--person-dot-75);
@@ -396,6 +399,7 @@
 	--control-fg: oklch(0.35 0.01 165);
 	--note-fg: oklch(0.3 0.01 165);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
+	--email-ink: oklch(0.2 0.01 165);
 }
 
 .dark {
@@ -432,4 +436,5 @@
 	--control-fg: oklch(0.86 0.006 155);
 	--note-fg: oklch(0.88 0.006 155);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
+	--email-ink: oklch(0.2 0.01 165);
 }

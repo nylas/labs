@@ -8,6 +8,7 @@ import {
 	hashTarget,
 	isLookalikeSender,
 	isTrashed,
+	knownPerson,
 	lineDateLabel,
 	messageAnchorId,
 	messageHeadings,
@@ -261,6 +262,27 @@ describe('reply names', () => {
 		// Someone else's message keeps its sender, and so does any message when the owner is not known.
 		expect(replyTarget(message('o', { from: [GRACE] }), OWNER)).toEqual(GRACE)
 		expect(replyTarget(own, '')).toEqual(ADA)
+	})
+
+	it('names addresses your own reply gives alone as the thread knows them', () => {
+		const sent = message('m', {
+			from: [ADA],
+			to: [{ email: 'mjackson@example.com' }, { email: 'grace@example.com' }],
+			cc: [{ email: 'Alan@example.com' }, { email: 'kj@example.com' }],
+		})
+		const known = [
+			{ name: 'Mary Jackson', email: 'mjackson@example.com', isOwner: false },
+			{ name: '', email: 'kj@example.com', isOwner: false },
+			{ name: 'Grace Hopper', email: 'grace@example.com', isOwner: false },
+			{ name: 'Alan Turing', email: 'alan@example.com', isOwner: false },
+		]
+		expect(replyAllNames(sent, OWNER, known)).toEqual({ names: 'Mary, Grace, Alan', more: 1 })
+		expect(replyFirstName(sent, OWNER, known)).toBe('Mary')
+		// Without the thread's people the local parts are all there is.
+		expect(replyFirstName(sent, OWNER)).toBe('mjackson')
+		// A name the message itself gives wins over the thread's.
+		expect(knownPerson(GRACE, OWNER, [{ ...known[2], name: 'G. Hopper' }]).name).toBe(GRACE.name)
+		expect(knownPerson({ email: 'kj@example.com' }, OWNER, known).name).toBe('')
 	})
 
 	it('has no one to name on a message with no sender', () => {

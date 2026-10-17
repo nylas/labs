@@ -244,7 +244,7 @@ describe('shadowStyleText', () => {
 		expect(css).not.toContain('invert(')
 		expect(css).not.toContain('data-dark-invert')
 		expect(css).toContain(
-			':host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:#1a1a1a;color-scheme:light;}',
+			':host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:var(--email-ink,#1a1a1a);color-scheme:light;}',
 		)
 		expect(css).toContain(
 			':host([data-email-strategy="paper"]) .email-root,:host([data-email-strategy="original"][data-color-mode="original"]) .email-root{background:var(--ownmail-email-canvas,#fff)!important;}',

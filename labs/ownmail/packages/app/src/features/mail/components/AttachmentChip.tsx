@@ -57,7 +57,7 @@ export function AttachmentChip({
 				title={line ? `Download ${filename} (${line})` : `Download ${filename}`}
 				className="attachment-chip-compact inline-flex h-7 max-w-full min-w-0 items-center self-start rounded-md border border-border text-[13px] text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
 			>
-				<Paperclip aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+				<Paperclip aria-hidden="true" className="size-3.5 shrink-0" />
 				<span className="truncate">{filename}</span>
 			</a>
 		)

@@ -407,7 +407,9 @@ function MapBody({
 				</button>
 			</div>
 
-			<fieldset className="m-0 flex min-w-0 rounded-lg border-0 bg-muted p-px">
+			{/* Four equal columns, as board 04's flex: 1 segments come out: a column does not
+			    depend on whether its segment is a button or the From… menu around one. */}
+			<fieldset className="m-0 grid min-w-0 grid-cols-4 rounded-lg border-0 bg-muted p-px">
 				<legend className="sr-only">Filter</legend>
 				<button
 					type="button"
@@ -451,7 +453,7 @@ function MapBody({
 							<div
 								key="stopped"
 								data-slot="thread-map-stopped"
-								className="flex items-center gap-cluster px-hairline py-cluster text-xs font-semibold text-cta-icon"
+								className="map-stopped flex items-center gap-cluster text-xs font-semibold text-cta-icon"
 							>
 								<span aria-hidden="true" className="h-px flex-1 bg-border" />
 								<span>You stopped here</span>
@@ -464,7 +466,7 @@ function MapBody({
 						return (
 							<p
 								key={row.key}
-								className="m-0 flex justify-center px-hairline py-cluster text-xs leading-[1.4] text-muted-foreground"
+								className="map-event m-0 flex justify-center text-xs leading-[1.4] text-muted-foreground"
 							>
 								<span className="min-w-0">{row.text}</span>
 							</p>

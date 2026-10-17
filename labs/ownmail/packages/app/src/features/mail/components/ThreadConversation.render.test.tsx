@@ -498,7 +498,7 @@ describe('ThreadConversation rendering', () => {
 		)
 		expect(sequence).toEqual(['rule', 'line', 'rule', 'line', 'divider', 'open', 'rule', 'open'])
 		expect(
-			screen.getByRole('separator', { name: /^New since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+			screen.getByRole('separator', { name: /^\d+ new since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
 		).toBeInTheDocument()
 		// The subject and the stream fade on navigation; nothing nests a second fade.
 		const fades = container.querySelectorAll('[data-navigation-content]')
@@ -626,7 +626,7 @@ describe('folding a long thread', () => {
 		)
 		expect(states()).toEqual(['Message from Grace Hopper', 'Message from Alan Turing'])
 		const divider = screen.getByRole('separator', {
-			name: /^New since you last read, (?:yesterday|[A-Z][a-z]+day)$/,
+			name: /^\d+ new since you last read, (?:yesterday|[A-Z][a-z]+day)$/,
 		})
 		// The label is drawn between two neutral lines and announced on the separator itself.
 		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent(
@@ -639,7 +639,24 @@ describe('folding a long thread', () => {
 			<ThreadConversation thread={thread('t1')} messages={read} mailboxEmail="ada@ownmail.com" />,
 		)
 		expect(
-			screen.getByRole('separator', { name: /^New since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+			screen.getByRole('separator', { name: /^\d+ new since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+		).toBeInTheDocument()
+	})
+
+	it('starts from what was unread when the route loaded, though the detail it first shows is already read', () => {
+		const messages = longThread(5, 2)
+		const unreadAtOpen = messages.filter((entry) => entry.unread).map((entry) => entry.id)
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={messages.map((entry) => ({ ...entry, unread: false }))}
+				mailboxEmail="ada@ownmail.com"
+				unreadAtOpen={unreadAtOpen}
+			/>,
+		)
+		expect(states()).toEqual(['Message from Grace Hopper', 'Message from Alan Turing'])
+		expect(
+			screen.getByRole('separator', { name: /^2 new since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
 		).toBeInTheDocument()
 	})
 
@@ -1129,6 +1146,16 @@ describe('moving through a thread', () => {
 		expect(position()).toBe('2 of 4')
 		fireEvent.keyDown(document.body, { key: 'j' })
 		expect(position()).toBe('3 of 4')
+		// The row of the open thread keeps focus after its click; j / k step this thread from it.
+		const openRow = document.createElement('div')
+		openRow.setAttribute('data-nav-row', '')
+		const link = document.createElement('a')
+		link.setAttribute('data-active', 'true')
+		openRow.append(link)
+		document.body.append(openRow)
+		fireEvent.keyDown(link, { key: 'j' })
+		expect(position()).toBe('4 of 4')
+		openRow.remove()
 		row.remove()
 	})
 
@@ -1412,6 +1439,30 @@ describe('moving through a thread', () => {
 			'Message from Alan Turing',
 		)
 		expect(scrolled).toHaveBeenCalled()
+	})
+
+	it('opens a message a link names after the thread is open, unfolding its run', () => {
+		Element.prototype.scrollIntoView = vi.fn()
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(14)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		expect(position()).toBe('14 of 14')
+		expect(document.getElementById('message-m9')).toBeNull()
+		act(() => {
+			window.history.replaceState(null, '', '#message-m9')
+			window.dispatchEvent(new HashChangeEvent('hashchange'))
+		})
+		expect(position()).toBe('9 of 14')
+		expect(document.getElementById('message-m9')).toContainElement(
+			document.querySelector<HTMLElement>('[data-current="true"]'),
+		)
+		// A hash that names no message here changes nothing.
+		act(() => {
+			window.history.replaceState(null, '', '#elsewhere')
+			window.dispatchEvent(new HashChangeEvent('hashchange'))
+		})
+		expect(position()).toBe('9 of 14')
 	})
 
 	it('opens a linked message inside a folded run on its own and folds what is left on either side', () => {

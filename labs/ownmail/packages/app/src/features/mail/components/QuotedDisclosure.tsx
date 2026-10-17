@@ -49,7 +49,7 @@ export function QuotedDisclosure({
 			aria-expanded={expanded}
 			aria-controls={controls}
 			onClick={onToggle}
-			className="quoted-pill inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-expanded:text-foreground max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
+			className="quoted-pill inline-flex h-6 shrink-0 items-center rounded-md bg-muted px-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
 		>
 			{kind === 'signature' ? null : <MoreHorizontal aria-hidden="true" className="size-3.5 shrink-0" />}
 			{disclosureLabel(kind, count)}

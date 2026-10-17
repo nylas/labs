@@ -332,11 +332,64 @@ export function findCachedThread(
 	return undefined
 }
 
+/**
+ * What a list row shows once a draft is discarded: the newest message of the
+ * thread the draft sat in, from a cached detail that holds the draft.
+ * Undefined when no loaded conversation holds it.
+ */
+function messageAfterDraft(client: QueryClient, draftId: string, root: QueryKey): MailMessage | undefined {
+	for (const [queryKey, data] of client.getQueriesData<MailThreadDetail>({ queryKey: root })) {
+		if (!isMailKey(queryKey, 'thread') || !data?.messages.some((message) => message.id === draftId)) continue
+		const latest = data.messages.findLast(
+			(message) => message.id !== draftId && message.ownmailDraft !== true,
+		)
+		if (latest) return { ...latest, thread_id: data.thread.id }
+	}
+	return undefined
+}
+
+/**
+ * A discarded draft leaves the rows it led ("Draft · to …" and its words):
+ * the row takes the thread's newest message when a loaded conversation knows
+ * it, else falls back to the thread's own snippet and people.
+ */
+function listWithoutDraft(
+	list: MailThreadListData,
+	draftId: string,
+	after: MailMessage | undefined,
+): MailThreadListData {
+	let changed = false
+	const pages = list.pages.map((page) => ({
+		...page,
+		threads: page.threads.map((thread) => {
+			const draftIds = (thread as { draft_ids?: string[] }).draft_ids
+			const led = thread.latest_draft_or_message?.id === draftId
+			if (!led && !draftIds?.includes(draftId)) return thread
+			changed = true
+			const {
+				latest_draft_or_message: latest,
+				draft_ids: _draftIds,
+				...rest
+			} = thread as MailThread & { draft_ids?: string[] }
+			const remaining = draftIds?.filter((id) => id !== draftId) ?? []
+			const kept = led ? (after?.thread_id === thread.id ? after : undefined) : latest
+			return {
+				...rest,
+				...(remaining.length > 0 ? { draft_ids: remaining } : {}),
+				...(kept ? { latest_draft_or_message: kept } : {}),
+				...(led && kept?.snippet ? { snippet: kept.snippet } : {}),
+			} as MailThread
+		}),
+	}))
+	return changed ? { ...list, pages } : list
+}
+
 export function reduceMailCacheEntry(
 	queryKey: QueryKey,
 	data: unknown,
 	effect: MailCacheEffect,
 	beforeThread?: MailThread,
+	afterDraft?: MailMessage,
 ): unknown {
 	if (data === undefined) return data
 	if (isMailKey(queryKey, 'folders')) {
@@ -382,6 +435,7 @@ export function reduceMailCacheEntry(
 	}
 	if (isMailKey(queryKey, 'threads')) {
 		const list = data as MailThreadListData
+		if (effect.type === 'draft.deleted') return listWithoutDraft(list, effect.draftId, afterDraft)
 		if (effect.type === 'draft.sent') {
 			const id = effectThreadId(effect)
 			const current = list.pages.flatMap((page) => page.threads).find((thread) => thread.id === id)
@@ -410,9 +464,11 @@ export function applyMailCacheEffect(
 ): QueryKey[] {
 	const threadId = effectThreadId(effect)
 	const beforeThread = threadId ? findCachedThread(client, threadId, root) : undefined
+	const afterDraft =
+		effect.type === 'draft.deleted' ? messageAfterDraft(client, effect.draftId, root) : undefined
 	const changed: QueryKey[] = []
 	for (const [queryKey, data] of client.getQueriesData({ queryKey: root })) {
-		const next = reduceMailCacheEntry(queryKey, data, effect, beforeThread)
+		const next = reduceMailCacheEntry(queryKey, data, effect, beforeThread, afterDraft)
 		if (next === undefined && data !== undefined) {
 			client.removeQueries({ queryKey, exact: true })
 		} else if (next !== data) {

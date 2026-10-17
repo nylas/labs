@@ -50,6 +50,10 @@ describe('QuotedDisclosure', () => {
 		expect(pill.querySelector('svg')).not.toBeNull()
 		await userEvent.click(pill)
 		expect(onToggle).toHaveBeenCalledOnce()
+		// Open, it keeps the muted tone of the pills beside it; what opens below says it is open.
+		view.rerender(<QuotedDisclosure kind="quoted" count={2} expanded onToggle={onToggle} />)
+		expect(pill).toHaveClass('text-muted-foreground')
+		expect(pill.className).not.toMatch(/aria-expanded:text-/)
 		view.rerender(<QuotedDisclosure kind="signature" expanded onToggle={onToggle} />)
 		expect(screen.getByRole('button', { name: 'Signature' }).querySelector('svg')).toBeNull()
 	})

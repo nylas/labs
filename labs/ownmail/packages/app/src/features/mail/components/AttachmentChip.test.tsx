@@ -54,6 +54,8 @@ describe('AttachmentChip compact', () => {
 		expect(chip).toHaveAttribute('download', 'contract-signed.pdf')
 		expect(chip).toHaveAttribute('title', 'Download contract-signed.pdf (2 KB)')
 		expect(screen.queryByText('PDF')).toBeNull()
+		// The paperclip draws in the chip's own text colour, as the filename does.
+		expect(chip.querySelector('svg')).not.toHaveClass('text-muted-foreground')
 	})
 
 	it('names an unnamed, sizeless file', () => {

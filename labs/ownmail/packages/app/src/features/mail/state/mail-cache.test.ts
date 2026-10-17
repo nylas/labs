@@ -357,6 +357,67 @@ describe('mail query cache effects', () => {
 		).toEqual(['m1', 'm2', 'm3'])
 	})
 
+	it('takes a discarded draft out of the list rows it led, at once', () => {
+		const client = new QueryClient()
+		const draft: MailMessage = {
+			id: 'd1',
+			thread_id: 't1',
+			ownmailDraft: true,
+			snippet: 'Could we move this?',
+		}
+		const answered: MailMessage = { id: 'm1', thread_id: 't1', snippet: 'Your appointment is Thursday.' }
+		const led = {
+			...t1,
+			snippet: 'Could we move this?',
+			latest_draft_or_message: draft,
+			draft_ids: ['d1', 'd5'],
+		}
+		// A provider that does not list the thread's drafts still leads the row with one.
+		const unknown = { ...t1, id: 't2', latest_draft_or_message: { id: 'd2', thread_id: 't2' } }
+		const listed = {
+			...t1,
+			id: 't3',
+			latest_draft_or_message: { id: 'm9', thread_id: 't3' },
+			draft_ids: ['d3'],
+		}
+		const other = { ...t1, id: 't4' }
+		client.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), list(led, unknown, listed, other))
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'), {
+			thread: t1,
+			messages: [answered, { id: 'd5', ownmailDraft: true }, draft],
+			mailboxEmail: 'me@example.com',
+		})
+		// A loaded conversation of nothing but drafts has no message to show instead.
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t2'), {
+			thread: { ...t1, id: 't2' },
+			messages: [{ id: 'd2', ownmailDraft: true }],
+			mailboxEmail: 'me@example.com',
+		})
+		const rows = () => cachedList(client, { folderId: 'inbox' }).pages[0]?.threads as MailThread[]
+
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd1' })
+		// The row now shows the thread's newest message, and keeps its other draft.
+		expect(rows()[0]).toMatchObject({
+			snippet: 'Your appointment is Thursday.',
+			latest_draft_or_message: { id: 'm1' },
+			draft_ids: ['d5'],
+		})
+		expect(rows()[3]).toBe(other)
+
+		// With no loaded conversation to say what came before, the row keeps its own snippet and people.
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd2' })
+		expect(rows()[1]).not.toHaveProperty('latest_draft_or_message')
+		expect(rows()[1]).not.toHaveProperty('draft_ids')
+		// A draft the row lists but does not lead leaves the row's latest message alone.
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd3' })
+		expect(rows()[2]).toMatchObject({ latest_draft_or_message: { id: 'm9' } })
+		expect(rows()[2]).not.toHaveProperty('draft_ids')
+		// A draft no row knows changes nothing.
+		const before = cachedList(client, { folderId: 'inbox' })
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'nowhere' })
+		expect(cachedList(client, { folderId: 'inbox' })).toBe(before)
+	})
+
 	it('adds a reply to a thread that lists no folders or messages yet', () => {
 		expect(threadAfterSend({ id: 't9' }, { id: 'm1', thread_id: 't9' })).toMatchObject({
 			message_ids: ['m1'],

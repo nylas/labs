@@ -81,6 +81,15 @@ describe('RecipientInput', () => {
 		expect(input.value).toBe('')
 	})
 
+	it('scrolls a long list of recipients in a few rows instead of growing without end', () => {
+		const many = Array.from({ length: 40 }, (_, index) => `person${index}@example.com`).join(', ')
+		render(<RecipientInput value={many} onChange={vi.fn()} />)
+		const tokens = document.querySelector('[data-slot="recipient-tokens"]')
+		expect(tokens).toHaveClass('max-h-24', 'overflow-y-auto')
+		// The field stays in the scrolling list, after the chips.
+		expect(tokens).toContainElement(field())
+	})
+
 	it('forwards invalid-state semantics and reports draft edits', () => {
 		const onEdit = vi.fn()
 		render(

@@ -208,10 +208,28 @@ export function streamMessages(messages: MailMessage[], showTrashed: boolean): M
 }
 
 /**
- * "Mary, Grace, Alan" and how many more Reply all reaches: the sender (or
- * Reply-To) first, then To and Cc, without the owner.
+ * A participant as a person, taking the name the thread knows them by when
+ * the message carries the address alone (your own sent mail often does), so
+ * "mjackson@…" still reads as Mary.
  */
-export function replyAllNames(message: MailMessage, owner: string): { names: string; more: number } {
+export function knownPerson(participant: Participant, owner: string, known: readonly Person[]): Person {
+	const person = toPerson(participant, owner)
+	if (person.name) return person
+	const key = person.email.toLowerCase()
+	const named = known.find((entry) => entry.name && entry.email.trim().toLowerCase() === key)
+	return named ? { ...person, name: named.name } : person
+}
+
+/**
+ * "Mary, Grace, Alan" and how many more Reply all reaches: the sender (or
+ * Reply-To) first, then To and Cc, without the owner. `known` are the people
+ * the thread names, for addresses the message gives without a name.
+ */
+export function replyAllNames(
+	message: MailMessage,
+	owner: string,
+	known: readonly Person[] = [],
+): { names: string; more: number } {
 	const own = owner.trim().toLowerCase()
 	const seen = new Set<string>()
 	const people: Person[] = []
@@ -220,7 +238,7 @@ export function replyAllNames(message: MailMessage, owner: string): { names: str
 		const key = participant.email?.trim().toLowerCase()
 		if (!key || key === own || seen.has(key)) continue
 		seen.add(key)
-		people.push(toPerson(participant, owner))
+		people.push(knownPerson(participant, owner, known))
 	}
 	const named = people.slice(0, REPLY_CARD_NAMES).map((person) => firstName(person))
 	return { names: named.join(', '), more: people.length - named.length }
@@ -258,10 +276,10 @@ export function replyTarget(message: MailMessage, owner: string): Participant | 
 	)
 }
 
-/** The first name of whoever a plain Reply goes to. */
-export function replyFirstName(message: MailMessage, owner: string): string {
+/** The first name of whoever a plain Reply goes to, by the name the thread knows them by. */
+export function replyFirstName(message: MailMessage, owner: string, known: readonly Person[] = []): string {
 	const target = replyTarget(message, owner)
-	return target ? firstName(toPerson(target, owner)) : ''
+	return target ? firstName(knownPerson(target, owner, known)) : ''
 }
 
 /**

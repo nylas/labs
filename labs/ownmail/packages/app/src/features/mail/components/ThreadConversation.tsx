@@ -68,7 +68,6 @@ import {
 	threadFiles,
 	threadMap,
 	threadParticipants,
-	toPerson,
 	type UnreadSnapshot,
 } from '../lib/thread-reading-model.js'
 import {
@@ -78,6 +77,7 @@ import {
 	hashTarget,
 	isLookalikeSender,
 	isTrashed,
+	knownPerson,
 	lineDateLabel,
 	messageAnchorId,
 	missingAfter,
@@ -149,6 +149,8 @@ const MAP_DOCKED_QUERY = '(min-width: 80rem)'
 const CHORD_TIMEOUT_MS = 1000
 /** The thread map panel; below `xl` it is a sheet (a dialog) that `g m` also closes. */
 const MAP_PANEL_SELECTOR = '[data-slot="thread-map-panel"]'
+/** A list row of the open thread: the row, or the link inside it, is marked active. */
+const OPEN_ROW_SELECTOR = '[data-active="true"], :has([data-active="true"])'
 
 type ToolbarSlots = {
 	desktop: boolean
@@ -217,7 +219,10 @@ const isTypingTarget = (target: EventTarget | null): boolean =>
  * mailbox writes with, for the lookalike-sender check. `onScheduledSend` sends
  * your scheduled message now or cancels it, answering the draft that now holds
  * it when there is one (the reader opens it); without it a scheduled message
- * offers neither.
+ * offers neither. `unreadAtOpen` are the messages that were unread in the
+ * detail as the route first loaded it: the reader may first render a detail
+ * fetched again after opening marked it read, and the "new since" divider,
+ * catch-up card and map still start from what was new.
  */
 export function ThreadConversation({
 	thread,
@@ -230,6 +235,7 @@ export function ThreadConversation({
 	onRetryLoad,
 	onDiscardDraft,
 	onScheduledSend,
+	unreadAtOpen,
 	children,
 }: {
 	thread: MailThread
@@ -242,6 +248,7 @@ export function ThreadConversation({
 	onRetryLoad?: () => void
 	onDiscardDraft?: (draftId: string) => void
 	onScheduledSend?: (messageId: string, action: ScheduledSendAction) => Promise<string | undefined>
+	unreadAtOpen?: readonly string[]
 	children?: ReactNode
 }) {
 	return (
@@ -257,6 +264,7 @@ export function ThreadConversation({
 			onRetryLoad={onRetryLoad}
 			onDiscardDraft={onDiscardDraft}
 			onScheduledSend={onScheduledSend}
+			unreadAtOpen={unreadAtOpen}
 		>
 			{children}
 		</ThreadConversationController>
@@ -297,6 +305,7 @@ function ThreadConversationController({
 	mailboxEmail,
 	reply,
 	children,
+	unreadAtOpen,
 	...extras
 }: {
 	thread: MailThread
@@ -304,6 +313,7 @@ function ThreadConversationController({
 	mailboxEmail: string | undefined
 	reply: ConversationReply | undefined
 	children?: ReactNode
+	unreadAtOpen: readonly string[] | undefined
 } & ReaderExtras) {
 	const [preferences, savePreferences] = useUserPreferences()
 	// The saved view is not known while rendering on the server and hydrating.
@@ -322,7 +332,12 @@ function ThreadConversationController({
 	// read: the "new since" divider, the catch-up card and the map's "You
 	// stopped here" all read this, for as long as the thread stays open.
 	const [snapshot] = useIdentityState<UnreadSnapshot>([thread.id], () => ({
-		unreadIds: messages.filter((message) => message.unread === true).map((message) => message.id),
+		unreadIds: [
+			...new Set([
+				...(unreadAtOpen ?? []),
+				...messages.filter((message) => message.unread === true).map((message) => message.id),
+			]),
+		],
 	}))
 	const overrideStands = viewOverride?.over === preferences.threadView
 	if (viewOverride && !overrideStands) setViewOverride(null)
@@ -787,6 +802,19 @@ function ThreadConversationContent({
 		}
 	}, [])
 
+	// A link to another message followed while the thread is open (the hash
+	// changes on this page) opens that one too, unfolding its run.
+	useEffect(() => {
+		const onHashChange = () => {
+			const target = hashTarget(window.location.hash, visible)
+			if (!target) return
+			setTargetId(target)
+			goTo(target)
+		}
+		window.addEventListener('hashchange', onHashChange)
+		return () => window.removeEventListener('hashchange', onHashChange)
+	}, [visible, goTo])
+
 	// The thread opens where the reader left off: at a draft of theirs, wholly
 	// in view, else at the "new since" divider when it is low on the first screen.
 	const opened = ui.opened
@@ -852,15 +880,16 @@ function ThreadConversationContent({
 				return
 			}
 			const root = rootRef.current
-			// The reader's own keys act when focus is in it, or on nothing at all:
-			// beside a list, j / k on a focused row stay the list's, and with nothing
-			// focused they step the open thread's messages (board 01's stepper).
+			// The reader's own keys act when focus is in it, on nothing at all, or on
+			// the list row of this open thread (clicking a row leaves focus there):
+			// j / k then step the open thread's messages (board 01's stepper). A
+			// focused row of another thread keeps the list's j / k.
 			const inReader =
 				root !== null &&
 				(event.target === document.body ||
-					(event.target instanceof Node &&
-						root.closest('[data-testid="thread-reader"]')?.contains(event.target)) ||
-					(event.target instanceof Node && root.contains(event.target)))
+					target?.closest('[data-nav-row]')?.matches(OPEN_ROW_SELECTOR) === true ||
+					(target !== null && root.closest('[data-testid="thread-reader"]')?.contains(target)) ||
+					(target !== null && root.contains(target)))
 			if (!inReader) return
 			if (key === 'j' || key === 'k') {
 				event.preventDefault()
@@ -1278,7 +1307,7 @@ function ThreadConversationContent({
 			case 'divider':
 				return (
 					<ThreadColumn>
-						<NewSinceDivider label={entry.label} since={divider?.since} />
+						<NewSinceDivider label={entry.label} count={entry.count} since={divider?.since} />
 					</ThreadColumn>
 				)
 			case 'catch-up':
@@ -1319,10 +1348,7 @@ function ThreadConversationContent({
 			case 'draft': {
 				const to = entry.message.to?.[0]
 				// A draft saved with an address only takes the name the thread knows that person by.
-				const known = allKnownSenders.find(
-					(person) => person.name && person.email.toLowerCase() === to?.email?.trim().toLowerCase(),
-				)
-				const replyToFirstName = to ? firstName(known ?? toPerson(to, owner)) : undefined
+				const replyToFirstName = to ? firstName(knownPerson(to, owner, allKnownSenders)) : undefined
 				return (
 					<ThreadColumn>
 						<div data-draft-id={entry.message.id} className="reader-draft">

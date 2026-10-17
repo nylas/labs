@@ -72,12 +72,27 @@ export function FoldedMessagesRow({
 	)
 }
 
-/** "3 new since Tuesday": where the reader stopped, between two neutral lines. */
-export function NewSinceDivider({ label, since }: { label: string; since?: string | null }) {
+/**
+ * "3 new since Tuesday": where the reader stopped, between two neutral lines.
+ * The first line is the separator, named with both the count (board 03) and
+ * the place you left off (board 01), so the label drawn beside it is not read
+ * twice.
+ */
+export function NewSinceDivider({
+	label,
+	count,
+	since,
+}: {
+	label: string
+	count: number
+	since?: string | null
+}) {
 	return (
 		<div data-slot="new-since-divider" className="reader-divider">
-			{/* The separator names the place (board 01), not the count the label already shows. */}
-			<hr aria-label={since ? `New since you last read, ${since}` : label} className="reader-divider-line" />
+			<hr
+				aria-label={since ? `${count} new since you last read, ${since}` : label}
+				className="reader-divider-line"
+			/>
 			<span aria-hidden="true" className="reader-divider-label">
 				<span className="reader-divider-dot" />
 				{label}
@@ -121,9 +136,9 @@ export function InTrash() {
 		<span data-slot="in-trash" className="reader-in-trash">
 			<Trash2 aria-hidden="true" className="size-3 shrink-0" />
 			In Trash
+			{/* A flex item drops its own edge spaces, so the gap and a margin space the dot. */}
 			<span aria-hidden="true" className="reader-in-trash-separator">
-				{' '}
-				·{' '}
+				·
 			</span>
 		</span>
 	)

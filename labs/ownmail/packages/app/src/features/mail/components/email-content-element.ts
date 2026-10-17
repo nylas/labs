@@ -32,7 +32,12 @@ import {
 	scaledHeight,
 	shadowStyleText,
 } from '../lib/email-render.js'
-import { declaredImageSize, FAILED_IMAGE_ATTRIBUTE, IMAGE_FALLBACK_ATTRIBUTE } from '../lib/held-images.js'
+import {
+	declaredImageSize,
+	FAILED_IMAGE_ATTRIBUTE,
+	HELD_PLACEHOLDER_ATTRIBUTE,
+	IMAGE_FALLBACK_ATTRIBUTE,
+} from '../lib/held-images.js'
 import {
 	PICTURE_MEDIA_ATTRIBUTE,
 	type PictureMediaDefinition,
@@ -168,6 +173,8 @@ function stackTableForNarrowPane(table: HTMLTableElement): void {
 }
 
 const INHERITED_COLOR_ATTRIBUTE = 'data-ownmail-inherited-color'
+/** The placeholders OwnMail draws for held and failed images; their type size is its own. */
+const OWN_PLACEHOLDER_SELECTOR = `[${HELD_PLACEHOLDER_ATTRIBUTE}],[${IMAGE_FALLBACK_ATTRIBUTE}]`
 const contrastColorStyle = new WeakMap<
 	HTMLElement | SVGElement,
 	{ hadStyle: boolean; priority: string; value: string }
@@ -1092,7 +1099,9 @@ function createEmailElementClass(Base: typeof HTMLElement) {
 					(node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
 				)
 				const fontSize = Number.parseFloat(style.fontSize)
-				const raiseFont = hasDirectText && Number.isFinite(fontSize) && fontSize < 12
+				// OwnMail's own image placeholders set their alt text small on purpose (board 06, 11px).
+				const ownPlaceholder = element.matches(OWN_PLACEHOLDER_SELECTOR)
+				const raiseFont = hasDirectText && !ownPlaceholder && Number.isFinite(fontSize) && fontSize < 12
 				if (tooWide || normalizeHorizontalMargins || normalizeNoWrap || raiseFont) {
 					plans.push({ canResize, element, normalizeHorizontalMargins, normalizeNoWrap, raiseFont, tooWide })
 					changed = true

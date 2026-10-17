@@ -112,8 +112,9 @@ describe('LongMessageFrame', () => {
 			pane.dispatchEvent(new Event('scroll'))
 		})
 
-		expect(screen.getByRole('progressbar', { name: 'Read so far' })).toHaveAttribute('aria-valuenow', '45')
-		expect(screen.getByText('8 min read · 45%')).toBeInTheDocument()
+		// 400px of the 1,500px the view travels through the message.
+		expect(screen.getByRole('progressbar', { name: 'Read so far' })).toHaveAttribute('aria-valuenow', '27')
+		expect(screen.getByText('8 min read · 27%')).toBeInTheDocument()
 		for (const current of screen.getAllByRole('button', { name: '2 Payment' })) {
 			expect(current).toHaveAttribute('aria-current', 'location')
 		}
@@ -137,6 +138,37 @@ describe('LongMessageFrame', () => {
 		shadow.innerHTML = ''
 		await userEvent.click(screen.getAllByRole('button', { name: '3 Liability' })[0] as HTMLElement)
 		expect(paneScroll).toHaveBeenCalledTimes(2)
+	})
+
+	it('reads 0% with the message opened at its top, and 100% once it all fits above the bottom', () => {
+		render(
+			<div data-testid="pane" style={{ overflowY: 'auto' }}>
+				<LongMessageFrame messageId="top" text={LONG} headings={HEADINGS}>
+					<Body />
+				</LongMessageFrame>
+			</div>,
+		)
+		const pane = screen.getByTestId('pane')
+		const frame = document.querySelector('[data-slot="long-message"]') as Element
+		rectOf(pane, { top: 100, height: 500 })
+		// Opened at its top, the screenful already in view is not yet read.
+		rectOf(frame, { top: 160, height: 2000 })
+		act(() => {
+			pane.dispatchEvent(new Event('scroll'))
+		})
+		expect(screen.getByText('8 min read · 0%')).toBeInTheDocument()
+		// Its end at the bottom of the view: all of it read.
+		rectOf(frame, { top: -1400, height: 2000 })
+		act(() => {
+			pane.dispatchEvent(new Event('scroll'))
+		})
+		expect(screen.getByText('8 min read · 100%')).toBeInTheDocument()
+		// Shorter than the view (a narrow column made it fit), it is read as it shows.
+		rectOf(frame, { top: 120, height: 400 })
+		act(() => {
+			pane.dispatchEvent(new Event('scroll'))
+		})
+		expect(screen.getByText('8 min read · 100%')).toBeInTheDocument()
 	})
 
 	it('returns to where the reader stopped once the message is tall enough', () => {
