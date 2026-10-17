@@ -83,6 +83,26 @@
 	--color-today-foreground: var(--today-fg);
 	--color-cta-line: var(--cta-line);
 	--color-cta-icon: var(--cta-icon);
+	/* People (design.md "Message header"): an avatar tint per hue, the owner on the green pair. */
+	--color-avatar-75: var(--avatar-75);
+	--color-avatar-75-foreground: var(--avatar-75-fg);
+	--color-avatar-250: var(--avatar-250);
+	--color-avatar-250-foreground: var(--avatar-250-fg);
+	--color-avatar-32: var(--avatar-32);
+	--color-avatar-32-foreground: var(--avatar-32-fg);
+	--color-avatar-158: var(--avatar-158);
+	--color-avatar-158-foreground: var(--avatar-158-fg);
+	--color-avatar-300: var(--avatar-300);
+	--color-avatar-300-foreground: var(--avatar-300-fg);
+	--color-avatar-200: var(--avatar-200);
+	--color-avatar-200-foreground: var(--avatar-200-fg);
+	/* Notices (design.md "Notices"): severity is a uniform line, a tint and a glyph. */
+	--color-notice-warning: var(--notice-warning);
+	--color-notice-warning-line: var(--notice-warning-line);
+	--color-notice-warning-foreground: var(--notice-warning-fg);
+	--color-notice-danger: var(--notice-danger);
+	--color-notice-danger-line: var(--notice-danger-line);
+	--color-notice-danger-foreground: var(--notice-danger-fg);
 
 	--radius-sm: calc(var(--radius) * 0.75);
 	--radius-md: var(--radius);
@@ -172,6 +192,26 @@
 	/* The module create action (design.md "CTA voice"): an outline with the accent on its icon only. */
 	--cta-line: oklch(0.87 0.006 150);
 	--cta-icon: oklch(0.44 0.085 158);
+	/* Avatar tints: initials on a quiet fill, one pair per hue of the person palette. */
+	--avatar-75: oklch(0.88 0.05 75);
+	--avatar-75-fg: oklch(0.3 0.06 60);
+	--avatar-250: oklch(0.88 0.05 250);
+	--avatar-250-fg: oklch(0.3 0.08 255);
+	--avatar-32: oklch(0.88 0.05 32);
+	--avatar-32-fg: oklch(0.32 0.08 30);
+	--avatar-158: oklch(0.9 0.04 158);
+	--avatar-158-fg: oklch(0.28 0.06 160);
+	--avatar-300: oklch(0.88 0.05 300);
+	--avatar-300-fg: oklch(0.32 0.08 300);
+	--avatar-200: oklch(0.88 0.03 200);
+	--avatar-200-fg: oklch(0.3 0.06 200);
+	/* Notices: amber when something is worth checking, red when it may not be safe. */
+	--notice-warning: oklch(0.97 0.025 75);
+	--notice-warning-line: oklch(0.85 0.06 75);
+	--notice-warning-fg: oklch(0.32 0.06 60);
+	--notice-danger: oklch(0.97 0.02 25);
+	--notice-danger-line: oklch(0.82 0.08 25);
+	--notice-danger-fg: oklch(0.38 0.12 25);
 	font-family: var(--font-sans);
 }
 
@@ -223,4 +263,22 @@
 	--sidebar-ring: oklch(0.88 0.01 150);
 	--cta-line: oklch(1 0 0 / 14%);
 	--cta-icon: oklch(0.8 0.11 158);
+	--avatar-75: oklch(0.36 0.06 75);
+	--avatar-75-fg: oklch(0.9 0.06 75);
+	--avatar-250: oklch(0.36 0.06 250);
+	--avatar-250-fg: oklch(0.9 0.05 250);
+	--avatar-32: oklch(0.36 0.06 32);
+	--avatar-32-fg: oklch(0.9 0.05 32);
+	--avatar-158: oklch(0.34 0.05 158);
+	--avatar-158-fg: oklch(0.92 0.06 158);
+	--avatar-300: oklch(0.36 0.06 300);
+	--avatar-300-fg: oklch(0.9 0.05 300);
+	--avatar-200: oklch(0.36 0.04 200);
+	--avatar-200-fg: oklch(0.9 0.04 200);
+	--notice-warning: oklch(0.24 0.035 75);
+	--notice-warning-line: oklch(0.42 0.06 75);
+	--notice-warning-fg: oklch(0.88 0.07 80);
+	--notice-danger: oklch(0.24 0.04 25);
+	--notice-danger-line: oklch(0.45 0.09 25);
+	--notice-danger-fg: oklch(0.86 0.07 25);
 }
