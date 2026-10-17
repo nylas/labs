@@ -44,7 +44,6 @@ import {
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import { foldedBundleOf, type ThreadListItem, threadListItems } from '#features/mail/lib/thread-list-model'
 import { dayGroupHeading } from '#features/mail/lib/thread-reading-model'
-import { resendSeed } from '#features/mail/lib/thread-stream'
 import { runScheduledSend, type ScheduledSendAction } from '#features/mail/state/mail-mutations'
 import type { MailDraft, MailMessage, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
@@ -1044,9 +1043,10 @@ const ThreadRow = memo(function ThreadRow({
 		onScheduledSend: (action: ScheduledSendAction) =>
 			runRowAction(async () => {
 				const scheduled = thread.latest_draft_or_message as MailMessage
-				await runScheduledSend(queryClient ?? undefined, { messageId: scheduled.id, action })
-				// A cancelled message opens in the composer, so its words are never lost.
-				if (action === 'cancel') await openCompose({ kind: 'new', ...resendSeed(scheduled) })
+				const outcome = await runScheduledSend(queryClient ?? undefined, { messageId: scheduled.id, action })
+				// The whole message is kept as a draft (cancelled, or not sent now) and opens in the composer.
+				if (outcome.draftId) await openCompose({ kind: 'draft', draftId: outcome.draftId })
+				if (outcome.error) setActionError(outcome.error)
 			}),
 	}
 

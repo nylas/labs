@@ -58,6 +58,17 @@ export function devMailboxName(email?: string): string | undefined {
 	return !normalized || normalized === MAILBOX_EMAIL ? MAILBOX_NAME : undefined
 }
 
+/** The Cc, Bcc and Reply-To of an outgoing message, as a mock draft stores them. */
+function copiedPeople(body: SendMessageRequest): Pick<MockDraftInput, 'cc' | 'bcc' | 'replyTo'> {
+	const emails = (people: NonNullable<SendMessageRequest['cc']>) =>
+		people.map((person) => person.email).join(', ')
+	return {
+		...(body.cc?.length ? { cc: emails(body.cc) } : {}),
+		...(body.bcc?.length ? { bcc: emails(body.bcc) } : {}),
+		...(body.reply_to?.length ? { replyTo: emails(body.reply_to) } : {}),
+	}
+}
+
 export function createDevMailbox() {
 	return new DevMailbox()
 }
@@ -149,6 +160,8 @@ class DevMailbox {
 	async send(body: SendMessageRequest): Promise<ItemResponse<Message>> {
 		const sent = mockSendMessage({
 			toList: (body.to ?? []).map((participant) => participant.email),
+			...(body.cc ? { cc: body.cc } : {}),
+			...(body.bcc ? { bcc: body.bcc } : {}),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
 			...(body.reply_to_message_id ? { replyToMessageId: body.reply_to_message_id } : {}),
@@ -178,6 +191,15 @@ class DevMailbox {
 				headers: { 'Content-Type': 'text/calendar' },
 			})
 		}
+		// A scheduled message's files are read before it is saved as a draft.
+		const message = messages.get(draftId)
+		if (message) {
+			const file = message.attachments?.find((candidate) => candidate.id === attachmentId)
+			if (!file) throw new Error('Not found - it may have been deleted.')
+			return new Response(`Mock file ${file.filename}`, {
+				headers: { 'Content-Type': file.content_type ?? 'application/octet-stream' },
+			})
+		}
 		const draft = mockDraft(draftId) as StoredDraft
 		const attachment = draft.outbound_attachments?.find(
 			(candidate, index) => `att-outbound-${index}-${candidate.filename}` === attachmentId,
@@ -191,6 +213,7 @@ class DevMailbox {
 	async createDraft(body: SendMessageRequest): Promise<ItemResponse<Draft>> {
 		const saved = mockSaveDraft({
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
+			...copiedPeople(body),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
 			...(body.reply_to_message_id ? { replyToMessageId: body.reply_to_message_id } : {}),
@@ -204,6 +227,7 @@ class DevMailbox {
 		const saved = mockSaveDraft({
 			draftId,
 			to: (body.to ?? []).map((participant) => participant.email).join(', '),
+			...copiedPeople(body),
 			subject: body.subject ?? '',
 			body: body.body ?? '',
 			...(body.reply_to_message_id
@@ -706,15 +730,20 @@ export function mockThreadMessages(threadId: string): { thread: Thread; messages
 
 export function mockSendMessage(input: {
 	toList: string[]
+	cc?: Message['cc']
+	bcc?: Message['bcc']
 	subject: string
 	body: string
 	replyToMessageId?: string
 	attachments?: SendMessageRequest['attachments']
 }): Message {
 	const sentAt = Math.floor(Date.now() / 1000)
-	const id = `msg-${sentAt}-${messages.size + 1}`
+	// A counter, not the store's size: a cancelled message or thread shrinks the
+	// store, and a size-based id could then name one that still exists.
+	const sequence = ++managedResourceSequence
+	const id = `msg-${sentAt}-${sequence}`
 	const replyTo = input.replyToMessageId ? messages.get(input.replyToMessageId) : null
-	const threadId = replyTo?.thread_id ?? `thread-${sentAt}-${threads.size + 1}`
+	const threadId = replyTo?.thread_id ?? `thread-${sentAt}-${sequence}`
 	const recipients = input.toList.map((email) => ({ email }))
 	const message: StoredMessage = {
 		id,
@@ -725,6 +754,8 @@ export function mockSendMessage(input: {
 		body: input.body,
 		from: [ACCOUNT],
 		to: recipients,
+		...(input.cc?.length ? { cc: input.cc } : {}),
+		...(input.bcc?.length ? { bcc: input.bcc } : {}),
 		date: sentAt,
 		unread: false,
 		folders: ['sent'],
@@ -794,17 +825,22 @@ export function mockUpdateThreadState(input: {
 	return { ok: true }
 }
 
-export function mockSaveDraft(input: {
+type MockDraftInput = {
 	draftId?: string
 	to: string
+	cc?: string
+	bcc?: string
+	replyTo?: string
 	subject: string
 	body: string
 	replyToMessageId?: string
 	attachments?: SendMessageRequest['attachments']
-}): {
+}
+
+export function mockSaveDraft(input: MockDraftInput): {
 	draftId: string
 } {
-	const id = input.draftId || `draft-${Date.now()}`
+	const id = input.draftId || `draft-${Date.now()}-${++managedResourceSequence}`
 	// A reply draft belongs to the thread of the message it answers, and keeps it
 	// across edits, so the thread lists it in draft_ids and latest_draft_or_message.
 	const previous = input.draftId ? drafts.get(input.draftId) : undefined
@@ -824,6 +860,9 @@ export function mockSaveDraft(input: {
 			.slice(0, 140),
 		body: input.body,
 		to: splitEmails(input.to).map((email) => ({ email })),
+		...(input.cc ? { cc: splitEmails(input.cc).map((email) => ({ email })) } : {}),
+		...(input.bcc ? { bcc: splitEmails(input.bcc).map((email) => ({ email })) } : {}),
+		...(input.replyTo ? { reply_to: splitEmails(input.replyTo).map((email) => ({ email })) } : {}),
 		...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
 		...(threadId ? { thread_id: threadId } : {}),
 		...(input.attachments?.length
@@ -850,6 +889,9 @@ export function mockSendDraft(draftId: string): { ok: true } {
 		subject: draft.subject ?? '',
 		body: draft.body ?? '',
 		/* v8 ignore stop -- @preserve */
+		...(draft.cc ? { cc: draft.cc } : {}),
+		...(draft.bcc ? { bcc: draft.bcc } : {}),
+		...(draft.reply_to_message_id ? { replyToMessageId: draft.reply_to_message_id } : {}),
 		attachments: draft.outbound_attachments,
 	})
 	drafts.delete(draftId)

@@ -216,8 +216,9 @@ const isTypingTarget = (target: EventTarget | null): boolean =>
  * up; `failedMessageIds` are messages the server could not load (the reader
  * says so and offers `onRetryLoad`); `knownSenders` are other people this
  * mailbox writes with, for the lookalike-sender check. `onScheduledSend` sends
- * your scheduled message now or cancels it, answering whether it did; without
- * it a scheduled message offers neither.
+ * your scheduled message now or cancels it, answering the draft that now holds
+ * it when there is one (the reader opens it); without it a scheduled message
+ * offers neither.
  */
 export function ThreadConversation({
 	thread,
@@ -241,7 +242,7 @@ export function ThreadConversation({
 	knownSenders?: Person[]
 	onRetryLoad?: () => void
 	onDiscardDraft?: (draftId: string) => void
-	onScheduledSend?: (messageId: string, action: ScheduledSendAction) => Promise<boolean>
+	onScheduledSend?: (messageId: string, action: ScheduledSendAction) => Promise<string | undefined>
 	children?: ReactNode
 }) {
 	return (
@@ -269,7 +270,9 @@ type ReaderExtras = {
 	knownSenders: Person[] | undefined
 	onRetryLoad: (() => void) | undefined
 	onDiscardDraft: ((draftId: string) => void) | undefined
-	onScheduledSend: ((messageId: string, action: ScheduledSendAction) => Promise<boolean>) | undefined
+	onScheduledSend:
+		| ((messageId: string, action: ScheduledSendAction) => Promise<string | undefined>)
+		| undefined
 }
 
 type State<T> = [T, Dispatch<SetStateAction<T>>]
@@ -897,6 +900,12 @@ function ThreadConversationContent({
 		(message: MailMessage) => void openCompose({ kind: 'new', ...resendSeed(message) }),
 		[openCompose],
 	)
+	const openScheduledDraft = useCallback(
+		(draftId: string | undefined) => {
+			if (draftId) void openCompose({ kind: 'draft', draftId })
+		},
+		[openCompose],
+	)
 	// A plain reply to your own message goes to the first other person on it.
 	const replySearch = useCallback(
 		(message: MailMessage) => ({
@@ -930,13 +939,14 @@ function ThreadConversationContent({
 				})
 			},
 			onEditResend: (message) => editAndResend(message),
-			onSendNow: onScheduledSend ? (message) => void onScheduledSend(message.id, 'send-now') : null,
-			// A cancelled message opens in the composer, so its words are never lost.
+			// The server keeps the whole message as a draft before it changes the
+			// schedule: a cancelled message (or one that could not go now) opens in
+			// the composer on that draft, with its people, files and formatting.
+			onSendNow: onScheduledSend
+				? (message) => void onScheduledSend(message.id, 'send-now').then(openScheduledDraft)
+				: null,
 			onCancelSchedule: onScheduledSend
-				? (message) =>
-						void onScheduledSend(message.id, 'cancel').then((cancelled) => {
-							if (cancelled) editAndResend(message)
-						})
+				? (message) => void onScheduledSend(message.id, 'cancel').then(openScheduledDraft)
 				: null,
 			onShowMessage: goTo,
 			onGoToQuoted: (message, quote) => {
@@ -947,6 +957,7 @@ function ThreadConversationContent({
 		}),
 		[
 			onScheduledSend,
+			openScheduledDraft,
 			visible,
 			closeMessage,
 			openCompose,

@@ -800,3 +800,98 @@ describe('dev mock scheduled sends', () => {
 		await expect(mailbox.cancelScheduledMessage('schedule-missing')).rejects.toThrow('Not found')
 	})
 })
+
+describe('dev mock scheduled message kept as a draft', () => {
+	const mailbox = createDevMailbox()
+
+	it('saves every field of a scheduled reply as a draft in its thread, and sends it with them', async () => {
+		const original = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Plans',
+			body: '<p>Plans?</p>',
+		})
+		const threadId = original.data.thread_id as string
+		const created = await mailbox.createDraft({
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			reply_to: [{ email: 'ada.personal@example.com' }],
+			subject: 'Re: Plans',
+			body: '<p><strong>Yes</strong></p>',
+			reply_to_message_id: original.data.id,
+			attachments: [{ filename: 'agenda.txt', content_type: 'text/plain', content: btoa('agenda') }],
+		})
+		const draft = mockDraft(created.data.id)
+		expect(draft).toMatchObject({
+			thread_id: threadId,
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			reply_to: [{ email: 'ada.personal@example.com' }],
+			body: '<p><strong>Yes</strong></p>',
+			reply_to_message_id: original.data.id,
+		})
+		expect(draft.attachments?.map((file) => file.filename)).toEqual(['agenda.txt'])
+		// An edit carries the people it is given; the draft's place in the thread stays.
+		await mailbox.updateDraft(created.data.id, {
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			subject: 'Re: Plans',
+			body: '<p>Yes</p>',
+		})
+		expect(mockDraft(created.data.id)).not.toHaveProperty('bcc')
+		const sent = await mailbox.sendDraft(created.data.id)
+		expect(sent.data).toMatchObject({ thread_id: threadId, cc: [{ email: 'alan@example.com' }] })
+	})
+
+	it('sends a message with Cc and Bcc, and one without', async () => {
+		const withPeople = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			subject: 'Copied',
+			body: 'Hi',
+		})
+		expect(withPeople.data).toMatchObject({
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+		})
+		const blind = await mailbox.createDraft({
+			to: [{ email: 'grace@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			subject: 'Blind copy',
+			body: 'Hi',
+		})
+		const sentBlind = await mailbox.sendDraft(blind.data.id)
+		expect(sentBlind.data).toMatchObject({ bcc: [{ email: 'katherine@example.com' }] })
+		expect(sentBlind.data).not.toHaveProperty('cc')
+		const without = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			cc: [],
+			subject: 'Plain',
+			body: 'Hi',
+		})
+		expect(without.data).not.toHaveProperty('cc')
+		expect(without.data).not.toHaveProperty('bcc')
+	})
+
+	it('reads a stored message’s files before it is kept as a draft', async () => {
+		const sent = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Files',
+			body: 'Attached',
+			attachments: [{ filename: 'notes.txt', content_type: 'text/plain', content: btoa('notes') }],
+		})
+		const stored = (await mailbox.getMessage(sent.data.id)).data
+		const [file] = stored.attachments ?? []
+		const response = await mailbox.downloadAttachment((file as { id: string }).id, sent.data.id)
+		expect(await response.text()).toBe('Mock file notes.txt')
+		expect(response.headers.get('Content-Type')).toBe('text/plain')
+		// A file the provider gave no type is served as bytes.
+		delete (file as { content_type?: string }).content_type
+		const untyped = await mailbox.downloadAttachment((file as { id: string }).id, sent.data.id)
+		expect(untyped.headers.get('Content-Type')).toBe('application/octet-stream')
+		await expect(mailbox.downloadAttachment('att-missing', sent.data.id)).rejects.toThrow('Not found')
+		const bare = await mailbox.send({ to: [{ email: 'grace@example.com' }], subject: 'Bare', body: 'None' })
+		await expect(mailbox.downloadAttachment('att-missing', bare.data.id)).rejects.toThrow('Not found')
+	})
+})

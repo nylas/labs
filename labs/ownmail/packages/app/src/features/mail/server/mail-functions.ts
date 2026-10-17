@@ -1,4 +1,11 @@
-import { type Draft, type Folder, type Message, NylasApiError, type Thread } from '@nylas-labs/cli-kit/v3'
+import {
+	type Draft,
+	type Folder,
+	type Message,
+	NylasApiError,
+	type SendMessageRequest,
+	type Thread,
+} from '@nylas-labs/cli-kit/v3'
 import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId, validNylasProviderId } from '#server/ids'
@@ -536,19 +543,24 @@ export const sendMessage = createServerFn({ method: 'POST' })
 
 // ---- Scheduled sends ------------------------------------------------------------
 
-type ScheduledMailbox = {
+/** What "Send now" answers when the provider refused the send: the message is kept as a draft. */
+export const SCHEDULED_SEND_FAILED = 'Couldn’t send. Saved as a draft.'
+
+type ScheduledMailbox = AttachmentDownloader & {
 	getMessage(messageId: string): Promise<{ data: Message }>
 	getThread(threadId: string): Promise<{ data: Thread }>
+	createDraft(body: SendMessageRequest): Promise<{ data: Draft }>
+	deleteDraft(draftId: string): Promise<void>
+	cancelScheduledMessage(scheduleId: string): Promise<void>
 }
 
+type ScheduledMessage = Message & { schedule_id: string }
+
 /** Your scheduled message as the provider holds it, read before its schedule is cancelled. */
-async function scheduledMessage(
-	mailbox: ScheduledMailbox,
-	messageId: string,
-): Promise<Message & { schedule_id: string }> {
+async function scheduledMessage(mailbox: ScheduledMailbox, messageId: string): Promise<ScheduledMessage> {
 	const message = (await mailbox.getMessage(messageId)).data
 	if (!validNylasProviderId(message.schedule_id)) throw new Error('This message is not scheduled to send.')
-	return message as Message & { schedule_id: string }
+	return message as ScheduledMessage
 }
 
 /** The thread message a scheduled reply answers: the one before it, so sending it now keeps the thread. */
@@ -563,13 +575,59 @@ async function scheduledReplyTarget(
 	return earlier.at(-1)
 }
 
+/**
+ * Everything a scheduled message holds, as an outgoing message: its people
+ * (To, Cc, Bcc, Reply-To), subject, HTML body, files and its place in the
+ * thread. Read in full before anything is changed; any failure here leaves
+ * the schedule as it was.
+ */
+async function scheduledOutgoing(mailbox: ScheduledMailbox, message: Message): Promise<SendMessageRequest> {
+	const restored = await restoreDraftAttachments(mailbox, message)
+	const replyToMessageId = await scheduledReplyTarget(mailbox, message)
+	return {
+		to: message.to ?? [],
+		...(message.cc?.length ? { cc: message.cc } : {}),
+		...(message.bcc?.length ? { bcc: message.bcc } : {}),
+		...(message.reply_to?.length ? { reply_to: message.reply_to } : {}),
+		subject: message.subject ?? '',
+		body: message.body ?? '',
+		...(restored.length > 0 ? { attachments: normalizeOutboundAttachments(restored) } : {}),
+		...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+	}
+}
+
+/**
+ * Cancels the schedule of a message whose full copy is already a draft, so
+ * the draft is never the second thing written. When the provider refuses,
+ * the message is read again: still scheduled, it sends as planned and the copy
+ * is removed; otherwise the copy may be the only one left, so it stays.
+ */
+async function cancelWithSafetyCopy(
+	mailbox: ScheduledMailbox,
+	message: ScheduledMessage,
+	draftId: string,
+): Promise<void> {
+	try {
+		await mailbox.cancelScheduledMessage(message.schedule_id)
+	} catch (err) {
+		const stillScheduled = await mailbox.getMessage(message.id).then(
+			(current) => current.data.schedule_id === message.schedule_id,
+			() => false,
+		)
+		if (stillScheduled) await mailbox.deleteDraft(draftId).catch(() => {})
+		throw err
+	}
+}
+
 const scheduledInput = (input: { messageId: string }) => ({
 	messageId: requireNylasProviderId(input.messageId, 'message'),
 })
 
 /**
  * Stops a scheduled message from sending, with the provider's scheduled-send
- * API. The reader then opens the composer with its words, so nothing is lost.
+ * API. Every field of it (people, subject, HTML body, files, thread) is saved
+ * as a draft first, and only then is the schedule cancelled; the reader opens
+ * that draft in the composer, so nothing is lost.
  */
 export const cancelScheduledSend = createServerFn({ method: 'POST' })
 	.validator(scheduledInput)
@@ -577,41 +635,60 @@ export const cancelScheduledSend = createServerFn({ method: 'POST' })
 		const { mailbox, grantId } = await requireMailbox()
 		try {
 			const message = await scheduledMessage(mailbox, data.messageId)
-			await mailbox.cancelScheduledMessage(message.schedule_id)
-			return mailReceipt(mailbox, grantId, { cancelledMessageId: message.id })
+			const draft = (await mailbox.createDraft(await scheduledOutgoing(mailbox, message))).data
+			await cancelWithSafetyCopy(mailbox, message, draft.id)
+			return mailReceipt(mailbox, grantId, { cancelledMessageId: message.id, draftId: draft.id })
 		} catch (err) {
 			throw friendly(err)
 		}
 	})
 
 /**
- * Sends a scheduled message now: its content and files are read first, its
- * schedule is cancelled, and the same message goes out at once, in its thread.
+ * Sends a scheduled message now. Its content and files are read and saved as
+ * a draft first, its schedule is cancelled, and the same message goes out at
+ * once, in its thread. Once it has gone the safety draft is removed; when the
+ * send fails the draft stays, and the receipt names it with
+ * `SCHEDULED_SEND_FAILED` so the reader can open it.
  */
 export const sendScheduledNow = createServerFn({ method: 'POST' })
 	.validator(scheduledInput)
-	.handler(async ({ data }) => {
-		const { mailbox, grantId } = await requireMailbox()
-		try {
-			const message = await scheduledMessage(mailbox, data.messageId)
-			const restored = await restoreDraftAttachments(mailbox, message)
-			const replyToMessageId = await scheduledReplyTarget(mailbox, message)
-			await mailbox.cancelScheduledMessage(message.schedule_id)
-			const sent = await mailbox.send({
-				to: message.to ?? [],
-				...(message.cc?.length ? { cc: message.cc } : {}),
-				...(message.bcc?.length ? { bcc: message.bcc } : {}),
-				...(message.reply_to?.length ? { reply_to: message.reply_to } : {}),
-				subject: message.subject ?? '',
-				body: message.body ?? '',
-				...(restored.length > 0 ? { attachments: normalizeOutboundAttachments(restored) } : {}),
-				...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
-			})
-			return mailReceipt(mailbox, grantId, { cancelledMessageId: message.id, message: sent.data })
-		} catch (err) {
-			throw friendly(err)
-		}
-	})
+	.handler(
+		async ({
+			data,
+		}): Promise<
+			{ cancelledMessageId: string; folders?: Folder[] } & (
+				| { message: Message }
+				| { draftId: string; error: string }
+			)
+		> => {
+			const { mailbox, grantId } = await requireMailbox()
+			let copy: { message: ScheduledMessage; outgoing: SendMessageRequest; draftId: string }
+			try {
+				const message = await scheduledMessage(mailbox, data.messageId)
+				const outgoing = await scheduledOutgoing(mailbox, message)
+				const draft = (await mailbox.createDraft(outgoing)).data
+				await cancelWithSafetyCopy(mailbox, message, draft.id)
+				copy = { message, outgoing, draftId: draft.id }
+			} catch (err) {
+				throw friendly(err)
+			}
+			let sent: Message
+			try {
+				sent = (await mailbox.send(copy.outgoing)).data
+			} catch (err) {
+				// Recorded like any provider failure; the words are safe in the draft.
+				friendly(err)
+				return mailReceipt(mailbox, grantId, {
+					cancelledMessageId: copy.message.id,
+					draftId: copy.draftId,
+					error: SCHEDULED_SEND_FAILED,
+				})
+			}
+			// The message has gone; a copy left behind only risks sending it twice.
+			await mailbox.deleteDraft(copy.draftId).catch(() => {})
+			return mailReceipt(mailbox, grantId, { cancelledMessageId: copy.message.id, message: sent })
+		},
+	)
 
 // ---- Thread actions -----------------------------------------------------------
 
@@ -644,21 +721,50 @@ export const updateThreadState = createServerFn({ method: 'POST' })
 
 // ---- Drafts ---------------------------------------------------------------------
 
+/**
+ * Cc and Bcc a draft already holds (a cancelled scheduled message keeps
+ * them). The composer does not edit them, but carries them through every
+ * save and the send, because a draft update replaces the whole draft.
+ */
+type CopiedRecipientsInput = { cc?: string; bcc?: string }
+
+function copiedRecipients(input: CopiedRecipientsInput): { ccList?: string[]; bccList?: string[] } {
+	const list = (value: unknown, field: string) => {
+		if (value === undefined) return undefined
+		if (typeof value !== 'string') throw new Error(`Invalid ${field}`)
+		const emails = parseRecipientEmails(value, { required: false })
+		return emails.length > 0 ? emails : undefined
+	}
+	const ccList = list(input.cc, 'Cc')
+	const bccList = list(input.bcc, 'Bcc')
+	return { ...(ccList ? { ccList } : {}), ...(bccList ? { bccList } : {}) }
+}
+
+function copiedRecipientsPayload(data: { ccList?: string[]; bccList?: string[] }) {
+	return {
+		...(data.ccList ? { cc: data.ccList.map((email) => ({ email })) } : {}),
+		...(data.bccList ? { bcc: data.bccList.map((email) => ({ email })) } : {}),
+	}
+}
+
 export const saveDraft = createServerFn({ method: 'POST' })
 	.validator(
-		(input: {
-			draftId?: string
-			to: string
-			subject: string
-			body: string
-			replyToMessageId?: string
-			attachments?: OutboundAttachment[]
-		}) => {
+		(
+			input: {
+				draftId?: string
+				to: string
+				subject: string
+				body: string
+				replyToMessageId?: string
+				attachments?: OutboundAttachment[]
+			} & CopiedRecipientsInput,
+		) => {
 			const message = normalizeMessageFields(input)
 			return {
 				...message,
 				...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
 				toList: parseRecipientEmails(message.to, { required: false }),
+				...copiedRecipients(input),
 				attachments: normalizeOutboundAttachments(input.attachments),
 			}
 		},
@@ -668,6 +774,7 @@ export const saveDraft = createServerFn({ method: 'POST' })
 		try {
 			const payload = {
 				to: data.toList.map((email) => ({ email })),
+				...copiedRecipientsPayload(data),
 				subject: data.subject,
 				body: data.body,
 				...(data.attachments ? { attachments: data.attachments } : {}),
@@ -702,20 +809,23 @@ export const getDraft = createServerFn({ method: 'GET' })
 
 export const sendDraft = createServerFn({ method: 'POST' })
 	.validator(
-		(input: {
-			draftId: string
-			to: string
-			subject: string
-			body: string
-			replyToMessageId?: string
-			attachments?: OutboundAttachment[]
-		}) => {
+		(
+			input: {
+				draftId: string
+				to: string
+				subject: string
+				body: string
+				replyToMessageId?: string
+				attachments?: OutboundAttachment[]
+			} & CopiedRecipientsInput,
+		) => {
 			const message = normalizeMessageFields(input)
 			const to = parseRecipientEmails(message.to, { required: true })
 			return {
 				...message,
 				draftId: requireNylasProviderId(input.draftId, 'draft'),
 				toList: to,
+				...copiedRecipients(input),
 				attachments: normalizeOutboundAttachments(input.attachments),
 			}
 		},
@@ -728,6 +838,7 @@ export const sendDraft = createServerFn({ method: 'POST' })
 			const attachments = normalizeOutboundAttachments([...restoredAttachments, ...(data.attachments ?? [])])
 			await mailbox.updateDraft(data.draftId, {
 				to: data.toList.map((email) => ({ email })),
+				...copiedRecipientsPayload(data),
 				subject: data.subject,
 				body: data.body,
 				...(attachments ? { attachments } : {}),

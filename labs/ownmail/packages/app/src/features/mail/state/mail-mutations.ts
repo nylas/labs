@@ -6,6 +6,7 @@ import {
 	useMutation,
 	useQueryClient,
 } from '@tanstack/react-query'
+import { useCallback } from 'react'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
 import {
 	cancelScheduledSend,
@@ -43,6 +44,9 @@ type UpdateThreadInput = {
 type DraftFields = {
 	draftId?: string
 	to: string
+	/** Cc and Bcc a draft already holds; the composer carries them, it does not edit them. */
+	cc?: string
+	bcc?: string
 	subject: string
 	body: string
 	replyToMessageId?: string
@@ -350,20 +354,31 @@ export function useDeleteDraftMutation() {
 export type ScheduledSendAction = 'send-now' | 'cancel'
 
 /**
+ * How a scheduled-send action ended: `draftId` is a draft holding the whole
+ * message for the composer to open (a cancelled message, or one that could not
+ * be sent now), and `error` says why it is a draft when that was not asked for.
+ */
+export type ScheduledSendOutcome = { draftId?: string; error?: string }
+
+/**
  * Sends a scheduled message now or cancels it. Either changes which messages
  * the thread holds, so the mail cache (when there is one) is reloaded from the
- * provider afterwards.
+ * provider afterwards. Rejects when nothing was changed.
  */
 export async function runScheduledSend(
 	client: QueryClient | undefined,
 	{ messageId, action }: { messageId: string; action: ScheduledSendAction },
-) {
-	const receipt =
-		action === 'send-now'
-			? await sendScheduledNow({ data: { messageId } })
-			: await cancelScheduledSend({ data: { messageId } })
+): Promise<ScheduledSendOutcome> {
+	let outcome: ScheduledSendOutcome
+	if (action === 'send-now') {
+		const receipt = await sendScheduledNow({ data: { messageId } })
+		outcome = 'error' in receipt ? { draftId: receipt.draftId, error: receipt.error } : {}
+	} else {
+		const receipt = await cancelScheduledSend({ data: { messageId } })
+		outcome = { draftId: receipt.draftId }
+	}
 	await client?.invalidateQueries({ queryKey: mailKeys.all })
-	return receipt
+	return outcome
 }
 
 /** `runScheduledSend` as a mutation of the app's query client. */
@@ -373,6 +388,29 @@ export function useScheduledSendMutation() {
 		mutationFn: (input: { messageId: string; action: ScheduledSendAction }) =>
 			runScheduledSend(client, input),
 	})
+}
+
+/**
+ * The reader's scheduled-send handler: runs the action and answers the draft
+ * the composer should open, if any. Failures, and a send that became a draft,
+ * are reported through `onError`.
+ */
+export function useScheduledSendAction(onError: (message: string) => void) {
+	const { mutateAsync } = useScheduledSendMutation()
+	return useCallback(
+		(messageId: string, action: ScheduledSendAction): Promise<string | undefined> =>
+			mutateAsync({ messageId, action }).then(
+				(outcome) => {
+					if (outcome.error) onError(outcome.error)
+					return outcome.draftId
+				},
+				() => {
+					onError(action === 'cancel' ? 'Could not cancel the scheduled send' : 'Could not send it now')
+					return undefined
+				},
+			),
+		[mutateAsync, onError],
+	)
 }
 
 export const mailMutationTestApi = {

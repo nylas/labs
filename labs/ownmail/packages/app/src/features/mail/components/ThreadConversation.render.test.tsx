@@ -1679,7 +1679,7 @@ describe('message actions', () => {
 			send_at: NOW + DAY,
 			schedule_id: 'sched-1',
 		}
-		const onScheduledSend = vi.fn(async () => true)
+		const onScheduledSend = vi.fn(async (): Promise<string | undefined> => undefined)
 		const { rerender } = render(
 			<ThreadConversation thread={thread('t1')} messages={[scheduled]} mailboxEmail="ada@ownmail.com" />,
 		)
@@ -1694,25 +1694,30 @@ describe('message actions', () => {
 				onScheduledSend={onScheduledSend}
 			/>,
 		)
+		// Sent now: nothing to open.
 		fireEvent.click(screen.getByRole('button', { name: 'Send now' }))
 		expect(onScheduledSend).toHaveBeenLastCalledWith('later', 'send-now')
+		await waitFor(() => expect(onScheduledSend).toHaveBeenCalledTimes(1))
+		await Promise.resolve()
 		expect(compose.openCompose).not.toHaveBeenCalled()
-		// A cancelled message opens in the composer with its words.
+		// Not sent now: the draft that holds it opens.
+		onScheduledSend.mockResolvedValueOnce('d-unsent')
+		fireEvent.click(screen.getByRole('button', { name: 'Send now' }))
+		await waitFor(() =>
+			expect(compose.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-unsent' }),
+		)
+		// A cancelled message opens in the composer on the draft that keeps every field.
+		compose.openCompose.mockClear()
+		onScheduledSend.mockResolvedValueOnce('d-cancelled')
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 		expect(onScheduledSend).toHaveBeenLastCalledWith('later', 'cancel')
 		await waitFor(() =>
-			expect(compose.openCompose).toHaveBeenCalledWith({
-				kind: 'new',
-				to: 'grace@example.com',
-				subject: 'Re: Q3 offsite agenda',
-				body: 'Thanks for pulling this together.',
-			}),
+			expect(compose.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
 		)
 		// A cancel that did not happen leaves the composer closed.
 		compose.openCompose.mockClear()
-		onScheduledSend.mockResolvedValueOnce(false)
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-		await waitFor(() => expect(onScheduledSend).toHaveBeenCalledTimes(3))
+		await waitFor(() => expect(onScheduledSend).toHaveBeenCalledTimes(4))
 		await Promise.resolve()
 		expect(compose.openCompose).not.toHaveBeenCalled()
 	})

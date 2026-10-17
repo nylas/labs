@@ -899,10 +899,10 @@ describe('/mail/search thread detail', () => {
 			],
 		})
 		fns.sendScheduledNow
-			.mockResolvedValueOnce({ cancelledMessageId: 'm-out' })
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', message: { id: 'sent' } })
 			.mockRejectedValueOnce(new Error('x'))
 		fns.cancelScheduledSend
-			.mockResolvedValueOnce({ cancelledMessageId: 'm-out' })
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', draftId: 'd-cancelled' })
 			.mockRejectedValueOnce(new Error('x'))
 		renderRoute()
 
@@ -910,9 +910,7 @@ describe('/mail/search thread detail', () => {
 		await waitFor(() => expect(fns.sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'm-out' } }))
 		await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 		await waitFor(() =>
-			expect(composeApi.openCompose).toHaveBeenCalledWith(
-				expect.objectContaining({ kind: 'new', to: 'grace@x.com', subject: 'Re: Q3 offsite agenda' }),
-			),
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
 		)
 		expect(fns.cancelScheduledSend).toHaveBeenCalledWith({ data: { messageId: 'm-out' } })
 

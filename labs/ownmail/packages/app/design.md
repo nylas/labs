@@ -837,11 +837,16 @@ link inside a sentence; all keep the 44px floor on touch.
 - Not sent, or not yet. A bounce says "Not sent. mary@nasa.gov bounced." in
   `--danger-soft-fg` with Edit and resend and Copy text; a scheduled message
   says "Sends Mon 9:00 AM" with Send now and Cancel. Both act through the
-  provider's scheduled-send API: Send now reads the message and its files,
-  cancels its schedule and sends the same message at once, in its thread;
-  Cancel cancels the schedule and opens the composer with the message's words,
-  so nothing is lost. A failure is said on the reader (or on the list row,
-  whose menu offers the same two). Both stay at the message's place in the
+  provider's scheduled-send API, and neither ever deletes the only copy:
+  the whole message (To, Cc, Bcc, subject, HTML body, files and its place in
+  the thread) is saved as a draft before its schedule is cancelled. Send now
+  then sends the same message at once, in its thread, and removes that draft;
+  if the send fails the draft stays and the reader says "Couldn’t send. Saved
+  as a draft." and opens it in the composer. Cancel opens the composer on the
+  draft, which carries its Cc and Bcc through every save and the send. A
+  schedule that cannot be cancelled keeps sending as planned and its copy is
+  removed. A failure is said on the reader (or on the list row, whose menu
+  offers the same two). Both stay at the message's place in the
   thread.
   Times that depend on the viewer's clock or zone ("Mon 9:00 AM", "edited 2 h
   ago") fill in after mount, so the server render never disagrees.

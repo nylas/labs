@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Maximize2, Minus, Paperclip, Save, Send, Trash2, X } from 'lucide-react'
-import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { applyContactEffect } from '#features/contacts/state/contacts-state'
@@ -131,6 +131,24 @@ function draftSaveErrorMessage(error: unknown): string {
 
 type ComposeAttachment = OutboundAttachment & { clientId: string }
 
+/** The Cc and Bcc of a draft being edited, as comma-separated addresses; none for a new message. */
+function copiedRecipients(draft: Pick<MailDraft, 'cc' | 'bcc'> | null): { cc?: string; bcc?: string } {
+	const emails = (people: MailDraft['cc']) => (people ?? []).map((person) => person.email).join(', ')
+	const cc = emails(draft?.cc)
+	const bcc = emails(draft?.bcc)
+	return { ...(cc ? { cc } : {}), ...(bcc ? { bcc } : {}) }
+}
+
+/** A recipient line the composer keeps but does not edit (a draft's Cc or Bcc). */
+function KeptRecipientsRow({ label, emails }: { label: string; emails: string }) {
+	return (
+		<div data-slot="compose-kept-recipients" className="flex min-h-10 items-center gap-2 px-3">
+			<span className="w-14 shrink-0 text-muted-foreground">{label}</span>
+			<span className="min-w-0 flex-1 truncate">{emails}</span>
+		</div>
+	)
+}
+
 type DraftPersistenceInput = {
 	to: string
 	subject: string
@@ -163,6 +181,9 @@ export function ComposeWindow({
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
 	const draftBody = draft?.body ?? reply?.body ?? ''
 	const replyToMessageId = reply?.replyToMessageId ?? draft?.reply_to_message_id
+	// A draft's Cc and Bcc (a cancelled scheduled message keeps them) go with
+	// every save and the send, since a draft update replaces the whole draft.
+	const keptRecipients = useMemo(() => copiedRecipients(draft), [draft])
 	const [body, setBody] = useState(draftBody)
 	const initialFocusTarget = useRef(composeFocusTarget({ to, subject, isReply: Boolean(replyToMessageId) }))
 	const [busy, setBusy] = useState(false)
@@ -238,6 +259,7 @@ export function ComposeWindow({
 			const savedDraft = await saveDraft({
 				...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
 				to,
+				...keptRecipients,
 				subject,
 				// Enveloped so reloading can tell markdown from legacy HTML drafts.
 				body: body ? markdownToDraftBody(body) : '',
@@ -254,7 +276,7 @@ export function ComposeWindow({
 			}
 			return savedDraft.draftId
 		},
-		[saveDraft],
+		[saveDraft, keptRecipients],
 	)
 
 	const queueDraftPersistence = useCallback(
@@ -473,6 +495,7 @@ export function ComposeWindow({
 				await sendDraftMutation.mutateAsync({
 					draftId: id,
 					to: currentTo,
+					...keptRecipients,
 					subject,
 					// The editor holds markdown; outgoing mail carries inline-styled HTML.
 					body: markdownToEmailHtml(body),
@@ -509,6 +532,7 @@ export function ComposeWindow({
 			preferences.autoSaveContacts,
 			queryClient,
 			queueDraftPersistence,
+			keptRecipients,
 			replyToMessageId,
 			requestConfirmation,
 			sendDraftMutation,
@@ -816,6 +840,8 @@ export function ComposeWindow({
 									describedBy={recipientError ? 'compose-recipient-error' : undefined}
 								/>
 							</div>
+							{keptRecipients.cc ? <KeptRecipientsRow label="Cc" emails={keptRecipients.cc} /> : null}
+							{keptRecipients.bcc ? <KeptRecipientsRow label="Bcc" emails={keptRecipients.bcc} /> : null}
 							{recipientError ? (
 								<p id="compose-recipient-error" role="alert" className="mt-1 pl-16 text-xs text-destructive">
 									{recipientError}

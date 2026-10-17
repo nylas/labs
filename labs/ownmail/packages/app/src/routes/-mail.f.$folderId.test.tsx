@@ -2506,9 +2506,15 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 		} as Partial<Thread> & { id: string })
 		const client = new QueryClient()
 		const invalidate = vi.spyOn(client, 'invalidateQueries')
-		sendScheduledNow.mockResolvedValue({ cancelledMessageId: 'msg-offsite' })
+		sendScheduledNow
+			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite', message: { id: 'sent' } })
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'msg-offsite',
+				draftId: 'd-unsent',
+				error: 'Couldn’t send. Saved as a draft.',
+			})
 		cancelScheduledSend
-			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite' })
+			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite', draftId: 'd-cancelled' })
 			.mockRejectedValueOnce(new Error('x'))
 		render(
 			<QueryClientProvider client={client}>
@@ -2534,14 +2540,16 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
 		fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel scheduled send' }))
+		// The cancelled message opens on the draft that keeps all of it.
 		await waitFor(() =>
-			expect(composeApi.openCompose).toHaveBeenCalledWith({
-				kind: 'new',
-				to: 'grace@example.com',
-				subject: 'Re: Q3 offsite agenda',
-				body: 'Thanks for pulling this together.',
-			}),
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
 		)
+		// A send the provider refused stays a draft: said on the row, and opened.
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		expect(await within(row()).findByText('Couldn’t send. Saved as a draft.')).toBeInTheDocument()
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith({ kind: 'draft', draftId: 'd-unsent' })
 		// A cancel that fails is said on the row.
 		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })

@@ -39,7 +39,7 @@ import {
 	markThreadReadOnOpen,
 	openThreadDetail,
 	useDeleteDraftMutation,
-	useScheduledSendMutation,
+	useScheduledSendAction,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
@@ -669,7 +669,6 @@ function SearchThreadDetail({
 	const { openCompose } = useCompose()
 	const updateThread = useUpdateThreadMutation()
 	const deleteDraft = useDeleteDraftMutation()
-	const scheduledSend = useScheduledSendMutation()
 	// The same sender checks as the thread route: header facts once per thread, people already in the list cache.
 	const headerFacts = useQuery(
 		threadHeaderFactsQueryOptions(
@@ -687,6 +686,7 @@ function SearchThreadDetail({
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
 	const [error, setError] = useState<string | null>(null)
+	const scheduledSend = useScheduledSendAction(setError)
 	// The optimistic mutation writes the star into the cached thread, so the
 	// control reads the same source as the conversation beside it.
 	const starred = Boolean(selected.thread.starred)
@@ -879,17 +879,7 @@ function SearchThreadDetail({
 					onDiscardDraft={(draftId) =>
 						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
 					}
-					onScheduledSend={(messageId, action) =>
-						scheduledSend.mutateAsync({ messageId, action }).then(
-							() => true,
-							() => {
-								setError(
-									action === 'cancel' ? 'Could not cancel the scheduled send' : 'Could not send it now',
-								)
-								return false
-							},
-						)
-					}
+					onScheduledSend={scheduledSend}
 				/>
 			</div>
 

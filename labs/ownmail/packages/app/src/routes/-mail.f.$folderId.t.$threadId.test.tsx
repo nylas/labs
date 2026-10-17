@@ -1799,11 +1799,16 @@ describe('what the reader is given beyond the thread', () => {
 	it('sends your scheduled message now or cancels it, and says so when it cannot', async () => {
 		const later = Math.floor(Date.now() / 1000) + 86_400
 		sendScheduledNow
-			.mockResolvedValueOnce({ cancelledMessageId: 'm-out' })
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', message: { id: 'm-sent' } })
 			.mockRejectedValueOnce(new Error('x'))
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'm-out',
+				draftId: 'd-unsent',
+				error: 'Couldn’t send. Saved as a draft.',
+			})
 		cancelScheduledSend
 			.mockRejectedValueOnce(new Error('x'))
-			.mockResolvedValueOnce({ cancelledMessageId: 'm-out' })
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', draftId: 'd-cancelled' })
 		const data = loaderData({
 			messages: [
 				...richMessages(),
@@ -1831,11 +1836,16 @@ describe('what the reader is given beyond the thread', () => {
 		fireEvent.click(status().getByText('Cancel'))
 		expect(await screen.findByText('Could not cancel the scheduled send')).toBeInTheDocument()
 		expect(composeApi.openCompose).not.toHaveBeenCalled()
+		// The cancelled message opens on the draft that now holds all of it.
 		fireEvent.click(status().getByText('Cancel'))
 		await waitFor(() =>
-			expect(composeApi.openCompose).toHaveBeenCalledWith(
-				expect.objectContaining({ kind: 'new', to: 'alice@x.com', body: 'Later' }),
-			),
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
+		)
+		// A send the provider refused is kept as a draft, said, and opened.
+		fireEvent.click(status().getByText('Send now'))
+		expect(await screen.findByText('Couldn’t send. Saved as a draft.')).toBeInTheDocument()
+		await waitFor(() =>
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-unsent' }),
 		)
 	})
 

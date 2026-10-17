@@ -1071,6 +1071,39 @@ describe('ComposeWindow send', () => {
 		expect(saveDraft.mock.calls[0][0].data.attachments).toHaveLength(1)
 	})
 
+	it('keeps a draft’s Cc and Bcc through the save and the send, and shows them', async () => {
+		// A cancelled scheduled message opens as a draft with every recipient it had.
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
+		renderWindow({
+			seed: draftSeed({
+				id: 'd0',
+				to: [{ email: 'a@b.com' }],
+				cc: [{ email: 'c@d.com' }, { email: 'e@f.com' }],
+				bcc: [{ email: 'g@h.com' }],
+				subject: 'Draft',
+				body: 'body',
+			}),
+		})
+		const kept = document.querySelectorAll('[data-slot="compose-kept-recipients"]')
+		expect([...kept].map((row) => row.textContent)).toEqual(['Ccc@d.com, e@f.com', 'Bccg@h.com'])
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({ cc: 'c@d.com, e@f.com', bcc: 'g@h.com' })
+		expect(sendDraft.mock.calls[0][0].data).toMatchObject({ cc: 'c@d.com, e@f.com', bcc: 'g@h.com' })
+	})
+
+	it('adds no Cc or Bcc to a draft that has none', async () => {
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
+		renderWindow({
+			seed: draftSeed({ id: 'd0', to: [{ email: 'a@b.com' }], cc: [], subject: 'Draft', body: 'b' }),
+		})
+		expect(document.querySelector('[data-slot="compose-kept-recipients"]')).toBeNull()
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('cc')
+		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('bcc')
+	})
+
 	it('updates and sends the existing draft instead of creating a second message', async () => {
 		saveDraft.mockResolvedValue({ draftId: 'd0' })
 		renderWindow({

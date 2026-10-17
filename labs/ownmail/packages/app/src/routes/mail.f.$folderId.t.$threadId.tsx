@@ -54,7 +54,7 @@ import {
 	markThreadReadOnOpen,
 	openThreadDetail,
 	useDeleteDraftMutation,
-	useScheduledSendMutation,
+	useScheduledSendAction,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
@@ -286,12 +286,12 @@ function ThreadView() {
 		[queryClient, mailboxEmail],
 	)
 	const deleteDraft = useDeleteDraftMutation()
-	const scheduledSend = useScheduledSendMutation()
 	const updateThread = useUpdateThreadMutation()
 	const [{ readingPane }] = useUserPreferences()
 	const navigate = useNavigate()
 	const router = useRouter()
 	const [error, setError] = useState<string | null>(null)
+	const scheduledSend = useScheduledSendAction(setError)
 	// The optimistic mutation writes the star into the cached thread, so the
 	// control reads the same source as the conversation beside it.
 	const starred = Boolean(thread.starred)
@@ -663,17 +663,7 @@ function ThreadView() {
 					onDiscardDraft={(draftId) =>
 						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
 					}
-					onScheduledSend={(messageId, action) =>
-						scheduledSend.mutateAsync({ messageId, action }).then(
-							() => true,
-							() => {
-								setError(
-									action === 'cancel' ? 'Could not cancel the scheduled send' : 'Could not send it now',
-								)
-								return false
-							},
-						)
-					}
+					onScheduledSend={scheduledSend}
 					{...(lastMessage ? { reply: { onReply: reply, onReplyAll: replyAll } } : {})}
 				>
 					{lastMessage && replyingHere ? (
