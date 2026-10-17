@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { FileText, Loader2, Reply, Star, Trash2 } from 'lucide-react'
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FileText, Loader2, Reply, Trash2 } from 'lucide-react'
+import { Fragment, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
@@ -8,6 +8,12 @@ import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
+import { ThreadBundleRow } from '#features/mail/components/ThreadBundleRow'
+import {
+	ThreadListEnvironment,
+	ThreadListGroupHeading,
+	useThreadListEnvValue,
+} from '#features/mail/components/ThreadListGroups'
 import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
@@ -21,9 +27,12 @@ import {
 	draftRecipientName,
 	folderCount,
 	mailFolderTitle,
+	readableSnippet,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import { type ThreadListItem, threadListItems } from '#features/mail/lib/thread-list-model'
+import { dayGroupHeading } from '#features/mail/lib/thread-reading-model'
 import type { MailDraft, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
 import { useBulkTriage } from '#features/mail/state/use-bulk-triage'
@@ -57,11 +66,29 @@ type FolderListState = {
 	loadingMore: boolean
 	loadMoreError: boolean
 	cursor: number
+	/** Bundles (newsletters, receipts of one day group) opened in place. */
+	expandedBundles: string[]
 }
 
 function emptyFolderListState(identity: string, nextCursor: string | undefined): FolderListState {
-	return { identity, extraThreads: [], nextCursor, loadingMore: false, loadMoreError: false, cursor: -1 }
+	return {
+		identity,
+		extraThreads: [],
+		nextCursor,
+		loadingMore: false,
+		loadMoreError: false,
+		cursor: -1,
+		expandedBundles: [],
+	}
 }
+
+/** Folders whose rows are the person's own mail never bundle newsletters or receipts. */
+const UNBUNDLED_FOLDERS = new Set(['sent', 'drafts', 'trash', 'spam'])
+
+type NavItem =
+	| { draftId: string }
+	| { bundleKey: string }
+	| { folderId: string; threadId: string; search: object }
 export type ThreadUpdateInput = { threadId: string; starred?: boolean } & ThreadRowUpdate
 function threadIdFromPath(pathname: string): string | undefined {
 	const encoded = /^\/mail\/f\/[^/]+\/t\/([^/]+)\/?$/.exec(pathname)?.[1]
@@ -175,7 +202,7 @@ function LoadedMailFolderRouteScreen({
 			}),
 		[folderIdentity, initialCursor],
 	)
-	const { extraThreads, nextCursor, cursor } = listState
+	const { extraThreads, nextCursor, cursor, expandedBundles } = listState
 	const localLoadingMore = listState.loadingMore
 	const localLoadMoreError = listState.loadMoreError
 	const setCursor = useCallback(
@@ -246,20 +273,59 @@ function LoadedMailFolderRouteScreen({
 		},
 	})
 
+	const listEnv = useThreadListEnvValue()
+	// Day groups, and the bundles a group's newsletters and receipts fold into.
+	// Selecting shows every conversation so each one can be checked.
+	const listItems = useMemo(
+		() =>
+			threadListItems(sortedThreads, {
+				now: listEnv.now,
+				tz: listEnv.tz,
+				bundle: !selection.selecting && !UNBUNDLED_FOLDERS.has(folderId),
+				expanded: new Set(expandedBundles),
+				openId: openThreadId,
+				mutedIds: listEnv.mutedIds,
+			}),
+		[
+			expandedBundles,
+			folderId,
+			listEnv.mutedIds,
+			listEnv.now,
+			listEnv.tz,
+			openThreadId,
+			selection.selecting,
+			sortedThreads,
+		],
+	)
+	const toggleBundle = useCallback(
+		(bundleKey: string) =>
+			updateList((current) => ({
+				expandedBundles: current.expandedBundles.includes(bundleKey)
+					? current.expandedBundles.filter((key) => key !== bundleKey)
+					: [...current.expandedBundles, bundleKey],
+			})),
+		[updateList],
+	)
+
 	// Rows that stay slide into the gap a removed row leaves (design.md "Motion" clause 5).
-	useFlipList(listScrollRef, sortedThreads.map((thread) => thread.id).join(' '))
+	useFlipList(listScrollRef, listItems.map((item) => item.key).join(' '))
 	const unreadCount = folderCount(folders, folderId)
 
 	// The keyboard cursor walks a flat list of the rows actually on screen —
-	// drafts in the drafts folder, otherwise the sorted threads — so `j`/`k`
-	// order matches render order and Enter opens the right conversation.
-	const navItems = useMemo(() => {
+	// drafts in the drafts folder, otherwise the bundles and threads in their
+	// day groups — so `j`/`k` order matches render order and Enter opens the
+	// right conversation (or opens and folds a bundle).
+	const navItems = useMemo((): NavItem[] => {
 		if (folderId === 'drafts') {
 			return drafts.map((draft) => ({ draftId: draft.id }))
 		}
 		const search = baseFolderId ? { baseFolderId } : {}
-		return sortedThreads.map((thread) => ({ folderId, threadId: thread.id, search }))
-	}, [baseFolderId, drafts, folderId, sortedThreads])
+		return listItems.flatMap((item): NavItem[] => {
+			if (item.kind === 'bundle') return [{ bundleKey: item.key }]
+			if (item.kind === 'thread') return [{ folderId, threadId: item.thread.id, search }]
+			return []
+		})
+	}, [baseFolderId, drafts, folderId, listItems])
 
 	const openItem = useCallback(
 		(index: number) => {
@@ -269,13 +335,17 @@ function LoadedMailFolderRouteScreen({
 				void openCompose({ kind: 'draft', draftId: item.draftId })
 				return
 			}
+			if ('bundleKey' in item) {
+				toggleBundle(item.bundleKey)
+				return
+			}
 			navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId: item.folderId, threadId: item.threadId },
 				search: item.search,
 			})
 		},
-		[navItems, navigate, openCompose],
+		[navItems, navigate, openCompose, toggleBundle],
 	)
 
 	// j/k with a conversation open: the cursor moves (and paints) at once, and the
@@ -374,7 +444,11 @@ function LoadedMailFolderRouteScreen({
 						: -1))
 			if (openIndex >= 0) {
 				event.preventDefault()
-				const nextIndex = moveCursor(openIndex, event.key === 'j' ? 1 : -1, navItems.length)
+				// Stepping between conversations passes over bundle rows; past the last one it stays.
+				const step = event.key === 'j' ? 1 : -1
+				let nextIndex = openIndex + step
+				while (navItems[nextIndex] && 'bundleKey' in (navItems[nextIndex] as NavItem)) nextIndex += step
+				if (!navItems[nextIndex]) nextIndex = openIndex
 				setCursor(nextIndex)
 				if (nextIndex !== openIndex) scheduleOpen(nextIndex)
 				return
@@ -482,41 +556,66 @@ function LoadedMailFolderRouteScreen({
 				drafts.length === 0 ? (
 					<EmptyState />
 				) : (
-					drafts.map((draft, index) => (
-						<DraftRow
-							key={draft.id}
-							draft={draft}
-							navActive={cursor === index}
-							onRequestDiscard={onDiscardDraft ? requestDiscard : undefined}
-						/>
-					))
+					drafts.map((draft, index) => {
+						const group = dayGroupHeading(draft.date ?? 0, listEnv.now, listEnv.tz)
+						const previous = drafts[index - 1]
+						const startsGroup =
+							!previous || dayGroupHeading(previous.date ?? 0, listEnv.now, listEnv.tz) !== group
+						return (
+							<Fragment key={draft.id}>
+								{startsGroup ? <ThreadListGroupHeading label={group} /> : null}
+								<DraftRow
+									draft={draft}
+									navActive={cursor === index}
+									onRequestDiscard={onDiscardDraft ? requestDiscard : undefined}
+								/>
+							</Fragment>
+						)
+					})
 				)
 			) : sortedThreads.length === 0 ? (
 				<EmptyState moreAvailable={Boolean(nextCursor)}>{paginationControls}</EmptyState>
 			) : (
 				<>
-					{sortedThreads.map((thread, index) => (
-						<ThreadRow
-							key={thread.id}
-							thread={thread}
-							folderId={folderId}
-							baseFolderId={baseFolderId}
-							active={thread.id === activeThreadId}
-							open={thread.id === routedThreadId}
-							onRespondToThread={onRespondToThread}
-							navActive={cursor === index}
-							onUpdateThread={onUpdateThread}
-							selection={
-								selection.selecting
-									? {
-											checked: selection.selectedIds.includes(thread.id),
-											disabled: selection.pending,
-											onToggle: () => selection.toggle(thread.id),
-										}
-									: undefined
-							}
-						/>
-					))}
+					{renderListItems(listItems, (item, navIndex) => {
+						if (item.kind === 'bundle') {
+							return (
+								<ThreadBundleRow
+									key={item.key}
+									bundleKey={item.key}
+									bundle={item.bundle}
+									threads={item.threads}
+									expanded={item.expanded}
+									navActive={cursor === navIndex}
+									onToggle={toggleBundle}
+								/>
+							)
+						}
+						const thread = item.thread
+						return (
+							<ThreadRow
+								key={item.key}
+								thread={thread}
+								folderId={folderId}
+								baseFolderId={baseFolderId}
+								bundled={item.bundled}
+								active={thread.id === activeThreadId}
+								open={thread.id === routedThreadId}
+								onRespondToThread={onRespondToThread}
+								navActive={cursor === navIndex}
+								onUpdateThread={onUpdateThread}
+								selection={
+									selection.selecting
+										? {
+												checked: selection.selectedIds.includes(thread.id),
+												disabled: selection.pending,
+												onToggle: () => selection.toggle(thread.id),
+											}
+										: undefined
+								}
+							/>
+						)
+					})}
 					{paginationControls}
 				</>
 			)}
@@ -524,123 +623,145 @@ function LoadedMailFolderRouteScreen({
 	)
 
 	return (
-		<div className={layout.container} data-mail-panes>
-			<Dialog
-				open={discardTarget !== null}
-				onOpenChange={(open) => {
-					if (!open && !discardPendingRef.current) setDiscardTarget(null)
-				}}
-			>
-				<DialogContent
-					className="p-6"
-					aria-describedby="draft-discard-description"
-					aria-busy={discardPending}
-					onOpenAutoFocus={(event) => {
-						event.preventDefault()
-						discardCancelRef.current?.focus()
-					}}
-					onCloseAutoFocus={(event) => {
-						event.preventDefault()
-						if (discardReturnFocus.current?.isConnected) discardReturnFocus.current.focus()
-						else {
-							const rows = [...(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? [])]
-							focusNavRow(rows.find((row) => row.dataset.draftId === discardReturnId.current) ?? rows[0])
-						}
+		<ThreadListEnvironment value={listEnv}>
+			<div className={layout.container} data-mail-panes>
+				<Dialog
+					open={discardTarget !== null}
+					onOpenChange={(open) => {
+						if (!open && !discardPendingRef.current) setDiscardTarget(null)
 					}}
 				>
-					<DialogTitle className="text-base font-semibold">Discard this draft?</DialogTitle>
-					<p id="draft-discard-description" className="mt-2 break-words text-sm text-muted-foreground">
-						“{discardTarget?.subject || '(no subject)'}” and its attachments will be deleted. This cannot be
-						undone.
-					</p>
-					{discardError ? <ErrorBanner message={discardError} /> : null}
-					<div className="mt-6 flex flex-wrap justify-end gap-2">
-						<Button
-							ref={discardCancelRef}
-							variant="outline"
-							disabled={discardPending}
-							onClick={() => setDiscardTarget(null)}
-						>
-							Keep draft
-						</Button>
-						<Button variant="destructive" disabled={discardPending} onClick={() => void confirmDiscard()}>
-							{discardPending ? 'Discarding…' : 'Discard permanently'}
-						</Button>
-					</div>
-				</DialogContent>
-			</Dialog>
-			<section
-				className={layout.list}
-				data-mail-list
-				data-navigation-region="mail-list"
-				data-density={preferences.listDensity}
-			>
-				<Toolbar
-					pinned={!selection.selecting}
-					className={cn('justify-between px-4', selection.selecting && 'h-auto min-h-12 py-2')}
-				>
-					{selection.selecting ? (
-						<BulkMailToolbar selection={selection} />
-					) : (
-						<>
-							<h1 className="min-w-0 truncate font-display text-base font-semibold capitalize">
-								{folderTitle}
-							</h1>
-							<div className="flex items-center gap-1">
-								{unreadCount > 0 ? (
-									<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-										{unreadCount}
-									</span>
-								) : null}
-								{folderId !== 'drafts' ? <BulkMailToolbar selection={selection} /> : null}
-								{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
-								<ListDensityMenu
-									value={preferences.listDensity}
-									onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
-								/>
-								<ReadingPaneMenu
-									value={preferences.readingPane}
-									onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
-								/>
-							</div>
-						</>
-					)}
-				</Toolbar>
-
-				{onRefresh ? (
-					<PullToRefresh
-						onRefresh={onRefresh}
-						scrollRef={listScrollRef}
-						className="pull-to-refresh-under-pinned-bar flex min-h-0 flex-1 flex-col"
+					<DialogContent
+						className="p-6"
+						aria-describedby="draft-discard-description"
+						aria-busy={discardPending}
+						onOpenAutoFocus={(event) => {
+							event.preventDefault()
+							discardCancelRef.current?.focus()
+						}}
+						onCloseAutoFocus={(event) => {
+							event.preventDefault()
+							if (discardReturnFocus.current?.isConnected) discardReturnFocus.current.focus()
+							else {
+								const rows = [
+									...(listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]') ?? []),
+								]
+								focusNavRow(rows.find((row) => row.dataset.draftId === discardReturnId.current) ?? rows[0])
+							}
+						}}
 					>
-						{threadList}
-					</PullToRefresh>
-				) : (
-					threadList
-				)}
-			</section>
-			<section className={layout.reader} data-mail-reader data-navigation-region="mail-reader">
-				{hasThread ? (
-					(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
-				) : composing ? (
-					// Behind the open composer the empty reader stays quiet: its "press C to
-					// compose" prompt would only be covered by the window it describes.
-					<div className="hidden min-w-0 flex-1 bg-background xl:flex" />
-				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
-						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
-							<Reply className="h-6 w-6" />
+						<DialogTitle className="text-base font-semibold">Discard this draft?</DialogTitle>
+						<p id="draft-discard-description" className="mt-2 break-words text-sm text-muted-foreground">
+							“{discardTarget?.subject || '(no subject)'}” and its attachments will be deleted. This cannot be
+							undone.
+						</p>
+						{discardError ? <ErrorBanner message={discardError} /> : null}
+						<div className="mt-6 flex flex-wrap justify-end gap-2">
+							<Button
+								ref={discardCancelRef}
+								variant="outline"
+								disabled={discardPending}
+								onClick={() => setDiscardTarget(null)}
+							>
+								Keep draft
+							</Button>
+							<Button variant="destructive" disabled={discardPending} onClick={() => void confirmDiscard()}>
+								{discardPending ? 'Discarding…' : 'Discard permanently'}
+							</Button>
 						</div>
-						<div>
-							<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
-							<p className="mt-1 text-sm text-muted-foreground">
-								Pick a message from the list, or press <kbd className="kbd">C</kbd> to compose.
-							</p>
+					</DialogContent>
+				</Dialog>
+				<section
+					className={layout.list}
+					data-mail-list
+					data-navigation-region="mail-list"
+					data-density={preferences.listDensity}
+				>
+					<Toolbar
+						pinned={!selection.selecting}
+						className={cn('justify-between px-4', selection.selecting && 'h-auto min-h-12 py-2')}
+					>
+						{selection.selecting ? (
+							<BulkMailToolbar selection={selection} />
+						) : (
+							<>
+								<h1 className="min-w-0 truncate font-display text-base font-semibold tracking-[-0.02em] capitalize">
+									{folderTitle}
+								</h1>
+								<div className="flex items-center gap-1">
+									{unreadCount > 0 ? (
+										<span className="mr-cluster whitespace-nowrap font-data text-xs text-muted-foreground tabular-nums">
+											{unreadCount} unread
+										</span>
+									) : null}
+									{folderId !== 'drafts' ? <BulkMailToolbar selection={selection} /> : null}
+									{onRefresh ? <RefreshButton onRefresh={onRefresh} label="Refresh mail" /> : null}
+									<ListDensityMenu
+										value={preferences.listDensity}
+										onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
+									/>
+									<ReadingPaneMenu
+										value={preferences.readingPane}
+										onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
+									/>
+								</div>
+							</>
+						)}
+					</Toolbar>
+
+					{onRefresh ? (
+						<PullToRefresh
+							onRefresh={onRefresh}
+							scrollRef={listScrollRef}
+							className="pull-to-refresh-under-pinned-bar flex min-h-0 flex-1 flex-col"
+						>
+							{threadList}
+						</PullToRefresh>
+					) : (
+						threadList
+					)}
+				</section>
+				<section className={layout.reader} data-mail-reader data-navigation-region="mail-reader">
+					{hasThread ? (
+						(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
+					) : composing ? (
+						// Behind the open composer the empty reader stays quiet: its "press C to
+						// compose" prompt would only be covered by the window it describes.
+						<div className="hidden min-w-0 flex-1 bg-background xl:flex" />
+					) : (
+						<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
+							<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
+								<Reply className="h-6 w-6" />
+							</div>
+							<div>
+								<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
+								<p className="mt-1 text-sm text-muted-foreground">
+									Pick a message from the list, or press <kbd className="kbd">C</kbd> to compose.
+								</p>
+							</div>
 						</div>
-					</div>
-				)}
-			</section>
-		</div>
+					)}
+				</section>
+			</div>
+		</ThreadListEnvironment>
+	)
+}
+
+/**
+ * Renders the list's rows with their day-group headings. Each row is told its
+ * place among the rows the keyboard walks (bundles and threads, not headings).
+ */
+function renderListItems(
+	items: ThreadListItem[],
+	renderRow: (item: Exclude<ThreadListItem, { kind: 'heading' }>, navIndex: number) => ReactNode,
+): ReactNode[] {
+	let navIndex = 0
+	return items.map((item) =>
+		item.kind === 'heading' ? (
+			<ThreadListGroupHeading key={item.key} label={item.label} />
+		) : (
+			renderRow(item, navIndex++)
+		),
 	)
 }
 
@@ -694,11 +815,10 @@ const DraftRow = memo(function DraftRow({
 					className={THREAD_ROW_CLASS}
 				>
 					<ThreadRowLayout
-						leading={<Star className="h-4 w-4 text-muted-foreground" />}
 						sender={draftRecipientName(draft)}
 						epochSeconds={draft.date}
 						subject={draft.subject}
-						snippet={draft.snippet}
+						snippet={readableSnippet(draft.snippet)}
 					/>
 				</button>
 			</ContextMenuTrigger>
@@ -735,6 +855,7 @@ const ThreadRow = memo(function ThreadRow({
 	thread,
 	folderId,
 	baseFolderId,
+	bundled,
 	active,
 	open,
 	navActive,
@@ -746,6 +867,8 @@ const ThreadRow = memo(function ThreadRow({
 	selection?: { checked: boolean; disabled: boolean; onToggle: () => void }
 	folderId: string
 	baseFolderId?: string
+	/** The bundle this row is listed under, indented beneath it. */
+	bundled?: string
 	active?: boolean
 	/** Whether this row's conversation is open in the reader beside the list
 	 * (not merely highlighted behind the composer, where there is no reader to close). */
@@ -819,6 +942,7 @@ const ThreadRow = memo(function ThreadRow({
 	const optimisticThread = starred === Boolean(thread.starred) ? thread : { ...thread, starred }
 	const className = cn(THREAD_ROW_CLASS, optimisticThread.unread && 'bg-card/80')
 	const rowState = {
+		'data-bundled': bundled ? ('true' as const) : undefined,
 		'data-active': active ? ('true' as const) : undefined,
 		'data-nav-row': '',
 		'data-nav-cursor': navActive ? ('true' as const) : undefined,

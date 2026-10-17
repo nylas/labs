@@ -730,13 +730,13 @@
 
 /*
  * One row definition for every mail list (folders, drafts, search). Default is
- * three lines: sender and date, subject, snippet. Density variants live in the
+ * three lines: sender and time, subject, snippet, and under them a line of
+ * signals when a row has more than one. Density variants live in the
  * fine-pointer block below, so touch and mobile layouts always keep this row.
  * The row's own 16px inline padding (`px-4`) is the left edge shared with the
- * list title, so the unread dot's track has no width and the dot sits in that
- * padding; cells are spaced by their own margins instead of a column gap.
- * Subject and snippet span every column from the first, so they start at that
- * same 16px edge and never behind the star's track.
+ * list title and the day-group headings; cells are spaced by their own margins
+ * instead of a column gap. The lead track holds only the selection checkbox,
+ * so at rest it has no width and every line starts at that 16px edge.
  */
 .thread-row {
 	position: relative;
@@ -757,18 +757,33 @@
 	contain-intrinsic-size: auto 76px;
 }
 
+/* Tones, under hover and selection: a send that failed, a conversation asking you, a muted one. */
+.thread-row:where(:has(> .thread-row-sender[data-tone="failed"])) {
+	background: var(--list-failed);
+}
+
+.thread-row:where(:has(> .thread-row-sender[data-tone="asks"])) {
+	background: var(--list-asks);
+}
+
+.thread-row:where(:has(> .thread-row-sender[data-tone="muted"])) {
+	opacity: 0.85;
+}
+
 .thread-row:hover {
 	background: color-mix(in oklch, var(--muted), transparent 35%);
 }
 
+/* The open conversation: a green tint inside a uniform 1px ring (never a rail). */
 .thread-row[data-active="true"],
 .thread-row:has([data-active="true"]) {
-	background: var(--muted);
+	background: var(--list-selected);
+	box-shadow: inset 0 0 0 1px var(--list-selected-line);
 }
 
 .thread-row[data-active="true"]:hover,
 .thread-row:has([data-active="true"]):hover {
-	background: var(--muted);
+	background: var(--list-selected);
 }
 
 .thread-row[data-nav-cursor="true"]:not([data-active="true"]):not(:has([data-active="true"])),
@@ -794,7 +809,10 @@
 
 .thread-row-sender {
 	grid-area: who;
-	/* Clear of the star's 32px hover box, which reaches 8px past its 16px icon. */
+}
+
+/* Clear of the checkbox's 44px target, which reaches 12px past its 16px box. */
+.thread-row-lead + .thread-row-sender {
 	margin-left: 0.75rem;
 }
 
@@ -804,6 +822,32 @@
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+}
+
+/* What a row loads once it is on screen watches this box; it takes no grid cell. */
+.thread-row-probe {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+/*
+ * The star sits before the time. A starred row shows it; otherwise it appears
+ * while the pointer is over the row or focus is inside it, and always where
+ * there is no hover to reveal it.
+ */
+.thread-row-star:not([data-starred]) {
+	opacity: 0;
+}
+
+.thread-row:where(:hover, :focus-within) .thread-row-star {
+	opacity: 1;
+}
+
+@media (any-pointer: coarse) {
+	.thread-row-star:not([data-starred]) {
+		opacity: 1;
+	}
 }
 
 .thread-row-text {
@@ -832,12 +876,134 @@
 	grid-column: 1 / -1;
 }
 
+.thread-row-subject-quiet {
+	color: color-mix(in oklch, var(--muted-foreground) 75%, var(--foreground));
+}
+
+/* "You:" after a reply glyph: the owner wrote last. */
+.thread-row-snippet-icon {
+	display: inline-block;
+	margin-right: 0.375rem;
+	vertical-align: -0.125rem;
+}
+
+/* A line that says more than the snippet (an invitation, a failed send) takes its place. */
+.thread-row-snippet[data-replaced] {
+	display: none;
+}
+
+.thread-row-detail {
+	grid-row: 2;
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+
 .thread-row-labels {
 	grid-row: 2;
 	grid-column: 2;
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+}
+
+/* An invitation or a failed send fills the line its labels would end; the reader still shows them. */
+.thread-row-detail ~ .thread-row-labels {
+	display: none;
+}
+
+/* Two or more signals get a line of their own; one sits at the end of the snippet. */
+.thread-row-signals {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	min-width: 0;
+	padding-top: 0.25rem;
+}
+
+.thread-row-signal-collapsed {
+	display: none;
+}
+
+/* A signal pill: 20px, a glyph and a word, fully round like any count. */
+.thread-signal {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 0.25rem;
+	height: 1.25rem;
+	max-width: 100%;
+	padding: 0 0.4375rem;
+	border-radius: 9999px;
+	font-size: 0.6875rem;
+	font-weight: 600;
+	line-height: 1;
+	white-space: nowrap;
+}
+
+.thread-signal[data-signal="file"] {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.thread-signal-quiet {
+	color: color-mix(in oklch, var(--muted-foreground) 70%, var(--foreground));
+}
+
+/* The small outlined buttons inside a row: Accept, Decline, Edit and resend. */
+.thread-row-mini {
+	height: 1.5rem;
+	padding: 0 0.5625rem;
+}
+
+.thread-row-invite {
+	padding-top: 0.25rem;
+}
+
+.thread-row-invite-when {
+	gap: 0.375rem;
+	color: color-mix(in oklch, var(--muted-foreground) 60%, var(--foreground));
+}
+
+.thread-row-failed {
+	color: var(--list-failed-fg);
+}
+
+/* Day groups ("Today", "Yesterday", "This week", then months) anchor the list. */
+.thread-list-group {
+	margin: 0;
+	padding: 1rem 1rem 0.375rem;
+}
+
+/* A bundle row: an icon tile beside the kind, its count and who sent it. */
+.thread-bundle {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.thread-bundle-tile {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 2rem;
+	height: 2rem;
+	border-radius: var(--radius);
+}
+
+.thread-bundle-text {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 0.125rem;
+	min-width: 0;
+}
+
+/* Conversations listed under an open bundle start where its title does. */
+.thread-row[data-bundled="true"] {
+	padding-left: 3.75rem;
 }
 
 .list-density-menu {
@@ -926,6 +1092,43 @@
 	[data-density="condensed"] .thread-row-snippet:not(:empty)::before {
 		content: "  ·  ";
 		white-space: pre;
+	}
+
+	/* One or two lines keep the snippet and only the first signal. */
+	[data-density="compact"] .thread-row-snippet[data-replaced],
+	[data-density="condensed"] .thread-row-snippet[data-replaced] {
+		display: inline;
+	}
+
+	[data-density="compact"] .thread-row-detail,
+	[data-density="condensed"] .thread-row-detail,
+	[data-density="compact"] .thread-row-signals,
+	[data-density="condensed"] .thread-row-signals {
+		display: none;
+	}
+
+	[data-density="compact"] .thread-row-signal-collapsed,
+	[data-density="condensed"] .thread-row-signal-collapsed {
+		display: contents;
+	}
+
+	[data-density="compact"] .thread-row-detail ~ .thread-row-labels,
+	[data-density="condensed"] .thread-row-detail ~ .thread-row-labels {
+		display: flex;
+	}
+
+	[data-density="condensed"] .thread-bundle-tile {
+		display: none;
+	}
+
+	[data-density="condensed"] .thread-bundle-text {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	[data-density="condensed"] .thread-row[data-bundled="true"] {
+		padding-left: 2rem;
 	}
 
 	/*

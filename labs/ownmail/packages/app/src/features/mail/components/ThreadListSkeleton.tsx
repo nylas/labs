@@ -24,7 +24,6 @@ export function ThreadListSkeleton() {
 				// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows never reorder
 				<div key={index} className={THREAD_ROW_CLASS}>
 					<ThreadRowLayout
-						leading={<span className={`${BAR_CLASS} w-4`} />}
 						sender={<span className={`${BAR_CLASS} ${width}`} />}
 						subject={BLANK_LINE}
 						snippet={BLANK_LINE}

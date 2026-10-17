@@ -76,6 +76,19 @@ vi.mock('#shared/components/ClientTime', () => ({
 	},
 }))
 
+// Row times are set in the browser only (zone and clock); the same stable marker
+// stands in for them, and counts toward the same re-render budget.
+vi.mock('#features/mail/components/ThreadRowTime', () => ({
+	ThreadRowTime: ({ epochSeconds, className }: { epochSeconds?: number; className?: string }) => {
+		listDateRenders.count += 1
+		return epochSeconds ? (
+			<time data-epoch={epochSeconds} className={className}>
+				date
+			</time>
+		) : null
+	},
+}))
+
 // jsdom doesn't implement scrollIntoView; the keyboard cursor calls it to keep
 // the highlighted row visible, so stub it to a no-op spy for these tests.
 Element.prototype.scrollIntoView = vi.fn()
@@ -288,10 +301,10 @@ describe('FolderView (route component)', () => {
 				<Component />
 			</QueryClientProvider>,
 		)
-		expect(screen.getByText('1')).toBeInTheDocument()
+		expect(screen.getByText('1 unread')).toBeInTheDocument()
 
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
-		expect(await screen.findByText('3')).toBeInTheDocument()
+		expect(await screen.findByText('3 unread')).toBeInTheDocument()
 	})
 
 	it('announces a generic failure when the live mail refresh rejects', async () => {
@@ -543,8 +556,8 @@ describe('MailFolderRouteScreen — thread list', () => {
 		// Newest thread renders before the older one.
 		expect(rows[0]).toHaveTextContent('Newer')
 		expect(rows[1]).toHaveTextContent('Older')
-		// The folder's authoritative unread count drives the badge.
-		expect(screen.getByText('1')).toBeInTheDocument()
+		// The folder's authoritative unread count is said beside the title.
+		expect(screen.getByText('1 unread')).toHaveClass('font-data', 'text-muted-foreground')
 	})
 
 	it('uses the server folder count when the loaded page is incomplete', () => {
@@ -557,7 +570,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor="next-page"
 			/>,
 		)
-		expect(screen.getByText('31')).toBeInTheDocument()
+		expect(screen.getByText('31 unread')).toBeInTheDocument()
 	})
 
 	it('renders attachment, multi-message, label, and unknown-sender affordances', () => {
@@ -581,8 +594,10 @@ describe('MailFolderRouteScreen — thread list', () => {
 		)
 		expect(screen.getByText('(no subject)')).toBeInTheDocument()
 		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
-		// message_ids length > 1 shows the count.
-		expect(screen.getByText('(3)')).toBeInTheDocument()
+		// Rows count what is new, never every message: no "(3)".
+		expect(screen.queryByText('(3)')).toBeNull()
+		// An attachment whose name the row does not know is a paperclip beside the time.
+		expect(screen.getByRole('img', { name: 'Has attachments' })).toBeInTheDocument()
 		// Thread carries the "work" label from LABELS.
 		expect(screen.getByText('Work')).toBeInTheDocument()
 	})
@@ -723,11 +738,11 @@ describe('MailFolderRouteScreen — drafts', () => {
 		const row = screen.getByRole('button', { name: /Plan/ })
 		expect(row).toHaveClass('thread-row')
 		expect(row).toHaveAttribute('data-nav-row')
-		// Same cells as a conversation row: leading glyph, then subject and snippet in one summary.
-		expect(row.firstElementChild).toHaveClass('thread-row-lead')
+		// Same cells as a conversation row: sender, then subject and snippet in one summary.
+		expect(row.firstElementChild).toHaveClass('thread-row-sender')
 		const summary = container.querySelector('.thread-row-summary') as HTMLElement
 		expect(Array.from(summary.children).map((cell) => cell.textContent)).toEqual(['Plan', 'Notes'])
-		// Drafts have no star action, only the static glyph.
+		// Drafts have no star action.
 		expect(screen.queryByRole('button', { name: 'Star' })).toBeNull()
 	})
 
@@ -1196,13 +1211,13 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		expect(seen?.querySelector('.thread-row-sender')).toHaveClass('font-normal')
 	})
 
-	it('keeps one row structure for every density: a leading star, then subject and snippet together', () => {
+	it('keeps one row structure for every density: sender and time, then subject and snippet together', () => {
 		const { container } = render(screenFor())
 		const row = container.querySelector('[data-nav-row]') as HTMLElement
 		// Density is pure CSS on these cells, so the markup must not vary by mode.
 		expect(Array.from(row.children).map((cell) => cell.className.split(' ')[0])).toEqual([
 			'thread-row-link',
-			'thread-row-lead',
+			'thread-row-probe',
 			'thread-row-sender',
 			'thread-row-when',
 			'thread-row-text',
@@ -1804,6 +1819,8 @@ describe('MailFolderRouteScreen — context menus', () => {
 			['Forward', null],
 			['Mark as unread', 'U'],
 			['Unstar', 'S'],
+			// Muting has no reader shortcut of its own.
+			['Mute', null],
 			['Archive', 'E'],
 			['Delete', '#'],
 		])
@@ -1814,6 +1831,7 @@ describe('MailFolderRouteScreen — context menus', () => {
 		const other = await openMenu('First')
 		expect(shortcuts(other).map(([, key]) => key)).toEqual([
 			'Enter',
+			null,
 			null,
 			null,
 			null,
@@ -2201,5 +2219,145 @@ describe('mail selection keyboard semantics', () => {
 		fireEvent.keyDown(window, { key: 'o' })
 		fireEvent.keyDown(window, { key: 'Enter' })
 		expect(navigate).not.toHaveBeenCalled()
+	})
+})
+
+describe('MailFolderRouteScreen — day groups and bundles', () => {
+	const nowSeconds = Math.floor(Date.now() / 1000)
+	const DAY = 86_400
+	const newsletter = (id: string, name: string, secondsAgo: number) =>
+		thread({
+			id,
+			subject: `${name} weekly`,
+			snippet: 'This week in product',
+			participants: [
+				{ name, email: `newsletter@${id}.com` },
+				{ name: 'Ada', email: 'ada@example.com' },
+			],
+			latest_message_received_date: nowSeconds - secondsAgo,
+			latest_draft_or_message: { id: `${id}-m`, from: [{ name, email: `newsletter@${id}.com` }] },
+		} as Partial<Thread> & { id: string })
+	const threads = [
+		thread({ id: 'today', subject: 'Today thread', latest_message_received_date: nowSeconds - 1 }),
+		newsletter('dispatch', 'The Dispatch', 3 * DAY),
+		newsletter('lenny', 'Lenny’s', 3 * DAY + 3600),
+		thread({ id: 'tokens', subject: 'Tokens', latest_message_received_date: nowSeconds - 3 * DAY - 7200 }),
+	]
+
+	function renderInbox(props: Partial<Parameters<typeof MailFolderRouteScreen>[0]> = {}) {
+		return render(
+			<MailFolderRouteScreen
+				threads={threads}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+				{...props}
+			/>,
+		)
+	}
+
+	const headings = () => screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
+	const bundle = () => screen.getByRole('button', { name: /^Newsletters, 2 conversations/ })
+	const cursored = () => document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]')
+	const afterPaint = () =>
+		act(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))))
+
+	it('anchors the list on day groups and folds a group’s newsletters into one row that opens in place', () => {
+		renderInbox()
+		expect(headings()).toEqual(['Today', 'This week'])
+		expect(bundle()).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('link', { name: /Open The Dispatch weekly/ })).toBeNull()
+
+		fireEvent.click(bundle())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		const member = screen.getByRole('link', { name: /Open The Dispatch weekly/ }).closest('[data-nav-row]')
+		expect(member).toHaveAttribute('data-bundled', 'true')
+		expect(screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]')).not.toHaveAttribute(
+			'data-bundled',
+		)
+
+		fireEvent.click(bundle())
+		expect(screen.queryByRole('link', { name: /Open The Dispatch weekly/ })).toBeNull()
+	})
+
+	it('walks the bundle row with the keyboard, and opens it with Enter', () => {
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toBe(bundle())
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		expect(navigate).not.toHaveBeenCalled()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toHaveTextContent('The Dispatch weekly')
+	})
+
+	it('steps between open conversations past a bundle row, and stays at either end', async () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/today' },
+			matches: [
+				{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 'today' } },
+			],
+		} as RouterState
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'k' })
+		await afterPaint()
+		expect(navigate).not.toHaveBeenCalled()
+		fireEvent.keyDown(window, { key: 'j' })
+		await afterPaint()
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 'tokens' } }),
+		)
+	})
+
+	it('lists every conversation while selecting, so each can be checked', () => {
+		renderInbox()
+		fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+		expect(screen.queryByRole('button', { name: /^Newsletters/ })).toBeNull()
+		expect(screen.getByRole('checkbox', { name: 'Select The Dispatch weekly' })).toBeInTheDocument()
+	})
+
+	it('never bundles in the folders that hold the person’s own mail', () => {
+		renderInbox({ folderId: 'sent' })
+		expect(screen.queryByRole('button', { name: /^Newsletters/ })).toBeNull()
+	})
+
+	it('groups drafts by day too', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={
+					[
+						{ id: 'd1', to: [{ email: 'a@b.com' }], subject: 'Now', snippet: '', date: nowSeconds - 1 },
+						{ id: 'd2', to: [{ email: 'a@b.com' }], subject: 'Also now', snippet: '', date: nowSeconds - 2 },
+						{ id: 'd3', to: [{ email: 'a@b.com' }], subject: 'Undated', snippet: '' },
+					] as unknown as Draft[]
+				}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(headings()).toEqual(['Today', 'Earlier'])
+	})
+
+	it('mutes and unmutes a conversation from its row menu, on this device', async () => {
+		renderInbox()
+		const row = () =>
+			screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]') as HTMLElement
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Mute' }))
+		await waitFor(() =>
+			expect(row().querySelector('.thread-row-sender')).toHaveAttribute('data-tone', 'muted'),
+		)
+		expect(row().querySelector('.thread-row-snippet')).toHaveTextContent('Muted')
+		expect(
+			JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds,
+		).toEqual(['tokens'])
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Unmute' }))
+		await waitFor(() => expect(row().querySelector('.thread-row-sender')).not.toHaveAttribute('data-tone'))
 	})
 })

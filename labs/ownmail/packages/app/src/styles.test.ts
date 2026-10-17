@@ -149,11 +149,13 @@ describe('borders and accents', () => {
 		expect(error).not.toMatch(/border-(left|right|top|bottom)/)
 	})
 
-	it('marks the open thread and current folder with a fill only', () => {
-		for (const selector of ['.thread-row:has([data-active="true"])', '.nav-item-active']) {
-			expect(rule(selector)).toContain('background: var(--muted);')
-			expect(rule(selector)).not.toContain('box-shadow')
-		}
+	it('marks the current folder with a fill only, and the open thread with a tint in a uniform ring', () => {
+		expect(rule('.nav-item-active')).toContain('background: var(--muted);')
+		expect(rule('.nav-item-active')).not.toContain('box-shadow')
+		const open = rule('.thread-row:has([data-active="true"])')
+		expect(open).toContain('background: var(--list-selected);')
+		// A ring on every side is allowed; a one-sided inset shadow would be a rail.
+		expect(open).toContain('box-shadow: inset 0 0 0 1px var(--list-selected-line);')
 		expect(rule('.nav-item-active')).toContain('font-weight: 500;')
 		expect(styles).not.toContain('.mobile-nav-item-active')
 	})
@@ -209,14 +211,16 @@ describe('mail list density styles', () => {
 
 	// design.md "List density": unread rows have no dot. The dot crowded the star and the
 	// pane edge; weight and the accent time carry unread instead (see ThreadRow).
-	it('defines the Default three-line row once, with no unread dot and the sender clear of the star', () => {
+	it('defines the Default three-line row once, with no unread dot and the sender clear of the checkbox', () => {
 		expect(outsideDensityBlock).toMatch(
 			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"lead who when"\s*"text text text";/,
 		)
 		expect(styles).not.toContain('.thread-row-dot')
 		expect(outsideDensityBlock).not.toMatch(/\.thread-row\s*\{[^}]*padding/)
-		// The star's 32px hover box reaches 8px past its icon; the sender starts 12px away.
-		expect(styles).toMatch(/\.thread-row-sender\s*\{[^}]*margin-left: 0\.75rem;/)
+		// The lead track holds only the selection checkbox; the sender starts 12px clear of it,
+		// and at the row's 16px edge when there is none.
+		expect(styles).toMatch(/\.thread-row-lead \+ \.thread-row-sender\s*\{[^}]*margin-left: 0\.75rem;/)
+		expect(styles).toMatch(/\.thread-row-sender\s*\{\s*grid-area: who;\s*\}/)
 	})
 
 	it('starts Default and Compact subject and snippet lines at the row edge the list title shares', () => {
