@@ -1,0 +1,24 @@
+import { useRouter } from '@tanstack/react-router'
+import { EdgeLoadCard, useOnline } from './PartialLoadNotice.js'
+
+/**
+ * The reader route's error component. A thread that fails to load keeps the
+ * reader around it (the route keeps its toolbar) and shows the same card a
+ * partial load does, retrying in place instead of replacing the whole reader.
+ */
+export function ThreadLoadError({ reset }: { error: unknown; reset(): void }) {
+	const router = useRouter()
+	const online = useOnline()
+	return (
+		<div data-slot="thread-load-error" className="mx-auto w-full max-w-[760px] px-4 py-6">
+			<EdgeLoadCard
+				text={online ? 'Couldn’t load this conversation.' : 'Couldn’t load this conversation while offline.'}
+				online={online}
+				onRetry={() => {
+					reset()
+					void router.invalidate()
+				}}
+			/>
+		</div>
+	)
+}

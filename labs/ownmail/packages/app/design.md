@@ -456,6 +456,72 @@ and renders exactly as before when the view is off.
   "Show original" and the reply choice live under the thread's identity
   (`useIdentityState`), so nothing set on one thread shows on another.
 
+## Edge states
+
+A state the reader would otherwise leave to chance is drawn on purpose. The
+rule across all of them: never hide silently, always say what was folded and
+how many, and keep the way back one click away. Each is a quiet line or small
+card on the plane, a uniform 1px border and tint where it needs severity
+(never a rail), with a glyph and words so colour is never alone. Actions are
+the one shared set in `edge-actions.ts`: a 26px `cta-line` outline for the first
+choice, borderless `--quiet-fg` text for the rest, a semibold `--primary` text
+link inside a sentence; all keep the 44px floor on touch.
+
+- Quoted text and signature. What trails a message (a quoted history taken off
+  its end, a client-marked or `-- ` signature) sits behind a 24px pill: 6px
+  radius, `--muted` fill, 12px muted words, a "more" glyph for history. One
+  pill when there are both ("Quoted text and signature"); opening it splits
+  into "Quoted: 2 earlier messages" (open) and "Signature" (closed). Each
+  quoted message is a `--secondary` card: "Grace, Tue 6:02 PM", its own words
+  cut near 72 characters, and "Go to Grace's message" when the reader can
+  find it. History with new text after it stays where the sender put it, and
+  a message that would be left with no words of its own is not split.
+- Empty body. "No message text. Grace sent 1 file." in italic muted 13px, with
+  the attachment chips under it, never a blank gap.
+- Your draft in a thread. A Draft pill (pencil and word, `--danger-soft`
+  fill) with "reply to Mary · edited 2 h ago", the first line of the draft,
+  and Resume or Discard (danger text). It sits under the message it answers;
+  opening the thread scrolls to it (`draftAnchorId`).
+- Not sent, or not yet. A bounce says "Not sent. mary@nasa.gov bounced." in
+  `--danger-soft-fg` with Edit and resend and Copy text; a scheduled message
+  says "Sends Mon 9:00 AM" with Send now and Cancel. Both stay at the
+  message's place in the thread.
+- Part of the thread is elsewhere. Centred muted lines: "1 message is in Trash
+  · Show", and "Alan started a side thread with Grace · Open" for a later
+  thread with the same subject and a strict subset of the people, looked up
+  once per thread.
+- An invite that changed. Only the newest invitation gets the card and its
+  buttons: "Updated 3 times", the current time with the earlier start struck
+  through (read from the earlier invitation file itself), Accept as the
+  bordered first choice, and "Earlier versions" listing each older time and
+  when it was sent. Older invitations fold into one line with "Show latest".
+- Images not loaded. A blocked image with alt text or a declared size keeps
+  that space as a striped placeholder with its alt text centred, so allowing
+  images moves nothing. The bar under the message says "7 images from
+  voyage.com are hidden" with Show (this message) and "Always for Voyage"
+  (remembers the sender).
+- Designed mail wider than the pane. A fixed layout is scaled to fit, never
+  scrolled sideways, and the bar says "Fitted to width (82%)" with Actual size
+  (100%, panning inside the message) and Open in window (the sanitized
+  document in a new window under a policy that runs and loads nothing).
+  Text-only mail never scales; it reflows.
+- One very long message. Past 1,500 words of new text: "6 min read · 38%" over
+  a 4px `--primary` progress bar, and an outline of the message's own headings
+  (a 130px right column from `xl`, an Outline disclosure below it; the current
+  section is semibold). The position is kept per message for the session, so
+  reopening returns to where the reader stopped.
+- Hard-wrapped plain text. Lines of 40 to 80 characters inside a paragraph join
+  the next line unless it starts a list item, a quote or an indent. Every
+  paragraph takes its direction from its own text (`dir="auto"`). Indented and
+  fenced blocks stay exactly as written, in mono on a `--muted` chip.
+- Reply all to a crowd. Past 25 people the reply card and the composer ask
+  once: "Reply all will reach 240 people." on the `--notice-warning` ground,
+  with "Reply to Alan only" as the first choice.
+- Partial load and offline. "Couldn't load 2 messages. Showing 12 saved on
+  this device." with Try again, and "Mail refreshes when you're back online."
+  while offline. The reader route's error shows the same card inside the
+  reader instead of replacing it.
+
 ## Icon controls
 
 - Compact navigation and familiar toolbar actions use icons without repeated

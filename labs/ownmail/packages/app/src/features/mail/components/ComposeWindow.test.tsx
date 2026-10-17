@@ -1817,3 +1817,31 @@ describe('ComposeWindow reliable autosave', () => {
 		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('typed@example.com')
 	})
 })
+
+describe('ComposeWindow reply-all guard', () => {
+	const crowd = (count: number) =>
+		[
+			'alan.turing@bletchley.dev',
+			...Array.from({ length: count - 1 }, (_, index) => `person${index}@vercel.com`),
+		].join(', ')
+
+	it('asks once before a reply reaches more than 25 people and offers the smaller reply first', () => {
+		renderWindow({
+			seed: fieldsSeed({ to: crowd(240), subject: 'Re: Staging freeze', replyToMessageId: 'm1' }),
+		})
+		expect(screen.getByRole('note')).toHaveTextContent('Reply all will reach 240 people.')
+		fireEvent.click(screen.getByRole('button', { name: 'Reply to Alan only' }))
+		expect(screen.getByLabelText('To')).toHaveValue('alan.turing@bletchley.dev')
+		expect(screen.queryByRole('note')).toBeNull()
+	})
+
+	it('says nothing for a small reply or a new message to a crowd', () => {
+		const view = renderWindow({
+			seed: fieldsSeed({ to: crowd(25), subject: 'Re: Hi', replyToMessageId: 'm1' }),
+		})
+		expect(screen.queryByRole('note')).toBeNull()
+		view.unmount()
+		renderWindow({ seed: fieldsSeed({ to: crowd(40), subject: 'Hello all' }) })
+		expect(screen.queryByRole('note')).toBeNull()
+	})
+})

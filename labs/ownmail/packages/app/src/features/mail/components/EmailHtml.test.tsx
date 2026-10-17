@@ -11,10 +11,18 @@ import {
 	LINK_PREVIEW_EVENT,
 } from '../lib/email-render.js'
 import { forgetRememberedEmails, rememberEmail, renderedEmailKey } from '../lib/email-render-memory.js'
-import { EmailHtml } from './EmailHtml.js'
+import { blockedImageCount, EDGE_STYLE_ATTRIBUTE, EmailHtml, edgeShadowStyle } from './EmailHtml.js'
 
-const { senderImagesTrustedMock } = vi.hoisted(() => ({ senderImagesTrustedMock: vi.fn() }))
-vi.mock('../lib/image-sender-trust.js', () => ({ senderImagesTrusted: senderImagesTrustedMock }))
+const { senderImagesTrustedMock, trustSenderImagesMock, openMessageWindowMock } = vi.hoisted(() => ({
+	senderImagesTrustedMock: vi.fn(),
+	trustSenderImagesMock: vi.fn(),
+	openMessageWindowMock: vi.fn(),
+}))
+vi.mock('../lib/image-sender-trust.js', () => ({
+	senderImagesTrusted: senderImagesTrustedMock,
+	trustSenderImages: trustSenderImagesMock,
+}))
+vi.mock('../lib/open-message-window.js', () => ({ openMessageWindow: openMessageWindowMock }))
 
 afterEach(() => {
 	cleanup()
@@ -28,6 +36,9 @@ beforeEach(() => {
 	setAccountScope('ada@ownmail.com')
 	senderImagesTrustedMock.mockReset()
 	senderImagesTrustedMock.mockResolvedValue(false)
+	trustSenderImagesMock.mockReset()
+	trustSenderImagesMock.mockResolvedValue(true)
+	openMessageWindowMock.mockReset()
 })
 
 function emailElement(): HTMLElement & { emailHtml: string } {
@@ -433,5 +444,168 @@ describe('EmailHtml', () => {
 				CONTROLLED_IMAGE,
 			),
 		)
+	})
+})
+
+describe('EmailHtml edge states', () => {
+	const blocked = `<img alt="Lisbon skyline" src="${CONTROLLED_IMAGE}" width="600" height="200"><img alt="QR" src="${CONTROLLED_IMAGE}"><img src="${CONTROLLED_IMAGE}" width="1" height="1">`
+	const fitStatus = (scale: number) =>
+		new CustomEvent(EMAIL_LAYOUT_STATUS_EVENT, {
+			detail: {
+				mode: 'original',
+				naturalWidth: 640,
+				containerWidth: 524,
+				scale,
+				reflowed: false,
+				needsFit: scale < 1,
+			},
+		})
+
+	it('says how many images are hidden and from where, and shows them for this message', async () => {
+		render(
+			<EmailHtml html={blocked} messageId="m-voyage" senderAddress="trips@voyage.com" senderName="Voyage" />,
+		)
+		expect(await screen.findByText('2 images from voyage.com are hidden')).toBeInTheDocument()
+		const style = emailElement().shadowRoot?.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)
+		expect(style?.textContent).toContain('content:attr(alt)')
+		expect(style?.textContent).not.toContain('a[href]{cursor:default')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Show' }))
+		await waitFor(() => expect(emailElement()).toHaveAttribute('data-load-remote-images'))
+		await waitFor(() => expect(screen.queryByText(/are hidden/)).toBeNull())
+	})
+
+	it('remembers the sender with Always, and says so when that fails', async () => {
+		const view = render(
+			<EmailHtml html={blocked} messageId="m-always" senderAddress="trips@voyage.com" senderName="Voyage" />,
+		)
+		fireEvent.click(await screen.findByRole('button', { name: 'Always for Voyage' }))
+		expect(trustSenderImagesMock).toHaveBeenCalledWith('trips@voyage.com', 'ada@ownmail.com')
+		await waitFor(() => expect(emailElement()).toHaveAttribute('data-load-remote-images'))
+		expect(screen.queryByRole('alert')).toBeNull()
+		view.unmount()
+
+		trustSenderImagesMock.mockResolvedValue(false)
+		render(<EmailHtml html={blocked} messageId="m-always-fails" senderAddress="trips@voyage.com" />)
+		fireEvent.click(await screen.findByRole('button', { name: 'Always for voyage.com' }))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t remember this sender.')
+	})
+
+	it('offers only Show without a sender, and nothing when images are always allowed', async () => {
+		const view = render(<EmailHtml html={blocked} messageId="m-anon" />)
+		expect(await screen.findByText('2 images are hidden')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Always/ })).toBeNull()
+		view.unmount()
+
+		writeUserPreferences({ ...defaultUserPreferences(), remoteImagePolicy: 'always' })
+		render(<EmailHtml html={blocked} messageId="m-allowed" />)
+		await waitFor(() => expect(emailElement()).toHaveAttribute('data-load-remote-images'))
+		expect(screen.queryByText(/are hidden/)).toBeNull()
+	})
+
+	it('says a wide layout was fitted, shows it at actual size, and opens it in a window', () => {
+		render(
+			<EmailHtml
+				html="<table width='640'><tr><td>Config</td></tr></table>"
+				messageId="m-fit"
+				windowTitle="Config"
+			/>,
+		)
+		act(() => {
+			emailElement().dispatchEvent(fitStatus(0.82))
+		})
+		expect(screen.getByText(/Fitted to width/)).toHaveTextContent('Fitted to width (82%)')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Actual size' }))
+		expect(emailElement().style.width).toBe('640px')
+		expect(emailElement().style.maxWidth).toBe('none')
+		expect(emailElement().parentElement).toHaveClass('overflow-x-auto')
+		// At actual size the element reports no scale; the bar keeps its measurement.
+		act(() => {
+			emailElement().dispatchEvent(fitStatus(1))
+		})
+		expect(screen.getByRole('button', { name: 'Fit to width' })).toBeInTheDocument()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Open in window' }))
+		expect(openMessageWindowMock).toHaveBeenCalledWith(
+			"<table width='640'><tr><td>Config</td></tr></table>",
+			{
+				title: 'Config',
+				allowRemoteImages: false,
+			},
+		)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Fit to width' }))
+		act(() => {
+			emailElement().dispatchEvent(fitStatus(1))
+		})
+		expect(screen.queryByText(/Fitted to width/)).toBeNull()
+		expect(emailElement().style.width).toBe('')
+	})
+
+	it('keeps the bars on the prose gutter for designed mail', () => {
+		render(<EmailHtml html="<p>Wide</p>" messageId="m-inset" chromeInset />)
+		act(() => {
+			emailElement().dispatchEvent(fitStatus(0.8))
+		})
+		expect(document.querySelector('[data-slot="email-edge-bars"]')).toHaveClass('px-4', 'sm:px-0')
+	})
+
+	it('sets the phone body size on the element', () => {
+		render(<EmailHtml html="<p>Phone</p>" messageId="m-17" fontSize={17} />)
+		expect(emailElement().style.fontSize).toBe('17px')
+		expect(emailElement().style.lineHeight).toBe('1.55')
+	})
+
+	it('makes links inert when the sender is not to be trusted', () => {
+		const view = render(
+			<EmailHtml
+				html='<p><a class="go" href="https://meridian-secure.co/verify">Confirm</a> <span class="plain">text</span></p>'
+				messageId="m-lookalike"
+				linksDisabled
+			/>,
+		)
+		const root = emailElement().shadowRoot as ShadowRoot
+		expect(root.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)?.textContent).toContain(
+			'a[href]{cursor:default!important;}',
+		)
+		const link = root.querySelector('.go') as HTMLElement
+		const click = new MouseEvent('click', { bubbles: true, composed: true, cancelable: true })
+		link.dispatchEvent(click)
+		expect(click.defaultPrevented).toBe(true)
+		const middle = new MouseEvent('auxclick', { bubbles: true, composed: true, cancelable: true })
+		link.dispatchEvent(middle)
+		expect(middle.defaultPrevented).toBe(true)
+		const plain = new MouseEvent('click', { bubbles: true, composed: true, cancelable: true })
+		;(root.querySelector('.plain') as HTMLElement).dispatchEvent(plain)
+		expect(plain.defaultPrevented).toBe(false)
+
+		view.rerender(
+			<EmailHtml
+				html='<p><a class="go" href="https://meridian-secure.co/verify">Confirm</a> <span class="plain">text</span></p>'
+				messageId="m-lookalike"
+			/>,
+		)
+		expect(root.querySelector(`style[${EDGE_STYLE_ATTRIBUTE}]`)?.textContent).not.toContain('cursor:default')
+		const allowed = new MouseEvent('click', { bubbles: true, composed: true, cancelable: true })
+		link.addEventListener('click', (event) => event.preventDefault(), { once: true })
+		;(root.querySelector('.go') as HTMLElement).dispatchEvent(allowed)
+		expect(root.querySelectorAll(`style[${EDGE_STYLE_ATTRIBUTE}]`)).toHaveLength(1)
+	})
+})
+
+describe('edge helpers', () => {
+	it('counts blocked images a reader would have seen, never tracking pixels', () => {
+		const root = document.createElement('div')
+		root.innerHTML =
+			'<div class="email-root"><img alt="a"><img width="600" height="200"><img width="1" height="1"><img width="1"><img src="/email-images/x.y"></div>'
+		expect(blockedImageCount(root)).toBe(3)
+		expect(blockedImageCount(null)).toBe(0)
+	})
+
+	it('holds blocked images at their declared size, and adds the inert-link rule only when asked', () => {
+		expect(edgeShadowStyle(false)).toContain('repeating-linear-gradient(135deg')
+		expect(edgeShadowStyle(false)).not.toContain('cursor:default')
+		expect(edgeShadowStyle(true)).toContain(':host .email-root a[href]{cursor:default!important;}')
 	})
 })
