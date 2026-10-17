@@ -239,6 +239,682 @@
 }
 
 /*
+ * The standard reader (design.md "Reading"): one 760px column that starts 64px
+ * into the pane on wide screens, a thread map of dots beside it, and the reply
+ * card pinned under the stream. Rows and lines run edge to edge on a phone.
+ */
+.reader {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+
+.reader-layout {
+	display: flex;
+	flex: 1;
+	align-items: stretch;
+}
+
+.reader-main {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.reader-messages {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	padding-bottom: 1rem;
+}
+
+/* The toolbar's icon buttons sit 2px apart, as one row of controls. */
+@media (min-width: 48rem) {
+	.reader-toolbar,
+	.reader-toolbar > div,
+	.reader-toolbar [data-slot="thread-actions"],
+	.reader-toolbar [data-slot="thread-view-switch"] {
+		gap: 2px;
+	}
+}
+
+/* With a fine pointer the view switch and display options match the toolbar's 32px icon buttons. */
+@media (min-width: 48rem) and (not (any-pointer: coarse)) {
+	.reader-toolbar [data-slot="thread-view-switch"] button,
+	.reader-toolbar [data-slot="thread-display-menu"] > button {
+		width: 32px;
+		height: 32px;
+	}
+}
+
+.reader-toolbar [data-slot="thread-stepper"] {
+	gap: 2px;
+}
+
+.reader-stepper-count {
+	min-width: 56px;
+	text-align: center;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+.reader-reply-all {
+	gap: 6px;
+	padding-inline: 12px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--foreground);
+}
+
+/* Header: the subject, then people, length, span and files on one muted line. */
+.reader-header {
+	padding-top: 18px;
+	padding-bottom: 14px;
+}
+
+.reader-title-block {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.reader-title {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: 21px;
+	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: -0.02em;
+	overflow-wrap: anywhere;
+}
+
+.reader-title-caption {
+	margin: 0;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+.reader-meta {
+	display: none;
+}
+
+.reader-labels {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+@media (min-width: 48rem) {
+	.reader-header {
+		padding-top: 28px;
+		padding-bottom: 20px;
+	}
+
+	.reader-title {
+		font-size: 24px;
+		line-height: 1.25;
+	}
+
+	.reader-meta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px 12px;
+		margin-top: 10px;
+		font-size: 13px;
+		color: var(--muted-foreground);
+	}
+}
+
+.reader-meta-files {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	padding: 0;
+	color: inherit;
+	cursor: pointer;
+}
+
+.reader-meta-files:hover,
+.reader-meta-files[aria-expanded="true"] {
+	color: var(--foreground);
+}
+
+.reader-meta-files:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+.reader-files-shelf {
+	padding-bottom: 20px;
+}
+
+/* A full-length 1px line between messages and rows. */
+.reader-rule {
+	border-top: 1px solid var(--border);
+}
+
+/* One read message on one line; on a phone the preview drops under the name. */
+.reader-line {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr) auto;
+	grid-template-areas:
+		"avatar name date"
+		"avatar preview preview";
+	align-items: center;
+	column-gap: 10px;
+	width: 100%;
+	border: 0;
+	background: transparent;
+	padding: 12px 0;
+	text-align: left;
+	color: inherit;
+	cursor: pointer;
+}
+
+.reader-line-avatar {
+	grid-area: avatar;
+}
+
+.reader-line-name {
+	grid-area: name;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+	font-weight: 500;
+}
+
+.reader-line-preview {
+	grid-area: preview;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	color: var(--muted-foreground);
+}
+
+.reader-line-date {
+	grid-area: date;
+	min-width: 0;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+.reader-line:hover .reader-line-preview {
+	color: var(--foreground);
+}
+
+.reader-line:focus-visible,
+.reader-folded:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+	border-radius: var(--radius);
+}
+
+@media (min-width: 48rem) {
+	.reader-line {
+		grid-template-columns: 28px 132px minmax(0, 1fr) auto;
+		grid-template-areas: "avatar name preview date";
+		column-gap: 12px;
+	}
+
+	.reader-line-preview {
+		font-size: 14px;
+	}
+}
+
+/* A folded run: a centred stacked row; on a phone a 48px band on the quiet ground. */
+.reader-folded {
+	display: flex;
+	width: 100%;
+	min-height: 48px;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	border: 0;
+	background: var(--secondary);
+	padding: 0 16px;
+	font-size: 13px;
+	color: inherit;
+	cursor: pointer;
+}
+
+.reader-folded-count {
+	font-weight: 600;
+	color: var(--secondary-foreground);
+}
+
+.reader-folded-meta {
+	display: none;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+}
+
+.reader-folded-chevron {
+	display: none;
+	width: 14px;
+	height: 14px;
+	flex: none;
+	color: var(--muted-foreground);
+}
+
+@media (min-width: 48rem) {
+	.reader-folded {
+		min-height: 0;
+		gap: 12px;
+		background: transparent;
+		padding: 10px 0;
+	}
+
+	.reader-folded-meta,
+	.reader-folded-chevron {
+		display: block;
+	}
+
+	.reader-folded:hover .reader-folded-count {
+		color: var(--foreground);
+	}
+}
+
+/* Rows and lines run edge to edge on a phone, past the column's gutter. */
+@media (width < 40rem) {
+	.reader-rule,
+	.reader-line,
+	.reader-folded {
+		margin-inline: -1rem;
+		width: calc(100% + 2rem);
+	}
+
+	.reader-line {
+		padding-inline: 1rem;
+	}
+}
+
+@media (40rem <= width < 48rem) {
+	.reader-rule,
+	.reader-line,
+	.reader-folded {
+		margin-inline: -1.5rem;
+		width: calc(100% + 3rem);
+	}
+
+	.reader-line {
+		padding-inline: 1.5rem;
+	}
+}
+
+/* "3 new since Tuesday": neutral lines, the label and its dot in the green accent. */
+.reader-divider {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 14px 0 4px;
+}
+
+.reader-divider-line {
+	flex: 1;
+	height: 1px;
+	margin: 0;
+	border: 0;
+	background: var(--border);
+}
+
+.reader-divider-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--cta-icon);
+}
+
+.reader-divider-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: var(--cta-icon);
+}
+
+.reader-system-line {
+	margin: 0;
+	padding: 4px 0 8px;
+	text-align: center;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+.reader-message {
+	padding: 12px 0 16px;
+}
+
+.reader-message-content {
+	padding-top: 12px;
+}
+
+.reader-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 14px;
+}
+
+.reader-catch-up {
+	padding: 16px 0;
+}
+
+.reader-draft {
+	padding: 12px 0;
+}
+
+@media (min-width: 48rem) {
+	.reader-divider {
+		gap: 12px;
+		padding: 14px 0 6px;
+	}
+
+	.reader-message {
+		padding: 14px 0 20px;
+	}
+}
+
+/* The catch-up card is for the desktop reader; a phone has the "more new" pill instead. */
+@media (width < 48rem) {
+	[data-slot="stream-rule"][data-before="catch-up"],
+	[data-slot="stream-item"][data-kind="catch-up"] {
+		display: none;
+	}
+}
+
+/* A message takes focus when the reader moves to it; the stepper and the map say which one it is. */
+[data-slot="stream-item"]:focus {
+	outline: none;
+}
+
+[data-slot="stream-item"][data-source] {
+	background: color-mix(in oklch, var(--cta-icon) 7%, transparent);
+}
+
+/* The thread map's dots, beside the stream from `lg`; they stay in view as it scrolls. */
+.reader-map {
+	display: none;
+}
+
+@media (min-width: 64rem) {
+	.reader-map {
+		position: sticky;
+		/* Sticky insets are measured inside the viewport's padding, which already clears the toolbar. */
+		top: 0;
+		display: flex;
+		width: 44px;
+		flex: none;
+		align-self: flex-start;
+		flex-direction: column;
+		align-items: center;
+		/* Never taller than the viewport (the component sets the height it has): a long thread's dots draw closer. */
+		overflow: hidden;
+		padding-top: 96px;
+		padding-bottom: 16px;
+	}
+}
+
+.reader-map-track {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	min-height: 0;
+	flex: 0 1 auto;
+	flex-direction: column;
+	align-items: center;
+	pointer-events: none;
+}
+
+.reader-map-dot {
+	--dot-size: 6px;
+	--dot-read: var(--map-dot-158);
+	--dot-new: var(--map-dot-158-new);
+	--dot-ring: var(--map-dot-158-ring);
+	display: flex;
+	width: 44px;
+	height: calc(var(--dot-size) + 6px);
+	/* Dots give up their spacing, down to 2px apart, before the column outgrows the viewport. */
+	min-height: 2px;
+	flex: 0 1 auto;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	background: transparent;
+	padding: 0;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+.reader-map-dot > span {
+	width: var(--dot-size);
+	height: var(--dot-size);
+	border-radius: 999px;
+	background: var(--dot-read);
+}
+
+.reader-map-dot-first {
+	--dot-size: 8px;
+}
+
+.reader-map-dot-new {
+	--dot-size: 10px;
+}
+
+.reader-map-dot-new > span {
+	background: var(--dot-new);
+}
+
+.reader-map-dot[aria-current="true"] > span {
+	box-shadow: 0 0 0 3px var(--dot-ring);
+}
+
+.reader-map-dot:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+	border-radius: var(--radius);
+}
+
+.reader-map-dot[data-hue="75"] {
+	--dot-read: var(--map-dot-75);
+	--dot-new: var(--map-dot-75-new);
+	--dot-ring: var(--map-dot-75-ring);
+}
+
+.reader-map-dot[data-hue="250"] {
+	--dot-read: var(--map-dot-250);
+	--dot-new: var(--map-dot-250-new);
+	--dot-ring: var(--map-dot-250-ring);
+}
+
+.reader-map-dot[data-hue="32"] {
+	--dot-read: var(--map-dot-32);
+	--dot-new: var(--map-dot-32-new);
+	--dot-ring: var(--map-dot-32-ring);
+}
+
+.reader-map-dot[data-hue="300"] {
+	--dot-read: var(--map-dot-300);
+	--dot-new: var(--map-dot-300-new);
+	--dot-ring: var(--map-dot-300-ring);
+}
+
+.reader-map-dot[data-hue="200"] {
+	--dot-read: var(--map-dot-200);
+	--dot-new: var(--map-dot-200-new);
+	--dot-ring: var(--map-dot-200-ring);
+}
+
+/* "You stopped here": a short green rule across the column of dots. */
+.reader-map-stopped {
+	width: 16px;
+	height: 1px;
+	flex: none;
+	/* 8px from the dots on each side, with the 3px each dot keeps around itself. */
+	margin-block: 5px;
+	background: var(--cta-icon);
+}
+
+/* The column itself opens the map panel; the dots above it take their own clicks. */
+.reader-map-open {
+	position: absolute;
+	inset: 0;
+	border: 0;
+	background: transparent;
+	padding: 0;
+	font-size: 0;
+	color: transparent;
+	cursor: pointer;
+}
+
+.reader-map-open:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+	border-radius: var(--radius);
+}
+
+/* Where the thread map panel docks: the pane below its toolbar; only the panel takes clicks. */
+.reader-map-dock {
+	position: absolute;
+	inset: var(--toolbar-height) 0 0;
+	z-index: 30;
+	pointer-events: none;
+}
+
+.reader-map-dock > * {
+	pointer-events: auto;
+}
+
+/* The reply card, pinned under the stream while it scrolls; phones use the bottom reply bar. */
+.reader-reply-dock {
+	display: none;
+}
+
+@media (min-width: 48rem) {
+	.reader-reply-dock {
+		position: sticky;
+		bottom: 0;
+		z-index: 10;
+		display: block;
+		margin-top: auto;
+		background: var(--background);
+		padding: 12px 0 16px;
+	}
+}
+
+.reader-reply-card {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	border: 1px solid var(--cta-line);
+	border-radius: var(--glass-radius);
+	background: var(--card);
+	padding: 12px 14px;
+	box-shadow: var(--reader-reply-shadow);
+}
+
+.reader-reply-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+	color: var(--muted-foreground);
+}
+
+.reader-reply-only {
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	padding: 0;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--cta-icon);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.reader-reply-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.reader-reply-field {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	padding: 6px 0;
+	text-align: left;
+	font-size: 15px;
+	color: var(--muted-foreground);
+	cursor: text;
+}
+
+.reader-reply-hint {
+	font-size: 11px;
+	color: var(--muted-foreground);
+}
+
+.reader-reply-send {
+	display: inline-flex;
+	height: 32px;
+	align-items: center;
+	gap: 6px;
+	border: 0;
+	border-radius: var(--radius);
+	background: var(--primary);
+	padding: 0 14px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--primary-foreground);
+	cursor: pointer;
+}
+
+.reader-reply-send:hover {
+	filter: brightness(1.05);
+}
+
+.reader-reply-only:focus-visible,
+.reader-reply-field:focus-visible,
+.reader-reply-send:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+/* The phone's "2 more new" pill floats 20px above the bottom bar while new messages are below. */
+.reader-jump {
+	position: sticky;
+	/* Sticky insets are measured inside the viewport's padding, which already clears the bottom bar. */
+	bottom: 20px;
+	z-index: 20;
+	display: flex;
+	height: 0;
+	align-items: flex-end;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.reader-jump > * {
+	pointer-events: auto;
+}
+
+/*
  * iOS Safari zooms the viewport when an editable control has text smaller
  * than 16px. Keep every native or rich-text editing surface at that minimum
  * on touch-first devices; larger viewports retain their compact desktop type.
