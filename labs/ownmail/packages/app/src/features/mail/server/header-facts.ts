@@ -148,8 +148,10 @@ function googleReceived(host: string): boolean {
 /**
  * The method results of the topmost Authentication-Results header, and only
  * when the receiving provider wrote it (RFC 8601 §5 has receivers drop any
- * copy of their own id from outside). That is when its authserv-id is the
- * receiving host's site, `mx.google.com` behind Google's last hop, or a
+ * copy of their own id from outside). That is when its authserv-id is
+ * exactly the receiving host (a sibling host on the same site may be a
+ * sender-written copy the receiver never stripped), `mx.google.com` behind
+ * Google's last hop, or a
  * Microsoft 365 header, which carries no id, behind a Microsoft hop.
  * Anything else may have been written by the sender, so it says nothing.
  */
@@ -166,7 +168,7 @@ function trustedAuthenticationResults(pairs: HeaderPair[]): AuthResult[] {
 	} else {
 		const authservId = ((segments[0] as string).trim().split(/\s+/)[0] as string).toLowerCase()
 		const trusted =
-			(hostSite !== undefined && siteOf(authservId) === hostSite) ||
+			authservId === host.replace(/\.$/, '') ||
 			(authservId === 'mx.google.com' && (googleReceived(host) || hostSite === 'google.com'))
 		if (!trusted) return []
 		results = segments.slice(1)

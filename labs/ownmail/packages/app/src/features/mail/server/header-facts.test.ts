@@ -49,7 +49,7 @@ describe('messageHeaderFacts', () => {
 			received('mx2.example.net'),
 			h(
 				'authentication-results',
-				'mx1.example.net; spf=pass (sender ok) smtp.mailfrom=bounce@mail.vercel.com; dkim=pass header.i=@vercel.com',
+				'mx2.example.net; spf=pass (sender ok) smtp.mailfrom=bounce@mail.vercel.com; dkim=pass header.i=@vercel.com',
 			),
 		]
 		expect(messageHeaderFacts(aligned, 'grace.hopper@vercel.com').verified).toBe(true)
@@ -57,18 +57,18 @@ describe('messageHeaderFacts', () => {
 			received('mx2.example.net'),
 			h(
 				'Authentication-Results',
-				'mx1.example.net; spf=pass smtp.mailfrom=other.com; dkim=pass header.d="vercel.com"',
+				'mx2.example.net; spf=pass smtp.mailfrom=other.com; dkim=pass header.d="vercel.com"',
 			),
 		]
 		expect(messageHeaderFacts(unaligned, 'grace.hopper@vercel.com').verified).toBe(false)
 		const spfOnly = [
 			received('mx2.example.net'),
-			h('Authentication-Results', 'mx1.example.net; spf=pass smtp.mailfrom=vercel.com; dkim=none'),
+			h('Authentication-Results', 'mx2.example.net; spf=pass smtp.mailfrom=vercel.com; dkim=none'),
 		]
 		expect(messageHeaderFacts(spfOnly, 'grace.hopper@vercel.com').verified).toBe(false)
 		const noDomain = [
 			received('mx2.example.net'),
-			h('Authentication-Results', 'mx1.example.net; spf=pass; dkim=pass'),
+			h('Authentication-Results', 'mx2.example.net; spf=pass; dkim=pass'),
 		]
 		expect(messageHeaderFacts(noDomain, 'grace.hopper@vercel.com').verified).toBe(false)
 		expect(messageHeaderFacts(aligned).verified).toBe(false)
@@ -130,6 +130,19 @@ describe('messageHeaderFacts', () => {
 		expect(
 			facts(received('imap.fastmail.example'), h('Authentication-Results', `mx.google.com; ${pass}`)),
 		).toMatchObject(untrusted)
+		// A sibling host on the receiver's site is not the receiver: the sender may have written it.
+		expect(
+			facts(
+				received('mx3.messagingengine.com'),
+				h('Authentication-Results', `evil.messagingengine.com; ${pass}`),
+			),
+		).toMatchObject(untrusted)
+		expect(
+			facts(
+				received('mx3.messagingengine.com'),
+				h('Authentication-Results', `mx3.messagingengine.com; ${pass}`),
+			),
+		).toMatchObject({ verified: true, authFailed: false })
 		// A forged hop below the receiver's own does not count.
 		expect(
 			facts(
@@ -139,16 +152,19 @@ describe('messageHeaderFacts', () => {
 			),
 		).toMatchObject(untrusted)
 
-		// The receiver's own site, Google behind its last hop, and Microsoft 365's id-less header are trusted.
+		// The receiving host itself (with an optional version), Google behind its last hop, and Microsoft 365's id-less header are trusted.
 		expect(
 			facts(
 				received('mx3.messagingengine.com'),
-				h('Authentication-Results', `mx6.messagingengine.com 1; ${pass}`),
+				h('Authentication-Results', `mx3.messagingengine.com 1; ${pass}`),
 			),
 		).toMatchObject({ verified: true })
 		expect(
-			facts(received('mail.example.co.uk'), h('Authentication-Results', `mx.example.co.uk; ${pass}`)),
+			facts(received('mx.example.co.uk.'), h('Authentication-Results', `mx.example.co.uk; ${pass}`)),
 		).toMatchObject({ verified: true })
+		expect(
+			facts(received('mail.example.co.uk'), h('Authentication-Results', `mx.example.co.uk; ${pass}`)),
+		).toMatchObject(untrusted)
 		expect(
 			facts(received('mail.other.co.uk'), h('Authentication-Results', `mx.example.co.uk; ${pass}`)),
 		).toMatchObject(untrusted)

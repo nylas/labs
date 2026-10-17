@@ -474,7 +474,7 @@ describe('getThreadHeaderFacts', () => {
 						{ name: 'Received', value: 'from mail.bletchley.dev by mx1.example.net with ESMTPS id 1' },
 						{
 							name: 'Authentication-Results',
-							value: 'mx2.example.net; dmarc=pass header.from=bletchley.dev',
+							value: 'mx1.example.net; dmarc=pass header.from=bletchley.dev',
 						},
 						{ name: 'Date', value: 'Wed, 14 Oct 2026 07:12:00 -0700' },
 						{ name: 'X-Secret', value: 'token=abc123' },
