@@ -53,6 +53,8 @@ describe('user preferences', () => {
 			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
 			readingPane: 'horizontal',
+			readingPaneListWidth: 420,
+			readingPaneListHeight: 55,
 			listDensity: 'condensed',
 			threadView: 'conversation',
 			primaryTimezone: 'UTC',
@@ -70,6 +72,8 @@ describe('user preferences', () => {
 			emailColorMode: 'original',
 			remoteImagePolicy: 'always',
 			readingPane: 'horizontal',
+			readingPaneListWidth: 420,
+			readingPaneListHeight: 55,
 			listDensity: 'condensed',
 			threadView: 'conversation',
 			primaryTimezone: 'UTC',
@@ -117,6 +121,30 @@ describe('user preferences', () => {
 		}
 		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPane: 'none' }))
 		expect(readUserPreferences().readingPane).toBe('none')
+	})
+
+	it('keeps only whole, in-range dragged pane sizes', () => {
+		expect(defaultUserPreferences()).toMatchObject({
+			readingPaneListWidth: null,
+			readingPaneListHeight: null,
+		})
+		for (const [readingPaneListWidth, readingPaneListHeight] of [
+			[239, 9],
+			[1601, 86],
+			[300.5, 40.5],
+			['300', '40'],
+		]) {
+			window.localStorage.setItem(
+				'ownmail:user-preferences:v1',
+				JSON.stringify({ readingPaneListWidth, readingPaneListHeight }),
+			)
+			expect(readUserPreferences()).toMatchObject({ readingPaneListWidth: null, readingPaneListHeight: null })
+		}
+		window.localStorage.setItem(
+			'ownmail:user-preferences:v1',
+			JSON.stringify({ readingPaneListWidth: 420, readingPaneListHeight: 55 }),
+		)
+		expect(readUserPreferences()).toMatchObject({ readingPaneListWidth: 420, readingPaneListHeight: 55 })
 	})
 
 	it('falls back to the Default list density for unknown stored densities', () => {

@@ -508,7 +508,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
 		)
 		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
-		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).toHaveClass('flex', 'xl:w-[var(--mail-list-width,22rem)]', 'xl:flex-none')
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByLabelText('Inbox thread list')).toHaveAttribute('data-slot', 'scroll-area-viewport')
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
@@ -1156,7 +1156,7 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		try {
 			render(screenFor())
 			expect(listSection()).toHaveAttribute('data-density', 'default')
-			expect(listSection()).toHaveClass('xl:w-[22rem]')
+			expect(listSection()).toHaveClass('xl:w-[var(--mail-list-width,22rem)]')
 
 			await userEvent.click(screen.getByRole('button', { name: 'List density: Default' }))
 			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Condensed' }))
@@ -1164,7 +1164,7 @@ describe('MailFolderRouteScreen — reading pane', () => {
 			await waitFor(() => expect(listSection()).toHaveAttribute('data-density', 'condensed'))
 			// The choice only changes the attribute: the wider Condensed list is CSS keyed on it
 			// (fine pointers only), so touch layouts keep the 22rem list.
-			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[22rem]')
+			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[var(--mail-list-width,22rem)]')
 			expect(listSection().className).not.toContain('26rem')
 			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
 				'condensed',
@@ -1217,7 +1217,44 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		routerState = openOn('t1')
 		render(screenFor())
 		await waitFor(() => expect(listSection().parentElement).toHaveClass('xl:flex-col'))
-		expect(listSection()).toHaveClass('xl:h-[40%]')
+		expect(listSection()).toHaveClass('xl:h-[var(--mail-list-height,40%)]')
+	})
+
+	it('resizes the list from the divider and switches to no split when it is dragged to near zero', async () => {
+		window.localStorage.setItem('ownmail:user-preferences:v1', JSON.stringify({ readingPaneListWidth: 480 }))
+		routerState = openOn('t1')
+		render(screenFor())
+		const panes = listSection().parentElement as HTMLElement
+		await waitFor(() => expect(panes.style.getPropertyValue('--mail-list-width')).toBe('480px'))
+		const divider = screen.getByRole('separator', { name: 'Resize conversation list' })
+		// The handle sits between the list and the reader.
+		expect(divider.parentElement?.previousElementSibling).toBe(listSection())
+		expect(divider.parentElement?.nextElementSibling).toHaveAttribute('data-mail-reader')
+
+		vi.spyOn(panes, 'getBoundingClientRect').mockReturnValue({
+			left: 0,
+			top: 0,
+			width: 1200,
+			height: 800,
+		} as DOMRect)
+		vi.spyOn(listSection(), 'getBoundingClientRect').mockReturnValue({
+			left: 0,
+			top: 0,
+			width: 480,
+			height: 800,
+		} as DOMRect)
+		HTMLElement.prototype.setPointerCapture = vi.fn()
+		fireEvent.pointerDown(divider, { button: 0, pointerId: 1 })
+		fireEvent.pointerMove(divider, { pointerId: 1, clientX: 20 })
+		fireEvent.pointerUp(divider, { pointerId: 1 })
+
+		await waitFor(() => expect(listSection()).not.toHaveClass('xl:flex'))
+		expect(listSection()).toHaveClass('hidden')
+		expect(screen.queryByRole('separator', { name: 'Resize conversation list' })).toBeNull()
+		expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}')).toMatchObject({
+			readingPane: 'none',
+			readingPaneListWidth: 480,
+		})
 	})
 
 	it('returns the cursor and focus to the conversation that was just closed', async () => {

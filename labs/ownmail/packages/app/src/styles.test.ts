@@ -277,9 +277,10 @@ describe('mail list density styles', () => {
 	it('widens the vertical-split list for Condensed only where Condensed rows apply', () => {
 		// A stored or palette-chosen Condensed preference must not change layout on touch or
 		// mobile, where rows stay Default: the 26rem width exists only inside the density query,
-		// and only from the xl breakpoint where the list sits beside the reader.
+		// and only from the xl breakpoint where the list sits beside the reader. A dragged
+		// width (the `--mail-list-width` property) replaces the default.
 		expect(densityBlock).toMatch(
-			/@media \(min-width: 80rem\)\s*\{\s*\.mail-list-vertical\[data-density="condensed"\]\s*\{\s*width: 26rem;\s*max-width: 26rem;/,
+			/@media \(min-width: 80rem\)\s*\{\s*\.mail-list-vertical\[data-density="condensed"\]\s*\{\s*width: var\(--mail-list-width, 26rem\);\s*max-width: var\(--mail-list-width, 26rem\);/,
 		)
 		expect(outsideDensityBlock).not.toContain('26rem')
 	})
