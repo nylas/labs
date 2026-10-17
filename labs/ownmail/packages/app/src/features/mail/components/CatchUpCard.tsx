@@ -11,9 +11,9 @@ const MAX_JOINED = 3
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
 
 const factClass =
-	'inline-flex h-[26px] max-w-full items-center gap-control rounded-full bg-muted px-hairline text-xs font-medium text-foreground/80 [&_svg]:size-3.5 [&_svg]:shrink-0'
+	'tool-fact inline-flex h-[26px] max-w-full items-center rounded-full bg-muted text-xs font-medium text-note-foreground [&_svg]:size-3.5 [&_svg]:shrink-0'
 const quietButtonClass =
-	'inline-flex h-7 items-center gap-control rounded-md px-hairline text-xs font-medium text-foreground/70 transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-pressed:text-foreground'
+	'tool-button inline-flex h-7 items-center gap-control rounded-md text-xs font-medium text-quiet-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-pressed:text-foreground'
 
 /**
  * "Since you last read, Tuesday" (board 04): the facts about the messages that
@@ -60,7 +60,7 @@ export function CatchUpCard({
 		<section
 			aria-labelledby={headingId}
 			data-slot="catch-up-card"
-			className="flex flex-col gap-hairline rounded-[0.75rem] border border-border bg-card p-5 text-card-foreground"
+			className="tool-card flex flex-col rounded-[0.75rem] border border-border bg-card p-5 text-card-foreground"
 		>
 			<div className="flex items-baseline gap-cluster">
 				<h2 id={headingId} className="m-0 min-w-0 flex-1 text-base font-semibold">
@@ -75,7 +75,7 @@ export function CatchUpCard({
 				</button>
 			</div>
 
-			<ul aria-label="What changed" className="m-0 flex list-none flex-wrap gap-cluster p-0">
+			<ul aria-label="What changed" className="tool-facts m-0 flex list-none flex-wrap p-0">
 				<li className={cn(factClass, 'font-data tabular-nums')}>
 					{plural(facts.newCount, 'new message', 'new messages')}
 				</li>
@@ -111,14 +111,14 @@ export function CatchUpCard({
 				<>
 					<hr className="m-0 h-px border-0 bg-border" />
 					<div className="flex flex-col gap-cluster">
-						<p className="m-0 flex flex-wrap items-center gap-control text-xs text-muted-foreground">
+						<p className="tool-eyebrow m-0 flex flex-wrap items-center text-xs text-muted-foreground">
 							<span className="font-semibold">Summary</span>
 							<span>
 								· from the{' '}
 								{summaryMessages.length === 1 ? 'new message' : `${summaryMessages.length} new messages`}
 							</span>
 						</p>
-						<ul className="m-0 list-disc pl-region text-[15px] leading-[1.6] text-foreground">
+						<ul className="tool-summary m-0 list-disc text-[15px] leading-[1.6] text-foreground">
 							{summary.map((line, index) => (
 								// A provider may repeat a line; the position keeps each bullet its own.
 								// biome-ignore lint/suspicious/noArrayIndexKey: the bullets are replaced whole, never reordered
@@ -130,7 +130,7 @@ export function CatchUpCard({
 								<button
 									type="button"
 									onClick={() => onAnswer(question.messageId)}
-									className="inline-flex h-7 items-center rounded-md border border-cta-line bg-card px-hairline text-xs font-semibold text-foreground transition-[background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									className="tool-button inline-flex h-7 items-center rounded-md border border-cta-line bg-card text-xs font-semibold text-foreground transition-[background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								>
 									Answer {personName(question.from, 'first')}
 								</button>

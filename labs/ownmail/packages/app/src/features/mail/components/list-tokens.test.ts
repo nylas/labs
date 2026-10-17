@@ -29,6 +29,19 @@ describe.each(['light', 'dark'] as const)('thread list colours in the %s theme',
 		expect(contrast(colour('--signal-ask'), colour('--signal-ask-fg'))).toBeGreaterThanOrEqual(4.5)
 	})
 
+	it('sets the quiet pills (a file, an invite) and the bundle counts in text that reads on the muted fill', () => {
+		expect(contrast(colour('--muted'), colour('--quiet-fg'))).toBeGreaterThanOrEqual(4.5)
+		expect(contrast(colour('--muted'), colour('--control-fg'))).toBeGreaterThanOrEqual(4.5)
+		expect(contrast(colour('--danger-soft'), colour('--danger-soft-fg'))).toBeGreaterThanOrEqual(4.5)
+	})
+
+	it.each(['--card', '--background', '--muted'])(
+		'sets a note, a draft preview and a catch-up fact in text that reads on %s',
+		(ground) => {
+			expect(contrast(colour(ground), colour('--note-fg'))).toBeGreaterThanOrEqual(4.5)
+		},
+	)
+
 	it("draws the open row's ring apart from its tint", () => {
 		expect(colour('--list-selected-line').l).not.toBe(colour('--list-selected').l)
 	})

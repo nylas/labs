@@ -35,6 +35,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import { replyBase } from '#features/mail/lib/thread-stream'
 import { cachedCorrespondents, findCachedThread } from '#features/mail/state/mail-cache'
 import {
 	markOpenedThreadRead,
@@ -686,8 +687,8 @@ function SearchThreadDetail({
 		() => cachedCorrespondents(queryClient, selected.mailboxEmail),
 		[queryClient, selected.mailboxEmail],
 	)
-	// Replies answer the last message anyone sent, never your own unsent draft.
-	const lastMessage = selected.messages.findLast((message) => message.ownmailDraft !== true)
+	// Replies answer the latest message anyone sent: never your own unsent draft, nor a bounce report.
+	const lastMessage = replyBase(selected.messages)
 	// Part of the thread did not load, so the newest message may be the missing
 	// one: replies wait for the whole conversation (Try again), reading does not.
 	const partial = (selected.failedMessageIds?.length ?? 0) > 0

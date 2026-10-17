@@ -390,7 +390,7 @@ function MapBody({
 	const tabStopId = [focusedId, selectedId].find((id) => id != null && rowIds.includes(id)) ?? rowIds[0]
 
 	return (
-		<div className="flex min-h-0 flex-col gap-cluster p-5">
+		<div className="map-card flex min-h-0 flex-col p-5">
 			<div className="flex items-baseline gap-cluster">
 				{title}
 				<span className="font-data text-xs text-muted-foreground tabular-nums">
@@ -485,7 +485,7 @@ function MapBody({
 							onFocus={() => setFocusedId(entry.messageId)}
 							onClick={() => onSelect(entry.messageId)}
 							className={cn(
-								'flex min-h-[33px] w-full min-w-0 items-center gap-hairline rounded-md px-hairline text-left text-[13px] leading-[1.35] transition-colors duration-[var(--dur-fast)] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [@media(any-pointer:coarse)]:min-h-11',
+								'map-row flex min-h-[33px] w-full min-w-0 items-center rounded-md text-left text-[13px] leading-[1.35] transition-colors duration-[var(--dur-fast)] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [@media(any-pointer:coarse)]:min-h-11',
 								entry.unread && 'font-semibold',
 								selected && 'bg-list-selected hover:bg-list-selected',
 							)}
@@ -506,8 +506,8 @@ function MapBody({
 								<span
 									key={chip.key}
 									className={cn(
-										'inline-flex h-5 shrink-0 items-center rounded-full px-cluster text-[11px]',
-										chip.asks ? 'bg-signal-ask text-signal-ask-foreground' : 'bg-muted text-foreground/70',
+										'map-chip inline-flex h-5 shrink-0 items-center rounded-full text-[11px]',
+										chip.asks ? 'bg-signal-ask text-signal-ask-foreground' : 'bg-muted text-quiet-foreground',
 									)}
 								>
 									{chip.label}
@@ -527,7 +527,7 @@ function MapBody({
 				})}
 			</div>
 
-			<p className="m-0 pt-cluster text-xs leading-[1.5] text-muted-foreground">
+			<p className="map-footnote m-0 text-xs leading-[1.5] text-muted-foreground">
 				Opens from the dots beside the reader, or with{' '}
 				<kbd className="rounded-[3px] bg-muted px-control py-px font-data text-xs font-normal">g m</kbd>.
 				Clicking a row scrolls to it and opens it.

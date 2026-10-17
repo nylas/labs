@@ -58,7 +58,7 @@ export function DraftInThread({
 					</span>
 				) : null}
 			</div>
-			{preview ? <p className="m-0 truncate text-secondary-foreground">{preview}</p> : null}
+			{preview ? <p className="m-0 truncate text-note-foreground">{preview}</p> : null}
 			<div className="flex items-center gap-2">
 				<button type="button" onClick={onResume} className={EDGE_BUTTON_CLASS}>
 					Resume

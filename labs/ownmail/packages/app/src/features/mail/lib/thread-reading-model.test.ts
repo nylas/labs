@@ -592,10 +592,11 @@ describe('foldPlan', () => {
 		]
 		const folded = foldPlan(messages, { ...base, unreadIds: ['m11'] }).find((item) => item.kind === 'folded')
 		expect(folded).toMatchObject({ names: 'Alan, you, Katherine, Grace' })
+		// The stack ends with you, as board 03 draws it: AT, KJ, AL.
 		expect(folded?.kind === 'folded' && folded.avatars.map((p) => personName(p, 'first'))).toEqual([
 			'Alan',
-			'you',
 			'Katherine',
+			'you',
 		])
 	})
 

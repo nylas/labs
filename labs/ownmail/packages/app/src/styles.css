@@ -228,14 +228,153 @@
  * A message header in the thread reader is a 40px row with a fine pointer. On
  * narrow and touch-capable devices it keeps the 44px touch floor.
  */
-.message-header-row {
-	min-height: 2.5rem;
-}
-
+/*
+ * An open header is as tall as its avatar and actions (boards 01 and 03): its
+ * name, recipients and actions are targets of their own. A collapsed header
+ * opens from anywhere on it, so on a touch screen it is a full target.
+ */
 @media (max-width: 48rem), (any-pointer: coarse) {
-	.message-header-row {
+	[data-slot="message-header"][data-state="collapsed"] .message-header-row {
 		min-height: var(--touch-target-min);
 	}
+}
+
+/* A message's Reply, Forward and Quote: three 28px buttons in one bordered group, 2px apart (board 01). */
+.message-hover-actions {
+	gap: 2px;
+	padding: 2px;
+	border-radius: 8px;
+}
+
+/*
+ * The reader's own recipes, at the boards' measures where they fall between
+ * the spacing steps (design.md "Reading": one recipe per kind of thing).
+ */
+
+/* Icons in the reader and the list draw a 1.75 stroke, as every board does. */
+[data-testid="thread-reader"] svg.lucide,
+.thread-row svg.lucide,
+.thread-bundle svg.lucide {
+	stroke-width: 1.75;
+}
+
+/* The latest message closes the stream with less room below (board 01). */
+@media (min-width: 48rem) {
+	.reader-message[data-latest] {
+		padding-bottom: 16px;
+	}
+}
+
+/* A file under a message: 10px 12px around a 32 by 40 type tile with 4px corners. */
+.attachment-chip {
+	padding: 10px 12px;
+}
+
+.attachment-chip-tile {
+	border-radius: 4px;
+}
+
+/* The quiet file chip under an empty body (board 06, card 1). */
+.attachment-chip-compact {
+	gap: 6px;
+	padding: 0 10px;
+}
+
+/* "Quoted text and signature": the icon 6px from its words. */
+.quoted-pill {
+	gap: 6px;
+}
+
+/* Notices stand apart from the body under them, 10px from each other (board 05, step 3). */
+.message-notices {
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.message-notice {
+	gap: 10px;
+	padding: 12px 14px;
+}
+
+/* The details panel and the sender's card (board 05, steps 2 and 4). */
+.message-details {
+	gap: 14px;
+}
+
+.person-chip {
+	gap: 6px;
+	padding: 0 8px 0 3px;
+}
+
+.details-button {
+	padding: 0 10px;
+}
+
+.sender-card {
+	gap: 10px;
+	padding: 14px;
+}
+
+.sender-card-who {
+	gap: 10px;
+}
+
+.sender-card-actions {
+	gap: 6px;
+}
+
+/* The "{n} more new" pill: its arrow 6px from the words, 14px in from each end (board 03). */
+.jump-pill {
+	gap: 6px;
+	padding: 0 14px;
+}
+
+/* The long-thread tools (board 04): the catch-up and files cards, the map, their pills and rows. */
+.tool-card {
+	gap: 14px;
+}
+
+.tool-facts {
+	gap: 6px;
+}
+
+.tool-fact {
+	gap: 6px;
+	padding: 0 10px;
+}
+
+.tool-eyebrow {
+	gap: 6px;
+}
+
+.tool-summary {
+	padding-left: 18px;
+}
+
+.tool-button {
+	padding: 0 10px;
+}
+
+.map-card {
+	gap: 10px;
+}
+
+.map-row {
+	gap: 10px;
+	padding: 7px 10px;
+}
+
+.map-chip {
+	padding: 0 6px;
+}
+
+.map-footnote {
+	padding-top: 6px;
+}
+
+.file-tile {
+	gap: 10px;
+	padding: 10px;
 }
 
 /*
@@ -345,6 +484,13 @@
 	flex-wrap: wrap;
 	gap: 8px;
 	margin-top: 10px;
+}
+
+/* The phone thread screen (board 03) is the subject and the messages; labels stay in the list and on desktop. */
+@media (width < 48rem) {
+	.reader-labels {
+		display: none;
+	}
 }
 
 @media (min-width: 48rem) {
@@ -1700,8 +1846,13 @@
 	overflow: hidden;
 }
 
+/* A file or invite pill reads in the quiet text colour; a count pill (a bundle's) in the control colour. */
 .thread-signal-quiet {
-	color: color-mix(in oklch, var(--muted-foreground) 70%, var(--foreground));
+	color: var(--quiet-fg);
+}
+
+.thread-signal-count {
+	color: var(--control-fg);
 }
 
 /* The small outlined buttons inside a row: Accept, Decline, Edit and resend. */
@@ -1796,9 +1947,10 @@
 	}
 
 	/*
-	 * One line needs more room than the 22rem vertical-split list. The wider
-	 * list lives here, not in the layout classes, so a Condensed preference
-	 * changes nothing where Condensed rows do not apply.
+	 * One line needs more room than the 22.5rem (360px, board 01)
+	 * vertical-split list. The wider list lives here, not in the layout
+	 * classes, so a Condensed preference changes nothing where Condensed rows
+	 * do not apply.
 	 */
 	@media (min-width: 80rem) {
 		.mail-list-vertical[data-density="condensed"] {

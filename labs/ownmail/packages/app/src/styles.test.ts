@@ -113,17 +113,18 @@ describe('native mobile shell styles', () => {
 })
 
 describe('thread reader message header', () => {
-	it('is a 40px row with a fine pointer', () => {
-		expect(styles).toMatch(/\n\.message-header-row\s*\{\s*min-height: 2\.5rem;\s*\}/)
+	it('sizes an open header to its avatar and actions with a fine pointer, as board 01 does', () => {
+		expect(styles).not.toMatch(/\n\.message-header-row\s*\{\s*min-height/)
+		expect(styles).toMatch(
+			/\.message-hover-actions\s*\{\s*gap: 2px;\s*padding: 2px;\s*border-radius: 8px;\s*\}/,
+		)
 	})
 
-	it('keeps the 44px touch floor on narrow and touch-capable devices', () => {
+	it('keeps the 44px touch floor for a collapsed header on narrow and touch-capable devices', () => {
 		const touchRule =
-			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.message-header-row\s*\{\s*min-height: var\(--touch-target-min\);/
+			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\[data-slot="message-header"\]\[data-state="collapsed"\] \.message-header-row\s*\{\s*min-height: var\(--touch-target-min\);/
 		expect(styles).toMatch(touchRule)
 		expect(tokens).toContain('--touch-target-min: 2.75rem;')
-		// The touch override must follow the 40px base rule to win at equal specificity.
-		expect(styles.search(touchRule)).toBeGreaterThan(styles.indexOf('\n.message-header-row {'))
 	})
 })
 

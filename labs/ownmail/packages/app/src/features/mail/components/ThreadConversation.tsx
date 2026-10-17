@@ -74,6 +74,7 @@ import {
 import {
 	attachmentDetails,
 	CATCH_UP_MIN_MESSAGES,
+	conversationMessages,
 	hashTarget,
 	isLookalikeSender,
 	isTrashed,
@@ -140,8 +141,10 @@ export const THREAD_MAP_DOCK_ID = 'thread-map-dock'
 const TOOLBAR_ACTIONS_QUERY = '(min-width: 48rem)'
 /** Below `md` the reader is the phone thread screen. */
 const PHONE_QUERY = '(max-width: 47.999rem)'
-/** The narrowest pane the thread map docks in: its 380px panel beside a reading column. */
+/** The narrowest pane whose stream keeps clear of the docked map: its 380px panel beside a reading column. */
 const MAP_DOCK_MIN_PANE = 1088
+/** From `xl` the thread map is a glass panel docked at the pane's right; below it, a sheet. */
+const MAP_DOCKED_QUERY = '(min-width: 80rem)'
 /** `g` then `m` within this long opens the thread map. */
 const CHORD_TIMEOUT_MS = 1000
 /** The thread map panel; below `xl` it is a sheet (a dialog) that `g m` also closes. */
@@ -187,10 +190,6 @@ function visibleBottom(viewport: HTMLElement): number {
 		(Number.parseFloat(getComputedStyle(viewport).paddingBottom) || 0)
 	)
 }
-
-/** Whether an element is laid out on screen (not inside a `display: none` pane). */
-const isShown = (element: Element): boolean =>
-	element.checkVisibility?.() ?? element.getClientRects().length > 0
 
 /** The message a stream row holds, from its `message-<id>` anchor. */
 const ANCHOR_PREFIX = 'message-'
@@ -569,7 +568,8 @@ function ThreadConversationContent({
 	const visible = useMemo(() => streamMessages(messages, showTrashed), [messages, showTrashed])
 	const visibleIds = useMemo(() => new Set(visible.map((message) => message.id)), [visible])
 	const drafts = useMemo(() => placeDrafts(messages, visibleIds), [messages, visibleIds])
-	const people = useMemo(() => threadParticipants(visible, owner), [visible, owner])
+	// A bounce's mail server is not one of the people in the conversation.
+	const people = useMemo(() => threadParticipants(conversationMessages(visible), owner), [visible, owner])
 	const ownerFirstName = useMemo(() => {
 		const self = people.find((person) => person.isOwner)
 		return self?.name ? firstName(self) : ''
@@ -787,8 +787,8 @@ function ThreadConversationContent({
 		}
 	}, [])
 
-	// The thread opens where the reader left off: a draft of theirs first, else
-	// the "new since" divider, when it is not already in view.
+	// The thread opens where the reader left off: at a draft of theirs, wholly
+	// in view, else at the "new since" divider when it is low on the first screen.
 	const opened = ui.opened
 	useEffect(() => {
 		if (opened.current.place || conversation || !preferencesReady || !clock) return
@@ -801,7 +801,16 @@ function ThreadConversationContent({
 			: root.querySelector<HTMLElement>('[data-slot="new-since-divider"]')
 		const viewport = scrollParent(root)
 		if (!element || !viewport || viewport.scrollTop > 0) return
-		const top = element.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+		const box = element.getBoundingClientRect()
+		if (draft) {
+			// A draft is in view only with its Resume and Discard clear of the reply card pinned over the stream's foot.
+			const dock = root.querySelector('.reader-reply-dock')
+			const dockTop = dock && dock.getClientRects().length > 0 ? dock.getBoundingClientRect().top : Infinity
+			if (box.bottom > Math.min(visibleBottom(viewport), dockTop))
+				element.scrollIntoView?.({ block: 'center' })
+			return
+		}
+		const top = box.top - viewport.getBoundingClientRect().top
 		if (top > viewport.clientHeight * 0.6) element.scrollIntoView?.({ block: 'start' })
 	}, [opened, conversation, preferencesReady, clock, drafts])
 
@@ -833,19 +842,26 @@ function ThreadConversationContent({
 			}
 			chordAt = 0
 			if (dialogs.length > 0) return
+			// Escape closes the docked map (a sheet closes itself), wherever focus
+			// is in the reader, and leaves the thread open.
+			if (key === 'Escape') {
+				if (!mapOpen) return
+				event.preventDefault()
+				event.stopImmediatePropagation()
+				setMapOpen(false)
+				return
+			}
 			const root = rootRef.current
-			// The reader's own keys act when focus is in it, or on nothing at all.
+			// The reader's own keys act when focus is in it, or on nothing at all:
+			// beside a list, j / k on a focused row stay the list's, and with nothing
+			// focused they step the open thread's messages (board 01's stepper).
 			const inReader =
 				root !== null &&
 				(event.target === document.body ||
 					(event.target instanceof Node &&
 						root.closest('[data-testid="thread-reader"]')?.contains(event.target)) ||
 					(event.target instanceof Node && root.contains(event.target)))
-			const focusInList = target?.closest('[data-nav-row]') != null
-			// Beside a list on screen, j / k with nothing focused (or a row focused)
-			// stay the list's. A list the layout hides is not beside the reader.
-			const listBeside = [...document.querySelectorAll('[data-nav-row]')].some(isShown)
-			if (!inReader || (listBeside && (focusInList || event.target === document.body))) return
+			if (!inReader) return
 			if (key === 'j' || key === 'k') {
 				event.preventDefault()
 				event.stopImmediatePropagation()
@@ -854,7 +870,7 @@ function ThreadConversationContent({
 		}
 		window.addEventListener('keydown', onKeyDown, true)
 		return () => window.removeEventListener('keydown', onKeyDown, true)
-	}, [conversation, multiple, step, setMapOpen])
+	}, [conversation, multiple, step, mapOpen, setMapOpen])
 
 	// ---- New messages below the fold (phone) ---------------------------------
 	const [belowCount, setBelowCount] = useState(0)
@@ -1208,9 +1224,11 @@ function ThreadConversationContent({
 			!senderPerson(entry.message, owner).isOwner &&
 			mailingList(entry.message, headerFacts?.byMessage[entry.message.id], owner) !== null,
 	)?.key
-	// The map docks beside the stream only where the pane has room for both;
-	// a narrower pane opens it as a sheet over the stream instead.
-	const mapDocked = useWidthAtLeast(slots?.mapDock, MAP_DOCK_MIN_PANE)
+	// From xl the map docks at the pane's right (board 04), a sheet below. The
+	// stream moves aside for it only where the pane has room for both; in a
+	// narrower pane the panel sits over the stream's right side, as a popover would.
+	const mapDocked = useMediaQuery(MAP_DOCKED_QUERY)
+	const mapRoomy = useWidthAtLeast(slots?.mapDock, MAP_DOCK_MIN_PANE) === true
 	const virtual = visible.length > VIRTUALIZE_AFTER
 	const renderEntry = (entry: StreamEntry): ReactNode => {
 		switch (entry.kind) {
@@ -1225,6 +1243,7 @@ function ThreadConversationContent({
 						{...(headerFacts?.byMessage[entry.message.id]
 							? { facts: headerFacts.byMessage[entry.message.id] }
 							: {})}
+						{...(headerFacts?.listSizes ? { listSizes: headerFacts.listSizes } : {})}
 						knownSenders={allKnownSenders}
 						lookalike={lookalikes.has(entry.message.id)}
 						muted={muted}
@@ -1236,6 +1255,7 @@ function ThreadConversationContent({
 						display={displays.get(entry.message.id) as OpenMessageDisplay}
 						actions={actions}
 						current={entry.message.id === currentId}
+						latest={entry.message.id === latest?.id}
 					/>
 				)
 			case 'line':
@@ -1258,7 +1278,7 @@ function ThreadConversationContent({
 			case 'divider':
 				return (
 					<ThreadColumn>
-						<NewSinceDivider label={entry.label} />
+						<NewSinceDivider label={entry.label} since={divider?.since} />
 					</ThreadColumn>
 				)
 			case 'catch-up':
@@ -1298,7 +1318,11 @@ function ThreadConversationContent({
 				)
 			case 'draft': {
 				const to = entry.message.to?.[0]
-				const replyToFirstName = to ? firstName(toPerson(to, owner)) : undefined
+				// A draft saved with an address only takes the name the thread knows that person by.
+				const known = allKnownSenders.find(
+					(person) => person.name && person.email.toLowerCase() === to?.email?.trim().toLowerCase(),
+				)
+				const replyToFirstName = to ? firstName(known ?? toPerson(to, owner)) : undefined
 				return (
 					<ThreadColumn>
 						<div data-draft-id={entry.message.id} className="reader-draft">
@@ -1320,7 +1344,7 @@ function ThreadConversationContent({
 			ref={rootRef}
 			data-slot="thread-conversation"
 			// The docked map takes the pane's right side; the stream keeps clear of it.
-			data-map-docked={(mapOpen && mapDocked && !conversation) || undefined}
+			data-map-docked={(mapOpen && mapDocked && mapRoomy && !conversation) || undefined}
 			className={conversation ? 'flex min-h-full flex-col bg-background' : 'reader min-h-full bg-background'}
 		>
 			{toolbarPortals}
@@ -1458,7 +1482,7 @@ function ThreadConversationContent({
 							onSelect={goTo}
 							onClose={() => setMapOpen(false)}
 							namesYouIds={namesYouIds}
-							{...(mapDocked !== undefined ? { docked: mapDocked } : {})}
+							docked={mapDocked}
 						/>,
 						slots.mapDock,
 					)

@@ -547,6 +547,16 @@ describe('getThreadHeaderFacts', () => {
 		expect(serialized).not.toContain('Private Name')
 	})
 
+	it('says how many people a list reaches only in the mock app', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValue({ data: [{ id: 'm1', from: [{ email: 'a@b.co' }], headers: [] }] })
+		expect((await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).listSizes).toBeUndefined()
+		usingDevMocksMock.mockResolvedValue(true)
+		expect((await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).listSizes).toEqual({
+			'pm-leads@vercel.com': 12,
+		})
+	})
+
 	it('answers "no facts" when the lookup fails or returns something unexpected', async () => {
 		resolveMailbox()
 		mailbox.listMessages.mockRejectedValue(new NylasApiError('fields is not supported', 400))

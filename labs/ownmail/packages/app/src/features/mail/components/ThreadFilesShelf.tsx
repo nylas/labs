@@ -284,7 +284,7 @@ export function ThreadFilesShelf({
 		<section
 			aria-labelledby={headingId}
 			data-slot="thread-files-shelf"
-			className="flex flex-col gap-hairline rounded-[0.75rem] border border-border bg-card p-5 text-card-foreground"
+			className="tool-card flex flex-col rounded-[0.75rem] border border-border bg-card p-5 text-card-foreground"
 		>
 			<div className="flex flex-wrap items-baseline gap-cluster">
 				<h2 id={headingId} className="m-0 min-w-0 flex-1 text-base font-semibold">
@@ -297,7 +297,7 @@ export function ThreadFilesShelf({
 				<button
 					type="button"
 					onClick={onDownloadAll}
-					className="inline-flex h-7 items-center gap-control self-center rounded-md px-hairline text-xs font-medium text-foreground/70 transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-3.5"
+					className="tool-button inline-flex h-7 items-center gap-control self-center rounded-md text-xs font-medium text-quiet-foreground transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-3.5"
 				>
 					<Download aria-hidden="true" />
 					Download all
@@ -315,7 +315,7 @@ export function ThreadFilesShelf({
 					return (
 						<li
 							key={`${file.messageId}|${file.attachmentId}`}
-							className="relative flex min-w-0 items-center gap-hairline rounded-md border border-border p-hairline transition-colors duration-[var(--dur-fast)] hover:bg-muted/60 has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-ring"
+							className="file-tile relative flex min-w-0 items-center rounded-md border border-border transition-colors duration-[var(--dur-fast)] hover:bg-muted/60 has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-ring"
 						>
 							<FileTypeTile file={file} />
 							<div className="min-w-0 flex-1">

@@ -146,7 +146,7 @@ export function MessageHeader({
 		</time>
 	) : null
 
-	const headingClass = 'text-[15px] leading-snug font-semibold text-foreground'
+	const headingClass = 'text-[15px] leading-snug font-semibold tracking-normal text-foreground'
 	// The card sits beside the heading, not in it, so the heading names only the sender.
 	const nameElement =
 		sender.isOwner || !expanded ? (
@@ -251,7 +251,7 @@ export function MessageHeader({
 								role="group"
 								aria-label="Message actions"
 								data-slot="message-hover-actions"
-								className="hidden shrink-0 items-center gap-px rounded-lg border border-border bg-card p-px md:inline-flex md:opacity-0 md:group-focus-within/header:opacity-100 md:group-hover/header:opacity-100 [@media(hover:none)]:md:opacity-100"
+								className="message-hover-actions hidden shrink-0 items-center border border-border bg-card md:inline-flex md:opacity-0 md:group-focus-within/header:opacity-100 md:group-hover/header:opacity-100 [@media(hover:none)]:md:opacity-100"
 							>
 								<HeaderAction label={`Reply to ${firstName(sender)}`} onClick={actions.onReply}>
 									<Reply className="size-3.5" aria-hidden="true" />

@@ -41,6 +41,8 @@ describe('ThreadBundleRow', () => {
 			'Newsletters, 4 conversations: The Dispatch, Lenny’s, Stratechery, Figma',
 		)
 		expect(screen.getByText('Newsletters')).toHaveClass('font-semibold')
+		// The count pill reads in the control colour, a step darker than a file pill.
+		expect(screen.getByText('4')).toHaveClass('thread-signal-count')
 		expect(container.querySelector('[data-bundle="newsletter"] svg.lucide-newspaper')).not.toBeNull()
 		fireEvent.click(row)
 		expect(onToggle).toHaveBeenCalledWith('bundle:This week:newsletter')

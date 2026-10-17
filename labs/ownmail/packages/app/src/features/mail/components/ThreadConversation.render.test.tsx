@@ -497,7 +497,9 @@ describe('ThreadConversation rendering', () => {
 			child.getAttribute('data-slot') === 'stream-rule' ? 'rule' : child.getAttribute('data-kind'),
 		)
 		expect(sequence).toEqual(['rule', 'line', 'rule', 'line', 'divider', 'open', 'rule', 'open'])
-		expect(screen.getByRole('separator', { name: /^2 new since / })).toBeInTheDocument()
+		expect(
+			screen.getByRole('separator', { name: /^New since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+		).toBeInTheDocument()
 		// The subject and the stream fade on navigation; nothing nests a second fade.
 		const fades = container.querySelectorAll('[data-navigation-content]')
 		expect(fades).toHaveLength(2)
@@ -623,7 +625,9 @@ describe('folding a long thread', () => {
 			<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />,
 		)
 		expect(states()).toEqual(['Message from Grace Hopper', 'Message from Alan Turing'])
-		const divider = screen.getByRole('separator', { name: /^2 new since / })
+		const divider = screen.getByRole('separator', {
+			name: /^New since you last read, (?:yesterday|[A-Z][a-z]+day)$/,
+		})
 		// The label is drawn between two neutral lines and announced on the separator itself.
 		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent(
 			/^2 new since (?:yesterday|[A-Z][a-z]+day)$/,
@@ -634,7 +638,9 @@ describe('folding a long thread', () => {
 		rendered.rerender(
 			<ThreadConversation thread={thread('t1')} messages={read} mailboxEmail="ada@ownmail.com" />,
 		)
-		expect(screen.getByRole('separator', { name: /^2 new since / })).toBeInTheDocument()
+		expect(
+			screen.getByRole('separator', { name: /^New since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+		).toBeInTheDocument()
 	})
 
 	it('shows no divider when every message is new', () => {
@@ -849,6 +855,68 @@ describe('opening a thread', () => {
 		expect(scrolled).not.toHaveBeenCalled()
 	})
 
+	it('scrolls a draft out from under the pinned reply card, and leaves one in clear view', () => {
+		stubLayout({ 'draft-d1': 420, 'reply-dock': 440 })
+		const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+		const draft = { ...message('d1'), ownmailDraft: true as const, from: [ADA], to: undefined, date: NOW }
+		const dock = () => (
+			<div
+				data-slot="reply-dock"
+				className="reader-reply-dock"
+				ref={(node) => {
+					if (node) node.getClientRects = () => [{}] as unknown as DOMRectList
+				}}
+			/>
+		)
+		const { unmount } = render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t1')}
+					messages={[...longThread(4, 1), draft]}
+					mailboxEmail="ada@ownmail.com"
+				>
+					{dock()}
+				</ThreadConversation>,
+			),
+		)
+		// Its foot (460) is under the card's top (440), though above the viewport's bottom.
+		expect(scrolled.mock.contexts[0]).toHaveAttribute('id', 'draft-d1')
+		expect(scrolled).toHaveBeenCalledWith({ block: 'center' })
+		unmount()
+		scrolled.mockClear()
+		stubLayout({ 'draft-d1': 100, 'reply-dock': 440 })
+		render(
+			inViewport(
+				<ThreadConversation
+					thread={thread('t2')}
+					messages={[...longThread(4, 1), draft]}
+					mailboxEmail="ada@ownmail.com"
+				>
+					{dock()}
+				</ThreadConversation>,
+			),
+		)
+		expect(scrolled).not.toHaveBeenCalled()
+	})
+
+	it('names a draft saved with an address only by the name the thread knows', () => {
+		const draft = {
+			...message('d1'),
+			ownmailDraft: true as const,
+			from: [ADA],
+			to: [{ email: 'GRACE@example.com' }],
+			date: NOW,
+		}
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[...longThread(3), draft]}
+				mailboxEmail="ada@ownmail.com"
+			/>,
+		)
+		expect(screen.getByRole('region', { name: 'Your draft reply to Grace' })).toBeInTheDocument()
+	})
+
 	it('keeps the place a reader had already scrolled to', () => {
 		stubLayout({ 'new-since-divider': 800 })
 		vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockReturnValue(120)
@@ -1044,28 +1112,21 @@ describe('moving through a thread', () => {
 		input.remove()
 	})
 
-	it('leaves j and k to a list beside the reader while the list has focus', () => {
+	it('leaves j and k to a list row that has focus, and steps messages with nothing focused', () => {
 		const row = document.createElement('button')
 		row.setAttribute('data-nav-row', '')
-		// jsdom lays nothing out: the list is on screen until the test hides it.
-		let listShown = true
-		row.checkVisibility = () => listShown
 		document.body.append(row)
 		render(
 			<ThreadConversation thread={thread('t1')} messages={longThread(4, 1)} mailboxEmail="ada@ownmail.com" />,
 		)
 		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
 		fireEvent.keyDown(row, { key: 'k' })
-		fireEvent.keyDown(document.body, { key: 'k' })
 		expect(position()).toBe('4 of 4')
-		fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'k' })
-		expect(position()).toBe('3 of 4')
-		// A list the layout hides (below xl, or with the reading pane off) is not beside the reader.
-		listShown = false
+		// Board 01: with the thread open and nothing focused, j / k step its messages.
 		fireEvent.keyDown(document.body, { key: 'k' })
+		expect(position()).toBe('3 of 4')
+		fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'k' })
 		expect(position()).toBe('2 of 4')
-		// Without checkVisibility, a list with no boxes is hidden too.
-		;(row as { checkVisibility?: unknown }).checkVisibility = undefined
 		fireEvent.keyDown(document.body, { key: 'j' })
 		expect(position()).toBe('3 of 4')
 		row.remove()
@@ -1115,21 +1176,22 @@ describe('moving through a thread', () => {
 		expect(position()).toBe('1 of 3')
 	})
 
-	it('docks the map beside the stream only where the pane has room for both', () => {
+	it('docks the map from xl, moving the stream aside only where the pane has room for both', () => {
 		const dock = document.createElement('div')
 		dock.id = THREAD_MAP_DOCK_ID
 		document.body.append(dock)
 		let width = 1288
 		dock.getBoundingClientRect = () => ({ width }) as DOMRect
+		let xl = true
 		vi.stubGlobal(
 			'matchMedia',
 			vi.fn((query: string) => ({
-				matches: !query.includes('max-width'),
+				matches: query.includes('80rem') ? xl : !query.includes('max-width'),
 				addEventListener: () => {},
 				removeEventListener: () => {},
 			})),
 		)
-		const { container } = render(
+		const { container, unmount } = render(
 			<ThreadConversation thread={thread('t1')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
 		)
 		const root = container.querySelector('[data-slot="thread-conversation"]') as HTMLElement
@@ -1139,13 +1201,23 @@ describe('moving through a thread', () => {
 		// A wide pane: the panel docks and the stream keeps clear of it.
 		expect(within(dock).getByRole('complementary', { name: 'Thread map' })).toBeInTheDocument()
 		expect(root).toHaveAttribute('data-map-docked', 'true')
-		// A split view at 1440: the pane is too narrow for both, so the map is a sheet over the stream.
+		// A split view at 1440 (a 808px pane): still the docked glass panel, over the stream's right side.
 		width = 808
 		act(() => {
 			window.dispatchEvent(new Event('resize'))
 		})
-		expect(screen.getByRole('dialog')).toHaveAttribute('data-slot', 'thread-map-panel')
+		expect(within(dock).getByRole('complementary', { name: 'Thread map' })).toBeInTheDocument()
+		expect(screen.queryByRole('dialog')).toBeNull()
 		expect(root).not.toHaveAttribute('data-map-docked')
+		unmount()
+		// Below xl the map is a sheet over the stream.
+		xl = false
+		render(
+			<ThreadConversation thread={thread('t2')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		expect(screen.getByRole('dialog')).toHaveAttribute('data-slot', 'thread-map-panel')
 		dock.remove()
 	})
 
@@ -1190,7 +1262,22 @@ describe('moving through a thread', () => {
 			'aria-label',
 			'Message from Alan Turing',
 		)
-		fireEvent.click(within(panel).getByRole('button', { name: 'Close thread map' }))
+		// Focus has moved to that message: Escape closes the docked map, and only the map.
+		const closing = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+		act(() => {
+			document.getElementById('message-m5')?.dispatchEvent(closing)
+		})
+		expect(closing.defaultPrevented).toBe(true)
+		expect(mapPanel()).toBeNull()
+		// With the map closed, Escape is left to the route.
+		const spare = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+		document.body.dispatchEvent(spare)
+		expect(spare.defaultPrevented).toBe(false)
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		fireEvent.click(
+			within(dock.querySelector('aside') as HTMLElement).getByRole('button', { name: 'Close thread map' }),
+		)
 		expect(mapPanel()).toBeNull()
 
 		fireEvent.click(within(dots).getByRole('button', { name: /^Open thread map/ }))
@@ -1434,6 +1521,23 @@ describe('what the reader keeps', () => {
 })
 
 describe('message actions', () => {
+	it('counts a list’s members in the details panel when the header facts know them', () => {
+		const list = { email: 'pm-leads@vercel.com' }
+		const messages = [{ ...longThread(1)[0], cc: [list] } as MailMessage]
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={messages}
+				mailboxEmail="ada@ownmail.com"
+				headerFacts={{ byMessage: {}, listSizes: { 'pm-leads@vercel.com': 12 } }}
+			/>,
+		)
+		fireEvent.click(screen.getByRole('button', { name: /^to / }))
+		expect(document.querySelector('[data-slot="message-details"]')).toHaveTextContent(
+			'pm-leads@ · 12 members',
+		)
+	})
+
 	it('replies to, forwards and quotes the message whose header they are on', () => {
 		const messages = longThread(3)
 		render(<ThreadConversation thread={thread('t1')} messages={messages} mailboxEmail="ada@ownmail.com" />)

@@ -73,10 +73,11 @@ export function FoldedMessagesRow({
 }
 
 /** "3 new since Tuesday": where the reader stopped, between two neutral lines. */
-export function NewSinceDivider({ label }: { label: string }) {
+export function NewSinceDivider({ label, since }: { label: string; since?: string | null }) {
 	return (
 		<div data-slot="new-since-divider" className="reader-divider">
-			<hr aria-label={label} className="reader-divider-line" />
+			{/* The separator names the place (board 01), not the count the label already shows. */}
+			<hr aria-label={since ? `New since you last read, ${since}` : label} className="reader-divider-line" />
 			<span aria-hidden="true" className="reader-divider-label">
 				<span className="reader-divider-dot" />
 				{label}

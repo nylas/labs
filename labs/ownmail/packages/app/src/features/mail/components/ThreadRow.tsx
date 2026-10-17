@@ -205,7 +205,7 @@ export function ThreadSignal({
 	tone,
 	children,
 }: {
-	tone: 'new' | 'ask' | 'file' | 'invite'
+	tone: 'new' | 'ask' | 'file' | 'invite' | 'failed'
 	children: ReactNode
 }) {
 	return (
@@ -216,6 +216,7 @@ export function ThreadSignal({
 				tone === 'new' && 'bg-primary font-data text-primary-foreground tabular-nums',
 				tone === 'ask' && 'bg-signal-ask text-signal-ask-foreground',
 				(tone === 'file' || tone === 'invite') && 'thread-signal-quiet bg-muted',
+				tone === 'failed' && 'bg-danger-soft text-danger-soft-foreground',
 			)}
 		>
 			{children}
@@ -465,7 +466,13 @@ export function ThreadRowContent({
 					) : undefined
 				}
 				collapsedSignal={
-					facts.invite && !muted && facts.state === 'normal' ? (
+					// One or two lines keep what the detail line says as a pill, never as colour alone.
+					facts.state === 'failed' ? (
+						<ThreadSignal tone="failed">
+							<AlertTriangle aria-hidden="true" className="h-3 w-3" />
+							Not sent
+						</ThreadSignal>
+					) : facts.invite && !muted && facts.state === 'normal' ? (
 						<ThreadSignal tone="invite">
 							<Calendar aria-hidden="true" className="h-3 w-3" />
 							Invite

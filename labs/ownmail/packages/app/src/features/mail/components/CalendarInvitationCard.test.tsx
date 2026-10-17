@@ -3,7 +3,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { calendarKeys } from '#features/calendar/state/calendar-keys'
 import type { MailMessage } from '../state/mail-queries'
 
 const { addCalendarInvitation, getCalendarInvitation, respondCalendarInvitation } = vi.hoisted(() => ({
@@ -47,6 +49,25 @@ function renderCard(value: MailMessage = message) {
 }
 
 describe('CalendarInvitationCard', () => {
+	it('renders its loading state on the server even when the invitation is already known, so hydration matches', () => {
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.invitation('message-1', 'attachment-1'), {
+			state: 'ready',
+			title: 'Planning review',
+			organizer: 'Grace Hopper',
+			when: { kind: 'timed', start: 1_817_823_600, end: 1_817_827_200 },
+			status: 'noreply',
+			conflicts: { state: 'clear' },
+		})
+		const html = renderToString(
+			<QueryClientProvider client={queryClient}>
+				<CalendarInvitationCard message={message} />
+			</QueryClientProvider>,
+		)
+		expect(html).toContain('Loading calendar invitation')
+		expect(html).not.toContain('Planning review')
+	})
+
 	beforeEach(() => {
 		addCalendarInvitation.mockReset().mockResolvedValue({
 			state: 'ready',

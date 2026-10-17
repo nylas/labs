@@ -2,11 +2,21 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MailMessage } from '../state/mail-queries.js'
-import { MissingMessagesRow, OneLineMessageRow } from './ThreadStreamRows.js'
+import { MissingMessagesRow, NewSinceDivider, OneLineMessageRow } from './ThreadStreamRows.js'
 
 afterEach(cleanup)
 
 const GRACE = { name: 'Grace Hopper', email: 'grace@example.com' }
+
+describe('NewSinceDivider', () => {
+	it('is a separator named for where you left off, or for its count until the day is known', () => {
+		const { rerender } = render(<NewSinceDivider label="3 new since Tuesday" since="Tuesday" />)
+		const divider = screen.getByRole('separator', { name: 'New since you last read, Tuesday' })
+		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent('3 new since Tuesday')
+		rerender(<NewSinceDivider label="3 new" since={null} />)
+		expect(screen.getByRole('separator', { name: '3 new' })).toBeInTheDocument()
+	})
+})
 
 describe('OneLineMessageRow', () => {
 	it('says a message shown from Trash is in Trash', () => {

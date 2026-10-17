@@ -22,7 +22,15 @@ export type MessageHeaderFacts = {
 	dateOffsetMinutes?: number
 }
 
-export type ThreadHeaderFacts = { byMessage: Record<string, MessageHeaderFacts> }
+export type ThreadHeaderFacts = {
+	byMessage: Record<string, MessageHeaderFacts>
+	/**
+	 * Member counts of the mailing lists on the thread, keyed by lower-case
+	 * address, where the mailbox knows them ("pm-leads@ · 12"). No provider
+	 * reports a list's size in its headers, so only the local mock app has any.
+	 */
+	listSizes?: Record<string, number>
+}
 
 /** A header in its original position; `unusable` when its value cannot be read (empty or over-long). */
 type HeaderPair = { name: string; value: string; unusable?: true }

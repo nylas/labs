@@ -260,11 +260,21 @@ function rowFactsOf(
 	const snippet = readableSnippet(thread.snippet ?? latest?.snippet)
 	const participants = thread.participants ?? []
 	const messageCount = thread.message_ids?.length ?? 0
+	// A draft or a send saved with an address only takes the name the thread knows it by.
+	const recipientLabel = (person: Participant | undefined): string =>
+		personLabel(
+			person?.name?.trim()
+				? person
+				: (participants.find(
+						(participant) =>
+							participant.name?.trim() && addressKey(participant.email) === addressKey(person?.email),
+					) ?? person),
+		)
 
 	if (latest && isDraftLatest(thread)) {
 		return {
 			state: 'draft',
-			who: { kind: 'draft', to: personLabel(latest.to?.[0]) || '(no recipient)' },
+			who: { kind: 'draft', to: recipientLabel(latest.to?.[0]) || '(no recipient)' },
 			subject: latest.subject || subject,
 			snippet: readableSnippet(latest.snippet ?? thread.snippet),
 			unread: false,
@@ -296,7 +306,7 @@ function rowFactsOf(
 		)
 		return {
 			state: 'failed',
-			who: { kind: 'to', name: personLabel(recipient) || 'Unknown recipient' },
+			who: { kind: 'to', name: recipientLabel(recipient) || 'Unknown recipient' },
 			subject,
 			snippet: 'Not sent. The address bounced.',
 			unread: false,
@@ -308,7 +318,7 @@ function rowFactsOf(
 	if (latest && sendAt !== undefined) {
 		return {
 			state: 'scheduled',
-			who: { kind: 'to', name: personLabel(latest.to?.[0]) || '(no recipient)' },
+			who: { kind: 'to', name: recipientLabel(latest.to?.[0]) || '(no recipient)' },
 			subject: latest.subject || subject,
 			snippet,
 			unread: false,

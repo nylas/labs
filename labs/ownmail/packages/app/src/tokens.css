@@ -322,6 +322,8 @@
  * - `--control-fg`: the reader's quiet controls: its icon buttons (toolbar,
  *   stepper, a message's hover actions) and a folded run's count, a step
  *   stronger than muted text.
+ * - `--note-fg`: the text of a neutral note in the stream (a removed person, a
+ *   mailing list) and of a draft's preview: between body text and muted.
  * - `--reader-reply-shadow`: the soft shadow under the pinned reply card.
  * Text on each ground keeps 4.5:1 in both themes. */
 @theme inline {
@@ -356,6 +358,7 @@
 	--color-danger-soft-foreground: var(--danger-soft-fg);
 	--color-quiet-foreground: var(--quiet-fg);
 	--color-control-foreground: var(--control-fg);
+	--color-note-foreground: var(--note-fg);
 	--shadow-reader-reply: var(--reader-reply-shadow);
 }
 
@@ -391,6 +394,7 @@
 	--danger-soft-fg: oklch(0.48 0.17 25);
 	--quiet-fg: oklch(0.4 0.01 165);
 	--control-fg: oklch(0.35 0.01 165);
+	--note-fg: oklch(0.3 0.01 165);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
@@ -426,5 +430,6 @@
 	--danger-soft-fg: oklch(0.82 0.1 25);
 	--quiet-fg: oklch(0.82 0.008 155);
 	--control-fg: oklch(0.86 0.006 155);
+	--note-fg: oklch(0.88 0.006 155);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
 }

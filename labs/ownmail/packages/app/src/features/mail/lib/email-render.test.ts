@@ -258,6 +258,7 @@ describe('shadowStyleText', () => {
 		const css = shadowStyleText()
 		expect(css).toContain(':host([data-email-prose]) .email-root :where(p){margin:0 0 12px;}')
 		expect(css).toContain(':host([data-email-prose]) .email-root :where(p:last-child){margin-bottom:0;}')
+		expect(css).toContain(':host([data-email-prose]) .email-root :where(strong, b){font-weight:600;}')
 	})
 
 	it('sets the 16px / 1.6 reading baseline on the host as an overridable default', () => {

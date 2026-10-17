@@ -424,7 +424,7 @@ describe('/mail/search results list', () => {
 		// No conversation selected -> the reader shows the empty prompt.
 		expect(screen.getByText('Select a conversation')).toBeTruthy()
 		const listPane = screen.getByRole('heading', { level: 1 }).closest('section')
-		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).toHaveClass('flex', 'xl:w-[22.5rem]', 'xl:flex-none')
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByText('Select a conversation').closest('div.hidden')).toHaveClass('xl:flex')
 	})
@@ -977,12 +977,14 @@ describe('/mail/search thread detail', () => {
 			],
 			ownmailDraftMessageIds: ['d-1'],
 		})
-		fns.deleteDraft.mockResolvedValueOnce({ removedDraftId: 'd-1' }).mockRejectedValueOnce(new Error('x'))
+		fns.deleteDraft.mockRejectedValueOnce(new Error('x')).mockResolvedValueOnce({ removedDraftId: 'd-1' })
 		renderRoute()
 		await userEvent.click(await screen.findByRole('button', { name: 'Discard' }))
-		await waitFor(() => expect(fns.deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd-1' } }))
-		await userEvent.click(screen.getByRole('button', { name: 'Discard' }))
 		expect(await screen.findByText('Could not discard the draft')).toBeInTheDocument()
+		// It is still there to try again; once discarded it leaves the thread.
+		await userEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+		await waitFor(() => expect(fns.deleteDraft).toHaveBeenLastCalledWith({ data: { draftId: 'd-1' } }))
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull())
 	})
 
 	it('lets search results follow the chosen list density', async () => {

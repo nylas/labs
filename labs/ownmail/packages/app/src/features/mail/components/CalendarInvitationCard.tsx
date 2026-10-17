@@ -8,6 +8,7 @@ import type {
 	InvitationWhen,
 } from '#features/calendar/server/calendar-invitation-fns'
 import { calendarKeys } from '#features/calendar/state/calendar-keys'
+import { useMounted } from '#shared/components/ClientTime'
 import { cn } from '#shared/lib/utils'
 import { clockTime, viewerZone } from '../lib/edge-states.js'
 import { shortDayLabel } from '../lib/thread-reading-model.js'
@@ -141,7 +142,10 @@ function CalendarInvitationContent({
 		},
 	})
 
-	if (invitation.isPending) {
+	// The server never has the invitation, and a lookup it started may reach the
+	// browser before hydration: the first browser render matches the server's.
+	const mounted = useMounted()
+	if (invitation.isPending || !mounted) {
 		return (
 			<section
 				data-slot="calendar-invitation"

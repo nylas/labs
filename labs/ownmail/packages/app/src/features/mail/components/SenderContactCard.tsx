@@ -13,7 +13,7 @@ const OPEN_DELAY_MS = 350
 const CLOSE_DELAY_MS = 200
 
 const cardButtonClass =
-	'touch-target inline-flex h-7 items-center rounded-md px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60'
+	'details-button touch-target inline-flex h-7 items-center rounded-md text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60'
 
 /** "Principal Engineer, Bletchley" → a job title and a company for the contact. */
 function titleFields(title: string | undefined): { jobTitle?: string; companyName?: string } {
@@ -171,11 +171,11 @@ function ContactCard({ id, message, suspicious }: { id: string; message: MailMes
 			aria-label={name}
 			data-slot="sender-contact-card"
 			className={cn(
-				'absolute top-full left-0 z-30 mt-2 flex w-[260px] flex-col gap-3 p-4 text-left',
+				'sender-card absolute top-full left-0 z-30 mt-2 flex w-[260px] flex-col text-left',
 				GLASS_PANEL_CLASS,
 			)}
 		>
-			<span className="flex items-center gap-3">
+			<span className="sender-card-who flex items-center">
 				<Avatar person={sender} size={40} />
 				<span className="block min-w-0">
 					<span className="block truncate text-sm font-semibold text-foreground">{name}</span>
@@ -186,7 +186,7 @@ function ContactCard({ id, message, suspicious }: { id: string; message: MailMes
 					) : null}
 				</span>
 			</span>
-			<span className="block font-data text-xs font-normal leading-[1.7] tabular-nums text-foreground/75">
+			<span className="block font-data text-xs font-normal leading-[1.7] tabular-nums text-control-foreground">
 				{email ? <span className="block [overflow-wrap:anywhere]">{email}</span> : null}
 				{signature?.phone ? <span className="block">{signature.phone}</span> : null}
 			</span>
@@ -198,7 +198,7 @@ function ContactCard({ id, message, suspicious }: { id: string; message: MailMes
 					Couldn’t save {firstName(sender)} to contacts.
 				</span>
 			) : null}
-			<span className="flex gap-2">
+			<span className="sender-card-actions flex">
 				{suspicious ? null : (
 					<button
 						type="button"
@@ -218,7 +218,7 @@ function ContactCard({ id, message, suspicious }: { id: string; message: MailMes
 						onClick={() => void openCompose({ kind: 'new', to: email })}
 						className={cn(
 							cardButtonClass,
-							'font-medium text-foreground/70 hover:bg-muted hover:text-foreground',
+							'font-medium text-quiet-foreground hover:bg-muted hover:text-foreground',
 						)}
 					>
 						New email

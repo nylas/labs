@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
@@ -183,6 +183,8 @@ describe('MessageDetailsPanel', () => {
 		expect(getMessageRawHeaders).toHaveBeenCalledWith({ data: { messageId: 'msg-12' } })
 		fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
 		expect(screen.queryByRole('dialog')).toBeNull()
+		// Focus goes back to the button that opened it, in the details panel.
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Show raw headers' })).toHaveFocus())
 	})
 
 	it('says when the raw headers cannot be read, and offers none for a draft', async () => {

@@ -295,7 +295,7 @@ the list toolbar or the command palette.
 - Compact: two lines (people and time, then subject and snippet on one line),
   about 62 pixels.
 - Condensed: one line (people, subject and snippet, time), 34 pixels. The
-  vertical split widens the list from 22rem to 26rem for it, in the same media
+  vertical split widens the list from 22.5rem (360px, as board 01 draws it) to 26rem for it, in the same media
   query as the rows, so the preference changes no layout where it does not
   apply. A bundle keeps the same columns: its title and count in the people
   column at their 13px, who sent it in the subject column.
@@ -457,8 +457,8 @@ What was unread when the thread opened is held for as long as it stays open
 and marks where the reader left off (see "New-since divider"). The thread opens
 at a draft of yours, else at that divider, when it is not already in view; `j`
 and `k` step message by message, opening a folded or one-line message on the
-way, and a list beside the reader keeps its own `j` / `k` only while it is on
-screen and has focus. A search result opens in the same reader, with the same
+way, with nothing focused too. A list beside the reader keeps its own `j` /
+`k` only while one of its rows has focus. A search result opens in the same reader, with the same
 header facts, sender checks, partial-load notice and error card.
 
 The reply card under the stream (12px radius, 1px `--cta-line`, a soft shadow)
@@ -677,13 +677,14 @@ row scrolls to that message and opens it.
   wrote), as a segmented control of `aria-pressed` buttons. Subject changes
   belong to the full map; the stopped label stays only while rows sit on both
   sides of it.
-- Where the reader's pane has room for both (1088px or wider) the map is
-  panel glass (380px) docked at the reader's right, beside the stream, which
-  keeps clear of it, and stays open while you move between rows. In a
-  narrower pane (a split view at 1440, any window below `xl`) it is a sheet
+- From `xl` the map is panel glass (380px) docked at the reader's right and
+  stays open while you move between rows. Where the pane has room for both
+  (1088px or wider) the stream keeps clear of it; in a narrower pane (a split
+  view at 1440) it sits over the stream's right side. Below `xl` it is a sheet
   from the right that closes when you choose a row, so the message shows. Its
-  rows scroll inside it, so the From… menu always opens in full over them. Escape inside the map closes it (inside the From… menu, only the
-  menu). Focus starts on the current row and goes back where it was when the
+  rows scroll inside it, so the From… menu always opens in full over them.
+  Escape closes the map wherever focus is in the reader, and only the map
+  (inside the From… menu, only the menu); the thread stays open. Focus starts on the current row and goes back where it was when the
   map closes. The rows are one Tab stop; the arrow keys, Home and End move
   between them.
 

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ShieldCheck, X } from 'lucide-react'
-import { type ReactNode, useEffect, useId, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '#shared/components/ui/dialog'
 import { GLASS_PANEL_CLASS } from '#shared/components/ui/glass'
 import { IconButton } from '#shared/components/ui/icon-button'
@@ -32,7 +32,7 @@ const COPIED_MS = 2000
 const MAX_CHIPS = 8
 
 const quietButtonClass =
-	'touch-target inline-flex h-7 items-center rounded-md px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring'
+	'details-button touch-target inline-flex h-7 items-center rounded-md text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
 	return (
@@ -57,7 +57,7 @@ function Chips({ chips }: { chips: PersonChip[] }) {
 					key={person.email}
 					title={person.email}
 					data-list={isList || undefined}
-					className={cn(chipClass, 'gap-2 pr-2 pl-1')}
+					className={cn(chipClass, 'person-chip')}
 				>
 					<Avatar person={person} size={18} />
 					<span className="truncate">
@@ -119,6 +119,7 @@ export function MessageDetailsPanel({
 	const sender = senderPerson(message, owner)
 	const [copied, setCopied] = useState(false)
 	const [rawOpen, setRawOpen] = useState(false)
+	const rawTrigger = useRef<HTMLButtonElement>(null)
 	const addresses = copyableAddresses(message, owner)
 	const local = message.date ? senderLocalTime(message.date, facts?.dateOffsetMinutes, viewerTz) : null
 	const lists = { listId: facts?.listId, listSizes }
@@ -150,7 +151,7 @@ export function MessageDetailsPanel({
 			id={id}
 			data-slot="message-details"
 			aria-label="Message details"
-			className={cn('flex flex-col gap-4 p-5 text-[13px] text-foreground', className)}
+			className={cn('message-details flex flex-col p-5 text-[13px] text-foreground', className)}
 		>
 			<dl className="grid grid-cols-[72px_minmax(0,1fr)] items-baseline gap-x-3 gap-y-2">
 				<Row label="From">
@@ -197,12 +198,13 @@ export function MessageDetailsPanel({
 				</button>
 				{message.ownmailDraft === true ? null : (
 					<button
+						ref={rawTrigger}
 						type="button"
 						onClick={() => setRawOpen(true)}
 						aria-haspopup="dialog"
 						className={cn(
 							quietButtonClass,
-							'font-medium text-foreground/70 hover:bg-muted hover:text-foreground',
+							'font-medium text-quiet-foreground hover:bg-muted hover:text-foreground',
 						)}
 					>
 						Show raw headers
@@ -210,20 +212,36 @@ export function MessageDetailsPanel({
 				)}
 			</div>
 			<Dialog open={rawOpen} onOpenChange={setRawOpen}>
-				{rawOpen ? <RawHeadersDialog messageId={message.id} onClose={() => setRawOpen(false)} /> : null}
+				<RawHeadersDialog
+					messageId={message.id}
+					returnFocusTo={rawTrigger}
+					onClose={() => setRawOpen(false)}
+				/>
 			</Dialog>
 		</section>
 	)
 }
 
 /** The message's header block as the provider stored it: plain text, never parsed or rendered as markup. */
-function RawHeadersDialog({ messageId, onClose }: { messageId: string; onClose: () => void }) {
+function RawHeadersDialog({
+	messageId,
+	returnFocusTo,
+	onClose,
+}: {
+	messageId: string
+	/** The details panel's "Show raw headers", which takes focus back however the dialog closes. */
+	returnFocusTo: RefObject<HTMLButtonElement | null>
+	onClose: () => void
+}) {
 	const titleId = useId()
-	const query = useQuery(messageRawHeadersQueryOptions(messageId, fetchRawHeaders))
 	return (
 		<DialogContent
 			aria-labelledby={titleId}
 			aria-describedby={undefined}
+			onCloseAutoFocus={(event) => {
+				event.preventDefault()
+				returnFocusTo.current?.focus()
+			}}
 			className={cn('flex max-w-2xl flex-col', GLASS_PANEL_CLASS)}
 		>
 			<div className="flex items-center gap-2 border-b border-border py-2 pr-2 pl-5">
@@ -235,21 +253,28 @@ function RawHeadersDialog({ messageId, onClose }: { messageId: string; onClose: 
 				</IconButton>
 			</div>
 			<div className="min-h-0 overflow-auto p-5">
-				{query.isPending ? (
-					<p className="text-sm text-muted-foreground">Loading headers…</p>
-				) : query.isError ? (
-					<p role="alert" className="text-sm text-muted-foreground">
-						Couldn’t load the raw headers.
-					</p>
-				) : (
-					<pre
-						data-slot="raw-headers"
-						className="whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere] text-foreground"
-					>
-						{query.data}
-					</pre>
-				)}
+				<RawHeadersText messageId={messageId} />
 			</div>
 		</DialogContent>
+	)
+}
+
+/** The headers themselves, fetched only while the dialog is open. */
+function RawHeadersText({ messageId }: { messageId: string }) {
+	const query = useQuery(messageRawHeadersQueryOptions(messageId, fetchRawHeaders))
+	if (query.isPending) return <p className="text-sm text-muted-foreground">Loading headers…</p>
+	if (query.isError)
+		return (
+			<p role="alert" className="text-sm text-muted-foreground">
+				Couldn’t load the raw headers.
+			</p>
+		)
+	return (
+		<pre
+			data-slot="raw-headers"
+			className="whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere] text-foreground"
+		>
+			{query.data}
+		</pre>
 	)
 }

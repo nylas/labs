@@ -496,6 +496,11 @@ describe('a send that failed', () => {
 		expect(container.querySelector('.thread-row-sender')).toHaveAttribute('data-tone', 'failed')
 		expect(container.querySelector('.thread-row-sender')).toHaveTextContent('To Meridian Bank')
 		expect(container.querySelector('.thread-row-failed')).toHaveTextContent('Not sent. The address bounced.')
+		// Compact and Condensed keep the failure as a pill, with its glyph, not only the red tint.
+		const collapsed = container.querySelector('.thread-row-signal-collapsed [data-signal="failed"]')
+		expect(collapsed).toHaveTextContent('Not sent')
+		expect(collapsed).toHaveClass('bg-danger-soft', 'text-danger-soft-foreground')
+		expect(collapsed?.querySelector('svg')).not.toBeNull()
 		// The snippet line is replaced in the Default density, and kept for the narrower ones.
 		expect(container.querySelector('.thread-row-snippet')).toHaveAttribute('data-replaced', '')
 		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))

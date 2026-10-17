@@ -12,6 +12,7 @@ import {
 	safeSentMessage,
 	sentThreadFromMessage,
 	systemFolderBeforeMove,
+	threadAfterSend,
 	threadFoldersAfterCacheMove,
 	updateDrafts,
 	updateFolderCounts,
@@ -280,6 +281,96 @@ describe('mail query cache effects', () => {
 
 		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd2' })
 		expect(client.getQueryData<MailDraft[]>(mailKeys.drafts())).toEqual([])
+	})
+
+	it('keeps a thread you reply in where it was, ending with your reply, and drops discarded drafts from it', () => {
+		const client = seedClient()
+		const draft: MailMessage = { id: 'd1', thread_id: 't1', ownmailDraft: true }
+		const first: MailMessage = { id: 'm1', thread_id: 't1' }
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'), {
+			thread: { ...t1, unread: false, message_ids: ['m1'] },
+			messages: [first, draft],
+			mailboxEmail: 'me@example.com',
+		})
+		const reply: MailMessage = {
+			id: 'm2',
+			thread_id: 't1',
+			snippet: 'Sounds good',
+			date: 200,
+			folders: ['sent'],
+			attachments: [{ id: 'a1', filename: 'x.pdf' }],
+		}
+		applyMailCacheEffect(client, { type: 'draft.sent', draftId: 'd1', message: reply })
+		const inbox = cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]
+		expect(inbox).toMatchObject({
+			id: 't1',
+			snippet: 'Sounds good',
+			message_ids: ['m2'],
+			latest_message_sent_date: 200,
+			has_attachments: true,
+			folders: ['inbox', 'work', 'sent'],
+		})
+		expect(cachedList(client, { folderId: 'sent' }).pages[0]?.threads[0]?.id).toBe('t1')
+		const detail = client.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))
+		expect(detail?.messages.map((message) => message.id)).toEqual(['m1', 'm2'])
+		expect(detail?.thread.folders).toEqual(['inbox', 'work', 'sent'])
+		expect(detail?.thread.message_ids).toEqual(['m1', 'm2'])
+		// Inbox already counted the thread; only Sent gains it.
+		expect(cachedFolders(client).find((folder) => folder.id === 'inbox')?.total_count).toBe(2)
+		expect(cachedFolders(client).find((folder) => folder.id === 'sent')?.total_count).toBe(1)
+
+		// A reply without its own text or files keeps what the thread had.
+		applyMailCacheEffect(client, {
+			type: 'draft.sent',
+			draftId: 'd9',
+			message: { id: 'm3', thread_id: 't1' },
+		})
+		expect(cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]).toMatchObject({
+			snippet: 'Sounds good',
+			latest_message_sent_date: 200,
+			message_ids: ['m2', 'm3'],
+		})
+		// A receipt that names the thread, without the message, replaces it as given.
+		const canonical = { ...t1, subject: 'Canonical' }
+		applyMailCacheEffect(client, { type: 'draft.sent', draftId: 'd8', thread: canonical })
+		expect(client.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))?.thread.subject).toBe(
+			'Canonical',
+		)
+		expect(
+			client
+				.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))
+				?.messages.map((message) => message.id),
+		).toEqual(['m1', 'm2', 'm3'])
+
+		// A discarded draft leaves the thread it sat in; other threads are untouched.
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'), (current) =>
+			current ? { ...current, messages: [...current.messages, { id: 'd2', ownmailDraft: true }] } : current,
+		)
+		const before = client.getQueryData(mailKeys.threadDetail('t1'))
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'other' })
+		expect(client.getQueryData(mailKeys.threadDetail('t1'))).toBe(before)
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd2' })
+		expect(
+			client
+				.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))
+				?.messages.map((message) => message.id),
+		).toEqual(['m1', 'm2', 'm3'])
+	})
+
+	it('adds a reply to a thread that lists no folders or messages yet', () => {
+		expect(threadAfterSend({ id: 't9' }, { id: 'm1', thread_id: 't9' })).toMatchObject({
+			message_ids: ['m1'],
+			has_attachments: false,
+			folders: ['sent'],
+		})
+		// A sent message without a thread is a thread of its own.
+		const client = seedClient()
+		applyMailCacheEffect(client, {
+			type: 'draft.sent',
+			draftId: 'd1',
+			message: { id: 'solo', folders: ['sent'] },
+		})
+		expect(cachedList(client, { folderId: 'sent' }).pages[0]?.threads[0]?.id).toBe('solo')
 	})
 
 	it('reconciles canonical threads and folders and ignores unrelated cache entries', () => {

@@ -45,7 +45,12 @@ import {
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
 import { subjectStandIn, threadParticipants } from '#features/mail/lib/thread-reading-model'
-import { replyTarget, streamMessages } from '#features/mail/lib/thread-stream'
+import {
+	conversationMessages,
+	replyBase,
+	replyTarget,
+	streamMessages,
+} from '#features/mail/lib/thread-stream'
 import {
 	cachedCorrespondents,
 	findCachedThread,
@@ -314,8 +319,8 @@ function ThreadView() {
 		skipNextNavigationMotion(router)
 		goBackToList()
 	}, true)
-	// Replies answer the last message anyone sent, never your own unsent draft.
-	const lastMessage = messages.findLast((message) => message.ownmailDraft !== true)
+	// Replies answer the latest message anyone sent: never your own unsent draft, nor a bounce report.
+	const lastMessage = replyBase(messages)
 	// Part of the thread did not load, so the newest message may be the missing
 	// one: replies wait for the whole conversation (Try again), reading does not.
 	const partial = (failedMessageIds?.length ?? 0) > 0
@@ -328,7 +333,7 @@ function ThreadView() {
 	)
 	// The phone's top bar counts what the stream shows: no drafts, nothing in Trash.
 	const shownMessages = streamMessages(messages, false)
-	const peopleCount = threadParticipants(shownMessages, mailboxEmail).length
+	const peopleCount = threadParticipants(conversationMessages(shownMessages), mailboxEmail).length
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	// The phone's back button names the folder it returns to, as board 03 does ("Back to Inbox").
@@ -496,7 +501,8 @@ function ThreadView() {
 				event.preventDefault()
 				act('unread', { unread: true }, true)
 			}
-			if (event.key === 'Escape') {
+			// Escape that closed something first (a dialog, a popover, the map) is spent.
+			if (event.key === 'Escape' && !event.defaultPrevented) {
 				event.preventDefault()
 				navigate({
 					to: '/mail/f/$folderId',

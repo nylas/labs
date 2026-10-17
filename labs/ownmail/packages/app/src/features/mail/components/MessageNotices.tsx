@@ -32,7 +32,7 @@ type Tone = 'warning' | 'danger' | 'neutral'
 const TONE_CLASS: Record<Tone, string> = {
 	warning: 'border-notice-warning-line bg-notice-warning text-notice-warning-foreground',
 	danger: 'border-notice-danger-line bg-notice-danger text-notice-danger-foreground',
-	neutral: 'border-border bg-card text-foreground/80',
+	neutral: 'border-border bg-card text-note-foreground',
 }
 
 const linkClass =
@@ -55,7 +55,7 @@ function Notice({
 			data-slot="message-notice"
 			data-kind={kind}
 			data-tone={tone}
-			className={cn('flex gap-3 rounded-md border p-3 text-[13px] leading-normal', TONE_CLASS[tone])}
+			className={cn('message-notice flex rounded-md border text-[13px] leading-normal', TONE_CLASS[tone])}
 		>
 			<span className="mt-px shrink-0 [&_svg]:size-4" aria-hidden="true">
 				{icon}
@@ -169,7 +169,7 @@ export function MessageNotices({
 
 	if (notices.length === 0) return null
 	return (
-		<div data-slot="message-notices" className="flex flex-col gap-2">
+		<div data-slot="message-notices" className="message-notices flex flex-col">
 			{notices}
 		</div>
 	)

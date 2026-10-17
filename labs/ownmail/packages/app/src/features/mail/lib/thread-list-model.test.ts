@@ -259,6 +259,37 @@ describe('threadRowFacts', () => {
 			subject: 'Reminder',
 			snippet: 'their text',
 		})
+		// Saved with an address only, the draft takes the name the thread knows that person by.
+		const addressOnly = threadRowFacts(
+			thread({
+				id: 't',
+				participants: [
+					{ email: 'ALAN@example.com' },
+					{ name: 'Alan Turing', email: 'other@example.com' },
+					{ name: 'Grace Hopper', email: 'grace@example.com' },
+				],
+				latest_draft_or_message: message({
+					id: 'd',
+					ownmailDraft: true,
+					to: [{ email: 'Grace@example.com' }],
+				}),
+			}),
+			env(),
+		)
+		expect(addressOnly.who).toEqual({ kind: 'draft', to: 'Grace Hopper' })
+		const unknown = threadRowFacts(
+			thread({
+				id: 't',
+				participants: [{ email: 'alan@example.com' }],
+				latest_draft_or_message: message({
+					id: 'd',
+					ownmailDraft: true,
+					to: [{ email: 'alan@example.com' }],
+				}),
+			}),
+			env(),
+		)
+		expect(unknown.who).toEqual({ kind: 'draft', to: 'alan@example.com' })
 	})
 
 	it('says how many replies a muted list conversation spares you', () => {

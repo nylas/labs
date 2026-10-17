@@ -76,6 +76,22 @@ export function sentThreadFromMessage(message: MailMessage): MailThread {
 	}
 }
 
+/**
+ * A conversation you just replied in: it stays in every folder it was in
+ * (Inbox included), joins Sent, and ends with your message.
+ */
+export function threadAfterSend(current: MailThread, message: MailMessage): MailThread {
+	return {
+		...current,
+		snippet: message.snippet ?? current.snippet,
+		message_ids: unique([...(current.message_ids ?? []), message.id]),
+		latest_draft_or_message: message,
+		latest_message_sent_date: message.date ?? current.latest_message_sent_date,
+		has_attachments: Boolean(current.has_attachments) || Boolean(message.attachments?.length),
+		folders: unique([...(current.folders ?? []), ...(message.folders ?? []), 'sent']),
+	}
+}
+
 export function dedupeThreads(threads: readonly MailThread[]): MailThread[] {
 	const seen = new Set<string>()
 	return threads.filter((thread) => {
@@ -137,6 +153,10 @@ function effectThreadId(effect: MailCacheEffect): string | undefined {
 			return effect.threadId
 		case 'thread.reconciled':
 			return effect.thread.id
+		case 'draft.sent':
+			return (
+				effect.thread?.id ?? (effect.message ? (effect.message.thread_id ?? effect.message.id) : undefined)
+			)
 		default:
 			return undefined
 	}
@@ -145,7 +165,9 @@ function effectThreadId(effect: MailCacheEffect): string | undefined {
 function nextThreadForEffect(effect: MailCacheEffect, current?: MailThread): MailThread | undefined {
 	switch (effect.type) {
 		case 'draft.sent':
-			return effect.thread ?? (effect.message ? sentThreadFromMessage(effect.message) : undefined)
+			if (effect.thread) return effect.thread
+			if (!effect.message) return undefined
+			return current ? threadAfterSend(current, effect.message) : sentThreadFromMessage(effect.message)
 		case 'thread.reconciled':
 			return effect.thread
 		case 'thread.starred': {
@@ -221,12 +243,12 @@ export function updateFolderCounts(
 				folder.id === 'drafts' ? { ...folder, total_count: clampCount(folder.total_count, 1) } : folder,
 			)
 		case 'draft.sent': {
-			const sentThread = nextThreadForEffect(effect)
+			const sentThread = nextThreadForEffect(effect, beforeThread)
 			return folderTransition(
 				folders.map((folder) =>
 					folder.id === 'drafts' ? { ...folder, total_count: clampCount(folder.total_count, -1) } : folder,
 				),
-				undefined,
+				beforeThread,
 				sentThread,
 			)
 		}
@@ -338,17 +360,32 @@ export function reduceMailCacheEntry(
 	}
 	if (isMailKey(queryKey, 'thread')) {
 		const detail = data as MailThreadDetail
+		// A draft shown in its thread leaves it once it is sent or discarded; a
+		// sent one comes back as the message it became.
+		if (effect.type === 'draft.deleted') {
+			if (!detail.messages.some((message) => message.id === effect.draftId)) return data
+			return { ...detail, messages: detail.messages.filter((message) => message.id !== effect.draftId) }
+		}
 		const id = effectThreadId(effect)
 		if (!id || detail.thread.id !== id) return data
 		const nextThread = nextThreadForEffect(effect, detail.thread)
 		/* v8 ignore next -- a matching thread effect always has the cached detail as its source -- @preserve */
 		if (!nextThread) return data
+		if (effect.type === 'draft.sent') {
+			const sent = effect.message
+			const kept = detail.messages.filter(
+				(message) => message.id !== effect.draftId && message.id !== sent?.id,
+			)
+			return { ...detail, thread: nextThread, messages: sent ? [...kept, sent] : kept }
+		}
 		return { ...detail, thread: nextThread }
 	}
 	if (isMailKey(queryKey, 'threads')) {
 		const list = data as MailThreadListData
 		if (effect.type === 'draft.sent') {
-			const sentThread = nextThreadForEffect(effect)
+			const id = effectThreadId(effect)
+			const current = list.pages.flatMap((page) => page.threads).find((thread) => thread.id === id)
+			const sentThread = nextThreadForEffect(effect, current ?? beforeThread)
 			return sentThread ? updateThreadList(list, keyFilters(queryKey), sentThread.id, sentThread) : data
 		}
 		const id = effectThreadId(effect)

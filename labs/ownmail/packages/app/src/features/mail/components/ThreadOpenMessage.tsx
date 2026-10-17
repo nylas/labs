@@ -68,6 +68,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	listNotice,
 	owner,
 	facts,
+	listSizes,
 	knownSenders,
 	lookalike,
 	muted,
@@ -77,6 +78,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	display,
 	actions,
 	current,
+	latest = false,
 }: {
 	message: MailMessage
 	/** The message before, when it is open directly above (the header compares recipients with it). */
@@ -87,6 +89,8 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	listNotice: boolean
 	owner: string
 	facts?: MessageHeaderFacts
+	/** Member counts of mailing lists the mailbox knows, for the details panel's list chips. */
+	listSizes?: Readonly<Record<string, number>>
 	knownSenders: Person[]
 	lookalike: boolean
 	/** Whether the thread is muted, so a list notice offers "Unmute thread". */
@@ -97,6 +101,8 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	display: OpenMessageDisplay
 	actions: OpenMessageActions
 	current: boolean
+	/** The thread's latest message, which closes the stream (board 01 gives it less room below). */
+	latest?: boolean
 }) {
 	const sender = senderPerson(message, owner)
 	const senderLabel = personName(sender, 'full')
@@ -120,6 +126,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 			data-slot="thread-message"
 			data-state="open"
 			data-current={current || undefined}
+			data-latest={latest || undefined}
 			aria-label={`Message from ${senderLabel}`}
 			className="reader-message"
 		>
@@ -130,6 +137,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 					{...(prev ? { prev } : {})}
 					owner={owner}
 					{...(facts ? { facts } : {})}
+					{...(listSizes ? { listSizes } : {})}
 					expanded={true}
 					headingId={headingId}
 					contentId={contentId}

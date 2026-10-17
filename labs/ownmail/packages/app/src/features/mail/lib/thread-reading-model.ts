@@ -853,6 +853,13 @@ export function foldPlan(messages: MailMessage[], opts: FoldOptions): FoldItem[]
 	return items
 }
 
+/** A folded run's stack: the first people who wrote in it, ending with you when you did (board 03), as the thread header's does. */
+function foldAvatars(senders: Person[]): Person[] {
+	const self = senders.filter((person) => person.isOwner)
+	const others = senders.filter((person) => !person.isOwner)
+	return [...others.slice(0, FOLD_MAX_AVATARS - self.length), ...self]
+}
+
 function foldedRow(
 	messages: MailMessage[],
 	indices: number[],
@@ -875,7 +882,7 @@ function foldedRow(
 		indices,
 		names: `${names}${more > 0 ? ` +${more}` : ''}`,
 		span: dates.length > 0 ? dateSpanLabel(Math.min(...dates), Math.max(...dates), now, tz) : '',
-		avatars: senders.slice(0, FOLD_MAX_AVATARS),
+		avatars: foldAvatars(senders),
 		ids: run.map((message) => message.id),
 		key,
 	}

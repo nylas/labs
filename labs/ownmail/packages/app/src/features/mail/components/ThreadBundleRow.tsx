@@ -57,7 +57,7 @@ export const ThreadBundleRow = memo(function ThreadBundleRow({
 					>
 						{summary.title}
 					</span>
-					<span className="thread-signal thread-signal-quiet bg-muted font-data tabular-nums">
+					<span className="thread-signal thread-signal-count bg-muted font-data tabular-nums">
 						{summary.count}
 					</span>
 				</span>

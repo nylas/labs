@@ -1366,6 +1366,18 @@ describe('keyboard shortcuts', () => {
 		expect(updateThreadState).not.toHaveBeenCalled()
 	})
 
+	it('leaves the thread open when something else has already handled Escape', async () => {
+		renderThread()
+		// Radix dismisses a dialog or popover by preventing the Escape it closed on.
+		const spent = () => {
+			const onCapture = (event: KeyboardEvent) => event.preventDefault()
+			window.addEventListener('keydown', onCapture, { capture: true, once: true })
+			fireEvent.keyDown(document.body, { key: 'Escape' })
+		}
+		await act(async () => spent())
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
 	it('preserves baseFolderId when closing on Escape (no mask)', async () => {
 		renderThread(loaderData(), { baseFolderId: 'starred' })
 		await act(async () => {

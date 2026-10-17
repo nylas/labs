@@ -4,6 +4,7 @@ import type { FoldItem } from './thread-reading-model.js'
 import {
 	attachmentDetails,
 	chipAttachments,
+	conversationMessages,
 	hashTarget,
 	isLookalikeSender,
 	isTrashed,
@@ -14,6 +15,7 @@ import {
 	placeDrafts,
 	quotedMessageId,
 	replyAllNames,
+	replyBase,
 	replyFirstName,
 	replyTarget,
 	resendSeed,
@@ -181,6 +183,24 @@ describe('missingAfter', () => {
 	})
 })
 
+describe('replyBase and conversationMessages', () => {
+	const daemon = { name: 'Mail Delivery Subsystem', email: 'MAILER-DAEMON@example.com' }
+	const sent = message('sent', { from: [ADA], to: [GRACE] })
+	const bounce = message('bounce', { from: [daemon], subject: 'Undeliverable: Launch' })
+	const draft = message('draft', { ownmailDraft: true })
+
+	it('answers the latest message that is neither a draft nor a bounce report', () => {
+		expect(replyBase([message('m1'), sent, bounce, draft])?.id).toBe('sent')
+		// Only reports: the latest one, as before.
+		expect(replyBase([bounce, draft])?.id).toBe('bounce')
+		expect(replyBase([draft])).toBeUndefined()
+	})
+
+	it('leaves the bounce’s mail server out of the people', () => {
+		expect(conversationMessages([sent, bounce]).map((entry) => entry.id)).toEqual(['sent'])
+	})
+})
+
 describe('placeDrafts and streamMessages', () => {
 	const all = [
 		message('d0', { ownmailDraft: true }),
@@ -191,6 +211,22 @@ describe('placeDrafts and streamMessages', () => {
 
 	it('follows each draft with the nearest earlier message that is shown', () => {
 		expect(placeDrafts(all, new Set(['m1']))).toEqual([{ draft: all[0] }, { draft: all[3], after: all[1] }])
+	})
+
+	it('puts a draft under the message it answers when that message is shown', () => {
+		const thread = [
+			message('m1'),
+			message('m2'),
+			message('m3'),
+			message('d1', { ownmailDraft: true, reply_to_message_id: 'm1' } as Partial<MailMessage>),
+			message('d2', { ownmailDraft: true, reply_to_message_id: 'gone' } as Partial<MailMessage>),
+		]
+		expect(placeDrafts(thread, new Set(['m1', 'm2', 'm3']))).toEqual([
+			{ draft: thread[3], after: thread[0] },
+			{ draft: thread[4], after: thread[2] },
+		])
+		// An answered message that is not shown (in Trash) leaves the draft where it falls.
+		expect(placeDrafts(thread, new Set(['m2', 'm3']))[0]).toEqual({ draft: thread[3], after: thread[2] })
 	})
 
 	it('runs drafts outside the stream and trashed messages only when asked', () => {

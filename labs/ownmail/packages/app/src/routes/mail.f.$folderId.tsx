@@ -1,6 +1,7 @@
 import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Await, createFileRoute } from '@tanstack/react-router'
+import { Await, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo } from 'react'
+import { preloadReaderCode } from '#app/lib/reader-preload'
 import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { useDeleteDraftMutation, useUpdateThreadMutation } from '#features/mail/state/mail-mutations'
@@ -102,6 +103,9 @@ function LoadedFolderView({ loaderData }: { loaderData: Awaited<ReturnType<typeo
 	const updateThread = useUpdateThreadMutation()
 	const deleteDraft = useDeleteDraftMutation()
 	const queryClient = useQueryClient()
+	const router = useRouter()
+	// The reader's code comes with the list, so a thread still opens (or says why not) offline.
+	useEffect(() => preloadReaderCode(router), [router])
 	const { openCompose } = useCompose()
 	const folderQuery = useQuery({
 		...foldersQueryOptions(

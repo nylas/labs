@@ -27,6 +27,9 @@ export function ensureMailboxInfo(queryClient: QueryClient, bootstrap = false) {
 	return queryClient.ensureQueryData({
 		queryKey: ['account', 'mailbox-info-bootstrap'],
 		staleTime: 30_000,
+		// Offline, a screen that needs the mailbox says it cannot load (with Try
+		// again) instead of waiting, paused, behind its loading skeleton.
+		networkMode: 'always',
 		queryFn: async ({ signal }) => {
 			const info = await getMailboxInfo({ data: { bootstrap: true } })
 			// A cancelled request may still resolve after the cookie rotates.

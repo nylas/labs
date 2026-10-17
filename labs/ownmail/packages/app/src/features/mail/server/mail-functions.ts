@@ -10,7 +10,9 @@ import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
 import { requireNylasProviderId, validNylasProviderId } from '#server/ids'
 import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
+import { usingDevMocks } from '#server/platform'
 import { timeOperation } from '#server/request-context'
+import { DEV_MOCK_LIST_SIZES } from './dev-mock-lists.js'
 import { protectMessageImageSources } from './email-image-sources.js'
 import {
 	type FolderIdInput,
@@ -467,7 +469,9 @@ export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
 			}
 			// fromEntries defines own keys, so a hostile id like `__proto__` stays plain data.
 			// A message seen on two pages keeps the facts of its latest copy.
-			return { byMessage: Object.fromEntries(entries) }
+			const byMessage = Object.fromEntries(entries)
+			// Only the mock app knows how many people a list reaches.
+			return (await usingDevMocks()) ? { byMessage, listSizes: { ...DEV_MOCK_LIST_SIZES } } : { byMessage }
 		} catch {
 			return { byMessage: {} }
 		}

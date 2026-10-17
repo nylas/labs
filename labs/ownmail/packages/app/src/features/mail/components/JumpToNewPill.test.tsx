@@ -21,7 +21,7 @@ describe('JumpToNewPill', () => {
 			'left-1/2',
 			'-translate-x-1/2',
 			'h-9',
-			'px-hairline',
+			'jump-pill',
 			'text-[13px]',
 			'font-semibold',
 			'md:hidden',

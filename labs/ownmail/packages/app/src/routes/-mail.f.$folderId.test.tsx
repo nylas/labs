@@ -20,7 +20,7 @@ const navigate = vi.fn()
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
 	Await: (await importOriginal<any>()).Await,
 	createFileRoute: () => (opts: any) => ({ options: opts }),
-	useRouter: () => ({ invalidate }),
+	useRouter: () => ({ invalidate, routesById: {} }),
 	useNavigate: () => navigate,
 	useRouterState: (opts: any) => opts.select(routerState),
 	Outlet: () => <div data-testid="thread-outlet" />,
@@ -525,7 +525,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 			<MailFolderRouteScreen threads={[]} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />,
 		)
 		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
-		expect(listPane).toHaveClass('flex', 'xl:w-[22rem]', 'xl:flex-none')
+		expect(listPane).toHaveClass('flex', 'xl:w-[22.5rem]', 'xl:flex-none')
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
 		expect(screen.getByLabelText('Inbox thread list')).toHaveAttribute('data-slot', 'scroll-area-viewport')
 		expect(screen.getByText('All caught up')).toBeInTheDocument()
@@ -1178,15 +1178,15 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		try {
 			render(screenFor())
 			expect(listSection()).toHaveAttribute('data-density', 'default')
-			expect(listSection()).toHaveClass('xl:w-[22rem]')
+			expect(listSection()).toHaveClass('xl:w-[22.5rem]')
 
 			await userEvent.click(screen.getByRole('button', { name: 'List density: Default' }))
 			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Condensed' }))
 
 			await waitFor(() => expect(listSection()).toHaveAttribute('data-density', 'condensed'))
 			// The choice only changes the attribute: the wider Condensed list is CSS keyed on it
-			// (fine pointers only), so touch layouts keep the 22rem list.
-			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[22rem]')
+			// (fine pointers only), so touch layouts keep the 22.5rem list.
+			expect(listSection()).toHaveClass('mail-list-vertical', 'xl:w-[22.5rem]')
 			expect(listSection().className).not.toContain('26rem')
 			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
 				'condensed',

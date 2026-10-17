@@ -34,7 +34,7 @@ export function readingPaneLayout(pane: ReadingPane, threadOpen: boolean): Readi
 	const split =
 		pane === 'horizontal'
 			? 'xl:h-[40%] xl:w-full xl:flex-none xl:border-b xl:border-border'
-			: 'mail-list-vertical border-r border-border xl:w-[22rem] xl:max-w-[22rem] xl:flex-none'
+			: 'mail-list-vertical border-r border-border xl:w-[22.5rem] xl:max-w-[22.5rem] xl:flex-none'
 	return {
 		container: `flex min-h-0 min-w-0 flex-1${pane === 'horizontal' ? ' xl:flex-col' : ''}`,
 		list: `${listBase} ${split} ${threadOpen ? 'hidden xl:flex' : 'flex'}`,

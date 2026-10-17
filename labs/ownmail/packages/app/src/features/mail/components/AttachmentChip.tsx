@@ -55,7 +55,7 @@ export function AttachmentChip({
 				href={href}
 				download={attachment.filename}
 				title={line ? `Download ${filename} (${line})` : `Download ${filename}`}
-				className="inline-flex h-7 max-w-full min-w-0 items-center gap-2 self-start rounded-md border border-border px-3 text-[13px] text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
+				className="attachment-chip-compact inline-flex h-7 max-w-full min-w-0 items-center self-start rounded-md border border-border text-[13px] text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11"
 			>
 				<Paperclip aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
 				<span className="truncate">{filename}</span>
@@ -65,12 +65,12 @@ export function AttachmentChip({
 	return (
 		<div
 			data-slot="attachment-chip"
-			className="inline-flex min-h-15 max-w-full min-w-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-2"
+			className="attachment-chip inline-flex max-w-full min-w-0 items-center gap-3 rounded-md border border-border bg-card"
 		>
 			<span
 				aria-hidden="true"
 				className={cn(
-					'inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-sm font-data text-[9px] font-bold',
+					'attachment-chip-tile inline-flex h-10 w-8 shrink-0 items-center justify-center font-data text-[9px] font-bold',
 					kind.tile,
 				)}
 			>
@@ -87,9 +87,9 @@ export function AttachmentChip({
 				download={attachment.filename}
 				aria-label={`Download ${filename}`}
 				title={`Download ${filename}`}
-				className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:size-11 [@media(any-pointer:coarse)]:size-11"
+				className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-control-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:size-11 [@media(any-pointer:coarse)]:size-11"
 			>
-				<Download aria-hidden="true" className="size-3.5" />
+				<Download aria-hidden="true" className="size-4" />
 			</a>
 		</div>
 	)

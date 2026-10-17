@@ -12,6 +12,7 @@ import { messageBodyParagraphs } from './mail-ui-model.js'
 import {
 	type FoldItem,
 	firstName,
+	isBounceMessage,
 	type Person,
 	type SystemEvent,
 	senderPerson,
@@ -174,19 +175,25 @@ export function streamEntries(input: StreamInput): StreamEntry[] {
 }
 
 /**
- * Drafts and the message each one follows: the nearest earlier message in the
- * thread's order that is shown. A draft before every shown message leads.
+ * Drafts and the message each one follows: the message it answers when that
+ * is shown (board 06: "A draft sits under the message it answers"), else the
+ * nearest earlier message in the thread's order that is shown. A draft before
+ * every shown message leads.
  */
 export function placeDrafts(
 	all: MailMessage[],
 	shown: ReadonlySet<string>,
 ): Array<{ draft: MailMessage; after?: MailMessage }> {
+	const byId = new Map(all.map((message) => [message.id, message]))
 	let previous: MailMessage | undefined
 	const placed: Array<{ draft: MailMessage; after?: MailMessage }> = []
 	for (const message of all) {
-		if (message.ownmailDraft === true)
-			placed.push({ draft: message, ...(previous ? { after: previous } : {}) })
-		else if (shown.has(message.id)) previous = message
+		if (message.ownmailDraft === true) {
+			const answers = (message as { reply_to_message_id?: unknown }).reply_to_message_id
+			const answered = typeof answers === 'string' && shown.has(answers) ? byId.get(answers) : undefined
+			const after = answered ?? previous
+			placed.push({ draft: message, ...(after ? { after } : {}) })
+		} else if (shown.has(message.id)) previous = message
 	}
 	return placed
 }
@@ -220,6 +227,21 @@ export function replyAllNames(message: MailMessage, owner: string): { names: str
 }
 
 type Participant = NonNullable<MailMessage['from']>[number]
+
+/**
+ * The message the thread's replies answer: the latest one that is not a draft
+ * and not a delivery report, so a bounce of your own mail never makes the
+ * mail server the person you reply to. A thread of nothing but reports
+ * answers its latest one.
+ */
+export function replyBase(messages: readonly MailMessage[]): MailMessage | undefined {
+	const sent = messages.filter((message) => message.ownmailDraft !== true)
+	return sent.findLast((message) => !isBounceMessage(message)) ?? sent.at(-1)
+}
+
+/** The people of a conversation, without the mail servers that report a bounce. */
+export const conversationMessages = (messages: readonly MailMessage[]): MailMessage[] =>
+	messages.filter((message) => !isBounceMessage(message))
 
 /**
  * Whoever a plain Reply goes to: the Reply-To, else the sender. When that is
