@@ -1,11 +1,4 @@
-import { ChevronDown, Download } from 'lucide-react'
 import { memo, useMemo } from 'react'
-import {
-	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuTrigger,
-} from '#shared/components/ui/context-menu'
 import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
 import { messageNewText, type Person, personName, senderPerson } from '../lib/thread-reading-model.js'
 import { chipAttachments, messageHeadings } from '../lib/thread-stream.js'
@@ -35,8 +28,6 @@ export type OpenMessageActions = {
 	onMuteThread: () => void
 	onAddBack: (message: MailMessage, person: Person) => void
 	onEditResend: (message: MailMessage) => void
-	onSendNow: (message: MailMessage) => void
-	onCancelSchedule: (message: MailMessage) => void
 	onShowMessage: (messageId: string) => void
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 }
@@ -53,7 +44,7 @@ export type OpenMessageDisplay = {
 
 /**
  * One open message in the standard reader: the one-line header (with its
- * hover actions and details), any notice about the sender or the list, the
+ * hover actions, details and right-click menu), any notice about the sender or the list, the
  * invitation card, the body (or what to say when it is empty), the files it
  * carries and, for your own mail, whether it went.
  */
@@ -86,8 +77,6 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 }) {
 	const sender = senderPerson(message, owner)
 	const senderLabel = personName(sender, 'full')
-	// Drafts are never open messages (they sit in the stream as drafts), so every one has a raw email.
-	const downloadHref = `/messages/${encodeURIComponent(message.id)}/download`
 	const longText = useMemo(() => messageNewText(message), [message])
 	const headings = useMemo(() => messageHeadings(message), [message])
 	const attachments = chipAttachments(message)
@@ -109,42 +98,27 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 			className="reader-message"
 		>
 			<ThreadColumn>
-				{/* The header's right-click menu mirrors what the header and toolbar do.
-				    The body below keeps the browser's own menu. */}
-				<ContextMenu>
-					<ContextMenuTrigger asChild>
-						<div data-slot="message-header" className="message-header-row">
-							<MessageHeader
-								message={message}
-								{...(prev ? { prev } : {})}
-								owner={owner}
-								{...(facts ? { facts } : {})}
-								expanded={true}
-								onToggle={() => actions.onToggle(message.id)}
-								actions={{
-									onReply: () => actions.onReply(message),
-									onForward: () => actions.onForward(message),
-									onQuote: () => actions.onQuote(message),
-								}}
-							/>
-						</div>
-					</ContextMenuTrigger>
-					<ContextMenuContent aria-label={`Actions for message from ${senderLabel}`}>
-						<ContextMenuItem onSelect={() => actions.onToggle(message.id)}>
-							<ChevronDown className="rotate-180" aria-hidden="true" />
-							Collapse message
-						</ContextMenuItem>
-						<ContextMenuItem asChild>
-							<a href={downloadHref} download>
-								<Download aria-hidden="true" />
-								Download raw email
-							</a>
-						</ContextMenuItem>
-					</ContextMenuContent>
-				</ContextMenu>
+				{/* The header owns its right-click menu (collapse, reply, forward, raw download). */}
+				<MessageHeader
+					message={message}
+					{...(prev ? { prev } : {})}
+					owner={owner}
+					{...(facts ? { facts } : {})}
+					expanded={true}
+					onToggle={() => actions.onToggle(message.id)}
+					actions={{
+						onReply: () => actions.onReply(message),
+						onForward: () => actions.onForward(message),
+						onQuote: () => actions.onQuote(message),
+					}}
+				/>
 			</ThreadColumn>
 
-			<div data-slot="expanded-message-content" className="reader-message-content">
+			<div
+				data-slot="expanded-message-content"
+				data-links-disabled={bodyExtras.linksDisabled || undefined}
+				className="reader-message-content"
+			>
 				<ThreadColumnInset>
 					<ThreadColumn>
 						<MessageNotices
@@ -199,13 +173,13 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 								})}
 							</section>
 						) : null}
+						{/* Send now and Cancel need a provider call OwnMail does not have yet,
+						    so a scheduled message offers neither (OutgoingStatus leaves them out). */}
 						{own ? (
 							<OutgoingStatus
 								message={message}
 								{...(bounce ? { bounce } : {})}
 								onEditResend={() => actions.onEditResend(message)}
-								onSendNow={() => actions.onSendNow(message)}
-								onCancelSchedule={() => actions.onCancelSchedule(message)}
 							/>
 						) : null}
 					</ThreadColumn>

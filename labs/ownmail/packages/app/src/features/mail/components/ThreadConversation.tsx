@@ -7,10 +7,15 @@ import {
 	Mail,
 	Map as MapIcon,
 	MessagesSquare,
+	Paperclip,
 } from 'lucide-react'
 import {
+	type Dispatch,
+	type FocusEvent,
 	Fragment,
+	type MutableRefObject,
 	type ReactNode,
+	type SetStateAction,
 	useCallback,
 	useEffect,
 	useId,
@@ -73,6 +78,7 @@ import {
 	lineDateLabel,
 	messageAnchorId,
 	placeDrafts,
+	replyTarget,
 	resendSeed,
 	type StreamEntry,
 	stepMessage,
@@ -90,14 +96,19 @@ import type { EmailDisplayStatus } from './EmailHtml.js'
 import { JumpToNewPill } from './JumpToNewPill.js'
 import { MessageBody } from './MessageBody.js'
 import { PartialLoadNotice } from './PartialLoadNotice.js'
-import { useMediaQuery, useReaderClock } from './reader-hooks.js'
-import { ThreadColumn } from './ThreadColumn.js'
+import { scrollParent, useMediaQuery, useReaderClock } from './reader-hooks.js'
+import { ThreadColumn, ThreadColumnReader } from './ThreadColumn.js'
 import { CONVERSATION_LAYOUT_OPTIONS, ThreadDisplayMenu } from './ThreadDisplayMenu.js'
 import { ThreadFilesShelf } from './ThreadFilesShelf.js'
 import { ThreadMapDots } from './ThreadMapDots.js'
 import { type ThreadMapFilter, ThreadMapPanel, threadMapNamesYou } from './ThreadMapPanel.js'
 import { ThreadMessagesPlaceholder } from './ThreadMessagesPlaceholder.js'
-import { type InviteVersion, type OpenMessageActions, ThreadOpenMessage } from './ThreadOpenMessage.js'
+import {
+	type InviteVersion,
+	type OpenMessageActions,
+	type OpenMessageDisplay,
+	ThreadOpenMessage,
+} from './ThreadOpenMessage.js'
 import { type ReaderMenuItem, ReaderMoreMenu, ThreadStepper } from './ThreadReaderControls.js'
 import { ThreadReaderHeader } from './ThreadReaderHeader.js'
 import { ThreadStreamNotices } from './ThreadStreamNotices.js'
@@ -120,6 +131,8 @@ const TOOLBAR_ACTIONS_QUERY = '(min-width: 48rem)'
 const PHONE_QUERY = '(max-width: 47.999rem)'
 /** `g` then `m` within this long opens the thread map. */
 const CHORD_TIMEOUT_MS = 1000
+/** The thread map panel; below `xl` it is a sheet (a dialog) that `g m` also closes. */
+const MAP_PANEL_SELECTOR = '[data-slot="thread-map-panel"]'
 
 type ToolbarSlots = {
 	desktop: boolean
@@ -162,14 +175,12 @@ function visibleBottom(viewport: HTMLElement): number {
 	)
 }
 
-/** The nearest scrolling ancestor: the reader's scroll area viewport. */
-function scrollParent(element: HTMLElement): HTMLElement | null {
-	for (let node = element.parentElement; node; node = node.parentElement) {
-		const { overflowY } = getComputedStyle(node)
-		if (overflowY === 'auto' || overflowY === 'scroll') return node
-	}
-	return null
-}
+/** Whether an element is laid out on screen (not inside a `display: none` pane). */
+const isShown = (element: Element): boolean =>
+	element.checkVisibility?.() ?? element.getClientRects().length > 0
+
+/** The message a stream row holds, from its `message-<id>` anchor. */
+const ANCHOR_PREFIX = 'message-'
 
 const isTypingTarget = (target: EventTarget | null): boolean =>
 	target instanceof HTMLElement &&
@@ -242,6 +253,23 @@ type ReaderExtras = {
 	onDiscardDraft: ((draftId: string) => void) | undefined
 }
 
+type State<T> = [T, Dispatch<SetStateAction<T>>]
+
+/**
+ * What the reader keeps while a thread stays open, through new replies
+ * arriving: the map panel and its filter, the files shelf, trashed messages
+ * shown, the message in focus, and whether the thread's opening (a linked
+ * message, the place the reader left off) has been handled.
+ */
+type ReaderUi = {
+	map: State<boolean>
+	mapFilter: State<ThreadMapFilter>
+	files: State<boolean>
+	trashed: State<boolean>
+	current: State<string | undefined>
+	opened: MutableRefObject<{ hash: boolean; place: boolean }>
+}
+
 function ThreadConversationController({
 	thread,
 	messages,
@@ -289,6 +317,18 @@ function ThreadConversationController({
 	const [originalSenders, setOriginalSenders] = useState<ReadonlySet<string>>(() => new Set())
 	const [originalColorStatus, setOriginalColorStatus] = useState<'idle' | 'error'>('idle')
 	const latestMessageId = messages.at(-1)?.id
+	const ui: ReaderUi = {
+		map: useState(false),
+		mapFilter: useState<ThreadMapFilter>('all'),
+		files: useState(false),
+		trashed: useState(false),
+		// The stepper starts on the first new message, else the latest.
+		current: useState<string | undefined>(() => {
+			const shown = streamMessages(messages, false)
+			return shown.find((message) => snapshot.unreadIds.includes(message.id))?.id ?? shown.at(-1)?.id
+		}),
+		opened: useRef({ hash: false, place: false }),
+	}
 
 	useEffect(() => {
 		let active = true
@@ -337,10 +377,12 @@ function ThreadConversationController({
 
 	// Reset expansion state as part of the conversation identity so a thread swap
 	// cannot paint once with the previous thread's open message IDs. Including the
-	// latest message also preserves the existing behaviour when a new reply arrives.
+	// latest message also preserves the existing behaviour when a new reply arrives;
+	// everything else the reader holds (`ui`) lives here and stays.
 	return (
 		<ThreadConversationContent
 			key={latestMessageId}
+			ui={ui}
 			thread={thread}
 			messages={messages}
 			mailboxEmail={mailboxEmail}
@@ -396,6 +438,7 @@ const sendAt = (message: MailMessage): number | undefined => {
 }
 
 function ThreadConversationContent({
+	ui,
 	thread,
 	messages,
 	mailboxEmail,
@@ -431,6 +474,7 @@ function ThreadConversationContent({
 	onDiscardDraft,
 	children,
 }: {
+	ui: ReaderUi
 	thread: MailThread
 	messages: MailMessage[]
 	mailboxEmail: string | undefined
@@ -470,8 +514,13 @@ function ThreadConversationContent({
 	const filesShelfId = useId()
 	const conversation = threadView === 'conversation'
 
+	const [mapOpen, setMapOpen] = ui.map
+	const [mapFilter, setMapFilter] = ui.mapFilter
+	const [filesOpen, setFilesOpen] = ui.files
+	const [showTrashed, setShowTrashed] = ui.trashed
+	const [currentId, setCurrentId] = ui.current
+
 	// ---- What the stream holds --------------------------------------------------
-	const [showTrashed, setShowTrashed] = useState(false)
 	const trashed = useMemo(
 		() => messages.filter((message) => message.ownmailDraft !== true && isTrashed(message)),
 		[messages],
@@ -503,9 +552,6 @@ function ThreadConversationContent({
 		}
 		return byMessage
 	}, [visible])
-
-	const [mapOpen, setMapOpen] = useState(false)
-	const [mapFilter, setMapFilter] = useState<ThreadMapFilter>('all')
 
 	// ---- Which messages are open ------------------------------------------------
 	const [targetId, setTargetId] = useState<string | undefined>(undefined)
@@ -544,7 +590,12 @@ function ThreadConversationContent({
 		() => visible.filter((message) => snapshot.unreadIds.includes(message.id)),
 		[visible, snapshot],
 	)
-	const showCatchUp = visible.length >= CATCH_UP_MIN_MESSAGES && unreadVisible.length > 0 && divider !== null
+	// The card sits above the first new message: under the divider's line, or
+	// at the top when every message is new and there is no divider.
+	const catchUpBeforeIndex =
+		visible.length >= CATCH_UP_MIN_MESSAGES && unreadVisible.length > 0
+			? (divider?.beforeIndex ?? visible.indexOf(unreadVisible[0] as MailMessage))
+			: null
 	const entries = useMemo(
 		() =>
 			streamEntries({
@@ -553,10 +604,10 @@ function ThreadConversationContent({
 				closedIds,
 				divider,
 				events,
-				catchUp: showCatchUp,
+				catchUpBeforeIndex,
 				drafts,
 			}),
-		[visible, plan, closedIds, divider, events, showCatchUp, drafts],
+		[visible, plan, closedIds, divider, events, catchUpBeforeIndex, drafts],
 	)
 	const files = useMemo(() => threadFiles(visible, owner), [visible, owner])
 	const details = useMemo(
@@ -569,28 +620,55 @@ function ThreadConversationContent({
 		[mapOpen, visible, owner, ownerFirstName],
 	)
 	const allKnownSenders = useMemo(() => [...people, ...(knownSenders ?? [])], [people, knownSenders])
+	// Checked once per message, not on every render of the reader.
+	const lookalikes = useMemo(
+		() =>
+			new Set(
+				visible
+					.filter((message) => isLookalikeSender(message, allKnownSenders, owner))
+					.map((message) => message.id),
+			),
+		[visible, allKnownSenders, owner],
+	)
 
 	// ---- Focus: the stepper, j/k and the map follow one message ----------------
-	const [currentId, setCurrentId] = useState<string | undefined>(
-		() => visible.find((message) => snapshot.unreadIds.includes(message.id))?.id ?? visible.at(-1)?.id,
-	)
 	const currentIndex = Math.max(
 		0,
 		visible.findIndex((message) => message.id === currentId),
 	)
-	const pendingScroll = useRef<string | null>(null)
-	const [filesOpen, setFilesOpen] = useState(false)
+	const pendingScroll = useRef<{ id: string; scroll: boolean } | null>(null)
 	const [sourceIds, setSourceIds] = useState<ReadonlySet<string>>(() => new Set())
 
-	const openMessage = useCallback((messageId: string) => {
-		setOpenIds((current) => new Set(current).add(messageId))
-		setClosedIds((current) => {
-			if (!current.has(messageId)) return current
-			const next = new Set(current)
-			next.delete(messageId)
-			return next
-		})
-		setCurrentId(messageId)
+	const openMessage = useCallback(
+		(messageId: string) => {
+			setOpenIds((current) => new Set(current).add(messageId))
+			setClosedIds((current) => {
+				if (!current.has(messageId)) return current
+				const next = new Set(current)
+				next.delete(messageId)
+				return next
+			})
+			setCurrentId(messageId)
+		},
+		[setCurrentId],
+	)
+
+	/**
+	 * A row clicked open (or a run unfolded) is replaced by what it opens to, so
+	 * focus moves to that message instead of falling to the page: keys pressed
+	 * next (j / k) stay with the reader.
+	 */
+	const openFromRow = useCallback(
+		(messageId: string) => {
+			pendingScroll.current = { id: messageId, scroll: false }
+			openMessage(messageId)
+		},
+		[openMessage],
+	)
+	const expandRun = useCallback((ids: string[]) => {
+		setExpandedRuns((current) => new Set([...current, ...ids]))
+		// A folded run holds three messages or more.
+		pendingScroll.current = { id: ids[0] as string, scroll: false }
 	}, [])
 
 	// Only an open message has a header to close it from.
@@ -608,21 +686,33 @@ function ThreadConversationContent({
 		(messageId: string) => {
 			const run = plan.find((item) => item.kind === 'folded' && item.ids.includes(messageId))
 			if (run?.kind === 'folded') setExpandedRuns((current) => new Set([...current, ...run.ids]))
-			pendingScroll.current = messageId
+			pendingScroll.current = { id: messageId, scroll: true }
 			openMessage(messageId)
 		},
 		[plan, openMessage],
 	)
 
-	// Scroll a message the reader moved to into view once it is laid out.
+	// Scroll a message the reader moved to into view once it is laid out, and
+	// give it focus (its row wrapper takes focus) so the reader's keys follow it.
 	useEffect(() => {
-		const messageId = pendingScroll.current
-		const element = messageId ? document.getElementById(messageAnchorId(messageId)) : null
-		if (!element) return
+		const pending = pendingScroll.current
+		const element = pending ? document.getElementById(messageAnchorId(pending.id)) : null
+		if (!pending || !element) return
 		pendingScroll.current = null
-		element.scrollIntoView?.({ block: 'start' })
-		element.querySelector<HTMLElement>('[data-slot="message-header"]')?.focus?.({ preventScroll: true })
+		if (pending.scroll) element.scrollIntoView?.({ block: 'start' })
+		element.focus({ preventScroll: true })
 	})
+
+	// Focus moving into another message (Tab into its header, a click in its
+	// body) makes it the one the stepper, the map and j / k start from.
+	const followFocus = useCallback(
+		(event: FocusEvent<HTMLElement>) => {
+			const item = (event.target as Element).closest(`[data-slot="stream-item"][id^="${ANCHOR_PREFIX}"]`)
+			const messageId = item?.id.slice(ANCHOR_PREFIX.length)
+			if (messageId && visibleIds.has(messageId)) setCurrentId(messageId)
+		},
+		[visibleIds, setCurrentId],
+	)
 
 	// Stepping is offered only while there is more than one message.
 	const step = useCallback(
@@ -633,9 +723,12 @@ function ThreadConversationContent({
 		[visible, currentIndex, currentId, goTo],
 	)
 
-	// A link to `#message-<id>` opens that message, once, when the thread opens.
+	// A link to `#message-<id>` opens that message, once, when the thread opens
+	// (not again when a reply arrives).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: read once per thread, not on every change
 	useEffect(() => {
+		if (ui.opened.current.hash) return
+		ui.opened.current.hash = true
 		const target = hashTarget(window.location.hash, visible)
 		if (target) {
 			setTargetId(target)
@@ -645,10 +738,10 @@ function ThreadConversationContent({
 
 	// The thread opens where the reader left off: a draft of theirs first, else
 	// the "new since" divider, when it is not already in view.
-	const openedAt = useRef(false)
+	const opened = ui.opened
 	useEffect(() => {
-		if (openedAt.current || conversation || !preferencesReady || !clock) return
-		openedAt.current = true
+		if (opened.current.place || conversation || !preferencesReady || !clock) return
+		opened.current.place = true
 		if (window.location.hash) return
 		const draft = drafts.at(-1)?.draft
 		const root = rootRef.current as HTMLElement
@@ -659,10 +752,10 @@ function ThreadConversationContent({
 		if (!element || !viewport || viewport.scrollTop > 0) return
 		const top = element.getBoundingClientRect().top - viewport.getBoundingClientRect().top
 		if (top > viewport.clientHeight * 0.6) element.scrollIntoView?.({ block: 'start' })
-	}, [conversation, preferencesReady, clock, drafts])
+	}, [opened, conversation, preferencesReady, clock, drafts])
 
-	// j / k step through messages, g m opens the thread map. In a split view the
-	// list keeps its own j / k while focus is in it.
+	// j / k step through messages, g m opens (or closes) the thread map. In a
+	// split view the list keeps its own j / k while focus is in it.
 	const multiple = visible.length > 1
 	useEffect(() => {
 		if (conversation || !multiple) return
@@ -670,8 +763,25 @@ function ThreadConversationContent({
 		function onKeyDown(event: KeyboardEvent) {
 			if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return
 			if (isTypingTarget(event.target)) return
-			if (event.target instanceof Element && event.target.closest('[role="menu"], [role="dialog"]')) return
-			if (document.querySelector('[role="dialog"]')) return
+			const target = event.target instanceof Element ? event.target : null
+			if (target?.closest('[role="menu"]')) return
+			// A dialog keeps its keys, except the map's own sheet, which g m also closes.
+			const dialogs = [...document.querySelectorAll('[role="dialog"]')]
+			if (dialogs.some((dialog) => !dialog.matches(MAP_PANEL_SELECTOR))) return
+			const key = event.key
+			if (key === 'g') {
+				chordAt = Date.now()
+				return
+			}
+			if (key === 'm' && Date.now() - chordAt < CHORD_TIMEOUT_MS) {
+				chordAt = 0
+				event.preventDefault()
+				event.stopImmediatePropagation()
+				setMapOpen((current) => !current)
+				return
+			}
+			chordAt = 0
+			if (dialogs.length > 0) return
 			const root = rootRef.current
 			// The reader's own keys act when focus is in it, or on nothing at all.
 			const inReader =
@@ -680,22 +790,10 @@ function ThreadConversationContent({
 					(event.target instanceof Node &&
 						root.closest('[data-testid="thread-reader"]')?.contains(event.target)) ||
 					(event.target instanceof Node && root.contains(event.target)))
-			const focusInList = event.target instanceof Element && event.target.closest('[data-nav-row]') !== null
-			const key = event.key
-			if (key === 'g') {
-				chordAt = Date.now()
-				return
-			}
-			if (key === 'm' && Date.now() - chordAt < CHORD_TIMEOUT_MS && !focusInList) {
-				chordAt = 0
-				event.preventDefault()
-				event.stopImmediatePropagation()
-				setMapOpen((current) => !current)
-				return
-			}
-			chordAt = 0
-			// Beside a list, j / k with nothing focused (or a row focused) stay the list's.
-			const listBeside = document.querySelector('[data-nav-row]') !== null
+			const focusInList = target?.closest('[data-nav-row]') != null
+			// Beside a list on screen, j / k with nothing focused (or a row focused)
+			// stay the list's. A list the layout hides is not beside the reader.
+			const listBeside = [...document.querySelectorAll('[data-nav-row]')].some(isShown)
 			if (!inReader || (listBeside && (focusInList || event.target === document.body))) return
 			if (key === 'j' || key === 'k') {
 				event.preventDefault()
@@ -705,7 +803,7 @@ function ThreadConversationContent({
 		}
 		window.addEventListener('keydown', onKeyDown, true)
 		return () => window.removeEventListener('keydown', onKeyDown, true)
-	}, [conversation, multiple, step])
+	}, [conversation, multiple, step, setMapOpen])
 
 	// ---- New messages below the fold (phone) ---------------------------------
 	const [belowCount, setBelowCount] = useState(0)
@@ -744,18 +842,25 @@ function ThreadConversationContent({
 		(message: MailMessage) => void openCompose({ kind: 'new', ...resendSeed(message) }),
 		[openCompose],
 	)
+	// A plain reply to your own message goes to the first other person on it.
+	const replySearch = useCallback(
+		(message: MailMessage) => ({
+			...replyDraftSearch(message),
+			to: replyTarget(message, owner)?.email ?? '',
+		}),
+		[owner],
+	)
 	const actions = useMemo<OpenMessageActions>(
 		() => ({
 			onToggle: closeMessage,
-			onReply: (message) =>
-				void openCompose({ kind: 'reply', threadId: thread.id, ...replyDraftSearch(message) }),
+			onReply: (message) => void openCompose({ kind: 'reply', threadId: thread.id, ...replySearch(message) }),
 			onForward: (message) =>
 				void openCompose({ kind: 'forward', threadId: thread.id, ...forwardDraftSearch(message) }),
 			onQuote: (message) =>
 				void openCompose({
 					kind: 'reply',
 					threadId: thread.id,
-					...replyDraftSearch(message),
+					...replySearch(message),
 					body: quotedText(message),
 				}),
 			onMuteThread: () => {
@@ -771,18 +876,30 @@ function ThreadConversationContent({
 				})
 			},
 			onEditResend: (message) => editAndResend(message),
-			onSendNow: (message) => editAndResend(message),
-			onCancelSchedule: () => {},
 			onShowMessage: goTo,
 			onDisplayStatus,
 		}),
-		[closeMessage, openCompose, thread.id, muted, onToggleMuted, owner, editAndResend, goTo, onDisplayStatus],
+		[
+			closeMessage,
+			openCompose,
+			thread.id,
+			replySearch,
+			muted,
+			onToggleMuted,
+			owner,
+			editAndResend,
+			goTo,
+			onDisplayStatus,
+		],
 	)
 
-	const display = useCallback(
-		(message: MailMessage) => {
+	// One display object per message, made again only when a setting changes, so
+	// an open message (memoised) does not render again on every step or toggle.
+	const displays = useMemo(() => {
+		const byMessage = new Map<string, OpenMessageDisplay>()
+		for (const message of messages) {
 			const sender = message.from?.[0]?.email?.trim().toLowerCase() ?? ''
-			return {
+			byMessage.set(message.id, {
 				darkenEmail,
 				layoutMode,
 				colorMode: colorMode === 'original' || originalColorSenders.has(sender) ? 'original' : 'automatic',
@@ -790,19 +907,20 @@ function ThreadConversationContent({
 				loadRemoteImagesForSender: trustedDuringThisView.has(sender),
 				retryRevision,
 				bodyFontSize: phone ? 17 : 16,
-			} as const
-		},
-		[
-			darkenEmail,
-			layoutMode,
-			colorMode,
-			originalColorSenders,
-			loadRemoteImagesForThread,
-			trustedDuringThisView,
-			retryRevision,
-			phone,
-		],
-	)
+			})
+		}
+		return byMessage
+	}, [
+		messages,
+		darkenEmail,
+		layoutMode,
+		colorMode,
+		originalColorSenders,
+		loadRemoteImagesForThread,
+		trustedDuringThisView,
+		retryRevision,
+		phone,
+	])
 
 	// ---- Toolbar controls --------------------------------------------------------
 	const hasHtmlMessages = messages.some(messageHasHtml)
@@ -864,13 +982,25 @@ function ThreadConversationContent({
 							},
 				]
 			: []),
+		// The label says the state, so Mute is a plain action.
 		{
 			kind: 'action',
 			label: muted ? 'Unmute thread' : 'Mute thread',
 			icon: BellOff,
-			pressed: muted,
 			onSelect: onToggleMuted,
 		},
+		// The phone has no header meta row, so the files shelf opens from here.
+		...(withView && !conversation && files.length > 0
+			? [
+					{
+						kind: 'action' as const,
+						label: `Files (${files.length})`,
+						icon: Paperclip,
+						checked: filesOpen,
+						onSelect: () => setFilesOpen((current) => !current),
+					},
+				]
+			: []),
 		...(!conversation && multiple
 			? [
 					{
@@ -878,7 +1008,7 @@ function ThreadConversationContent({
 						label: 'Thread map',
 						icon: MapIcon,
 						shortcut: 'g m',
-						pressed: mapOpen,
+						checked: mapOpen,
 						onSelect: () => setMapOpen((current) => !current),
 					},
 					{
@@ -898,7 +1028,10 @@ function ThreadConversationContent({
 						icon: ChevronsUp,
 						disabled: allClosed,
 						onSelect: () => {
+							// Back to the thread's folds: runs fold again and nothing is opened by a link.
 							setOpenIds(new Set())
+							setExpandedRuns(new Set())
+							setTargetId(undefined)
 							setClosedIds(new Set(visible.map((message) => message.id)))
 						},
 					},
@@ -1003,13 +1136,13 @@ function ThreadConversationContent({
 							? { facts: headerFacts.byMessage[entry.message.id] }
 							: {})}
 						knownSenders={allKnownSenders}
-						lookalike={isLookalikeSender(entry.message, allKnownSenders, owner)}
+						lookalike={lookalikes.has(entry.message.id)}
 						{...(invites.get(entry.message.id) ? { invite: invites.get(entry.message.id) } : {})}
 						{...(bounceByOriginal.get(entry.message.id)
 							? { bounce: bounceByOriginal.get(entry.message.id) }
 							: {})}
 						attachmentDetails={details}
-						display={display(entry.message)}
+						display={displays.get(entry.message.id) as OpenMessageDisplay}
 						actions={actions}
 						current={entry.message.id === currentId}
 					/>
@@ -1021,17 +1154,14 @@ function ThreadConversationContent({
 							message={entry.message}
 							owner={owner}
 							date={clock ? lineDateLabel(entry.message.date, clock.now, clock.tz) : ''}
-							onOpen={openMessage}
+							onOpen={openFromRow}
 						/>
 					</ThreadColumn>
 				)
 			case 'folded':
 				return (
 					<ThreadColumn>
-						<FoldedMessagesRow
-							item={clock ? entry.item : { ...entry.item, span: '' }}
-							onExpand={(ids) => setExpandedRuns((current) => new Set([...current, ...ids]))}
-						/>
+						<FoldedMessagesRow item={clock ? entry.item : { ...entry.item, span: '' }} onExpand={expandRun} />
 					</ThreadColumn>
 				)
 			case 'divider':
@@ -1095,120 +1225,130 @@ function ThreadConversationContent({
 			className={conversation ? 'flex min-h-full flex-col bg-background' : 'reader min-h-full bg-background'}
 		>
 			{toolbarPortals}
-			<div className={conversation ? 'contents' : 'reader-layout'}>
-				<div className={conversation ? 'contents' : 'reader-main'}>
-					<ThreadReaderHeader
-						subject={title.text}
-						isStandIn={title.isStandIn}
-						people={shownPeople}
-						names={named.names}
-						more={named.more}
-						messageCount={visible.length}
-						span={span}
-						fileCount={files.length}
-						filesOpen={filesOpen}
-						filesShelfId={filesShelfId}
-						onToggleFiles={() => setFilesOpen((current) => !current)}
-						labels={threadLabels(thread)}
-						actions={headerActions}
-					/>
-					{filesOpen ? (
-						<ThreadColumn>
-							<div id={filesShelfId} data-slot="thread-files-shelf" className="reader-files-shelf">
-								<ThreadFilesShelf
-									files={files}
-									onDownloadAll={() => downloadAll(files)}
-									onOpenFile={(file: ThreadFile) =>
-										window.open(attachmentUrl(file.attachmentId, file.messageId), '_blank', 'noopener')
-									}
-								/>
-							</div>
-						</ThreadColumn>
-					) : null}
+			<ThreadColumnReader active={!conversation}>
+				<div className={conversation ? 'contents' : 'reader-layout'}>
+					<div className={conversation ? 'contents' : 'reader-main'}>
+						<ThreadReaderHeader
+							subject={title.text}
+							isStandIn={title.isStandIn}
+							people={shownPeople}
+							names={named.names}
+							more={named.more}
+							messageCount={visible.length}
+							span={span}
+							fileCount={files.length}
+							filesOpen={filesOpen}
+							filesShelfId={filesShelfId}
+							onToggleFiles={() => setFilesOpen((current) => !current)}
+							labels={threadLabels(thread)}
+							actions={headerActions}
+						/>
+						{filesOpen ? (
+							<ThreadColumn>
+								<div id={filesShelfId} data-slot="thread-files-shelf" className="reader-files-shelf">
+									<ThreadFilesShelf
+										files={files}
+										onDownloadAll={() => downloadAll(files)}
+										onOpenFile={(file: ThreadFile) =>
+											window.open(attachmentUrl(file.attachmentId, file.messageId), '_blank', 'noopener')
+										}
+									/>
+								</div>
+							</ThreadColumn>
+						) : null}
 
-					{!preferencesReady ? (
-						<ThreadMessagesPlaceholder />
-					) : conversation ? (
-						<ConversationTranscript
-							threadId={thread.id}
-							messages={messages}
-							mailboxEmail={mailboxEmail}
-							loadRemoteImagesForThread={loadRemoteImagesForThread}
-							trustedDuringThisView={trustedDuringThisView}
-							cleanDesigned={layoutMode !== 'original'}
-							onDisplayStatus={onDisplayStatus}
-							reply={reply}
-							renderOriginal={(message) => (
-								<MessageBody message={message} {...display(message)} onDisplayStatus={onDisplayStatus} />
-							)}
-						>
-							{children}
-						</ConversationTranscript>
-					) : (
-						<div data-slot="thread-messages" className="reader-messages">
-							{failedMessageIds && failedMessageIds.length > 0 ? (
+						{!preferencesReady ? (
+							<ThreadMessagesPlaceholder />
+						) : conversation ? (
+							<ConversationTranscript
+								threadId={thread.id}
+								messages={messages}
+								mailboxEmail={mailboxEmail}
+								loadRemoteImagesForThread={loadRemoteImagesForThread}
+								trustedDuringThisView={trustedDuringThisView}
+								cleanDesigned={layoutMode !== 'original'}
+								onDisplayStatus={onDisplayStatus}
+								reply={reply}
+								renderOriginal={(message) => (
+									<MessageBody
+										message={message}
+										{...(displays.get(message.id) as OpenMessageDisplay)}
+										onDisplayStatus={onDisplayStatus}
+									/>
+								)}
+							>
+								{children}
+							</ConversationTranscript>
+						) : (
+							<div data-slot="thread-messages" className="reader-messages">
+								{failedMessageIds && failedMessageIds.length > 0 ? (
+									<ThreadColumn>
+										<PartialLoadNotice
+											failedCount={failedMessageIds.length}
+											shownCount={messages.filter((message) => message.ownmailDraft !== true).length}
+											onRetry={() => onRetryLoad?.()}
+										/>
+									</ThreadColumn>
+								) : null}
+								<div
+									data-slot="thread-message-stream"
+									data-navigation-content=""
+									onFocusCapture={followFocus}
+								>
+									{entries.map((entry) => (
+										<Fragment key={entry.key}>
+											{entry.separated ? (
+												<div aria-hidden="true" data-slot="stream-rule" data-before={entry.kind}>
+													<ThreadColumn>
+														<div className="reader-rule" />
+													</ThreadColumn>
+												</div>
+											) : null}
+											<VirtualStreamItem
+												kind={entry.kind}
+												{...(entry.kind === 'open' || entry.kind === 'line'
+													? { anchorId: messageAnchorId(entry.message.id) }
+													: {})}
+												virtual={virtual}
+												pinned={
+													(entry.kind === 'open' || entry.kind === 'line') &&
+													(entry.message.id === currentId || sourceIds.has(entry.message.id))
+												}
+												highlight={
+													(entry.kind === 'open' || entry.kind === 'line') && sourceIds.has(entry.message.id)
+												}
+											>
+												{renderEntry(entry)}
+											</VirtualStreamItem>
+										</Fragment>
+									))}
+								</div>
 								<ThreadColumn>
-									<PartialLoadNotice
-										failedCount={failedMessageIds.length}
-										shownCount={messages.filter((message) => message.ownmailDraft !== true).length}
-										onRetry={() => onRetryLoad?.()}
+									<ThreadStreamNotices
+										trashed={trashed}
+										showTrashed={showTrashed}
+										onToggleTrashed={() => setShowTrashed((current) => !current)}
+										thread={thread}
+										messages={visible}
+										owner={owner}
 									/>
 								</ThreadColumn>
-							) : null}
-							<div data-slot="thread-message-stream" data-navigation-content="">
-								{entries.map((entry) => (
-									<Fragment key={entry.key}>
-										{entry.separated ? (
-											<div aria-hidden="true" data-slot="stream-rule" data-before={entry.kind}>
-												<ThreadColumn>
-													<div className="reader-rule" />
-												</ThreadColumn>
-											</div>
-										) : null}
-										<VirtualStreamItem
-											kind={entry.kind}
-											{...(entry.kind === 'open' || entry.kind === 'line'
-												? { anchorId: messageAnchorId(entry.message.id) }
-												: {})}
-											virtual={virtual}
-											pinned={
-												(entry.kind === 'open' || entry.kind === 'line') &&
-												(entry.message.id === currentId || sourceIds.has(entry.message.id))
-											}
-											highlight={
-												(entry.kind === 'open' || entry.kind === 'line') && sourceIds.has(entry.message.id)
-											}
-										>
-											{renderEntry(entry)}
-										</VirtualStreamItem>
-									</Fragment>
-								))}
+								{children}
 							</div>
-							<ThreadColumn>
-								<ThreadStreamNotices
-									trashed={trashed}
-									showTrashed={showTrashed}
-									onToggleTrashed={() => setShowTrashed((current) => !current)}
-									thread={thread}
-									messages={visible}
-									owner={owner}
-								/>
-							</ThreadColumn>
-							{children}
-						</div>
-					)}
+						)}
+					</div>
+					{!conversation && preferencesReady && multiple ? (
+						<ThreadMapDots
+							entries={map.entries}
+							stoppedBeforeIndex={map.stoppedBeforeIndex}
+							currentId={currentId}
+							dateLabel={dayLabel}
+							onSelect={goTo}
+							onOpenPanel={() => setMapOpen(true)}
+						/>
+					) : null}
 				</div>
-				{!conversation && preferencesReady && multiple ? (
-					<ThreadMapDots
-						entries={map.entries}
-						stoppedBeforeIndex={map.stoppedBeforeIndex}
-						currentId={currentId}
-						dateLabel={dayLabel}
-						onSelect={goTo}
-						onOpenPanel={() => setMapOpen(true)}
-					/>
-				) : null}
-			</div>
+			</ThreadColumnReader>
 			{!conversation && multiple && slots
 				? dock(
 						<ThreadMapPanel

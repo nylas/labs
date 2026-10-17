@@ -13,25 +13,33 @@ export function ThreadColumnInset({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Set by the standard reader: its column is 760px at most and starts 64px into
+ * the pane on wide screens, with 56px kept on its right before the thread map.
+ * Everywhere else (the Conversation view, placeholders) the column is centred.
+ */
+const ThreadColumnReaderContext = createContext(false)
+
+export function ThreadColumnReader({ active, children }: { active: boolean; children: ReactNode }) {
+	return <ThreadColumnReaderContext value={active}>{children}</ThreadColumnReaderContext>
+}
+
+/**
  * The thread reader's single content column. Headers, prose, attachments, and
  * designed emails all start on its edge, so a conversation reads as one aligned
- * column while sender canvases are free to extend across the whole pane. The
- * column is 760px at most and starts 64px into the pane on wide screens, with
- * 56px kept on its right before the thread map.
+ * column while sender canvases are free to extend across the whole pane.
  *
  * `designed` lets HTML layouts use the phone gutter, because they bring their own
  * margins; prose and app chrome always keep it.
  */
 export function ThreadColumn({ children, designed = false }: { children: ReactNode; designed?: boolean }) {
 	const inset = useContext(ThreadColumnInsetContext) && !designed
+	const reader = useContext(ThreadColumnReaderContext)
+	const gutter = designed ? 'px-0 sm:px-6' : 'px-4 sm:px-6'
 	return (
-		<div
-			data-slot="thread-column"
-			className={designed ? 'px-0 sm:px-6 xl:pr-14 xl:pl-16' : 'px-4 sm:px-6 xl:pr-14 xl:pl-16'}
-		>
+		<div data-slot="thread-column" className={cn(gutter, reader ? 'xl:pr-14 xl:pl-16' : 'xl:px-8')}>
 			<div
 				data-inset={inset || undefined}
-				className={cn('w-full min-w-0 max-w-[760px]', inset && 'md:pl-11')}
+				className={cn('w-full min-w-0', reader ? 'max-w-[760px]' : 'mx-auto max-w-3xl', inset && 'md:pl-11')}
 			>
 				{children}
 			</div>

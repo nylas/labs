@@ -7,7 +7,7 @@ import {
 	Forward,
 	Inbox,
 	Loader2,
-	MailOpen,
+	Mail,
 	Reply,
 	ReplyAll,
 	Star,
@@ -48,6 +48,7 @@ import {
 	threadParticipants,
 	toPerson,
 } from '#features/mail/lib/thread-reading-model'
+import { replyTarget, streamMessages } from '#features/mail/lib/thread-stream'
 import { findCachedThread, systemFolderBeforeMove } from '#features/mail/state/mail-cache'
 import {
 	markThreadReadOnOpen,
@@ -313,10 +314,9 @@ function ThreadView() {
 		thread.subject ?? messages[0]?.subject,
 		messages[0]?.body ?? messages[0]?.snippet ?? '',
 	)
-	const peopleCount = threadParticipants(
-		messages.filter((message) => message.ownmailDraft !== true),
-		mailboxEmail,
-	).length
+	// The phone's top bar counts what the stream shows: no drafts, nothing in Trash.
+	const shownMessages = streamMessages(messages, false)
+	const peopleCount = threadParticipants(shownMessages, mailboxEmail).length
 	const inlineReplyRef = useRef<HTMLButtonElement>(null)
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	// Replies open in this thread, under the last message; a forward floats (design.md "Reading").
@@ -329,8 +329,14 @@ function ThreadView() {
 	const reply = useCallback(() => {
 		/* v8 ignore next -- every exposed reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		void openCompose({ kind: 'reply', threadId, ...replyDraftSearch(lastMessage) })
-	}, [lastMessage, openCompose, threadId])
+		// Your own message is the latest: the reply goes to the first other person on it.
+		void openCompose({
+			kind: 'reply',
+			threadId,
+			...replyDraftSearch(lastMessage),
+			to: replyTarget(lastMessage, mailboxEmail)?.email ?? '',
+		})
+	}, [lastMessage, mailboxEmail, openCompose, threadId])
 	const replyAll = useCallback(() => {
 		/* v8 ignore next -- every exposed reply-all entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
@@ -445,9 +451,9 @@ function ThreadView() {
 				if (isModified || shouldIgnoreReplyShortcut(event)) return
 				if (document.querySelector('[role="dialog"]') || !lastMessage) return
 				event.preventDefault()
-				// Desktop: `r` lands on the inline reply field after the last message.
-				// Where that field is not displayed (mobile) it cannot take focus, so
-				// the shortcut opens the reply directly.
+				// Desktop: `r` lands on the reply card's "Reply only to {name}", so
+				// Enter opens the same reply. Where the card is not displayed (mobile)
+				// or names no one, it cannot take focus and the reply opens directly.
 				const inlineReply = inlineReplyRef.current
 				inlineReply?.focus()
 				if (document.activeElement !== inlineReply) reply()
@@ -575,7 +581,7 @@ function ThreadView() {
 					{pendingAction === 'unread' ? (
 						<Loader2 className="h-4 w-4 animate-spin" />
 					) : (
-						<MailOpen className="h-4 w-4" />
+						<Mail className="h-4 w-4" />
 					)}
 				</IconButton>
 
@@ -591,7 +597,7 @@ function ThreadView() {
 							size="sm"
 							onClick={replyAll}
 							title="Reply all"
-							className="reader-reply-all shadow-none"
+							className="reader-reply-all border-cta-line shadow-none"
 						>
 							<ReplyAll className="text-cta-icon" aria-hidden="true" />
 							Reply all
@@ -610,7 +616,7 @@ function ThreadView() {
 			<div className="md:hidden">
 				<MobileThreadTopBar
 					subject={title.text}
-					messageCount={messages.filter((message) => message.ownmailDraft !== true).length}
+					messageCount={shownMessages.length}
 					peopleCount={peopleCount}
 					onBack={goBackToList}
 					onArchive={archive}
@@ -656,7 +662,7 @@ function ThreadView() {
 							owner={mailboxEmail}
 							onReply={reply}
 							onReplyAll={replyAll}
-							fieldRef={inlineReplyRef}
+							replyRef={inlineReplyRef}
 						/>
 					) : null}
 				</ThreadConversation>

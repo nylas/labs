@@ -48,7 +48,8 @@ export type StreamInput = {
 	closedIds: ReadonlySet<string>
 	divider: { beforeIndex: number; count: number; label: string } | null
 	events: SystemEvent[]
-	catchUp: boolean
+	/** Where the catch-up card goes: before the message at this index (the first new one), or nowhere. */
+	catchUpBeforeIndex: number | null
 	/** Drafts, each with the message it follows in the thread (undefined: before the first). */
 	drafts: Array<{ draft: MailMessage; after?: MailMessage }>
 }
@@ -64,7 +65,7 @@ const itemIndices = (item: FoldItem): number[] => (item.kind === 'folded' ? item
  * only when the message before it is open directly above.
  */
 export function streamEntries(input: StreamInput): StreamEntry[] {
-	const { messages, plan, closedIds, divider, events, catchUp, drafts } = input
+	const { messages, plan, closedIds, divider, events, catchUpBeforeIndex, drafts } = input
 	const entries: StreamEntry[] = []
 	const eventsAfter = new Map<number, string[]>()
 	for (const event of events)
@@ -100,11 +101,11 @@ export function streamEntries(input: StreamInput): StreamEntry[] {
 				separateNext = true
 			}
 		}
+		if (first === catchUpBeforeIndex) {
+			push({ kind: 'catch-up', key: 'catch-up', separated: separateNext })
+			separateNext = true
+		}
 		if (divider && first === divider.beforeIndex) {
-			if (catchUp) {
-				push({ kind: 'catch-up', key: 'catch-up', separated: separateNext })
-				separateNext = true
-			}
 			push({ kind: 'divider', key: 'divider', separated: false, label: divider.label, count: divider.count })
 			separateNext = false
 		}
@@ -127,8 +128,11 @@ export function streamEntries(input: StreamInput): StreamEntry[] {
 			lastOpenIndex = open ? item.index : -2
 		}
 		separateNext = true
-		const last = messages[indices.at(-1) as number] as MailMessage
-		pushDrafts(draftsAfter.get(last.id) ?? [], last)
+		// A draft that follows a message in a folded run sits under the folded row.
+		for (const index of indices) {
+			const message = messages[index] as MailMessage
+			pushDrafts(draftsAfter.get(message.id) ?? [], message)
+		}
 	}
 	return entries
 }
@@ -179,9 +183,26 @@ export function replyAllNames(message: MailMessage, owner: string): { names: str
 	return { names: named.join(', '), more: people.length - named.length }
 }
 
+type Participant = NonNullable<MailMessage['from']>[number]
+
+/**
+ * Whoever a plain Reply goes to: the Reply-To, else the sender. When that is
+ * the mailbox owner (your own message is the latest), the reply goes to the
+ * first other person you wrote to instead.
+ */
+export function replyTarget(message: MailMessage, owner: string): Participant | undefined {
+	const own = owner.trim().toLowerCase()
+	const isOwn = (participant: Participant) => participant.email?.trim().toLowerCase() === own
+	const target = message.reply_to?.[0] ?? message.from?.[0]
+	if (!target || !own || !isOwn(target)) return target
+	return [...(message.to ?? []), ...(message.cc ?? [])].find(
+		(participant) => participant.email && !isOwn(participant),
+	)
+}
+
 /** The first name of whoever a plain Reply goes to. */
 export function replyFirstName(message: MailMessage, owner: string): string {
-	const target = message.reply_to?.[0] ?? message.from?.[0]
+	const target = replyTarget(message, owner)
 	return target ? firstName(toPerson(target, owner)) : ''
 }
 

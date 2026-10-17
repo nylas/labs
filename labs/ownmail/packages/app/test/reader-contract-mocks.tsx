@@ -74,7 +74,7 @@ export function MessageHeader({
 	const name = personName(senderPerson(message, owner), 'full')
 	const recipients = recipientSummary(message, prev, owner)
 	return (
-		<div data-slot="message-header-stub" data-verified={facts?.verified ? 'true' : undefined}>
+		<div data-slot="message-header" data-verified={facts?.verified ? 'true' : undefined}>
 			<h2>{name}</h2>
 			<span data-slot="recipient-summary">{recipients.text}</span>
 			<button type="button" onClick={onToggle}>
@@ -185,21 +185,26 @@ export function OutgoingStatus({
 	message: MailMessage
 	bounce?: { address: string }
 	onEditResend(): void
-	onSendNow(): void
-	onCancelSchedule(): void
+	onSendNow?(): void
+	onCancelSchedule?(): void
 }) {
+	// Like the real one, it offers Send now and Cancel only with a handler for each.
 	return (
 		<div data-slot="outgoing-stub">
 			{bounce ? `Not sent. ${bounce.address} bounced.` : null}
 			<button type="button" onClick={onEditResend}>
 				Edit and resend
 			</button>
-			<button type="button" onClick={onSendNow}>
-				Send now
-			</button>
-			<button type="button" onClick={onCancelSchedule}>
-				Cancel scheduled send
-			</button>
+			{onSendNow ? (
+				<button type="button" onClick={onSendNow}>
+					Send now
+				</button>
+			) : null}
+			{onCancelSchedule ? (
+				<button type="button" onClick={onCancelSchedule}>
+					Cancel scheduled send
+				</button>
+			) : null}
 		</div>
 	)
 }

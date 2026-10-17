@@ -304,7 +304,7 @@ describe('message list', () => {
 		expect(nextViewport.scrollTop).toBe(0)
 	})
 
-	it('offers a separate raw email download for each individual message', async () => {
+	it('offers the raw email of the latest message, its id escaped', async () => {
 		renderThread(
 			loaderData({
 				messages: [
@@ -316,9 +316,10 @@ describe('message list', () => {
 				],
 			}),
 		)
-		// The download sits in the message header's right-click menu, beside collapse.
+		// Each message's own download sits in its header's right-click menu (the
+		// header's); the More menu downloads the latest one, its id escaped.
 		expect(screen.queryByRole('menuitem', { name: 'Download raw email' })).not.toBeInTheDocument()
-		fireEvent.contextMenu(document.querySelector('[data-slot="message-header"]') as HTMLElement)
+		fireEvent.click(screen.getByRole('button', { name: 'More' }))
 		const link = await screen.findByRole('menuitem', { name: 'Download raw email' })
 
 		expect(link).toHaveAttribute('href', '/messages/msg%2F%231/download')
@@ -376,10 +377,7 @@ describe('message list', () => {
 			}),
 		)
 		await waitFor(() =>
-			expect(document.querySelector('[data-slot="message-header-stub"]')).toHaveAttribute(
-				'data-verified',
-				'true',
-			),
+			expect(document.querySelector('[data-slot="message-header"]')).toHaveAttribute('data-verified', 'true'),
 		)
 		expect(headerFacts).toHaveBeenCalledExactlyOnceWith({ data: { threadId: 't1' } })
 	})
@@ -400,7 +398,7 @@ describe('message list', () => {
 		)
 		await waitFor(() => expect(headerFacts).toHaveBeenCalled())
 		expect(screen.getByText('Undated message')).toBeInTheDocument()
-		expect(document.querySelector('[data-slot="message-header-stub"]')).not.toHaveAttribute('data-verified')
+		expect(document.querySelector('[data-slot="message-header"]')).not.toHaveAttribute('data-verified')
 	})
 
 	it('omits the details disclosure when a provider message has no metadata', () => {
@@ -1113,20 +1111,22 @@ describe('keyboard shortcuts', () => {
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
-	it('moves focus to the inline reply field on "r", which then opens the reply', async () => {
+	it('moves focus to the reply card\'s plain reply on "r", which then opens the reply', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const field = screen.getByRole('button', { name: /Write a reply/ })
+		const replyOnly = screen.getByRole('button', { name: /^Reply only to/ })
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'r' })
 		})
-		// Reading is not interrupted: the shortcut reaches the field, it does not navigate.
-		expect(field).toHaveFocus()
+		// Reading is not interrupted: the shortcut reaches the card, it does not navigate.
+		expect(replyOnly).toHaveFocus()
 		expect(navigate).not.toHaveBeenCalled()
 
+		// `r` means Reply, as on a phone: a reply to the sender only, not Reply all.
 		await user.keyboard('{Enter}')
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(1)
 		expect(composeApi.openCompose).toHaveBeenCalledWith(
-			expect.objectContaining({ threadId: 't1', replyToMessageId: 'm2' }),
+			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: 'm2', to: 'carol@x.com' }),
 		)
 	})
 
@@ -1134,17 +1134,77 @@ describe('keyboard shortcuts', () => {
 		renderThread()
 		// On mobile the field is `display: none` and cannot take focus; jsdom applies
 		// no stylesheet, so stand in for that by making focus a no-op.
-		vi.spyOn(screen.getByRole('button', { name: /Write a reply/ }), 'focus').mockImplementation(() => {})
+		vi.spyOn(screen.getByRole('button', { name: /^Reply only to/ }), 'focus').mockImplementation(() => {})
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'r' })
 		})
 		expect(composeApi.openCompose).toHaveBeenCalledWith(
 			expect.objectContaining({
+				kind: 'reply',
 				threadId: 't1',
 				replyToMessageId: 'm2',
 				to: 'carol@x.com',
 			}),
 		)
+	})
+
+	it('replies to the first other person when your own message is the latest, and to no one when there is none', async () => {
+		const own = (to: Array<{ name?: string; email: string }>) =>
+			loaderData({
+				messages: [
+					{
+						id: 'm1',
+						from: [{ name: 'Carol', email: 'carol@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Hi',
+					},
+					{ id: 'm2', from: [{ name: 'Me', email: 'me@x.com' }], to, body: 'Thanks' },
+				],
+			})
+		const { unmount } = renderThread(own([{ email: 'me@x.com' }, { name: 'Carol', email: 'carol@x.com' }]))
+		expect(screen.getByRole('button', { name: 'Reply only to Carol' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', replyToMessageId: 'm2', to: 'carol@x.com' }),
+		)
+		unmount()
+		// A note to yourself has no one else to reply to: the composer opens unaddressed.
+		renderThread(own([{ email: 'me@x.com' }]))
+		await act(async () => {
+			fireEvent.keyDown(document.body, { key: 'r' })
+		})
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', replyToMessageId: 'm2', to: '' }),
+		)
+	})
+
+	it('counts on the phone top bar what the stream shows, not messages in Trash', () => {
+		renderThread(
+			loaderData({
+				messages: [
+					{
+						id: 'm1',
+						from: [{ name: 'Carol', email: 'carol@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Hi',
+					},
+					{
+						id: 'm2',
+						from: [{ name: 'Dave', email: 'dave@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Binned',
+						folders: ['trash'],
+					},
+					{
+						id: 'm3',
+						from: [{ name: 'Carol', email: 'carol@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Bye',
+					},
+				],
+			}),
+		)
+		expect(screen.getByText('Hello · 2 messages · 2 people')).toBeInTheDocument()
 	})
 
 	it('falls back to the event target when a reply event has no composed path', () => {
@@ -1155,7 +1215,7 @@ describe('keyboard shortcuts', () => {
 		document.body.dispatchEvent(event)
 
 		expect(event.defaultPrevented).toBe(true)
-		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveFocus()
+		expect(screen.getByRole('button', { name: /^Reply only to/ })).toHaveFocus()
 	})
 
 	it('does not open a reply from interactive controls, with modifiers, or while a dialog is open', async () => {

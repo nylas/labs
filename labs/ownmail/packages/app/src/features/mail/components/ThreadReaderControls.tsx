@@ -62,10 +62,17 @@ export type ReaderMenuItem =
 			onSelect: () => void
 			disabled?: boolean
 			shortcut?: string
-			pressed?: boolean
+			/** An on/off item (the thread map, the files shelf): a checkbox item with its state. */
+			checked?: boolean
 	  }
 	| { kind: 'link'; label: string; icon: LucideIcon; href: string; download?: boolean }
 	| { kind: 'separator'; key: string }
+
+/** Every item the arrow keys move between, in order: plain and checkbox items that are not disabled. */
+const menuItemsIn = (menu: HTMLElement): HTMLElement[] =>
+	[...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
+		(item) => !(item as HTMLButtonElement).disabled,
+	)
 
 const menuItemClass =
 	'flex min-h-8 w-full items-center gap-3 whitespace-nowrap rounded-md px-3 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11'
@@ -85,7 +92,8 @@ export function ReaderMoreMenu({ items, label = 'More' }: { items: ReaderMenuIte
 
 	useEffect(() => {
 		if (!open) return
-		menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus()
+		// The menu renders while it is open.
+		menuItemsIn(menuRef.current as HTMLElement)[0]?.focus()
 		function closeOnOutsidePointer(event: PointerEvent) {
 			if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
 		}
@@ -109,9 +117,7 @@ export function ReaderMoreMenu({ items, label = 'More' }: { items: ReaderMenuIte
 		const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
 		if (step === 0) return
 		event.preventDefault()
-		const menuItems = [
-			...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'),
-		]
+		const menuItems = menuItemsIn(event.currentTarget)
 		const index = menuItems.indexOf(document.activeElement as HTMLElement)
 		menuItems[(index + step + menuItems.length) % menuItems.length]?.focus()
 	}
@@ -170,10 +176,11 @@ export function ReaderMoreMenu({ items, label = 'More' }: { items: ReaderMenuIte
 							<button
 								key={item.label}
 								type="button"
-								role="menuitem"
+								{...(item.checked === undefined
+									? { role: 'menuitem' }
+									: { role: 'menuitemcheckbox', 'aria-checked': item.checked })}
 								disabled={item.disabled}
 								aria-keyshortcuts={item.shortcut}
-								{...(item.pressed !== undefined ? { 'aria-pressed': item.pressed } : {})}
 								onClick={() => {
 									close()
 									item.onSelect()

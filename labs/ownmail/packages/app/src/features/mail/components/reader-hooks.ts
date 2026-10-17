@@ -41,3 +41,50 @@ export function useReaderClock(): ReaderClock | null {
 	const [now] = useState(() => Date.now())
 	return useMemo(() => (mounted ? { now, tz: localZone() } : null), [mounted, now])
 }
+
+/** The nearest scrolling ancestor: the reader's scroll area viewport. */
+export function scrollParent(element: HTMLElement): HTMLElement | null {
+	for (let node = element.parentElement; node; node = node.parentElement) {
+		const { overflowY } = getComputedStyle(node)
+		if (overflowY === 'auto' || overflowY === 'scroll') return node
+	}
+	return null
+}
+
+/** How far beyond the scroll viewport a stream row is still mounted. */
+export const NEAR_MARGIN = '1200px 0px'
+
+type NearWatch = { observer: IntersectionObserver; callbacks: Map<Element, (near: boolean) => void> }
+const nearWatches = new Map<Element | null, NearWatch>()
+
+/**
+ * Calls `onChange` with whether `element` is within `NEAR_MARGIN` of what its
+ * scroll viewport shows. The margin is measured against that viewport (the
+ * observer's root), not the page, which the viewport clips. The rows of one
+ * viewport share one observer. Returns the function that stops watching.
+ */
+export function watchNear(element: HTMLElement, onChange: (near: boolean) => void): () => void {
+	const root = scrollParent(element)
+	let watch = nearWatches.get(root)
+	if (!watch) {
+		const callbacks = new Map<Element, (near: boolean) => void>()
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) callbacks.get(entry.target)?.(entry.isIntersecting)
+			},
+			{ root, rootMargin: NEAR_MARGIN },
+		)
+		watch = { observer, callbacks }
+		nearWatches.set(root, watch)
+	}
+	const current = watch
+	current.callbacks.set(element, onChange)
+	current.observer.observe(element)
+	return () => {
+		current.observer.unobserve(element)
+		current.callbacks.delete(element)
+		if (current.callbacks.size > 0) return
+		current.observer.disconnect()
+		nearWatches.delete(root)
+	}
+}

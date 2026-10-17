@@ -224,3 +224,73 @@
 	--cta-line: oklch(1 0 0 / 14%);
 	--cta-icon: oklch(0.8 0.11 158);
 }
+
+/* The reader (design.md "Reading"): the thread map's dots beside the stream, a
+ * light tint of each person's hue when read, a strong one when new and a ring
+ * for the message in focus (the owner is 158), and the soft shadow under the
+ * pinned reply card. The dots carry no text. */
+@theme inline {
+	--color-map-dot-75: var(--map-dot-75);
+	--color-map-dot-75-new: var(--map-dot-75-new);
+	--color-map-dot-75-ring: var(--map-dot-75-ring);
+	--color-map-dot-250: var(--map-dot-250);
+	--color-map-dot-250-new: var(--map-dot-250-new);
+	--color-map-dot-250-ring: var(--map-dot-250-ring);
+	--color-map-dot-32: var(--map-dot-32);
+	--color-map-dot-32-new: var(--map-dot-32-new);
+	--color-map-dot-32-ring: var(--map-dot-32-ring);
+	--color-map-dot-158: var(--map-dot-158);
+	--color-map-dot-158-new: var(--map-dot-158-new);
+	--color-map-dot-158-ring: var(--map-dot-158-ring);
+	--color-map-dot-300: var(--map-dot-300);
+	--color-map-dot-300-new: var(--map-dot-300-new);
+	--color-map-dot-300-ring: var(--map-dot-300-ring);
+	--color-map-dot-200: var(--map-dot-200);
+	--color-map-dot-200-new: var(--map-dot-200-new);
+	--color-map-dot-200-ring: var(--map-dot-200-ring);
+	--shadow-reader-reply: var(--reader-reply-shadow);
+}
+
+:root {
+	--map-dot-75: oklch(0.8 0.08 75);
+	--map-dot-75-new: oklch(0.65 0.12 75);
+	--map-dot-75-ring: oklch(0.9 0.04 75);
+	--map-dot-250: oklch(0.8 0.06 250);
+	--map-dot-250-new: oklch(0.55 0.1 250);
+	--map-dot-250-ring: oklch(0.9 0.04 250);
+	--map-dot-32: oklch(0.8 0.06 32);
+	--map-dot-32-new: oklch(0.6 0.1 32);
+	--map-dot-32-ring: oklch(0.9 0.04 32);
+	--map-dot-158: oklch(0.85 0.05 158);
+	--map-dot-158-new: oklch(0.55 0.08 158);
+	--map-dot-158-ring: oklch(0.9 0.04 158);
+	--map-dot-300: oklch(0.8 0.06 300);
+	--map-dot-300-new: oklch(0.6 0.1 300);
+	--map-dot-300-ring: oklch(0.9 0.04 300);
+	--map-dot-200: oklch(0.8 0.06 200);
+	--map-dot-200-new: oklch(0.55 0.08 200);
+	--map-dot-200-ring: oklch(0.9 0.04 200);
+	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.dark {
+	--map-dot-75: oklch(0.48 0.07 75);
+	--map-dot-75-new: oklch(0.78 0.12 75);
+	--map-dot-75-ring: oklch(0.36 0.05 75);
+	--map-dot-250: oklch(0.46 0.06 250);
+	--map-dot-250-new: oklch(0.74 0.1 250);
+	--map-dot-250-ring: oklch(0.34 0.05 250);
+	--map-dot-32: oklch(0.46 0.06 32);
+	--map-dot-32-new: oklch(0.74 0.11 32);
+	--map-dot-32-ring: oklch(0.34 0.05 32);
+	--map-dot-158: oklch(0.46 0.05 158);
+	--map-dot-158-new: oklch(0.76 0.1 158);
+	--map-dot-158-ring: oklch(0.34 0.04 158);
+	--map-dot-300: oklch(0.46 0.06 300);
+	--map-dot-300-new: oklch(0.74 0.1 300);
+	--map-dot-300-ring: oklch(0.34 0.05 300);
+	--map-dot-200: oklch(0.46 0.05 200);
+	--map-dot-200-new: oklch(0.76 0.09 200);
+	--map-dot-200-ring: oklch(0.34 0.04 200);
+	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
+}

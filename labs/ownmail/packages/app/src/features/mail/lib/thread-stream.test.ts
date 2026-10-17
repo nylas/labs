@@ -13,6 +13,7 @@ import {
 	placeDrafts,
 	replyAllNames,
 	replyFirstName,
+	replyTarget,
 	resendSeed,
 	stepMessage,
 	streamEntries,
@@ -60,7 +61,7 @@ describe('streamEntries', () => {
 		closedIds: new Set<string>(),
 		divider: null,
 		events: [],
-		catchUp: false,
+		catchUpBeforeIndex: null,
 		drafts: [],
 	}
 
@@ -72,7 +73,7 @@ describe('streamEntries', () => {
 		const entries = streamEntries({
 			...base,
 			divider: { beforeIndex: 3, count: 2, label: '2 new since Tuesday' },
-			catchUp: true,
+			catchUpBeforeIndex: 3,
 		})
 		expect(kinds(entries)).toEqual(['|line', '|folded', '|catch-up', 'divider', 'open', '|open'])
 		expect(entries.find((entry) => entry.kind === 'divider')).toMatchObject({
@@ -85,6 +86,18 @@ describe('streamEntries', () => {
 			'|folded',
 			'divider',
 			'open',
+			'|open',
+		])
+	})
+
+	it('puts the catch-up card before the first new message when every message is new (no divider)', () => {
+		const allNew: FoldItem[] = messages.map((_, index) => ({ kind: 'open', index }))
+		expect(kinds(streamEntries({ ...base, plan: allNew, catchUpBeforeIndex: 0 }))).toEqual([
+			'|catch-up',
+			'|open',
+			'|open',
+			'|open',
+			'|open',
 			'|open',
 		])
 	})
@@ -127,6 +140,13 @@ describe('streamEntries', () => {
 		expect(entries[3]).toMatchObject({ kind: 'draft', key: 'draft:d1', replyTo: { id: 'm2' } })
 		expect(entries[0]).not.toHaveProperty('replyTo')
 	})
+
+	it('keeps a draft that follows a message inside a folded run, under the folded row', () => {
+		const draft = message('d1', { ownmailDraft: true })
+		const entries = streamEntries({ ...base, drafts: [{ draft, after: messages[1] }] })
+		expect(kinds(entries)).toEqual(['|line', '|folded', '|draft', '|open', '|open'])
+		expect(entries[2]).toMatchObject({ kind: 'draft', key: 'draft:d1', replyTo: { id: 'm1' } })
+	})
 })
 
 describe('placeDrafts and streamMessages', () => {
@@ -161,6 +181,18 @@ describe('reply names', () => {
 		const redirected = { ...latest, reply_to: [{ email: 'replies@example.com' }] }
 		expect(replyAllNames(redirected, OWNER).names).toBe('replies, Grace, Alan')
 		expect(replyFirstName(redirected, OWNER)).toBe('replies')
+	})
+
+	it('replies to the first other person when your own message is the latest', () => {
+		const own = message('m', { from: [ADA], to: [ADA, ALAN], cc: [GRACE] })
+		expect(replyTarget(own, OWNER)).toEqual(ALAN)
+		expect(replyFirstName(own, OWNER)).toBe('Alan')
+		// Written only to yourself, there is no one else to reply to.
+		expect(replyTarget(message('n', { from: [ADA], to: [ADA] }), OWNER)).toBeUndefined()
+		expect(replyFirstName(message('n', { from: [ADA], to: undefined }), OWNER)).toBe('')
+		// Someone else's message keeps its sender, and so does any message when the owner is not known.
+		expect(replyTarget(message('o', { from: [GRACE] }), OWNER)).toEqual(GRACE)
+		expect(replyTarget(own, '')).toEqual(ADA)
 	})
 
 	it('has no one to name on a message with no sender', () => {

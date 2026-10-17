@@ -1,16 +1,17 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { watchNear } from './reader-hooks.js'
 
-/** How far beyond the viewport a stream row is still mounted. */
-const MOUNT_MARGIN = '1200px 0px'
 /** The height held for a row that has never been measured. */
 const ESTIMATED_HEIGHT = 56
 
 /**
  * One row of a very long stream. Its wrapper (and so its anchor, which the
  * map, j/k and links scroll to) is always in the document; what is inside is
- * mounted only near the viewport. Away from it the row keeps the height it
- * last had, so the scroll position never jumps. `virtual` off, or `pinned`
- * (the message in focus), renders the row as it is.
+ * mounted only near the reader's scroll viewport. Away from it the row keeps
+ * the height it last had, so the scroll position never jumps. `virtual` off,
+ * or `pinned` (the message in focus), renders the row as it is. A message's
+ * wrapper takes focus when the reader moves to it (`tabIndex` -1), so keys
+ * pressed next stay with the reader.
  */
 export function VirtualStreamItem({
 	kind,
@@ -37,17 +38,10 @@ export function VirtualStreamItem({
 	useEffect(() => {
 		const element = ref.current
 		if (!virtual || !element || typeof IntersectionObserver === 'undefined') return
-		const observer = new IntersectionObserver(
-			(entries) => {
-				// One element is observed, so each report is about it.
-				const entry = entries[0] as IntersectionObserverEntry
-				if (!entry.isIntersecting) height.current = element.getBoundingClientRect().height || height.current
-				setNear(entry.isIntersecting)
-			},
-			{ rootMargin: MOUNT_MARGIN },
-		)
-		observer.observe(element)
-		return () => observer.disconnect()
+		return watchNear(element, (isNear) => {
+			if (!isNear) height.current = element.getBoundingClientRect().height || height.current
+			setNear(isNear)
+		})
 	}, [virtual])
 
 	const mounted = !virtual || pinned || near || typeof IntersectionObserver === 'undefined'
@@ -55,6 +49,7 @@ export function VirtualStreamItem({
 		<div
 			ref={ref}
 			id={anchorId}
+			tabIndex={anchorId ? -1 : undefined}
 			data-slot="stream-item"
 			data-kind={kind}
 			data-source={highlight || undefined}

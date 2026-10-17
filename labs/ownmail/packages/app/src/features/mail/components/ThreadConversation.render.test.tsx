@@ -686,44 +686,71 @@ describe('folding a long thread', () => {
 	})
 
 	it('mounts every row while the thread is short, and only the rows near the viewport past 50', () => {
-		const observers: Array<{ callback: IntersectionObserverCallback; elements: Element[] }> = []
+		const observers: Array<{
+			callback: IntersectionObserverCallback
+			options: IntersectionObserverInit | undefined
+			elements: Set<Element>
+			disconnected: boolean
+		}> = []
 		vi.stubGlobal(
 			'IntersectionObserver',
 			class {
-				elements: Element[] = []
-				constructor(callback: IntersectionObserverCallback) {
-					observers.push({ callback, elements: this.elements })
+				record: (typeof observers)[number]
+				constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+					this.record = { callback, options, elements: new Set(), disconnected: false }
+					observers.push(this.record)
 				}
 				observe(element: Element) {
-					this.elements.push(element)
+					this.record.elements.add(element)
 				}
-				disconnect() {}
+				unobserve(element: Element) {
+					this.record.elements.delete(element)
+				}
+				disconnect() {
+					this.record.disconnected = true
+				}
 			},
 		)
-		render(
-			<ThreadConversation thread={thread('long')} messages={longThread(60)} mailboxEmail="ada@ownmail.com" />,
+		const { unmount } = render(
+			<div data-testid="viewport" style={{ overflowY: 'auto' }}>
+				<ThreadConversation
+					thread={thread('long')}
+					messages={longThread(60)}
+					mailboxEmail="ada@ownmail.com"
+				/>
+			</div>,
 		)
 		expandAll(60)
 		const items = document.querySelectorAll('[data-slot="stream-item"]')
 		expect(items).toHaveLength(60)
 		// The message in focus stays mounted; the rest wait to come near the viewport.
 		expect(document.querySelectorAll('[data-virtual="held"]')).toHaveLength(59)
-		expect(document.getElementById('message-m10')).not.toBeNull()
-		const target = observers.find((observer) => observer.elements[0]?.id === 'message-m10')
+		// One observer watches every row, measured against the reader's own scroll viewport.
+		expect(observers).toHaveLength(1)
+		const [observer] = observers as [(typeof observers)[number]]
+		expect(observer.options).toEqual({ root: screen.getByTestId('viewport'), rootMargin: '1200px 0px' })
+		expect(observer.elements.size).toBe(60)
+		const row = document.getElementById('message-m10') as HTMLElement
 		act(() =>
-			target?.callback(
-				[{ isIntersecting: true, target: target.elements[0] } as unknown as IntersectionObserverEntry],
+			observer.callback(
+				[
+					{ isIntersecting: true, target: row },
+					{ isIntersecting: true, target: document.createElement('div') },
+				] as unknown as IntersectionObserverEntry[],
 				{} as IntersectionObserver,
 			),
 		)
-		expect(document.getElementById('message-m10')).toHaveAttribute('data-virtual', 'mounted')
+		expect(row).toHaveAttribute('data-virtual', 'mounted')
 		act(() =>
-			target?.callback(
-				[{ isIntersecting: false, target: target.elements[0] } as unknown as IntersectionObserverEntry],
+			observer.callback(
+				[{ isIntersecting: false, target: row }] as unknown as IntersectionObserverEntry[],
 				{} as IntersectionObserver,
 			),
 		)
-		expect(document.getElementById('message-m10')).toHaveAttribute('data-virtual', 'held')
+		expect(row).toHaveAttribute('data-virtual', 'held')
+		unmount()
+		expect(observer.elements.size).toBe(0)
+		expect(observer.disconnected).toBe(true)
 	})
 })
 
@@ -939,6 +966,9 @@ describe('moving through a thread', () => {
 	it('leaves j and k to a list beside the reader while the list has focus', () => {
 		const row = document.createElement('button')
 		row.setAttribute('data-nav-row', '')
+		// jsdom lays nothing out: the list is on screen until the test hides it.
+		let listShown = true
+		row.checkVisibility = () => listShown
 		document.body.append(row)
 		render(
 			<ThreadConversation thread={thread('t1')} messages={longThread(4, 1)} mailboxEmail="ada@ownmail.com" />,
@@ -949,7 +979,59 @@ describe('moving through a thread', () => {
 		expect(position()).toBe('4 of 4')
 		fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'k' })
 		expect(position()).toBe('3 of 4')
+		// A list the layout hides (below xl, or with the reading pane off) is not beside the reader.
+		listShown = false
+		fireEvent.keyDown(document.body, { key: 'k' })
+		expect(position()).toBe('2 of 4')
+		// Without checkVisibility, a list with no boxes is hidden too.
+		;(row as { checkVisibility?: unknown }).checkVisibility = undefined
+		fireEvent.keyDown(document.body, { key: 'j' })
+		expect(position()).toBe('3 of 4')
 		row.remove()
+	})
+
+	it('keeps focus in the reader when a row opens, so j and k stay with it beside a list', () => {
+		const row = document.createElement('button')
+		row.setAttribute('data-nav-row', '')
+		row.checkVisibility = () => true
+		document.body.append(row)
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		// Opening a one-line row moves focus to that message, not to the page.
+		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		fireEvent.click(within(stream).getAllByRole('button', { name: /^Grace Hopper/ })[0] as HTMLElement)
+		expect(document.activeElement).toBe(document.getElementById('message-m1'))
+		expect(position()).toBe('1 of 8')
+		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'j' })
+		expect(position()).toBe('2 of 8')
+		expect(document.activeElement).toBe(document.getElementById('message-m2'))
+		// Unfolding a run moves focus to its first message.
+		cleanup()
+		render(
+			<ThreadConversation thread={thread('t2')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+		fireEvent.click(screen.getByRole('button', { name: /earlier messages/ }))
+		expect(document.activeElement).toBe(document.getElementById('message-m2'))
+		row.remove()
+	})
+
+	it('follows focus into another message: the stepper and the map start from it', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(3)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expandAll(3)
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		expect(position()).toBe('3 of 3')
+		fireEvent.focus(screen.getByRole('button', { name: 'Reply to Grace Hopper' }))
+		expect(position()).toBe('1 of 3')
+		expect(
+			screen.getByRole('complementary', { name: 'Thread map' }).querySelector('[aria-current="true"]'),
+		).toHaveAccessibleName(/^Grace Hopper/)
+		// Focus outside any message (the subject) leaves the stepper where it is.
+		fireEvent.focus(screen.getByRole('heading', { level: 1 }))
+		expect(position()).toBe('1 of 3')
 	})
 
 	it('opens the thread map with g m, from the dots, and from the More menu', () => {
@@ -988,8 +1070,9 @@ describe('moving through a thread', () => {
 		fireEvent.click(within(dots).getByRole('button', { name: /^Open thread map/ }))
 		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
 		openMore()
-		const item = screen.getByRole('menuitem', { name: /^Thread map/ })
-		expect(item).toHaveAttribute('aria-pressed', 'true')
+		const item = screen.getByRole('menuitemcheckbox', { name: /^Thread map/ })
+		expect(item).toHaveAttribute('aria-checked', 'true')
+		expect(item).not.toHaveAttribute('aria-pressed')
 		fireEvent.click(item)
 		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
 		// A g without its m does nothing.
@@ -997,7 +1080,111 @@ describe('moving through a thread', () => {
 		fireEvent.keyDown(document.body, { key: 'x' })
 		fireEvent.keyDown(document.body, { key: 'm' })
 		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+
+		// g m works with a list row focused (no list shortcut uses g or m).
+		const row = document.createElement('button')
+		row.setAttribute('data-nav-row', '')
+		document.body.append(row)
+		fireEvent.keyDown(row, { key: 'g' })
+		fireEvent.keyDown(row, { key: 'm' })
+		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		fireEvent.keyDown(row, { key: 'g' })
+		fireEvent.keyDown(row, { key: 'm' })
+		row.remove()
+		// Below xl the map is a sheet (a dialog): g m from inside it closes it,
+		// while any other dialog keeps its keys.
+		const sheet = document.createElement('div')
+		sheet.setAttribute('role', 'dialog')
+		sheet.setAttribute('data-slot', 'thread-map-panel')
+		const sheetRow = document.createElement('button')
+		sheet.append(sheetRow)
+		document.body.append(sheet)
+		fireEvent.keyDown(sheetRow, { key: 'g' })
+		fireEvent.keyDown(sheetRow, { key: 'm' })
+		expect(screen.getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		const before = position()
+		fireEvent.keyDown(document.body, { key: 'k' })
+		expect(position()).toBe(before)
+		fireEvent.keyDown(sheetRow, { key: 'g' })
+		fireEvent.keyDown(sheetRow, { key: 'm' })
+		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		const other = document.createElement('div')
+		other.setAttribute('role', 'dialog')
+		document.body.append(other)
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		expect(screen.queryByRole('complementary', { name: 'Thread map panel' })).toBeNull()
+		other.remove()
+		sheet.remove()
 		dock.remove()
+	})
+
+	it('draws your own dots on the green pair, whatever your address hashes to', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(3)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const dots = within(screen.getByRole('complementary', { name: 'Thread map' }))
+		expect(dots.getByRole('button', { name: /^You,/ })).toHaveAttribute('data-hue', '158')
+		expect(dots.getByRole('button', { name: /^Grace Hopper,/ })).not.toHaveAttribute('data-hue', '158')
+	})
+
+	it('keeps one dot in the tab order and moves between dots with the arrow keys', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(4)} mailboxEmail="ada@ownmail.com" />,
+		)
+		const dots = within(screen.getByRole('complementary', { name: 'Thread map' })).getAllByRole('button', {
+			name: /,/,
+		})
+		// The message in focus (the latest) is the one tab stop.
+		expect(dots.map((dot) => dot.tabIndex)).toEqual([-1, -1, -1, 0])
+		const last = dots[3] as HTMLElement
+		last.focus()
+		fireEvent.keyDown(last, { key: 'ArrowUp' })
+		expect(dots[2]).toHaveFocus()
+		fireEvent.keyDown(dots[2] as HTMLElement, { key: 'Home' })
+		expect(dots[0]).toHaveFocus()
+		fireEvent.keyDown(dots[0] as HTMLElement, { key: 'ArrowLeft' })
+		expect(dots[0]).toHaveFocus()
+		fireEvent.keyDown(dots[0] as HTMLElement, { key: 'ArrowRight' })
+		expect(dots[1]).toHaveFocus()
+		fireEvent.keyDown(dots[1] as HTMLElement, { key: 'End' })
+		expect(dots[3]).toHaveFocus()
+		fireEvent.keyDown(dots[3] as HTMLElement, { key: 'ArrowDown' })
+		expect(dots[3]).toHaveFocus()
+		// Other keys pass through to the reader.
+		fireEvent.keyDown(dots[3] as HTMLElement, { key: 'Enter' })
+		expect(dots[3]).toHaveFocus()
+	})
+
+	it("fits the dots to the reader's viewport, following it as it resizes", () => {
+		const observed: Array<() => void> = []
+		vi.stubGlobal(
+			'ResizeObserver',
+			class {
+				constructor(callback: () => void) {
+					observed.push(callback)
+				}
+				observe() {}
+				disconnect() {}
+			},
+		)
+		let height = 800
+		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(() => height)
+		render(
+			<div style={{ overflowY: 'auto', paddingTop: '44px' }}>
+				<ThreadConversation thread={thread('t1')} messages={longThread(3)} mailboxEmail="ada@ownmail.com" />
+			</div>,
+		)
+		const map = screen.getByRole('complementary', { name: 'Thread map' })
+		expect(map.style.maxHeight).toBe('756px')
+		height = 400
+		act(() => observed.at(-1)?.())
+		expect(map.style.maxHeight).toBe('356px')
+		// A viewport with no height yet sets none.
+		height = 0
+		act(() => observed.at(-1)?.())
+		expect(map.style.maxHeight).toBe('')
 	})
 
 	it('opens the message a #message link names', () => {
@@ -1012,6 +1199,89 @@ describe('moving through a thread', () => {
 			'Message from Alan Turing',
 		)
 		expect(scrolled).toHaveBeenCalled()
+	})
+})
+
+describe('what the reader keeps', () => {
+	it('folds the thread again on Collapse all after Expand all', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8, 1)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(screen.getByRole('button', { name: /earlier messages/ })).toBeInTheDocument()
+		expandAll(8)
+		expect(screen.queryByRole('button', { name: /earlier messages/ })).toBeNull()
+		openMore()
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all 8 messages' }))
+		expect(states()).toEqual([])
+		expect(screen.getByRole('button', { name: /earlier messages/ })).toBeInTheDocument()
+	})
+
+	it('offers the catch-up card at the top of a long thread whose every message is new', () => {
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(7, 7)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(screen.getByRole('region', { name: 'Catch up' })).toBeInTheDocument()
+		// There is no "new since" divider when everything is new.
+		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		const kinds = [...stream.children].map((child) => child.getAttribute('data-kind') ?? 'rule')
+		expect(kinds.slice(0, 3)).toEqual(['rule', 'catch-up', 'rule'])
+		expect(kinds).not.toContain('divider')
+	})
+
+	it('keeps the map, the files shelf, trashed messages shown and its place when a reply arrives', () => {
+		const dock = document.createElement('div')
+		dock.id = THREAD_MAP_DOCK_ID
+		document.body.append(dock)
+		window.location.hash = '#message-m2'
+		Element.prototype.scrollIntoView ??= () => {}
+		const withFile = {
+			...(longThread(6)[0] as MailMessage),
+			attachments: [{ id: 'a1', filename: 'plan.pdf', size: 2048, content_type: 'application/pdf' }],
+		}
+		const binned = { ...message('binned'), folders: ['trash'], date: NOW - DAY }
+		const first = [withFile, ...longThread(6).slice(1), binned]
+		const { rerender } = render(
+			<ThreadConversation thread={thread('t1')} messages={first} mailboxEmail="ada@ownmail.com" />,
+		)
+		const position = () => document.querySelector('[data-slot="thread-stepper"] span')?.textContent
+		// The link opened message 2; the reader moves on from there.
+		expect(position()).toBe('2 of 6')
+		fireEvent.keyDown(document.body, { key: 'j' })
+		expect(position()).toBe('3 of 6')
+		fireEvent.keyDown(document.body, { key: 'g' })
+		fireEvent.keyDown(document.body, { key: 'm' })
+		fireEvent.click(screen.getByRole('button', { name: /1 file/ }))
+		fireEvent.click(screen.getByRole('button', { name: 'Show trashed' }))
+		expect(position()).toBe('3 of 7')
+
+		const reply = { ...message('m7'), from: [GRACE], date: NOW }
+		rerender(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[...first, reply]}
+				mailboxEmail="ada@ownmail.com"
+			/>,
+		)
+		expect(within(dock).getByRole('complementary', { name: 'Thread map panel' })).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'Files in this thread' })).toBeInTheDocument()
+		expect(document.getElementById('message-binned')).not.toBeNull()
+		// Still on message 3: the link is not followed again.
+		expect(position()).toBe('3 of 8')
+		window.location.hash = ''
+		dock.remove()
+	})
+
+	it('disables the links of a message from a lookalike sender', () => {
+		render(
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[message('m1'), { ...message('m2'), from: [GRACE] }]}
+				mailboxEmail="ada@ownmail.com"
+				knownSenders={[{ name: 'Grace Hopper', email: 'grace@navy.mil', isOwner: false }]}
+			/>,
+		)
+		const content = document.querySelector('[data-slot="expanded-message-content"]')
+		expect(content).toHaveAttribute('data-links-disabled', 'true')
 	})
 })
 
@@ -1055,36 +1325,43 @@ describe('message actions', () => {
 		window.getSelection()?.removeAllRanges()
 	})
 
-	it('collapses an open message from its header and from its right-click menu', async () => {
-		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
-		fireEvent.click(screen.getByRole('button', { name: 'Collapse message from sender@example.com' }))
-		expect(states()).toEqual([])
-
-		fireEvent.click(
-			document.querySelectorAll<HTMLButtonElement>('[data-slot="message-expand"]')[1] as HTMLElement,
-		)
-		const header = document.querySelector('[data-slot="message-header"]') as HTMLElement
-		expect(fireEvent.contextMenu(header, { clientX: 10, clientY: 10 })).toBe(false)
-		const menu = await screen.findByRole('menu', { name: 'Actions for message from sender@example.com' })
-		expect(menu).toHaveAttribute('data-slot', 'context-menu-content')
-		const items = within(menu).getAllByRole('menuitem')
-		expect(items.map((item) => item.textContent)).toEqual(['Collapse message', 'Download raw email'])
-		expect(items[1]).toHaveAttribute('href', '/messages/m2/download')
-		fireEvent.click(items[0] as HTMLElement)
-		expect(states()).toEqual([])
-	})
-
-	it('offers no raw download for a draft that has not been sent', async () => {
+	it('replies to the first other person on your own message, and to no one on a note to yourself', () => {
 		render(
 			<ThreadConversation
 				thread={thread('t1')}
-				messages={[{ ...message('m1'), ownmailDraft: true }, message('m2')]}
+				messages={[
+					{ ...message('m1'), from: [ADA], to: [ADA, ALAN] },
+					{ ...message('m2'), from: [ADA], to: [ADA] },
+				]}
+				mailboxEmail="ada@ownmail.com"
 			/>,
 		)
-		fireEvent.contextMenu(document.querySelector('[data-slot="message-header"]') as HTMLElement)
-		const menu = await screen.findByRole('menu', { name: 'Actions for message from sender@example.com' })
-		expect(within(menu).getAllByRole('menuitem')).toHaveLength(2)
-		cleanup()
+		expandAll(2)
+		const [first, second] = screen.getAllByRole('button', { name: 'Reply to you' }) as [
+			HTMLElement,
+			HTMLElement,
+		]
+		fireEvent.click(first)
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', replyToMessageId: 'm1', to: 'alan@example.com' }),
+		)
+		fireEvent.click(second)
+		expect(compose.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', replyToMessageId: 'm2', to: '' }),
+		)
+	})
+
+	it('collapses an open message from its header, which owns its right-click menu', () => {
+		render(<ThreadConversation thread={thread('t1')} messages={[message('m1'), message('m2')]} />)
+		// The reader adds no menu of its own around the header (one long-press, one menu).
+		const header = document.querySelector('[data-slot="message-header"]') as HTMLElement
+		expect(header.closest('[data-state="closed"]')).toBeNull()
+		expect(document.querySelectorAll('[data-slot="message-header"]')).toHaveLength(1)
+		fireEvent.click(screen.getByRole('button', { name: 'Collapse message from sender@example.com' }))
+		expect(states()).toEqual([])
+	})
+
+	it('offers no raw download for a draft that has not been sent', () => {
 		render(<ThreadConversation thread={thread('t2')} messages={[{ ...message('m1'), ownmailDraft: true }]} />)
 		openMore()
 		expect(screen.queryByRole('menuitem', { name: 'Download raw email' })).toBeNull()
@@ -1137,9 +1414,9 @@ describe('message actions', () => {
 			subject: 'Launch dates',
 			body: 'Here are the dates.',
 		})
-		fireEvent.click(screen.getByRole('button', { name: 'Send now' }))
-		expect(compose.openCompose).toHaveBeenCalledTimes(2)
-		fireEvent.click(screen.getByRole('button', { name: 'Cancel scheduled send' }))
+		// Send now and Cancel need a provider call OwnMail does not have: none is offered.
+		expect(screen.queryByRole('button', { name: 'Send now' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Cancel scheduled send' })).toBeNull()
 
 		// The draft sits after the message it follows, with Resume and Discard.
 		expect(screen.getByText('Draft reply to Grace')).toBeInTheDocument()
@@ -1210,8 +1487,9 @@ describe('message actions', () => {
 			't1',
 		])
 		openMore()
+		// The label says the state; it is a plain action, not a pressed toggle.
 		const unmute = screen.getByRole('menuitem', { name: 'Unmute thread' })
-		expect(unmute).toHaveAttribute('aria-pressed', 'true')
+		expect(unmute).not.toHaveAttribute('aria-pressed')
 		fireEvent.click(unmute)
 		expect(JSON.parse(localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadIds).toEqual([])
 	})
@@ -1227,6 +1505,10 @@ describe('the More menu', () => {
 		expect(trigger).toHaveAttribute('aria-controls', menu.id)
 		const items = within(menu).getAllByRole('menuitem')
 		expect(items[0]).toHaveFocus()
+		// Checkbox items (the thread map) are in the arrow-key order too.
+		fireEvent.keyDown(menu, { key: 'ArrowDown' })
+		expect(within(menu).getByRole('menuitemcheckbox', { name: /^Thread map/ })).toHaveFocus()
+		fireEvent.keyDown(menu, { key: 'ArrowUp' })
 		fireEvent.keyDown(menu, { key: 'ArrowUp' })
 		expect(items.at(-1)).toHaveFocus()
 		fireEvent.keyDown(menu, { key: 'ArrowDown' })
@@ -1358,6 +1640,27 @@ describe('thread actions placement', () => {
 		expect(actions).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
 		unmount()
 		expect(viewport.listeners.size).toBe(0)
+	})
+
+	it('opens the files shelf from the phone More menu, where the header has no files count', () => {
+		const mobile = slot(THREAD_MOBILE_MORE_ID)
+		stubViewport(false)
+		const withFile = {
+			...message('m1'),
+			attachments: [{ id: 'a1', filename: 'plan.pdf', size: 2048, content_type: 'application/pdf' }],
+		}
+		render(<ThreadConversation thread={thread('t1')} messages={[withFile, message('m2')]} />)
+		expect(mobile).toContainElement(screen.getByRole('button', { name: 'More' }))
+		openMore()
+		const files = screen.getByRole('menuitemcheckbox', { name: 'Files (1)' })
+		expect(files).toHaveAttribute('aria-checked', 'false')
+		fireEvent.click(files)
+		expect(screen.getByRole('region', { name: 'Files in this thread' })).toBeInTheDocument()
+		openMore()
+		expect(screen.getByRole('menuitemcheckbox', { name: 'Files (1)' })).toHaveAttribute(
+			'aria-checked',
+			'true',
+		)
 	})
 
 	it('keeps the controls beside the subject for a pane without a toolbar', () => {

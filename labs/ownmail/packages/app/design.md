@@ -323,19 +323,49 @@ On a phone every composer is the full-screen editor. Closing returns focus to
 whatever opened it. `/mail/compose` survives only to turn old links into an
 open composer.
 
-The reader's toolbar holds three groups divided by a separator: triage
-(archive, delete, star, unread), view (the Messages / Conversation switch and
-display options), and respond at the end. Reply is the one labelled button in
-the respond group; Reply all and Forward stay icons beside it.
+The reader's toolbar is one row of 32px controls, 2px apart: triage (archive,
+delete, star, mark unread), a separator, view (the Messages / Conversation
+switch and display options), a separator, the stepper ("12 of 14" between
+Previous `k` and Next `j`, following the message in focus), and respond at the
+end. Reply all is the one labelled button (an outline on `--cta-line` with its
+glyph in the accent, as in "CTA voice"); Reply, Forward and More stay icons
+beside it. More holds mute, the thread map (`g m`), Expand all / Collapse all
+and the raw download of the latest message; on a phone it also holds the view
+choice and the files shelf. `r` is Reply everywhere: on desktop it lands on the
+reply card's "Reply only to {name}", on a phone it opens the reply.
 
-The subject is set at body size (16px Manrope semibold) and scrolls with the
-conversation as its first line. On desktop one row is pinned, the 44px toolbar,
-which also carries the thread's display actions; the reply field follows the
-last message. Message bodies default to 16px with a 1.6 line-height, which a
-sender's own styles override, and prose is held to a 72ch measure. Designed
-(table or layout) mail keeps the full column. The first message header sits 8px
-beneath the subject, and an open message's body starts 12px beneath its header,
-so a sender canvas that spans the pane never touches the header above it.
+The thread opens with its subject as a 24px heading (21px on a phone; the first
+line of the first message, said to be a stand-in, when there is none), then one
+muted 13px line: the people on it (a 24px avatar stack, names, "+n"), how many
+messages, over what span, and how many files (a button that opens the files
+shelf under the header). Labels follow on their own line at every width. On
+desktop one row is pinned, the 44px toolbar; the reply card is pinned under the
+stream. The column is 760px at most and starts 64px into the pane from `xl`,
+keeping 56px on its right for the thread map's dots (from `lg`), which fit the
+viewport however long the thread is. Message bodies default to 16px with a 1.6
+line-height (17px and 1.55 on a phone), which a sender's own styles override,
+and prose is held to a 72ch measure under the sender's name. Designed (table or
+layout) mail keeps the full column. An open message's body starts 12px beneath
+its header, so a sender canvas that spans the pane never touches the header
+above it. The Conversation view keeps its centred column.
+
+What was unread when the thread opened is held for as long as it stays open.
+The first of those messages sits under a "{n} new since {day}" divider:
+neutral 1px lines either side of a 12px semibold label and a 6px dot in the
+green accent, as a separator with that label. The day is the weekday of the
+last message read before them within the past six days ("Tuesday"),
+"yesterday" or "earlier today", else the date ("Oct 12"). There is no divider
+when nothing, or everything, is new. The thread opens at a draft of yours, else
+at the divider, when it is not already in view; `j` and `k` step message by
+message, opening a folded or one-line message on the way, and a list beside the
+reader keeps its own `j` / `k` only while it is on screen and has focus.
+
+The reply card under the stream (12px radius, 1px `--cta-line`, a soft shadow)
+names who Reply all reaches ("Reply all to Mary, Grace, Alan +2") and offers
+"Reply only to {name}" (the first other person when the latest message is
+yours); its field and Send open the composer in its place. Past 25 people the
+reply-all guard asks first. A phone has the bottom reply bar instead, and the
+"{n} more new" pill while new messages are below the fold.
 
 ## Conversation view
 

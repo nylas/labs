@@ -954,8 +954,10 @@ it('uses the existing list history entry when returning from a reader', async ()
 		fireEvent.click(page().getByRole('link', { name: /Open History subject/ }))
 	})
 	expect(page().getByTestId('thread-reader')).toBeInTheDocument()
+	// The phone's top bar has its own Back to list; CSS shows one bar at a time, jsdom both.
+	const toolbar = page().getByTestId('thread-reader').querySelector('.reader-toolbar') as HTMLElement
 	await act(async () => {
-		fireEvent.click(page().getByRole('button', { name: 'Back to list' }))
+		fireEvent.click(within(toolbar).getByRole('button', { name: 'Back to list' }))
 		await new Promise((resolve) => setTimeout(resolve, 30))
 	})
 	expect(router.state.location.pathname).toBe('/mail/f/inbox')

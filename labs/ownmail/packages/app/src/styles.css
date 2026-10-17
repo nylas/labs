@@ -243,51 +243,6 @@
  * into the pane on wide screens, a thread map of dots beside it, and the reply
  * card pinned under the stream. Rows and lines run edge to edge on a phone.
  */
-/* The map's dots: a light tint of each person's hue when read, a strong one when new, a ring for focus. */
-:root {
-	--map-dot-75: oklch(0.8 0.08 75);
-	--map-dot-75-new: oklch(0.65 0.12 75);
-	--map-dot-75-ring: oklch(0.9 0.04 75);
-	--map-dot-250: oklch(0.8 0.06 250);
-	--map-dot-250-new: oklch(0.55 0.1 250);
-	--map-dot-250-ring: oklch(0.9 0.04 250);
-	--map-dot-32: oklch(0.8 0.06 32);
-	--map-dot-32-new: oklch(0.6 0.1 32);
-	--map-dot-32-ring: oklch(0.9 0.04 32);
-	--map-dot-158: oklch(0.85 0.05 158);
-	--map-dot-158-new: oklch(0.55 0.08 158);
-	--map-dot-158-ring: oklch(0.9 0.04 158);
-	--map-dot-300: oklch(0.8 0.06 300);
-	--map-dot-300-new: oklch(0.6 0.1 300);
-	--map-dot-300-ring: oklch(0.9 0.04 300);
-	--map-dot-200: oklch(0.8 0.06 200);
-	--map-dot-200-new: oklch(0.55 0.08 200);
-	--map-dot-200-ring: oklch(0.9 0.04 200);
-	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
-}
-
-.dark {
-	--map-dot-75: oklch(0.48 0.07 75);
-	--map-dot-75-new: oklch(0.78 0.12 75);
-	--map-dot-75-ring: oklch(0.36 0.05 75);
-	--map-dot-250: oklch(0.46 0.06 250);
-	--map-dot-250-new: oklch(0.74 0.1 250);
-	--map-dot-250-ring: oklch(0.34 0.05 250);
-	--map-dot-32: oklch(0.46 0.06 32);
-	--map-dot-32-new: oklch(0.74 0.11 32);
-	--map-dot-32-ring: oklch(0.34 0.05 32);
-	--map-dot-158: oklch(0.46 0.05 158);
-	--map-dot-158-new: oklch(0.76 0.1 158);
-	--map-dot-158-ring: oklch(0.34 0.04 158);
-	--map-dot-300: oklch(0.46 0.06 300);
-	--map-dot-300-new: oklch(0.74 0.1 300);
-	--map-dot-300-ring: oklch(0.34 0.05 300);
-	--map-dot-200: oklch(0.46 0.05 200);
-	--map-dot-200-new: oklch(0.76 0.09 200);
-	--map-dot-200-ring: oklch(0.34 0.04 200);
-	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
-}
-
 .reader {
 	position: relative;
 	display: flex;
@@ -316,8 +271,20 @@
 
 /* The toolbar's icon buttons sit 2px apart, as one row of controls. */
 @media (min-width: 48rem) {
-	.reader-toolbar {
+	.reader-toolbar,
+	.reader-toolbar > div,
+	.reader-toolbar [data-slot="thread-actions"],
+	.reader-toolbar [data-slot="thread-view-switch"] {
 		gap: 2px;
+	}
+}
+
+/* With a fine pointer the view switch and display options match the toolbar's 32px icon buttons. */
+@media (min-width: 48rem) and (not (any-pointer: coarse)) {
+	.reader-toolbar [data-slot="thread-view-switch"] button,
+	.reader-toolbar [data-slot="thread-display-menu"] > button {
+		width: 32px;
+		height: 32px;
 	}
 }
 
@@ -374,7 +341,7 @@
 }
 
 .reader-labels {
-	display: none;
+	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
 	margin-top: 10px;
@@ -389,10 +356,6 @@
 	.reader-title {
 		font-size: 24px;
 		line-height: 1.25;
-	}
-
-	.reader-labels {
-		display: flex;
 	}
 
 	.reader-meta {
@@ -674,6 +637,11 @@
 	}
 }
 
+/* A message takes focus when the reader moves to it; the stepper and the map say which one it is. */
+[data-slot="stream-item"]:focus {
+	outline: none;
+}
+
 [data-slot="stream-item"][data-source] {
 	background: color-mix(in oklch, var(--cta-icon) 7%, transparent);
 }
@@ -694,6 +662,8 @@
 		align-self: flex-start;
 		flex-direction: column;
 		align-items: center;
+		/* Never taller than the viewport (the component sets the height it has): a long thread's dots draw closer. */
+		overflow: hidden;
 		padding-top: 96px;
 		padding-bottom: 16px;
 	}
@@ -703,6 +673,8 @@
 	position: relative;
 	z-index: 1;
 	display: flex;
+	min-height: 0;
+	flex: 0 1 auto;
 	flex-direction: column;
 	align-items: center;
 	pointer-events: none;
@@ -716,6 +688,9 @@
 	display: flex;
 	width: 44px;
 	height: calc(var(--dot-size) + 6px);
+	/* Dots give up their spacing, down to 2px apart, before the column outgrows the viewport. */
+	min-height: 2px;
+	flex: 0 1 auto;
 	align-items: center;
 	justify-content: center;
 	border: 0;
@@ -788,7 +763,9 @@
 .reader-map-stopped {
 	width: 16px;
 	height: 1px;
-	margin-block: 2px;
+	flex: none;
+	/* 8px from the dots on each side, with the 3px each dot keeps around itself. */
+	margin-block: 5px;
 	background: var(--cta-icon);
 }
 
