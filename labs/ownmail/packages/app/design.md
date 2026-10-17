@@ -872,7 +872,7 @@ link inside a sentence; all keep the 44px floor on touch.
   Trash" with a Show link, and "Alan started a side thread with Grace" with an
   Open link, for a later thread with the same subject and a strict subset of
   the people, looked up once per thread (outside the mail cache root, so mail
-  writes never cancel it). A message shown from Trash still says "In Trash" on
+  writes never cancel it, and no mail refresh asks it again). A message shown from Trash still says "In Trash" on
   its row, and above its body once opened.
 - An invite that changed. Only the newest invitation gets the card and its
   buttons: the calendar glyph and title, "Updated 3 times", the current time
@@ -918,6 +918,12 @@ link inside a sentence; all keep the 44px floor on touch.
 - Links disabled. For a sender that failed authentication or imitates a known
   name, every link loses its destination before the message renders (its
   words stay), so no click, context menu, long press or drag can follow it.
+  Mail from anyone else waits the same way until the thread's sender checks
+  answer (the "Always for" offer and Open in window wait too); when they
+  cannot be looked up, an amber notice says "Sender checks couldn’t be run for
+  this message" and its links stay disabled. A verdict once given is kept
+  through later lookups, failed or not. The Conversation view follows the same
+  rule in its bubbles, articles and cards, with the same notices above them.
 - Reply all to a crowd. Past 25 people the reply card and the composer ask
   once: "Reply all will reach 240 people." on the `--notice-warning` ground,
   with "Reply to Alan only" as the first choice, named as the thread knows the

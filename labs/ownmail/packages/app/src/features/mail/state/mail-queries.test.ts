@@ -6,6 +6,8 @@ import {
 	draftQueryOptions,
 	draftsQueryOptions,
 	foldersQueryOptions,
+	headerFactsState,
+	isSessionMailLookup,
 	MAIL_KEY_ARGUMENT,
 	MAIL_KEY_KIND,
 	mailKeys,
@@ -56,12 +58,20 @@ describe('mail query cache boundaries', () => {
 		expect(() => threadListUnsubscribeQueryOptions('bad\nid', fetchIds)).toThrow()
 	})
 
-	it('keeps header facts per account and thread for the session and never retries a failure', async () => {
+	it('keeps header facts per account, thread and newest message for the session and never retries a failure', async () => {
 		const facts = { byMessage: { m1: { verified: true, authFailed: false, listUnsubscribe: false } } }
 		const fetchFacts = vi.fn(async () => facts)
-		const options = threadHeaderFactsQueryOptions('t1', fetchFacts)
-		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-header-facts', 't1'])
-		expect(mailKeys.threadHeaderFacts('t1')).toEqual(options.queryKey)
+		const options = threadHeaderFactsQueryOptions('t1', 'm1', fetchFacts)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-header-facts', 't1', 'm1'])
+		expect(mailKeys.threadHeaderFacts('t1', 'm1')).toEqual(options.queryKey)
+		// A thread with no message yet is looked up under its id alone.
+		expect(threadHeaderFactsQueryOptions('t1', undefined, fetchFacts).queryKey).toEqual([
+			'mail',
+			accountScope(),
+			'thread-header-facts',
+			't1',
+			'',
+		])
 		expect(options.staleTime).toBe(Number.POSITIVE_INFINITY)
 		expect(options.retry).toBe(false)
 
@@ -70,11 +80,50 @@ describe('mail query cache boundaries', () => {
 		await queryClient.fetchQuery(options)
 		expect(fetchFacts).toHaveBeenCalledTimes(1)
 		expect(fetchFacts).toHaveBeenCalledWith('t1')
-		expect(() => threadHeaderFactsQueryOptions('bad\nid', fetchFacts)).toThrow()
+		expect(() => threadHeaderFactsQueryOptions('bad\nid', 'm1', fetchFacts)).toThrow()
+		expect(() => threadHeaderFactsQueryOptions('t1', 'bad\nid', fetchFacts)).toThrow()
+
+		// While a new reply is looked up, only the same thread's earlier answer stands in.
+		const placeholder = options.placeholderData as (
+			previous: unknown,
+			previousQuery: { queryKey: readonly unknown[] } | undefined,
+		) => unknown
+		expect(placeholder(facts, { queryKey: mailKeys.threadHeaderFacts('t1', 'm0') })).toBe(facts)
+		expect(placeholder(facts, { queryKey: mailKeys.threadHeaderFacts('t2', 'm9') })).toBeUndefined()
+		expect(placeholder(undefined, undefined)).toBeUndefined()
+
+		// A lookup asked again that fails rejects, and the earlier answer stays: a
+		// sender already marked as failing checks never has its links turned back on.
+		const failing = threadHeaderFactsQueryOptions('t1', 'm1', async () => {
+			throw new Error('Sender checks could not be looked up.')
+		})
+		await expect(queryClient.fetchQuery({ ...failing, staleTime: 0 })).rejects.toThrow()
+		expect(queryClient.getQueryData(options.queryKey)).toEqual(facts)
+		expect(queryClient.getQueryState(options.queryKey)?.status).toBe('error')
 
 		expect(messageHeaderFactsFor(facts, 'm1')?.verified).toBe(true)
 		expect(messageHeaderFactsFor(facts, 'toString')).toBeUndefined()
 		expect(messageHeaderFactsFor(undefined, 'm1')).toBeUndefined()
+	})
+
+	it('says where a header lookup stands: settled only once the lookup for the thread as it is now answered', () => {
+		expect(headerFactsState({ status: 'success', isPlaceholderData: false })).toBe('settled')
+		// An earlier answer shown while a new reply is looked up is not the answer yet.
+		expect(headerFactsState({ status: 'success', isPlaceholderData: true })).toBe('pending')
+		expect(headerFactsState({ status: 'pending', isPlaceholderData: false })).toBe('pending')
+		expect(headerFactsState({ status: 'error', isPlaceholderData: false })).toBe('failed')
+	})
+
+	it('names the lookups a mail refresh never asks again', () => {
+		expect(isSessionMailLookup(mailKeys.threadHeaderFacts('t1', 'm1'))).toBe(true)
+		expect(isSessionMailLookup(mailKeys.threadListUnsubscribe('t1'))).toBe(true)
+		expect(isSessionMailLookup(mailKeys.messageRawHeaders('m1'))).toBe(true)
+		expect(isSessionMailLookup([...mailKeys.all, 'thread-unread-summary', 't1', 'm1'])).toBe(true)
+		expect(isSessionMailLookup(['mail-side-thread', accountScope(), 't1', 'plans'])).toBe(true)
+		expect(isSessionMailLookup(mailKeys.threadDetail('t1'))).toBe(false)
+		expect(isSessionMailLookup(mailKeys.folders())).toBe(false)
+		expect(isSessionMailLookup(['contacts', 'thread-header-facts'])).toBe(false)
+		expect(isSessionMailLookup(['mail'])).toBe(false)
 	})
 
 	it('fetches raw headers per account and message only on request and keeps them briefly', async () => {

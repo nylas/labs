@@ -71,6 +71,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	listSizes,
 	knownSenders,
 	lookalike,
+	unchecked,
 	muted,
 	invite,
 	bounce,
@@ -93,6 +94,11 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	listSizes?: Readonly<Record<string, number>>
 	knownSenders: Person[]
 	lookalike: boolean
+	/**
+	 * The sender checks have not answered for this message: still `pending`
+	 * (links wait, disabled) or `failed` (links stay disabled, and a notice says so).
+	 */
+	unchecked?: 'pending' | 'failed' | undefined
 	/** Whether the thread is muted, so a list notice offers "Unmute thread". */
 	muted: boolean
 	invite?: InviteVersion
@@ -111,7 +117,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 	const attachments = chipAttachments(message)
 	const own = sender.isOwner
 	const { onSendNow, onCancelSchedule } = actions
-	const inert = linksDisabled(facts, lookalike)
+	const inert = linksDisabled(facts, lookalike, unchecked !== undefined)
 	// An empty body says so and lists its files as quiet compact chips.
 	const empty = emptyBodyNote(message, owner) !== null
 	const headingId = useId()
@@ -173,6 +179,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 							{...(facts ? { facts } : {})}
 							knownSenders={knownSenders}
 							muted={muted}
+							checksUnavailable={unchecked === 'failed'}
 							onMuteThread={actions.onMuteThread}
 							onAddBack={(person: Person) => actions.onAddBack(message, person)}
 						/>

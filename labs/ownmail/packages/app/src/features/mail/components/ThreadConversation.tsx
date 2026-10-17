@@ -92,7 +92,13 @@ import {
 	VIRTUALIZE_AFTER,
 } from '../lib/thread-stream.js'
 import type { ScheduledSendAction } from '../state/mail-mutations.js'
-import type { MailMessage, MailThread, ThreadHeaderFacts } from '../state/mail-queries.js'
+import {
+	type HeaderFactsState,
+	type MailMessage,
+	type MailThread,
+	messageHeaderFactsFor,
+	type ThreadHeaderFacts,
+} from '../state/mail-queries.js'
 import { formatSize } from './AttachmentLink.js'
 import { CatchUpCard } from './CatchUpCard.js'
 import { useCompose } from './ComposeProvider.js'
@@ -101,6 +107,7 @@ import { DraftInThread, draftAnchorId } from './DraftInThread.js'
 import type { EmailDisplayStatus } from './EmailHtml.js'
 import { JumpToNewPill } from './JumpToNewPill.js'
 import { MessageBody } from './MessageBody.js'
+import { linksDisabled, senderCheckNotice, uncheckedSender } from './MessageNotices.js'
 import { PartialLoadNotice } from './PartialLoadNotice.js'
 import { scrollParent, useMediaQuery, useReaderClock, useWidthAtLeast } from './reader-hooks.js'
 import { ThreadColumn, ThreadColumnReader } from './ThreadColumn.js'
@@ -214,7 +221,9 @@ const isTypingTarget = (target: EventTarget | null): boolean =>
  * replaces `children` in that view.
  *
  * `headerFacts` are the thread's header facts when the caller has looked them
- * up; `failedMessageIds` are messages the server could not load (the reader
+ * up, and `headerFactsState` where that lookup stands: until it has answered
+ * (and when it failed), links in mail from anyone else stay disabled. Without
+ * a state the facts given are taken as the answer. `failedMessageIds` are messages the server could not load (the reader
  * says so and offers `onRetryLoad`); `knownSenders` are other people this
  * mailbox writes with, for the lookalike-sender check. `onScheduledSend` sends
  * your scheduled message now or cancels it, answering the draft that now holds
@@ -230,6 +239,7 @@ export function ThreadConversation({
 	mailboxEmail,
 	reply,
 	headerFacts,
+	headerFactsState = 'settled',
 	failedMessageIds,
 	knownSenders,
 	onRetryLoad,
@@ -243,6 +253,7 @@ export function ThreadConversation({
 	mailboxEmail?: string
 	reply?: ConversationReply
 	headerFacts?: ThreadHeaderFacts
+	headerFactsState?: HeaderFactsState
 	failedMessageIds?: string[]
 	knownSenders?: Person[]
 	onRetryLoad?: () => void
@@ -259,6 +270,7 @@ export function ThreadConversation({
 			mailboxEmail={mailboxEmail}
 			reply={reply}
 			headerFacts={headerFacts}
+			headerFactsState={headerFactsState}
 			failedMessageIds={failedMessageIds}
 			knownSenders={knownSenders}
 			onRetryLoad={onRetryLoad}
@@ -273,6 +285,7 @@ export function ThreadConversation({
 
 type ReaderExtras = {
 	headerFacts: ThreadHeaderFacts | undefined
+	headerFactsState: HeaderFactsState
 	failedMessageIds: string[] | undefined
 	knownSenders: Person[] | undefined
 	onRetryLoad: (() => void) | undefined
@@ -526,6 +539,7 @@ function ThreadConversationContent({
 	onTrustSender,
 	onRetryImages,
 	headerFacts,
+	headerFactsState,
 	failedMessageIds,
 	knownSenders,
 	onRetryLoad,
@@ -585,6 +599,9 @@ function ThreadConversationContent({
 		[messages],
 	)
 	const visible = useMemo(() => streamMessages(messages, showTrashed), [messages, showTrashed])
+	// Every message anyone sent, trashed ones too: the Conversation view's
+	// transcript. Your unsent drafts are never one of them.
+	const sent = useMemo(() => streamMessages(messages, true), [messages])
 	const visibleIds = useMemo(() => new Set(visible.map((message) => message.id)), [visible])
 	const drafts = useMemo(() => placeDrafts(messages, visibleIds), [messages, visibleIds])
 	// A bounce's mail server is not one of the people in the conversation.
@@ -691,11 +708,32 @@ function ThreadConversationContent({
 	const lookalikes = useMemo(
 		() =>
 			new Set(
-				visible
+				sent
 					.filter((message) => isLookalikeSender(message, allKnownSenders, owner))
 					.map((message) => message.id),
 			),
-		[visible, allKnownSenders, owner],
+		[sent, allKnownSenders, owner],
+	)
+	const uncheckedFor = useCallback(
+		(message: MailMessage) =>
+			uncheckedSender(message, owner, messageHeaderFactsFor(headerFacts, message.id), headerFactsState),
+		[owner, headerFacts, headerFactsState],
+	)
+	// The Conversation view's messages whose links are disabled; each says why above it.
+	const inertIds = useMemo(
+		() =>
+			new Set(
+				sent
+					.filter((message) =>
+						linksDisabled(
+							messageHeaderFactsFor(headerFacts, message.id),
+							lookalikes.has(message.id),
+							uncheckedFor(message) !== undefined,
+						),
+					)
+					.map((message) => message.id),
+			),
+		[sent, headerFacts, lookalikes, uncheckedFor],
 	)
 
 	// ---- Focus: the stepper, j/k and the map follow one message ----------------
@@ -1279,6 +1317,7 @@ function ThreadConversationContent({
 						{...(headerFacts?.listSizes ? { listSizes: headerFacts.listSizes } : {})}
 						knownSenders={allKnownSenders}
 						lookalike={lookalikes.has(entry.message.id)}
+						unchecked={uncheckedFor(entry.message)}
 						muted={muted}
 						{...(invites.get(entry.message.id) ? { invite: invites.get(entry.message.id) } : {})}
 						{...(bounceByOriginal.get(entry.message.id)
@@ -1349,24 +1388,43 @@ function ThreadConversationContent({
 						<MissingMessagesRow count={entry.count} onRetry={() => onRetryLoad?.()} />
 					</ThreadColumn>
 				)
-			case 'draft': {
-				const to = entry.message.to?.[0]
-				// A draft saved with an address only takes the name the thread knows that person by.
-				const replyToFirstName = to ? firstName(knownPerson(to, owner, allKnownSenders)) : undefined
-				return (
-					<ThreadColumn>
-						<div data-draft-id={entry.message.id} className="reader-draft">
-							<DraftInThread
-								draft={entry.message}
-								{...(replyToFirstName ? { replyToFirstName } : {})}
-								onResume={() => void openCompose({ kind: 'draft', draftId: entry.message.id })}
-								onDiscard={() => onDiscardDraft?.(entry.message.id)}
-							/>
-						</div>
-					</ThreadColumn>
-				)
-			}
+			case 'draft':
+				return renderDraft(entry.message)
 		}
+	}
+	// Your unsent drafts: in the stream where they answer, and after the Conversation view's transcript.
+	function renderDraft(draft: MailMessage): ReactNode {
+		const to = draft.to?.[0]
+		// A draft saved with an address only takes the name the thread knows that person by.
+		const replyToFirstName = to ? firstName(knownPerson(to, owner, allKnownSenders)) : undefined
+		return (
+			<ThreadColumn>
+				<div data-draft-id={draft.id} className="reader-draft">
+					<DraftInThread
+						draft={draft}
+						{...(replyToFirstName ? { replyToFirstName } : {})}
+						onResume={() => void openCompose({ kind: 'draft', draftId: draft.id })}
+						onDiscard={() => onDiscardDraft?.(draft.id)}
+					/>
+				</div>
+			</ThreadColumn>
+		)
+	}
+	// What the Conversation view says above a message whose links are disabled.
+	const conversationNotice = (message: MailMessage): ReactNode => {
+		const facts = messageHeaderFactsFor(headerFacts, message.id)
+		const notice = senderCheckNotice({
+			message,
+			owner,
+			...(facts ? { facts } : {}),
+			knownSenders: allKnownSenders,
+			checksUnavailable: uncheckedFor(message) === 'failed',
+		})
+		return notice ? (
+			<div data-slot="message-notices" className="message-notices flex w-full min-w-0 flex-col">
+				{notice}
+			</div>
+		) : null
 	}
 
 	return (
@@ -1413,8 +1471,13 @@ function ThreadConversationContent({
 						) : conversation ? (
 							<ConversationTranscript
 								threadId={thread.id}
-								messages={messages}
+								messages={sent}
 								mailboxEmail={mailboxEmail}
+								inertIds={inertIds}
+								renderNotice={conversationNotice}
+								drafts={messages
+									.filter((message) => message.ownmailDraft === true)
+									.map((draft) => <Fragment key={draft.id}>{renderDraft(draft)}</Fragment>)}
 								loadRemoteImagesForThread={loadRemoteImagesForThread}
 								trustedDuringThisView={trustedDuringThisView}
 								cleanDesigned={layoutMode !== 'original'}
@@ -1425,6 +1488,7 @@ function ThreadConversationContent({
 										message={message}
 										{...(displays.get(message.id) as OpenMessageDisplay)}
 										onDisplayStatus={onDisplayStatus}
+										linksDisabled={inertIds.has(message.id)}
 									/>
 								)}
 							>

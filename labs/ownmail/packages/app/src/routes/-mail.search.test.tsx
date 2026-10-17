@@ -1006,6 +1006,54 @@ describe('/mail/search thread detail', () => {
 		}
 	})
 
+	it('closes the thread map sheet on Escape and keeps the conversation open', async () => {
+		const user = userEvent.setup()
+		seedDetail({ thread: { id: 'th1', subject: 'Subject A', starred: false, folders: ['inbox'] }, messages })
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'More' }))
+		await user.click(await screen.findByRole('menuitemcheckbox', { name: /Thread map/ }))
+		const sheet = await screen.findByRole('dialog')
+		await user.keyboard('{Escape}')
+
+		await waitFor(() => expect(sheet).not.toBeInTheDocument())
+		expect(h.navigate).not.toHaveBeenCalled()
+		expect(screen.getByText('Subject A')).toBeInTheDocument()
+	})
+
+	it('replies to the first other person on your own latest message, never to you', async () => {
+		const user = userEvent.setup()
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', starred: false, folders: ['inbox'] },
+			messages: [
+				...messages,
+				{ id: 'm4', from: [{ email: 'me@x.com' }], to: [{ email: 'dan@x.com' }], body: 'Mine' },
+			],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', to: 'dan@x.com', replyToMessageId: 'm4' }),
+		)
+	})
+
+	it('leaves To empty when the latest message names nobody to reply to', async () => {
+		const user = userEvent.setup()
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', starred: false, folders: ['inbox'] },
+			messages: [{ id: 'm-bare', body: 'No addressing at all' }],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', to: '', replyToMessageId: 'm-bare' }),
+		)
+	})
+
 	it('renders the shared reader and routes reply actions + toolbar to the composer/list', async () => {
 		const user = userEvent.setup()
 		seedDetail({
@@ -1645,6 +1693,16 @@ describe('/mail/search keyboard shortcuts', () => {
 		renderRoute()
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('leaves the conversation open when something else has already handled Escape', async () => {
+		seedKeyboardDetail()
+		renderRoute()
+		// Radix dismisses a dialog or popover by preventing the Escape it closed on.
+		window.addEventListener('keydown', (event) => event.preventDefault(), { capture: true, once: true })
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
 
 		expect(h.navigate).not.toHaveBeenCalled()
 	})

@@ -35,7 +35,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
-import { replyBase } from '#features/mail/lib/thread-stream'
+import { replyBase, replyTarget, streamMessages } from '#features/mail/lib/thread-stream'
 import { cachedCorrespondents, findCachedThread } from '#features/mail/state/mail-cache'
 import {
 	markOpenedThreadRead,
@@ -46,6 +46,7 @@ import {
 } from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
+	headerFactsState,
 	type MailFolder,
 	type MailThreadDetail,
 	type MailThreadListData,
@@ -676,13 +677,15 @@ function SearchThreadDetail({
 	const updateThread = useUpdateThreadMutation()
 	const deleteDraft = useDeleteDraftMutation()
 	// The same sender checks as the thread route: header facts once per thread, people already in the list cache.
-	const headerFacts = useQuery(
+	const headerFactsQuery = useQuery(
 		threadHeaderFactsQueryOptions(
 			selected.thread.id,
+			streamMessages(selected.messages, true).at(-1)?.id,
 			/* v8 ignore next -- @preserve production query wiring is covered through the query-option tests */
 			(id) => getThreadHeaderFacts({ data: { threadId: id } }),
 		),
-	).data
+	)
+	const headerFacts = headerFactsQuery.data
 	const knownSenders = useMemo(
 		() => cachedCorrespondents(queryClient, selected.mailboxEmail),
 		[queryClient, selected.mailboxEmail],
@@ -713,7 +716,13 @@ function SearchThreadDetail({
 	const reply = () => {
 		/* v8 ignore next -- every exposed search reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		void openCompose({ kind: 'reply', threadId: selected.thread.id, ...replyDraftSearch(lastMessage) })
+		// A plain reply to your own latest message goes to the first other person on it, as in the thread route.
+		void openCompose({
+			kind: 'reply',
+			threadId: selected.thread.id,
+			...replyDraftSearch(lastMessage),
+			to: replyTarget(lastMessage, selected.mailboxEmail)?.email ?? '',
+		})
 	}
 	const replyAll = () => {
 		/* v8 ignore next -- every exposed search reply-all entry point requires a latest message -- @preserve */
@@ -738,7 +747,8 @@ function SearchThreadDetail({
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			// Escape inside an open menu closes that menu, not the conversation.
 			if (target?.closest?.('[role="menu"]')) return
-			if (event.key === 'Escape') {
+			// Escape that closed something first (the map sheet, the raw headers dialog) is spent.
+			if (event.key === 'Escape' && !event.defaultPrevented) {
 				event.preventDefault()
 				router.navigate({
 					to: '/mail/search',
@@ -882,6 +892,7 @@ function SearchThreadDetail({
 					messages={selected.messages}
 					mailboxEmail={selected.mailboxEmail}
 					headerFacts={headerFacts}
+					headerFactsState={headerFactsState(headerFactsQuery)}
 					{...(selected.failedMessageIds ? { failedMessageIds: selected.failedMessageIds } : {})}
 					knownSenders={knownSenders}
 					onRetryLoad={onRetryLoad}

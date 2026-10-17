@@ -9,7 +9,7 @@ import {
 	replyToAddress,
 } from '../lib/message-anatomy.js'
 import { firstName, type Person, personName, senderPerson } from '../lib/thread-reading-model.js'
-import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
+import type { HeaderFactsState, MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 
 export { lookalikeSender } from '../lib/message-anatomy.js'
 
@@ -18,10 +18,28 @@ const ADDRESS_CLASS = 'font-semibold whitespace-nowrap'
 
 /**
  * Whether a message's links are made inert: it failed sender checks (DMARC),
- * or its sender only looks like someone this mailbox knows.
+ * its sender only looks like someone this mailbox knows, or its sender checks
+ * have not answered (`unchecked`: the lookup is still running or failed), so
+ * a message is never shown with live links before it is known to be safe.
  */
-export function linksDisabled(facts?: MessageHeaderFacts, lookalike?: boolean): boolean {
-	return facts?.authFailed === true || lookalike === true
+export function linksDisabled(facts?: MessageHeaderFacts, lookalike?: boolean, unchecked = false): boolean {
+	return facts?.authFailed === true || lookalike === true || unchecked
+}
+
+/**
+ * Whether a message's sender checks have not answered: the thread's header
+ * lookup is `pending` or `failed` and holds no facts for this message. Your
+ * own mail is never checked. A settled lookup that has nothing for a message
+ * has no verdict on it, and its links stay live.
+ */
+export function uncheckedSender(
+	message: MailMessage,
+	owner: string,
+	facts: MessageHeaderFacts | undefined,
+	state: HeaderFactsState,
+): Exclude<HeaderFactsState, 'settled'> | undefined {
+	if (state === 'settled' || facts !== undefined || senderPerson(message, owner).isOwner) return undefined
+	return state
 }
 
 /** Whether a message's sender is a lookalike of someone this mailbox knows. */
@@ -69,6 +87,48 @@ function Notice({
 }
 
 /**
+ * The red notice of a sender who failed checks or only looks like someone you
+ * know, or the amber one of a sender whose checks could not be run; in each
+ * case the message's links are disabled. Nothing for your own mail. The
+ * standard reader shows it among the message's notices, and the Conversation
+ * view above the bubble, article or card of that message.
+ */
+export function senderCheckNotice({
+	message,
+	owner,
+	facts,
+	knownSenders,
+	checksUnavailable = false,
+}: {
+	message: MailMessage
+	owner: string
+	facts?: MessageHeaderFacts
+	knownSenders: Person[]
+	checksUnavailable?: boolean
+}): ReactNode {
+	const sender = senderPerson(message, owner)
+	if (sender.isOwner) return null
+	const lookalike = lookalikeSender(message, knownSenders, owner)
+	const failed = facts?.authFailed === true
+	if (lookalike || failed) {
+		return (
+			<Notice key="sender" kind="sender-check" tone="danger" icon={<AlertTriangle />}>
+				{lookalike ? `“${lookalike.name}” usually writes from ${lookalike.usualDomain}. ` : null}
+				This came from{' '}
+				<strong className={ADDRESS_CLASS}>{lookalike?.domain ?? addressDomain(sender.email)}</strong>
+				{failed ? ' and failed sender checks' : ''}. Links are disabled.
+			</Notice>
+		)
+	}
+	if (!checksUnavailable) return null
+	return (
+		<Notice key="sender" kind="sender-unchecked" tone="warning" icon={<AlertTriangle />}>
+			Sender checks couldn’t be run for this message. Links are disabled.
+		</Notice>
+	)
+}
+
+/**
  * What is unusual about one message, said above its body (board 05, step 3),
  * and nothing when nothing is: replies that go to another address (amber),
  * a sender who failed checks or only looks like someone you know (red, with
@@ -85,6 +145,7 @@ export function MessageNotices({
 	knownSenders,
 	muted = false,
 	listNotice = true,
+	checksUnavailable = false,
 	onMuteThread,
 	onAddBack,
 }: {
@@ -99,18 +160,17 @@ export function MessageNotices({
 	muted?: boolean
 	/** A thread says it came through a list once, on its first open message from the list. */
 	listNotice?: boolean
+	/** The thread's sender checks could not be looked up and say nothing about this message. */
+	checksUnavailable?: boolean
 	/** Toggles the thread's muted state. */
 	onMuteThread(): void
 	onAddBack(person: Person): void
 }) {
 	const sender = senderPerson(message, owner)
 	const replyTo = replyToAddress(message, facts, owner)
-	const lookalike = lookalikeSender(message, knownSenders, owner)
-	const failed = facts?.authFailed === true && !sender.isOwner
 	const removed = removedFromReply(message, prev, owner)
 	const list = sender.isOwner || !listNotice ? null : mailingList(message, facts, owner)
 	const leaveHref = facts?.unsubscribeUrl ?? facts?.unsubscribeMailto
-	const domain = addressDomain(sender.email)
 
 	const notices: ReactNode[] = []
 	if (replyTo) {
@@ -120,15 +180,14 @@ export function MessageNotices({
 			</Notice>,
 		)
 	}
-	if (lookalike || failed) {
-		notices.push(
-			<Notice key="sender" kind="sender-check" tone="danger" icon={<AlertTriangle />}>
-				{lookalike ? `“${lookalike.name}” usually writes from ${lookalike.usualDomain}. ` : null}
-				This came from <strong className={ADDRESS_CLASS}>{lookalike?.domain ?? domain}</strong>
-				{failed ? ' and failed sender checks' : ''}. Links are disabled.
-			</Notice>,
-		)
-	}
+	const senderCheck = senderCheckNotice({
+		message,
+		owner,
+		...(facts ? { facts } : {}),
+		knownSenders,
+		checksUnavailable,
+	})
+	if (senderCheck) notices.push(senderCheck)
 	for (const person of removed) {
 		const first = personName(person, 'first')
 		notices.push(

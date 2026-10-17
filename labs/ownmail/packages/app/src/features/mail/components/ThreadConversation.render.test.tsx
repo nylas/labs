@@ -1573,6 +1573,73 @@ describe('what the reader keeps', () => {
 		const content = document.querySelector('[data-slot="expanded-message-content"]')
 		expect(content).toHaveAttribute('data-links-disabled', 'true')
 	})
+
+	describe('until the sender checks answer', () => {
+		const content = () => document.querySelector('[data-slot="expanded-message-content"]')
+		const unchecked = () =>
+			screen.queryByText('Sender checks couldn’t be run for this message. Links are disabled.')
+		const verified = { verified: true, authFailed: false, listUnsubscribe: false }
+		const reader = (props: Partial<Parameters<typeof ThreadConversation>[0]>) => (
+			<ThreadConversation
+				thread={thread('t1')}
+				messages={[{ ...message('m1'), from: [GRACE] }]}
+				mailboxEmail="ada@ownmail.com"
+				{...props}
+			/>
+		)
+
+		it('keeps links disabled, without a notice, while the lookup runs, and turns them on once it answers', () => {
+			const { rerender } = render(reader({ headerFactsState: 'pending' }))
+			expect(content()).toHaveAttribute('data-links-disabled', 'true')
+			expect(document.querySelector('[data-slot="message-notices"]')).toBeNull()
+
+			rerender(reader({ headerFactsState: 'settled', headerFacts: { byMessage: { m1: verified } } }))
+			expect(content()).not.toHaveAttribute('data-links-disabled')
+			// A settled lookup that has nothing for a message has no verdict on it.
+			rerender(reader({ headerFactsState: 'settled', headerFacts: { byMessage: {} } }))
+			expect(content()).not.toHaveAttribute('data-links-disabled')
+		})
+
+		it('keeps the earlier answer for the messages it covers while a new reply is looked up', () => {
+			const { rerender } = render(
+				reader({ headerFactsState: 'pending', headerFacts: { byMessage: { m1: verified } } }),
+			)
+			expect(content()).not.toHaveAttribute('data-links-disabled')
+
+			rerender(
+				reader({
+					headerFactsState: 'pending',
+					headerFacts: { byMessage: { m1: verified } },
+					messages: [{ ...message('m2'), from: [GRACE] }],
+				}),
+			)
+			expect(content()).toHaveAttribute('data-links-disabled', 'true')
+		})
+
+		it('says the checks could not be run when the lookup fails, and keeps links disabled', () => {
+			render(reader({ headerFactsState: 'failed' }))
+			expect(content()).toHaveAttribute('data-links-disabled', 'true')
+			expect(unchecked()?.closest('[role="note"]')).toHaveAttribute('data-kind', 'sender-unchecked')
+		})
+
+		it('keeps a verdict from an earlier answer when a later lookup fails', () => {
+			render(
+				reader({
+					headerFactsState: 'failed',
+					headerFacts: { byMessage: { m1: { ...verified, verified: false, authFailed: true } } },
+				}),
+			)
+			expect(content()).toHaveAttribute('data-links-disabled', 'true')
+			expect(screen.getByText(/failed sender checks\. Links are disabled\./)).toBeInTheDocument()
+			expect(unchecked()).toBeNull()
+		})
+
+		it('never waits on the checks for your own mail', () => {
+			render(reader({ headerFactsState: 'failed', messages: [{ ...message('m1'), from: [ADA] }] }))
+			expect(content()).not.toHaveAttribute('data-links-disabled')
+			expect(unchecked()).toBeNull()
+		})
+	})
 })
 
 describe('message actions', () => {

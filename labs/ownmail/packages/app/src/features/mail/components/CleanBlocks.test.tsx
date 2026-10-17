@@ -10,6 +10,34 @@ afterEach(cleanup)
 const CONTROLLED_IMAGE = `/email-images/${'a'.repeat(20)}.${'b'.repeat(20)}?mode=automatic&theme=light`
 
 describe('CleanBlocks', () => {
+	it('keeps only the words of every link, nested ones too, for a sender whose links are disabled', () => {
+		const blocks: CleanBlock[] = [
+			{
+				type: 'paragraph',
+				spans: [{ text: 'Verify your ' }, { text: 'account', href: 'https://evil.example/a' }],
+			},
+			{ type: 'paragraph', spans: [{ text: 'Sign in now', href: 'https://evil.example/b', cta: true }] },
+			{
+				type: 'quote',
+				blocks: [{ type: 'paragraph', spans: [{ text: 'quoted', href: 'https://evil.example/c' }] }],
+			},
+			{ type: 'image', src: '', alt: 'Logo', href: 'https://evil.example/d' },
+		]
+		const { container, rerender } = render(<CleanBlocks blocks={blocks} linksDisabled />)
+
+		expect(screen.queryAllByRole('link')).toHaveLength(0)
+		expect(container.querySelector('[href]')).toBeNull()
+		expect(
+			[...container.querySelectorAll('[data-slot="inert-link"]')].map((node) => node.textContent),
+		).toEqual(['account', 'Sign in now', 'quoted', 'Image: Logo'])
+		// A call to action loses its button shape along with its target.
+		expect(screen.getByText('Sign in now')).toHaveClass('font-medium')
+		expect(screen.getByText('Sign in now')).not.toHaveClass('bg-primary')
+
+		rerender(<CleanBlocks blocks={blocks} />)
+		expect(screen.getAllByRole('link')).toHaveLength(4)
+	})
+
 	it('renders every block kind as an app element, in app typography', () => {
 		const blocks: CleanBlock[] = [
 			{ type: 'heading', level: 1, spans: [{ text: 'Issue 112' }] },

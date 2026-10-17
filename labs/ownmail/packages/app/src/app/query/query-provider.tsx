@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { useRouter, useRouterState } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { isSessionMailLookup } from '#features/mail/state/mail-queries'
 import { onAccountChanged } from '../lib/account-scope.js'
 import { loadSwitchedAccount } from '../lib/account-switch.js'
 import { assertAccountWritable, readSwitchingTo, setSwitchingTo } from '../lib/account-switch-status.js'
@@ -102,9 +103,19 @@ function ServerStateSync() {
 			mailRevalidationTimers = []
 		}
 
+		// Header lookups and row summaries are kept for the session, keyed by what
+		// they answer for: a refresh asking them again would cost paged provider
+		// calls for an answer that cannot have changed.
 		function invalidateMailQueries() {
 			return queryClient.invalidateQueries({
-				predicate: (query) => query.queryKey[0] === 'mail',
+				predicate: (query) => query.queryKey[0] === 'mail' && !isSessionMailLookup(query.queryKey),
+				refetchType: 'active',
+			})
+		}
+
+		function invalidateAll() {
+			return queryClient.invalidateQueries({
+				predicate: (query) => !isSessionMailLookup(query.queryKey),
 				refetchType: 'active',
 			})
 		}
@@ -143,7 +154,7 @@ function ServerStateSync() {
 				if (!previous) {
 					// The initial refresh closes the window between route loading and
 					// establishing the first external-change watermark.
-					await queryClient.invalidateQueries({ refetchType: 'active' })
+					await invalidateAll()
 					lastFallbackRefreshRef.current = now
 				} else {
 					for (const domain of ['mail', 'contacts', 'calendar'] as const) {
@@ -160,7 +171,7 @@ function ServerStateSync() {
 					}
 				}
 				if (now - lastFallbackRefreshRef.current >= FALLBACK_REFRESH_INTERVAL_MS) {
-					await queryClient.invalidateQueries({ refetchType: 'active' })
+					await invalidateAll()
 					lastFallbackRefreshRef.current = now
 				}
 				previousRef.current = next

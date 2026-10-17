@@ -439,8 +439,12 @@ export const getThreadListUnsubscribe = createServerFn({ method: 'GET' })
  * a time for at most 200 messages; facts from every page are merged. Their
  * values are untrusted, are never stored or logged, and only the derived
  * booleans and short validated strings of `messageHeaderFacts` leave the
- * server. Any failure answers "no facts", and the reader shows plain headers.
+ * server. Any failure rejects (no part of a thread's facts is answered): the
+ * reader then says the checks could not be run and keeps links disabled.
  */
+/** What a failed header-facts lookup says; no provider detail reaches the reader. */
+const HEADER_FACTS_FAILED = 'Sender checks could not be looked up.'
+
 export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
 	.validator((input: { threadId: string }) => ({
 		threadId: requireNylasProviderId(input.threadId, 'thread'),
@@ -473,7 +477,10 @@ export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
 			// Only the mock app knows how many people a list reaches.
 			return (await usingDevMocks()) ? { byMessage, listSizes: { ...DEV_MOCK_LIST_SIZES } } : { byMessage }
 		} catch {
-			return { byMessage: {} }
+			// Never "no facts" as an answer: the reader would take every sender as
+			// unchecked-but-fine and turn their links on. A rejection keeps any
+			// earlier answer, and links stay disabled for what it does not cover.
+			throw new Error(HEADER_FACTS_FAILED)
 		}
 	})
 

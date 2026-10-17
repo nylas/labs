@@ -64,6 +64,7 @@ import {
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
+	headerFactsState,
 	type MailThreadDetail,
 	type MailThreadListData,
 	mailKeys,
@@ -284,14 +285,18 @@ function ThreadView() {
 	const unreadAtOpen = seedDetail.messages
 		.filter((message) => message.unread === true)
 		.map((message) => message.id)
-	// Header facts (sender checks, Reply-To, lists) are looked up once per thread and kept for the session.
-	const headerFacts = useQuery(
+	// Header facts (sender checks, Reply-To, lists) are looked up once per thread
+	// and newest message, and kept for the session. Until they answer, links in
+	// mail from anyone else stay disabled.
+	const headerFactsQuery = useQuery(
 		threadHeaderFactsQueryOptions(
 			threadId,
+			streamMessages(messages, true).at(-1)?.id,
 			/* v8 ignore next -- @preserve production query wiring is covered through the query-option tests */
 			(id) => getThreadHeaderFacts({ data: { threadId: id } }),
 		),
-	).data
+	)
+	const headerFacts = headerFactsQuery.data
 	const knownSenders = useMemo(
 		() => cachedCorrespondents(queryClient, mailboxEmail),
 		[queryClient, mailboxEmail],
@@ -688,6 +693,7 @@ function ThreadView() {
 					messages={messages}
 					mailboxEmail={mailboxEmail}
 					headerFacts={headerFacts}
+					headerFactsState={headerFactsState(headerFactsQuery)}
 					failedMessageIds={failedMessageIds}
 					knownSenders={knownSenders}
 					onRetryLoad={retryLoad}

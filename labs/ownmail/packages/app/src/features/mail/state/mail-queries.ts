@@ -179,9 +179,18 @@ export const mailKeys = {
 	/** Which messages of a thread carry a List-Unsubscribe header (Conversation view only). */
 	threadListUnsubscribe: (threadId: string) =>
 		[...mailKeys.all, 'thread-list-unsubscribe', requireCacheId(threadId, 'thread')] as const,
-	/** Facts derived from a thread's headers: authentication, Reply-To, list, sender time zone. */
-	threadHeaderFacts: (threadId: string) =>
-		[...mailKeys.all, 'thread-header-facts', requireCacheId(threadId, 'thread')] as const,
+	/**
+	 * Facts derived from a thread's headers: authentication, Reply-To, list,
+	 * sender time zone. Keyed by the thread's newest message too, so a new
+	 * reply is looked up; nothing else asks again.
+	 */
+	threadHeaderFacts: (threadId: string, latestMessageId = '') =>
+		[
+			...mailKeys.all,
+			'thread-header-facts',
+			requireCacheId(threadId, 'thread'),
+			latestMessageId && requireCacheId(latestMessageId, 'message'),
+		] as const,
 	/** One message's raw header block, fetched only for "Show raw headers". */
 	messageRawHeaders: (messageId: string) =>
 		[...mailKeys.all, 'message-raw-headers', requireCacheId(messageId, 'message')] as const,
@@ -219,21 +228,60 @@ export function threadListUnsubscribeQueryOptions(
 
 /**
  * The header facts of a thread's messages. Headers do not change, so one
- * answer per account and thread is kept for the session, like the
- * List-Unsubscribe lookup; a failed lookup is not retried and the reader then
- * shows messages without those facts.
+ * answer per account, thread and newest message is kept for the session, like
+ * the List-Unsubscribe lookup; mail refreshes never ask again (the lookups are
+ * left out of them), and a new reply asks once more while the earlier answer
+ * stays on screen for the messages it covers. A failed lookup rejects, is not
+ * retried, and leaves any earlier answer in place: the reader keeps links
+ * disabled for every message it has no facts for (design.md "Links disabled").
  */
 export function threadHeaderFactsQueryOptions(
 	threadId: string,
+	latestMessageId: string | undefined,
 	fetchFacts: (threadId: string) => Promise<ThreadHeaderFacts>,
 ) {
 	const safeThreadId = requireCacheId(threadId, 'thread')
+	const queryKey = mailKeys.threadHeaderFacts(safeThreadId, latestMessageId)
 	return queryOptions({
-		queryKey: mailKeys.threadHeaderFacts(safeThreadId),
+		queryKey,
 		queryFn: () => fetchFacts(safeThreadId),
 		staleTime: Number.POSITIVE_INFINITY,
 		retry: false,
+		// Only the same thread's earlier answer stands in while a new reply is looked up.
+		placeholderData: (previous: ThreadHeaderFacts | undefined, previousQuery) =>
+			previousQuery?.queryKey[MAIL_KEY_ARGUMENT] === safeThreadId ? previous : undefined,
 	})
+}
+
+/**
+ * Whether a query is one of the lookups kept for the session: the header
+ * lookups, the per-row unread summary and the side-thread search. Each is
+ * keyed by what it answers for, so a mail refresh never asks it again (and
+ * must not: each costs paged provider calls).
+ */
+export function isSessionMailLookup(queryKey: readonly unknown[]): boolean {
+	if (queryKey[0] === SIDE_THREAD_KIND) return true
+	const kind = queryKey[MAIL_KEY_KIND]
+	return queryKey[0] === 'mail' && typeof kind === 'string' && MAIL_HEADER_LOOKUP_KINDS.has(kind)
+}
+
+/** The first key part of the side-thread lookup, which lives outside the mail root. */
+export const SIDE_THREAD_KIND = 'mail-side-thread'
+
+/**
+ * Where a thread's header lookup stands for the reader: `settled` once the
+ * lookup for the thread as it is now has answered, `failed` when it could not
+ * (facts kept from an earlier answer still count), else `pending`, which
+ * includes the earlier answer shown while a newer message is looked up.
+ */
+export type HeaderFactsState = 'pending' | 'failed' | 'settled'
+
+export function headerFactsState(query: {
+	status: 'pending' | 'error' | 'success'
+	isPlaceholderData: boolean
+}): HeaderFactsState {
+	if (query.status === 'error') return 'failed'
+	return query.status === 'success' && !query.isPlaceholderData ? 'settled' : 'pending'
 }
 
 /** The facts for one message, or none when the lookup has not answered for it. */

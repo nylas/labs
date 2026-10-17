@@ -378,7 +378,7 @@ describe('message list', () => {
 		expect(headerFacts).toHaveBeenCalledExactlyOnceWith({ data: { threadId: 't1' } })
 	})
 
-	it('reads the thread without header facts when the lookup fails', async () => {
+	it('reads the thread when the lookup fails, but says the checks could not be run and keeps links disabled', async () => {
 		headerFacts.mockRejectedValue(new Error('provider down'))
 		renderThread(
 			loaderData({
@@ -395,6 +395,38 @@ describe('message list', () => {
 		await waitFor(() => expect(headerFacts).toHaveBeenCalled())
 		expect(screen.getByText('Undated message')).toBeInTheDocument()
 		expect(document.querySelector('[data-slot="message-header"]')).not.toHaveAttribute('data-verified')
+		expect(
+			await screen.findByText('Sender checks couldn’t be run for this message. Links are disabled.'),
+		).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="expanded-message-content"]')).toHaveAttribute(
+			'data-links-disabled',
+			'true',
+		)
+	})
+
+	it('keeps links disabled until the sender checks answer, kept under the newest message of the thread', async () => {
+		let answer: (facts: unknown) => void = () => {}
+		headerFacts.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+		const alice = { name: 'Alice', email: 'alice@x.com' }
+		const first = {
+			id: 'm-link',
+			from: [alice],
+			to: [{ email: 'me@x.com' }],
+			date: 1_700_000_000,
+			body: 'See this',
+		}
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		renderThread(loaderData({ messages: [first] }), {}, undefined, queryClient)
+		const content = () => document.querySelector('[data-slot="expanded-message-content"]')
+		expect(content()).toHaveAttribute('data-links-disabled', 'true')
+		expect(document.querySelector('[data-slot="message-notices"]')).toBeNull()
+
+		await act(async () =>
+			answer({ byMessage: { 'm-link': { verified: true, authFailed: false, listUnsubscribe: false } } }),
+		)
+		await waitFor(() => expect(content()).not.toHaveAttribute('data-links-disabled'))
+		expect(headerFacts).toHaveBeenCalledTimes(1)
+		expect(queryClient.getQueryData(mailKeys.threadHeaderFacts('t1', 'm-link'))).toBeDefined()
 	})
 
 	it('omits the details disclosure when a provider message has no metadata', () => {

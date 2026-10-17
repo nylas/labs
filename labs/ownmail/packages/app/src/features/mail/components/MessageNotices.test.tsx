@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Person } from '../lib/thread-reading-model.js'
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
-import { isLookalikeSender, linksDisabled, MessageNotices } from './MessageNotices.js'
+import { isLookalikeSender, linksDisabled, MessageNotices, uncheckedSender } from './MessageNotices.js'
 
 afterEach(cleanup)
 
@@ -51,6 +51,19 @@ describe('linksDisabled', () => {
 		expect(linksDisabled(facts(), true)).toBe(true)
 		expect(linksDisabled(facts(), false)).toBe(false)
 		expect(linksDisabled(undefined)).toBe(false)
+		// Until the checks answer, a message's links wait, disabled.
+		expect(linksDisabled(undefined, false, true)).toBe(true)
+	})
+
+	it('treats a sender as unchecked only while the lookup holds nothing for that message', () => {
+		const grace = { id: 'm', from: [GRACE] } as MailMessage
+		expect(uncheckedSender(grace, OWNER, undefined, 'pending')).toBe('pending')
+		expect(uncheckedSender(grace, OWNER, undefined, 'failed')).toBe('failed')
+		expect(uncheckedSender(grace, OWNER, undefined, 'settled')).toBeUndefined()
+		expect(uncheckedSender(grace, OWNER, facts(), 'pending')).toBeUndefined()
+		expect(
+			uncheckedSender({ id: 'm', from: [ADA] } as MailMessage, OWNER, undefined, 'failed'),
+		).toBeUndefined()
 	})
 
 	it('tells whether a sender only looks like someone known', () => {

@@ -2,6 +2,7 @@ import type { Message } from '@nylas-labs/cli-kit/v3'
 import { hashKey, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { type Person, toPerson } from '../lib/thread-reading-model.js'
 import {
+	isSessionMailLookup,
 	MAIL_HEADER_LOOKUP_KINDS,
 	MAIL_KEY_ARGUMENT,
 	MAIL_KEY_KIND,
@@ -553,10 +554,16 @@ export function createMailOptimisticManager(client: QueryClient, root: QueryKey 
 		touched.clear()
 		if (!refetchWhenSettled) return
 		refetchWhenSettled = false
-		void client.invalidateQueries({ queryKey: root, refetchType: 'active' }).catch(
-			/* v8 ignore next -- @preserve a failed background refetch leaves the restored cache in place and is retried by the next poll */
-			() => {},
-		)
+		void client
+			.invalidateQueries({
+				queryKey: root,
+				predicate: (query) => !isSessionMailLookup(query.queryKey),
+				refetchType: 'active',
+			})
+			.catch(
+				/* v8 ignore next -- @preserve a failed background refetch leaves the restored cache in place and is retried by the next poll */
+				() => {},
+			)
 	}
 
 	return {

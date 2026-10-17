@@ -586,7 +586,16 @@ describe('mail optimistic transaction journal', () => {
 
 		read.commit()
 		// Nothing else tells the screen what the server holds after a failure.
-		expect(invalidate).toHaveBeenCalledExactlyOnceWith({ queryKey: mailKeys.all, refetchType: 'active' })
+		expect(invalidate).toHaveBeenCalledExactlyOnceWith({
+			queryKey: mailKeys.all,
+			predicate: expect.any(Function),
+			refetchType: 'active',
+		})
+		// Header lookups and row summaries are kept for the session; the refetch leaves them be.
+		const [[options]] = invalidate.mock.calls as unknown as [[{ predicate: (query: unknown) => boolean }]]
+		const { predicate } = options
+		expect(predicate({ queryKey: mailKeys.threadDetail('t1') })).toBe(true)
+		expect(predicate({ queryKey: mailKeys.threadHeaderFacts('t1', 'm1') })).toBe(false)
 	})
 
 	it('does not refetch active queries after a commit, whose receipt is already authoritative', async () => {

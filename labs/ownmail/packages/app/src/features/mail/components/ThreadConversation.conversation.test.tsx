@@ -969,6 +969,160 @@ describe('replying', () => {
 	})
 })
 
+describe('your unsent drafts in the Conversation view', () => {
+	const reply = () => ({ onReply: vi.fn(), onReplyAll: vi.fn() })
+	// Saved after the latest message, so it sorts last in the thread.
+	const draft: MailMessage = {
+		id: 'd1',
+		from: [SAM],
+		to: [INES, TOMAS],
+		date: TUESDAY + 600,
+		body: 'My unsent thoughts on the retro.',
+		ownmailDraft: true,
+	}
+
+	it('are never shown as sent: the transcript leaves them out and shows each as a draft after it', () => {
+		const onDiscardDraft = vi.fn()
+		renderThread([...groupMessages, draft], { reply: reply(), onDiscardDraft })
+		openConversation()
+
+		const transcript = document.querySelector('[data-slot="conversation-transcript"]') as HTMLElement
+		for (const bubble of bubbles()) expect(bubble).not.toHaveTextContent('My unsent thoughts')
+		expect(document.querySelector('[data-slot="conversation-participants"]')).toHaveTextContent('5 emails')
+		const card = within(transcript).getByRole('region', { name: 'Your draft reply to Ines' })
+		expect(card.closest('[data-draft-id]')).toHaveAttribute('data-draft-id', 'd1')
+		// The draft comes after the last message sent.
+		const last = bubbles().at(-1) as HTMLElement
+		expect(last.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+		fireEvent.click(within(card).getByRole('button', { name: 'Discard' }))
+		expect(onDiscardDraft).toHaveBeenCalledWith('d1')
+	})
+
+	it('never become what the reply input answers', () => {
+		renderThread([...groupMessages, draft], { reply: reply() })
+		openConversation()
+		// The latest message sent is Ines\'s: the input answers her, not your own draft.
+		expect(screen.getByRole('button', { name: 'Reply only to Ines Carvalho' })).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="conversation-reply-recipients"]')).toHaveTextContent(
+			/^To Ines Carvalho, Tomas Reyes$/,
+		)
+	})
+})
+
+describe('the reply input answers what the reader’s Reply answers', () => {
+	const reply = () => ({ onReply: vi.fn(), onReplyAll: vi.fn() })
+
+	it('names the first other person on your own latest message, never you', () => {
+		renderThread(groupMessages.slice(0, 4), { reply: reply() })
+		openConversation()
+		fireEvent.click(screen.getByRole('button', { name: 'Reply only to Ines Carvalho' }))
+		expect(document.querySelector('[data-slot="conversation-reply-recipients"]')).toHaveTextContent(
+			/^To Ines Carvalho$/,
+		)
+	})
+
+	it('skips a delivery report to the latest message a person sent', () => {
+		const bounce: MailMessage = {
+			id: 'bounce',
+			from: [{ email: 'mailer-daemon@example.com' }],
+			to: [SAM],
+			subject: 'Undeliverable: Offsite agenda draft',
+			date: TUESDAY + 60,
+			body: 'Delivery to tomas@example.com failed.',
+		}
+		renderThread([...groupMessages, bounce], { reply: reply() })
+		openConversation()
+		expect(screen.getByRole('button', { name: 'Reply only to Ines Carvalho' })).toBeInTheDocument()
+	})
+})
+
+describe('sender checks in the Conversation view', () => {
+	const failed = { verified: false, authFailed: true, listUnsubscribe: false }
+	const link = () => screen.queryByRole('link', { name: 'Friday' })
+	const inert = () => document.querySelector('[data-slot="inert-link"]')
+
+	it('disables the links of a sender who failed checks, keeps their words, and says why', () => {
+		renderThread(groupMessages, { headerFacts: { byMessage: { m3: failed } } })
+		openConversation()
+		expect(link()).toBeNull()
+		expect(inert()).toHaveTextContent('Friday')
+		expect(inert()?.closest('[data-slot="conversation-bubble"]')).not.toBeNull()
+		const notices = document.querySelectorAll('[data-kind="sender-check"]')
+		expect(notices).toHaveLength(1)
+		expect(notices[0]).toHaveTextContent(
+			'This came from example.com and failed sender checks. Links are disabled.',
+		)
+	})
+
+	it('keeps links disabled while the checks are looked up, and says so when they could not be', () => {
+		const { rerender } = renderThread(groupMessages, { headerFactsState: 'pending' })
+		openConversation()
+		expect(link()).toBeNull()
+		expect(document.querySelector('[data-slot="message-notices"]')).toBeNull()
+
+		rerender(
+			<ThreadConversation
+				thread={thread}
+				messages={groupMessages}
+				mailboxEmail="sam@example.com"
+				headerFactsState="failed"
+			/>,
+		)
+		expect(link()).toBeNull()
+		// Every message from someone else says so; your own does not wait on checks.
+		expect(document.querySelectorAll('[data-kind="sender-unchecked"]')).toHaveLength(4)
+
+		rerender(
+			<ThreadConversation
+				thread={thread}
+				messages={groupMessages}
+				mailboxEmail="sam@example.com"
+				headerFactsState="settled"
+			/>,
+		)
+		expect(link()).toHaveAttribute('href', 'https://rooms.example.com/friday')
+	})
+
+	it('disables the links of a lookalike sender in an article card', () => {
+		const article: MailMessage = {
+			id: 'news',
+			from: [{ name: 'Ines Carvalho', email: 'ines@inés-mail.example' }],
+			to: [SAM],
+			date: TUESDAY + 60,
+			body: `<table role="presentation" width="600"><tr><td style="font-size:26px">Issue 112</td></tr>
+				<tr><td>${'More body copy. '.repeat(20)}</td></tr>
+				<tr><td bgcolor="#1f5c3d"><a href="https://fieldnotes.example/112">Read the issue</a></td></tr></table>`,
+		}
+		renderThread([...groupMessages, article])
+		openConversation()
+		const card = document.querySelector('[data-slot="conversation-article"]') as HTMLElement
+		expect(within(card).queryByRole('link', { name: 'Read the issue' })).toBeNull()
+		expect(within(card).getByText('Read the issue')).toHaveAttribute('data-slot', 'inert-link')
+		expect(within(card).getByText(/usually writes from example\.com/)).toBeInTheDocument()
+	})
+
+	it('hands the standard reader the links state of a message shown as sent', async () => {
+		const designed: MailMessage = {
+			id: 'designed',
+			from: [TOMAS],
+			to: [SAM],
+			date: TUESDAY + 60,
+			body: '<table width="600"><tr><td><a href="https://rooms.example.com/book">Book</a><img alt="x" width="600" height="400"></td></tr></table>',
+		}
+		writeUserPreferences({
+			...defaultUserPreferences(),
+			threadView: 'conversation',
+			emailLayoutMode: 'original',
+		})
+		renderThread([designed], { headerFacts: { byMessage: { designed: failed } } })
+		const card = await waitFor(() => document.querySelector('[data-slot="conversation-card"]') as HTMLElement)
+		expect(within(card).getByText(/failed sender checks/)).toBeInTheDocument()
+		const element = await within(card).findByTitle('Email content designed')
+		await waitFor(() => expect(element.shadowRoot?.textContent ?? '').toContain('Book'))
+		expect(element.shadowRoot?.querySelector('a[href]')).toBeNull()
+	})
+})
+
 describe('message context menu in the transcript', () => {
 	const menu = () => screen.queryByRole('menu')
 	const rightClick = (target: Element) => fireEvent.contextMenu(target, { clientX: 5, clientY: 5 })

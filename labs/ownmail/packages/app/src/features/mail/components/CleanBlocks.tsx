@@ -1,4 +1,11 @@
-import { type ComponentProps, type ReactNode, type SyntheticEvent, useState } from 'react'
+import {
+	type ComponentProps,
+	createContext,
+	type ReactNode,
+	type SyntheticEvent,
+	useContext,
+	useState,
+} from 'react'
 import { cn } from '#shared/lib/utils'
 import type { CleanBlock, CleanImage, CleanSpan } from '../lib/clean-view.js'
 import { linkPreviewText, type PreviewPoint, previewBoxStyle } from '../lib/email-render.js'
@@ -9,12 +16,24 @@ function keyed<T>(items: readonly T[]): Array<{ key: string; item: T }> {
 	return items.map((item, position) => ({ key: String(position), item }))
 }
 
+/** Whether the blocks render for a sender whose links are disabled. */
+const LinksDisabled = createContext(false)
+
 /**
  * A sender-authored link, with the same handling the email renderer applies:
  * a new tab, no opener, no referrer, and a visible underline and focus ring.
- * The block model only carries http(s) and mailto targets.
+ * The block model only carries http(s) and mailto targets. For a sender whose
+ * links are disabled only the words stay: no destination for a click, a
+ * context menu, a long press or a drag to follow (design.md "Links disabled").
  */
 function SafeLink({ href, cta = false, children }: { href: string; cta?: boolean; children: ReactNode }) {
+	if (useContext(LinksDisabled)) {
+		return (
+			<span data-slot="inert-link" className={cn('[overflow-wrap:anywhere]', cta && 'font-medium')}>
+				{children}
+			</span>
+		)
+	}
 	return (
 		<a
 			href={href}
@@ -209,19 +228,26 @@ function Block({ block, historyOpen }: { block: CleanBlock; historyOpen: boolean
 export function CleanBlocks({
 	blocks,
 	historyOpen = false,
+	linksDisabled = false,
 }: {
 	blocks: CleanBlock[]
 	historyOpen?: boolean
+	/** The sender failed checks or looks like someone else: links keep their words, not their targets. */
+	linksDisabled?: boolean
 }) {
+	// Nested blocks (quotes, footers, history) keep the links state of the message they are in.
+	const inherited = useContext(LinksDisabled)
 	return (
-		<div
-			data-slot="clean-blocks"
-			className="flex min-w-0 flex-col gap-hairline text-base leading-relaxed [overflow-wrap:anywhere]"
-		>
-			{keyed(blocks).map(({ key, item }) => (
-				<Block key={key} block={item} historyOpen={historyOpen} />
-			))}
-		</div>
+		<LinksDisabled.Provider value={linksDisabled || inherited}>
+			<div
+				data-slot="clean-blocks"
+				className="flex min-w-0 flex-col gap-hairline text-base leading-relaxed [overflow-wrap:anywhere]"
+			>
+				{keyed(blocks).map(({ key, item }) => (
+					<Block key={key} block={item} historyOpen={historyOpen} />
+				))}
+			</div>
+		</LinksDisabled.Provider>
 	)
 }
 

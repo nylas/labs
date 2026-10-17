@@ -6,7 +6,7 @@ import { normalSubject } from '../lib/conversation-model.js'
 import { validateMailSearchQuery } from '../lib/mail-search.js'
 import { threadRouteFolderId } from '../lib/mail-ui-model.js'
 import { firstName, type Person, personName, toPerson } from '../lib/thread-reading-model.js'
-import type { MailMessage, MailThread } from '../state/mail-queries.js'
+import { type MailMessage, type MailThread, SIDE_THREAD_KIND } from '../state/mail-queries.js'
 import { EDGE_LINK_CLASS } from './edge-actions.js'
 
 const addressKey = (email: string): string => email.trim().toLowerCase()
@@ -68,7 +68,7 @@ export function sideThreadText(side: MailThread, owner: string): string {
 
 /** The side-thread lookup's cache key: per account and thread, never under `mailKeys.all`. */
 export function sideThreadKey(threadId: string, query: string | null) {
-	return ['mail-side-thread', accountScope(), threadId, query] as const
+	return [SIDE_THREAD_KIND, accountScope(), threadId, query] as const
 }
 
 /** A word-only search for a subject, so it always passes the search grammar. */

@@ -557,13 +557,17 @@ describe('getThreadHeaderFacts', () => {
 		})
 	})
 
-	it('answers "no facts" when the lookup fails or returns something unexpected', async () => {
+	it('rejects, without provider detail, when the lookup fails or returns something unexpected', async () => {
 		resolveMailbox()
 		mailbox.listMessages.mockRejectedValue(new NylasApiError('fields is not supported', 400))
-		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
 
 		mailbox.listMessages.mockResolvedValue({ data: 'unexpected' })
-		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
 	})
 
 	it('merges facts from every page of a long thread', async () => {
@@ -636,17 +640,21 @@ describe('getThreadHeaderFacts', () => {
 		expect(mailbox.listMessages).toHaveBeenCalledTimes(2)
 	})
 
-	it('answers "no facts" when a later page fails, rather than facts for part of the thread', async () => {
+	it('rejects when a later page fails, rather than answering facts for part of the thread', async () => {
 		resolveMailbox()
 		mailbox.listMessages
 			.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'cursor-2' })
 			.mockRejectedValueOnce(new NylasApiError('rate limited', 429))
-		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
 
 		mailbox.listMessages
 			.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'cursor-2' })
 			.mockResolvedValueOnce({ data: 'unexpected' })
-		expect(await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).toEqual({ byMessage: {} })
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
 	})
 })
 
