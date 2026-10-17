@@ -10,32 +10,34 @@ import {
 	Reply,
 	Star,
 } from 'lucide-react'
-import { type ReactNode, useContext, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CalendarInvitationDetails } from '#features/calendar/server/calendar-invitation-fns'
 import { calendarKeys } from '#features/calendar/state/calendar-keys'
 import { getThreadMessages } from '#server/fns'
-import { labelBadgeClass } from '#shared/lib/color-tone'
 import { cn } from '#shared/lib/utils'
 import {
 	messageBodyParagraphs,
 	STAR_FILLED_CLASS,
 	STAR_HOVER_CLASS,
-	threadLabels,
 	threadSender,
 	threadTimestamp,
 } from '../lib/mail-ui-model.js'
 import {
 	inviteWhenLabel,
+	pendingSendAt,
 	type RowWho,
 	sendAtLabel,
 	type ThreadRowFacts,
 	threadRowFacts,
-	wantsThreadMessages,
+	threadRowLabel,
+	wantsUnreadSummary,
 } from '../lib/thread-list-model.js'
 import { bounceFor } from '../lib/thread-reading-model.js'
+import { getThreadUnreadSummary } from '../server/thread-list-functions.js'
 import {
 	type MailThread,
 	type MailThreadDetail,
+	mailKeys,
 	threadDetailQueryOptions,
 	toMailThreadDetail,
 } from '../state/mail-queries.js'
@@ -51,7 +53,7 @@ import { ThreadRowTime } from './ThreadRowTime.js'
  * density preference.
  */
 export const THREAD_ROW_CLASS =
-	'thread-row group isolate w-full cursor-pointer border-b border-border px-4 py-3 text-left outline-none focus-visible:bg-accent'
+	'thread-row group isolate w-full cursor-pointer border-b border-list-line px-4 py-3 text-left outline-none focus-visible:bg-accent'
 
 /** A route-specific link can stretch across the row while remaining a sibling of row actions. */
 export const THREAD_ROW_LINK_CLASS =
@@ -76,7 +78,7 @@ export function threadRowLinkLabel(thread: MailThread, folderId: string) {
  * time, a line that stands in for the snippet (an invitation, a send that
  * failed), and signal pills. `.thread-row` arranges them as three lines
  * (Default), two lines (Compact), or one line (Condensed); the narrower
- * densities keep only the first signal.
+ * densities keep only the first signal. Labels stay in the reader.
  */
 export function ThreadRowLayout({
 	leading,
@@ -94,7 +96,6 @@ export function ThreadRowLayout({
 	detail,
 	signals = [],
 	collapsedSignal,
-	labels = [],
 }: {
 	leading?: ReactNode
 	sender: ReactNode
@@ -117,9 +118,8 @@ export function ThreadRowLayout({
 	signals?: ReactNode[]
 	/** What the Compact and Condensed rows show in place of `detail`. */
 	collapsedSignal?: ReactNode
-	labels?: ReturnType<typeof threadLabels>
 }) {
-	const { now, tz } = useThreadListEnv()
+	const { now, tz, grouped } = useThreadListEnv()
 	const single = signals.length === 1 ? signals[0] : null
 	const firstOfMany = signals.length > 1 ? signals[0] : null
 	const collapsed = collapsedSignal ?? firstOfMany
@@ -151,6 +151,7 @@ export function ThreadRowLayout({
 							epochSeconds={epochSeconds}
 							now={now}
 							tz={tz}
+							grouped={grouped}
 							className={cn('text-xs', unread ? 'font-semibold text-cta-icon' : 'text-muted-foreground')}
 						/>
 					</>
@@ -183,15 +184,10 @@ export function ThreadRowLayout({
 					</span>
 				</span>
 				{detail ? <div className="thread-row-detail">{detail}</div> : null}
-				{single || collapsed || labels.length > 0 ? (
+				{single || collapsed ? (
 					<span className="thread-row-labels">
 						{single}
 						{collapsed ? <span className="thread-row-signal-collapsed">{collapsed}</span> : null}
-						{labels.map((label) => (
-							<span key={label.id} className={cn('shrink-0', labelBadgeClass(label.tone))}>
-								{label.name}
-							</span>
-						))}
 					</span>
 				) : null}
 				{signals.length > 1 ? <span className="thread-row-signals">{signals}</span> : null}
@@ -243,19 +239,53 @@ const OFFLINE_CLIENT = new QueryClient()
 
 const fetchThreadDetail = (threadId: string) => getThreadMessages({ data: { threadId } })
 
+const NO_IDS: ReadonlySet<string> = new Set()
+
+const noSubscription = () => () => {}
+const inBrowser = () => true
+const onServer = () => false
+
+/** The unread messages of the conversation as the reader loaded it, if it has and any were. */
+function unreadInReader(client: QueryClient, threadId: string): number | undefined {
+	const detail = client.getQueryData<MailThreadDetail>(mailKeys.threadDetail(threadId))
+	const count = detail?.messages.filter((message) => message.unread).length
+	return count ? count : undefined
+}
+
+/**
+ * A row's unread count and newest file, from one light lookup per thread.
+ * Keyed by the newest message, so new mail asks again; otherwise it is asked
+ * once (a read row hides its count, and focus never refetches it).
+ */
+export function threadUnreadSummaryQueryOptions(thread: MailThread) {
+	return {
+		queryKey: [
+			...mailKeys.all,
+			'thread-unread-summary',
+			thread.id,
+			thread.latest_draft_or_message?.id ?? '',
+		] as const,
+		queryFn: () => getThreadUnreadSummary({ data: { threadId: thread.id } }),
+		staleTime: Number.POSITIVE_INFINITY,
+		refetchOnWindowFocus: false,
+		refetchOnReconnect: false,
+		retry: false,
+	}
+}
+
 /** "Mary, Grace, Alan, you +1", "Draft · to Bright Smile Dental", "To Grace Hopper", "eng-all@ · 31 people". */
 function RowSender({ who, fallback }: { who: RowWho; fallback: string }) {
 	if (who.kind === 'draft') {
 		return (
 			<>
-				<span className="font-semibold text-destructive">Draft</span> · to {who.to}
+				<span className="font-semibold text-list-draft">Draft</span> · to {who.to}
 			</>
 		)
 	}
 	if (who.kind === 'to') return <>To {who.name}</>
 	if (who.kind === 'list') {
 		return (
-			<span className="inline-flex min-w-0 items-center gap-1 align-bottom">
+			<span className="thread-row-list-who inline-flex min-w-0 items-center align-bottom">
 				<BellOff aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
 				<span className="sr-only">Muted: </span>
 				<span className="truncate">
@@ -274,7 +304,8 @@ function RowSender({ who, fallback }: { who: RowWho; fallback: string }) {
 
 /**
  * The visible content and secondary star action for a thread-list row. Callers place a
- * stretched route link before this content so the link and button remain semantic siblings.
+ * stretched route link before this content so the link and button remain semantic siblings,
+ * and name it by `labelId`: the row renders that name, with every state the row shows.
  */
 export function ThreadRowContent({
 	thread,
@@ -282,34 +313,83 @@ export function ThreadRowContent({
 	onToggleStar,
 	starPending = false,
 	selection,
+	heldUnread = false,
+	labelId,
 }: {
 	thread: MailThread
 	folderId: string
 	onToggleStar: () => void
 	starPending?: boolean
 	selection?: { checked: boolean; disabled: boolean; onToggle: () => void }
+	/**
+	 * The conversation is open and was unread when it opened: its row keeps
+	 * reading as unread, with what was new, until another one opens.
+	 */
+	heldUnread?: boolean
+	/** The id of the name the row's link reads out (`aria-labelledby`). */
+	labelId?: string
 }) {
 	const env = useThreadListEnv()
 	const contextClient = useContext(QueryClientContext)
 	const client = contextClient ?? OFFLINE_CLIENT
 	const probe = useRef<HTMLSpanElement>(null)
-	const wantsMessages = Boolean(contextClient) && wantsThreadMessages(thread)
-	const seen = useSeen(probe, wantsMessages)
-	const detail = useQuery(
-		{
-			...threadDetailQueryOptions(thread.id, fetchThreadDetail),
-			enabled: wantsMessages && seen,
-			staleTime: 30_000,
-		},
-		client,
+	const shownThread = useMemo(
+		() => (heldUnread && !thread.unread ? { ...thread, unread: true } : thread),
+		[heldUnread, thread],
 	)
-	const messages = detail.data?.messages
-	const facts = useMemo(() => threadRowFacts(thread, env, messages), [thread, env, messages])
+	const mutedHere = env.mutedIds.has(thread.id)
+	// A muted row shows no signals, so it looks nothing up.
+	const wantsSummary = Boolean(contextClient) && !mutedHere && wantsUnreadSummary(shownThread)
+	const seen = useSeen(probe, wantsSummary)
+	const summary = useQuery(
+		{ ...threadUnreadSummaryQueryOptions(thread), enabled: wantsSummary && seen },
+		client,
+	).data
+	// Facts are worked out again only when the thread, the owner, its muting, or
+	// whether its scheduled send is still ahead changes, never on the list's
+	// minute tick: a scheduled send is the only fact that reads the clock.
+	const { owner, ownerFirstName } = env
+	const scheduled = pendingSendAt(thread.latest_draft_or_message, env.now) !== undefined
+	const computed = useMemo(
+		() =>
+			threadRowFacts(
+				shownThread,
+				{
+					owner,
+					ownerFirstName,
+					mutedIds: mutedHere ? new Set([shownThread.id]) : NO_IDS,
+					now: scheduled ? 0 : Number.POSITIVE_INFINITY,
+				},
+				summary,
+			),
+		[shownThread, owner, ownerFirstName, mutedHere, scheduled, summary],
+	)
+	// What was new when the conversation opened stays on its row while it is open,
+	// even once the provider reports those messages read. A conversation opened
+	// before its row looked (a link) counts the messages the reader loaded unread,
+	// once in the browser: the server's cache can hold them before the browser's does.
+	const mounted = useSyncExternalStore(noSubscription, inBrowser, onServer)
+	const lastNewCount = useRef<number | undefined>(undefined)
+	if (computed.newCount !== undefined) lastNewCount.current = computed.newCount
+	else if (!heldUnread && !thread.unread) lastNewCount.current = undefined
+	else if (mounted && heldUnread && lastNewCount.current === undefined && wantsUnreadSummary(shownThread)) {
+		lastNewCount.current = unreadInReader(client, thread.id)
+	}
+	const facts: ThreadRowFacts =
+		heldUnread && computed.newCount === undefined && lastNewCount.current !== undefined
+			? { ...computed, newCount: lastNewCount.current }
+			: computed
 	const muted = facts.state === 'muted'
 	const signals = muted ? [] : rowSignals(facts)
+	const sendAtText = facts.sendAt !== undefined ? sendAtLabel(facts.sendAt, env.now, env.tz) : undefined
 	return (
 		<>
 			<span ref={probe} aria-hidden="true" className="thread-row-probe" />
+			{labelId ? (
+				<span id={labelId} className="thread-row-name" hidden>
+					{threadRowLabel(facts, sendAtText)}
+				</span>
+			) : null}
 			<ThreadRowLayout
 				leading={
 					selection ? (
@@ -359,10 +439,10 @@ export function ThreadRowContent({
 				hasAttachments={Boolean(thread.has_attachments) && !facts.file && !facts.invite && !muted}
 				epochSeconds={threadTimestamp(thread)}
 				when={
-					facts.sendAt !== undefined ? (
+					sendAtText !== undefined ? (
 						<span className="inline-flex items-center gap-1 whitespace-nowrap font-data text-xs text-muted-foreground tabular-nums">
 							<Clock aria-hidden="true" className="h-3 w-3" />
-							{sendAtLabel(facts.sendAt, env.now, env.tz)}
+							{sendAtText}
 						</span>
 					) : undefined
 				}
@@ -386,7 +466,6 @@ export function ThreadRowContent({
 					) : undefined
 				}
 				signals={facts.invite ? [] : signals}
-				labels={threadLabels(thread)}
 			/>
 		</>
 	)
@@ -477,6 +556,10 @@ function FailedSendLine({ threadId, client }: { threadId: string; client: QueryC
 	)
 }
 
+/** The invitation card's own recheck while a provider event syncs. */
+const INVITE_SYNC_RETRY_MS = 2_000
+const INVITE_SYNC_LOOKUPS = 5
+
 /**
  * An invitation's time with Accept and Decline, answered through the same
  * calendar functions and cache entry as the invitation card in the reader.
@@ -506,6 +589,14 @@ function InviteLine({
 			staleTime: 30_000,
 			retry: false,
 			enabled: Boolean(client) && seen,
+			// As the invitation card does: recheck briefly while the provider's event
+			// catches up with the email, and never after a failed lookup.
+			refetchInterval: (query) =>
+				(query.state.data?.state === 'syncing' || query.state.data?.state === 'cancelling') &&
+				query.state.errorUpdateCount === 0 &&
+				query.state.dataUpdateCount < INVITE_SYNC_LOOKUPS
+					? INVITE_SYNC_RETRY_MS
+					: false,
 		},
 		queryClient,
 	)
@@ -533,7 +624,9 @@ function InviteLine({
 		: details?.state === 'cancelled'
 			? 'Invitation cancelled'
 			: 'Calendar invitation'
-	const answerable = !details || (ready !== undefined && ready.canRespond !== false)
+	// The answers wait, disabled, while the invitation loads. A failed lookup, or
+	// one the calendar cannot answer, offers none: the reader's card explains why.
+	const answerable = (!details && !invitation.isError) || (ready !== undefined && ready.canRespond !== false)
 	return (
 		<span ref={ref} className="thread-row-invite flex items-center gap-cluster">
 			<span className="thread-row-invite-when flex min-w-0 flex-1 items-center text-[13px]">

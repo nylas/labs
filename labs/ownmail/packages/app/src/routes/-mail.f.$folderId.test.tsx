@@ -598,8 +598,8 @@ describe('MailFolderRouteScreen — thread list', () => {
 		expect(screen.queryByText('(3)')).toBeNull()
 		// An attachment whose name the row does not know is a paperclip beside the time.
 		expect(screen.getByRole('img', { name: 'Has attachments' })).toBeInTheDocument()
-		// Thread carries the "work" label from LABELS.
-		expect(screen.getByText('Work')).toBeInTheDocument()
+		// The thread carries the "work" label, which the reader shows; the row does not.
+		expect(screen.queryByText('Work')).toBeNull()
 	})
 
 	it('toggles a thread star without requiring a broad route refresh', async () => {
@@ -1218,6 +1218,7 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		expect(Array.from(row.children).map((cell) => cell.className.split(' ')[0])).toEqual([
 			'thread-row-link',
 			'thread-row-probe',
+			'thread-row-name',
 			'thread-row-sender',
 			'thread-row-when',
 			'thread-row-text',
@@ -1505,7 +1506,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		fireEvent.keyDown(firstRow, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Second')
 		expect(document.activeElement).toHaveClass('thread-row-link')
-		expect(document.activeElement).toHaveAttribute('aria-label', expect.stringMatching(/Open Second/))
+		expect(document.activeElement).toHaveAccessibleName(/Open Second/)
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Third')
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
@@ -2309,6 +2310,108 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 		expect(navigate).toHaveBeenCalledWith(
 			expect.objectContaining({ params: { folderId: 'inbox', threadId: 'tokens' } }),
 		)
+	})
+
+	const openOn = (threadId?: string) =>
+		(threadId
+			? {
+					location: { pathname: `/mail/f/inbox/t/${threadId}` },
+					matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId } }],
+				}
+			: { location: { pathname: '/mail/f/inbox' }, matches: [] }) as RouterState
+	const inbox = (list = threads) => (
+		<MailFolderRouteScreen threads={list} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />
+	)
+	const link = (name: RegExp) => screen.getByRole('link', { name })
+
+	it('opens the bundle holding the open conversation, which then folds and opens on a click like any other', () => {
+		routerState = openOn('lenny')
+		renderInbox()
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		fireEvent.click(bundle())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('link', { name: /Open Lenny’s weekly/ })).toBeNull()
+		fireEvent.click(bundle())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+	})
+
+	it('keeps that bundle open once its conversation closes, and returns focus to the conversation', async () => {
+		routerState = openOn('lenny')
+		const view = render(inbox())
+		routerState = openOn()
+		view.rerender(inbox())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		await waitFor(() => expect(link(/Open Lenny’s weekly/)).toHaveFocus())
+		expect(cursored()).toHaveTextContent('Lenny’s weekly')
+	})
+
+	it('returns focus to the bundle row when the closed conversation was folded away in it', async () => {
+		routerState = openOn('lenny')
+		const view = render(inbox())
+		fireEvent.click(bundle())
+		routerState = openOn()
+		view.rerender(inbox())
+		await waitFor(() => expect(bundle()).toHaveFocus())
+		expect(cursored()).toBe(bundle())
+	})
+
+	it('keeps the cursor on the conversation j opened, out of a bundle', async () => {
+		routerState = openOn('lenny')
+		const view = render(inbox())
+		fireEvent.keyDown(window, { key: 'j' })
+		await afterPaint()
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 'tokens' } }),
+		)
+		routerState = openOn('tokens')
+		view.rerender(inbox())
+		expect(cursored()).toHaveTextContent('Tokens')
+		// A conversation arriving above moves the row, and the cursor stays on it.
+		view.rerender(
+			inbox([
+				thread({ id: 'newer', subject: 'Newer', latest_message_received_date: nowSeconds }),
+				...threads,
+			]),
+		)
+		expect(cursored()).toHaveTextContent('Tokens')
+		// When its row leaves, the cursor keeps its place.
+		view.rerender(inbox(threads.filter((item) => item.id !== 'tokens')))
+		expect(cursored()).toHaveTextContent('Lenny’s weekly')
+	})
+
+	it('keeps an unread conversation’s row unread while it is open, until another one opens', () => {
+		const unread = (list: typeof threads, id: string, value: boolean) =>
+			list.map((item) => (item.id === id ? { ...item, unread: value } : item)) as typeof threads
+		const view = render(inbox(unread(threads, 'today', true)))
+		const sender = () =>
+			link(/Open Today thread/)
+				.closest('[data-nav-row]')
+				?.querySelector('.thread-row-sender')
+		expect(link(/Open Today thread/)).toHaveAccessibleName(/^Open Today thread from Ada, unread$/)
+		// Followed while unread; by the time it is open, it has been marked read.
+		fireEvent.click(link(/Open Today thread/))
+		routerState = openOn('today')
+		view.rerender(inbox(unread(threads, 'today', false)))
+		expect(sender()).toHaveClass('font-semibold')
+		expect(link(/Open Today thread/)).toHaveAccessibleName(/unread$/)
+		routerState = openOn('tokens')
+		view.rerender(inbox(unread(threads, 'today', false)))
+		expect(sender()).toHaveClass('font-normal')
+	})
+
+	it('holds a conversation that opens unread by other means, such as a link', () => {
+		const list = threads.map((item) =>
+			item.id === 'tokens' ? { ...item, unread: true } : item,
+		) as typeof threads
+		const view = render(inbox(list))
+		routerState = openOn('tokens')
+		view.rerender(inbox(list))
+		view.rerender(inbox(threads))
+		expect(
+			link(/Open Tokens/)
+				.closest('[data-nav-row]')
+				?.querySelector('.thread-row-sender'),
+		).toHaveClass('font-semibold')
 	})
 
 	it('lists every conversation while selecting, so each can be checked', () => {

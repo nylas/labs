@@ -2,9 +2,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, renderHook, screen } from '@testing-library/react'
 import { type ReactNode, useRef } from 'react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { USER_PREFERENCES_STORAGE_KEY } from '#app/preferences/user-preferences'
 import {
+	LIST_CLOCK_ATTRIBUTE,
 	LIST_CLOCK_MS,
 	ThreadListEnvironment,
 	ThreadListGroupHeading,
@@ -35,6 +37,7 @@ describe('the list environment', () => {
 			now: 1,
 			tz: 'UTC',
 			mutedIds: new Set<string>(),
+			grouped: true,
 		}
 		const { result } = renderHook(() => useThreadListEnv(), {
 			wrapper: ({ children }: { children: ReactNode }) => (
@@ -96,6 +99,45 @@ describe('the list environment', () => {
 			expect(result.current).not.toBe(first)
 			expect(result.current.now).toBeGreaterThanOrEqual(first.now + LIST_CLOCK_MS)
 			unmount()
+		})
+
+		it('heads a grouped list unless told the list has no day groups', () => {
+			expect(renderHook(() => useThreadListEnvValue(), withClient(null)).result.current.grouped).toBe(true)
+			expect(
+				renderHook(() => useThreadListEnvValue({ grouped: false }), withClient(null)).result.current.grouped,
+			).toBe(false)
+			expect(renderHook(() => useThreadListEnv()).result.current.grouped).toBe(false)
+		})
+
+		it('hydrates on the minute the server rendered, then takes the browser’s clock', () => {
+			const seen: number[] = []
+			function Probe() {
+				seen.push(useThreadListEnvValue().now)
+				return null
+			}
+			const stamp = document.createElement('section')
+			stamp.setAttribute(LIST_CLOCK_ATTRIBUTE, '1000')
+			document.body.append(stamp)
+			render(<Probe />)
+			expect(seen[0]).toBe(1000)
+			expect(Math.abs((seen.at(-1) as number) - Date.now())).toBeLessThan(5_000)
+			cleanup()
+			// A stamp that is not a time is no clock.
+			stamp.setAttribute(LIST_CLOCK_ATTRIBUTE, 'soon')
+			seen.length = 0
+			render(<Probe />)
+			expect(Math.abs((seen[0] as number) - Date.now())).toBeLessThan(5_000)
+			stamp.remove()
+		})
+
+		it('renders on the server with the server’s clock', () => {
+			function Probe() {
+				return <span>{useThreadListEnvValue().now}</span>
+			}
+			vi.stubGlobal('document', undefined)
+			const html = renderToString(<Probe />)
+			vi.unstubAllGlobals()
+			expect(Math.abs(Number(/>(\d+)</.exec(html)?.[1]) - Date.now())).toBeLessThan(5_000)
 		})
 	})
 })

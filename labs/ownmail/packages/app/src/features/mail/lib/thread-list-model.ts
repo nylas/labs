@@ -34,6 +34,11 @@ export type ThreadListEnv = {
 	now: number
 	tz: string
 	mutedIds: ReadonlySet<string>
+	/**
+	 * Whether the rows sit under day-group headings, which carry the day. A list
+	 * without them (search results) gives each row its own day.
+	 */
+	grouped: boolean
 }
 
 const MILLISECONDS_FLOOR = 1e11
@@ -91,6 +96,18 @@ export function rowTimeLabel(ts: number | undefined, now: number, tz: string): s
 	const group = dayGroup(ts, now, tz)
 	if (group === 'Today' || group === 'Yesterday') return clock(ts, tz)
 	if (group === 'This week') return format(ts, tz, { weekday: 'short' })
+	return monthDay(ts, now, tz)
+}
+
+/**
+ * A row's time where no heading carries the day: the time today, the weekday
+ * within the past six days ("Tue"), else "Sep 28".
+ */
+export function rowDateLabel(ts: number | undefined, now: number, tz: string): string {
+	if (!ts || !Number.isFinite(ts)) return ''
+	const ago = -dayOffset(ts, now, tz)
+	if (ago === 0) return clock(ts, tz)
+	if (ago > 0 && ago < 7) return format(ts, tz, { weekday: 'short' })
 	return monthDay(ts, now, tz)
 }
 
@@ -157,6 +174,22 @@ export type ThreadRowFacts = {
 	invite?: { messageId: string; attachmentId: string }
 }
 
+/**
+ * What a row needs from a conversation's messages: how many are unread and the
+ * newest file. One light lookup per thread answers it, so a list never loads
+ * whole conversations to count them.
+ */
+export type ThreadUnreadSummary = { unreadCount: number; newestFile?: string }
+
+/** The summary of the messages a lookup returned, in any order. */
+export function unreadSummary(messages: MailMessage[], owner: string): ThreadUnreadSummary {
+	const newestFile = threadFiles(messages, owner)[0]?.filename
+	return {
+		unreadCount: messages.filter((message) => message.unread).length,
+		...(newestFile ? { newestFile } : {}),
+	}
+}
+
 type Participant = NonNullable<MailThread['participants']>[number]
 
 /** The mail server that reports a bounce, never the person the mail was for. */
@@ -189,26 +222,22 @@ export function pendingSendAt(message: MailMessage | undefined, now: number): nu
 	return typeof sendAt === 'number' && sendAt > toSeconds(now) ? sendAt : undefined
 }
 
-/** The newest file a thread carries, from its messages when they are loaded, else its newest message. */
-function newestFile(
-	thread: MailThread,
-	owner: string,
-	messages: MailMessage[] | undefined,
-): string | undefined {
-	if (messages?.length) return threadFiles(messages, owner)[0]?.filename
+/** The newest file a thread carries, from its summary when loaded, else its newest message. */
+function newestFile(thread: MailThread, summary: ThreadUnreadSummary | undefined): string | undefined {
+	if (summary) return summary.newestFile
 	const attachments = thread.latest_draft_or_message?.attachments ?? []
 	return attachments.find(isThreadFile)?.filename?.trim() || undefined
 }
 
 /**
- * What a row says about a thread. `messages` are the thread's messages when
- * the list has loaded them (for "3 new" and the newest file); without them
- * the row says what the thread and its newest message carry.
+ * What a row says about a thread. `summary` is the thread's unread count and
+ * newest file when the list has looked them up (for "3 new" and the file);
+ * without it the row says what the thread and its newest message carry.
  */
 export function threadRowFacts(
 	thread: MailThread,
 	env: Pick<ThreadListEnv, 'owner' | 'ownerFirstName' | 'now' | 'mutedIds'>,
-	messages?: MailMessage[],
+	summary?: ThreadUnreadSummary,
 ): ThreadRowFacts {
 	const latest = thread.latest_draft_or_message
 	const ownerKey = addressKey(env.owner)
@@ -282,10 +311,9 @@ export function threadRowFacts(
 		: others.length > 1 && sender
 			? firstName({ name: sender.name ?? '', email: sender.email })
 			: undefined
-	const unreadCount = messages?.filter((message) => message.unread).length ?? 0
+	const unreadCount = summary?.unreadCount ?? 0
 	const invitation = firstCalendarInvitationAttachment(latest?.attachments)
-	const lastMessage = messages?.at(-1) ?? latest
-	const file = newestFile(thread, env.owner, messages)
+	const file = newestFile(thread, summary)
 	return {
 		state: 'normal',
 		who: { kind: 'people', ...who },
@@ -294,15 +322,51 @@ export function threadRowFacts(
 		snippet,
 		unread: Boolean(thread.unread),
 		...(thread.unread && messageCount > 1 && unreadCount > 0 ? { newCount: unreadCount } : {}),
-		asksYou: Boolean(ownerKey && lastMessage && asksYou(lastMessage, env.owner, env.ownerFirstName)),
+		asksYou: Boolean(ownerKey && latest && asksYou(latest, env.owner, env.ownerFirstName)),
 		...(file ? { file } : {}),
 		...(invitation ? { invite: { messageId: (latest as MailMessage).id, attachmentId: invitation.id } } : {}),
 	}
 }
 
-/** Whether a row's thread is worth loading to count what is new: unread, with earlier messages. */
-export function wantsThreadMessages(thread: MailThread): boolean {
-	return Boolean(thread.unread) && (thread.message_ids?.length ?? 0) > 1
+/**
+ * Whether a row's thread is worth a lookup to count what is new: unread, with
+ * earlier messages, and not an invitation, whose row shows its time instead.
+ */
+export function wantsUnreadSummary(thread: MailThread): boolean {
+	return (
+		Boolean(thread.unread) &&
+		(thread.message_ids?.length ?? 0) > 1 &&
+		!firstCalendarInvitationAttachment(thread.latest_draft_or_message?.attachments)
+	)
+}
+
+/**
+ * The name a row's link reads out: the subject, who the row names, and every
+ * state the row shows by weight, colour or glyph ("unread", "3 new", "asks
+ * you", "muted", "not sent", "sends Mon 9:00 AM").
+ */
+export function threadRowLabel(facts: ThreadRowFacts, sendAt?: string): string {
+	const { who } = facts
+	const subject = facts.subject || '(no subject)'
+	const head =
+		who.kind === 'draft'
+			? `Open ${subject}, draft to ${who.to}`
+			: who.kind === 'to'
+				? `Open ${subject}, to ${who.name}`
+				: who.kind === 'list'
+					? `Open ${subject} from ${who.list}, ${who.people} people`
+					: `Open ${subject} from ${who.names || 'unknown sender'}${who.more > 0 ? ` +${who.more}` : ''}`
+	return [
+		head,
+		facts.unread && 'unread',
+		facts.newCount && `${facts.newCount} new`,
+		facts.asksYou && 'asks you',
+		facts.state === 'muted' && 'muted',
+		facts.state === 'failed' && 'not sent',
+		sendAt,
+	]
+		.filter(Boolean)
+		.join(', ')
 }
 
 // ---- The list: day groups and bundles ----------------------------------------
@@ -314,6 +378,15 @@ export type ThreadListItem =
 	| { kind: 'thread'; key: string; thread: MailThread; bundled?: string }
 	| { kind: 'bundle'; key: string; bundle: BundleKind; threads: MailThread[]; expanded: boolean }
 
+/** The folded bundle a thread is listed under, if any: the one to open when that thread opens. */
+export function foldedBundleOf(items: ThreadListItem[], threadId: string | undefined): string | undefined {
+	if (!threadId) return undefined
+	const holder = items.find(
+		(item) => item.kind === 'bundle' && !item.expanded && item.threads.some((t) => t.id === threadId),
+	)
+	return holder?.key
+}
+
 /** A bundle needs at least this many threads of one kind in one day group. */
 export const BUNDLE_MIN = 2
 
@@ -321,8 +394,7 @@ export const BUNDLE_MIN = 2
  * The list as it renders: a heading for each day group, the threads in the
  * order given (newest first), and, when `bundle` is on, the newsletters and
  * receipts of a group folded into one bundle row where the newest of them
- * sits. An expanded bundle, or one holding the open thread, lists its
- * threads beneath it.
+ * sits. An expanded bundle lists its threads beneath it.
  */
 export function threadListItems(
 	threads: MailThread[],
@@ -331,7 +403,6 @@ export function threadListItems(
 		tz: string
 		bundle: boolean
 		expanded: ReadonlySet<string>
-		openId?: string
 		mutedIds?: ReadonlySet<string>
 	},
 ): ThreadListItem[] {
@@ -368,7 +439,7 @@ export function threadListItems(
 			// The bundle sits where its newest thread would, and only there.
 			if (inBundle[0] !== thread) continue
 			const key = `bundle:${group.label}:${kind}`
-			const expanded = opts.expanded.has(key) || inBundle.some((member) => member.id === opts.openId)
+			const expanded = opts.expanded.has(key)
 			items.push({ kind: 'bundle', key, bundle: kind, threads: inBundle, expanded })
 			if (expanded) {
 				for (const member of inBundle)

@@ -5,6 +5,10 @@ import { type BundleKind, bundleSummary } from '../lib/thread-list-model.js'
 import type { MailThread } from '../state/mail-queries.js'
 import { THREAD_ROW_CLASS } from './ThreadRow.js'
 
+/** The ring a thread row's stretched link shows on focus, on the bundle button itself. */
+const BUNDLE_FOCUS_CLASS =
+	'focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-[-2px] forced-colors:focus-visible:outline-solid'
+
 /**
  * One row for a day's newsletters or receipts, so people stay on top of the
  * list: an icon tile, the kind with its count, and the senders (newsletters)
@@ -31,7 +35,7 @@ export const ThreadBundleRow = memo(function ThreadBundleRow({
 	return (
 		<button
 			type="button"
-			className={cn(THREAD_ROW_CLASS, 'thread-bundle')}
+			className={cn(THREAD_ROW_CLASS, 'thread-bundle', BUNDLE_FOCUS_CLASS)}
 			aria-expanded={expanded}
 			aria-label={`${summary.title}, ${summary.count} conversations: ${summary.line}`}
 			data-nav-row=""

@@ -35,6 +35,8 @@ describe('ThreadBundleRow', () => {
 		expect(row).toHaveAttribute('aria-expanded', 'false')
 		expect(row).toHaveAttribute('data-nav-row')
 		expect(row).toHaveAttribute('data-nav-cursor', 'true')
+		// Focus shows the ring a thread row's link shows, not only a faint tint.
+		expect(row).toHaveClass('focus-visible:ring-[3px]', 'focus-visible:ring-inset', 'focus-visible:ring-ring')
 		expect(row).toHaveAccessibleName(
 			'Newsletters, 4 conversations: The Dispatch, Lenny’s, Stratechery, Figma',
 		)

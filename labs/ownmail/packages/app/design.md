@@ -327,7 +327,11 @@ The list says what changed, so a row can be acted on without opening it.
   "September 2025") head the rows, 12px semibold muted, 16px above and 6px
   below. The heading carries the day, so a row's time is the time of day in
   Today and Yesterday, the weekday in This week, and the date before that. Days
-  are counted in the person's primary time zone.
+  are counted in the person's primary time zone. The server renders the groups
+  and the browser hydrates them on the server's minute, then on its own clock.
+  A list without headings (search results) gives each row its own day: the
+  time today, the weekday within the past week, else the date.
+- Rows part on `--list-line`, a rule lighter than the toolbar's `--border`.
 - People. A row names who is on the conversation, not only the last sender:
   the latest sender first, the person last as "you", first names, four at most
   and then "+n" in muted text ("Mary, Grace, Alan, you +1"). A lone
@@ -342,16 +346,20 @@ The list says what changed, so a row can be acted on without opening it.
   them; "Asks you" on amber with the reply-arrow glyph, when the newest message
   asks the person something; and the newest file's name with a paperclip on the
   muted fill. A lone signal sits at the end of the snippet line instead.
-  The unread count and the newest file need the conversation's messages, so a
-  row loads them once it has been on screen, through the reader's own query;
-  until then a file shows as a paperclip beside the time. Labels close the
-  snippet line.
+  The unread count and the newest file come from one light lookup per
+  conversation (its messages' unread flags and files, never their bodies),
+  made once the row has been on screen and only for an unread conversation
+  with earlier messages; it is asked again only when a new message arrives.
+  Until it answers, the newest message's file is named. Labels stay in the
+  reader; the rows carry none.
 - Invitations. An invitation replaces the snippet with its time ("Thu, Oct 22 ·
   2:00–2:45 PM") and small Accept and Decline buttons (24px, 6px radius, a
   `--cta-line` outline), answered through the same calendar functions and cache
-  entry as the invitation card. The answers wait until the invitation is known.
+  entry as the invitation card. The answers wait, disabled, until the
+  invitation is known; while the calendar is still syncing its event the row
+  checks again as the card does, and a lookup that fails offers no answers.
 - Drafts. A conversation whose newest item is the person's draft reads
-  "Draft · to {name}", "Draft" semibold in `--destructive`, with the draft's
+  "Draft · to {name}", "Draft" semibold in `--list-draft`, with the draft's
   subject and text.
 - Not sent. A bounce of the person's own message turns the row
   `--list-failed`, names the recipient ("To Meridian Bank"), and replaces the
@@ -366,20 +374,33 @@ The list says what changed, so a row can be acted on without opening it.
   this device's.
 - Asking. A row whose newest message asks the person is tinted `--list-asks`,
   the faintest green, beside its "Asks you" pill.
-- Bundles. Within a day group, two or more newsletters (a bulk sender, an
-  unsubscribe or view-in-browser line, or a List-Unsubscribe header) or receipts
+- Bundles. Within a day group, two or more newsletters (a bulk sender, or an
+  unsubscribe or view-in-browser line) or receipts
   (receipt, invoice, payment, order or paid, with an amount) fold into one row
   where the newest of them sits: a 32px muted icon tile, "Newsletters" or
   "Receipts" with a count pill, and the senders, or who was paid how much
   ("Stripe $4,200.00 · Voyage $612.40"). An unread bundle sets its title
   semibold. Clicking it, or Enter on it, lists its conversations beneath it,
-  indented to its title (`aria-expanded`); a bundle holding the open
-  conversation stays open. Selecting shows every conversation, and the
-  person's own folders (Sent, Drafts, Trash, Spam) never bundle. Stepping
-  between open conversations with j/k passes over bundle rows.
+  indented to its title (`aria-expanded`), and clicking again folds them.
+  Opening a conversation folded into a bundle opens the bundle, which stays
+  open after the conversation closes, so rows never move under the keyboard
+  cursor. Selecting shows every conversation, and the person's own folders
+  (Sent, Drafts, Trash, Spam) never bundle. Stepping between open
+  conversations with j/k passes over bundle rows. A bundle row shows the same
+  focus ring as a row's link.
 - The open conversation's row is tinted `--list-selected` inside a uniform 1px
-  `--list-selected-line` ring. The tints keep row text, muted snippets and
-  their own text at 4.5:1 in both themes (tested from the tokens).
+  `--list-selected-line` ring, with no rule under it. The tints keep row text,
+  muted snippets and their own text at 4.5:1 in both themes (tested from the
+  tokens). A conversation that was unread when it opened keeps its unread
+  weight and "{n} new" on its row while it is open, as the reader's "new since"
+  divider does, until another conversation opens.
+- The keyboard cursor stays on its row while rows above it come and go; when
+  its own row leaves, it keeps its place. Closing a conversation returns the
+  cursor and focus to its row, or to the bundle it is folded into.
+- Every state a row shows by weight, colour or glyph is in its link's name:
+  "Open {subject} from {people}", or "draft to", "to" for the person's own
+  mail, then "unread", "{n} new", "asks you", "muted", "not sent", or the
+  scheduled time.
 
 ## Reading
 

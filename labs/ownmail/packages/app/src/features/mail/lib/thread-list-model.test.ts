@@ -3,17 +3,22 @@ import type { MailMessage, MailThread } from '../state/mail-queries.js'
 import {
 	BUNDLE_MIN,
 	bundleSummary,
+	foldedBundleOf,
 	inviteWhenLabel,
 	isDraftLatest,
 	isListAddress,
 	ownerFromMailbox,
 	pendingSendAt,
+	rowDateLabel,
 	rowTimeLabel,
 	sendAtLabel,
 	type ThreadListEnv,
+	type ThreadRowFacts,
 	threadListItems,
 	threadRowFacts,
-	wantsThreadMessages,
+	threadRowLabel,
+	unreadSummary,
+	wantsUnreadSummary,
 } from './thread-list-model.js'
 
 /** Thursday 15 October 2026, noon UTC. */
@@ -33,6 +38,7 @@ const env = (over: Partial<ThreadListEnv> = {}): ThreadListEnv => ({
 	now: NOW,
 	tz: TZ,
 	mutedIds: new Set(),
+	grouped: true,
 	...over,
 })
 
@@ -78,6 +84,18 @@ describe('rowTimeLabel', () => {
 		expect(rowTimeLabel(at(0, 9, 41), NOW, 'Not/AZone')).toMatch(/^9:41\sAM$/)
 		// The answer is remembered, and stays the same.
 		expect(rowTimeLabel(at(0, 9, 41), NOW, 'Not/AZone')).toMatch(/^9:41\sAM$/)
+	})
+})
+
+describe('rowDateLabel', () => {
+	it('carries the day where no heading does: the time today, the weekday this past week, else the date', () => {
+		expect(rowDateLabel(undefined, NOW, TZ)).toBe('')
+		expect(rowDateLabel(at(0, 9, 41), NOW, TZ)).toMatch(/^9:41\sAM$/)
+		expect(rowDateLabel(at(-1, 17, 14), NOW, TZ)).toBe('Wed')
+		expect(rowDateLabel(at(-6, 8), NOW, TZ)).toBe('Fri')
+		expect(rowDateLabel(at(-7, 8), NOW, TZ)).toBe('Oct 8')
+		// A time ahead of the clock reads as a date, never as a weekday.
+		expect(rowDateLabel(at(2, 8), NOW, TZ)).toBe('Oct 17')
 	})
 })
 
@@ -375,7 +393,9 @@ describe('threadRowFacts', () => {
 			message_ids: Array.from({ length: 14 }, (_, i) => `m${i}`),
 			latest_draft_or_message: messages[1],
 		})
-		expect(threadRowFacts(roadmap, env(), [message({ id: 'old', unread: false }), ...messages])).toEqual({
+		const summary = unreadSummary([message({ id: 'old', unread: false }), ...messages], ADA.email)
+		expect(summary).toEqual({ unreadCount: 2, newestFile: 'Q3-roadmap-v4.pdf' })
+		expect(threadRowFacts(roadmap, env(), summary)).toEqual({
 			state: 'normal',
 			who: { kind: 'people', names: 'Mary, Grace, Alan, you', more: 1 },
 			subject: 'Q3 product roadmap',
@@ -386,7 +406,7 @@ describe('threadRowFacts', () => {
 			asksYou: true,
 			file: 'Q3-roadmap-v4.pdf',
 		})
-		// Without its messages the row knows nothing new and no file, and still sees the question.
+		// Without its summary the row knows nothing new and no file, and still sees the question.
 		expect(threadRowFacts(roadmap, env())).toMatchObject({ asksYou: true })
 		expect(threadRowFacts(roadmap, env())).not.toHaveProperty('newCount')
 		expect(threadRowFacts(roadmap, env())).not.toHaveProperty('file')
@@ -394,22 +414,36 @@ describe('threadRowFacts', () => {
 		expect(threadRowFacts(roadmap, env({ owner: '', ownerFirstName: '' })).asksYou).toBe(false)
 	})
 
-	it('counts nothing new on a read thread, a single message, or when every loaded message is read', () => {
-		const read = [message({ id: 'a', unread: false }), message({ id: 'b', unread: false })]
+	it('counts nothing new on a read thread, a single message, or when every listed message is read', () => {
+		const read = unreadSummary(
+			[message({ id: 'a', unread: false }), message({ id: 'b', unread: false })],
+			ADA.email,
+		)
+		expect(read).toEqual({ unreadCount: 0 })
 		expect(
-			threadRowFacts(thread({ id: 't', unread: false, message_ids: ['a', 'b'] }), env(), read),
+			threadRowFacts(thread({ id: 't', unread: false, message_ids: ['a', 'b'] }), env(), { unreadCount: 2 }),
 		).not.toHaveProperty('newCount')
 		expect(
-			threadRowFacts(thread({ id: 't', unread: true, message_ids: ['a'] }), env(), [
-				message({ id: 'a', unread: true }),
-			]),
+			threadRowFacts(thread({ id: 't', unread: true, message_ids: ['a'] }), env(), { unreadCount: 1 }),
 		).not.toHaveProperty('newCount')
 		expect(
 			threadRowFacts(thread({ id: 't', unread: true, message_ids: ['a', 'b'] }), env(), read),
 		).not.toHaveProperty('newCount')
-		// Loaded messages without files name no file; the question is read from the last of them.
+		// A summary without a file names none, even when the newest message has one it cannot count.
 		expect(
-			threadRowFacts(thread({ id: 't', unread: true, message_ids: ['a', 'b'] }), env(), read).file,
+			threadRowFacts(
+				thread({
+					id: 't',
+					unread: true,
+					message_ids: ['a', 'b'],
+					latest_draft_or_message: message({
+						id: 'b',
+						attachments: [{ id: 'x', filename: 'x.pdf', content_type: 'application/pdf', size: 1 }] as never,
+					}),
+				}),
+				env(),
+				read,
+			).file,
 		).toBeUndefined()
 	})
 
@@ -515,12 +549,68 @@ describe('threadRowFacts', () => {
 	})
 })
 
-describe('wantsThreadMessages', () => {
-	it('loads only unread threads with earlier messages', () => {
-		expect(wantsThreadMessages(thread({ id: 't', unread: true, message_ids: ['a', 'b'] }))).toBe(true)
-		expect(wantsThreadMessages(thread({ id: 't', unread: true, message_ids: ['a'] }))).toBe(false)
-		expect(wantsThreadMessages(thread({ id: 't', unread: true, message_ids: undefined }))).toBe(false)
-		expect(wantsThreadMessages(thread({ id: 't', unread: false, message_ids: ['a', 'b'] }))).toBe(false)
+describe('wantsUnreadSummary', () => {
+	it('looks up only unread threads with earlier messages', () => {
+		expect(wantsUnreadSummary(thread({ id: 't', unread: true, message_ids: ['a', 'b'] }))).toBe(true)
+		expect(wantsUnreadSummary(thread({ id: 't', unread: true, message_ids: ['a'] }))).toBe(false)
+		expect(wantsUnreadSummary(thread({ id: 't', unread: true, message_ids: undefined }))).toBe(false)
+		expect(wantsUnreadSummary(thread({ id: 't', unread: false, message_ids: ['a', 'b'] }))).toBe(false)
+		// An invitation's row shows its time, never a count.
+		expect(
+			wantsUnreadSummary(
+				thread({
+					id: 't',
+					unread: true,
+					message_ids: ['a', 'b'],
+					latest_draft_or_message: message({
+						id: 'b',
+						attachments: [
+							{ id: 'ics', filename: 'invite.ics', content_type: 'text/calendar', size: 512 },
+						] as never,
+					}),
+				}),
+			),
+		).toBe(false)
+	})
+})
+
+describe('threadRowLabel', () => {
+	const facts = (over: Partial<ThreadRowFacts>): ThreadRowFacts => ({
+		state: 'normal',
+		who: { kind: 'people', names: 'Mary, Grace, Alan, you', more: 1 },
+		subject: 'Q3 product roadmap',
+		snippet: 'snippet',
+		unread: false,
+		asksYou: false,
+		...over,
+	})
+
+	it('names the subject and the people, then every state the row shows', () => {
+		expect(threadRowLabel(facts({}))).toBe('Open Q3 product roadmap from Mary, Grace, Alan, you +1')
+		expect(threadRowLabel(facts({ unread: true, newCount: 3, asksYou: true }))).toBe(
+			'Open Q3 product roadmap from Mary, Grace, Alan, you +1, unread, 3 new, asks you',
+		)
+		expect(threadRowLabel(facts({ subject: '', who: { kind: 'people', names: '', more: 0 } }))).toBe(
+			'Open (no subject) from unknown sender',
+		)
+	})
+
+	it('names who a draft, a scheduled send, a failed send and a muted list are about, as the row does', () => {
+		expect(threadRowLabel(facts({ state: 'draft', who: { kind: 'draft', to: 'Bright Smile Dental' } }))).toBe(
+			'Open Q3 product roadmap, draft to Bright Smile Dental',
+		)
+		expect(threadRowLabel(facts({ state: 'failed', who: { kind: 'to', name: 'Meridian Bank' } }))).toBe(
+			'Open Q3 product roadmap, to Meridian Bank, not sent',
+		)
+		expect(
+			threadRowLabel(
+				facts({ state: 'scheduled', who: { kind: 'to', name: 'Grace Hopper' } }),
+				'Sends Mon 9:00 AM',
+			),
+		).toBe('Open Q3 product roadmap, to Grace Hopper, Sends Mon 9:00 AM')
+		expect(
+			threadRowLabel(facts({ state: 'muted', who: { kind: 'list', list: 'eng-all@', people: 31 } })),
+		).toBe('Open Q3 product roadmap from eng-all@, 31 people, muted')
 	})
 })
 
@@ -591,7 +681,7 @@ describe('threadListItems', () => {
 		expect(BUNDLE_MIN).toBe(2)
 	})
 
-	it('lists a bundle’s conversations beneath it when it is open, or holds the open conversation', () => {
+	it('lists a bundle’s conversations beneath it when it is open, and names the folded bundle a thread is in', () => {
 		const threads = [newsletter('dispatch', 1, 'The Dispatch'), newsletter('lenny', 3, 'Lenny’s')]
 		const opened = threadListItems(threads, { ...opts, expanded: new Set(['bundle:This week:newsletter']) })
 		expect(opened.map((item) => [item.key, item.kind === 'thread' ? item.bundled : undefined])).toEqual([
@@ -600,9 +690,12 @@ describe('threadListItems', () => {
 			['dispatch', 'bundle:This week:newsletter'],
 			['lenny', 'bundle:This week:newsletter'],
 		])
-		const reading = threadListItems(threads, { ...opts, openId: 'lenny' })
-		expect(reading[1]).toMatchObject({ kind: 'bundle', expanded: true })
-		expect(reading).toHaveLength(4)
+		const folded = threadListItems(threads, opts)
+		expect(foldedBundleOf(folded, 'lenny')).toBe('bundle:This week:newsletter')
+		// Nothing to open: an open bundle, a thread outside any, or no thread at all.
+		expect(foldedBundleOf(opened, 'lenny')).toBeUndefined()
+		expect(foldedBundleOf(folded, 'elsewhere')).toBeUndefined()
+		expect(foldedBundleOf(folded, undefined)).toBeUndefined()
 	})
 
 	it('keeps muted conversations, drafts and other groups out of a bundle', () => {

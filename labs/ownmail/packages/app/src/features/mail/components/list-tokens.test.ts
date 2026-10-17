@@ -18,11 +18,29 @@ describe.each(['light', 'dark'] as const)('thread list colours in the %s theme',
 		expect(contrast(colour('--list-failed'), colour('--list-failed-fg'))).toBeGreaterThanOrEqual(4.5)
 	})
 
+	it.each(['--background', '--card', '--list-selected'])(
+		'names a draft in a red that reads on %s',
+		(ground) => {
+			expect(contrast(colour(ground), colour('--list-draft'))).toBeGreaterThanOrEqual(4.5)
+		},
+	)
+
 	it('sets "Asks you" in an amber pill that reads', () => {
 		expect(contrast(colour('--signal-ask'), colour('--signal-ask-fg'))).toBeGreaterThanOrEqual(4.5)
 	})
 
 	it("draws the open row's ring apart from its tint", () => {
 		expect(colour('--list-selected-line').l).not.toBe(colour('--list-selected').l)
+	})
+})
+
+describe('row rules', () => {
+	it('part rows on a lighter rule than the toolbar’s border, as the boards do', () => {
+		expect(token('--list-line', 'light')).toBe('oklch(0.94 0.003 145)')
+		expect(parseOklch(token('--list-line', 'light')).l).toBeGreaterThan(
+			parseOklch(token('--border', 'light')).l,
+		)
+		expect(token('--list-line', 'dark')).toBe('oklch(1 0 0 / 6%)')
+		expect(token('--border', 'dark')).toBe('oklch(1 0 0 / 9%)')
 	})
 })

@@ -20,6 +20,14 @@ describe('ThreadRowTime', () => {
 		expect(time).toHaveClass('font-data', 'tabular-nums', 'text-xs')
 	})
 
+	it('carries its own day where no heading does', () => {
+		const yesterday = Date.UTC(2026, 9, 14, 17, 14) / 1000
+		const { container } = render(
+			<ThreadRowTime epochSeconds={yesterday} now={NOW} tz="UTC" grouped={false} />,
+		)
+		expect(container.querySelector('time')?.textContent).toBe('Wed')
+	})
+
 	it('leaves the cell blank on the server, so hydration agrees', () => {
 		const html = renderToString(<ThreadRowTime epochSeconds={TODAY_941} now={NOW} tz="UTC" />)
 		expect(html).toMatch(/>\u00a0<\/time>$/)

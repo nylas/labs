@@ -1,6 +1,16 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { FileText, Loader2, Reply, Trash2 } from 'lucide-react'
-import { Fragment, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+	Fragment,
+	memo,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
 import { ContentReadyOutlet } from '#app/components/ContentReadyOutlet'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
@@ -20,7 +30,6 @@ import {
 	ThreadRowContent,
 	ThreadRowError,
 	ThreadRowLayout,
-	threadRowLinkLabel,
 } from '#features/mail/components/ThreadRow'
 import { ThreadRowMenu, type ThreadRowUpdate } from '#features/mail/components/ThreadRowMenu'
 import {
@@ -31,7 +40,7 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout } from '#features/mail/lib/reading-pane'
-import { type ThreadListItem, threadListItems } from '#features/mail/lib/thread-list-model'
+import { foldedBundleOf, type ThreadListItem, threadListItems } from '#features/mail/lib/thread-list-model'
 import { dayGroupHeading } from '#features/mail/lib/thread-reading-model'
 import type { MailDraft, MailThread } from '#features/mail/state/mail-queries'
 import type { ThreadResponseKind } from '#features/mail/state/thread-response'
@@ -65,9 +74,19 @@ type FolderListState = {
 	nextCursor: string | undefined
 	loadingMore: boolean
 	loadMoreError: boolean
+	/**
+	 * The keyboard cursor: the row it is on (`cursorKey`), so it stays on that
+	 * row while rows above it come and go, and its place (`cursor`), where it
+	 * stays when that row itself leaves the list.
+	 */
 	cursor: number
+	cursorKey?: string
 	/** Bundles (newsletters, receipts of one day group) opened in place. */
 	expandedBundles: string[]
+	/** The open conversation the bundles and the held unread row were last brought in line with. */
+	openSyncedFor?: string
+	/** The open conversation that was unread when it opened; its row keeps reading so. */
+	heldUnreadFor?: string
 }
 
 function emptyFolderListState(identity: string, nextCursor: string | undefined): FolderListState {
@@ -82,13 +101,26 @@ function emptyFolderListState(identity: string, nextCursor: string | undefined):
 	}
 }
 
+/** The row a keyboard cursor sits on, whatever its place: a draft, a bundle, or a conversation. */
+function navKey(item: NavItem): string {
+	if ('draftId' in item) return `draft:${item.draftId}`
+	if ('bundleKey' in item) return item.bundleKey
+	return item.threadId
+}
+
+/** The cursor's place among `keys`: its row's, or where that row was when it has left. */
+function cursorIndex(state: Pick<FolderListState, 'cursor' | 'cursorKey'>, keys: string[]): number {
+	const keyed = state.cursorKey === undefined ? -1 : keys.indexOf(state.cursorKey)
+	return keyed >= 0 ? keyed : Math.min(state.cursor, keys.length - 1)
+}
+
 /** Folders whose rows are the person's own mail never bundle newsletters or receipts. */
 const UNBUNDLED_FOLDERS = new Set(['sent', 'drafts', 'trash', 'spam'])
 
 type NavItem =
 	| { draftId: string }
 	| { bundleKey: string }
-	| { folderId: string; threadId: string; search: object }
+	| { folderId: string; threadId: string; search: object; thread: MailThread }
 export type ThreadUpdateInput = { threadId: string; starred?: boolean } & ThreadRowUpdate
 function threadIdFromPath(pathname: string): string | undefined {
 	const encoded = /^\/mail\/f\/[^/]+\/t\/([^/]+)\/?$/.exec(pathname)?.[1]
@@ -202,12 +234,17 @@ function LoadedMailFolderRouteScreen({
 			}),
 		[folderIdentity, initialCursor],
 	)
-	const { extraThreads, nextCursor, cursor, expandedBundles } = listState
+	const { extraThreads, nextCursor, expandedBundles } = listState
 	const localLoadingMore = listState.loadingMore
 	const localLoadMoreError = listState.loadMoreError
+	// The keys of the rows the cursor walks, read when it moves (set once they are known, below).
+	const navKeysRef = useRef<string[]>([])
 	const setCursor = useCallback(
 		(next: number | ((current: number) => number)) =>
-			updateList((current) => ({ cursor: typeof next === 'function' ? next(current.cursor) : next })),
+			updateList((current) => {
+				const index = typeof next === 'function' ? next(cursorIndex(current, navKeysRef.current)) : next
+				return { cursor: index, cursorKey: navKeysRef.current[index] }
+			}),
 		[updateList],
 	)
 	const listScrollRef = useRef<HTMLDivElement>(null)
@@ -283,7 +320,6 @@ function LoadedMailFolderRouteScreen({
 				tz: listEnv.tz,
 				bundle: !selection.selecting && !UNBUNDLED_FOLDERS.has(folderId),
 				expanded: new Set(expandedBundles),
-				openId: openThreadId,
 				mutedIds: listEnv.mutedIds,
 			}),
 		[
@@ -292,10 +328,30 @@ function LoadedMailFolderRouteScreen({
 			listEnv.mutedIds,
 			listEnv.now,
 			listEnv.tz,
-			openThreadId,
 			selection.selecting,
 			sortedThreads,
 		],
+	)
+	// When a conversation opens, the bundle it is folded into opens with it and
+	// stays open after (the rows under the cursor never shift when it closes), and
+	// a conversation that was unread keeps its row unread while it is open. Done
+	// while rendering, once per open, so the first paint already shows both.
+	const { heldUnreadFor } = listState
+	if (listState.openSyncedFor !== openThreadId) {
+		const bundleKey = foldedBundleOf(listItems, openThreadId)
+		const opened = openThreadId ? sortedThreads.find((thread) => thread.id === openThreadId) : undefined
+		updateList((current) => ({
+			openSyncedFor: openThreadId,
+			heldUnreadFor:
+				openThreadId && (current.heldUnreadFor === openThreadId || opened?.unread) ? openThreadId : undefined,
+			...(bundleKey ? { expandedBundles: [...current.expandedBundles, bundleKey] } : {}),
+		}))
+	}
+	/** Notes that a conversation is about to open while it is still unread, before the read lands. */
+	const noteOpening = useCallback(
+		(thread: MailThread) =>
+			updateList((current) => ({ heldUnreadFor: thread.unread ? thread.id : current.heldUnreadFor })),
+		[updateList],
 	)
 	const toggleBundle = useCallback(
 		(bundleKey: string) =>
@@ -322,10 +378,13 @@ function LoadedMailFolderRouteScreen({
 		const search = baseFolderId ? { baseFolderId } : {}
 		return listItems.flatMap((item): NavItem[] => {
 			if (item.kind === 'bundle') return [{ bundleKey: item.key }]
-			if (item.kind === 'thread') return [{ folderId, threadId: item.thread.id, search }]
+			if (item.kind === 'thread') return [{ folderId, threadId: item.thread.id, search, thread: item.thread }]
 			return []
 		})
 	}, [baseFolderId, drafts, folderId, listItems])
+	const navKeys = useMemo(() => navItems.map(navKey), [navItems])
+	navKeysRef.current = navKeys
+	const cursor = cursorIndex(listState, navKeys)
 
 	const openItem = useCallback(
 		(index: number) => {
@@ -339,13 +398,14 @@ function LoadedMailFolderRouteScreen({
 				toggleBundle(item.bundleKey)
 				return
 			}
+			noteOpening(item.thread)
 			navigate({
 				to: '/mail/f/$folderId/t/$threadId',
 				params: { folderId: item.folderId, threadId: item.threadId },
 				search: item.search,
 			})
 		},
-		[navItems, navigate, openCompose, toggleBundle],
+		[navItems, navigate, noteOpening, openCompose, toggleBundle],
 	)
 
 	// j/k with a conversation open: the cursor moves (and paints) at once, and the
@@ -393,15 +453,17 @@ function LoadedMailFolderRouteScreen({
 		const closedThreadId = previousOpenThreadIdRef.current
 		previousOpenThreadIdRef.current = openThreadId
 		if (!closedThreadId || openThreadId) return
-		const index = navItems.findIndex((item) => 'threadId' in item && item.threadId === closedThreadId)
+		// A conversation folded away in a bundle returns the cursor to its bundle row.
+		const bundleKey = foldedBundleOf(listItems, closedThreadId)
+		const index = navKeys.indexOf(bundleKey ?? closedThreadId)
 		if (index < 0) return
 		setCursor(index)
 		requestAnimationFrame(() => {
 			const row = listScrollRef.current?.querySelectorAll<HTMLElement>('[data-nav-row]')[index]
 			row?.scrollIntoView({ block: 'nearest' })
-			row?.querySelector<HTMLElement>('.thread-row-link')?.focus()
+			focusNavRow(row)
 		})
-	}, [navItems, openThreadId, setCursor])
+	}, [listItems, navKeys, openThreadId, setCursor])
 
 	// Global list navigation: j/k or arrows move the cursor, Enter/o opens it.
 	// Skip while typing, while a dialog (command palette, compose, event) is up,
@@ -601,6 +663,8 @@ function LoadedMailFolderRouteScreen({
 								bundled={item.bundled}
 								active={thread.id === activeThreadId}
 								open={thread.id === routedThreadId}
+								heldUnread={thread.id === heldUnreadFor}
+								onOpening={noteOpening}
 								onRespondToThread={onRespondToThread}
 								navActive={cursor === navIndex}
 								onUpdateThread={onUpdateThread}
@@ -676,6 +740,8 @@ function LoadedMailFolderRouteScreen({
 					data-mail-list
 					data-navigation-region="mail-list"
 					data-density={preferences.listDensity}
+					// The minute the day groups were worked out at; hydration reads the server's back.
+					data-list-clock={listEnv.now}
 				>
 					<Toolbar
 						pinned={!selection.selecting}
@@ -858,6 +924,8 @@ const ThreadRow = memo(function ThreadRow({
 	bundled,
 	active,
 	open,
+	heldUnread = false,
+	onOpening,
 	navActive,
 	onUpdateThread,
 	onRespondToThread,
@@ -873,12 +941,17 @@ const ThreadRow = memo(function ThreadRow({
 	/** Whether this row's conversation is open in the reader beside the list
 	 * (not merely highlighted behind the composer, where there is no reader to close). */
 	open: boolean
+	/** Open, and unread when it opened: the row keeps reading as unread. */
+	heldUnread?: boolean
+	/** Told when the row's link is followed, before the conversation opens. */
+	onOpening?: (thread: MailThread) => void
 	navActive: boolean
 	onUpdateThread?: (input: ThreadUpdateInput) => Promise<void>
 	onRespondToThread?: (input: { threadId: string; kind: ThreadResponseKind }) => Promise<void>
 }) {
 	const navigate = useNavigate()
 	const search = baseFolderId ? { baseFolderId } : {}
+	const labelId = useId()
 	// Menu actions and their failure belong to this row's thread: rows are keyed by thread id.
 	const [busy, setBusy] = useState(false)
 	const [actionError, setActionError] = useState<string | null>(null)
@@ -980,7 +1053,8 @@ const ThreadRow = memo(function ThreadRow({
 						to="/mail/f/$folderId/t/$threadId"
 						params={{ folderId, threadId: thread.id }}
 						search={baseFolderId ? { baseFolderId } : {}}
-						aria-label={threadRowLinkLabel(optimisticThread, folderId)}
+						aria-labelledby={labelId}
+						onClick={() => onOpening?.(optimisticThread)}
 						className={THREAD_ROW_LINK_CLASS}
 						activeProps={{ 'data-active': 'true' }}
 						aria-current={active ? 'true' : undefined}
@@ -995,6 +1069,8 @@ const ThreadRow = memo(function ThreadRow({
 					onToggleStar={toggleStar}
 					starPending={starPending}
 					selection={selection}
+					heldUnread={heldUnread}
+					labelId={selection ? undefined : labelId}
 				/>
 				<ThreadRowError message={actionError} />
 			</div>

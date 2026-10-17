@@ -38,6 +38,7 @@ export function useThreadListEnv(): ThreadListEnv {
 			now: Date.now(),
 			tz: browserZone(),
 			mutedIds: NO_MUTED,
+			grouped: false,
 		}
 	)
 }
@@ -47,16 +48,38 @@ export function ThreadListEnvironment({ value, children }: { value: ThreadListEn
 	return <ThreadListContext.Provider value={value}>{children}</ThreadListContext.Provider>
 }
 
-/** The list's environment; its identity changes only when the minute, zone, owner or mutes do. */
-export function useThreadListEnvValue(): ThreadListEnv {
+/** The attribute the list renders its clock into, so hydration starts from the server's minute. */
+export const LIST_CLOCK_ATTRIBUTE = 'data-list-clock'
+
+/**
+ * The clock the list was rendered with: the server's, read back from the page
+ * while hydrating, so day groups and bundles agree with the server's HTML.
+ * Elsewhere (and on the server) it is now.
+ */
+function renderedClock(): number {
+	if (typeof document === 'undefined') return Date.now()
+	const stamp = Number(
+		document.querySelector(`[${LIST_CLOCK_ATTRIBUTE}]`)?.getAttribute(LIST_CLOCK_ATTRIBUTE),
+	)
+	return Number.isFinite(stamp) && stamp > 0 ? stamp : Date.now()
+}
+
+/**
+ * The list's environment; its identity changes only when the minute, zone,
+ * owner or mutes do. `grouped` is false for a list without day-group headings
+ * (search results), whose rows then carry their own day.
+ */
+export function useThreadListEnvValue({ grouped = true }: { grouped?: boolean } = {}): ThreadListEnv {
 	const [preferences] = useUserPreferences()
 	const queryClient = useContext(QueryClientContext)
 	const info =
 		queryClient?.getQueryData<{ email?: string; displayName?: string }>(mailboxInfoQueryOptions().queryKey) ??
 		queryClient?.getQueryData<{ email?: string; displayName?: string }>(MAILBOX_BOOTSTRAP_KEY)
 	const { owner, ownerFirstName } = ownerFromMailbox(info)
-	const [now, setNow] = useState(() => Date.now())
+	const [now, setNow] = useState(renderedClock)
 	useEffect(() => {
+		// Hydrated on the server's minute; the reader's own clock takes over at once.
+		setNow(Date.now())
 		const timer = window.setInterval(() => setNow(Date.now()), LIST_CLOCK_MS)
 		return () => window.clearInterval(timer)
 	}, [])
@@ -65,8 +88,8 @@ export function useThreadListEnvValue(): ThreadListEnv {
 	const mutedThreadIds = preferences.mutedThreadIds
 	const mutedIds = useMemo(() => new Set(mutedThreadIds), [mutedThreadIds])
 	return useMemo(
-		() => ({ owner, ownerFirstName, now, tz, mutedIds }),
-		[owner, ownerFirstName, now, tz, mutedIds],
+		() => ({ owner, ownerFirstName, now, tz, mutedIds, grouped }),
+		[owner, ownerFirstName, now, tz, mutedIds, grouped],
 	)
 }
 

@@ -2,19 +2,28 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ThreadListEnv } from '../lib/thread-list-model.js'
 import type { MailMessage, MailThread } from '../state/mail-queries.js'
 
-const { getThreadMessages, getCalendarInvitation, respondCalendarInvitation, openCompose } = vi.hoisted(
-	() => ({
-		getThreadMessages: vi.fn(),
-		getCalendarInvitation: vi.fn(),
-		respondCalendarInvitation: vi.fn(),
-		openCompose: vi.fn(async () => {}),
-	}),
-)
+const {
+	getThreadMessages,
+	getThreadUnreadSummary,
+	getCalendarInvitation,
+	respondCalendarInvitation,
+	openCompose,
+} = vi.hoisted(() => ({
+	getThreadMessages: vi.fn(),
+	getThreadUnreadSummary: vi.fn(),
+	getCalendarInvitation: vi.fn(),
+	respondCalendarInvitation: vi.fn(),
+	openCompose: vi.fn(async () => {}),
+}))
 vi.mock('#server/fns', () => ({ getThreadMessages: (input: unknown) => getThreadMessages(input) }))
+vi.mock('../server/thread-list-functions.js', () => ({
+	getThreadUnreadSummary: (input: unknown) => getThreadUnreadSummary(input),
+}))
 vi.mock('#features/calendar/server/calendar-invitation-fns', () => ({
 	getCalendarInvitation: (input: unknown) => getCalendarInvitation(input),
 	respondCalendarInvitation: (input: unknown) => respondCalendarInvitation(input),
@@ -24,6 +33,7 @@ vi.mock('./ComposeProvider.js', () => ({ useCompose: () => ({ openCompose }) }))
 const { ThreadRowContent, ThreadRowError, ThreadRowLayout, THREAD_ROW_CLASS, threadRowLinkLabel } =
 	await import('./ThreadRow.js')
 const { ThreadListEnvironment } = await import('./ThreadListGroups.js')
+const { unreadSummary } = await import('../lib/thread-list-model.js')
 
 /** Thursday 15 October 2026, noon UTC. */
 const NOW = Date.UTC(2026, 9, 15, 12, 0)
@@ -41,6 +51,7 @@ const ENV: ThreadListEnv = {
 	now: NOW,
 	tz: 'UTC',
 	mutedIds: new Set(),
+	grouped: true,
 }
 
 const message = (over: Partial<MailMessage> & { id: string }): MailMessage =>
@@ -76,12 +87,16 @@ function renderRow(
 		onToggleStar = vi.fn(),
 		selection,
 		starPending,
+		heldUnread,
+		labelId,
 	}: {
 		env?: ThreadListEnv
 		client?: QueryClient | null
 		onToggleStar?: () => void
 		selection?: { checked: boolean; disabled: boolean; onToggle: () => void }
 		starPending?: boolean
+		heldUnread?: boolean
+		labelId?: string
 	} = {},
 ) {
 	const row = (
@@ -93,6 +108,8 @@ function renderRow(
 					onToggleStar={onToggleStar}
 					selection={selection}
 					starPending={starPending}
+					heldUnread={heldUnread}
+					labelId={labelId}
 				/>
 			</div>
 		</ThreadListEnvironment>
@@ -136,6 +153,7 @@ beforeEach(() => {
 	onScreen = true
 	vi.stubGlobal('IntersectionObserver', TestIntersectionObserver)
 	getThreadMessages.mockReset()
+	getThreadUnreadSummary.mockReset()
 	getCalendarInvitation.mockReset()
 	respondCalendarInvitation.mockReset()
 	openCompose.mockReset().mockResolvedValue(undefined)
@@ -148,11 +166,7 @@ afterEach(() => {
 
 describe('ThreadRowContent', () => {
 	it('reads a group conversation as the board does: people, what is new, a question, the newest file', async () => {
-		getThreadMessages.mockResolvedValue({
-			thread: roadmap,
-			messages: roadmapMessages,
-			mailboxEmail: ADA.email,
-		})
+		getThreadUnreadSummary.mockResolvedValue(unreadSummary(roadmapMessages, ADA.email))
 		renderRow(roadmap)
 		const row = screen.getByTestId('row')
 		expect(row.querySelector('.thread-row-sender')).toHaveTextContent('Mary, Grace, Alan, you +1')
@@ -163,7 +177,8 @@ describe('ThreadRowContent', () => {
 		)
 		await waitFor(() => expect(row.querySelector('.thread-row-signals')).not.toBeNull())
 		const signals = row.querySelector('.thread-row-signals') as HTMLElement
-		expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 'thread-roadmap' } })
+		expect(getThreadUnreadSummary).toHaveBeenCalledWith({ data: { threadId: 'thread-roadmap' } })
+		expect(getThreadMessages).not.toHaveBeenCalled()
 		expect([...signals.children].map((signal) => signal.textContent)).toEqual([
 			'2 new',
 			'Asks you',
@@ -210,7 +225,7 @@ describe('ThreadRowContent', () => {
 		renderRow(roadmap)
 		cleanup()
 		renderRow(roadmap, { client: null })
-		expect(getThreadMessages).not.toHaveBeenCalled()
+		expect(getThreadUnreadSummary).not.toHaveBeenCalled()
 		expect(screen.getByTestId('row').querySelector('.thread-row-labels')).toHaveTextContent('Asks you')
 	})
 
@@ -246,7 +261,7 @@ describe('ThreadRowContent', () => {
 			}),
 		)
 		expect(container.querySelector('.thread-row-sender')).toHaveTextContent('Draft · to Bright Smile Dental')
-		expect(screen.getByText('Draft')).toHaveClass('text-destructive', 'font-semibold')
+		expect(screen.getByText('Draft')).toHaveClass('text-list-draft', 'font-semibold')
 		expect(container.querySelector('.thread-row-subject')).toHaveTextContent(
 			'Re: Reminder: appointment Thursday 2:30 PM',
 		)
@@ -274,7 +289,9 @@ describe('ThreadRowContent', () => {
 		)
 		expect(container.querySelector('.thread-signal')).toBeNull()
 		expect(screen.queryByRole('img', { name: 'Has attachments' })).toBeNull()
-		expect(getThreadMessages).toHaveBeenCalled()
+		// It shows no signals, so it looks nothing up.
+		expect(getThreadUnreadSummary).not.toHaveBeenCalled()
+		expect(sender.querySelector('.thread-row-list-who')).not.toHaveClass('gap-1')
 	})
 
 	it('says when a scheduled send goes out instead of the time', () => {
@@ -297,9 +314,102 @@ describe('ThreadRowContent', () => {
 			thread({ id: 'x', has_attachments: true, participants: [], folders: ['inbox', 'work'] }),
 		)
 		expect(screen.getByRole('img', { name: 'Has attachments' })).toBeInTheDocument()
-		// Labels close the snippet line.
-		expect(container.querySelector('.thread-row-labels')).toHaveTextContent('Work')
+		// Labels stay in the reader: the board's rows carry none.
+		expect(container.querySelector('.thread-row-labels')).toBeNull()
+		expect(container).not.toHaveTextContent('Work')
 		expect(container.querySelector('.thread-row-sender')).toHaveTextContent('(unknown sender)')
+	})
+
+	it('names its link with every state it shows', async () => {
+		getThreadUnreadSummary.mockResolvedValue({ unreadCount: 2, newestFile: 'Q3-roadmap-v4.pdf' })
+		renderRow(roadmap, { labelId: 'roadmap-label' })
+		const label = document.getElementById('roadmap-label') as HTMLElement
+		expect(label).not.toBeVisible()
+		await waitFor(() =>
+			expect(label).toHaveTextContent(
+				'Open Q3 product roadmap: final review before Friday from Mary, Grace, Alan, you +1, unread, 2 new, asks you',
+			),
+		)
+		cleanup()
+		renderRow(
+			thread({
+				id: 'offsite',
+				latest_draft_or_message: {
+					...message({ id: 's', from: [ADA], to: [GRACE], subject: 'Re: Q3 offsite agenda' }),
+					send_at: at(4, 9),
+				} as MailMessage,
+			}),
+			{ labelId: 'offsite-label' },
+		)
+		expect(document.getElementById('offsite-label')?.textContent).toMatch(
+			/^Open Re: Q3 offsite agenda, to Grace Hopper, Sends Mon 9:00\sAM$/,
+		)
+	})
+
+	it('keeps reading as unread, with what was new, while it is held open', async () => {
+		getThreadUnreadSummary.mockResolvedValue({ unreadCount: 3 })
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const tree = (value: MailThread, heldUnread: boolean) => (
+			<QueryClientProvider client={client}>
+				<ThreadListEnvironment value={ENV}>
+					<div data-testid="row">
+						<ThreadRowContent
+							thread={value}
+							folderId="inbox"
+							onToggleStar={vi.fn()}
+							heldUnread={heldUnread}
+						/>
+					</div>
+				</ThreadListEnvironment>
+			</QueryClientProvider>
+		)
+		const { rerender } = render(tree(roadmap, false))
+		const row = screen.getByTestId('row')
+		await waitFor(() => expect(row.querySelector('.thread-row-labels')).toHaveTextContent('3 new'))
+		// Opening marks it read; the provider then reports nothing unread. The row holds.
+		client.setQueryData(['mail', 'unknown', 'thread-unread-summary', 'thread-roadmap', 'm14'], {
+			unreadCount: 0,
+		})
+		rerender(tree({ ...roadmap, unread: false }, true))
+		expect(row.querySelector('.thread-row-sender')).toHaveClass('font-semibold')
+		expect(row.querySelector('.thread-signal[data-signal="new"]')).toHaveTextContent('3 new')
+		// Once another conversation opens, the row reads as it is.
+		rerender(tree({ ...roadmap, unread: false }, false))
+		expect(row.querySelector('.thread-row-sender')).toHaveClass('font-normal')
+		expect(row.querySelector('.thread-signal[data-signal="new"]')).toBeNull()
+		// Held again with nothing remembered, it is unread without a count.
+		rerender(tree({ ...roadmap, unread: false }, true))
+		expect(row.querySelector('.thread-row-sender')).toHaveClass('font-semibold')
+		expect(row.querySelector('.thread-signal[data-signal="new"]')).toBeNull()
+	})
+
+	it('counts what the reader loaded unread for a conversation opened before its row looked, in the browser only', () => {
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		client.setQueryData(['mail', 'unknown', 'thread', 'thread-roadmap'], {
+			thread: roadmap,
+			messages: roadmapMessages,
+			mailboxEmail: ADA.email,
+		})
+		const tree = (
+			<QueryClientProvider client={client}>
+				<ThreadListEnvironment value={ENV}>
+					<div data-testid="row">
+						<ThreadRowContent
+							thread={{ ...roadmap, unread: false }}
+							folderId="inbox"
+							onToggleStar={vi.fn()}
+							heldUnread
+						/>
+					</div>
+				</ThreadListEnvironment>
+			</QueryClientProvider>
+		)
+		// The server's cache may hold the conversation before the browser's does: it counts nothing.
+		expect(renderToString(tree)).not.toContain('2 new')
+		render(tree)
+		expect(screen.getByTestId('row').querySelector('.thread-signal[data-signal="new"]')).toHaveTextContent(
+			'2 new',
+		)
 	})
 
 	it('toggles the star without opening the row, and gives way to a checkbox while selecting', () => {
@@ -478,6 +588,25 @@ describe('an invitation row', () => {
 		renderRow(invite)
 		await waitFor(() => expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull())
 		expect(screen.getByText('Calendar invitation')).toBeInTheDocument()
+	})
+
+	it('offers no answers it could never send when the lookup fails', async () => {
+		getCalendarInvitation.mockRejectedValue(new Error('offline'))
+		renderRow(invite)
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull())
+		expect(screen.getByText('Calendar invitation')).toBeInTheDocument()
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(1)
+	})
+
+	it('checks again while the calendar is still syncing the event, as the invitation card does', async () => {
+		getCalendarInvitation.mockResolvedValueOnce({ state: 'syncing' }).mockResolvedValue(ready)
+		renderRow(invite)
+		// Syncing offers no answers yet; the recheck two seconds on finds the event.
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull())
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Accept' })).not.toBeDisabled(), {
+			timeout: 4000,
+		})
+		expect(getCalendarInvitation).toHaveBeenCalledTimes(2)
 	})
 
 	it('waits, unanswered, outside a query client', () => {

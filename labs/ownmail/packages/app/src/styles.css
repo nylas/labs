@@ -774,9 +774,10 @@
 	background: color-mix(in oklch, var(--muted), transparent 35%);
 }
 
-/* The open conversation: a green tint inside a uniform 1px ring (never a rail). */
+/* The open conversation: a green tint inside a uniform 1px ring (never a rail), with no rule under it. */
 .thread-row[data-active="true"],
 .thread-row:has([data-active="true"]) {
+	border-bottom-color: transparent;
 	background: var(--list-selected);
 	box-shadow: inset 0 0 0 1px var(--list-selected-line);
 }
@@ -880,6 +881,11 @@
 	color: color-mix(in oklch, var(--muted-foreground) 75%, var(--foreground));
 }
 
+/* A muted list's bell, 6px before "eng-all@ · 31 people". */
+.thread-row-list-who {
+	gap: 0.375rem;
+}
+
 /* "You:" after a reply glyph: the owner wrote last. */
 .thread-row-snippet-icon {
 	display: inline-block;
@@ -906,7 +912,7 @@
 	gap: 0.5rem;
 }
 
-/* An invitation or a failed send fills the line its labels would end; the reader still shows them. */
+/* An invitation or a failed send fills the line a lone signal would end. */
 .thread-row-detail ~ .thread-row-labels {
 	display: none;
 }
