@@ -186,12 +186,16 @@ describe('messageHeaderFacts', () => {
 			facts(received('mail.other.co.uk'), h('Authentication-Results', `mx.example.co.uk; ${pass}`)),
 		).toMatchObject(untrusted)
 		expect(
+			facts(received('mx.google.com'), h('Authentication-Results', `mx.google.com; ${pass}`)),
+		).toMatchObject({ verified: true })
+		// A bare IPv6 hop proves no provider: a forged mx.google.com header behind it says nothing.
+		expect(
 			facts(
 				h('Received', 'by 2002:a05:6a10:a0ce:b0:4c3:6e7a:2f1e with SMTP id x14csp1;'),
 				received('mx.google.com'),
 				h('Authentication-Results', `mx.google.com; ${pass}`),
 			),
-		).toMatchObject({ verified: true })
+		).toMatchObject(untrusted)
 		expect(
 			facts(
 				received('BN8PR12MB.namprd12.prod.outlook.com'),

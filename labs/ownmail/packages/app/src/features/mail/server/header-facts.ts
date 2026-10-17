@@ -146,19 +146,14 @@ function receivingHost(pairs: HeaderPair[]): string | undefined {
 	return /\bby\s+([^\s;()]+)/i.exec(withoutQuotedText(received))?.[1]?.toLowerCase()
 }
 
-/** Google's last hop is `by` an internal IPv6 address; its earlier hop is `by mx.google.com`. */
-function googleReceived(host: string): boolean {
-	return /^[0-9a-f:]+$/.test(host) && host.includes(':')
-}
-
 /**
  * The method results of the topmost Authentication-Results header, and only
  * when the receiving provider wrote it (RFC 8601 §5 has receivers drop any
  * copy of their own id from outside). That is when its authserv-id is
  * exactly the receiving host (a sibling host on the same site may be a
  * sender-written copy the receiver never stripped), `mx.google.com` behind
- * Google's last hop, or a
- * Microsoft 365 header, which carries no id, behind a Microsoft hop.
+ * a google.com hop, or a Microsoft 365 header, which carries no id, behind a
+ * Microsoft hop. A bare IP hop proves no provider, so it never vouches.
  * Anything else may have been written by the sender, so it says nothing.
  */
 function trustedAuthenticationResults(pairs: HeaderPair[]): AuthResult[] {
@@ -174,8 +169,7 @@ function trustedAuthenticationResults(pairs: HeaderPair[]): AuthResult[] {
 	} else {
 		const authservId = ((segments[0] as string).trim().split(/\s+/)[0] as string).toLowerCase()
 		const trusted =
-			authservId === host.replace(/\.$/, '') ||
-			(authservId === 'mx.google.com' && (googleReceived(host) || hostSite === 'google.com'))
+			authservId === host.replace(/\.$/, '') || (authservId === 'mx.google.com' && hostSite === 'google.com')
 		if (!trusted) return []
 		results = segments.slice(1)
 	}
