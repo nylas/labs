@@ -13,6 +13,10 @@ export function useMobileThreadActionsTarget(): HTMLElement | null {
 	return mounted ? document.getElementById(MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID) : null
 }
 
+/**
+ * @deprecated The pre-board-03 thread bar (three equal icon tabs). Mount
+ * `MobileReplyBar` instead; this stays only until the search route moves to it.
+ */
 export function MobileThreadResponseActions({
 	onReply,
 	onReplyAll,

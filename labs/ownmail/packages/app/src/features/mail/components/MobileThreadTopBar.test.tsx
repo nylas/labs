@@ -17,6 +17,14 @@ describe('topBarSubject', () => {
 	it('shows any other subject whole', () => {
 		// A one-word topic says too little; a colon without a space is not a topic.
 		expect(topBarSubject('Invoice: #1042 is paid')).toBe('Invoice: #1042 is paid')
+		// A lead that labels what follows is not the thread's name.
+		expect(topBarSubject('Action required: sign the NDA')).toBe('Action required: sign the NDA')
+		expect(topBarSubject('Reminder from HR: enrollment ends Friday')).toBe(
+			'Reminder from HR: enrollment ends Friday',
+		)
+		expect(topBarSubject('Updated invitation: Design review @ Thu 2pm')).toBe(
+			'Updated invitation: Design review @ Thu 2pm',
+		)
 		expect(topBarSubject('Standup at 10:30')).toBe('Standup at 10:30')
 		expect(topBarSubject(': nothing before')).toBe(': nothing before')
 		expect(topBarSubject('Weekend hiking plans?')).toBe('Weekend hiking plans?')
@@ -72,9 +80,21 @@ describe('MobileThreadTopBar', () => {
 	})
 
 	it('counts one message and one person in the singular', () => {
-		renderBar({ subject: 'Lunch', messageCount: 1, peopleCount: 1, backLabel: 'Back to Inbox' })
+		renderBar({ subject: 'Lunch', messageCount: 1, peopleCount: 1 })
 		expect(screen.getByText('1 message · 1 person')).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Back to Inbox' })).toBeInTheDocument()
+	})
+
+	it('names the back button after the folder the thread opened from', () => {
+		// Board 03: "Back to Inbox". The route passes the folder; without one it is the app's "Back to list".
+		renderBar({ backLabel: 'Back to Inbox' })
+		expect(screen.getByRole('button', { name: 'Back to Inbox' })).toHaveClass('size-11')
+		expect(screen.queryByRole('button', { name: 'Back to list' })).toBeNull()
+	})
+
+	it('names a blank subject "(no subject)" like every other subject surface', () => {
+		renderBar({ subject: '  ' })
+		const subject = screen.getByText('(no subject)')
+		expect(subject).toHaveAttribute('title', '(no subject)')
 	})
 
 	it('goes back and archives on tap', async () => {

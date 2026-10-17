@@ -12,6 +12,10 @@ const OUTLINED = 'h-11 border-cta-line text-foreground shadow-none'
  * button and takes the width, Reply and Forward are square icons beside it.
  * It fills the thread slot of the mobile tab bar, so it shares that bar's
  * glass, height and safe-area inset instead of stacking a second bottom bar.
+ * Board 03 draws the bar 76px tall, its hairline and 8px over the 44px
+ * buttons with the rest below; the bottom padding gives the device's
+ * safe-area inset that room first, so the bar is 76px on a phone without one
+ * and the tab bar's height plus the inset on a phone with one.
  */
 export function MobileReplyBar({
 	onReplyAll,
@@ -28,7 +32,7 @@ export function MobileReplyBar({
 	return createPortal(
 		<div
 			data-slot="mobile-reply-bar"
-			className="col-span-full flex items-center gap-cluster px-hairline py-cluster"
+			className="col-span-full flex items-center gap-cluster px-hairline pt-cluster pb-[max(0.5rem,calc(1.4375rem-var(--safe-area-bottom)))]"
 		>
 			<Button
 				type="button"

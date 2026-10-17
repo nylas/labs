@@ -30,7 +30,9 @@ describe('MobileReplyBar', () => {
 		const toolbar = screen.getByRole('toolbar', { name: 'Thread actions' })
 		const bar = toolbar.querySelector('[data-slot="mobile-reply-bar"]')
 		// One row across the slot's grid: Reply all takes the width, Reply and Forward sit square beside it.
-		expect(bar).toHaveClass('col-span-full', 'flex', 'gap-cluster', 'px-hairline', 'py-cluster')
+		expect(bar).toHaveClass('col-span-full', 'flex', 'gap-cluster', 'px-hairline', 'pt-cluster')
+		// 1px hairline + 8px + 44px + 23px = the board's 76px; a safe-area inset takes the 23px first.
+		expect(bar).toHaveClass('pb-[max(0.5rem,calc(1.4375rem-var(--safe-area-bottom)))]')
 		const buttons = screen.getAllByRole('button')
 		expect(buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent)).toEqual([
 			'Reply all',
