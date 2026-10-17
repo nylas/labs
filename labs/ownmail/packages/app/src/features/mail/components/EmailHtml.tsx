@@ -7,6 +7,7 @@ import { type CSSProperties, type Ref, useEffect, useLayoutEffect, useMemo, useR
 import { flushSync } from 'react-dom'
 import { accountScope } from '#app/lib/account-scope'
 import { useUserPreferences } from '#app/preferences/user-preferences'
+import { cn } from '#shared/lib/utils'
 import { senderDomain } from '../lib/edge-states.js'
 import {
 	applyEmailColorMode,
@@ -41,6 +42,7 @@ import { openMessageWindow } from '../lib/open-message-window.js'
 import { ensureEmailElementDefined } from './email-content-element.js'
 import { FitToWidthBar } from './FitToWidthBar.js'
 import { ImagesHiddenBar } from './ImagesHiddenBar.js'
+import { useThreadColumnInset } from './ThreadColumn.js'
 
 // The custom element is a host tag, not a React component; the cast just gives it
 // a typed ref + style props. At runtime React renders the string as a DOM element.
@@ -150,6 +152,7 @@ export function EmailHtml({
 	const canvasCallbackRef = useRef(onCanvas)
 	canvasCallbackRef.current = onCanvas
 
+	const furnitureInset = useThreadColumnInset()
 	const isDark = useIsDark()
 	const automaticDarkColors = darken && isDark && colorMode === 'automatic'
 	const emailTheme = automaticDarkColors ? 'dark' : 'light'
@@ -400,7 +403,11 @@ export function EmailHtml({
 			</div>
 
 			{fit || imagesHeld || trust === 'error' ? (
-				<div data-slot="email-edge-bars" className={chromeInset ? 'px-4 sm:px-0' : undefined}>
+				<div
+					data-slot="email-edge-bars"
+					// Under a designed email the bars line up with the message's other furniture, past the avatar.
+					className={chromeInset ? cn('px-4 sm:px-0', furnitureInset && 'md:pl-11') : undefined}
+				>
 					{fit ? (
 						<FitToWidthBar
 							scale={fit.scale}

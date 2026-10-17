@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAccountScope, setAccountScope } from '#app/lib/account-scope'
 import { defaultUserPreferences, UserPreferencesProvider } from '#app/preferences/user-preferences'
 import { EMAIL_ELEMENT_TAG, EMAIL_LAYOUT_STATUS_EVENT } from '../lib/email-render'
+import { markdownToEmailHtml } from '../lib/markdown-model'
 import type { MailMessage, MailThread } from '../state/mail-queries'
 import {
 	THREAD_MAP_DOCK_ID,
@@ -498,7 +499,7 @@ describe('ThreadConversation rendering', () => {
 		)
 		expect(sequence).toEqual(['rule', 'line', 'rule', 'line', 'divider', 'open', 'rule', 'open'])
 		expect(
-			screen.getByRole('separator', { name: /^\d+ new since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+			screen.getByRole('separator', { name: /^\d+ new since (?:yesterday|[A-Z][a-z]+day)$/ }),
 		).toBeInTheDocument()
 		// The subject and the stream fade on navigation; nothing nests a second fade.
 		const fades = container.querySelectorAll('[data-navigation-content]')
@@ -626,7 +627,7 @@ describe('folding a long thread', () => {
 		)
 		expect(states()).toEqual(['Message from Grace Hopper', 'Message from Alan Turing'])
 		const divider = screen.getByRole('separator', {
-			name: /^\d+ new since you last read, (?:yesterday|[A-Z][a-z]+day)$/,
+			name: /^\d+ new since (?:yesterday|[A-Z][a-z]+day)$/,
 		})
 		// The label is drawn between two neutral lines and announced on the separator itself.
 		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent(
@@ -639,7 +640,7 @@ describe('folding a long thread', () => {
 			<ThreadConversation thread={thread('t1')} messages={read} mailboxEmail="ada@ownmail.com" />,
 		)
 		expect(
-			screen.getByRole('separator', { name: /^\d+ new since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+			screen.getByRole('separator', { name: /^\d+ new since (?:yesterday|[A-Z][a-z]+day)$/ }),
 		).toBeInTheDocument()
 	})
 
@@ -656,7 +657,7 @@ describe('folding a long thread', () => {
 		)
 		expect(states()).toEqual(['Message from Grace Hopper', 'Message from Alan Turing'])
 		expect(
-			screen.getByRole('separator', { name: /^2 new since you last read, (?:yesterday|[A-Z][a-z]+day)$/ }),
+			screen.getByRole('separator', { name: /^2 new since (?:yesterday|[A-Z][a-z]+day)$/ }),
 		).toBeInTheDocument()
 	})
 
@@ -1640,6 +1641,19 @@ describe('message actions', () => {
 		expect(compose.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({ body: '> First, the calendar sync milestone\n\n' }),
 		)
+		// A selection across two paragraphs is one quote: the break between them
+		// is an empty quote line, never a bare ">" the composer would show as text.
+		const twoParagraphs = vi.spyOn(window, 'getSelection').mockReturnValue({
+			anchorNode: shadowText,
+			toString: () => "First, the calendar sync.\n\n\nSecond, I'd move it.  ",
+		} as unknown as Selection)
+		fireEvent.click(within(alan).getByRole('button', { name: 'Quote selection in reply' }))
+		const twoParagraphBody = "> First, the calendar sync.\n> \n> Second, I'd move it.\n\n"
+		expect(compose.openCompose).toHaveBeenLastCalledWith(expect.objectContaining({ body: twoParagraphBody }))
+		expect(markdownToEmailHtml(twoParagraphBody)).toBe(
+			"<blockquote>First, the calendar sync.<br><br>Second, I'd move it.</blockquote>",
+		)
+		twoParagraphs.mockRestore()
 		shadowSelection.mockRestore()
 
 		// A selection somewhere else quotes the message's own words.

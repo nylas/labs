@@ -21,6 +21,7 @@ import {
 	threadFiles,
 	toPerson,
 	versionLabel,
+	withKnownName,
 } from './thread-reading-model.js'
 
 /** Above this many messages the stream mounts only what is near the viewport. */
@@ -213,11 +214,7 @@ export function streamMessages(messages: MailMessage[], showTrashed: boolean): M
  * "mjackson@…" still reads as Mary.
  */
 export function knownPerson(participant: Participant, owner: string, known: readonly Person[]): Person {
-	const person = toPerson(participant, owner)
-	if (person.name) return person
-	const key = person.email.toLowerCase()
-	const named = known.find((entry) => entry.name && entry.email.trim().toLowerCase() === key)
-	return named ? { ...person, name: named.name } : person
+	return withKnownName(toPerson(participant, owner), known)
 }
 
 /**

@@ -118,7 +118,7 @@ export function CatchUpCard({
 								{summaryMessages.length === 1 ? 'new message' : `${summaryMessages.length} new messages`}
 							</span>
 						</p>
-						<ul className="tool-summary m-0 list-disc text-[15px] leading-[1.6] text-foreground">
+						<ul className="tool-summary m-0 list-disc text-[15px] leading-[1.6] text-secondary-foreground">
 							{summary.map((line, index) => (
 								// A provider may repeat a line; the position keeps each bullet its own.
 								// biome-ignore lint/suspicious/noArrayIndexKey: the bullets are replaced whole, never reordered

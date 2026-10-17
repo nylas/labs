@@ -325,6 +325,9 @@
  * - `--note-fg`: the text of a neutral note in the stream (a removed person, a
  *   mailing list) and of a draft's preview: between body text and muted.
  * - `--reader-reply-shadow`: the soft shadow under the pinned reply card.
+ * - `--bar-icon-fg`: the icons of the phone thread's top and bottom bars
+ *   (Back, Archive, More, Reply, Forward): a step softer than body text, as
+ *   board 03 draws them.
  * - `--email-ink`: message text on a light email canvas (board 01's body
  *   text). The canvas stays light in either theme (an email's own dark
  *   rendering sets its own ink), so the value does not change with it.
@@ -362,6 +365,7 @@
 	--color-quiet-foreground: var(--quiet-fg);
 	--color-control-foreground: var(--control-fg);
 	--color-note-foreground: var(--note-fg);
+	--color-bar-icon-foreground: var(--bar-icon-fg);
 	--shadow-reader-reply: var(--reader-reply-shadow);
 }
 
@@ -398,6 +402,7 @@
 	--quiet-fg: oklch(0.4 0.01 165);
 	--control-fg: oklch(0.35 0.01 165);
 	--note-fg: oklch(0.3 0.01 165);
+	--bar-icon-fg: oklch(0.25 0.01 165);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
 	--email-ink: oklch(0.2 0.01 165);
 }
@@ -435,6 +440,7 @@
 	--quiet-fg: oklch(0.82 0.008 155);
 	--control-fg: oklch(0.86 0.006 155);
 	--note-fg: oklch(0.88 0.006 155);
+	--bar-icon-fg: oklch(0.9 0.006 155);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
 	--email-ink: oklch(0.2 0.01 165);
 }

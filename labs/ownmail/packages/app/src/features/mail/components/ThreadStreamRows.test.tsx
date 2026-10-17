@@ -9,11 +9,11 @@ afterEach(cleanup)
 const GRACE = { name: 'Grace Hopper', email: 'grace@example.com' }
 
 describe('NewSinceDivider', () => {
-	it('is a separator named for its count and where you left off, or for its count until the day is known', () => {
-		const { rerender } = render(<NewSinceDivider label="3 new since Tuesday" count={3} since="Tuesday" />)
-		const divider = screen.getByRole('separator', { name: '3 new since you last read, Tuesday' })
+	it('is a separator named with the words it shows', () => {
+		const { rerender } = render(<NewSinceDivider label="3 new since Tuesday" />)
+		const divider = screen.getByRole('separator', { name: '3 new since Tuesday' })
 		expect(divider.closest('[data-slot="new-since-divider"]')).toHaveTextContent('3 new since Tuesday')
-		rerender(<NewSinceDivider label="3 new" count={3} since={null} />)
+		rerender(<NewSinceDivider label="3 new" />)
 		expect(screen.getByRole('separator', { name: '3 new' })).toBeInTheDocument()
 	})
 })

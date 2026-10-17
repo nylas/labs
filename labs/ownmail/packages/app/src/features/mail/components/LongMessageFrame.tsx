@@ -233,7 +233,7 @@ function LongMessageLayout({
 				{children}
 			</div>
 			{outline ? (
-				<nav aria-label="Outline" className="sticky top-16 hidden pt-8 xl:block">
+				<nav aria-label="Outline" className="sticky top-0 hidden xl:block">
 					{outline}
 				</nav>
 			) : null}

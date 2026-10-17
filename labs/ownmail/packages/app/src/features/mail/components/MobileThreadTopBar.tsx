@@ -56,7 +56,7 @@ export function MobileThreadTopBar({
 }) {
 	return (
 		<Toolbar pinned data-slot="mobile-thread-top-bar" className="gap-control px-control md:hidden">
-			<IconButton label={backLabel} onClick={onBack} className="size-11 text-foreground">
+			<IconButton label={backLabel} onClick={onBack} className="size-11 text-bar-icon-foreground">
 				<ChevronLeft className="size-5" aria-hidden="true" />
 			</IconButton>
 			<div className="flex min-w-0 flex-1 flex-col">
@@ -67,7 +67,7 @@ export function MobileThreadTopBar({
 					{countLabel(messageCount, 'message', 'messages')} · {countLabel(peopleCount, 'person', 'people')}
 				</span>
 			</div>
-			<IconButton label="Archive" onClick={onArchive} className="size-11 text-foreground">
+			<IconButton label="Archive" onClick={onArchive} className="size-11 text-bar-icon-foreground">
 				<Archive className="size-5" aria-hidden="true" />
 			</IconButton>
 			{moreMenu}

@@ -13,6 +13,9 @@ import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 
 export { lookalikeSender } from '../lib/message-anatomy.js'
 
+/** An address, domain or list in a notice reads as one unbroken token: "meridian-secure.co" never splits at its hyphen. */
+const ADDRESS_CLASS = 'font-semibold whitespace-nowrap'
+
 /**
  * Whether a message's links are made inert: it failed sender checks (DMARC),
  * or its sender only looks like someone this mailbox knows.
@@ -113,7 +116,7 @@ export function MessageNotices({
 	if (replyTo) {
 		notices.push(
 			<Notice key="reply-to" kind="reply-to" tone="warning" icon={<Reply />}>
-				Replies go to <strong className="font-semibold">{replyTo}</strong>, not the address this came from.
+				Replies go to <strong className={ADDRESS_CLASS}>{replyTo}</strong>, not the address this came from.
 			</Notice>,
 		)
 	}
@@ -121,7 +124,7 @@ export function MessageNotices({
 		notices.push(
 			<Notice key="sender" kind="sender-check" tone="danger" icon={<AlertTriangle />}>
 				{lookalike ? `“${lookalike.name}” usually writes from ${lookalike.usualDomain}. ` : null}
-				This came from <strong className="font-semibold">{lookalike?.domain ?? domain}</strong>
+				This came from <strong className={ADDRESS_CLASS}>{lookalike?.domain ?? domain}</strong>
 				{failed ? ' and failed sender checks' : ''}. Links are disabled.
 			</Notice>,
 		)
@@ -142,7 +145,7 @@ export function MessageNotices({
 			<Notice key="list" kind="mailing-list" tone="neutral" icon={<Newspaper />}>
 				{list.label ? (
 					<>
-						Sent to <strong className="font-semibold">{list.label}</strong>,{' '}
+						Sent to <strong className={ADDRESS_CLASS}>{list.label}</strong>,{' '}
 						{list.count ? `a list of ${list.count.toLocaleString('en-US')}.` : 'a mailing list.'}
 					</>
 				) : (

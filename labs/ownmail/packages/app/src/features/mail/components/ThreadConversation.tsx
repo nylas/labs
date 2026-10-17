@@ -471,7 +471,9 @@ function containsAcrossShadow(container: Element, node: Node): boolean {
  * The quoted text a "Quote selection in reply" seeds: the selection inside
  * that message (an HTML body's words live in its shadow root), else its own
  * words. Each line is a quote line; the composer shows the line being edited
- * with its "> " and the others as the quote they make.
+ * with its "> " and the others as the quote they make. The break between two
+ * paragraphs stays inside the quote as one empty "> " line (a bare ">" is not
+ * a quote line to the composer), so a selection across paragraphs is one quote.
  */
 function quotedText(message: MailMessage): string {
 	const selection = window.getSelection()
@@ -480,9 +482,10 @@ function quotedText(message: MailMessage): string {
 	const selected =
 		selection && anchor && article && containsAcrossShadow(article, anchor) ? selection.toString().trim() : ''
 	const text = selected || messageNewText(message)
-	return `${text
-		.split('\n')
-		.map((line) => `> ${line}`.trimEnd())
+	const lines = text.split(/\r?\n/).map((line) => line.trimEnd())
+	return `${lines
+		.filter((line, index) => line !== '' || lines[index - 1] !== '')
+		.map((line) => `> ${line}`)
 		.join('\n')}\n\n`
 }
 
@@ -1307,7 +1310,7 @@ function ThreadConversationContent({
 			case 'divider':
 				return (
 					<ThreadColumn>
-						<NewSinceDivider label={entry.label} count={entry.count} since={divider?.since} />
+						<NewSinceDivider label={entry.label} />
 					</ThreadColumn>
 				)
 			case 'catch-up':
@@ -1430,11 +1433,14 @@ function ThreadConversationContent({
 							<div data-slot="thread-messages" className="reader-messages">
 								{failedMessageIds && failedMessageIds.length > 0 ? (
 									<ThreadColumn>
-										<PartialLoadNotice
-											failedCount={failedMessageIds.length}
-											shownCount={messages.filter((message) => message.ownmailDraft !== true).length}
-											onRetry={() => onRetryLoad?.()}
-										/>
+										{/* A card of its own, clear of the first row's rule. */}
+										<div className="reader-partial-load">
+											<PartialLoadNotice
+												failedCount={failedMessageIds.length}
+												shownCount={messages.filter((message) => message.ownmailDraft !== true).length}
+												onRetry={() => onRetryLoad?.()}
+											/>
+										</div>
 									</ThreadColumn>
 								) : null}
 								<div

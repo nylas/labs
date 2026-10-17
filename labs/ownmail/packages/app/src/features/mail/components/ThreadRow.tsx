@@ -548,10 +548,12 @@ function FailedSendLine({ threadId, client }: { threadId: string; client: QueryC
 		}
 	}
 	return (
-		<span className="thread-row-failed flex items-center gap-cluster text-[13px]">
-			<AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-			<span className="min-w-0 flex-1 truncate">
-				{failed ? 'Couldn’t open the message. Try again.' : 'Not sent. The address bounced.'}
+		<span className="thread-row-failed flex flex-wrap items-center gap-cluster text-[13px]">
+			<span className="thread-row-detail-text flex items-center gap-cluster">
+				<AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+				<span className="min-w-0 truncate">
+					{failed ? 'Couldn’t open the message. Try again.' : 'Not sent. The address bounced.'}
+				</span>
 			</span>
 			<button
 				type="button"
@@ -642,10 +644,10 @@ function InviteLine({
 	// one the calendar cannot answer, offers none: the reader's card explains why.
 	const answerable = (!details && !invitation.isError) || (ready !== undefined && ready.canRespond !== false)
 	return (
-		<span ref={ref} className="thread-row-invite flex items-center gap-cluster">
-			<span className="thread-row-invite-when flex min-w-0 flex-1 items-center text-[13px]">
+		<span ref={ref} className="thread-row-invite flex flex-wrap items-center gap-cluster">
+			<span className="thread-row-invite-when thread-row-detail-text flex items-center text-[13px]">
 				<Calendar aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-				<span className="truncate font-data tabular-nums">{label}</span>
+				<span className="min-w-0 truncate font-data tabular-nums">{label}</span>
 			</span>
 			{response.isError ? (
 				<span role="alert" className="shrink-0 text-xs text-destructive">

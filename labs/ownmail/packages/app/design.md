@@ -612,7 +612,8 @@ reader only draws it.
    "Collapse all" stay in the display actions.
 3. Never hide silently. A folded row says how many messages it holds
    ("9 earlier messages"), who wrote them, in the order they wrote ("you" for
-   the owner, where you wrote), and when.
+   the owner, where you wrote), and when. Its avatar stack is the first three
+   of those people in the same order, so each face sits over its name.
 4. A linked message. A message opened inside a folded run (a link, a map row
    or dot, `j` / `k`) opens on its own: its read neighbours become one-line
    rows and what is left on either side folds again.
@@ -624,8 +625,8 @@ reader only draws it.
 The first message that was unread when the thread opened sits under a
 "{n} new since {day}" divider: neutral 1px lines either side of a 12px semibold
 label in the green accent and a 6px accent dot. Its first line is the
-separator, named with the count and the place ("3 new since you last read,
-Tuesday"), so both are announced, not only drawn.
+separator, named with the words the divider shows ("3 new since Tuesday"), so
+what is announced is what is drawn.
 
 - Held, not live. What was unread is read from the thread as it first loaded,
   before opening marks it read, and kept under the thread's identity for as

@@ -4,8 +4,9 @@ import { Button } from '#shared/components/ui/button'
 import { IconButton } from '#shared/components/ui/icon-button'
 import { useMobileThreadActionsTarget } from './ThreadResponseActions.js'
 
-// The respond actions are outlined in the create action's line; only Reply all's icon carries the accent.
-const OUTLINED = 'h-11 border-cta-line text-foreground shadow-none'
+// The respond actions are outlined in the create action's line; only Reply all's icon carries the accent,
+// and Reply and Forward take the bar icons' ink, as the top bar's do.
+const OUTLINED = 'h-11 border-cta-line shadow-none'
 
 /**
  * The phone thread's bottom bar (board 03): Reply all is the one labelled
@@ -38,7 +39,7 @@ export function MobileReplyBar({
 				type="button"
 				variant="outline"
 				onClick={onReplyAll}
-				className={`${OUTLINED} min-w-0 flex-1 gap-cluster text-[15px] font-semibold`}
+				className={`${OUTLINED} min-w-0 flex-1 gap-cluster text-[15px] font-semibold text-foreground`}
 			>
 				<ReplyAll className="size-[18px] text-cta-icon" aria-hidden="true" />
 				Reply all
@@ -47,7 +48,7 @@ export function MobileReplyBar({
 				label="Reply"
 				variant="outline"
 				onClick={onReply}
-				className={`${OUTLINED} size-11 bg-transparent`}
+				className={`${OUTLINED} size-11 bg-transparent text-bar-icon-foreground`}
 			>
 				<Reply className="size-5" aria-hidden="true" />
 			</IconButton>
@@ -55,7 +56,7 @@ export function MobileReplyBar({
 				label="Forward"
 				variant="outline"
 				onClick={onForward}
-				className={`${OUTLINED} size-11 bg-transparent`}
+				className={`${OUTLINED} size-11 bg-transparent text-bar-icon-foreground`}
 			>
 				<Forward className="size-5" aria-hidden="true" />
 			</IconButton>

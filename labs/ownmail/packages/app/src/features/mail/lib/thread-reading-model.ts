@@ -172,14 +172,36 @@ export function toPerson(participant: EmailParticipant | undefined, owner: strin
 export const senderPerson = (message: MailMessage, owner: string): Person =>
 	toPerson(message.from?.[0], owner)
 
-/** "Grace" from "Grace Hopper", "Alan" from "Turing, Alan", "grace" from grace@example.com. */
+/** A first name from an address alone, for "Reply to Alan only": "alan.turing@x" → "Alan". */
+export function firstNameFromAddress(address: string): string {
+	const local = address.trim().split('@')[0] as string
+	const word = local.split(/[._+-]/).find(Boolean) ?? ''
+	return word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : ''
+}
+
+/**
+ * "Grace" from "Grace Hopper", "Alan" from "Turing, Alan", and "Grace" from
+ * grace@example.com when no name came with the address, so a person reads
+ * the same in sentence case whether or not their mail carried a name.
+ */
 export function firstName(person: Pick<Person, 'name' | 'email'>): string {
 	const name = person.name.trim()
 	if (name) {
 		const inverted = /^([^,]+),\s*(\S.*)$/.exec(name)
 		return ((inverted ? (inverted[2] as string) : name).split(' ')[0] as string).trim()
 	}
-	return person.email.split('@')[0] as string
+	return firstNameFromAddress(person.email)
+}
+
+/**
+ * A person with the name the thread knows them by, when their address came
+ * alone (your own sent mail often carries none), so alan@… still reads as Alan.
+ */
+export function withKnownName(person: Person, known: readonly Person[]): Person {
+	if (person.name) return person
+	const key = addressKey(person.email)
+	const named = known.find((entry) => entry.name && addressKey(entry.email) === key)
+	return named ? { ...person, name: named.name } : person
 }
 
 /** How a person is named in running text. The mailbox owner is always "you". */
@@ -312,14 +334,18 @@ export function rowParticipants(thread: MailThread, owner: string): { names: str
  * Pass `prev` only when the previous message sits open directly above this
  * one. After a folded or one-line gap pass undefined, so the header names the
  * recipients ("to you, Grace +2") instead of pointing at a message the reader
- * cannot see.
+ * cannot see. `known` are the people the thread names, for a recipient whose
+ * address came without a name.
  */
 export function recipientSummary(
 	msg: MailMessage,
 	prev: MailMessage | undefined,
 	owner: string,
+	known: readonly Person[] = [],
 ): { text: string; changed: boolean; group?: string } {
-	const recipients = uniquePeople([...(msg.to ?? []), ...(msg.cc ?? [])], owner)
+	const recipients = uniquePeople([...(msg.to ?? []), ...(msg.cc ?? [])], owner).map((person) =>
+		withKnownName(person, known),
+	)
 	if (recipients.length === 0) return { text: 'to undisclosed recipients', changed: false }
 	const sender = addressKey(msg.from?.[0]?.email)
 	const before = prev
@@ -853,12 +879,12 @@ export function foldPlan(messages: MailMessage[], opts: FoldOptions): FoldItem[]
 	return items
 }
 
-/** A folded run's stack: the first people who wrote in it, ending with you when you did (board 03), as the thread header's does. */
-function foldAvatars(senders: Person[]): Person[] {
-	const self = senders.filter((person) => person.isOwner)
-	const others = senders.filter((person) => !person.isOwner)
-	return [...others.slice(0, FOLD_MAX_AVATARS - self.length), ...self]
-}
+/**
+ * A folded run's stack: the first people who wrote in it, in the order they
+ * spoke, so each face sits over its name in "Alan, Katherine, you, …"
+ * (boards 01 and 03 draw AT, KJ, AL over those names).
+ */
+const foldAvatars = (senders: Person[]): Person[] => senders.slice(0, FOLD_MAX_AVATARS)
 
 function foldedRow(
 	messages: MailMessage[],

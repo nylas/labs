@@ -316,7 +316,7 @@ describe('board 05 and 06: header facts served by the dev mailbox', () => {
 			listUnsubscribe: false,
 			dateOffsetMinutes: -420,
 		})
-		expect(roadmap['msg-roadmap-3']?.verified).toBe(false)
+		expect(roadmap['msg-roadmap-4']?.verified).toBe(false)
 		expect(roadmap['msg-roadmap-13']?.dateOffsetMinutes).toBe(-new Date().getTimezoneOffset() || 0)
 	})
 

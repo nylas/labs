@@ -248,8 +248,8 @@ describe('reply names', () => {
 		expect(replyAllNames(latest, OWNER)).toEqual({ names: 'Mary, Grace, Alan', more: 2 })
 		expect(replyFirstName(latest, OWNER)).toBe('Mary')
 		const redirected = { ...latest, reply_to: [{ email: 'replies@example.com' }] }
-		expect(replyAllNames(redirected, OWNER).names).toBe('replies, Grace, Alan')
-		expect(replyFirstName(redirected, OWNER)).toBe('replies')
+		expect(replyAllNames(redirected, OWNER).names).toBe('Replies, Grace, Alan')
+		expect(replyFirstName(redirected, OWNER)).toBe('Replies')
 	})
 
 	it('replies to the first other person when your own message is the latest', () => {
@@ -278,8 +278,8 @@ describe('reply names', () => {
 		]
 		expect(replyAllNames(sent, OWNER, known)).toEqual({ names: 'Mary, Grace, Alan', more: 1 })
 		expect(replyFirstName(sent, OWNER, known)).toBe('Mary')
-		// Without the thread's people the local parts are all there is.
-		expect(replyFirstName(sent, OWNER)).toBe('mjackson')
+		// Without the thread's people the local part is all there is, in sentence case.
+		expect(replyFirstName(sent, OWNER)).toBe('Mjackson')
 		// A name the message itself gives wins over the thread's.
 		expect(knownPerson(GRACE, OWNER, [{ ...known[2], name: 'G. Hopper' }]).name).toBe(GRACE.name)
 		expect(knownPerson({ email: 'kj@example.com' }, OWNER, known).name).toBe('')

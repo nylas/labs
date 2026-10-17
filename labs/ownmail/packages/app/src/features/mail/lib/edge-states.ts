@@ -7,6 +7,9 @@
 
 import { shortDayLabel } from './thread-reading-model.js'
 
+/** Lives with the other naming helpers; kept here for the composer that imports it. */
+export { firstNameFromAddress } from './thread-reading-model.js'
+
 /** The viewer's own time zone, or UTC where Intl cannot tell. */
 export function viewerZone(): string {
 	return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -224,13 +227,6 @@ export function cutAtWord(text: string, max: number): string {
 	const head = clean.slice(0, max + 1)
 	const space = head.lastIndexOf(' ')
 	return `${(space > 0 ? head.slice(0, space) : clean.slice(0, max)).replace(/[\s,;:.–—-]+$/, '')}…`
-}
-
-/** A first name from an address alone, for "Reply to Alan only": "alan.turing@x" → "Alan". */
-export function firstNameFromAddress(address: string): string {
-	const local = address.trim().split('@')[0] as string
-	const word = local.split(/[._+-]/).find(Boolean) ?? ''
-	return word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : ''
 }
 
 type NamedParticipant = { name?: string | null; email: string }

@@ -72,7 +72,7 @@ describe('quotedHeader', () => {
 			'Grace, Oct 3, 9:05 AM',
 		)
 		expect(quotedHeader({ name: '', email: 'sam@x.com', dateText: 'Friday', text: '' }, NOW, tz)).toBe(
-			'sam, Friday',
+			'Sam, Friday',
 		)
 		expect(quotedHeader({ name: '', text: '' }, NOW, tz)).toBe('')
 	})

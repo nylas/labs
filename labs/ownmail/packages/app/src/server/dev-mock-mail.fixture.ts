@@ -180,8 +180,9 @@ const roadmapDay = (offset: number, hour: number, minute: number) =>
 const roadmapDates = {
 	v1: roadmapDay(-15, 9, 14),
 	m2: roadmapDay(-14, 11, 3),
-	notes: roadmapDay(-13, 15, 40),
-	m4: roadmapDay(-12, 10, 22),
+	// Katherine answers before Ada, as board 01's folded run reads: "Alan, Katherine, you, …".
+	m3: roadmapDay(-13, 15, 40),
+	notes: roadmapDay(-12, 10, 22),
 	png: roadmapDay(-10, 16, 5),
 	v2: roadmapDay(-7, 9, 48),
 	m7: roadmapDay(-6, 13, 15),
@@ -229,7 +230,18 @@ const roadmap = seedThread(
 			id: 'msg-roadmap-3',
 			subject: `Re: ${ROADMAP_FIRST_SUBJECT}`,
 			body: html(
-				'My notes from the planning session are attached. Billing is the open question for me.',
+				'Design can support everything in v1 except the billing settings page. That needs two more weeks.',
+			),
+			from: [KATHERINE],
+			to: [GRACE, ALAN, ACCOUNT],
+			cc: [PM_LEADS],
+			date: roadmapDates.m3,
+		},
+		{
+			id: 'msg-roadmap-4',
+			subject: `Re: ${ROADMAP_FIRST_SUBJECT}`,
+			body: html(
+				'My notes from the planning session are attached. Billing is the open question for me too.',
 				'Ada',
 			),
 			from: [ACCOUNT],
@@ -244,17 +256,6 @@ const roadmap = seedThread(
 					size: 86_000,
 				},
 			],
-		},
-		{
-			id: 'msg-roadmap-4',
-			subject: `Re: ${ROADMAP_FIRST_SUBJECT}`,
-			body: html(
-				'Design can support everything in v1 except the billing settings page. That needs two more weeks.',
-			),
-			from: [KATHERINE],
-			to: [GRACE, ALAN, ACCOUNT],
-			cc: [PM_LEADS],
-			date: roadmapDates.m4,
 		},
 		{
 			id: 'msg-roadmap-5',

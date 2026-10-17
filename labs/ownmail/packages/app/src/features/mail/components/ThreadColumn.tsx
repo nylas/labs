@@ -13,6 +13,13 @@ export function ThreadColumnInset({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Whether an open message's furniture starts under the sender's name here.
+ * A designed email keeps the full column, so the bars the reader adds under
+ * it ("7 images … are hidden", "Fitted to width") take the inset themselves.
+ */
+export const useThreadColumnInset = (): boolean => useContext(ThreadColumnInsetContext)
+
+/**
  * Set by the standard reader: its column is 760px at most and starts 64px into
  * the pane on wide screens, with 56px kept on its right before the thread map.
  * Everywhere else (the Conversation view, placeholders) the column is centred.

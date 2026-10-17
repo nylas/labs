@@ -48,7 +48,7 @@ export function OutgoingStatus({
 	}
 
 	return (
-		<div data-slot="outgoing-status" className="flex flex-col gap-2 text-[13px]">
+		<div data-slot="outgoing-status" className="outgoing-status flex flex-col gap-2 text-[13px]">
 			{bounce ? (
 				<div role="note" className="flex flex-col gap-2">
 					<div className="flex min-w-0 items-center gap-2 text-danger-soft-foreground">

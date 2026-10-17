@@ -426,7 +426,7 @@ describe('message list', () => {
 		await user.click(within(stream).getByRole('button', { name: /Unknown sender/ }))
 		const article = screen.getByRole('article', { name: 'Message from Unknown sender' })
 		// The header names the opened message's email-only recipient.
-		expect(within(article).getByText('to noname')).toBeInTheDocument()
+		expect(within(article).getByText('to Noname')).toBeInTheDocument()
 		expect(within(article).queryByRole('region', { name: /^Attachments/ })).toBeNull()
 		// Collapsing goes through the message's header.
 		await user.click(within(article).getByRole('button', { name: 'Collapse message' }))
@@ -935,7 +935,7 @@ describe('compose navigation', () => {
 		const card = screen.getByRole('region', { name: 'Reply' })
 		expect(card.closest('[data-navigation-content]')).toBeNull()
 		// Reply all reaches the Reply-To address, the other recipient and Cc, never the owner.
-		expect(card).toHaveTextContent('Reply all to reply, other, cc')
+		expect(card).toHaveTextContent('Reply all to Reply, Other, Cc')
 		await user.click(within(card).getByRole('button', { name: /Write a reply/ }))
 		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({
@@ -945,7 +945,7 @@ describe('compose navigation', () => {
 		)
 		await user.click(within(card).getByRole('button', { name: 'Send' }))
 		expect(composeApi.openCompose).toHaveBeenCalledTimes(2)
-		await user.click(within(card).getByRole('button', { name: 'Reply only to reply' }))
+		await user.click(within(card).getByRole('button', { name: 'Reply only to Reply' }))
 		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
 			expect.objectContaining({ replyToMessageId: 'mL', to: 'reply@x.com' }),
 		)

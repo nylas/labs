@@ -116,7 +116,7 @@ export function BodyDisclosures({
 	const quotedHtml = renderHtml ? disclosure.quotedHtml : undefined
 	const signatureHtml = renderHtml ? disclosure.signatureHtml : undefined
 	return (
-		<div data-slot="body-disclosures" className="mt-3">
+		<div data-slot="body-disclosures" className="body-disclosures">
 			<div className="flex flex-wrap gap-2">
 				{both && !split ? (
 					<QuotedDisclosure

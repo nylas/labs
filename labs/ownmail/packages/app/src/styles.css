@@ -231,6 +231,17 @@
 	box-shadow: 0 0 0 2px var(--ring);
 }
 
+/* The avatar 10px from the name on a phone (board 03), 12px from the desktop reader's one line (board 01). */
+.message-header-row {
+	gap: 10px;
+}
+
+@media (min-width: 48rem) {
+	.message-header-row {
+		gap: 12px;
+	}
+}
+
 /*
  * A message header in the thread reader is a 40px row with a fine pointer. On
  * narrow and touch-capable devices it keeps the 44px touch floor.
@@ -260,6 +271,7 @@
 
 /* Icons in the reader and the list draw a 1.75 stroke, as every board does. */
 [data-testid="thread-reader"] svg.lucide,
+[data-slot="mobile-reply-bar"] svg.lucide,
 .thread-row svg.lucide,
 .thread-bundle svg.lucide {
 	stroke-width: 1.75;
@@ -292,6 +304,11 @@
 	gap: 6px;
 }
 
+/* The pills sit 14px under the last line the person wrote (board 01). */
+.body-disclosures {
+	margin-top: 14px;
+}
+
 /* Notices stand apart from the body under them, 10px from each other (board 05, step 3). */
 .message-notices,
 .superseded-invite {
@@ -305,6 +322,11 @@
 .message-notice {
 	gap: 10px;
 	padding: 12px 14px;
+}
+
+/* "Reply all will reach 31 people.": a compact note, 8px by 10px (board 06, card 11). */
+.reply-all-guard {
+	padding: 8px 10px;
 }
 
 /* The details panel and the sender's card (board 05, steps 2 and 4). */
@@ -472,11 +494,12 @@
 	padding-bottom: 14px;
 }
 
+/* A stand-in subject's caption sits 8px under it (board 06, card 2). */
 .reader-title-block {
 	display: flex;
 	min-width: 0;
 	flex-direction: column;
-	gap: 4px;
+	gap: 8px;
 }
 
 .reader-title {
@@ -838,8 +861,18 @@
 	margin-top: 14px;
 }
 
+/* "Not sent." or "Sends Mon 9:00 AM" is a row of its own, as far under the words as the files are. */
+.outgoing-status {
+	margin-top: 14px;
+}
+
 .reader-catch-up {
 	padding: 16px 0;
+}
+
+/* "Couldn't load 2 messages" stands clear of the rows under it, as the catch-up card does. */
+.reader-partial-load {
+	padding-bottom: 16px;
 }
 
 .reader-draft {
@@ -1901,6 +1934,17 @@
 
 .thread-row-invite {
 	padding-top: 0.25rem;
+}
+
+/*
+ * The time of an invite and "Not sent. The address bounced." never shorten to
+ * fit their buttons: where the pane is too narrow for both (the 360px list
+ * beside the reader), the buttons move under the words instead.
+ */
+.thread-row-detail-text {
+	flex: 1 0 auto;
+	min-width: 0;
+	max-width: 100%;
 }
 
 .thread-row-invite-when {

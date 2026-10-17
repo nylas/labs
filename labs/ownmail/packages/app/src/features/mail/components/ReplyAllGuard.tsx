@@ -21,7 +21,7 @@ export function ReplyAllGuard({
 		<div
 			role="note"
 			data-slot="reply-all-guard"
-			className="flex items-center gap-2 rounded-md border border-notice-warning-line bg-notice-warning px-3 py-2 text-xs text-notice-warning-foreground"
+			className="reply-all-guard flex items-center gap-2 rounded-md border border-notice-warning-line bg-notice-warning text-xs text-notice-warning-foreground"
 		>
 			<Users aria-hidden="true" className="size-3.5 shrink-0" />
 			<span className="min-w-0 flex-1">Reply all will reach {count} people.</span>

@@ -10,7 +10,7 @@ import {
 import { GLASS_PANEL_FROM_SM_CLASS } from '#shared/components/ui/glass'
 import { cn } from '#shared/lib/utils'
 import { headerSenderName, headerTimeLabel, longDateLabel } from '../lib/message-anatomy.js'
-import { firstName, recipientSummary, senderPerson } from '../lib/thread-reading-model.js'
+import { firstName, type Person, recipientSummary, senderPerson } from '../lib/thread-reading-model.js'
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 import { Avatar } from './Avatar.js'
 import { MessageDetailsPanel } from './MessageDetailsPanel.js'
@@ -84,6 +84,7 @@ export function MessageHeader({
 	contentId,
 	senderFlagged = false,
 	listSizes,
+	knownPeople,
 }: {
 	message: MailMessage
 	prev?: MailMessage
@@ -100,6 +101,8 @@ export function MessageHeader({
 	senderFlagged?: boolean
 	/** Member counts of mailing lists, keyed by lower-case address: "pm-leads@ · 12". */
 	listSizes?: Readonly<Record<string, number>>
+	/** People the thread names, for a recipient whose address came without a name: "to alan" reads "to Alan". */
+	knownPeople?: readonly Person[]
 }) {
 	const mounted = useMounted()
 	const ownHeadingId = useId()
@@ -109,7 +112,7 @@ export function MessageHeader({
 	const detailsRef = useRef<HTMLDivElement>(null)
 	const sender = senderPerson(message, owner)
 	const name = headerSenderName(message, owner)
-	const summary = recipientSummary(message, prev, owner)
+	const summary = recipientSummary(message, prev, owner, knownPeople)
 	// A list the mail came through stands out from the people it adds up to.
 	const summaryText = summary.group ? (
 		<>
@@ -176,7 +179,7 @@ export function MessageHeader({
 					<div
 						data-slot="message-header-row"
 						className={cn(
-							'message-header-row relative flex min-w-0 items-center gap-3',
+							'message-header-row relative flex min-w-0 items-center',
 							// On a phone the panel opens in the flow under the summary; the avatar stays at the top.
 							showDetails && 'max-sm:items-start',
 						)}

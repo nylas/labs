@@ -142,6 +142,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 					headingId={headingId}
 					contentId={contentId}
 					senderFlagged={lookalike}
+					knownPeople={knownSenders}
 					onToggle={() => actions.onToggle(message.id)}
 					actions={{
 						onReply: () => actions.onReply(message),

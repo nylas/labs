@@ -41,6 +41,7 @@ import {
 	toPerson,
 	versionLabel,
 	versionToken,
+	withKnownName,
 } from './thread-reading-model.js'
 
 const DAY = 86_400
@@ -137,7 +138,9 @@ describe('people', () => {
 		expect(personName(person(GRACE), 'full')).toBe('Grace Hopper')
 		expect(personName(person(GRACE), 'first')).toBe('Grace')
 		expect(personName({ name: '', email: 'sam@example.com', isOwner: false }, 'full')).toBe('sam@example.com')
-		expect(personName({ name: '', email: 'sam@example.com', isOwner: false }, 'first')).toBe('sam')
+		// An address alone still gives a first name in sentence case.
+		expect(personName({ name: '', email: 'sam@example.com', isOwner: false }, 'first')).toBe('Sam')
+		expect(firstName({ name: '', email: 'alan.turing@bletchley.dev' })).toBe('Alan')
 		expect(personName({ name: '', email: '', isOwner: false }, 'full')).toBe('Unknown sender')
 		expect(personName({ name: '', email: '', isOwner: false }, 'first')).toBe('Someone')
 	})
@@ -287,6 +290,19 @@ describe('recipientSummary', () => {
 			text: 'to you, Alan +1',
 			changed: false,
 		})
+	})
+
+	it('names a recipient whose address came alone by the name the thread knows', () => {
+		const sent = msg('s', ADA, [{ email: 'alan@bletchley.dev' }])
+		const known = [{ name: 'Alan Turing', email: 'Alan@bletchley.dev', isOwner: false }]
+		expect(recipientSummary(sent, undefined, OWNER, known).text).toBe('to Alan')
+		// Nobody in the thread named them: the address still reads as a first name.
+		expect(recipientSummary(msg('b', ADA, [{ email: 'mary@nasa.gov' }]), undefined, OWNER, known).text).toBe(
+			'to Mary',
+		)
+		expect(withKnownName({ name: 'Grace Hopper', email: 'grace@x.com', isOwner: false }, known).name).toBe(
+			'Grace Hopper',
+		)
 	})
 
 	it('says "to everyone" when the reply reaches everyone the last message involved', () => {
@@ -592,11 +608,11 @@ describe('foldPlan', () => {
 		]
 		const folded = foldPlan(messages, { ...base, unreadIds: ['m11'] }).find((item) => item.kind === 'folded')
 		expect(folded).toMatchObject({ names: 'Alan, you, Katherine, Grace' })
-		// The stack ends with you, as board 03 draws it: AT, KJ, AL.
+		// The stack follows the names, face over name: AT, AL, KJ here; AT, KJ, AL on the boards.
 		expect(folded?.kind === 'folded' && folded.avatars.map((p) => personName(p, 'first'))).toEqual([
 			'Alan',
-			'Katherine',
 			'you',
+			'Katherine',
 		])
 	})
 

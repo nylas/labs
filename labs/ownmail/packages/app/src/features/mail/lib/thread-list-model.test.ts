@@ -142,7 +142,7 @@ describe('ownerFromMailbox', () => {
 			owner: 'ada@ownmail.com',
 			ownerFirstName: 'Ada',
 		})
-		expect(ownerFromMailbox({ email: 'ada@ownmail.com' }).ownerFirstName).toBe('ada')
+		expect(ownerFromMailbox({ email: 'ada@ownmail.com' }).ownerFirstName).toBe('Ada')
 	})
 })
 
@@ -533,7 +533,7 @@ describe('threadRowFacts', () => {
 				}),
 				env(),
 			).snippetFrom,
-		).toBe('grace')
+		).toBe('Grace')
 	})
 
 	it('falls back to the newest message for subject and snippet, and to nothing', () => {
