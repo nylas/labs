@@ -359,19 +359,22 @@ The list says what changed, so a row can be acted on without opening it.
   invitation is known; while the calendar is still syncing its event the row
   checks again as the card does, and a lookup that fails offers no answers.
 - Drafts. A conversation whose newest item is the person's draft reads
-  "Draft · to {name}", "Draft" semibold in `--list-draft`, with the draft's
+  "Draft · to {name}", "Draft" semibold in `--danger-soft-fg`, with the draft's
   subject and text.
 - Not sent. A bounce of the person's own message turns the row
   `--list-failed`, names the recipient ("To Meridian Bank"), and replaces the
   snippet with "Not sent. The address bounced." beside "Edit and resend", which
   opens the composer on the message that bounced.
 - Scheduled. A send waiting on `send_at` names its recipient and shows "Sends
-  Mon 9:00 AM" with a clock in place of the time.
+  Mon 9:00 AM" with a clock in place of the time. Its row menu offers "Send
+  now" and "Cancel scheduled send", the reader's Send now and Cancel ("Edge
+  states"); a failure is said on the row.
 - Muted. A muted conversation stays in its folder at 85% opacity, the people in
   muted text with a muted-bell glyph, a list as "eng-all@ · 31 people", and the
   snippet "Muted · 12 replies you don’t need to read". It carries no unread
   weight and no signals. Mute and Unmute are in the row menu; the choice is
-  this device's.
+  this device's, and belongs to the signed-in mailbox (`mutedThreadsByAccount`),
+  so another account on the same device keeps its own.
 - Asking. A row whose newest message asks the person is tinted `--list-asks`,
   the faintest green, beside its "Asks you" pill.
 - Bundles. Within a day group, two or more newsletters (a bulk sender, or an
@@ -441,16 +444,13 @@ layout) mail keeps the full column. An open message's body starts 12px beneath
 its header, so a sender canvas that spans the pane never touches the header
 above it. The Conversation view keeps its centred column.
 
-What was unread when the thread opened is held for as long as it stays open.
-The first of those messages sits under a "{n} new since {day}" divider:
-neutral 1px lines either side of a 12px semibold label and a 6px dot in the
-green accent, as a separator with that label. The day is the weekday of the
-last message read before them within the past six days ("Tuesday"),
-"yesterday" or "earlier today", else the date ("Oct 12"). There is no divider
-when nothing, or everything, is new. The thread opens at a draft of yours, else
-at the divider, when it is not already in view; `j` and `k` step message by
-message, opening a folded or one-line message on the way, and a list beside the
-reader keeps its own `j` / `k` only while it is on screen and has focus.
+What was unread when the thread opened is held for as long as it stays open
+and marks where the reader left off (see "New-since divider"). The thread opens
+at a draft of yours, else at that divider, when it is not already in view; `j`
+and `k` step message by message, opening a folded or one-line message on the
+way, and a list beside the reader keeps its own `j` / `k` only while it is on
+screen and has focus. A search result opens in the same reader, with the same
+header facts, sender checks, partial-load notice and error card.
 
 The reply card under the stream (12px radius, 1px `--cta-line`, a soft shadow)
 names who Reply all reaches ("Reply all to Mary, Grace, Alan +2") and offers
@@ -601,6 +601,25 @@ reader only draws it.
 4. Long threads. Over 50 messages the list is virtualised; the map and j/k
    still address every message.
 
+## New-since divider
+
+The first message that was unread when the thread opened sits under a
+"{n} new since {day}" divider: neutral 1px lines either side of a 12px semibold
+label in the green accent and a 6px accent dot. It is a `role="separator"` named
+by its label, so the place is announced, not only drawn.
+
+- Held, not live. What was unread is read from the thread as it first loaded,
+  before opening marks it read, and kept under the thread's identity for as
+  long as it stays open; a reply arriving moves nothing.
+- The day is the weekday of the last message read before them within the past
+  six days ("Tuesday"), "yesterday" or "earlier today", else the date
+  ("Oct 12"). On the server, where the reader's clock is unknown, the label says
+  only how many ("2 new").
+- There is no divider when nothing, or everything, is new: there is no place to
+  mark. The catch-up card then stands at the top on a long thread.
+- The divider replaces the hairline that would sit above the message, so the
+  stream never shows two lines in a row.
+
 ## Catch-up
 
 When a thread of six or more messages has something new, a card above the
@@ -610,7 +629,7 @@ first new message says what changed since the reader was last here:
 - Facts, no adjectives. "3 new messages" (data type), "Mary Jackson joined",
   "Q3-roadmap-v4.pdf replaces v3" and "1 question to you". Facts are filled
   pills on `--muted`; the question is the one fact on the amber ground
-  (`--amber-soft`), with its glyph, so colour is never the only signal. They
+  (`--signal-ask`), with its glyph, so colour is never the only signal. They
   come from `catchUpFacts`, never from a guess.
 - Summary. OwnMail has no assistant. A summary appears only when a
   `ThreadSummaryProvider` answers for the new messages, under a line, with
@@ -639,7 +658,7 @@ row scrolls to that message and opens it.
   stopped here" is a green label between two hairlines before the first message
   that was new when the thread opened.
 - New rows are semibold with green (`--cta-icon`) dates. The current message is
-  tinted (`--row-selected`) with `aria-current`, and its dot keeps a soft ring of
+  tinted (`--list-selected`, as the open list row) with `aria-current`, and its dot keeps a soft ring of
   its own hue.
 - Filters: All, With files, Names you and From… (a menu of everyone who
   wrote), as a segmented control of `aria-pressed` buttons. Subject changes
@@ -717,6 +736,19 @@ time in `font-data` at 12px. Everything else is one click away.
 - Clicking a header's own space collapses an open message, and a "Collapse
   message" button, out of sight until it has keyboard focus, does the same
   from the keyboard; a collapsed header is one button that opens it.
+- Sender checks are strict, and only ever withhold. "Verified sender" means
+  DMARC passed for the From domain, or, with no DMARC verdict at all, SPF and
+  DKIM both passed for that domain or a subdomain of it (or it of theirs).
+  Organizational-domain alignment is not attempted without the public suffix
+  list, so a missed sibling only withholds the badge; a wrong match would grant
+  it. "Failed sender checks" means DMARC failed for that domain. A verdict
+  about another domain is no verdict, and it still blocks the SPF and DKIM
+  fallback. Only the topmost Authentication-Results counts, and only when its
+  authserv-id is exactly the `by` host of the topmost Received header (the hop
+  the sender cannot write); a header without an id, a sibling host or a bare IP
+  says nothing. An unreadable topmost header is never replaced by a lower,
+  sender-written one. Header values stay on the server: only these booleans and
+  short validated strings reach the reader, and nothing is stored or logged.
 
 ## Notices
 
@@ -785,8 +817,13 @@ link inside a sentence; all keep the 44px floor on touch.
   opening the thread scrolls to it (`draftAnchorId`).
 - Not sent, or not yet. A bounce says "Not sent. mary@nasa.gov bounced." in
   `--danger-soft-fg` with Edit and resend and Copy text; a scheduled message
-  says "Sends Mon 9:00 AM" with Send now and Cancel (shown only when the
-  reader can act on them). Both stay at the message's place in the thread.
+  says "Sends Mon 9:00 AM" with Send now and Cancel. Both act through the
+  provider's scheduled-send API: Send now reads the message and its files,
+  cancels its schedule and sends the same message at once, in its thread;
+  Cancel cancels the schedule and opens the composer with the message's words,
+  so nothing is lost. A failure is said on the reader (or on the list row,
+  whose menu offers the same two). Both stay at the message's place in the
+  thread.
   Times that depend on the viewer's clock or zone ("Mon 9:00 AM", "edited 2 h
   ago") fill in after mount, so the server render never disagrees.
 - Part of the thread is elsewhere. Centred muted lines: "1 message is in
@@ -810,15 +847,17 @@ link inside a sentence; all keep the 44px floor on touch.
   images from voyage.com are hidden" with Show (this message) and "Always for
   Voyage" (remembers the sender). A sender whose links are disabled is never
   offered Always.
-- Designed mail wider than the pane. In the Original layout a fixed layout is
-  scaled to fit, and the bar says "Fitted to width (82%)" with Actual size
+- Designed mail wider than the pane. A fixed layout is scaled to fit instead
+  of scrolling sideways: in the Original layout as sent, and in the default
+  Readable layout whatever still overflows once the mail has reflowed. The bar
+  says "Fitted to width (82%)" with Actual size
   (100%, panning inside the message) and Open in window (the whole sanitized
   message, history included, in a new window under a policy that runs
   nothing and loads images only through OwnMail's proxy; inert links stay
   inert there). The bar appears only when the scaled layout really fits:
   below the 80% legibility floor the message still pans and no bar claims it
-  was fitted. The default Readable layout reflows designed mail to the pane
-  instead of scaling it. Text-only mail never scales; it reflows.
+  was fitted. Readable reflows first, so most designed mail fits without any
+  scale. Text-only mail never scales; it reflows.
 - One very long message. Past 1,500 words of new text: "6 min read · 38%" over
   a 4px `--primary` progress bar, and an outline of the message's own headings
   (a 130px right column from `xl`, an Outline disclosure below it; the current
@@ -837,10 +876,41 @@ link inside a sentence; all keep the 44px floor on touch.
   once: "Reply all will reach 240 people." on the `--notice-warning` ground,
   with "Reply to Alan only" as the first choice, named as the thread knows the
   person (never "Aturing" from the address when a name is known).
-- Partial load and offline. "Couldn't load 2 messages. Showing 12 saved on
-  this device." with Try again, and "Mail refreshes when you're back online."
-  while offline. The reader route's error shows the same card inside the
-  reader instead of replacing it.
+- Partial load and offline. A partial load is never silent. "Couldn't load 2
+  messages. Showing 12 saved on this device." with Try again, and "Mail
+  refreshes when you're back online." while offline, in every reader (a folder
+  thread and a search result alike). A thread that cannot load at all shows the
+  same card inside the reader (the thread route's error, the search reader's
+  failed result) instead of replacing it. A reply from a list row to a thread
+  that only partly loaded fails on the row rather than answering a message
+  that may not be the last one.
+
+## Phone thread
+
+Below `md` the thread is its own screen (board 03), with one bar pinned at each
+end and nothing else floating over the conversation.
+
+- Top bar: the pane toolbar at its phone height (56px, bar glass): back (named
+  after the folder it returns to, "Back to Inbox"; "Back to list" for a label),
+  then the subject at 15px semibold over "{n} messages · {p} people" at 12px in
+  `font-data`, Archive, and More (which also holds the view choice and the
+  files shelf). The subject keeps the part before ": " when that part is at
+  least two words and no label word ("Q3 product roadmap"); otherwise the whole
+  subject, truncated, with the full one in its title. The counts are what the
+  stream shows, not messages in Trash.
+- Reply bar: it fills the mobile tab bar's thread slot, so there is still one
+  bottom surface. Reply all is the labelled, full-width 44px button (an outline
+  on `--cta-line`, its glyph in the accent, 15px semibold); Reply and Forward
+  are 44px square outlined icons beside it. The bar is 76px with its hairline
+  on a phone without a home indicator, else the tab bar's height plus the
+  inset; the conversation keeps that much room under its last line
+  (`.under-mobile-reply-bar`).
+- "{n} more new": a 36px panel-glass pill (a 44px target), 20px above the reply
+  bar, shown while messages that were new sit below the fold; it counts again
+  as the stream scrolls or settles its height, and a tap scrolls to the next
+  one and gives it focus.
+- The stream is the same fold plan as on desktop, with 17px / 1.55 bodies and
+  48px folded rows; the catch-up card stays on desktop, where the pill does not.
 
 ## Icon controls
 
